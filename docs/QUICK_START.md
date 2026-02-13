@@ -219,6 +219,6 @@ model.levels[0].fit_PACK = True
 
 ## Getting Help
 
-- Check [GitHub Issues](https://github.com/ilavsky/pyirena/issues)
+- Check [GitHub Issues](https://github.com/jilavsky/pyirena/issues)
 - Read the [FAQ](faq.md)
 - Contact: ilavsky@aps.anl.gov

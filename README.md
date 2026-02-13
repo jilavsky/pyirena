@@ -33,7 +33,7 @@ pip install pyirena
 ### From source
 
 ```bash
-git clone https://github.com/ilavsky/pyirena.git
+git clone https://github.com/jilavsky/pyirena.git
 cd pyirena
 pip install -e .
 ```
@@ -216,7 +216,7 @@ Contributions are welcome! Please feel free to submit a Pull Request. Areas for 
 ### Setting up development environment
 
 ```bash
-git clone https://github.com/ilavsky/pyirena.git
+git clone https://github.com/jilavsky/pyirena.git
 cd pyirena
 pip install -e ".[dev]"
 ```
@@ -252,7 +252,7 @@ If you use pyIrena in your research, please cite:
   author = {Ilavsky, Jan},
   title = {pyIrena: Python tools for small-angle scattering data analysis},
   year = {2024},
-  url = {https://github.com/ilavsky/pyirena}
+  url = {https://github.com/jilavsky/pyirena}
 }
 ```
 
@@ -260,8 +260,8 @@ If you use pyIrena in your research, please cite:
 
 - **Author**: Jan Ilavsky
 - **Email**: ilavsky@aps.anl.gov
-- **GitHub**: https://github.com/ilavsky/pyirena
-- **Issues**: https://github.com/ilavsky/pyirena/issues
+- **GitHub**: https://github.com/jilavsky/pyirena
+- **Issues**: https://github.com/jilavsky/pyirena/issues
 
 ## Version
 

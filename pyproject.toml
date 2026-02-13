@@ -54,10 +54,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ilavsky/pyirena"
-Documentation = "https://github.com/ilavsky/pyirena#readme"
-Repository = "https://github.com/ilavsky/pyirena"
-"Bug Tracker" = "https://github.com/ilavsky/pyirena/issues"
+Homepage = "https://github.com/jilavsky/pyirena"
+Documentation = "https://github.com/jilavsky/pyirena#readme"
+Repository = "https://github.com/jilavsky/pyirena"
+"Bug Tracker" = "https://github.com/jilavsky/pyirena/issues"
 
 [tool.setuptools]
 packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting"]

@@ -6,7 +6,7 @@ package:
   version: {{ version }}
 
 source:
-  url: https://github.com/ilavsky/{{ name }}/archive/v{{ version }}.tar.gz
+  url: https://github.com/jilavsky/{{ name }}/archive/v{{ version }}.tar.gz
   sha256: {{ sha256 }}
 
 build:
@@ -40,7 +40,7 @@ test:
     - pyirena/tests
 
 about:
-  home: https://github.com/ilavsky/pyirena
+  home: https://github.com/jilavsky/pyirena
   license: MIT
   license_family: MIT
   license_file: LICENSE
@@ -48,9 +48,9 @@ about:
   description: |
     pyIrena provides comprehensive tools for analyzing SAXS/SANS/USAXS data,
     including the Unified Fit model (Beaucage method) for hierarchical structures.
-  doc_url: https://github.com/ilavsky/pyirena#readme
-  dev_url: https://github.com/ilavsky/pyirena
+  doc_url: https://github.com/jilavsky/pyirena#readme
+  dev_url: https://github.com/jilavsky/pyirena
 
 extra:
   recipe-maintainers:
-    - ilavsky
+    - jilavsky

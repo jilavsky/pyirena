@@ -12,7 +12,7 @@ Please be respectful and constructive in all interactions. We aim to create a we
 
 If you find a bug:
 
-1. Check if the issue already exists in [GitHub Issues](https://github.com/ilavsky/pyirena/issues)
+1. Check if the issue already exists in [GitHub Issues](https://github.com/jilavsky/pyirena/issues)
 2. If not, create a new issue with:
    - Clear title and description
    - Steps to reproduce

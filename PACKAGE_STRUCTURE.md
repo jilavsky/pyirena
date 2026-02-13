@@ -98,7 +98,7 @@ Lists runtime dependencies. Useful for pip install -r requirements.txt.
 pip install pyirena
 
 # From GitHub
-pip install git+https://github.com/ilavsky/pyirena.git
+pip install git+https://github.com/jilavsky/pyirena.git
 
 # From Conda
 conda install -c conda-forge pyirena
@@ -108,7 +108,7 @@ conda install -c conda-forge pyirena
 
 ```bash
 # Clone repository
-git clone https://github.com/ilavsky/pyirena.git
+git clone https://github.com/jilavsky/pyirena.git
 cd pyirena
 
 # Install in editable mode

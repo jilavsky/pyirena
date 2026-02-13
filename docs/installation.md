@@ -21,7 +21,7 @@ For the latest development version:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ilavsky/pyirena.git
+git clone https://github.com/jilavsky/pyirena.git
 cd pyirena
 
 # Install in development mode

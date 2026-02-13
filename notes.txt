@@ -1,0 +1,11 @@
+For GUI use PySide6 (with QTdesigner for GUI), optionally PyQT6
+for graphics use pyqtgraph, seems to produce Igor like graphics
+
+TODO: 
+1. revise structure to be GH proper structure, call it pyIrena? 
+2. add conda environment instructions
+3. Build GUI for file selection
+4. Add suitabel hdf5 examples for testing
+5. Add ability to display QRS data from HDF5 file
+6. Add needed controls for Unified fit to additional panel and add graphing and fitting
+7. testing
