@@ -1,0 +1,12 @@
+# Requirements for Unified Fit Model
+
+# Core dependencies
+numpy>=1.20.0
+scipy>=1.7.0
+h5py>=3.0.0
+
+# Optional for plotting
+matplotlib>=3.3.0
+
+# Optional utilities
+six>=1.15.0

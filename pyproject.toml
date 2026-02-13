@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyirena"
+version = "0.1.0"
+description = "Python tools for small-angle scattering data analysis, including Unified Fit model (Beaucage method)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Jan Ilavsky", email = "ilavsky@aps.anl.gov"}
+]
+maintainers = [
+    {name = "Jan Ilavsky", email = "ilavsky@aps.anl.gov"}
+]
+keywords = ["SAXS", "SANS", "USAXS", "small-angle scattering", "unified fit", "Beaucage", "X-ray scattering"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+]
+
+dependencies = [
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "h5py>=3.0.0",
+]
+
+[project.optional-dependencies]
+plotting = [
+    "matplotlib>=3.3.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+]
+all = [
+    "matplotlib>=3.3.0",
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/ilavsky/pyirena"
+Documentation = "https://github.com/ilavsky/pyirena#readme"
+Repository = "https://github.com/ilavsky/pyirena"
+"Bug Tracker" = "https://github.com/ilavsky/pyirena/issues"
+
+[tool.setuptools]
+packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting"]
+
+[tool.setuptools.package-data]
+pyirena = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+testpaths = ["pyirena/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"

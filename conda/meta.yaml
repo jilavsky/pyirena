@@ -1,0 +1,56 @@
+{% set name = "pyirena" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://github.com/ilavsky/{{ name }}/archive/v{{ version }}.tar.gz
+  sha256: {{ sha256 }}
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv
+
+requirements:
+  host:
+    - python >=3.8
+    - pip
+    - setuptools >=61.0
+    - wheel
+  run:
+    - python >=3.8
+    - numpy >=1.20.0
+    - scipy >=1.7.0
+    - h5py >=3.0.0
+
+test:
+  imports:
+    - pyirena
+    - pyirena.core
+    - pyirena.io
+  commands:
+    - pip check
+  requires:
+    - pip
+    - pytest
+  source_files:
+    - pyirena/tests
+
+about:
+  home: https://github.com/ilavsky/pyirena
+  license: MIT
+  license_family: MIT
+  license_file: LICENSE
+  summary: Python tools for small-angle scattering data analysis
+  description: |
+    pyIrena provides comprehensive tools for analyzing SAXS/SANS/USAXS data,
+    including the Unified Fit model (Beaucage method) for hierarchical structures.
+  doc_url: https://github.com/ilavsky/pyirena#readme
+  dev_url: https://github.com/ilavsky/pyirena
+
+extra:
+  recipe-maintainers:
+    - ilavsky
