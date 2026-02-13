@@ -1,5 +1,8 @@
 # pyIrena
 
+**DO NOT use, not ready, not tested, used developement**
+**Coded by Claude from SAXS_IgorCode Irena**
+
 **Python tools for small-angle scattering data analysis**
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
