@@ -21,13 +21,27 @@ pip install -e ".[gui]"
 python create_test_data.py
 ```
 
-**This creates 6 test files in `testData/`:**
+**This creates 6 HDF5 test files in `testData/`:**
 - `complexUnified.h5` - Your requested test file ⭐
 - `spheres_Rg50.h5` - Small particles
 - `spheres_Rg100.h5` - Large particles
 - `fractal_aggregate.h5` - Mass fractal
 - `surface_fractal.h5` - Surface fractal
 - `hierarchical_structure.h5` - Two-level
+
+### 2b. Generate text (.dat) files (Optional)
+
+```bash
+python convert_to_dat.py
+```
+
+**This creates corresponding .dat files from the HDF5 files:**
+- `complexUnified.dat`
+- `spheres_Rg50.dat`
+- `spheres_Rg100.dat`
+- `fractal_aggregate.dat`
+- `surface_fractal.dat`
+- `hierarchical_structure.dat`
 
 ### 3. Launch the GUI
 
@@ -53,11 +67,12 @@ python pyirena/gui/data_selector.py
    - Click "Select Folder"
    - ✅ Files should appear in the list
 
-2. **Verify file list shows:**
+2. **Verify file list shows (HDF5 files by default):**
    ```
    ☐ complexUnified.h5
    ☐ fractal_aggregate.h5
    ☐ hierarchical_structure.h5
+   ☐ ProperNxcanSASNexus.h5
    ☐ spheres_Rg100.h5
    ☐ spheres_Rg50.h5
    ☐ surface_fractal.h5
@@ -90,6 +105,8 @@ Expected features in the plot:
 - **Low Q region** (Q < 0.01): Guinier plateau
 - **Three distinct levels** visible as changes in slope
 
+**Note:** The test data files use a simple HDF5 structure. The GUI automatically detects this and uses a simple reader as a fallback when full NXcanSAS structure is not found.
+
 ### Comparison Plot
 
 Try plotting all files together:
@@ -105,20 +122,25 @@ Try plotting all files together:
 ### GUI Layout ✅
 - [ ] Title "pyIrena" at top
 - [ ] "Select Data Folder" button visible
+- [ ] "Refresh" button next to folder selection
 - [ ] File type dropdown (HDF5/Text/All)
 - [ ] Filter input box below file type
 - [ ] File listbox (wide, 15+ rows visible)
-- [ ] "Create Graph" button to the right
+- [ ] "Create Graph" button to the right (enabled only when files selected)
 - [ ] Status bar at bottom
 - [ ] Window is ~2x width of listbox
 
 ### Functionality ✅
 - [ ] Folder selection works
+- [ ] Folder selection remembers last folder
+- [ ] Refresh button reloads folder contents
 - [ ] Files load and display
 - [ ] File type filter works (try switching types)
 - [ ] Text filter works (type partial names)
 - [ ] Single selection works (click)
 - [ ] Multiple selection works (Ctrl/Cmd + click)
+- [ ] "Create Graph" button enables when files selected
+- [ ] "Create Graph" button disables when no files selected
 - [ ] Double-click plots immediately
 - [ ] "Create Graph" button works
 - [ ] Graph opens in new window
@@ -126,6 +148,7 @@ Try plotting all files together:
 - [ ] Multiple files overlay correctly
 - [ ] Legend shows filenames
 - [ ] Status bar updates
+- [ ] Both NXcanSAS and simple HDF5 files load correctly
 
 ### Data Display ✅
 - [ ] X-axis labeled "Q (Å⁻¹)"
@@ -227,10 +250,20 @@ Test:
 
 ### File Type Test
 
-1. Switch to "Text Files" in dropdown
-2. Verify no HDF5 files show
-3. Switch to "All Supported Files"
-4. Verify HDF5 files reappear
+1. Switch to "Text Files (.txt, .dat)" in dropdown
+2. Verify .dat files appear:
+   ```
+   ☐ complexUnified.dat
+   ☐ fractal_aggregate.dat
+   ☐ hierarchical_structure.dat
+   ☐ spheres_Rg100.dat
+   ☐ spheres_Rg50.dat
+   ☐ surface_fractal.dat
+   ```
+3. Verify no .h5 files show
+4. Try plotting a .dat file (should work identically to .h5)
+5. Switch to "All Supported Files"
+6. Verify both .h5 and .dat files appear together
 
 ## Expected Performance
 

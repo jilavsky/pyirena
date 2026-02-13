@@ -36,7 +36,7 @@ matplotlib.use('Qt5Agg')  # Use Qt backend for matplotlib
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from pyirena.io.hdf5 import readGenericNXcanSAS
+from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
 
 
 class GraphWindow(QWidget):
@@ -70,9 +70,16 @@ class GraphWindow(QWidget):
 
         for file_path in file_paths:
             try:
-                # Load data
+                # Load data based on file extension
                 path, filename = os.path.split(file_path)
-                data = readGenericNXcanSAS(path, filename)
+                _, ext = os.path.splitext(filename)
+
+                if ext.lower() in ['.txt', '.dat']:
+                    # Read text file
+                    data = readTextFile(path, filename)
+                else:
+                    # Read HDF5 file
+                    data = readGenericNXcanSAS(path, filename)
 
                 if data is None:
                     continue
@@ -115,6 +122,7 @@ class DataSelectorPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.current_folder = None
+        self.last_folder = None  # Remember last selected folder
         self.graph_window = None
         self.init_ui()
 
@@ -146,6 +154,13 @@ class DataSelectorPanel(QWidget):
         self.folder_button.setMinimumHeight(40)
         self.folder_button.clicked.connect(self.select_folder)
         folder_layout.addWidget(self.folder_button)
+
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setMinimumHeight(40)
+        self.refresh_button.setMaximumWidth(100)
+        self.refresh_button.clicked.connect(self.refresh_file_list)
+        self.refresh_button.setEnabled(False)
+        folder_layout.addWidget(self.refresh_button)
 
         self.folder_label = QLabel("No folder selected")
         self.folder_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
@@ -189,6 +204,7 @@ class DataSelectorPanel(QWidget):
         self.file_list.setMinimumHeight(400)  # Show at least 15 items
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.itemDoubleClicked.connect(self.plot_selected_files)
+        self.file_list.itemSelectionChanged.connect(self.update_plot_button_state)
         left_layout.addWidget(self.file_list)
 
         content_layout.addLayout(left_layout, stretch=2)
@@ -243,17 +259,22 @@ class DataSelectorPanel(QWidget):
 
     def select_folder(self):
         """Open folder selection dialog."""
+        # Use last folder if available, otherwise home directory
+        start_dir = self.last_folder if self.last_folder else QDir.homePath()
+
         folder = QFileDialog.getExistingDirectory(
             self,
             "Select Data Folder",
-            QDir.homePath(),
+            start_dir,
             QFileDialog.Option.ShowDirsOnly
         )
 
         if folder:
             self.current_folder = folder
+            self.last_folder = folder  # Remember for next time
             self.folder_label.setText(folder)
             self.folder_label.setStyleSheet("color: #2c3e50;")
+            self.refresh_button.setEnabled(True)
             self.refresh_file_list()
             self.status_label.setText(f"Folder: {os.path.basename(folder)}")
 
@@ -289,6 +310,7 @@ class DataSelectorPanel(QWidget):
             files.sort()
             self.file_list.addItems(files)
             self.status_label.setText(f"Found {len(files)} files")
+            self.update_plot_button_state()
 
         except Exception as e:
             self.status_label.setText(f"Error reading folder: {e}")
@@ -313,6 +335,11 @@ class DataSelectorPanel(QWidget):
                 visible_count += 1
 
         self.status_label.setText(f"Showing {visible_count} of {self.file_list.count()} files")
+
+    def update_plot_button_state(self):
+        """Enable or disable the plot button based on file selection."""
+        has_selection = len(self.file_list.selectedItems()) > 0
+        self.plot_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files."""

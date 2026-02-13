@@ -51,7 +51,7 @@ main()
 ┌─────────────────────────────────────────────────────────┐
 │                       pyIrena                           │
 ├─────────────────────────────────────────────────────────┤
-│  [Select Data Folder]  /path/to/data                   │
+│  [Select Data Folder] [Refresh]  /path/to/data        │
 │                                                         │
 │  File Type: [HDF5 Files (.hdf, .h5, .hdf5)  ▼]        │
 │                                                         │
@@ -80,6 +80,13 @@ main()
 - Click "Select Folder" or "Choose"
 
 The folder path appears next to the button, and files are automatically loaded.
+
+**Note:** The dialog will remember your last selected folder and start from there on subsequent selections.
+
+#### 1.1 Refresh Folder Contents
+
+- Click the **"Refresh"** button to reload files from the current folder
+- Useful if files are added/removed while the GUI is running
 
 #### 2. Choose File Type (Optional)
 
@@ -112,6 +119,7 @@ Use the dropdown to filter by file type:
 
 #### 5. Create Graph
 
+- Select one or more files (the **"Create Graph"** button is only enabled when files are selected)
 - Click **"Create Graph"** button
 - A new window opens with the plot
 - Multiple selected files are overlaid on the same graph
@@ -149,7 +157,7 @@ python create_test_data.py
 ### Current Features ✅
 
 - [x] Folder browsing
-- [x] File type filtering (HDF5/Text)
+- [x] File type filtering (HDF5/Text/All)
 - [x] File list with scroll
 - [x] Text-based filtering (grep-like)
 - [x] Multiple file selection
@@ -158,10 +166,13 @@ python create_test_data.py
 - [x] Log-log plotting
 - [x] Multiple datasets overlay
 - [x] NXcanSAS HDF5 support
+- [x] Simple HDF5 support (fallback)
+- [x] Text file support (.txt, .dat)
+- [x] Folder refresh button
+- [x] Remember last folder
 
 ### Planned Features 🚧
 
-- [ ] Text file support (.txt, .dat)
 - [ ] Save/export graphs (PNG, PDF)
 - [ ] Zoom and pan tools
 - [ ] Data table view
@@ -169,6 +180,7 @@ python create_test_data.py
 - [ ] Interactive fitting
 - [ ] Residuals plot
 - [ ] Batch processing
+- [ ] Copy data to clipboard
 
 ## Keyboard Shortcuts
 
@@ -181,29 +193,58 @@ python create_test_data.py
 
 ## Supported File Formats
 
-### HDF5 Files (NXcanSAS)
+### HDF5 Files (NXcanSAS and Simple HDF5)
 
-Expected structure:
+The GUI supports two HDF5 formats:
+
+**1. Full NXcanSAS format** (preferred):
 ```
-/entry1/data1/
+/entry/samplename/sasdata/
     Q           - Scattering vector [1/Å]
     I           - Intensity [cm⁻¹]
     Idev        - Error/uncertainty (optional)
     Qdev        - Q resolution (optional)
 ```
 
-The GUI uses `pyirena.io.hdf5.readGenericNXcanSAS()` for reading.
+**2. Simple HDF5 format** (fallback):
+```
+/entry1/data1/  (or /entry/data/, /data/, or root level)
+    Q           - Scattering vector [1/Å]
+    I           - Intensity [cm⁻¹]
+    Idev/Error  - Error/uncertainty (optional)
+    Qdev/dQ     - Q resolution (optional)
+```
 
-### Text Files (Coming Soon)
+The GUI first tries to read full NXcanSAS structure using `pyirena.io.hdf5.readGenericNXcanSAS()`. If that fails, it automatically falls back to the simple HDF5 reader `readSimpleHDF5()`.
 
-Expected format:
+### Text Files (.txt, .dat)
+
+Supported format:
 ```
 # Comment lines start with #
-Q           Intensity   Error
-0.001       1000.0      10.0
-0.002       950.0       9.5
-0.003       900.0       9.0
+# Column 1: Q (Å⁻¹)
+# Column 2: Intensity (cm⁻¹)
+# Column 3: Error (cm⁻¹) - optional
+#
+              Q       Intensity           Error
+   1.000000e-03    1.000003e+10    3.000009e+08
+   1.047452e-03    8.307389e+09    2.492217e+08
 ...
+```
+
+**Features:**
+- Comment lines starting with `#` are ignored
+- Header rows (column names) are automatically detected and skipped
+- At least 2 columns required: Q and Intensity
+- Optional 3rd column: Error/uncertainty
+- Optional 4th column: dQ/Q resolution
+- Data can be space or tab delimited
+- Scientific notation supported
+- Robust parser handles various text file formats
+
+**Generate test .dat files:**
+```bash
+python convert_to_dat.py
 ```
 
 ## Troubleshooting

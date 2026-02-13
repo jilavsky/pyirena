@@ -10,14 +10,148 @@ import datetime
 import logging
 
 
+def readTextFile(path, filename):
+    """
+    Read text data files (.dat, .txt) with Q, Intensity, Error columns.
+
+    Args:
+        path: Directory path
+        filename: File name
+
+    Returns:
+        dict: Dictionary with 'Q', 'Intensity', 'Error', 'dQ' keys
+              Returns None if file cannot be read
+    """
+    filepath = os.path.join(path, filename)
+
+    try:
+        # Try to read the file, detecting and skipping header rows
+        # First, read all lines to find where numeric data starts
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+
+        # Find the first line with numeric data
+        skip_rows = 0
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                # Skip empty lines and comments
+                skip_rows = i + 1
+                continue
+            # Try to parse first value as float
+            try:
+                parts = line.split()
+                float(parts[0])
+                # This is numeric data, start here
+                skip_rows = i
+                break
+            except (ValueError, IndexError):
+                # Not numeric, skip this line
+                skip_rows = i + 1
+                continue
+
+        # Now read data with proper skip_rows
+        data = np.loadtxt(filepath, comments='#', skiprows=skip_rows)
+
+        if data.ndim == 1:
+            # Single row, reshape
+            data = data.reshape(1, -1)
+
+        # Check number of columns
+        if data.shape[1] < 2:
+            logging.error(f"Text file {filename} must have at least 2 columns (Q, Intensity)")
+            return None
+
+        Q = data[:, 0]
+        I = data[:, 1]
+
+        # Check for error column
+        error = None
+        if data.shape[1] >= 3:
+            error = data[:, 2]
+
+        # Check for dQ column
+        dQ = None
+        if data.shape[1] >= 4:
+            dQ = data[:, 3]
+
+        logging.info(f"Successfully read text file {filename} with {len(Q)} data points")
+        return {
+            'Q': Q,
+            'Intensity': I,
+            'Error': error,
+            'dQ': dQ,
+        }
+
+    except Exception as e:
+        logging.error(f"Error reading text file {filename}: {e}")
+        return None
+
+
+def readSimpleHDF5(path, filename):
+    """
+    Read simple HDF5 files with basic structure (e.g., /entry1/data1/Q and /entry1/data1/I).
+    Fallback reader for files that don't follow full NXcanSAS standard.
+    """
+    Filepath = os.path.join(path, filename)
+    try:
+        with h5py.File(Filepath, 'r') as f:
+            # Try common simple structures
+            possible_paths = [
+                ('entry1/data1', 'Q', 'I'),
+                ('entry/data', 'Q', 'I'),
+                ('data', 'Q', 'I'),
+                ('', 'Q', 'I'),  # Root level
+                ('', 'Q', 'Intensity'),
+            ]
+
+            for base, q_name, i_name in possible_paths:
+                q_path = f"{base}/{q_name}".strip('/') if base else q_name
+                i_path = f"{base}/{i_name}".strip('/') if base else i_name
+
+                if q_path in f and i_path in f:
+                    Q = f[q_path][()]
+                    I = f[i_path][()]
+
+                    # Try to find error data
+                    error = None
+                    dQ = None
+                    for err_name in ['Idev', 'Error', 'error', 'I_error']:
+                        err_path = f"{base}/{err_name}".strip('/') if base else err_name
+                        if err_path in f:
+                            error = f[err_path][()]
+                            break
+
+                    for dq_name in ['Qdev', 'dQ', 'Q_error']:
+                        dq_path = f"{base}/{dq_name}".strip('/') if base else dq_name
+                        if dq_path in f:
+                            dQ = f[dq_path][()]
+                            break
+
+                    logging.info(f"Successfully read simple HDF5 file {filename} using path {base}")
+                    return {
+                        'Intensity': I,
+                        'Q': Q,
+                        'Error': error,
+                        'dQ': dQ,
+                    }
+
+            logging.warning(f"No recognizable data structure found in {filename}")
+            return None
+    except Exception as e:
+        logging.error(f"Error reading simple HDF5 file {filename}: {e}")
+        return None
+
+
 def readGenericNXcanSAS(path, filename):
     """
     read data from NXcanSAS data in Nexus file. Ignore NXsas data and anything else
+    If NXcanSAS structure is not found, falls back to simple HDF5 reader.
     """
     Filepath = os.path.join(path, filename)
     with h5py.File(Filepath, 'r') as f:
         # Start at the root
-        # Find the NXcanSAS entries 
+        # Find the NXcanSAS entries
         # rootgroup=f['/']
         # SASentries=  find_NXcanSAS_entries(rootgroup)
         required_attributes = {'canSAS_class': 'SASentry', 'NX_class': 'NXsubentry'}
@@ -27,8 +161,8 @@ def readGenericNXcanSAS(path, filename):
         #print(SASentries)
         FirstEntry = SASentries[0] if SASentries else None
         if FirstEntry is None:
-            logging.warning(f"No NXcanSAS entries found in the file {filename}.")
-            return None
+            logging.warning(f"No NXcanSAS entries found in the file {filename}. Trying simple HDF5 reader.")
+            return readSimpleHDF5(path, filename)
 
         current_location = FirstEntry
         default_location = f[current_location].attrs.get('default')
