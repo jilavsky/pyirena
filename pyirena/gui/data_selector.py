@@ -1,0 +1,366 @@
+"""
+Data Selector GUI for pyIrena.
+
+This module provides a GUI panel for selecting data files and displaying
+their content as graphs.
+"""
+
+import os
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+try:
+    from PySide6.QtWidgets import (
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+        QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
+        QAbstractItemView, QMessageBox
+    )
+    from PySide6.QtCore import Qt, QDir
+except ImportError:
+    try:
+        from PyQt6.QtWidgets import (
+            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+            QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
+            QAbstractItemView, QMessageBox
+        )
+        from PyQt6.QtCore import Qt, QDir
+    except ImportError:
+        raise ImportError(
+            "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
+        )
+
+import numpy as np
+import matplotlib
+matplotlib.use('Qt5Agg')  # Use Qt backend for matplotlib
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
+from pyirena.io.hdf5 import readGenericNXcanSAS
+
+
+class GraphWindow(QWidget):
+    """
+    Separate window for displaying graphs.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - Data Viewer")
+        self.setGeometry(100, 100, 800, 600)
+
+        # Create matplotlib figure and canvas
+        self.figure = Figure(figsize=(8, 6))
+        self.canvas = FigureCanvas(self.figure)
+
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
+
+    def plot_data(self, file_paths: List[str]):
+        """
+        Plot data from the selected files.
+
+        Args:
+            file_paths: List of file paths to plot
+        """
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        for file_path in file_paths:
+            try:
+                # Load data
+                path, filename = os.path.split(file_path)
+                data = readGenericNXcanSAS(path, filename)
+
+                if data is None:
+                    continue
+
+                q = data['Q']
+                intensity = data['Intensity']
+
+                # Plot
+                label = os.path.basename(file_path)
+                ax.plot(q, intensity, 'o-', label=label, markersize=4, linewidth=1.5)
+
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
+                continue
+
+        # Configure plot
+        ax.set_xlabel('Q (Å⁻¹)', fontsize=12)
+        ax.set_ylabel('Intensity (cm⁻¹)', fontsize=12)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.grid(True, alpha=0.3, which='both')
+        ax.legend(fontsize=10)
+        ax.set_title('Small-Angle Scattering Data', fontsize=14)
+
+        self.canvas.draw()
+        self.show()
+
+
+class DataSelectorPanel(QWidget):
+    """
+    Main data selector panel for pyIrena.
+
+    Provides file browsing, filtering, and data visualization capabilities.
+    """
+
+    # File extensions for different data types
+    HDF5_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
+    TEXT_EXTENSIONS = ['.txt', '.dat']
+
+    def __init__(self):
+        super().__init__()
+        self.current_folder = None
+        self.graph_window = None
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialize the user interface."""
+        self.setWindowTitle("pyIrena - Data Selector")
+
+        # Main layout
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # Title
+        title_label = QLabel("pyIrena")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 10px;
+            }
+        """)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(title_label)
+
+        # Folder selection section
+        folder_layout = QHBoxLayout()
+        self.folder_button = QPushButton("Select Data Folder")
+        self.folder_button.setMinimumHeight(40)
+        self.folder_button.clicked.connect(self.select_folder)
+        folder_layout.addWidget(self.folder_button)
+
+        self.folder_label = QLabel("No folder selected")
+        self.folder_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
+        folder_layout.addWidget(self.folder_label)
+        folder_layout.addStretch()
+
+        main_layout.addLayout(folder_layout)
+
+        # File type selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("File Type:"))
+
+        self.file_type_combo = QComboBox()
+        self.file_type_combo.addItem("HDF5 Files (.hdf, .h5, .hdf5)", "hdf5")
+        self.file_type_combo.addItem("Text Files (.txt, .dat)", "text")
+        self.file_type_combo.addItem("All Supported Files", "all")
+        self.file_type_combo.currentIndexChanged.connect(self.refresh_file_list)
+        type_layout.addWidget(self.file_type_combo)
+        type_layout.addStretch()
+
+        main_layout.addLayout(type_layout)
+
+        # Content area (listbox + graph button)
+        content_layout = QHBoxLayout()
+
+        # Left side: file list section
+        left_layout = QVBoxLayout()
+
+        # File filter input
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filter:"))
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Enter text to filter files...")
+        self.filter_input.textChanged.connect(self.filter_files)
+        filter_layout.addWidget(self.filter_input)
+        left_layout.addLayout(filter_layout)
+
+        # File list
+        self.file_list = QListWidget()
+        self.file_list.setMinimumWidth(400)  # At least 30 characters wide
+        self.file_list.setMinimumHeight(400)  # Show at least 15 items
+        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.file_list.itemDoubleClicked.connect(self.plot_selected_files)
+        left_layout.addWidget(self.file_list)
+
+        content_layout.addLayout(left_layout, stretch=2)
+
+        # Right side: action buttons
+        right_layout = QVBoxLayout()
+        right_layout.addStretch()
+
+        self.plot_button = QPushButton("Create Graph")
+        self.plot_button.setMinimumWidth(150)
+        self.plot_button.setMinimumHeight(50)
+        self.plot_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 5px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
+        """)
+        self.plot_button.clicked.connect(self.plot_selected_files)
+        self.plot_button.setEnabled(False)
+        right_layout.addWidget(self.plot_button)
+
+        right_layout.addStretch()
+        content_layout.addLayout(right_layout, stretch=1)
+
+        main_layout.addLayout(content_layout)
+
+        # Status bar
+        self.status_label = QLabel("Ready - Select a folder to begin")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                color: #7f8c8d;
+                padding: 5px;
+                border-top: 1px solid #bdc3c7;
+            }
+        """)
+        main_layout.addWidget(self.status_label)
+
+        self.setLayout(main_layout)
+
+        # Set minimum window size (at least twice the listbox width)
+        self.setMinimumSize(900, 600)
+
+    def select_folder(self):
+        """Open folder selection dialog."""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Data Folder",
+            QDir.homePath(),
+            QFileDialog.Option.ShowDirsOnly
+        )
+
+        if folder:
+            self.current_folder = folder
+            self.folder_label.setText(folder)
+            self.folder_label.setStyleSheet("color: #2c3e50;")
+            self.refresh_file_list()
+            self.status_label.setText(f"Folder: {os.path.basename(folder)}")
+
+    def get_file_extensions(self) -> List[str]:
+        """Get current file extensions based on selection."""
+        file_type = self.file_type_combo.currentData()
+
+        if file_type == "hdf5":
+            return self.HDF5_EXTENSIONS
+        elif file_type == "text":
+            return self.TEXT_EXTENSIONS
+        else:  # all
+            return self.HDF5_EXTENSIONS + self.TEXT_EXTENSIONS
+
+    def refresh_file_list(self):
+        """Refresh the file list based on current folder and file type."""
+        self.file_list.clear()
+
+        if not self.current_folder:
+            return
+
+        extensions = self.get_file_extensions()
+
+        try:
+            files = []
+            for file in os.listdir(self.current_folder):
+                file_path = os.path.join(self.current_folder, file)
+                if os.path.isfile(file_path):
+                    _, ext = os.path.splitext(file)
+                    if ext.lower() in extensions:
+                        files.append(file)
+
+            files.sort()
+            self.file_list.addItems(files)
+            self.status_label.setText(f"Found {len(files)} files")
+
+        except Exception as e:
+            self.status_label.setText(f"Error reading folder: {e}")
+
+    def filter_files(self, filter_text: str):
+        """Filter the file list based on search text."""
+        if not filter_text:
+            # Show all items
+            for i in range(self.file_list.count()):
+                self.file_list.item(i).setHidden(False)
+            return
+
+        # Use grep-like filtering (case-insensitive substring match)
+        filter_text = filter_text.lower()
+        visible_count = 0
+
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            matches = filter_text in item.text().lower()
+            item.setHidden(not matches)
+            if matches:
+                visible_count += 1
+
+        self.status_label.setText(f"Showing {visible_count} of {self.file_list.count()} files")
+
+    def plot_selected_files(self):
+        """Plot the selected files."""
+        selected_items = self.file_list.selectedItems()
+
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select one or more files to plot."
+            )
+            return
+
+        # Get full file paths
+        file_paths = []
+        for item in selected_items:
+            file_path = os.path.join(self.current_folder, item.text())
+            file_paths.append(file_path)
+
+        # Create or update graph window
+        if self.graph_window is None:
+            self.graph_window = GraphWindow()
+
+        try:
+            self.graph_window.plot_data(file_paths)
+            self.status_label.setText(f"Plotted {len(file_paths)} file(s)")
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Plot Error",
+                f"Error creating plot:\n{str(e)}"
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+
+def main():
+    """Main entry point for the data selector GUI."""
+    app = QApplication(sys.argv)
+
+    # Set application style
+    app.setStyle('Fusion')
+
+    # Create and show the main window
+    window = DataSelectorPanel()
+    window.show()
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

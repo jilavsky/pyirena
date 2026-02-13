@@ -40,6 +40,10 @@ dependencies = [
 plotting = [
     "matplotlib>=3.3.0",
 ]
+gui = [
+    "matplotlib>=3.3.0",
+    "PySide6>=6.4.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
@@ -49,6 +53,7 @@ dev = [
 ]
 all = [
     "matplotlib>=3.3.0",
+    "PySide6>=6.4.0",
     "pytest>=7.0",
     "pytest-cov",
 ]
@@ -59,8 +64,11 @@ Documentation = "https://github.com/jilavsky/pyirena#readme"
 Repository = "https://github.com/jilavsky/pyirena"
 "Bug Tracker" = "https://github.com/jilavsky/pyirena/issues"
 
+[project.scripts]
+pyirena-gui = "pyirena.gui.launch:main"
+
 [tool.setuptools]
-packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting"]
+packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting", "pyirena.gui"]
 
 [tool.setuptools.package-data]
 pyirena = ["py.typed"]
