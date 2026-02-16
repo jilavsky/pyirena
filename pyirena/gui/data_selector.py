@@ -14,17 +14,19 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-        QAbstractItemView, QMessageBox
+        QAbstractItemView, QMessageBox, QMenuBar, QMenu
     )
     from PySide6.QtCore import Qt, QDir
+    from PySide6.QtGui import QAction
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-            QAbstractItemView, QMessageBox
+            QAbstractItemView, QMessageBox, QMenuBar, QMenu
         )
         from PyQt6.QtCore import Qt, QDir
+        from PyQt6.QtGui import QAction
     except ImportError:
         raise ImportError(
             "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
@@ -37,6 +39,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+from pyirena.gui.unified_fit import UnifiedFitPanel
 
 
 class GraphWindow(QWidget):
@@ -124,6 +127,7 @@ class DataSelectorPanel(QWidget):
         self.current_folder = None
         self.last_folder = None  # Remember last selected folder
         self.graph_window = None
+        self.unified_fit_window = None  # Unified fit panel
         self.init_ui()
 
     def init_ui(self):
@@ -132,8 +136,17 @@ class DataSelectorPanel(QWidget):
 
         # Main layout
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Menu bar
+        menu_bar = self.create_menu_bar()
+        main_layout.addWidget(menu_bar)
+
+        # Content layout (with margins)
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setSpacing(15)
 
         # Title
         title_label = QLabel("pyIrena")
@@ -146,7 +159,7 @@ class DataSelectorPanel(QWidget):
             }
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
+        content_layout.addWidget(title_label)
 
         # Folder selection section
         folder_layout = QHBoxLayout()
@@ -167,7 +180,7 @@ class DataSelectorPanel(QWidget):
         folder_layout.addWidget(self.folder_label)
         folder_layout.addStretch()
 
-        main_layout.addLayout(folder_layout)
+        content_layout.addLayout(folder_layout)
 
         # File type selection
         type_layout = QHBoxLayout()
@@ -181,10 +194,10 @@ class DataSelectorPanel(QWidget):
         type_layout.addWidget(self.file_type_combo)
         type_layout.addStretch()
 
-        main_layout.addLayout(type_layout)
+        content_layout.addLayout(type_layout)
 
         # Content area (listbox + graph button)
-        content_layout = QHBoxLayout()
+        file_area_layout = QHBoxLayout()
 
         # Left side: file list section
         left_layout = QVBoxLayout()
@@ -207,7 +220,7 @@ class DataSelectorPanel(QWidget):
         self.file_list.itemSelectionChanged.connect(self.update_plot_button_state)
         left_layout.addWidget(self.file_list)
 
-        content_layout.addLayout(left_layout, stretch=2)
+        file_area_layout.addLayout(left_layout, stretch=2)
 
         # Right side: action buttons
         right_layout = QVBoxLayout()
@@ -236,10 +249,36 @@ class DataSelectorPanel(QWidget):
         self.plot_button.setEnabled(False)
         right_layout.addWidget(self.plot_button)
 
-        right_layout.addStretch()
-        content_layout.addLayout(right_layout, stretch=1)
+        right_layout.addSpacing(20)
 
-        main_layout.addLayout(content_layout)
+        # Unified Fit button
+        self.unified_fit_button = QPushButton("Unified Fit")
+        self.unified_fit_button.setMinimumWidth(150)
+        self.unified_fit_button.setMinimumHeight(50)
+        self.unified_fit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 5px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
+        """)
+        self.unified_fit_button.clicked.connect(self.launch_unified_fit)
+        self.unified_fit_button.setEnabled(False)
+        right_layout.addWidget(self.unified_fit_button)
+
+        right_layout.addStretch()
+        file_area_layout.addLayout(right_layout, stretch=1)
+
+        content_layout.addLayout(file_area_layout)
 
         # Status bar
         self.status_label = QLabel("Ready - Select a folder to begin")
@@ -250,12 +289,48 @@ class DataSelectorPanel(QWidget):
                 border-top: 1px solid #bdc3c7;
             }
         """)
-        main_layout.addWidget(self.status_label)
+        content_layout.addWidget(self.status_label)
+
+        # Add content layout to main layout
+        main_layout.addLayout(content_layout)
 
         self.setLayout(main_layout)
 
         # Set minimum window size (at least twice the listbox width)
         self.setMinimumSize(900, 600)
+
+    def create_menu_bar(self) -> QMenuBar:
+        """Create the menu bar with Models menu."""
+        menu_bar = QMenuBar()
+
+        # Models menu
+        models_menu = QMenu("&Models", self)
+
+        # Unified Fit action
+        unified_fit_action = QAction("&Unified Fit", self)
+        unified_fit_action.setStatusTip("Open Unified Fit model panel")
+        unified_fit_action.triggered.connect(self.launch_unified_fit)
+        models_menu.addAction(unified_fit_action)
+
+        # Add separator and future models placeholder
+        models_menu.addSeparator()
+        placeholder_action = QAction("More models coming soon...", self)
+        placeholder_action.setEnabled(False)
+        models_menu.addAction(placeholder_action)
+
+        menu_bar.addMenu(models_menu)
+
+        # Help menu
+        help_menu = QMenu("&Help", self)
+
+        about_action = QAction("&About pyIrena", self)
+        about_action.setStatusTip("About pyIrena")
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+
+        menu_bar.addMenu(help_menu)
+
+        return menu_bar
 
     def select_folder(self):
         """Open folder selection dialog."""
@@ -337,9 +412,10 @@ class DataSelectorPanel(QWidget):
         self.status_label.setText(f"Showing {visible_count} of {self.file_list.count()} files")
 
     def update_plot_button_state(self):
-        """Enable or disable the plot button based on file selection."""
+        """Enable or disable the plot and unified fit buttons based on file selection."""
         has_selection = len(self.file_list.selectedItems()) > 0
         self.plot_button.setEnabled(has_selection)
+        self.unified_fit_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files."""
@@ -373,6 +449,88 @@ class DataSelectorPanel(QWidget):
                 f"Error creating plot:\n{str(e)}"
             )
             self.status_label.setText(f"Error: {str(e)}")
+
+    def launch_unified_fit(self):
+        """Launch the Unified Fit model panel with selected data."""
+        selected_items = self.file_list.selectedItems()
+
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select one or more files to analyze with Unified Fit."
+            )
+            return
+
+        # Get full file paths
+        file_paths = []
+        for item in selected_items:
+            file_path = os.path.join(self.current_folder, item.text())
+            file_paths.append(file_path)
+
+        # Load first selected file for fitting
+        # (Multiple files can be loaded and fitted separately)
+        file_path = file_paths[0]
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        try:
+            # Load data based on file extension
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename)
+            else:
+                data = readGenericNXcanSAS(path, filename)
+
+            if data is None:
+                QMessageBox.critical(
+                    self,
+                    "Load Error",
+                    f"Could not load data from {filename}"
+                )
+                return
+
+            # Create or show unified fit window
+            if self.unified_fit_window is None:
+                self.unified_fit_window = UnifiedFitPanel()
+
+            # Set the data
+            self.unified_fit_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                filename
+            )
+
+            # Show the window
+            self.unified_fit_window.show()
+            self.unified_fit_window.raise_()
+            self.unified_fit_window.activateWindow()
+
+            self.status_label.setText(f"Opened Unified Fit for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error loading data for Unified Fit:\n{str(e)}"
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+    def show_about(self):
+        """Show about dialog."""
+        QMessageBox.about(
+            self,
+            "About pyIrena",
+            """<h3>pyIrena</h3>
+            <p><b>Python tools for small-angle scattering data analysis</b></p>
+            <p>Version: 0.1.0</p>
+            <p>pyIrena provides tools for analyzing SAXS/SANS/USAXS data,
+            including the Unified Fit model for hierarchical structures.</p>
+            <p>Based on Irena SAS package for Igor Pro by Jan Ilavsky</p>
+            <p><a href='https://github.com/jilavsky/SAXS_IgorCode'>
+            Original Irena Package</a></p>
+            """
+        )
 
 
 def main():

@@ -176,11 +176,43 @@ python create_test_data.py
 - [ ] Save/export graphs (PNG, PDF)
 - [ ] Zoom and pan tools
 - [ ] Data table view
-- [ ] Unified fit parameter panel
-- [ ] Interactive fitting
-- [ ] Residuals plot
+- [x] Unified fit parameter panel ⭐ **NEW!**
+- [ ] Interactive fitting (in progress for Unified Fit)
+- [x] Residuals plot (in Unified Fit)
 - [ ] Batch processing
 - [ ] Copy data to clipboard
+
+## Using the Unified Fit Model
+
+### Launching Unified Fit
+
+After selecting data files, you can launch the Unified Fit model in two ways:
+
+**Method 1: Menu Bar**
+1. Select one or more data files
+2. Click **Models → Unified Fit** from the menu bar
+
+**Method 2: Button**
+1. Select one or more data files
+2. Click the **"Unified Fit"** button (green button on the right panel)
+
+The Unified Fit window will open with:
+- **Left panel**: Parameter controls for 1-5 structural levels
+- **Right panel**: Data plot + fit + residuals
+
+### Quick Start
+
+1. **Select number of levels** (start with 1)
+2. **Set initial parameters** for Level 1:
+   - G (Guinier prefactor)
+   - Rg (radius of gyration)
+   - B (Porod constant)
+   - P (power law slope)
+3. **Check which parameters to fit** (Fit? checkboxes)
+4. **Click "Fit"** to run the optimization
+5. **View results** in the graph (fit curve + residuals)
+
+For detailed instructions, see [UNIFIED_FIT_GUI.md](UNIFIED_FIT_GUI.md)
 
 ## Keyboard Shortcuts
 

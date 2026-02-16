@@ -1,0 +1,322 @@
+"""
+State manager for pyIrena application.
+
+Handles saving and loading application state in a hierarchical JSON format.
+The state file is human-readable and can be edited manually if needed.
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, Any, Optional
+from copy import deepcopy
+
+
+def get_default_state_file() -> Path:
+    """
+    Get the default state file path.
+
+    Returns the path to ~/.pyirena/state.json
+    """
+    home = Path.home()
+    state_dir = home / '.pyirena'
+    state_dir.mkdir(exist_ok=True)
+    return state_dir / 'state.json'
+
+
+class StateManager:
+    """
+    Manages application state for pyIrena.
+
+    The state is stored in a hierarchical JSON structure:
+    {
+        "version": "1.0",
+        "unified_fit": { ... },
+        "other_tool": { ... }
+    }
+
+    Each tool can have its own section in the state file.
+    """
+
+    # Default state for the entire application
+    DEFAULT_STATE = {
+        "version": "1.0",
+        "unified_fit": {
+            "num_levels": 1,
+            "levels": [
+                {
+                    "level": 1,
+                    "G": {
+                        "value": 100.0,
+                        "fit": False,
+                        "low_limit": None,
+                        "high_limit": None
+                    },
+                    "Rg": {
+                        "value": 100.0,
+                        "fit": False,
+                        "low_limit": None,
+                        "high_limit": None
+                    },
+                    "B": {
+                        "value": 0.01,
+                        "fit": False,
+                        "low_limit": None,
+                        "high_limit": None
+                    },
+                    "P": {
+                        "value": 4.0,
+                        "fit": False,
+                        "low_limit": None,
+                        "high_limit": None
+                    },
+                    "RgCutoff": 0.0,
+                    "correlated": False,
+                    "estimate_B": False
+                },
+                # Levels 2-5 with same structure
+                {
+                    "level": 2,
+                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
+                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "RgCutoff": 0.0,
+                    "correlated": False,
+                    "estimate_B": False
+                },
+                {
+                    "level": 3,
+                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
+                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "RgCutoff": 0.0,
+                    "correlated": False,
+                    "estimate_B": False
+                },
+                {
+                    "level": 4,
+                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
+                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "RgCutoff": 0.0,
+                    "correlated": False,
+                    "estimate_B": False
+                },
+                {
+                    "level": 5,
+                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
+                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "RgCutoff": 0.0,
+                    "correlated": False,
+                    "estimate_B": False
+                }
+            ],
+            "background": {
+                "value": 1e-6,
+                "fit": False
+            },
+            "cursor_left": None,  # Will be set when data is loaded
+            "cursor_right": None,  # Will be set when data is loaded
+            "update_auto": False,
+            "display_local": False,
+            "no_limits": False,
+            "skip_fit_check": False,
+            "store_local": False
+        }
+    }
+
+    def __init__(self, state_file: Optional[Path] = None):
+        """
+        Initialize the state manager.
+
+        Args:
+            state_file: Path to state file. If None, uses default location.
+        """
+        self.state_file = state_file or get_default_state_file()
+        self.state = deepcopy(self.DEFAULT_STATE)
+        self.load()
+
+    def load(self) -> bool:
+        """
+        Load state from file.
+
+        Returns:
+            True if state was loaded, False if using defaults
+        """
+        if not self.state_file.exists():
+            print(f"State file not found: {self.state_file}")
+            print("Using default state")
+            return False
+
+        try:
+            with open(self.state_file, 'r') as f:
+                loaded_state = json.load(f)
+
+            # Merge loaded state with defaults (in case new fields were added)
+            self.state = self._merge_state(self.DEFAULT_STATE, loaded_state)
+            print(f"Loaded state from: {self.state_file}")
+            return True
+
+        except Exception as e:
+            print(f"Error loading state file: {e}")
+            print("Using default state")
+            return False
+
+    def save(self) -> bool:
+        """
+        Save current state to file.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Ensure directory exists
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write with pretty formatting
+            with open(self.state_file, 'w') as f:
+                json.dump(self.state, f, indent=2)
+
+            print(f"Saved state to: {self.state_file}")
+            return True
+
+        except Exception as e:
+            print(f"Error saving state file: {e}")
+            return False
+
+    def get(self, tool: str, key: Optional[str] = None, default: Any = None) -> Any:
+        """
+        Get state for a tool or specific key.
+
+        Args:
+            tool: Tool name (e.g., "unified_fit")
+            key: Optional key within tool state
+            default: Default value if not found
+
+        Returns:
+            State value or default
+        """
+        tool_state = self.state.get(tool, {})
+
+        if key is None:
+            return tool_state
+
+        return tool_state.get(key, default)
+
+    def set(self, tool: str, key: str, value: Any):
+        """
+        Set state for a tool.
+
+        Args:
+            tool: Tool name (e.g., "unified_fit")
+            key: Key within tool state
+            value: Value to set
+        """
+        if tool not in self.state:
+            self.state[tool] = {}
+
+        self.state[tool][key] = value
+
+    def update(self, tool: str, state_dict: Dict[str, Any]):
+        """
+        Update multiple state values for a tool.
+
+        Args:
+            tool: Tool name (e.g., "unified_fit")
+            state_dict: Dictionary of key-value pairs to update
+        """
+        if tool not in self.state:
+            self.state[tool] = {}
+
+        self.state[tool].update(state_dict)
+
+    def reset(self, tool: Optional[str] = None):
+        """
+        Reset state to defaults.
+
+        Args:
+            tool: Tool to reset. If None, resets all tools.
+        """
+        if tool is None:
+            self.state = deepcopy(self.DEFAULT_STATE)
+        else:
+            if tool in self.DEFAULT_STATE:
+                self.state[tool] = deepcopy(self.DEFAULT_STATE[tool])
+
+    def export_tool_state(self, tool: str, export_path: Path) -> bool:
+        """
+        Export tool state to a separate file.
+
+        This is useful for sharing fit parameters or creating presets.
+
+        Args:
+            tool: Tool name (e.g., "unified_fit")
+            export_path: Path to export file
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            tool_state = self.state.get(tool, {})
+
+            with open(export_path, 'w') as f:
+                json.dump(tool_state, f, indent=2)
+
+            print(f"Exported {tool} state to: {export_path}")
+            return True
+
+        except Exception as e:
+            print(f"Error exporting state: {e}")
+            return False
+
+    def import_tool_state(self, tool: str, import_path: Path) -> bool:
+        """
+        Import tool state from a separate file.
+
+        Args:
+            tool: Tool name (e.g., "unified_fit")
+            import_path: Path to import file
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with open(import_path, 'r') as f:
+                tool_state = json.load(f)
+
+            self.state[tool] = tool_state
+            print(f"Imported {tool} state from: {import_path}")
+            return True
+
+        except Exception as e:
+            print(f"Error importing state: {e}")
+            return False
+
+    def _merge_state(self, default: Dict, loaded: Dict) -> Dict:
+        """
+        Merge loaded state with default state.
+
+        This ensures that new fields in DEFAULT_STATE are present even
+        if they weren't in the loaded state file.
+
+        Args:
+            default: Default state dictionary
+            loaded: Loaded state dictionary
+
+        Returns:
+            Merged state dictionary
+        """
+        merged = deepcopy(default)
+
+        for key, value in loaded.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = self._merge_state(merged[key], value)
+            else:
+                merged[key] = value
+
+        return merged
