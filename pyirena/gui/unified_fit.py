@@ -401,7 +401,7 @@ class UnifiedFitGraphWindow(QWidget):
         # Set white background for the graphics layout
         self.graphics_layout.setBackground('w')
 
-        # Main plot (data + fit)
+        # Main plot (data + fit) - 80% of height
         self.main_plot = self.graphics_layout.addPlot(row=0, col=0)
         self.main_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.main_plot.setLabel('left', 'Intensity (cm⁻¹)', **{'color': 'k', 'font-size': '11pt'})
@@ -419,7 +419,7 @@ class UnifiedFitGraphWindow(QWidget):
         # Enable auto-range
         self.main_plot.enableAutoRange()
 
-        # Residuals plot
+        # Residuals plot - 20% of height
         self.residual_plot = self.graphics_layout.addPlot(row=1, col=0)
         self.residual_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.residual_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '11pt'})
@@ -438,6 +438,10 @@ class UnifiedFitGraphWindow(QWidget):
         # Add zero line for residuals
         self.residual_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
 
+        # Set height ratios: main plot gets 4 parts (80%), residuals get 1 part (20%)
+        self.graphics_layout.ci.layout.setRowStretchFactor(0, 4)
+        self.graphics_layout.ci.layout.setRowStretchFactor(1, 1)
+
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot experimental data."""
         self.q_data = q
@@ -452,19 +456,51 @@ class UnifiedFitGraphWindow(QWidget):
             name=label
         )
 
-        # Add error bars if available
-        if error is not None:
-            error_bars = pg.ErrorBarItem(
-                x=q, y=intensity,
-                height=error,
-                pen=pg.mkPen((100, 100, 255, 100), width=1)
-            )
-            # IMPORTANT: ignoreBounds=True prevents error bars from affecting autoscale
-            self.main_plot.addItem(error_bars, ignoreBounds=True)
+        # Add error bars if available - batch all segments for fast rendering
+        if error is not None and len(error) > 0:
+            # Pre-allocate arrays for all line segments (vertical bars + caps)
+            # Each error bar has 3 segments: vertical, top cap, bottom cap
+            # Each segment needs 2 points + 1 NaN to disconnect
+            n_points = len(q)
 
-        # ALWAYS reset cursor positions when new data is loaded
-        # This ensures cursors are within the data range
-        if len(q) > 0:
+            # Create arrays with NaN separators for disconnected line segments
+            x_lines = []
+            y_lines = []
+
+            cap_width_log = 0.05  # 5% in log space for cap width
+
+            for i in range(n_points):
+                # Calculate error bar limits, ensuring we stay positive for log scale
+                y_top = intensity[i] + error[i]
+                y_bottom = max(intensity[i] - error[i], intensity[i] * 0.001)
+
+                # Vertical bar
+                x_lines.extend([q[i], q[i], np.nan])
+                y_lines.extend([y_bottom, y_top, np.nan])
+
+                # Cap coordinates
+                x_left = q[i] / (1 + cap_width_log)
+                x_right = q[i] * (1 + cap_width_log)
+
+                # Top cap
+                x_lines.extend([x_left, x_right, np.nan])
+                y_lines.extend([y_top, y_top, np.nan])
+
+                # Bottom cap
+                x_lines.extend([x_left, x_right, np.nan])
+                y_lines.extend([y_bottom, y_bottom, np.nan])
+
+            # Draw all error bars as a single plot item for speed
+            error_pen = pg.mkPen((100, 100, 255, 120), width=1)
+            self.main_plot.plot(
+                x_lines, y_lines,
+                pen=error_pen,
+                connect='finite'  # Connect all non-NaN points, NaN breaks segments
+            )
+
+        # Initialize cursor positions ONLY if not already set (first data load)
+        # This preserves user's cursor selections during fitting
+        if len(q) > 0 and self.cursor_left is None:
             q_min, q_max = q.min(), q.max()
             self.cursor_left = q_min * (q_max / q_min) ** 0.2
             self.cursor_right = q_min * (q_max / q_min) ** 0.8
@@ -648,15 +684,17 @@ class LevelParametersWidget(QWidget):
         self.g_value = ScrubbableLineEdit("100")
         self.g_value.setValidator(QDoubleValidator())
         self.g_value.setMinimumWidth(120)
-        self.g_value.editingFinished.connect(self.parameter_changed.emit)
+        self.g_value.editingFinished.connect(self._on_g_changed)
         grid.addWidget(self.g_value, row, 1)
         self.g_fit = QCheckBox()
         grid.addWidget(self.g_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
-        self.g_low = QLineEdit()
+        self.g_low = QLineEdit("20")
         self.g_low.setMaximumWidth(80)
+        self.g_low.setValidator(QDoubleValidator())
         grid.addWidget(self.g_low, row, 3)
-        self.g_high = QLineEdit()
+        self.g_high = QLineEdit("500")
         self.g_high.setMaximumWidth(80)
+        self.g_high.setValidator(QDoubleValidator())
         grid.addWidget(self.g_high, row, 4)
 
         # Rg parameter
@@ -664,27 +702,44 @@ class LevelParametersWidget(QWidget):
         grid.addWidget(QLabel("Rg"), row, 0)
         self.rg_value = ScrubbableLineEdit("100")
         self.rg_value.setValidator(QDoubleValidator())
-        self.rg_value.editingFinished.connect(self.parameter_changed.emit)
+        self.rg_value.editingFinished.connect(self._on_rg_changed)
         grid.addWidget(self.rg_value, row, 1)
         self.rg_fit = QCheckBox()
         grid.addWidget(self.rg_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
-        self.rg_low = QLineEdit()
+        self.rg_low = QLineEdit("20")
         self.rg_low.setMaximumWidth(80)
+        self.rg_low.setValidator(QDoubleValidator())
         grid.addWidget(self.rg_low, row, 3)
-        self.rg_high = QLineEdit()
+        self.rg_high = QLineEdit("500")
         self.rg_high.setMaximumWidth(80)
+        self.rg_high.setValidator(QDoubleValidator())
         grid.addWidget(self.rg_high, row, 4)
 
         layout.addLayout(grid)
 
-        # Fit Rg/G button
+        # Fit Rg/G button - 35% width, right aligned with high limit
+        fit_rg_g_layout = QHBoxLayout()
+        fit_rg_g_layout.addStretch()
         self.fit_rg_g_button = QPushButton("Fit Rg/G btwn cursors")
-        self.fit_rg_g_button.setMinimumHeight(24)  # Reduced by ~20% from 30
-        layout.addWidget(self.fit_rg_g_button)
+        self.fit_rg_g_button.setMinimumHeight(24)
+        # Calculate width to align with high limit field (roughly 35% of total width)
+        button_width = 140  # Approximate width for 35%
+        self.fit_rg_g_button.setMaximumWidth(button_width)
+        fit_rg_g_layout.addWidget(self.fit_rg_g_button)
+        layout.addLayout(fit_rg_g_layout)
 
-        # Estimate B checkbox
+        # Estimate B checkbox with pi B/Q display on the right
+        estimate_b_layout = QHBoxLayout()
         self.estimate_b_check = QCheckBox("Estimate B from G/Rg/P?")
-        layout.addWidget(self.estimate_b_check)
+        estimate_b_layout.addWidget(self.estimate_b_check)
+        estimate_b_layout.addSpacing(20)
+        estimate_b_layout.addWidget(QLabel("pi B/Q [m2/cm3]"))
+        self.pi_bq_value = QLineEdit("0")
+        self.pi_bq_value.setReadOnly(True)
+        self.pi_bq_value.setMaximumWidth(100)
+        estimate_b_layout.addWidget(self.pi_bq_value)
+        estimate_b_layout.addStretch()
+        layout.addLayout(estimate_b_layout)
 
         # B and P parameters
         grid2 = QGridLayout()
@@ -696,15 +751,17 @@ class LevelParametersWidget(QWidget):
         self.b_value = ScrubbableLineEdit("0.01")
         self.b_value.setValidator(QDoubleValidator())
         self.b_value.setMinimumWidth(120)
-        self.b_value.editingFinished.connect(self.parameter_changed.emit)
+        self.b_value.editingFinished.connect(self._on_b_changed)
         grid2.addWidget(self.b_value, row, 1)
         self.b_fit = QCheckBox()
         grid2.addWidget(self.b_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
-        self.b_low = QLineEdit()
+        self.b_low = QLineEdit("0.002")
         self.b_low.setMaximumWidth(80)
+        self.b_low.setValidator(QDoubleValidator())
         grid2.addWidget(self.b_low, row, 3)
-        self.b_high = QLineEdit()
+        self.b_high = QLineEdit("0.05")
         self.b_high.setMaximumWidth(80)
+        self.b_high.setValidator(QDoubleValidator())
         grid2.addWidget(self.b_high, row, 4)
 
         # P parameter
@@ -712,15 +769,17 @@ class LevelParametersWidget(QWidget):
         grid2.addWidget(QLabel("P"), row, 0)
         self.p_value = ScrubbableLineEdit("4", use_fixed_step=True, fixed_reference=4.0)
         self.p_value.setValidator(QDoubleValidator())
-        self.p_value.editingFinished.connect(self.parameter_changed.emit)
+        self.p_value.editingFinished.connect(self._on_p_changed)
         grid2.addWidget(self.p_value, row, 1)
         self.p_fit = QCheckBox()
         grid2.addWidget(self.p_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
-        self.p_low = QLineEdit()
+        self.p_low = QLineEdit("2")
         self.p_low.setMaximumWidth(80)
+        self.p_low.setValidator(QDoubleValidator())
         grid2.addWidget(self.p_low, row, 3)
-        self.p_high = QLineEdit()
+        self.p_high = QLineEdit("5")
         self.p_high.setMaximumWidth(80)
+        self.p_high.setValidator(QDoubleValidator())
         grid2.addWidget(self.p_high, row, 4)
 
         layout.addLayout(grid2)
@@ -737,34 +796,90 @@ class LevelParametersWidget(QWidget):
         self.warning_label.setVisible(False)
         layout.addWidget(self.warning_label)
 
-        # Fit P/B button
+        # Fit P/B button - 35% width, right aligned with high limit
+        fit_p_b_layout = QHBoxLayout()
+        fit_p_b_layout.addStretch()
         self.fit_p_b_button = QPushButton("Fit P/B btwn cursors")
-        self.fit_p_b_button.setMinimumHeight(24)  # Reduced by ~20% from 30
-        layout.addWidget(self.fit_p_b_button)
+        self.fit_p_b_button.setMinimumHeight(24)
+        self.fit_p_b_button.setMaximumWidth(button_width)
+        fit_p_b_layout.addWidget(self.fit_p_b_button)
+        layout.addLayout(fit_p_b_layout)
 
-        # RgCutoff
-        rg_cutoff_layout = QHBoxLayout()
-        rg_cutoff_layout.addWidget(QLabel("RgCutoff"))
+        # Link RgCutoff checkbox (only for levels 2-5)
+        if self.level_number > 1:
+            self.link_rgco_check = QCheckBox("Link RgCutoff")
+            self.link_rgco_check.setToolTip(f"Link RgCutoff to Rg of Level {self.level_number - 1}")
+            self.link_rgco_check.stateChanged.connect(self.parameter_changed.emit)
+            layout.addWidget(self.link_rgco_check)
+        else:
+            self.link_rgco_check = None
+
+        # RgCutoff and Correlations checkbox on same row
+        rg_cutoff_corr_layout = QHBoxLayout()
+        rg_cutoff_corr_layout.addWidget(QLabel("RgCutoff"))
         self.rg_cutoff = ScrubbableLineEdit("0")
         self.rg_cutoff.setValidator(QDoubleValidator())
         self.rg_cutoff.setMaximumWidth(100)
-        rg_cutoff_layout.addWidget(self.rg_cutoff)
-        rg_cutoff_layout.addStretch()
-        layout.addLayout(rg_cutoff_layout)
+        rg_cutoff_corr_layout.addWidget(self.rg_cutoff)
+        rg_cutoff_corr_layout.addSpacing(20)
+        self.correlated_check = QCheckBox("Correlations?")
+        self.correlated_check.stateChanged.connect(self._on_correlations_changed)
+        rg_cutoff_corr_layout.addWidget(self.correlated_check)
+        rg_cutoff_corr_layout.addStretch()
+        layout.addLayout(rg_cutoff_corr_layout)
 
-        # pi B/Q display
-        pi_bq_layout = QHBoxLayout()
-        pi_bq_layout.addWidget(QLabel("pi B/Q [m2/cm3]"))
-        self.pi_bq_value = QLineEdit("0")
-        self.pi_bq_value.setReadOnly(True)
-        self.pi_bq_value.setMaximumWidth(100)
-        pi_bq_layout.addWidget(self.pi_bq_value)
-        pi_bq_layout.addStretch()
-        layout.addLayout(pi_bq_layout)
+        # ETA and PACK parameters (visible only when Correlations is checked)
+        self.corr_params_widget = QWidget()
+        corr_params_layout = QVBoxLayout()
+        corr_params_layout.setContentsMargins(0, 0, 0, 0)
+        corr_params_layout.setSpacing(8)
 
-        # Correlated system checkbox
-        self.correlated_check = QCheckBox("Is this correlated system?")
-        layout.addWidget(self.correlated_check)
+        # Grid for ETA and PACK
+        corr_grid = QGridLayout()
+        corr_grid.setSpacing(8)
+
+        # ETA parameter
+        row = 0
+        corr_grid.addWidget(QLabel("ETA"), row, 0)
+        self.eta_value = ScrubbableLineEdit("0")
+        self.eta_value.setValidator(QDoubleValidator())
+        self.eta_value.setMinimumWidth(120)
+        self.eta_value.editingFinished.connect(self._on_eta_changed)
+        corr_grid.addWidget(self.eta_value, row, 1)
+        self.eta_fit = QCheckBox()
+        corr_grid.addWidget(self.eta_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
+        self.eta_low = QLineEdit("0")
+        self.eta_low.setMaximumWidth(80)
+        self.eta_low.setValidator(QDoubleValidator())
+        corr_grid.addWidget(self.eta_low, row, 3)
+        self.eta_high = QLineEdit("1")
+        self.eta_high.setMaximumWidth(80)
+        self.eta_high.setValidator(QDoubleValidator())
+        corr_grid.addWidget(self.eta_high, row, 4)
+
+        # PACK parameter
+        row = 1
+        corr_grid.addWidget(QLabel("PACK"), row, 0)
+        self.pack_value = ScrubbableLineEdit("0")
+        self.pack_value.setValidator(QDoubleValidator())
+        self.pack_value.setMinimumWidth(120)
+        self.pack_value.editingFinished.connect(self._on_pack_changed)
+        corr_grid.addWidget(self.pack_value, row, 1)
+        self.pack_fit = QCheckBox()
+        corr_grid.addWidget(self.pack_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
+        self.pack_low = QLineEdit("0")
+        self.pack_low.setMaximumWidth(80)
+        self.pack_low.setValidator(QDoubleValidator())
+        corr_grid.addWidget(self.pack_low, row, 3)
+        self.pack_high = QLineEdit("1")
+        self.pack_high.setMaximumWidth(80)
+        self.pack_high.setValidator(QDoubleValidator())
+        corr_grid.addWidget(self.pack_high, row, 4)
+
+        corr_params_layout.addLayout(corr_grid)
+        self.corr_params_widget.setLayout(corr_params_layout)
+        self.corr_params_widget.setVisible(False)  # Hidden by default
+        layout.addWidget(self.corr_params_widget)
 
         # Copy/Move/swap button
         self.copy_move_button = QPushButton("Copy/Move/swap level")
@@ -774,6 +889,188 @@ class LevelParametersWidget(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
+        # Initialize limits based on default values
+        self.fix_limits()
+
+    def _format_value(self, value: float) -> str:
+        """Format a value to 3 significant digits."""
+        if value == 0:
+            return "0"
+        # Use scientific notation for very small or very large numbers
+        if abs(value) < 0.001 or abs(value) >= 10000:
+            return f"{value:.2e}"
+        else:
+            # Use fixed decimal for normal range numbers
+            return f"{value:.3g}"
+
+    def _on_g_changed(self):
+        """Update G limits when G value changes."""
+        try:
+            value = float(self.g_value.text() or 0)
+            # If G is essentially 0, set Rg to 1e10 and uncheck fit boxes
+            if value < 1e-10:
+                self.rg_value.setText(self._format_value(1e10))
+                self.g_fit.setChecked(False)
+                self.rg_fit.setChecked(False)
+                self.g_value.setText("0")
+            elif value > 0:
+                self.g_low.setText(self._format_value(value * 0.2))
+                self.g_high.setText(self._format_value(value * 5))
+                self.g_value.setText(self._format_value(value))
+        except ValueError:
+            pass
+        self.parameter_changed.emit()
+
+    def _on_rg_changed(self):
+        """Update Rg limits when Rg value changes."""
+        try:
+            value = float(self.rg_value.text() or 0)
+            if value > 0:
+                # Clamp to absolute limits [0.1, 1e4]
+                low_val = max(0.1, value * 0.2)
+                high_val = min(1e4, value * 5)
+                self.rg_low.setText(self._format_value(low_val))
+                self.rg_high.setText(self._format_value(high_val))
+                self.rg_value.setText(self._format_value(value))
+        except ValueError:
+            pass
+        self.parameter_changed.emit()
+
+    def _on_b_changed(self):
+        """Update B limits when B value changes."""
+        try:
+            value = float(self.b_value.text() or 0)
+            if value > 0:
+                self.b_low.setText(self._format_value(value * 0.2))
+                self.b_high.setText(self._format_value(value * 5))
+                self.b_value.setText(self._format_value(value))
+        except ValueError:
+            pass
+        self.parameter_changed.emit()
+
+    def _on_p_changed(self):
+        """Update P limits when P value changes."""
+        try:
+            value = float(self.p_value.text() or 0)
+            if value > 0:
+                # P has special limits: 0.5-1.5x but clamped to [1, 5]
+                low_val = max(1.0, value * 0.5)
+                high_val = min(5.0, value * 1.5)
+                self.p_low.setText(self._format_value(low_val))
+                self.p_high.setText(self._format_value(high_val))
+                self.p_value.setText(self._format_value(value))
+        except ValueError:
+            pass
+        self.parameter_changed.emit()
+
+    def _on_eta_changed(self):
+        """Update ETA limits when ETA value changes."""
+        try:
+            value = float(self.eta_value.text() or 0)
+            if value > 0:
+                # Same logic as Rg: clamp to absolute limits [0.1, 1e4]
+                low_val = max(0.1, value * 0.2)
+                high_val = min(1e4, value * 5)
+                self.eta_low.setText(self._format_value(low_val))
+                self.eta_high.setText(self._format_value(high_val))
+                self.eta_value.setText(self._format_value(value))
+        except ValueError:
+            pass
+        self.parameter_changed.emit()
+
+    def _on_pack_changed(self):
+        """Update PACK limits when PACK value changes."""
+        try:
+            value = float(self.pack_value.text() or 0)
+            if value > 0:
+                # Same fractional logic as ETA/Rg but absolute limits [0, 12]
+                low_val = max(0.0, value * 0.2)
+                high_val = min(12.0, value * 5)
+                self.pack_low.setText(self._format_value(low_val))
+                self.pack_high.setText(self._format_value(high_val))
+                self.pack_value.setText(self._format_value(value))
+        except ValueError:
+            pass
+        self.parameter_changed.emit()
+
+    def _on_correlations_changed(self, state):
+        """Show/hide correlation parameters when checkbox changes."""
+        self.corr_params_widget.setVisible(self.correlated_check.isChecked())
+        self.parameter_changed.emit()
+
+    def fix_limits(self):
+        """
+        Fix all fitting limits based on current parameter values.
+        Called when limits get out of sync with values (e.g., after fitting).
+        """
+        # Fix G limits
+        try:
+            g_val = float(self.g_value.text() or 0)
+            if g_val < 1e-10:
+                # G is essentially 0 - set Rg to 1e10 and uncheck fit boxes
+                self.rg_value.setText(self._format_value(1e10))
+                self.g_fit.setChecked(False)
+                self.rg_fit.setChecked(False)
+                self.g_value.setText("0")
+            elif g_val > 0:
+                self.g_low.setText(self._format_value(g_val * 0.2))
+                self.g_high.setText(self._format_value(g_val * 5))
+        except ValueError:
+            pass
+
+        # Fix Rg limits - absolute limits [0.1, 1e4]
+        try:
+            rg_val = float(self.rg_value.text() or 0)
+            if rg_val > 0:
+                low_val = max(0.1, rg_val * 0.2)
+                high_val = min(1e4, rg_val * 5)
+                self.rg_low.setText(self._format_value(low_val))
+                self.rg_high.setText(self._format_value(high_val))
+        except ValueError:
+            pass
+
+        # Fix B limits
+        try:
+            b_val = float(self.b_value.text() or 0)
+            if b_val > 0:
+                self.b_low.setText(self._format_value(b_val * 0.2))
+                self.b_high.setText(self._format_value(b_val * 5))
+        except ValueError:
+            pass
+
+        # Fix P limits - 0.5-1.5x, clamped to [1, 5]
+        try:
+            p_val = float(self.p_value.text() or 0)
+            if p_val > 0:
+                low_val = max(1.0, p_val * 0.5)
+                high_val = min(5.0, p_val * 1.5)
+                self.p_low.setText(self._format_value(low_val))
+                self.p_high.setText(self._format_value(high_val))
+        except ValueError:
+            pass
+
+        # Fix ETA limits - same as Rg: absolute limits [0.1, 1e4]
+        try:
+            eta_val = float(self.eta_value.text() or 0)
+            if eta_val > 0:
+                low_val = max(0.1, eta_val * 0.2)
+                high_val = min(1e4, eta_val * 5)
+                self.eta_low.setText(self._format_value(low_val))
+                self.eta_high.setText(self._format_value(high_val))
+        except ValueError:
+            pass
+
+        # Fix PACK limits - absolute limits [0, 12]
+        try:
+            pack_val = float(self.pack_value.text() or 0)
+            if pack_val > 0:
+                low_val = max(0.0, pack_val * 0.2)
+                high_val = min(12.0, pack_val * 5)
+                self.pack_low.setText(self._format_value(low_val))
+                self.pack_high.setText(self._format_value(high_val))
+        except ValueError:
+            pass
+
     def get_parameters(self) -> Dict:
         """Get all parameters for this level."""
         return {
@@ -782,24 +1079,91 @@ class LevelParametersWidget(QWidget):
             'B': float(self.b_value.text() or 0),
             'P': float(self.p_value.text() or 0),
             'RgCutoff': float(self.rg_cutoff.text() or 0),
+            'ETA': float(self.eta_value.text() or 0),
+            'PACK': float(self.pack_value.text() or 0),
             'fit_G': self.g_fit.isChecked(),
             'fit_Rg': self.rg_fit.isChecked(),
             'fit_B': self.b_fit.isChecked(),
             'fit_P': self.p_fit.isChecked(),
+            'fit_ETA': self.eta_fit.isChecked(),
+            'fit_PACK': self.pack_fit.isChecked(),
             'estimate_B': self.estimate_b_check.isChecked(),
             'correlated': self.correlated_check.isChecked(),
+            'link_rgco': self.link_rgco_check.isChecked() if self.link_rgco_check else False,
+            'G_low': float(self.g_low.text() or 0),
+            'G_high': float(self.g_high.text() or 0),
+            'Rg_low': float(self.rg_low.text() or 0),
+            'Rg_high': float(self.rg_high.text() or 0),
+            'B_low': float(self.b_low.text() or 0),
+            'B_high': float(self.b_high.text() or 0),
+            'P_low': float(self.p_low.text() or 0),
+            'P_high': float(self.p_high.text() or 0),
+            'ETA_low': float(self.eta_low.text() or 0),
+            'ETA_high': float(self.eta_high.text() or 0),
+            'PACK_low': float(self.pack_low.text() or 0),
+            'PACK_high': float(self.pack_high.text() or 0),
         }
 
     def set_parameters(self, params: Dict):
         """Set parameters for this level."""
         if 'G' in params:
-            self.g_value.setText(str(params['G']))
+            self.g_value.setText(self._format_value(params['G']))
         if 'Rg' in params:
-            self.rg_value.setText(str(params['Rg']))
+            self.rg_value.setText(self._format_value(params['Rg']))
         if 'B' in params:
-            self.b_value.setText(str(params['B']))
+            self.b_value.setText(self._format_value(params['B']))
         if 'P' in params:
-            self.p_value.setText(str(params['P']))
+            self.p_value.setText(self._format_value(params['P']))
+        if 'RgCutoff' in params:
+            self.rg_cutoff.setText(self._format_value(params['RgCutoff']))
+        if 'G_low' in params:
+            self.g_low.setText(self._format_value(params['G_low']))
+        if 'G_high' in params:
+            self.g_high.setText(self._format_value(params['G_high']))
+        if 'Rg_low' in params:
+            self.rg_low.setText(self._format_value(params['Rg_low']))
+        if 'Rg_high' in params:
+            self.rg_high.setText(self._format_value(params['Rg_high']))
+        if 'B_low' in params:
+            self.b_low.setText(self._format_value(params['B_low']))
+        if 'B_high' in params:
+            self.b_high.setText(self._format_value(params['B_high']))
+        if 'P_low' in params:
+            self.p_low.setText(self._format_value(params['P_low']))
+        if 'P_high' in params:
+            self.p_high.setText(self._format_value(params['P_high']))
+        if 'ETA' in params:
+            self.eta_value.setText(self._format_value(params['ETA']))
+        if 'PACK' in params:
+            self.pack_value.setText(self._format_value(params['PACK']))
+        if 'ETA_low' in params:
+            self.eta_low.setText(self._format_value(params['ETA_low']))
+        if 'ETA_high' in params:
+            self.eta_high.setText(self._format_value(params['ETA_high']))
+        if 'PACK_low' in params:
+            self.pack_low.setText(self._format_value(params['PACK_low']))
+        if 'PACK_high' in params:
+            self.pack_high.setText(self._format_value(params['PACK_high']))
+        if 'fit_G' in params:
+            self.g_fit.setChecked(params['fit_G'])
+        if 'fit_Rg' in params:
+            self.rg_fit.setChecked(params['fit_Rg'])
+        if 'fit_B' in params:
+            self.b_fit.setChecked(params['fit_B'])
+        if 'fit_P' in params:
+            self.p_fit.setChecked(params['fit_P'])
+        if 'fit_ETA' in params:
+            self.eta_fit.setChecked(params['fit_ETA'])
+        if 'fit_PACK' in params:
+            self.pack_fit.setChecked(params['fit_PACK'])
+        if 'estimate_B' in params:
+            self.estimate_b_check.setChecked(params['estimate_B'])
+        if 'correlated' in params:
+            self.correlated_check.setChecked(params['correlated'])
+            # Update visibility of correlation parameters
+            self.corr_params_widget.setVisible(params['correlated'])
+        if 'link_rgco' in params and self.link_rgco_check:
+            self.link_rgco_check.setChecked(params['link_rgco'])
 
 
 """
@@ -822,6 +1186,9 @@ class UnifiedFitPanel(QWidget):
 
         # State management
         self.state_manager = StateManager()
+
+        # Backup for revert functionality
+        self.parameter_backup = None
 
         self.init_ui()
         self.load_state()
@@ -950,8 +1317,6 @@ class UnifiedFitPanel(QWidget):
         background_layout.addWidget(self.background_value)
         self.fit_background_check = QCheckBox("Fit Bckg?")
         background_layout.addWidget(self.fit_background_check)
-        self.skip_fit_check = QCheckBox("Skip Fit Check?")
-        background_layout.addWidget(self.skip_fit_check)
         background_layout.addStretch()
         layout.addLayout(background_layout)
 
@@ -980,6 +1345,17 @@ class UnifiedFitPanel(QWidget):
 
         self.revert_button = QPushButton("Revert back")
         self.revert_button.setMinimumHeight(28)  # Reduced from 35
+        self.revert_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f39c12;
+            }
+        """)
+        self.revert_button.clicked.connect(self.revert_to_backup)
         fit_buttons.addWidget(self.revert_button)
 
         layout.addLayout(fit_buttons)
@@ -1008,13 +1384,20 @@ class UnifiedFitPanel(QWidget):
 
         self.fix_limits_button = QPushButton("Fix limits?")
         self.fix_limits_button.setMinimumHeight(26)  # Reduced from 30
+        self.fix_limits_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+        """)
+        self.fix_limits_button.clicked.connect(self.fix_all_limits)
         additional_buttons.addWidget(self.fix_limits_button)
 
         layout.addLayout(additional_buttons)
-
-        # Store local checkbox
-        self.store_local_check = QCheckBox("Store local (Porod & Guinier) fits?")
-        layout.addWidget(self.store_local_check)
 
         # Results section header
         results_header = QLabel("Results")
@@ -1046,13 +1429,13 @@ class UnifiedFitPanel(QWidget):
         self.save_state_button.clicked.connect(self.save_state)
         results_buttons1.addWidget(self.save_state_button)
 
-        self.store_data_button = QPushButton("Store in Data Folder")
+        self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
         results_buttons1.addWidget(self.store_data_button)
 
-        self.export_ascii_button = QPushButton("Export ASCII")
-        self.export_ascii_button.setMinimumHeight(26)
-        results_buttons1.addWidget(self.export_ascii_button)
+        self.results_graphs_button = QPushButton("Results to graphs")
+        self.results_graphs_button.setMinimumHeight(26)
+        results_buttons1.addWidget(self.results_graphs_button)
 
         layout.addLayout(results_buttons1)
 
@@ -1069,10 +1452,6 @@ class UnifiedFitPanel(QWidget):
         self.import_params_button.clicked.connect(self.import_parameters)
         results_buttons2.addWidget(self.import_params_button)
 
-        self.results_graphs_button = QPushButton("Results to graphs")
-        self.results_graphs_button.setMinimumHeight(26)
-        results_buttons2.addWidget(self.results_graphs_button)
-
         layout.addLayout(results_buttons2)
 
         # Results buttons row 3
@@ -1080,13 +1459,6 @@ class UnifiedFitPanel(QWidget):
         self.analyze_results_button = QPushButton("Analyze Results")
         self.analyze_results_button.setMinimumHeight(30)
         results_buttons3.addWidget(self.analyze_results_button)
-
-        self.anal_uncertainty_button = QPushButton("Anal. Uncertainty")
-        self.anal_uncertainty_button.setMinimumHeight(30)
-        results_buttons3.addWidget(self.anal_uncertainty_button)
-
-        self.ext_warnings_check = QCheckBox("Ext. warnings?")
-        results_buttons3.addWidget(self.ext_warnings_check)
 
         layout.addLayout(results_buttons3)
 
@@ -1117,6 +1489,9 @@ class UnifiedFitPanel(QWidget):
 
     def on_parameter_changed(self):
         """Called when any parameter changes. Auto-update if enabled."""
+        # Sync RgCutoff links whenever parameters change
+        self.sync_rgcutoff_links()
+
         if self.update_auto_check.isChecked() and self.data is not None:
             self.graph_unified()
 
@@ -1156,7 +1531,15 @@ class UnifiedFitPanel(QWidget):
                     P=params['P'],
                     B=params['B'],
                     RgCO=params['RgCutoff'],
-                    correlations=params['correlated']
+                    ETA=params['ETA'],
+                    PACK=params['PACK'],
+                    correlations=params['correlated'],
+                    Rg_limits=(params['Rg_low'], params['Rg_high']),
+                    G_limits=(params['G_low'], params['G_high']),
+                    P_limits=(params['P_low'], params['P_high']),
+                    B_limits=(params['B_low'], params['B_high']),
+                    ETA_limits=(params['ETA_low'], params['ETA_high']),
+                    PACK_limits=(params['PACK_low'], params['PACK_high'])
                 )
                 levels.append(level)
 
@@ -1200,6 +1583,12 @@ class UnifiedFitPanel(QWidget):
             QMessageBox.warning(self, "No Data", "Please load data first.")
             return
 
+        # Sync RgCutoff links before fitting
+        self.sync_rgcutoff_links()
+
+        # Backup current parameters before fitting
+        self.backup_parameters()
+
         try:
             # Get parameters
             num_levels = self.num_levels_spin.value()
@@ -1213,11 +1602,21 @@ class UnifiedFitPanel(QWidget):
                     P=params['P'],
                     B=params['B'],
                     RgCO=params['RgCutoff'],
+                    ETA=params['ETA'],
+                    PACK=params['PACK'],
                     correlations=params['correlated'],
                     fit_Rg=params['fit_Rg'],
                     fit_G=params['fit_G'],
                     fit_P=params['fit_P'],
-                    fit_B=params['fit_B']
+                    fit_B=params['fit_B'],
+                    fit_ETA=params['fit_ETA'],
+                    fit_PACK=params['fit_PACK'],
+                    Rg_limits=(params['Rg_low'], params['Rg_high']),
+                    G_limits=(params['G_low'], params['G_high']),
+                    P_limits=(params['P_low'], params['P_high']),
+                    B_limits=(params['B_low'], params['B_high']),
+                    ETA_limits=(params['ETA_low'], params['ETA_high']),
+                    PACK_limits=(params['PACK_low'], params['PACK_high'])
                 )
                 levels.append(level)
 
@@ -1258,8 +1657,12 @@ class UnifiedFitPanel(QWidget):
                     'G': fitted_level.G,
                     'Rg': fitted_level.Rg,
                     'B': fitted_level.B,
-                    'P': fitted_level.P
+                    'P': fitted_level.P,
+                    'ETA': fitted_level.ETA,
+                    'PACK': fitted_level.PACK
                 })
+                # Fix limits after updating fitted values
+                self.level_widgets[i].fix_limits()
 
             self.background_value.setText(f"{result['background']:.6e}")
 
@@ -1326,9 +1729,7 @@ class UnifiedFitPanel(QWidget):
             'cursor_right': self.graph_window.cursor_right,
             'update_auto': self.update_auto_check.isChecked(),
             'display_local': self.display_local_check.isChecked(),
-            'no_limits': self.no_limits_check.isChecked(),
-            'skip_fit_check': self.skip_fit_check.isChecked(),
-            'store_local': self.store_local_check.isChecked()
+            'no_limits': self.no_limits_check.isChecked()
         }
 
         # Get all level parameters
@@ -1339,30 +1740,43 @@ class UnifiedFitPanel(QWidget):
                 'G': {
                     'value': params['G'],
                     'fit': params['fit_G'],
-                    'low_limit': None,  # TODO: Add limit fields to GUI
-                    'high_limit': None
+                    'low_limit': params['G_low'],
+                    'high_limit': params['G_high']
                 },
                 'Rg': {
                     'value': params['Rg'],
                     'fit': params['fit_Rg'],
-                    'low_limit': None,
-                    'high_limit': None
+                    'low_limit': params['Rg_low'],
+                    'high_limit': params['Rg_high']
                 },
                 'B': {
                     'value': params['B'],
                     'fit': params['fit_B'],
-                    'low_limit': None,
-                    'high_limit': None
+                    'low_limit': params['B_low'],
+                    'high_limit': params['B_high']
                 },
                 'P': {
                     'value': params['P'],
                     'fit': params['fit_P'],
-                    'low_limit': None,
-                    'high_limit': None
+                    'low_limit': params['P_low'],
+                    'high_limit': params['P_high']
+                },
+                'ETA': {
+                    'value': params['ETA'],
+                    'fit': params['fit_ETA'],
+                    'low_limit': params['ETA_low'],
+                    'high_limit': params['ETA_high']
+                },
+                'PACK': {
+                    'value': params['PACK'],
+                    'fit': params['fit_PACK'],
+                    'low_limit': params['PACK_low'],
+                    'high_limit': params['PACK_high']
                 },
                 'RgCutoff': params['RgCutoff'],
                 'correlated': params['correlated'],
-                'estimate_B': params['estimate_B']
+                'estimate_B': params['estimate_B'],
+                'link_rgco': params['link_rgco']
             }
             state['levels'].append(level_state)
 
@@ -1382,8 +1796,6 @@ class UnifiedFitPanel(QWidget):
         self.update_auto_check.setChecked(state.get('update_auto', False))
         self.display_local_check.setChecked(state.get('display_local', False))
         self.no_limits_check.setChecked(state.get('no_limits', False))
-        self.skip_fit_check.setChecked(state.get('skip_fit_check', False))
-        self.store_local_check.setChecked(state.get('store_local', False))
 
         # Set cursor positions
         if state.get('cursor_left') is not None:
@@ -1397,22 +1809,57 @@ class UnifiedFitPanel(QWidget):
             if i < 5:
                 level_widget = self.level_widgets[i]
 
-                # Set parameter values
+                # Set parameter values and limits
                 level_widget.g_value.setText(str(level_state['G']['value']))
                 level_widget.g_fit.setChecked(level_state['G']['fit'])
+                if level_state['G'].get('low_limit') is not None:
+                    level_widget.g_low.setText(str(level_state['G']['low_limit']))
+                if level_state['G'].get('high_limit') is not None:
+                    level_widget.g_high.setText(str(level_state['G']['high_limit']))
 
                 level_widget.rg_value.setText(str(level_state['Rg']['value']))
                 level_widget.rg_fit.setChecked(level_state['Rg']['fit'])
+                if level_state['Rg'].get('low_limit') is not None:
+                    level_widget.rg_low.setText(str(level_state['Rg']['low_limit']))
+                if level_state['Rg'].get('high_limit') is not None:
+                    level_widget.rg_high.setText(str(level_state['Rg']['high_limit']))
 
                 level_widget.b_value.setText(str(level_state['B']['value']))
                 level_widget.b_fit.setChecked(level_state['B']['fit'])
+                if level_state['B'].get('low_limit') is not None:
+                    level_widget.b_low.setText(str(level_state['B']['low_limit']))
+                if level_state['B'].get('high_limit') is not None:
+                    level_widget.b_high.setText(str(level_state['B']['high_limit']))
 
                 level_widget.p_value.setText(str(level_state['P']['value']))
                 level_widget.p_fit.setChecked(level_state['P']['fit'])
+                if level_state['P'].get('low_limit') is not None:
+                    level_widget.p_low.setText(str(level_state['P']['low_limit']))
+                if level_state['P'].get('high_limit') is not None:
+                    level_widget.p_high.setText(str(level_state['P']['high_limit']))
+
+                # ETA and PACK parameters
+                if 'ETA' in level_state:
+                    level_widget.eta_value.setText(str(level_state['ETA']['value']))
+                    level_widget.eta_fit.setChecked(level_state['ETA']['fit'])
+                    if level_state['ETA'].get('low_limit') is not None:
+                        level_widget.eta_low.setText(str(level_state['ETA']['low_limit']))
+                    if level_state['ETA'].get('high_limit') is not None:
+                        level_widget.eta_high.setText(str(level_state['ETA']['high_limit']))
+
+                if 'PACK' in level_state:
+                    level_widget.pack_value.setText(str(level_state['PACK']['value']))
+                    level_widget.pack_fit.setChecked(level_state['PACK']['fit'])
+                    if level_state['PACK'].get('low_limit') is not None:
+                        level_widget.pack_low.setText(str(level_state['PACK']['low_limit']))
+                    if level_state['PACK'].get('high_limit') is not None:
+                        level_widget.pack_high.setText(str(level_state['PACK']['high_limit']))
 
                 level_widget.rg_cutoff.setText(str(level_state.get('RgCutoff', 0)))
                 level_widget.correlated_check.setChecked(level_state.get('correlated', False))
                 level_widget.estimate_b_check.setChecked(level_state.get('estimate_B', False))
+                if level_widget.link_rgco_check:
+                    level_widget.link_rgco_check.setChecked(level_state.get('link_rgco', False))
 
     def load_state(self):
         """Load state from state manager."""
@@ -1430,6 +1877,125 @@ class UnifiedFitPanel(QWidget):
             self.status_label.setText("State saved")
         else:
             QMessageBox.warning(self, "Save Failed", "Failed to save state")
+
+    def fix_all_limits(self):
+        """Fix fitting limits for all levels based on current parameter values."""
+        num_levels = self.num_levels_spin.value()
+        for i in range(num_levels):
+            self.level_widgets[i].fix_limits()
+        self.status_label.setText(f"Fixed limits for {num_levels} level(s)")
+
+    def sync_rgcutoff_links(self):
+        """
+        Sync RgCutoff values based on Link RgCutoff checkboxes.
+        For each level with Link RgCutoff checked, set RgCutoff to Rg of previous level.
+        """
+        num_levels = self.num_levels_spin.value()
+        for i in range(1, num_levels):  # Start from level 2 (index 1)
+            level_widget = self.level_widgets[i]
+            # Check if this level has the link checkbox and if it's checked
+            if level_widget.link_rgco_check and level_widget.link_rgco_check.isChecked():
+                # Get Rg from previous level (i-1)
+                prev_rg = float(self.level_widgets[i-1].rg_value.text() or 0)
+                # Set current level's RgCutoff to previous level's Rg
+                level_widget.rg_cutoff.setText(level_widget._format_value(prev_rg))
+
+    def backup_parameters(self):
+        """Backup current parameters before fitting."""
+        self.parameter_backup = {
+            'num_levels': self.num_levels_spin.value(),
+            'background': float(self.background_value.text() or 0),
+            'levels': []
+        }
+
+        # Backup all level parameters
+        for i in range(5):
+            params = self.level_widgets[i].get_parameters()
+            self.parameter_backup['levels'].append(params.copy())
+
+        self.status_label.setText("Parameters backed up before fitting")
+
+    def revert_to_backup(self):
+        """Restore parameters from backup and recalculate the model."""
+        if self.parameter_backup is None:
+            QMessageBox.warning(
+                self,
+                "No Backup",
+                "No parameter backup available. Run a fit first to create a backup."
+            )
+            return
+
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first.")
+            return
+
+        try:
+            # Restore number of levels
+            self.num_levels_spin.setValue(self.parameter_backup['num_levels'])
+
+            # Restore background
+            self.background_value.setText(str(self.parameter_backup['background']))
+
+            # Restore all level parameters
+            for i in range(5):
+                if i < len(self.parameter_backup['levels']):
+                    self.level_widgets[i].set_parameters(self.parameter_backup['levels'][i])
+
+            # Recalculate the model with restored parameters
+            num_levels = self.parameter_backup['num_levels']
+            levels = []
+
+            for i in range(num_levels):
+                params = self.parameter_backup['levels'][i]
+                level = UnifiedLevel(
+                    Rg=params['Rg'],
+                    G=params['G'],
+                    P=params['P'],
+                    B=params['B'],
+                    RgCO=params['RgCutoff'],
+                    ETA=params['ETA'],
+                    PACK=params['PACK'],
+                    correlations=params['correlated'],
+                    Rg_limits=(params['Rg_low'], params['Rg_high']),
+                    G_limits=(params['G_low'], params['G_high']),
+                    P_limits=(params['P_low'], params['P_high']),
+                    B_limits=(params['B_low'], params['B_high']),
+                    ETA_limits=(params['ETA_low'], params['ETA_high']),
+                    PACK_limits=(params['PACK_low'], params['PACK_high'])
+                )
+                levels.append(level)
+
+            # Update model
+            self.model.num_levels = num_levels
+            self.model.levels = levels
+            self.model.background = self.parameter_backup['background']
+
+            # Recalculate
+            intensity_calc = self.model.calculate_intensity(self.data['Q'])
+
+            # Re-plot
+            self.graph_window.init_plots()
+            self.graph_window.plot_data(
+                self.data['Q'],
+                self.data['Intensity'],
+                self.data.get('Error'),
+                self.data['label']
+            )
+            self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Restored Model')
+
+            # Residuals
+            if self.data.get('Error') is not None:
+                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+            else:
+                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+
+            self.graph_window.plot_residuals(self.data['Q'], residuals)
+            self.status_label.setText("Reverted to pre-fit parameters")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Revert Error", f"Error reverting to backup:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def reset_to_defaults(self):
         """Reset all parameters to defaults."""
