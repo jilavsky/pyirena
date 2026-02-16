@@ -42,6 +42,115 @@ from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
 from pyirena.state import StateManager
 
 
+class ScrubbableLineEdit(QLineEdit):
+    """
+    Enhanced QLineEdit that allows changing values with mouse wheel.
+
+    Features:
+    - Mouse wheel alone: Change by 1% of current value (or by 1 if small)
+    - Shift + wheel: Change by 10% of current value (coarse)
+    - Ctrl/Cmd + wheel: Change by 0.1% of current value (fine)
+
+    For most parameters (B, Rg, G), step adapts to current value so you can explore large ranges.
+    For P parameter, use fixed step based on typical values (3-4) for precision.
+    """
+
+    def __init__(self, *args, use_fixed_step=False, fixed_reference=4.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.use_fixed_step = use_fixed_step
+        self.fixed_reference = fixed_reference
+
+    def wheelEvent(self, event):
+        """Handle mouse wheel events to change numerical values."""
+        # Only process if widget has focus or mouse is over it
+        if not self.hasFocus():
+            # Give focus when wheel is used
+            self.setFocus()
+
+        # Try to get current value
+        try:
+            current_value = float(self.text())
+        except (ValueError, AttributeError):
+            # Not a valid number, don't process
+            super().wheelEvent(event)
+            return
+
+        # Determine delta based on wheel movement
+        # event.angleDelta().y() is typically +120 or -120 for one notch
+        delta_notches = event.angleDelta().y() / 120.0
+
+        # Determine step size based on modifier keys
+        modifiers = event.modifiers()
+
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            # Shift = coarse adjustment (10% of value)
+            step_factor = 0.1
+        elif modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+            # Ctrl/Cmd = fine adjustment (0.1% of value)
+            step_factor = 0.001
+        else:
+            # No modifier = medium adjustment (1% of value)
+            step_factor = 0.01
+
+        # Calculate step size
+        # Use fixed reference for P parameter (stays in narrow range)
+        # Use current value for B, Rg, G (can span many orders of magnitude)
+        if self.use_fixed_step:
+            # P parameter: step based on fixed reference (e.g., 4.0)
+            reference_value = self.fixed_reference
+        else:
+            # B, Rg, G: step adapts to current value
+            reference_value = current_value
+
+        # Special case: if exactly at zero, use small absolute step to get started
+        if abs(current_value) == 0:
+            step = 0.01  # Small starting value when at zero
+        else:
+            # Pure percentage-based step (works from 1e-9 to 1e9)
+            step = abs(reference_value) * step_factor
+
+        # Apply delta
+        new_value = current_value + (delta_notches * step)
+
+        # Physical parameters (G, Rg, B, P) should never be negative
+        # Enforce minimum of 0 (or validator minimum if set)
+        minimum_value = 0.0
+
+        # Check validator limits if present
+        if self.validator():
+            validator = self.validator()
+            if hasattr(validator, 'bottom') and hasattr(validator, 'top'):
+                # QDoubleValidator has bottom/top
+                bottom = validator.bottom()
+                top = validator.top()
+                minimum_value = max(0.0, bottom)  # Use validator min but not less than 0
+                new_value = max(minimum_value, min(top, new_value))
+            else:
+                # No explicit limits, but still enforce >= 0
+                new_value = max(minimum_value, new_value)
+        else:
+            # No validator, enforce >= 0
+            new_value = max(minimum_value, new_value)
+
+        # Update the text field
+        # Determine appropriate precision
+        if abs(new_value) < 0.001:
+            text = f"{new_value:.2e}"
+        elif abs(new_value) < 1:
+            text = f"{new_value:.6f}".rstrip('0').rstrip('.')
+        elif abs(new_value) < 1000:
+            text = f"{new_value:.4f}".rstrip('0').rstrip('.')
+        else:
+            text = f"{new_value:.2e}"
+
+        self.setText(text)
+        self.editingFinished.emit()
+
+        # Accept the event so it doesn't propagate
+        event.accept()
+
+
 class DraggableCursor(pg.GraphicsObject):
     """
     Igor-style draggable cursor with vertical line and marker symbol.
@@ -289,24 +398,39 @@ class UnifiedFitGraphWindow(QWidget):
         """Initialize the plot widgets."""
         self.graphics_layout.clear()
 
+        # Set white background for the graphics layout
+        self.graphics_layout.setBackground('w')
+
         # Main plot (data + fit)
         self.main_plot = self.graphics_layout.addPlot(row=0, col=0)
-        self.main_plot.setLabel('bottom', 'Q (Å⁻¹)')
-        self.main_plot.setLabel('left', 'Intensity (cm⁻¹)')
+        self.main_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
+        self.main_plot.setLabel('left', 'Intensity (cm⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.main_plot.setLogMode(x=True, y=True)
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.main_plot.setTitle('Unified Fit Model', size='12pt')
+        self.main_plot.setTitle('Unified Fit Model', size='12pt', color='k')
         self.main_plot.addLegend()
+
+        # Set axis colors to black for visibility on white background
+        self.main_plot.getAxis('bottom').setPen('k')
+        self.main_plot.getAxis('left').setPen('k')
+        self.main_plot.getAxis('bottom').setTextPen('k')
+        self.main_plot.getAxis('left').setTextPen('k')
 
         # Enable auto-range
         self.main_plot.enableAutoRange()
 
         # Residuals plot
         self.residual_plot = self.graphics_layout.addPlot(row=1, col=0)
-        self.residual_plot.setLabel('bottom', 'Q (Å⁻¹)')
-        self.residual_plot.setLabel('left', 'Residuals')
+        self.residual_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
+        self.residual_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '11pt'})
         self.residual_plot.setLogMode(x=True, y=False)
         self.residual_plot.showGrid(x=True, y=True, alpha=0.3)
+
+        # Set axis colors to black for visibility on white background
+        self.residual_plot.getAxis('bottom').setPen('k')
+        self.residual_plot.getAxis('left').setPen('k')
+        self.residual_plot.getAxis('bottom').setTextPen('k')
+        self.residual_plot.getAxis('left').setTextPen('k')
 
         # Enable auto-range
         self.residual_plot.enableAutoRange()
@@ -521,7 +645,7 @@ class LevelParametersWidget(QWidget):
         # G parameter
         row = 1
         grid.addWidget(QLabel("G"), row, 0)
-        self.g_value = QLineEdit("100")
+        self.g_value = ScrubbableLineEdit("100")
         self.g_value.setValidator(QDoubleValidator())
         self.g_value.setMinimumWidth(120)
         self.g_value.editingFinished.connect(self.parameter_changed.emit)
@@ -538,7 +662,7 @@ class LevelParametersWidget(QWidget):
         # Rg parameter
         row = 2
         grid.addWidget(QLabel("Rg"), row, 0)
-        self.rg_value = QLineEdit("100")
+        self.rg_value = ScrubbableLineEdit("100")
         self.rg_value.setValidator(QDoubleValidator())
         self.rg_value.editingFinished.connect(self.parameter_changed.emit)
         grid.addWidget(self.rg_value, row, 1)
@@ -555,7 +679,7 @@ class LevelParametersWidget(QWidget):
 
         # Fit Rg/G button
         self.fit_rg_g_button = QPushButton("Fit Rg/G btwn cursors")
-        self.fit_rg_g_button.setMinimumHeight(30)
+        self.fit_rg_g_button.setMinimumHeight(24)  # Reduced by ~20% from 30
         layout.addWidget(self.fit_rg_g_button)
 
         # Estimate B checkbox
@@ -569,7 +693,7 @@ class LevelParametersWidget(QWidget):
         # B parameter
         row = 0
         grid2.addWidget(QLabel("B"), row, 0)
-        self.b_value = QLineEdit("0.01")
+        self.b_value = ScrubbableLineEdit("0.01")
         self.b_value.setValidator(QDoubleValidator())
         self.b_value.setMinimumWidth(120)
         self.b_value.editingFinished.connect(self.parameter_changed.emit)
@@ -586,7 +710,7 @@ class LevelParametersWidget(QWidget):
         # P parameter
         row = 1
         grid2.addWidget(QLabel("P"), row, 0)
-        self.p_value = QLineEdit("4")
+        self.p_value = ScrubbableLineEdit("4", use_fixed_step=True, fixed_reference=4.0)
         self.p_value.setValidator(QDoubleValidator())
         self.p_value.editingFinished.connect(self.parameter_changed.emit)
         grid2.addWidget(self.p_value, row, 1)
@@ -615,13 +739,13 @@ class LevelParametersWidget(QWidget):
 
         # Fit P/B button
         self.fit_p_b_button = QPushButton("Fit P/B btwn cursors")
-        self.fit_p_b_button.setMinimumHeight(30)
+        self.fit_p_b_button.setMinimumHeight(24)  # Reduced by ~20% from 30
         layout.addWidget(self.fit_p_b_button)
 
         # RgCutoff
         rg_cutoff_layout = QHBoxLayout()
         rg_cutoff_layout.addWidget(QLabel("RgCutoff"))
-        self.rg_cutoff = QLineEdit("0")
+        self.rg_cutoff = ScrubbableLineEdit("0")
         self.rg_cutoff.setValidator(QDoubleValidator())
         self.rg_cutoff.setMaximumWidth(100)
         rg_cutoff_layout.addWidget(self.rg_cutoff)
@@ -644,7 +768,7 @@ class LevelParametersWidget(QWidget):
 
         # Copy/Move/swap button
         self.copy_move_button = QPushButton("Copy/Move/swap level")
-        self.copy_move_button.setMinimumHeight(30)
+        self.copy_move_button.setMinimumHeight(24)  # Reduced by ~20% from 30
         layout.addWidget(self.copy_move_button)
 
         layout.addStretch()
@@ -725,15 +849,16 @@ class UnifiedFitPanel(QWidget):
         main_layout.addWidget(main_splitter)
         self.setLayout(main_layout)
 
-        # Set minimum window size
-        self.setMinimumSize(1200, 700)
+        # Set minimum and initial window size (taller for better field visibility)
+        self.setMinimumSize(1200, 960)  # Same width, 20% taller (800 * 1.2 = 960)
+        self.resize(1200, 960)  # Set initial size
 
     def create_control_panel(self) -> QWidget:
         """Create the left control panel."""
         panel = QWidget()
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setSpacing(6)  # Reduced from 10 to 6 to save vertical space
 
         # Title
         title_label = QLabel("Unified model input")
@@ -753,7 +878,7 @@ class UnifiedFitPanel(QWidget):
         top_controls = QHBoxLayout()
 
         self.graph_unified_button = QPushButton("Graph Unified")
-        self.graph_unified_button.setMinimumHeight(35)
+        self.graph_unified_button.setMinimumHeight(28)  # Reduced from 35
         self.graph_unified_button.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
@@ -774,24 +899,26 @@ class UnifiedFitPanel(QWidget):
         self.num_levels_spin.setMinimum(1)
         self.num_levels_spin.setMaximum(5)
         self.num_levels_spin.setValue(1)
-        self.num_levels_spin.setMinimumHeight(30)
+        self.num_levels_spin.setMinimumHeight(26)  # Reduced from 30
         self.num_levels_spin.valueChanged.connect(self.on_num_levels_changed)
         top_controls.addWidget(self.num_levels_spin)
 
         layout.addLayout(top_controls)
 
-        # Checkboxes row
-        checkboxes_layout = QVBoxLayout()
+        # Checkboxes - reorganized to save vertical space
+        # First row: Update automatically + No limits (on same horizontal line)
+        checkboxes_row1 = QHBoxLayout()
         self.update_auto_check = QCheckBox("Update automatically?")
-        checkboxes_layout.addWidget(self.update_auto_check)
-
-        self.display_local_check = QCheckBox("Display local (Porod & Guinier) fits?")
-        checkboxes_layout.addWidget(self.display_local_check)
-
+        checkboxes_row1.addWidget(self.update_auto_check)
+        checkboxes_row1.addSpacing(10)
         self.no_limits_check = QCheckBox("No limits?")
-        checkboxes_layout.addWidget(self.no_limits_check)
+        checkboxes_row1.addWidget(self.no_limits_check)
+        checkboxes_row1.addStretch()
+        layout.addLayout(checkboxes_row1)
 
-        layout.addLayout(checkboxes_layout)
+        # Second row: Display local fits (on its own line)
+        self.display_local_check = QCheckBox("Display local (Porod & Guinier) fits?")
+        layout.addWidget(self.display_local_check)
 
         # Level tabs
         self.level_tabs = QTabWidget()
@@ -808,12 +935,15 @@ class UnifiedFitPanel(QWidget):
         # Initially disable unused levels
         self.update_level_tabs()
 
+        # Set reasonable minimum height for tab widget
+        self.level_tabs.setMinimumHeight(350)  # Balanced with other layout improvements
+
         layout.addWidget(self.level_tabs)
 
         # SAS Background
         background_layout = QHBoxLayout()
         background_layout.addWidget(QLabel("SAS Background"))
-        self.background_value = QLineEdit("1e-06")
+        self.background_value = ScrubbableLineEdit("1e-06")
         self.background_value.setValidator(QDoubleValidator())
         self.background_value.setMaximumWidth(100)
         self.background_value.editingFinished.connect(self.on_parameter_changed)
@@ -833,7 +963,7 @@ class UnifiedFitPanel(QWidget):
         # Fit buttons row
         fit_buttons = QHBoxLayout()
         self.fit_button = QPushButton("Fit")
-        self.fit_button.setMinimumHeight(35)
+        self.fit_button.setMinimumHeight(28)  # Reduced from 35
         self.fit_button.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
@@ -849,7 +979,7 @@ class UnifiedFitPanel(QWidget):
         fit_buttons.addWidget(self.fit_button)
 
         self.revert_button = QPushButton("Revert back")
-        self.revert_button.setMinimumHeight(35)
+        self.revert_button.setMinimumHeight(28)  # Reduced from 35
         fit_buttons.addWidget(self.revert_button)
 
         layout.addLayout(fit_buttons)
@@ -858,7 +988,7 @@ class UnifiedFitPanel(QWidget):
         additional_buttons = QHBoxLayout()
 
         self.reset_button = QPushButton("Reset to Defaults")
-        self.reset_button.setMinimumHeight(30)
+        self.reset_button.setMinimumHeight(26)  # Reduced from 30
         self.reset_button.setStyleSheet("""
             QPushButton {
                 background-color: #e67e22;
@@ -873,11 +1003,11 @@ class UnifiedFitPanel(QWidget):
         additional_buttons.addWidget(self.reset_button)
 
         self.reset_unif_button = QPushButton("reset unif?")
-        self.reset_unif_button.setMinimumHeight(30)
+        self.reset_unif_button.setMinimumHeight(26)  # Reduced from 30
         additional_buttons.addWidget(self.reset_unif_button)
 
         self.fix_limits_button = QPushButton("Fix limits?")
-        self.fix_limits_button.setMinimumHeight(30)
+        self.fix_limits_button.setMinimumHeight(26)  # Reduced from 30
         additional_buttons.addWidget(self.fix_limits_button)
 
         layout.addLayout(additional_buttons)
@@ -902,7 +1032,7 @@ class UnifiedFitPanel(QWidget):
         results_buttons1 = QHBoxLayout()
 
         self.save_state_button = QPushButton("Save State")
-        self.save_state_button.setMinimumHeight(30)
+        self.save_state_button.setMinimumHeight(26)
         self.save_state_button.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
@@ -917,11 +1047,11 @@ class UnifiedFitPanel(QWidget):
         results_buttons1.addWidget(self.save_state_button)
 
         self.store_data_button = QPushButton("Store in Data Folder")
-        self.store_data_button.setMinimumHeight(30)
+        self.store_data_button.setMinimumHeight(26)
         results_buttons1.addWidget(self.store_data_button)
 
         self.export_ascii_button = QPushButton("Export ASCII")
-        self.export_ascii_button.setMinimumHeight(30)
+        self.export_ascii_button.setMinimumHeight(26)
         results_buttons1.addWidget(self.export_ascii_button)
 
         layout.addLayout(results_buttons1)
@@ -930,17 +1060,17 @@ class UnifiedFitPanel(QWidget):
         results_buttons2 = QHBoxLayout()
 
         self.export_params_button = QPushButton("Export Parameters")
-        self.export_params_button.setMinimumHeight(30)
+        self.export_params_button.setMinimumHeight(26)
         self.export_params_button.clicked.connect(self.export_parameters)
         results_buttons2.addWidget(self.export_params_button)
 
         self.import_params_button = QPushButton("Import Parameters")
-        self.import_params_button.setMinimumHeight(30)
+        self.import_params_button.setMinimumHeight(26)
         self.import_params_button.clicked.connect(self.import_parameters)
         results_buttons2.addWidget(self.import_params_button)
 
         self.results_graphs_button = QPushButton("Results to graphs")
-        self.results_graphs_button.setMinimumHeight(30)
+        self.results_graphs_button.setMinimumHeight(26)
         results_buttons2.addWidget(self.results_graphs_button)
 
         layout.addLayout(results_buttons2)
