@@ -40,6 +40,7 @@ from matplotlib.figure import Figure
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
 from pyirena.gui.unified_fit import UnifiedFitPanel
+from pyirena.state import StateManager
 
 
 class GraphWindow(QWidget):
@@ -128,6 +129,13 @@ class DataSelectorPanel(QWidget):
         self.last_folder = None  # Remember last selected folder
         self.graph_window = None
         self.unified_fit_window = None  # Unified fit panel
+
+        # Initialize state manager
+        self.state_manager = StateManager()
+
+        # Load last used folder from state
+        self.load_last_folder()
+
         self.init_ui()
 
     def init_ui(self):
@@ -299,6 +307,14 @@ class DataSelectorPanel(QWidget):
         # Set minimum window size (at least twice the listbox width)
         self.setMinimumSize(900, 600)
 
+        # If we have a restored folder, display it and list files
+        if self.current_folder:
+            self.folder_label.setText(self.current_folder)
+            self.folder_label.setStyleSheet("color: #2c3e50;")
+            self.refresh_button.setEnabled(True)
+            self.refresh_file_list()
+            self.status_label.setText(f"Restored folder: {os.path.basename(self.current_folder)}")
+
     def create_menu_bar(self) -> QMenuBar:
         """Create the menu bar with Models menu."""
         menu_bar = QMenuBar()
@@ -347,6 +363,7 @@ class DataSelectorPanel(QWidget):
         if folder:
             self.current_folder = folder
             self.last_folder = folder  # Remember for next time
+            self.save_last_folder(folder)  # Save to state
             self.folder_label.setText(folder)
             self.folder_label.setStyleSheet("color: #2c3e50;")
             self.refresh_button.setEnabled(True)
@@ -515,6 +532,28 @@ class DataSelectorPanel(QWidget):
                 f"Error loading data for Unified Fit:\n{str(e)}"
             )
             self.status_label.setText(f"Error: {str(e)}")
+
+    def load_last_folder(self):
+        """Load the last used folder from state and set it if it exists."""
+        last_folder = self.state_manager.get('data_selector', 'last_folder')
+
+        if last_folder and os.path.isdir(last_folder):
+            # Folder exists, use it
+            self.last_folder = last_folder
+            self.current_folder = last_folder
+            print(f"Restored last folder: {last_folder}")
+        else:
+            # Folder doesn't exist or wasn't saved, use home directory
+            self.last_folder = str(Path.home())
+            self.current_folder = None
+            if last_folder:
+                print(f"Last folder no longer exists: {last_folder}")
+                print(f"Starting in home directory: {self.last_folder}")
+
+    def save_last_folder(self, folder: str):
+        """Save the current folder to state."""
+        self.state_manager.set('data_selector', 'last_folder', folder)
+        self.state_manager.save()
 
     def show_about(self):
         """Show about dialog."""
