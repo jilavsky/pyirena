@@ -512,11 +512,26 @@ class UnifiedFitGraphWindow(QWidget):
         Add text annotation to the graph at specified position.
 
         Args:
-            q_pos: Q position for the text
-            y_pos: Intensity position for the text
+            q_pos: Q position for the text (linear coordinates)
+            y_pos: Intensity position for the text (linear coordinates)
             text: Text string to display
             color: Color for the text
         """
+        import numpy as np
+
+        # Convert to log coordinates since plot is in log mode
+        # Ensure values are positive before taking log
+        if q_pos <= 0:
+            q_pos = 1e-10
+        if y_pos <= 0:
+            y_pos = 1e-10
+
+        q_log = np.log10(q_pos)
+        y_log = np.log10(y_pos)
+
+        print(f"DEBUG: Converting position - Linear: Q={q_pos}, Y={y_pos}")
+        print(f"DEBUG: Log coordinates: Q_log={q_log}, Y_log={y_log}")
+
         # Create text item with white background box for visibility
         text_item = pg.TextItem(
             text=text,
@@ -525,10 +540,11 @@ class UnifiedFitGraphWindow(QWidget):
             fill=pg.mkBrush(255, 255, 255, 200),  # White background with slight transparency
             border=pg.mkPen(color='black', width=1)  # Black border
         )
-        text_item.setPos(q_pos, y_pos)
+        # Set position in log coordinates
+        text_item.setPos(q_log, y_log)
         self.main_plot.addItem(text_item)
         self.result_text_items.append(text_item)
-        print(f"DEBUG: Added text item at Q={q_pos}, Y={y_pos}")
+        print(f"DEBUG: Added text item at log coordinates Q_log={q_log}, Y_log={y_log}")
 
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot experimental data."""
