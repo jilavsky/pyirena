@@ -517,10 +517,18 @@ class UnifiedFitGraphWindow(QWidget):
             text: Text string to display
             color: Color for the text
         """
-        text_item = pg.TextItem(text=text, color=color, anchor=(0, 1))
+        # Create text item with white background box for visibility
+        text_item = pg.TextItem(
+            text=text,
+            color=color,
+            anchor=(0, 1),
+            fill=pg.mkBrush(255, 255, 255, 200),  # White background with slight transparency
+            border=pg.mkPen(color='black', width=1)  # Black border
+        )
         text_item.setPos(q_pos, y_pos)
         self.main_plot.addItem(text_item)
         self.result_text_items.append(text_item)
+        print(f"DEBUG: Added text item at Q={q_pos}, Y={y_pos}")
 
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot experimental data."""
@@ -2872,67 +2880,84 @@ class UnifiedFitPanel(QWidget):
 
     def display_results_on_graph(self):
         """Display formatted text boxes with results for each level on the graph."""
-        if self.data is None:
-            self.graph_window.show_error_message("No data loaded. Please load data first.")
-            return
+        print("DEBUG: display_results_on_graph called")
 
-        # Clear any existing result annotations
-        self.graph_window.clear_result_text_annotations()
+        try:
+            if self.data is None:
+                print("DEBUG: No data loaded")
+                self.graph_window.show_error_message("No data loaded. Please load data first.")
+                return
 
-        # Save current view range to restore after adding text items
-        view_range = self.graph_window.main_plot.viewRange()
+            # Clear any existing result annotations
+            self.graph_window.clear_result_text_annotations()
+            print("DEBUG: Cleared existing annotations")
 
-        num_levels = self.num_levels_spin.value()
-        q = self.data['Q']
-        intensity = self.data['Intensity']
+            # Save current view range to restore after adding text items
+            view_range = self.graph_window.main_plot.viewRange()
+            print(f"DEBUG: View range: {view_range}")
 
-        for i in range(num_levels):
-            params = self.level_widgets[i].get_parameters()
-            level_num = i + 1
+            num_levels = self.num_levels_spin.value()
+            q = self.data['Q']
+            intensity = self.data['Intensity']
+            print(f"DEBUG: Number of levels: {num_levels}")
 
-            # Calculate attachment point: Q = 2/Rg
-            Rg = params['Rg']
-            if Rg > 0 and Rg < 1e9:  # Valid Rg value
-                target_q = 2.0 / Rg
-            else:
-                target_q = q[0]  # Use first point if Rg is too large
+            for i in range(num_levels):
+                params = self.level_widgets[i].get_parameters()
+                level_num = i + 1
 
-            # Find closest Q point in data
-            if target_q < q[0]:
-                q_index = 0
-            elif target_q > q[-1]:
-                q_index = len(q) - 1
-            else:
-                q_index = np.argmin(np.abs(q - target_q))
+                # Calculate attachment point: Q = 2/Rg
+                Rg = params['Rg']
+                if Rg > 0 and Rg < 1e9:  # Valid Rg value
+                    target_q = 2.0 / Rg
+                else:
+                    target_q = q[0]  # Use first point if Rg is too large
 
-            q_pos = q[q_index]
-            y_pos = intensity[q_index]
+                # Find closest Q point in data
+                if target_q < q[0]:
+                    q_index = 0
+                elif target_q > q[-1]:
+                    q_index = len(q) - 1
+                else:
+                    q_index = np.argmin(np.abs(q - target_q))
 
-            # Build result text
-            text_lines = [f"Level {level_num}:"]
-            text_lines.append(f"G = {params['G']:.3e}")
-            text_lines.append(f"Rg = {params['Rg']:.3e}")
-            text_lines.append(f"B = {params['B']:.3e}")
-            text_lines.append(f"P = {params['P']:.3f}")
+                q_pos = q[q_index]
+                y_pos = intensity[q_index]
+                print(f"DEBUG: Level {level_num} - Q pos: {q_pos}, Y pos: {y_pos}")
 
-            # Add RgCutoff if non-zero
-            if params['RgCutoff'] > 0.01:
-                text_lines.append(f"RgCO = {params['RgCutoff']:.3e}")
+                # Build result text
+                text_lines = [f"Level {level_num}:"]
+                text_lines.append(f"G = {params['G']:.3e}")
+                text_lines.append(f"Rg = {params['Rg']:.3e}")
+                text_lines.append(f"B = {params['B']:.3e}")
+                text_lines.append(f"P = {params['P']:.3f}")
 
-            # Add correlation parameters if enabled
-            if params['correlated']:
-                text_lines.append(f"ETA = {params['ETA']:.3e}")
-                text_lines.append(f"PACK = {params['PACK']:.3f}")
+                # Add RgCutoff if non-zero
+                if params['RgCutoff'] > 0.01:
+                    text_lines.append(f"RgCO = {params['RgCutoff']:.3e}")
 
-            result_text = "\n".join(text_lines)
+                # Add correlation parameters if enabled
+                if params['correlated']:
+                    text_lines.append(f"ETA = {params['ETA']:.3e}")
+                    text_lines.append(f"PACK = {params['PACK']:.3f}")
 
-            # Add text annotation to graph
-            self.graph_window.add_result_text_annotation(q_pos, y_pos, result_text, color='black')
+                result_text = "\n".join(text_lines)
+                print(f"DEBUG: Adding text for level {level_num}:\n{result_text}")
 
-        # Restore the original view range (text items shouldn't affect zoom)
-        self.graph_window.main_plot.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
+                # Add text annotation to graph
+                self.graph_window.add_result_text_annotation(q_pos, y_pos, result_text, color='black')
 
-        self.status_label.setText(f"Displayed results for {num_levels} level(s) on graph")
+            # Restore the original view range (text items shouldn't affect zoom)
+            self.graph_window.main_plot.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
+            print("DEBUG: Restored view range")
+
+            self.status_label.setText(f"Displayed results for {num_levels} level(s) on graph")
+            print("DEBUG: display_results_on_graph completed successfully")
+
+        except Exception as e:
+            print(f"ERROR in display_results_on_graph: {e}")
+            import traceback
+            traceback.print_exc()
+            self.graph_window.show_error_message(f"Error displaying results: {str(e)}")
 
     def export_parameters(self):
         """Export current parameters to JSON file."""
