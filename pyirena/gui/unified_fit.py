@@ -1301,17 +1301,27 @@ class LevelParametersWidget(QWidget):
         K = 1.0 if P > 3 else 1.06
 
         # Calculate Q* (erf correction)
-        # Avoid division by zero by ensuring erf result is never too close to zero
-        erf_arg = K * q * Rg / np.sqrt(6)
+        # Avoid division by zero by ensuring both q and erf result are not too small
+        # Replace very small q values to avoid 0/0
+        q_safe = np.where(np.abs(q) < 1e-10, 1e-10, q)
+
+        erf_arg = K * q_safe * Rg / np.sqrt(6)
         erf_val = erf(erf_arg)
         erf_cubed = erf_val**3
 
         # Replace zero or very small values to avoid division issues
         erf_cubed = np.where(np.abs(erf_cubed) < 1e-10, 1e-10, erf_cubed)
-        qstar = q / erf_cubed
+        qstar = q_safe / erf_cubed
+
+        # Ensure qstar is valid (no inf or nan)
+        qstar = np.where(np.isfinite(qstar), qstar, 1e-10)
 
         # Calculate unified intensity
+        # Use original q (not q_safe) for exponential terms
         intensity = G * np.exp(-q**2 * Rg**2 / 3) + (B / qstar**P) * np.exp(-RgCO**2 * q**2 / 3)
+
+        # Replace any NaN or inf with 0
+        intensity = np.where(np.isfinite(intensity), intensity, 0)
 
         # Apply correlation correction if enabled
         if correlated and PACK > 0 and ETA > 0:
