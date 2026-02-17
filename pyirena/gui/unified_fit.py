@@ -1217,7 +1217,10 @@ class LevelParametersWidget(QWidget):
         """
         try:
             import numpy as np
-            from scipy.integrate import simps
+            try:
+                from scipy.integrate import simpson
+            except ImportError:
+                from scipy.integrate import simps as simpson
             from scipy.special import erf, gamma
 
             # Get parameters
@@ -1251,7 +1254,7 @@ class LevelParametersWidget(QWidget):
             surf_invariant = surf_int * surf_q**2
 
             # Integrate to get invariant (using Simpson's rule)
-            invariant = simps(surf_invariant, surf_q)
+            invariant = simpson(surf_invariant, x=surf_q)
 
             # Add Porod tail if RgCO < 0.1 (no cutoff)
             if RgCO < 0.1:
