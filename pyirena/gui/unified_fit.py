@@ -744,11 +744,19 @@ class LevelParametersWidget(QWidget):
         grid = QGridLayout()
         grid.setSpacing(8)
 
+        # Set minimum column widths to prevent layout shift when hiding limit fields
+        grid.setColumnMinimumWidth(3, 85)  # Low limit column
+        grid.setColumnMinimumWidth(4, 85)  # High limit column
+
         # Column headers
         grid.addWidget(QLabel(""), 0, 0)
         grid.addWidget(QLabel("Fit?"), 0, 2, Qt.AlignmentFlag.AlignCenter)
-        grid.addWidget(QLabel("Low limit:"), 0, 3, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(QLabel("High Limit:"), 0, 4, Qt.AlignmentFlag.AlignRight)
+        self.low_limit_header = QLabel("Low limit:")
+        self.low_limit_header.setAlignment(Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self.low_limit_header, 0, 3)
+        self.high_limit_header = QLabel("High Limit:")
+        self.high_limit_header.setAlignment(Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self.high_limit_header, 0, 4)
 
         # G parameter
         row = 1
@@ -806,6 +814,7 @@ class LevelParametersWidget(QWidget):
         # Estimate B checkbox with pi B/Q display on the right
         estimate_b_layout = QHBoxLayout()
         self.estimate_b_check = QCheckBox("Estimate B from G/Rg/P?")
+        self.estimate_b_check.stateChanged.connect(self._on_estimate_b_changed)
         estimate_b_layout.addWidget(self.estimate_b_check)
         estimate_b_layout.addSpacing(20)
         estimate_b_layout.addWidget(QLabel("pi B/Q [m2/cm3]"))
@@ -819,6 +828,10 @@ class LevelParametersWidget(QWidget):
         # B and P parameters
         grid2 = QGridLayout()
         grid2.setSpacing(8)
+
+        # Set minimum column widths to prevent layout shift when hiding limit fields
+        grid2.setColumnMinimumWidth(3, 85)  # Low limit column
+        grid2.setColumnMinimumWidth(4, 85)  # High limit column
 
         # B parameter
         row = 0
@@ -916,13 +929,17 @@ class LevelParametersWidget(QWidget):
         corr_grid = QGridLayout()
         corr_grid.setSpacing(8)
 
+        # Set minimum column widths to prevent layout shift when hiding limit fields
+        corr_grid.setColumnMinimumWidth(3, 85)  # Low limit column
+        corr_grid.setColumnMinimumWidth(4, 85)  # High limit column
+
         # ETA parameter
         row = 0
         corr_grid.addWidget(QLabel("ETA"), row, 0)
         self.eta_value = ScrubbableLineEdit("0")
         self.eta_value.setValidator(QDoubleValidator())
-        self.eta_value.setMinimumWidth(120)
-        self.eta_value.setMaximumWidth(120)
+        self.eta_value.setMinimumWidth(95)
+        self.eta_value.setMaximumWidth(95)
         self.eta_value.editingFinished.connect(self._on_eta_changed)
         corr_grid.addWidget(self.eta_value, row, 1)
         self.eta_fit = QCheckBox()
@@ -941,8 +958,8 @@ class LevelParametersWidget(QWidget):
         corr_grid.addWidget(QLabel("PACK"), row, 0)
         self.pack_value = ScrubbableLineEdit("0")
         self.pack_value.setValidator(QDoubleValidator())
-        self.pack_value.setMinimumWidth(120)
-        self.pack_value.setMaximumWidth(120)
+        self.pack_value.setMinimumWidth(95)
+        self.pack_value.setMaximumWidth(95)
         self.pack_value.editingFinished.connect(self._on_pack_changed)
         corr_grid.addWidget(self.pack_value, row, 1)
         self.pack_fit = QCheckBox()
@@ -969,6 +986,17 @@ class LevelParametersWidget(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
+        # Store all limit fields for easy show/hide
+        self.limit_fields = [
+            self.g_low, self.g_high,
+            self.rg_low, self.rg_high,
+            self.b_low, self.b_high,
+            self.p_low, self.p_high,
+            self.eta_low, self.eta_high,
+            self.pack_low, self.pack_high
+        ]
+        self.limit_headers = [self.low_limit_header, self.high_limit_header]
+
         # Initialize limits based on default values
         self.fix_limits()
 
@@ -982,6 +1010,17 @@ class LevelParametersWidget(QWidget):
         else:
             # Use fixed decimal for normal range numbers
             return f"{value:.3g}"
+
+    def toggle_limits_visibility(self, show: bool):
+        """Show or hide all limit fields and headers."""
+        for field in self.limit_fields:
+            # Don't show B limits if estimate_B is checked
+            if field in [self.b_low, self.b_high] and self.estimate_b_check.isChecked():
+                field.setVisible(False)
+            else:
+                field.setVisible(show)
+        for header in self.limit_headers:
+            header.setVisible(show)
 
     def _on_g_changed(self):
         """Update G limits when G value changes."""
@@ -997,6 +1036,10 @@ class LevelParametersWidget(QWidget):
                 self.g_low.setText(self._format_value(value * 0.2))
                 self.g_high.setText(self._format_value(value * 5))
                 self.g_value.setText(self._format_value(value))
+
+            # Recalculate B if estimate_B is checked
+            if self.estimate_b_check.isChecked():
+                self._calculate_and_set_b()
         except ValueError:
             pass
         self.parameter_changed.emit()
@@ -1012,6 +1055,10 @@ class LevelParametersWidget(QWidget):
                 self.rg_low.setText(self._format_value(low_val))
                 self.rg_high.setText(self._format_value(high_val))
                 self.rg_value.setText(self._format_value(value))
+
+            # Recalculate B if estimate_B is checked
+            if self.estimate_b_check.isChecked():
+                self._calculate_and_set_b()
         except ValueError:
             pass
         self.parameter_changed.emit()
@@ -1039,6 +1086,10 @@ class LevelParametersWidget(QWidget):
                 self.p_low.setText(self._format_value(low_val))
                 self.p_high.setText(self._format_value(high_val))
                 self.p_value.setText(self._format_value(value))
+
+            # Recalculate B if estimate_B is checked
+            if self.estimate_b_check.isChecked():
+                self._calculate_and_set_b()
         except ValueError:
             pass
         self.parameter_changed.emit()
@@ -1077,6 +1128,54 @@ class LevelParametersWidget(QWidget):
         """Show/hide correlation parameters when checkbox changes."""
         self.corr_params_widget.setVisible(self.correlated_check.isChecked())
         self.parameter_changed.emit()
+
+    def _on_estimate_b_changed(self, state):
+        """Handle Estimate B checkbox change."""
+        estimate_b = self.estimate_b_check.isChecked()
+
+        if estimate_b:
+            # Calculate B from G, Rg, and P
+            self._calculate_and_set_b()
+
+            # Uncheck and disable B fit checkbox
+            self.b_fit.setChecked(False)
+            self.b_fit.setEnabled(False)
+
+            # Hide B limit fields
+            self.b_low.setVisible(False)
+            self.b_high.setVisible(False)
+        else:
+            # Re-enable B fit checkbox
+            self.b_fit.setEnabled(True)
+
+            # Show B limit fields (unless "No limits?" is checked globally)
+            # This will be handled by the parent's toggle_limits_visibility if needed
+            self.b_low.setVisible(True)
+            self.b_high.setVisible(True)
+
+        self.parameter_changed.emit()
+
+    def _calculate_and_set_b(self):
+        """Calculate B from formula: B = G * exp(-P/2) * (3*P/2)^(P/2) * (1/Rg^P)"""
+        try:
+            import numpy as np
+
+            G = float(self.g_value.text() or 0)
+            Rg = float(self.rg_value.text() or 0)
+            P = float(self.p_value.text() or 0)
+
+            if G > 0 and Rg > 0 and P > 0:
+                # B = G * exp(-P/2) * (3*P/2)^(P/2) * (1/Rg^P)
+                B = G * np.exp(-P/2.0) * ((3.0 * P / 2.0) ** (P / 2.0)) * (1.0 / Rg ** P)
+
+                # Set B value
+                self.b_value.setText(self._format_value(B))
+
+                # Update B limits based on new value
+                self.b_low.setText(self._format_value(B / 5.0))
+                self.b_high.setText(self._format_value(B * 5.0))
+        except (ValueError, ZeroDivisionError):
+            pass
 
     def fix_limits(self):
         """
@@ -1238,6 +1337,16 @@ class LevelParametersWidget(QWidget):
             self.pack_fit.setChecked(params['fit_PACK'])
         if 'estimate_B' in params:
             self.estimate_b_check.setChecked(params['estimate_B'])
+            # Update B fit checkbox and limits visibility
+            if params['estimate_B']:
+                self.b_fit.setChecked(False)
+                self.b_fit.setEnabled(False)
+                self.b_low.setVisible(False)
+                self.b_high.setVisible(False)
+            else:
+                self.b_fit.setEnabled(True)
+                self.b_low.setVisible(True)
+                self.b_high.setVisible(True)
         if 'correlated' in params:
             self.correlated_check.setChecked(params['correlated'])
             # Update visibility of correlation parameters
@@ -1263,6 +1372,9 @@ class UnifiedFitPanel(QWidget):
         self.data = None
         self.model = UnifiedFitModel()
         self.fit_result = None
+
+        # Storage for local fit curves
+        self.local_fits = {}  # Dict to store local fit curves: {level: {'guinier': (q, I), 'porod': (q, I)}}
 
         # State management
         self.state_manager = StateManager()
@@ -1305,6 +1417,17 @@ class UnifiedFitPanel(QWidget):
         self.setMinimumSize(1200, 960)  # Same width, 20% taller (800 * 1.2 = 960)
         self.resize(1200, 960)  # Set initial size
 
+    def format_value_3sig(self, value: float) -> str:
+        """Format a value to 3 significant digits for display."""
+        if value == 0:
+            return "0"
+        # Use scientific notation with 2 decimal places (3 sig figs total)
+        if abs(value) < 0.01 or abs(value) >= 1000:
+            return f"{value:.2e}"
+        else:
+            # For values in normal range, use 3 significant figures
+            return f"{value:.3g}"
+
     def create_control_panel(self) -> QWidget:
         """Create the left control panel."""
         panel = QWidget()
@@ -1341,51 +1464,24 @@ class UnifiedFitPanel(QWidget):
         """)
         layout.addWidget(title_label)
 
-        # Top controls row
+        # Top controls row - Number of levels and No limits
         top_controls = QHBoxLayout()
-
-        self.graph_unified_button = QPushButton("Graph Unified")
-        self.graph_unified_button.setMinimumHeight(28)  # Reduced from 35
-        self.graph_unified_button.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #229954;
-            }
-        """)
-        self.graph_unified_button.clicked.connect(self.graph_unified)
-        top_controls.addWidget(self.graph_unified_button)
-
-        top_controls.addStretch()
-
         top_controls.addWidget(QLabel("Number of levels:"))
         self.num_levels_spin = QSpinBox()
         self.num_levels_spin.setMinimum(1)
         self.num_levels_spin.setMaximum(5)
         self.num_levels_spin.setValue(1)
-        self.num_levels_spin.setMinimumHeight(26)  # Reduced from 30
+        self.num_levels_spin.setMinimumHeight(26)
         self.num_levels_spin.valueChanged.connect(self.on_num_levels_changed)
         top_controls.addWidget(self.num_levels_spin)
 
-        layout.addLayout(top_controls)
+        top_controls.addSpacing(20)
 
-        # Checkboxes - reorganized to save vertical space
-        # First row: Update automatically + No limits (on same horizontal line)
-        checkboxes_row1 = QHBoxLayout()
-        self.update_auto_check = QCheckBox("Update automatically?")
-        checkboxes_row1.addWidget(self.update_auto_check)
-        checkboxes_row1.addSpacing(10)
         self.no_limits_check = QCheckBox("No limits?")
-        checkboxes_row1.addWidget(self.no_limits_check)
-        checkboxes_row1.addStretch()
-        layout.addLayout(checkboxes_row1)
-
-        # Second row: Display local fits (on its own line)
-        self.display_local_check = QCheckBox("Display local (Porod & Guinier) fits?")
-        layout.addWidget(self.display_local_check)
+        self.no_limits_check.stateChanged.connect(self.on_no_limits_changed)
+        top_controls.addWidget(self.no_limits_check)
+        top_controls.addStretch()
+        layout.addLayout(top_controls)
 
         # Level tabs
         self.level_tabs = QTabWidget()
@@ -1435,15 +1531,39 @@ class UnifiedFitPanel(QWidget):
         background_layout.addStretch()
         layout.addLayout(background_layout)
 
-        # Fitting method label
-        fit_method_label = QLabel("Fit using least square fitting ?")
-        fit_method_label.setStyleSheet("color: #3498db; font-style: italic;")
-        layout.addWidget(fit_method_label)
+        # Checkboxes row - Update automatically and Display local fits
+        checkboxes_layout = QHBoxLayout()
+        self.update_auto_check = QCheckBox("Update automatically?")
+        checkboxes_layout.addWidget(self.update_auto_check)
+        checkboxes_layout.addSpacing(20)
+        self.display_local_check = QCheckBox("Display local fits?")
+        self.display_local_check.stateChanged.connect(self.on_display_local_changed)
+        checkboxes_layout.addWidget(self.display_local_check)
+        checkboxes_layout.addStretch()
+        layout.addLayout(checkboxes_layout)
 
-        # Fit buttons row
+        # Fit buttons row - Graph Unified (lighter green), Fit (darker green), Revert back (orange)
         fit_buttons = QHBoxLayout()
+
+        self.graph_unified_button = QPushButton("Graph Unified")
+        self.graph_unified_button.setMinimumHeight(28)
+        self.graph_unified_button.setMaximumWidth(120)
+        self.graph_unified_button.setStyleSheet("""
+            QPushButton {
+                background-color: #52c77a;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3eb56a;
+            }
+        """)
+        self.graph_unified_button.clicked.connect(self.graph_unified)
+        fit_buttons.addWidget(self.graph_unified_button)
+
         self.fit_button = QPushButton("Fit")
-        self.fit_button.setMinimumHeight(28)  # Reduced from 35
+        self.fit_button.setMinimumHeight(28)
+        self.fit_button.setMaximumWidth(120)
         self.fit_button.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
@@ -1452,14 +1572,15 @@ class UnifiedFitPanel(QWidget):
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #229954;
+                background-color: #1e8449;
             }
         """)
         self.fit_button.clicked.connect(self.run_fit)
         fit_buttons.addWidget(self.fit_button)
 
         self.revert_button = QPushButton("Revert back")
-        self.revert_button.setMinimumHeight(28)  # Reduced from 35
+        self.revert_button.setMinimumHeight(28)
+        self.revert_button.setMaximumWidth(120)
         self.revert_button.setStyleSheet("""
             QPushButton {
                 background-color: #e67e22;
@@ -1473,6 +1594,7 @@ class UnifiedFitPanel(QWidget):
         self.revert_button.clicked.connect(self.revert_to_backup)
         fit_buttons.addWidget(self.revert_button)
 
+        fit_buttons.addStretch()
         layout.addLayout(fit_buttons)
 
         # Additional buttons row with Reset
@@ -1596,6 +1718,10 @@ class UnifiedFitPanel(QWidget):
         """Handle change in number of levels."""
         self.update_level_tabs()
 
+        # Recalculate if "Update automatically" is checked
+        if self.update_auto_check.isChecked() and self.data is not None:
+            self.graph_unified()
+
     def update_level_tabs(self):
         """Update which level tabs are enabled."""
         num_levels = self.num_levels_spin.value()
@@ -1610,6 +1736,25 @@ class UnifiedFitPanel(QWidget):
         if self.update_auto_check.isChecked() and self.data is not None:
             self.graph_unified()
 
+    def on_no_limits_changed(self, state):
+        """Handle change in 'No limits?' checkbox."""
+        show_limits = not self.no_limits_check.isChecked()
+        # Toggle visibility of limit fields in all level widgets
+        for level_widget in self.level_widgets:
+            level_widget.toggle_limits_visibility(show_limits)
+
+    def on_display_local_changed(self, state):
+        """Handle change in 'Display local fits?' checkbox."""
+        if self.display_local_check.isChecked():
+            # Show local fits if any exist
+            if self.local_fits and self.data is not None:
+                # Redraw the graph with local fits
+                self.graph_unified()
+        else:
+            # Hide local fits by redrawing without them
+            if self.data is not None:
+                self.graph_unified()
+
     def set_data(self, q, intensity, error=None, label='Data'):
         """Set the data to be fitted."""
         self.data = {
@@ -1618,6 +1763,10 @@ class UnifiedFitPanel(QWidget):
             'Error': error,
             'label': label
         }
+
+        # Clear local fits when new data is loaded (they would be invalid for different data)
+        self.clear_local_fits()
+
         # Plot the data
         if self.graph_window:
             self.graph_window.init_plots()
@@ -1685,6 +1834,11 @@ class UnifiedFitPanel(QWidget):
                 residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
             self.graph_window.plot_residuals(self.data['Q'], residuals)
+
+            # Plot local fits if checkbox is enabled and there are local fits to display
+            if self.display_local_check.isChecked() and self.local_fits:
+                self.plot_local_fits()
+
             self.status_label.setText(f"Calculated unified fit with {num_levels} level(s)")
 
         except Exception as e:
@@ -1709,30 +1863,59 @@ class UnifiedFitPanel(QWidget):
             num_levels = self.num_levels_spin.value()
             levels = []
 
+            # Check if limits should be applied
+            no_limits = self.no_limits_check.isChecked()
+
             for i in range(num_levels):
                 params = self.level_widgets[i].get_parameters()
-                level = UnifiedLevel(
-                    Rg=params['Rg'],
-                    G=params['G'],
-                    P=params['P'],
-                    B=params['B'],
-                    RgCO=params['RgCutoff'],
-                    ETA=params['ETA'],
-                    PACK=params['PACK'],
-                    correlations=params['correlated'],
-                    fit_Rg=params['fit_Rg'],
-                    fit_G=params['fit_G'],
-                    fit_P=params['fit_P'],
-                    fit_B=params['fit_B'],
-                    fit_ETA=params['fit_ETA'],
-                    fit_PACK=params['fit_PACK'],
-                    Rg_limits=(params['Rg_low'], params['Rg_high']),
-                    G_limits=(params['G_low'], params['G_high']),
-                    P_limits=(params['P_low'], params['P_high']),
-                    B_limits=(params['B_low'], params['B_high']),
-                    ETA_limits=(params['ETA_low'], params['ETA_high']),
-                    PACK_limits=(params['PACK_low'], params['PACK_high'])
-                )
+
+                # If "No limits?" is checked, use very wide bounds instead of user-specified limits
+                if no_limits:
+                    level = UnifiedLevel(
+                        Rg=params['Rg'],
+                        G=params['G'],
+                        P=params['P'],
+                        B=params['B'],
+                        RgCO=params['RgCutoff'],
+                        ETA=params['ETA'],
+                        PACK=params['PACK'],
+                        correlations=params['correlated'],
+                        fit_Rg=params['fit_Rg'],
+                        fit_G=params['fit_G'],
+                        fit_P=params['fit_P'],
+                        fit_B=params['fit_B'],
+                        fit_ETA=params['fit_ETA'],
+                        fit_PACK=params['fit_PACK'],
+                        Rg_limits=(0.1, 1e6),      # Default wide bounds
+                        G_limits=(1e-10, 1e10),    # Default wide bounds
+                        P_limits=(0.0, 6.0),       # Default wide bounds
+                        B_limits=(1e-20, 1e10),    # Default wide bounds
+                        ETA_limits=(0.1, 1e6),     # Default wide bounds
+                        PACK_limits=(0.0, 16.0)    # Default wide bounds
+                    )
+                else:
+                    level = UnifiedLevel(
+                        Rg=params['Rg'],
+                        G=params['G'],
+                        P=params['P'],
+                        B=params['B'],
+                        RgCO=params['RgCutoff'],
+                        ETA=params['ETA'],
+                        PACK=params['PACK'],
+                        correlations=params['correlated'],
+                        fit_Rg=params['fit_Rg'],
+                        fit_G=params['fit_G'],
+                        fit_P=params['fit_P'],
+                        fit_B=params['fit_B'],
+                        fit_ETA=params['fit_ETA'],
+                        fit_PACK=params['fit_PACK'],
+                        Rg_limits=(params['Rg_low'], params['Rg_high']),
+                        G_limits=(params['G_low'], params['G_high']),
+                        P_limits=(params['P_low'], params['P_high']),
+                        B_limits=(params['B_low'], params['B_high']),
+                        ETA_limits=(params['ETA_low'], params['ETA_high']),
+                        PACK_limits=(params['PACK_low'], params['PACK_high'])
+                    )
                 levels.append(level)
 
             background = float(self.background_value.text() or 0)
@@ -1779,7 +1962,7 @@ class UnifiedFitPanel(QWidget):
                 # Fix limits after updating fitted values
                 self.level_widgets[i].fix_limits()
 
-            self.background_value.setText(f"{result['background']:.6e}")
+            self.background_value.setText(self.format_value_3sig(result['background']))
 
             # Calculate and plot
             intensity_calc = self.model.calculate_intensity(self.data['Q'])
@@ -1942,9 +2125,22 @@ class UnifiedFitPanel(QWidget):
             # Fix limits for this level
             level_widget.fix_limits()
 
+            # Store local fit curve for plotting if display is enabled
+            # Calculate Guinier curve over the Q range used for fitting
+            guinier_calc = fitted_g * np.exp(-q_fit**2 * fitted_rg**2 / 3)
+
+            # Store in local_fits dictionary
+            if level not in self.local_fits:
+                self.local_fits[level] = {}
+            self.local_fits[level]['guinier'] = (q_fit, guinier_calc)
+
             # Recalculate and update plot
             if self.update_auto_check.isChecked():
                 self.graph_unified()
+
+            # Plot local fits if checkbox is enabled
+            if self.display_local_check.isChecked():
+                self.plot_local_fits()
 
             # Show success message
             self.status_label.setText(
@@ -2090,9 +2286,22 @@ class UnifiedFitPanel(QWidget):
             # Fix limits for this level
             level_widget.fix_limits()
 
+            # Store local fit curve for plotting if display is enabled
+            # Calculate Porod/power law curve over the Q range used for fitting
+            porod_calc = fitted_b * q_fit**(-fitted_p)
+
+            # Store in local_fits dictionary
+            if level not in self.local_fits:
+                self.local_fits[level] = {}
+            self.local_fits[level]['porod'] = (q_fit, porod_calc)
+
             # Recalculate and update plot
             if self.update_auto_check.isChecked():
                 self.graph_unified()
+
+            # Plot local fits if checkbox is enabled
+            if self.display_local_check.isChecked():
+                self.plot_local_fits()
 
             # Show success message
             self.status_label.setText(
@@ -2113,6 +2322,53 @@ class UnifiedFitPanel(QWidget):
             self.status_label.setText("Fit failed")
             import traceback
             traceback.print_exc()
+
+    def plot_local_fits(self):
+        """
+        Plot all stored local fit curves (Guinier and Porod) on the graph.
+        Uses different colors and line styles for each level and fit type.
+        """
+        if not self.local_fits:
+            return
+
+        # Color schemes for different levels
+        # Match the tab colors: Level 1: Red, Level 2: Green, Level 3: Blue, Level 4: Orange, Level 5: Purple
+        colors = [
+            (211, 47, 47),      # Red - Level 1
+            (56, 142, 60),      # Green - Level 2
+            (25, 118, 210),     # Blue - Level 3
+            (245, 124, 0),      # Orange - Level 4
+            (123, 31, 162)      # Purple - Level 5
+        ]
+
+        # Plot local fits for each level
+        for level, fits in self.local_fits.items():
+            if level < 1 or level > 5:
+                continue
+
+            color = colors[level - 1]
+
+            # Plot Guinier fit (dashed line)
+            if 'guinier' in fits:
+                q_data, i_data = fits['guinier']
+                self.graph_window.main_plot.plot(
+                    q_data, i_data,
+                    pen=pg.mkPen(color=color, width=2, style=Qt.PenStyle.DashLine),
+                    name=f'Level {level} Guinier fit'
+                )
+
+            # Plot Porod fit (dotted line)
+            if 'porod' in fits:
+                q_data, i_data = fits['porod']
+                self.graph_window.main_plot.plot(
+                    q_data, i_data,
+                    pen=pg.mkPen(color=color, width=2, style=Qt.PenStyle.DotLine),
+                    name=f'Level {level} Porod fit'
+                )
+
+    def clear_local_fits(self):
+        """Clear all stored local fit curves."""
+        self.local_fits = {}
 
     # STATE MANAGEMENT METHODS
 
@@ -2189,7 +2445,7 @@ class UnifiedFitPanel(QWidget):
 
         # Set background
         bg = state.get('background', {})
-        self.background_value.setText(str(bg.get('value', 1e-6)))
+        self.background_value.setText(self.format_value_3sig(bg.get('value', 1e-6)))
         self.fit_background_check.setChecked(bg.get('fit', False))
 
         # Set checkboxes
@@ -2334,7 +2590,7 @@ class UnifiedFitPanel(QWidget):
             self.num_levels_spin.setValue(self.parameter_backup['num_levels'])
 
             # Restore background
-            self.background_value.setText(str(self.parameter_backup['background']))
+            self.background_value.setText(self.format_value_3sig(self.parameter_backup['background']))
 
             # Restore all level parameters
             for i in range(5):
