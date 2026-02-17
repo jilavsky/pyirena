@@ -1301,10 +1301,14 @@ class LevelParametersWidget(QWidget):
         K = 1.0 if P > 3 else 1.06
 
         # Calculate Q* (erf correction)
-        qstar = q / (erf(K * q * Rg / np.sqrt(6)))**3
+        # Avoid division by zero by ensuring erf result is never too close to zero
+        erf_arg = K * q * Rg / np.sqrt(6)
+        erf_val = erf(erf_arg)
+        erf_cubed = erf_val**3
 
-        # Avoid division by zero
-        qstar = np.where(qstar == 0, 1e-10, qstar)
+        # Replace zero or very small values to avoid division issues
+        erf_cubed = np.where(np.abs(erf_cubed) < 1e-10, 1e-10, erf_cubed)
+        qstar = q / erf_cubed
 
         # Calculate unified intensity
         intensity = G * np.exp(-q**2 * Rg**2 / 3) + (B / qstar**P) * np.exp(-RgCO**2 * q**2 / 3)
