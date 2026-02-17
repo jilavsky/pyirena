@@ -2134,13 +2134,12 @@ class UnifiedFitPanel(QWidget):
                 self.local_fits[level] = {}
             self.local_fits[level]['guinier'] = (q_fit, guinier_calc)
 
-            # Recalculate and update plot
+            # Recalculate and update plot (this will also plot local fits if checkbox is enabled)
             if self.update_auto_check.isChecked():
                 self.graph_unified()
-
-            # Plot local fits if checkbox is enabled
-            if self.display_local_check.isChecked():
-                self.plot_local_fits()
+            elif self.display_local_check.isChecked():
+                # If not auto-updating, manually redraw the graph with local fits
+                self.graph_unified()
 
             # Show success message
             self.status_label.setText(
@@ -2295,13 +2294,12 @@ class UnifiedFitPanel(QWidget):
                 self.local_fits[level] = {}
             self.local_fits[level]['porod'] = (q_fit, porod_calc)
 
-            # Recalculate and update plot
+            # Recalculate and update plot (this will also plot local fits if checkbox is enabled)
             if self.update_auto_check.isChecked():
                 self.graph_unified()
-
-            # Plot local fits if checkbox is enabled
-            if self.display_local_check.isChecked():
-                self.plot_local_fits()
+            elif self.display_local_check.isChecked():
+                # If not auto-updating, manually redraw the graph with local fits
+                self.graph_unified()
 
             # Show success message
             self.status_label.setText(
@@ -2326,34 +2324,25 @@ class UnifiedFitPanel(QWidget):
     def plot_local_fits(self):
         """
         Plot all stored local fit curves (Guinier and Porod) on the graph.
-        Uses different colors and line styles for each level and fit type.
+        Uses blue color and different line styles for Guinier (dashed) and Porod (dotted).
         """
         if not self.local_fits:
             return
 
-        # Color schemes for different levels
-        # Match the tab colors: Level 1: Red, Level 2: Green, Level 3: Blue, Level 4: Orange, Level 5: Purple
-        colors = [
-            (211, 47, 47),      # Red - Level 1
-            (56, 142, 60),      # Green - Level 2
-            (25, 118, 210),     # Blue - Level 3
-            (245, 124, 0),      # Orange - Level 4
-            (123, 31, 162)      # Purple - Level 5
-        ]
+        # Use blue color for all local fits (distinct from red unified fit line)
+        local_fit_color = (0, 120, 215)  # Blue color
 
         # Plot local fits for each level
         for level, fits in self.local_fits.items():
             if level < 1 or level > 5:
                 continue
 
-            color = colors[level - 1]
-
             # Plot Guinier fit (dashed line)
             if 'guinier' in fits:
                 q_data, i_data = fits['guinier']
                 self.graph_window.main_plot.plot(
                     q_data, i_data,
-                    pen=pg.mkPen(color=color, width=2, style=Qt.PenStyle.DashLine),
+                    pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DashLine),
                     name=f'Level {level} Guinier fit'
                 )
 
@@ -2362,7 +2351,7 @@ class UnifiedFitPanel(QWidget):
                 q_data, i_data = fits['porod']
                 self.graph_window.main_plot.plot(
                     q_data, i_data,
-                    pen=pg.mkPen(color=color, width=2, style=Qt.PenStyle.DotLine),
+                    pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DotLine),
                     name=f'Level {level} Porod fit'
                 )
 
