@@ -1835,6 +1835,16 @@ class UnifiedFitPanel(QWidget):
 
         self.reset_unif_button = QPushButton("reset unif?")
         self.reset_unif_button.setMinimumHeight(26)  # Reduced from 30
+        self.reset_unif_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff9800;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #fb8c00;
+            }
+        """)
         additional_buttons.addWidget(self.reset_unif_button)
 
         self.fix_limits_button = QPushButton("Fix limits?")
@@ -1890,6 +1900,16 @@ class UnifiedFitPanel(QWidget):
 
         self.results_graphs_button = QPushButton("Results to graphs")
         self.results_graphs_button.setMinimumHeight(26)
+        self.results_graphs_button.setStyleSheet("""
+            QPushButton {
+                background-color: #81c784;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #66bb6a;
+            }
+        """)
         self.results_graphs_button.clicked.connect(self.display_results_on_graph)
         results_buttons1.addWidget(self.results_graphs_button)
 
