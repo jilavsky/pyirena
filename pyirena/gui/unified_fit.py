@@ -3098,12 +3098,16 @@ class UnifiedFitPanel(QWidget):
 
             # If creating new file, create basic NXcanSAS structure first
             if not is_nxcansas and not output_path.exists():
+                # Remove extension from sample name
+                label = self.data.get('label', 'data')
+                sample_name = Path(label).stem  # Remove extension
+
                 create_nxcansas_file(
                     output_path,
                     self.data['Q'],
                     self.data['Intensity'],
                     self.data.get('Error'),
-                    sample_name=self.data.get('label', 'data')
+                    sample_name=sample_name
                 )
 
             # Save Unified Fit results
