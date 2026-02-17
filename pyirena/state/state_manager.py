@@ -70,6 +70,18 @@ class StateManager:
                         "low_limit": None,
                         "high_limit": None
                     },
+                    "ETA": {
+                        "value": 0.0,
+                        "fit": False,
+                        "low_limit": None,
+                        "high_limit": None
+                    },
+                    "PACK": {
+                        "value": 0.0,
+                        "fit": False,
+                        "low_limit": None,
+                        "high_limit": None
+                    },
                     "RgCutoff": 0.0,
                     "correlated": False,
                     "estimate_B": False
@@ -81,6 +93,8 @@ class StateManager:
                     "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
                     "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
                     "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
                     "RgCutoff": 0.0,
                     "correlated": False,
                     "estimate_B": False
@@ -91,6 +105,8 @@ class StateManager:
                     "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
                     "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
                     "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
                     "RgCutoff": 0.0,
                     "correlated": False,
                     "estimate_B": False
@@ -101,6 +117,8 @@ class StateManager:
                     "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
                     "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
                     "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
                     "RgCutoff": 0.0,
                     "correlated": False,
                     "estimate_B": False
@@ -111,6 +129,8 @@ class StateManager:
                     "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
                     "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
                     "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
+                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
                     "RgCutoff": 0.0,
                     "correlated": False,
                     "estimate_B": False
