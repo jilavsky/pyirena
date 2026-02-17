@@ -1896,6 +1896,7 @@ class UnifiedFitPanel(QWidget):
 
         self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
+        self.store_data_button.clicked.connect(self.store_results_to_file)
         results_buttons1.addWidget(self.store_data_button)
 
         self.results_graphs_button = QPushButton("Results to graphs")
@@ -1998,13 +1999,15 @@ class UnifiedFitPanel(QWidget):
             if self.data is not None:
                 self.graph_unified()
 
-    def set_data(self, q, intensity, error=None, label='Data'):
+    def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
         """Set the data to be fitted."""
         self.data = {
             'Q': q,
             'Intensity': intensity,
             'Error': error,
-            'label': label
+            'label': label,
+            'filepath': filepath,  # Track source file
+            'is_nxcansas': is_nxcansas  # Track if source is NXcanSAS
         }
 
         # Clear local fits when new data is loaded (they would be invalid for different data)
@@ -2994,6 +2997,143 @@ class UnifiedFitPanel(QWidget):
             import traceback
             traceback.print_exc()
             self.graph_window.show_error_message(f"Error displaying results: {str(e)}")
+
+    def store_results_to_file(self):
+        """Store Unified Fit results to NXcanSAS HDF5 file."""
+        from pyirena.io.nxcansas_unified import (
+            save_unified_fit_results,
+            get_output_filepath,
+            create_nxcansas_file
+        )
+
+        if self.data is None:
+            self.graph_window.show_error_message("No data loaded. Please load data first.")
+            return
+
+        if not hasattr(self, 'fit_result') or self.fit_result is None:
+            # No fit results yet - ask user if they want to just save current state
+            reply = QMessageBox.question(
+                self,
+                "No Fit Results",
+                "No fit has been performed yet. Do you want to calculate the model with current parameters first?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.graph_unified()  # Calculate model
+            else:
+                return
+
+        try:
+            # Get source filepath
+            source_path = self.data.get('filepath')
+            is_nxcansas = self.data.get('is_nxcansas', False)
+
+            if source_path is None:
+                # No source file - ask user where to save
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Results As",
+                    "",
+                    "HDF5 Files (*.h5 *.hdf5);;All Files (*)"
+                )
+                if not file_path:
+                    return  # User cancelled
+                output_path = Path(file_path)
+                is_nxcansas = False  # New file
+            else:
+                output_path = get_output_filepath(Path(source_path), is_nxcansas)
+
+            # Gather parameters
+            num_levels = self.num_levels_spin.value()
+            levels = []
+
+            for i in range(num_levels):
+                params = self.level_widgets[i].get_parameters()
+
+                # Get Sv and Invariant from display fields
+                sv_text = self.level_widgets[i].sv_value.text()
+                inv_text = self.level_widgets[i].invariant_value.text()
+
+                try:
+                    sv_val = float(sv_text) if sv_text not in ['N/A', 'Error', '0'] else None
+                except:
+                    sv_val = None
+
+                try:
+                    inv_val = float(inv_text) if inv_text not in ['N/A', 'Error', '0'] else None
+                except:
+                    inv_val = None
+
+                level_dict = {
+                    'G': params['G'],
+                    'Rg': params['Rg'],
+                    'B': params['B'],
+                    'P': params['P'],
+                    'RgCutoff': params['RgCutoff'],
+                    'ETA': params['ETA'],
+                    'PACK': params['PACK'],
+                    'correlated': params['correlated'],
+                }
+
+                if sv_val is not None:
+                    level_dict['Sv'] = sv_val
+                if inv_val is not None:
+                    level_dict['Invariant'] = inv_val
+
+                levels.append(level_dict)
+
+            background = float(self.background_value.text() or 0)
+
+            # Get chi-squared
+            if hasattr(self, 'fit_result') and self.fit_result:
+                chi_squared = self.fit_result.get('chi_squared', 0.0)
+            else:
+                chi_squared = 0.0
+
+            # Calculate model intensity
+            intensity_model = self.model.calculate_intensity(self.data['Q'])
+
+            # Calculate residuals
+            if self.data.get('Error') is not None:
+                residuals = (self.data['Intensity'] - intensity_model) / self.data['Error']
+            else:
+                residuals = (self.data['Intensity'] - intensity_model) / self.data['Intensity']
+
+            # If creating new file, create basic NXcanSAS structure first
+            if not is_nxcansas and not output_path.exists():
+                create_nxcansas_file(
+                    output_path,
+                    self.data['Q'],
+                    self.data['Intensity'],
+                    self.data.get('Error'),
+                    sample_name=self.data.get('label', 'data')
+                )
+
+            # Save Unified Fit results
+            save_unified_fit_results(
+                filepath=output_path,
+                q=self.data['Q'],
+                intensity_data=self.data['Intensity'],
+                intensity_model=intensity_model,
+                residuals=residuals,
+                levels=levels,
+                background=background,
+                chi_squared=chi_squared,
+                num_levels=num_levels,
+                error=self.data.get('Error')
+            )
+
+            self.status_label.setText(f"Saved results to {output_path.name}")
+            QMessageBox.information(
+                self,
+                "Save Complete",
+                f"Unified Fit results saved to:\n{output_path}"
+            )
+
+        except Exception as e:
+            self.graph_window.show_error_message(f"Error saving results: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def export_parameters(self):
         """Export current parameters to JSON file."""
