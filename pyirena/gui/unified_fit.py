@@ -2324,13 +2324,13 @@ class UnifiedFitPanel(QWidget):
     def plot_local_fits(self):
         """
         Plot all stored local fit curves (Guinier and Porod) on the graph.
-        Uses blue color and different line styles for Guinier (dashed) and Porod (dotted).
+        Uses green color and different line styles for Guinier (dashed) and Porod (dotted).
         """
         if not self.local_fits:
             return
 
-        # Use blue color for all local fits (distinct from red unified fit line)
-        local_fit_color = (0, 120, 215)  # Blue color
+        # Use green color for all local fits (distinct from blue data points and red unified fit line)
+        local_fit_color = (0, 180, 0)  # Green color
 
         # Plot local fits for each level
         for level, fits in self.local_fits.items():
