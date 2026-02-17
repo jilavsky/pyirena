@@ -1228,7 +1228,7 @@ class LevelParametersWidget(QWidget):
             B = float(self.b_value.text() or 0)
             Rg = float(self.rg_value.text() or 0)
             G = float(self.g_value.text() or 0)
-            RgCO = float(self.rgco_value.text() or 0)
+            RgCO = float(self.rg_cutoff.text() or 0)
             ETA = float(self.eta_value.text() or 0)
             PACK = float(self.pack_value.text() or 0)
             correlated = self.correlated_check.isChecked()
