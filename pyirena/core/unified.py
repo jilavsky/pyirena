@@ -72,13 +72,13 @@ class UnifiedLevel:
     fit_RgCO: bool = False
 
     # Parameter bounds (min, max)
-    Rg_limits: Tuple[float, float] = (0.1, 1e4)
+    Rg_limits: Tuple[float, float] = (0.1, 1e6)
     G_limits: Tuple[float, float] = (1e-10, 1e10)
     P_limits: Tuple[float, float] = (0.0, 6.0)
     B_limits: Tuple[float, float] = (1e-20, 1e10)
-    ETA_limits: Tuple[float, float] = (0.1, 1e4)
-    PACK_limits: Tuple[float, float] = (0.0, 8.0)
-    RgCO_limits: Tuple[float, float] = (0.0, 1e4)
+    ETA_limits: Tuple[float, float] = (0.1, 1e6)
+    PACK_limits: Tuple[float, float] = (0.0, 16.0)
+    RgCO_limits: Tuple[float, float] = (0.0, 1e6)
 
     def auto_calculate_K(self):
         """Automatically set K based on P value (version 2.36 logic)."""
