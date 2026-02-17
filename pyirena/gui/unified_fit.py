@@ -389,10 +389,66 @@ class UnifiedFitGraphWindow(QWidget):
         # Layout
         layout = QVBoxLayout()
         layout.addWidget(self.graphics_layout)
+
+        # Status message area (2-3 lines under graphs)
+        self.status_message = QLabel("")
+        self.status_message.setWordWrap(True)
+        self.status_message.setMaximumHeight(60)
+        self.status_message.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.status_message.setStyleSheet("""
+            QLabel {
+                padding: 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 11pt;
+            }
+        """)
+        layout.addWidget(self.status_message)
+
         self.setLayout(layout)
 
         # Initialize plots
         self.init_plots()
+
+    def show_success_message(self, message):
+        """Show success message with green background."""
+        self.status_message.setText(message)
+        self.status_message.setStyleSheet("""
+            QLabel {
+                background-color: #d4edda;
+                color: #155724;
+                padding: 8px;
+                border: 1px solid #c3e6cb;
+                border-radius: 4px;
+                font-size: 11pt;
+            }
+        """)
+
+    def show_error_message(self, message):
+        """Show error message with red background."""
+        self.status_message.setText(message)
+        self.status_message.setStyleSheet("""
+            QLabel {
+                background-color: #f8d7da;
+                color: #721c24;
+                padding: 8px;
+                border: 1px solid #f5c6cb;
+                border-radius: 4px;
+                font-size: 11pt;
+            }
+        """)
+
+    def clear_message(self):
+        """Clear the status message."""
+        self.status_message.setText("")
+        self.status_message.setStyleSheet("""
+            QLabel {
+                padding: 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 11pt;
+            }
+        """)
 
     def init_plots(self):
         """Initialize the plot widgets."""
@@ -522,7 +578,7 @@ class UnifiedFitGraphWindow(QWidget):
         )
 
     def plot_residuals(self, q, residuals):
-        """Plot fit residuals."""
+        """Plot fit residuals with symmetric Y-axis around 0."""
         self.residual_plot.clear()
         self.residual_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
         self.residual_plot.plot(
@@ -532,6 +588,12 @@ class UnifiedFitGraphWindow(QWidget):
             symbolSize=3,
             symbolBrush=(100, 100, 255, 150)
         )
+
+        # Set symmetric Y-axis range around 0
+        if len(residuals) > 0:
+            max_abs = np.max(np.abs(residuals))
+            if max_abs > 0:
+                self.residual_plot.setYRange(-max_abs * 1.1, max_abs * 1.1)
 
     def add_cursors(self):
         """
@@ -642,29 +704,39 @@ class LevelParametersWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
+        # Define colors for each level (Red, Green, Blue, Orange, Purple)
+        level_colors = {
+            1: '#d32f2f',  # Red
+            2: '#388e3c',  # Green
+            3: '#1976d2',  # Blue
+            4: '#f57c00',  # Orange
+            5: '#7b1fa2'   # Purple
+        }
+        header_color = level_colors.get(self.level_number, '#e74c3c')
+
         # Level header
         header = QLabel(f"Level {self.level_number}")
-        header.setStyleSheet("""
-            QLabel {
-                background-color: #e74c3c;
+        header.setStyleSheet(f"""
+            QLabel {{
+                background-color: {header_color};
                 color: white;
                 font-weight: bold;
                 font-size: 12px;
                 padding: 5px;
-            }
+            }}
         """)
         layout.addWidget(header)
 
         # Controls header
         controls_header = QLabel("Controls")
-        controls_header.setStyleSheet("""
-            QLabel {
-                background-color: #e74c3c;
+        controls_header.setStyleSheet(f"""
+            QLabel {{
+                background-color: {header_color};
                 color: white;
                 font-weight: bold;
                 font-size: 11px;
                 padding: 3px;
-            }
+            }}
         """)
         layout.addWidget(controls_header)
 
@@ -684,6 +756,7 @@ class LevelParametersWidget(QWidget):
         self.g_value = ScrubbableLineEdit("100")
         self.g_value.setValidator(QDoubleValidator())
         self.g_value.setMinimumWidth(120)
+        self.g_value.setMaximumWidth(120)
         self.g_value.editingFinished.connect(self._on_g_changed)
         grid.addWidget(self.g_value, row, 1)
         self.g_fit = QCheckBox()
@@ -702,6 +775,8 @@ class LevelParametersWidget(QWidget):
         grid.addWidget(QLabel("Rg"), row, 0)
         self.rg_value = ScrubbableLineEdit("100")
         self.rg_value.setValidator(QDoubleValidator())
+        self.rg_value.setMinimumWidth(120)
+        self.rg_value.setMaximumWidth(120)
         self.rg_value.editingFinished.connect(self._on_rg_changed)
         grid.addWidget(self.rg_value, row, 1)
         self.rg_fit = QCheckBox()
@@ -751,6 +826,7 @@ class LevelParametersWidget(QWidget):
         self.b_value = ScrubbableLineEdit("0.01")
         self.b_value.setValidator(QDoubleValidator())
         self.b_value.setMinimumWidth(120)
+        self.b_value.setMaximumWidth(120)
         self.b_value.editingFinished.connect(self._on_b_changed)
         grid2.addWidget(self.b_value, row, 1)
         self.b_fit = QCheckBox()
@@ -769,6 +845,8 @@ class LevelParametersWidget(QWidget):
         grid2.addWidget(QLabel("P"), row, 0)
         self.p_value = ScrubbableLineEdit("4", use_fixed_step=True, fixed_reference=4.0)
         self.p_value.setValidator(QDoubleValidator())
+        self.p_value.setMinimumWidth(120)
+        self.p_value.setMaximumWidth(120)
         self.p_value.editingFinished.connect(self._on_p_changed)
         grid2.addWidget(self.p_value, row, 1)
         self.p_fit = QCheckBox()
@@ -809,7 +887,7 @@ class LevelParametersWidget(QWidget):
         if self.level_number > 1:
             self.link_rgco_check = QCheckBox("Link RgCutoff")
             self.link_rgco_check.setToolTip(f"Link RgCutoff to Rg of Level {self.level_number - 1}")
-            self.link_rgco_check.stateChanged.connect(self.parameter_changed.emit)
+            self.link_rgco_check.stateChanged.connect(lambda: self.parameter_changed.emit())
             layout.addWidget(self.link_rgco_check)
         else:
             self.link_rgco_check = None
@@ -844,6 +922,7 @@ class LevelParametersWidget(QWidget):
         self.eta_value = ScrubbableLineEdit("0")
         self.eta_value.setValidator(QDoubleValidator())
         self.eta_value.setMinimumWidth(120)
+        self.eta_value.setMaximumWidth(120)
         self.eta_value.editingFinished.connect(self._on_eta_changed)
         corr_grid.addWidget(self.eta_value, row, 1)
         self.eta_fit = QCheckBox()
@@ -863,6 +942,7 @@ class LevelParametersWidget(QWidget):
         self.pack_value = ScrubbableLineEdit("0")
         self.pack_value.setValidator(QDoubleValidator())
         self.pack_value.setMinimumWidth(120)
+        self.pack_value.setMaximumWidth(120)
         self.pack_value.editingFinished.connect(self._on_pack_changed)
         corr_grid.addWidget(self.pack_value, row, 1)
         self.pack_fit = QCheckBox()
@@ -1200,16 +1280,21 @@ class UnifiedFitPanel(QWidget):
         # Main horizontal splitter
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel (controls)
+        # Left panel (controls) - maintain 33% width ratio
         left_panel = self.create_control_panel()
         main_splitter.addWidget(left_panel)
 
-        # Right panel (graph)
+        # Right panel (graph) - maintain 67% width ratio
         self.graph_window = UnifiedFitGraphWindow()
         main_splitter.addWidget(self.graph_window)
 
-        # Set initial sizes (1:2 ratio)
+        # Set initial sizes (1:2 ratio = 33%:67%) and stretch factors to maintain ratio
         main_splitter.setSizes([400, 800])
+        main_splitter.setStretchFactor(0, 1)  # Left panel: 1 part (33%)
+        main_splitter.setStretchFactor(1, 2)  # Right panel: 2 parts (67%)
+
+        # Store splitter reference to maintain ratio
+        self.main_splitter = main_splitter
 
         # Main layout
         main_layout = QVBoxLayout()
@@ -1223,6 +1308,21 @@ class UnifiedFitPanel(QWidget):
     def create_control_panel(self) -> QWidget:
         """Create the left control panel."""
         panel = QWidget()
+
+        # Set size policy to prevent content-driven expansion
+        try:
+            from PySide6.QtWidgets import QSizePolicy
+        except ImportError:
+            try:
+                from PyQt6.QtWidgets import QSizePolicy
+            except ImportError:
+                from PyQt5.QtWidgets import QSizePolicy
+
+        size_policy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        panel.setSizePolicy(size_policy)
+        panel.setMinimumWidth(400)
+        panel.setMaximumWidth(400)
+
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)  # Reduced from 10 to 6 to save vertical space
@@ -1296,8 +1396,23 @@ class UnifiedFitPanel(QWidget):
             level_widget = LevelParametersWidget(i)
             # Connect parameter changed signal
             level_widget.parameter_changed.connect(self.on_parameter_changed)
+            # Connect fit buttons
+            level_widget.fit_rg_g_button.clicked.connect(lambda checked, level=i: self.fit_local_guinier(level))
+            level_widget.fit_p_b_button.clicked.connect(lambda checked, level=i: self.fit_local_porod(level))
             self.level_widgets.append(level_widget)
             self.level_tabs.addTab(level_widget, f"{i}. Level")
+
+        # Apply stylesheet for tab colors (Level 1: Red, Level 2: Green, etc.)
+        tab_stylesheet = """
+            QTabBar::tab:nth-child(1) { background-color: #d32f2f; color: white; }
+            QTabBar::tab:nth-child(2) { background-color: #388e3c; color: white; }
+            QTabBar::tab:nth-child(3) { background-color: #1976d2; color: white; }
+            QTabBar::tab:nth-child(4) { background-color: #f57c00; color: white; }
+            QTabBar::tab:nth-child(5) { background-color: #7b1fa2; color: white; }
+            QTabBar::tab:selected { border: 2px solid #ffd700; font-weight: bold; }
+            QTabBar::tab { padding: 6px 10px; }
+        """
+        self.level_tabs.setStyleSheet(tab_stylesheet)
 
         # Initially disable unused levels
         self.update_level_tabs()
@@ -1515,7 +1630,7 @@ class UnifiedFitPanel(QWidget):
     def graph_unified(self):
         """Graph the unified fit with current parameters."""
         if self.data is None:
-            QMessageBox.warning(self, "No Data", "Please load data first.")
+            self.graph_window.show_error_message("No data loaded. Please load data first.")
             return
 
         try:
@@ -1573,14 +1688,14 @@ class UnifiedFitPanel(QWidget):
             self.status_label.setText(f"Calculated unified fit with {num_levels} level(s)")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error calculating unified fit:\n{str(e)}")
+            self.graph_window.show_error_message(f"Error calculating unified fit: {str(e)}")
             import traceback
             traceback.print_exc()
 
     def run_fit(self):
         """Run the unified fit."""
         if self.data is None:
-            QMessageBox.warning(self, "No Data", "Please load data first.")
+            self.graph_window.show_error_message("No data loaded. Please load data first.")
             return
 
         # Sync RgCutoff links before fitting
@@ -1697,19 +1812,304 @@ class UnifiedFitPanel(QWidget):
             else:
                 self.status_label.setText(f"Fit complete: {num_levels} level(s), χ² = {chi2:.4f}")
 
-            cursor_info = f"\nFit range: Q = {q_min:.3e} to {q_max:.3e}\nPoints used: {num_points}" if cursor_range else ""
+            cursor_info = f" | Q: {q_min:.3e} - {q_max:.3e} ({num_points} pts)" if cursor_range else ""
 
-            QMessageBox.information(
-                self, "Fit Complete",
-                f"Fit completed successfully!\n\n"
-                f"Number of levels: {num_levels}\n"
-                f"Chi-squared: {chi2:.4f}\n"
-                f"Reduced χ²: {reduced_chi2:.4f}\n"
-                f"Parameters updated in GUI.{cursor_info}"
+            self.graph_window.show_success_message(
+                f"Fit completed successfully! "
+                f"Levels: {num_levels} | "
+                f"χ²: {chi2:.4f} | "
+                f"Reduced χ²: {reduced_chi2:.4f}{cursor_info}"
             )
 
         except Exception as e:
-            QMessageBox.critical(self, "Fit Error", f"Error during fitting:\n{str(e)}")
+            self.graph_window.show_error_message(f"Error during fitting: {str(e)}")
+            self.status_label.setText("Fit failed")
+            import traceback
+            traceback.print_exc()
+
+    def fit_local_guinier(self, level):
+        """
+        Fit Rg and G for a single level using data between cursors.
+        This is a local Guinier fit that ignores limits.
+
+        Based on IR1A_FitLocalGuinier from Igor Pro code.
+        """
+        if self.data is None:
+            self.graph_window.show_error_message("No data loaded. Please load data first.")
+            return
+
+        # Get the level widget
+        level_widget = self.level_widgets[level - 1]
+        params = level_widget.get_parameters()
+
+        # Check that at least one parameter is selected for fitting
+        if not params['fit_G'] and not params['fit_Rg']:
+            self.graph_window.show_error_message(
+                f"No fitting parameters selected for Level {level}. "
+                "Please check 'Fit?' for G and/or Rg before fitting."
+            )
+            return
+
+        # Get cursor range
+        cursor_range = self.graph_window.get_cursor_range()
+        if cursor_range is None:
+            self.graph_window.show_error_message(
+                "Both cursors must be set on the graph. "
+                "Use the cursors to select the Q range for Guinier fit."
+            )
+            return
+
+        try:
+            q_min, q_max = cursor_range
+
+            # Filter data to cursor range
+            q = self.data['Q']
+            intensity = self.data['Intensity']
+            error = self.data.get('Error')
+
+            mask = (q >= q_min) & (q <= q_max)
+            q_fit = q[mask]
+            intensity_fit = intensity[mask]
+
+            if len(q_fit) < 3:
+                self.graph_window.show_error_message(
+                    f"Not enough data points between cursors ({len(q_fit)} points). "
+                    "Need at least 3 points for fitting."
+                )
+                return
+
+            # Estimate starting parameters from cursor range
+            # LocalRg = 2*pi / Q_avg (from Igor code line 494)
+            q_avg = (q_fit[0] + q_fit[-1]) / 2
+            local_rg = 2 * np.pi / q_avg
+
+            # LocalG = I_avg (from Igor code line 495)
+            local_g = (intensity_fit[0] + intensity_fit[-1]) / 2
+
+            # If not fitting a parameter, use current GUI value
+            if not params['fit_G']:
+                local_g = params['G']
+            if not params['fit_Rg']:
+                local_rg = params['Rg']
+
+            # Define Guinier model: I(q) = G * exp(-q^2 * Rg^2 / 3)
+            def guinier_model(q, G, Rg):
+                return G * np.exp(-q**2 * Rg**2 / 3)
+
+            # Prepare parameters for fitting
+            from scipy.optimize import curve_fit
+
+            # Initial guess
+            p0 = [local_g, local_rg]
+
+            # Setup which parameters to fit
+            # If a parameter is not being fit, we need to fix it
+            if not params['fit_G'] and not params['fit_Rg']:
+                # Both fixed - already handled above, shouldn't get here
+                return
+            elif not params['fit_G']:
+                # Fix G, fit only Rg
+                def model_fixed_g(q, Rg):
+                    return guinier_model(q, local_g, Rg)
+                p0_fit = [local_rg]
+                popt, pcov = curve_fit(model_fixed_g, q_fit, intensity_fit, p0=p0_fit)
+                fitted_g = local_g
+                fitted_rg = abs(popt[0])
+            elif not params['fit_Rg']:
+                # Fix Rg, fit only G
+                def model_fixed_rg(q, G):
+                    return guinier_model(q, G, local_rg)
+                p0_fit = [local_g]
+                popt, pcov = curve_fit(model_fixed_rg, q_fit, intensity_fit, p0=p0_fit)
+                fitted_g = abs(popt[0])
+                fitted_rg = local_rg
+            else:
+                # Fit both G and Rg
+                popt, pcov = curve_fit(guinier_model, q_fit, intensity_fit, p0=p0)
+                fitted_g = abs(popt[0])
+                fitted_rg = abs(popt[1])
+
+            # Update GUI with fitted values
+            level_widget.set_parameters({
+                'G': fitted_g,
+                'Rg': fitted_rg,
+                'G_low': fitted_g / 5,
+                'G_high': fitted_g * 5,
+                'Rg_low': max(0.1, fitted_rg / 5),
+                'Rg_high': min(1e4, fitted_rg * 5)
+            })
+
+            # Fix limits for this level
+            level_widget.fix_limits()
+
+            # Recalculate and update plot
+            if self.update_auto_check.isChecked():
+                self.graph_unified()
+
+            # Show success message
+            self.status_label.setText(
+                f"Local Guinier fit complete for Level {level}: "
+                f"G = {fitted_g:.3e}, Rg = {fitted_rg:.3e} "
+                f"(Q: {q_min:.3e} - {q_max:.3e}, {len(q_fit)} pts)"
+            )
+
+            self.graph_window.show_success_message(
+                f"Local Guinier fit completed for Level {level}! "
+                f"G = {fitted_g:.4e}, Rg = {fitted_rg:.4e} | "
+                f"Q: {q_min:.3e} - {q_max:.3e} ({len(q_fit)} pts) | "
+                f"Limits updated automatically."
+            )
+
+        except Exception as e:
+            self.graph_window.show_error_message(f"Error during local Guinier fit: {str(e)}")
+            self.status_label.setText("Fit failed")
+            import traceback
+            traceback.print_exc()
+
+    def fit_local_porod(self, level):
+        """
+        Fit P and B for a single level using data between cursors.
+        This is a local Porod/power law fit that ignores limits.
+
+        Based on IR1A_FitLocalPorod from Igor Pro code.
+        """
+        if self.data is None:
+            self.graph_window.show_error_message("No data loaded. Please load data first.")
+            return
+
+        # Get the level widget
+        level_widget = self.level_widgets[level - 1]
+        params = level_widget.get_parameters()
+
+        # Check that at least one parameter is selected for fitting
+        if not params['fit_B'] and not params['fit_P']:
+            self.graph_window.show_error_message(
+                f"No fitting parameters selected for Level {level}. "
+                "Please check 'Fit?' for B and/or P before fitting."
+            )
+            return
+
+        # Get cursor range
+        cursor_range = self.graph_window.get_cursor_range()
+        if cursor_range is None:
+            self.graph_window.show_error_message(
+                "Both cursors must be set on the graph. "
+                "Use the cursors to select the Q range for Porod fit."
+            )
+            return
+
+        try:
+            q_min, q_max = cursor_range
+
+            # Filter data to cursor range
+            q = self.data['Q']
+            intensity = self.data['Intensity']
+
+            mask = (q >= q_min) & (q <= q_max)
+            q_fit = q[mask]
+            intensity_fit = intensity[mask]
+
+            if len(q_fit) < 3:
+                self.graph_window.show_error_message(
+                    f"Not enough data points between cursors ({len(q_fit)} points). "
+                    "Need at least 3 points for fitting."
+                )
+                return
+
+            # Estimate starting parameters from cursor range
+            # P (slope) from log-log slope between cursors (Igor line 368)
+            # P = abs((log(I_A) - log(I_B)) / (log(Q_B) - log(Q_A)))
+            # Using first and last points in range
+            local_p = abs(
+                (np.log(intensity_fit[0]) - np.log(intensity_fit[-1])) /
+                (np.log(q_fit[-1]) - np.log(q_fit[0]))
+            )
+
+            # B (prefactor) from I * Q^P at first cursor (Igor line 376)
+            local_b = intensity_fit[0] * (q_fit[0] ** local_p)
+
+            # If not fitting a parameter, use current GUI value
+            if not params['fit_P']:
+                local_p = params['P']
+            if not params['fit_B']:
+                local_b = params['B']
+
+            # Define power law model: I(q) = B * q^(-P)
+            def power_law_model(q, B, P):
+                return B * q**(-P)
+
+            # Prepare parameters for fitting
+            from scipy.optimize import curve_fit
+
+            # Initial guess
+            p0 = [local_b, local_p]
+
+            # Setup which parameters to fit
+            if not params['fit_B'] and not params['fit_P']:
+                # Both fixed - already handled above, shouldn't get here
+                return
+            elif not params['fit_B']:
+                # Fix B, fit only P
+                def model_fixed_b(q, P):
+                    return power_law_model(q, local_b, P)
+                p0_fit = [local_p]
+                popt, pcov = curve_fit(model_fixed_b, q_fit, intensity_fit, p0=p0_fit)
+                fitted_b = local_b
+                fitted_p = abs(popt[0])
+            elif not params['fit_P']:
+                # Fix P, fit only B
+                def model_fixed_p(q, B):
+                    return power_law_model(q, B, local_p)
+                p0_fit = [local_b]
+                popt, pcov = curve_fit(model_fixed_p, q_fit, intensity_fit, p0=p0_fit)
+                fitted_b = abs(popt[0])
+                fitted_p = local_p
+            else:
+                # Fit both B and P
+                popt, pcov = curve_fit(power_law_model, q_fit, intensity_fit, p0=p0)
+                fitted_b = abs(popt[0])
+                fitted_p = abs(popt[1])
+
+            # Set P limits based on Igor code (lines 427-432)
+            # P low limit = 1
+            # P high limit = 3 (if mass fractal) or 4 (otherwise)
+            # For now, we'll use 4 as the high limit (non-mass fractal)
+            p_low = 1.0
+            p_high = 4.0
+
+            # Update GUI with fitted values
+            level_widget.set_parameters({
+                'B': fitted_b,
+                'P': fitted_p,
+                'B_low': fitted_b / 5,
+                'B_high': fitted_b * 5,
+                'P_low': p_low,
+                'P_high': p_high
+            })
+
+            # Fix limits for this level
+            level_widget.fix_limits()
+
+            # Recalculate and update plot
+            if self.update_auto_check.isChecked():
+                self.graph_unified()
+
+            # Show success message
+            self.status_label.setText(
+                f"Local Porod fit complete for Level {level}: "
+                f"B = {fitted_b:.3e}, P = {fitted_p:.3e} "
+                f"(Q: {q_min:.3e} - {q_max:.3e}, {len(q_fit)} pts)"
+            )
+
+            self.graph_window.show_success_message(
+                f"Local Porod fit completed for Level {level}! "
+                f"B = {fitted_b:.4e}, P = {fitted_p:.4e} | "
+                f"Q: {q_min:.3e} - {q_max:.3e} ({len(q_fit)} pts) | "
+                f"Limits updated automatically."
+            )
+
+        except Exception as e:
+            self.graph_window.show_error_message(f"Error during local Porod fit: {str(e)}")
             self.status_label.setText("Fit failed")
             import traceback
             traceback.print_exc()
