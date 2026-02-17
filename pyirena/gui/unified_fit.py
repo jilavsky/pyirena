@@ -475,6 +475,14 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.getAxis('bottom').setTextPen('k')
         self.main_plot.getAxis('left').setTextPen('k')
 
+        # Show top and right axes (without labels) to create a box
+        self.main_plot.showAxis('top')
+        self.main_plot.showAxis('right')
+        self.main_plot.getAxis('top').setPen('k')
+        self.main_plot.getAxis('right').setPen('k')
+        self.main_plot.getAxis('top').setStyle(showValues=False)
+        self.main_plot.getAxis('right').setStyle(showValues=False)
+
         # Enable auto-range
         self.main_plot.enableAutoRange()
 
@@ -490,6 +498,14 @@ class UnifiedFitGraphWindow(QWidget):
         self.residual_plot.getAxis('left').setPen('k')
         self.residual_plot.getAxis('bottom').setTextPen('k')
         self.residual_plot.getAxis('left').setTextPen('k')
+
+        # Show top and right axes (without labels) to create a box
+        self.residual_plot.showAxis('top')
+        self.residual_plot.showAxis('right')
+        self.residual_plot.getAxis('top').setPen('k')
+        self.residual_plot.getAxis('right').setPen('k')
+        self.residual_plot.getAxis('top').setStyle(showValues=False)
+        self.residual_plot.getAxis('right').setStyle(showValues=False)
 
         # Enable auto-range
         self.residual_plot.enableAutoRange()
@@ -602,12 +618,24 @@ class UnifiedFitGraphWindow(QWidget):
                 connect='finite'  # Connect all non-NaN points, NaN breaks segments
             )
 
-        # Initialize cursor positions ONLY if not already set (first data load)
-        # This preserves user's cursor selections during fitting
-        if len(q) > 0 and self.cursor_left is None:
+        # Initialize or validate cursor positions
+        # This preserves user's cursor selections during fitting, but ensures they're in range
+        if len(q) > 0:
             q_min, q_max = q.min(), q.max()
-            self.cursor_left = q_min * (q_max / q_min) ** 0.2
-            self.cursor_right = q_min * (q_max / q_min) ** 0.8
+
+            # Initialize if cursors don't exist (first data load)
+            if self.cursor_left is None:
+                self.cursor_left = q_min * (q_max / q_min) ** 0.2
+                self.cursor_right = q_min * (q_max / q_min) ** 0.8
+            else:
+                # Validate existing cursors are within current data range
+                # (May be out of range if saved from different dataset)
+                if (self.cursor_left < q_min or self.cursor_left > q_max or
+                    self.cursor_right < q_min or self.cursor_right > q_max):
+                    print(f"Cursor positions ({self.cursor_left:.3e}, {self.cursor_right:.3e}) "
+                          f"outside data range [{q_min:.3e}, {q_max:.3e}]. Resetting to defaults.")
+                    self.cursor_left = q_min * (q_max / q_min) ** 0.2
+                    self.cursor_right = q_min * (q_max / q_min) ** 0.8
 
         # Always add cursors if positions exist
         if self.cursor_left is not None and self.cursor_right is not None:
@@ -1896,6 +1924,7 @@ class UnifiedFitPanel(QWidget):
 
         self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
+        self.store_data_button.setStyleSheet("background-color: lightgreen;")
         self.store_data_button.clicked.connect(self.store_results_to_file)
         results_buttons1.addWidget(self.store_data_button)
 
