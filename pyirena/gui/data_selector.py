@@ -495,8 +495,10 @@ class DataSelectorPanel(QWidget):
             # Load data based on file extension
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename)
+                is_nxcansas = False
             else:
                 data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True  # HDF5 files loaded with NXcanSAS reader
 
             if data is None:
                 QMessageBox.critical(
@@ -510,12 +512,14 @@ class DataSelectorPanel(QWidget):
             if self.unified_fit_window is None:
                 self.unified_fit_window = UnifiedFitPanel()
 
-            # Set the data
+            # Set the data with filepath and format information
             self.unified_fit_window.set_data(
                 data['Q'],
                 data['Intensity'],
                 data.get('Error'),
-                filename
+                filename,
+                filepath=file_path,  # Pass full path to file
+                is_nxcansas=is_nxcansas  # Pass format information
             )
 
             # Show the window
