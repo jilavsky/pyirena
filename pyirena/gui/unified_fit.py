@@ -2879,6 +2879,9 @@ class UnifiedFitPanel(QWidget):
         # Clear any existing result annotations
         self.graph_window.clear_result_text_annotations()
 
+        # Save current view range to restore after adding text items
+        view_range = self.graph_window.main_plot.viewRange()
+
         num_levels = self.num_levels_spin.value()
         q = self.data['Q']
         intensity = self.data['Intensity']
@@ -2925,6 +2928,9 @@ class UnifiedFitPanel(QWidget):
 
             # Add text annotation to graph
             self.graph_window.add_result_text_annotation(q_pos, y_pos, result_text, color='black')
+
+        # Restore the original view range (text items shouldn't affect zoom)
+        self.graph_window.main_plot.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
 
         self.status_label.setText(f"Displayed results for {num_levels} level(s) on graph")
 
