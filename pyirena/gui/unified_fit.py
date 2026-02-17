@@ -1267,16 +1267,17 @@ class LevelParametersWidget(QWidget):
                 self.sv_value.setText("N/A")
                 return
 
-            # Convert invariant from A^-3 * cm^-1 to cm^-4
-            invariant = invariant * 1e24
-
-            # Calculate surface to volume ratio (Sv = pi*B/Q)
+            # Calculate surface to volume ratio (Sv = pi*B/Q) BEFORE scaling invariant
             # Only valid when P is close to 4 (Porod regime)
+            # At this point invariant is still in A^-3 * cm^-1
             if 3.95 <= P <= 4.05:
                 sv = 1e4 * np.pi * B / invariant
                 self.sv_value.setText(self._format_value(sv))
             else:
                 self.sv_value.setText("N/A")
+
+            # Convert invariant from A^-3 * cm^-1 to cm^-4
+            invariant = invariant * 1e24
 
             # Update invariant display
             self.invariant_value.setText(self._format_value(invariant))
