@@ -811,17 +811,11 @@ class LevelParametersWidget(QWidget):
         fit_rg_g_layout.addWidget(self.fit_rg_g_button)
         layout.addLayout(fit_rg_g_layout)
 
-        # Estimate B checkbox with pi B/Q display on the right
+        # Estimate B checkbox
         estimate_b_layout = QHBoxLayout()
         self.estimate_b_check = QCheckBox("Estimate B from G/Rg/P?")
         self.estimate_b_check.stateChanged.connect(self._on_estimate_b_changed)
         estimate_b_layout.addWidget(self.estimate_b_check)
-        estimate_b_layout.addSpacing(20)
-        estimate_b_layout.addWidget(QLabel("pi B/Q [m2/cm3]"))
-        self.pi_bq_value = QLineEdit("0")
-        self.pi_bq_value.setReadOnly(True)
-        self.pi_bq_value.setMaximumWidth(100)
-        estimate_b_layout.addWidget(self.pi_bq_value)
         estimate_b_layout.addStretch()
         layout.addLayout(estimate_b_layout)
 
@@ -983,6 +977,32 @@ class LevelParametersWidget(QWidget):
         self.copy_move_button.setMinimumHeight(24)  # Reduced by ~20% from 30
         layout.addWidget(self.copy_move_button)
 
+        # Calculated values display - Sv and Invariant
+        calc_values_layout = QVBoxLayout()
+        calc_values_layout.setSpacing(4)
+
+        # Sv (Surface to Volume ratio)
+        sv_layout = QHBoxLayout()
+        sv_layout.addWidget(QLabel("Sv [m2/cm3]:"))
+        self.sv_value = QLineEdit("0")
+        self.sv_value.setReadOnly(True)
+        self.sv_value.setMaximumWidth(100)
+        sv_layout.addWidget(self.sv_value)
+        sv_layout.addStretch()
+        calc_values_layout.addLayout(sv_layout)
+
+        # Invariant
+        invariant_layout = QHBoxLayout()
+        invariant_layout.addWidget(QLabel("Invariant [cm^-4]:"))
+        self.invariant_value = QLineEdit("0")
+        self.invariant_value.setReadOnly(True)
+        self.invariant_value.setMaximumWidth(100)
+        invariant_layout.addWidget(self.invariant_value)
+        invariant_layout.addStretch()
+        calc_values_layout.addLayout(invariant_layout)
+
+        layout.addLayout(calc_values_layout)
+
         layout.addStretch()
         self.setLayout(layout)
 
@@ -1073,6 +1093,8 @@ class LevelParametersWidget(QWidget):
                 self.b_value.setText(self._format_value(value))
         except ValueError:
             pass
+        # Update Sv and Invariant when B changes
+        self._update_calculated_values()
         self.parameter_changed.emit()
 
     def _on_p_changed(self):
@@ -1092,6 +1114,8 @@ class LevelParametersWidget(QWidget):
                 self._calculate_and_set_b()
         except ValueError:
             pass
+        # Update Sv and Invariant when P changes
+        self._update_calculated_values()
         self.parameter_changed.emit()
 
     def _on_eta_changed(self):
@@ -1176,6 +1200,134 @@ class LevelParametersWidget(QWidget):
                 self.b_high.setText(self._format_value(B * 5.0))
         except (ValueError, ZeroDivisionError):
             pass
+
+    def _update_calculated_values(self):
+        """Trigger calculation update - needs to be called from parent with Q vector."""
+        # This will be called by the parent UnifiedFitPanel when it has Q data
+        # For now, just emit signal to notify parent
+        pass
+
+    def update_porod_surface_and_invariant(self, q_vector):
+        """
+        Calculate and update Porod surface (Sv) and Invariant for this level.
+        Based on IR1A_UpdatePorodSfcandInvariant from Igor code.
+
+        Args:
+            q_vector: Q vector from the experimental data
+        """
+        try:
+            import numpy as np
+            from scipy.integrate import simps
+            from scipy.special import erf, gamma
+
+            # Get parameters
+            P = float(self.p_value.text() or 0)
+            B = float(self.b_value.text() or 0)
+            Rg = float(self.rg_value.text() or 0)
+            G = float(self.g_value.text() or 0)
+            RgCO = float(self.rgco_value.text() or 0)
+            ETA = float(self.eta_value.text() or 0)
+            PACK = float(self.pack_value.text() or 0)
+            correlated = self.correlated_check.isChecked()
+
+            if Rg <= 0:
+                self.sv_value.setText("N/A")
+                self.invariant_value.setText("N/A")
+                return
+
+            # Create Q vector for integration: maxQ = 2*pi / (Rg/10)
+            maxQ = 2 * np.pi / (Rg / 10)
+            npoints = 2000
+            surf_q = np.linspace(0, maxQ, npoints)
+
+            # Calculate intensity using unified model
+            surf_int = self._calculate_unified_intensity(surf_q, G, Rg, P, B, RgCO, ETA, PACK, correlated)
+
+            # Handle Q=0 point (use Q=dQ value)
+            if surf_int[0] == 0 or np.isnan(surf_int[0]):
+                surf_int[0] = surf_int[1]
+
+            # Calculate invariant integrand: I * Q^2
+            surf_invariant = surf_int * surf_q**2
+
+            # Integrate to get invariant (using Simpson's rule)
+            invariant = simps(surf_invariant, surf_q)
+
+            # Add Porod tail if RgCO < 0.1 (no cutoff)
+            if RgCO < 0.1:
+                # Porod tail contribution: -B * maxQ^(3-P) / (3-P)
+                invariant += -B * maxQ**(3 - abs(P)) / (3 - abs(P))
+
+            # Check if invariant is valid (negative means bad extrapolation)
+            if invariant < 0:
+                self.invariant_value.setText("N/A")
+                self.sv_value.setText("N/A")
+                return
+
+            # Convert invariant from A^-3 * cm^-1 to cm^-4
+            invariant = invariant * 1e24
+
+            # Calculate surface to volume ratio (Sv = pi*B/Q)
+            # Only valid when P is close to 4 (Porod regime)
+            if 3.95 <= P <= 4.05:
+                sv = 1e4 * np.pi * B / invariant
+                self.sv_value.setText(self._format_value(sv))
+            else:
+                self.sv_value.setText("N/A")
+
+            # Update invariant display
+            self.invariant_value.setText(self._format_value(invariant))
+
+        except Exception as e:
+            print(f"Error calculating Sv and Invariant: {e}")
+            import traceback
+            traceback.print_exc()
+            self.sv_value.setText("Error")
+            self.invariant_value.setText("Error")
+
+    def _calculate_unified_intensity(self, q, G, Rg, P, B, RgCO, ETA, PACK, correlated):
+        """
+        Calculate unified model intensity for given Q vector.
+        Based on IR1A_SurfToVolCalcInvarVec from Igor code.
+        """
+        import numpy as np
+        from scipy.special import erf, gamma
+
+        # Calculate K value
+        K = 1.0 if P > 3 else 1.06
+
+        # Calculate Q* (erf correction)
+        qstar = q / (erf(K * q * Rg / np.sqrt(6)))**3
+
+        # Avoid division by zero
+        qstar = np.where(qstar == 0, 1e-10, qstar)
+
+        # Calculate unified intensity
+        intensity = G * np.exp(-q**2 * Rg**2 / 3) + (B / qstar**P) * np.exp(-RgCO**2 * q**2 / 3)
+
+        # Apply correlation correction if enabled
+        if correlated and PACK > 0 and ETA > 0:
+            # Calculate sphere amplitude (hard sphere structure factor)
+            sphere_amp = self._sphere_amplitude(q, ETA)
+            intensity = intensity / (1 + PACK * sphere_amp)
+
+        return intensity
+
+    def _sphere_amplitude(self, q, eta):
+        """Calculate sphere amplitude for structure factor correction."""
+        import numpy as np
+
+        # Based on hard sphere structure factor
+        # This is a simplified version - full implementation in Igor is more complex
+        qr = q * eta
+
+        # Avoid division by zero
+        qr = np.where(qr == 0, 1e-10, qr)
+
+        # Sphere form factor amplitude
+        amplitude = 3 * (np.sin(qr) - qr * np.cos(qr)) / qr**3
+
+        return amplitude
 
     def fix_limits(self):
         """
@@ -1839,6 +1991,10 @@ class UnifiedFitPanel(QWidget):
             if self.display_local_check.isChecked() and self.local_fits:
                 self.plot_local_fits()
 
+            # Update Sv and Invariant for all active levels
+            for i in range(num_levels):
+                self.level_widgets[i].update_porod_surface_and_invariant(self.data['Q'])
+
             self.status_label.setText(f"Calculated unified fit with {num_levels} level(s)")
 
         except Exception as e:
@@ -2003,6 +2159,10 @@ class UnifiedFitPanel(QWidget):
                 f"χ²: {chi2:.4f} | "
                 f"Reduced χ²: {reduced_chi2:.4f}{cursor_info}"
             )
+
+            # Update Sv and Invariant for all fitted levels
+            for i in range(num_levels):
+                self.level_widgets[i].update_porod_surface_and_invariant(self.data['Q'])
 
         except Exception as e:
             self.graph_window.show_error_message(f"Error during fitting: {str(e)}")
