@@ -386,6 +386,9 @@ class UnifiedFitGraphWindow(QWidget):
         self.cursor_right_line = None  # pg.InfiniteLine object
         self.q_data = None
 
+        # Result text annotations
+        self.result_text_items = []  # Store text items for later removal
+
         # Layout
         layout = QVBoxLayout()
         layout.addWidget(self.graphics_layout)
@@ -497,6 +500,27 @@ class UnifiedFitGraphWindow(QWidget):
         # Set height ratios: main plot gets 4 parts (80%), residuals get 1 part (20%)
         self.graphics_layout.ci.layout.setRowStretchFactor(0, 4)
         self.graphics_layout.ci.layout.setRowStretchFactor(1, 1)
+
+    def clear_result_text_annotations(self):
+        """Remove all result text annotations from the graph."""
+        for text_item in self.result_text_items:
+            self.main_plot.removeItem(text_item)
+        self.result_text_items = []
+
+    def add_result_text_annotation(self, q_pos, y_pos, text, color='black'):
+        """
+        Add text annotation to the graph at specified position.
+
+        Args:
+            q_pos: Q position for the text
+            y_pos: Intensity position for the text
+            text: Text string to display
+            color: Color for the text
+        """
+        text_item = pg.TextItem(text=text, color=color, anchor=(0, 1))
+        text_item.setPos(q_pos, y_pos)
+        self.main_plot.addItem(text_item)
+        self.result_text_items.append(text_item)
 
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot experimental data."""
@@ -1842,6 +1866,7 @@ class UnifiedFitPanel(QWidget):
 
         self.results_graphs_button = QPushButton("Results to graphs")
         self.results_graphs_button.setMinimumHeight(26)
+        self.results_graphs_button.clicked.connect(self.display_results_on_graph)
         results_buttons1.addWidget(self.results_graphs_button)
 
         layout.addLayout(results_buttons1)
@@ -1900,6 +1925,10 @@ class UnifiedFitPanel(QWidget):
 
     def on_parameter_changed(self):
         """Called when any parameter changes. Auto-update if enabled."""
+        # Clear result text annotations when parameters change
+        if self.graph_window:
+            self.graph_window.clear_result_text_annotations()
+
         # Sync RgCutoff links whenever parameters change
         self.sync_rgcutoff_links()
 
@@ -1951,6 +1980,9 @@ class UnifiedFitPanel(QWidget):
         if self.data is None:
             self.graph_window.show_error_message("No data loaded. Please load data first.")
             return
+
+        # Clear result text annotations when graphing
+        self.graph_window.clear_result_text_annotations()
 
         try:
             # Get parameters
@@ -2025,6 +2057,9 @@ class UnifiedFitPanel(QWidget):
         if self.data is None:
             self.graph_window.show_error_message("No data loaded. Please load data first.")
             return
+
+        # Clear result text annotations when fitting
+        self.graph_window.clear_result_text_annotations()
 
         # Sync RgCutoff links before fitting
         self.sync_rgcutoff_links()
@@ -2834,6 +2869,64 @@ class UnifiedFitPanel(QWidget):
             self.load_state()
             QMessageBox.information(self, "Reset Complete", "All parameters reset to defaults")
             self.status_label.setText("Reset to defaults")
+
+    def display_results_on_graph(self):
+        """Display formatted text boxes with results for each level on the graph."""
+        if self.data is None:
+            self.graph_window.show_error_message("No data loaded. Please load data first.")
+            return
+
+        # Clear any existing result annotations
+        self.graph_window.clear_result_text_annotations()
+
+        num_levels = self.num_levels_spin.value()
+        q = self.data['Q']
+        intensity = self.data['Intensity']
+
+        for i in range(num_levels):
+            params = self.level_widgets[i].get_parameters()
+            level_num = i + 1
+
+            # Calculate attachment point: Q = 2/Rg
+            Rg = params['Rg']
+            if Rg > 0 and Rg < 1e9:  # Valid Rg value
+                target_q = 2.0 / Rg
+            else:
+                target_q = q[0]  # Use first point if Rg is too large
+
+            # Find closest Q point in data
+            if target_q < q[0]:
+                q_index = 0
+            elif target_q > q[-1]:
+                q_index = len(q) - 1
+            else:
+                q_index = np.argmin(np.abs(q - target_q))
+
+            q_pos = q[q_index]
+            y_pos = intensity[q_index]
+
+            # Build result text
+            text_lines = [f"Level {level_num}:"]
+            text_lines.append(f"G = {params['G']:.3e}")
+            text_lines.append(f"Rg = {params['Rg']:.3e}")
+            text_lines.append(f"B = {params['B']:.3e}")
+            text_lines.append(f"P = {params['P']:.3f}")
+
+            # Add RgCutoff if non-zero
+            if params['RgCutoff'] > 0.01:
+                text_lines.append(f"RgCO = {params['RgCutoff']:.3e}")
+
+            # Add correlation parameters if enabled
+            if params['correlated']:
+                text_lines.append(f"ETA = {params['ETA']:.3e}")
+                text_lines.append(f"PACK = {params['PACK']:.3f}")
+
+            result_text = "\n".join(text_lines)
+
+            # Add text annotation to graph
+            self.graph_window.add_result_text_annotation(q_pos, y_pos, result_text, color='black')
+
+        self.status_label.setText(f"Displayed results for {num_levels} level(s) on graph")
 
     def export_parameters(self):
         """Export current parameters to JSON file."""
