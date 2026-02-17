@@ -262,7 +262,7 @@ def get_output_filepath(input_path: Path, is_nxcansas: bool = False) -> Path:
     Determine output filepath for storing results.
 
     If input is already NXcanSAS, use it. Otherwise, create new file
-    with "_NX" suffix before extension.
+    with "_NX.h5" suffix.
 
     Args:
         input_path: Original input file path
@@ -270,14 +270,21 @@ def get_output_filepath(input_path: Path, is_nxcansas: bool = False) -> Path:
 
     Returns:
         Path to use for output file
+
+    Examples:
+        mydata.dat (not NXcanSAS) -> mydata_NX.h5
+        mydata.txt (not NXcanSAS) -> mydata_NX.h5
+        mydata.h5 (not NXcanSAS) -> mydata_NX.h5
+        mydata.h5 (is NXcanSAS) -> mydata.h5 (same file)
     """
     if is_nxcansas:
+        # Already NXcanSAS - use same file
         return input_path
     else:
-        # Add _NX before extension
+        # Create new file with _NX.h5 extension
+        # For .dat, .txt, or non-NXcanSAS .h5 files
         stem = input_path.stem
-        suffix = input_path.suffix
-        new_name = f"{stem}_NX{suffix if suffix else '.h5'}"
+        new_name = f"{stem}_NX.h5"
         return input_path.parent / new_name
 
 

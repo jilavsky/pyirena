@@ -3029,19 +3029,16 @@ class UnifiedFitPanel(QWidget):
             is_nxcansas = self.data.get('is_nxcansas', False)
 
             if source_path is None:
-                # No source file - ask user where to save
-                file_path, _ = QFileDialog.getSaveFileName(
-                    self,
-                    "Save Results As",
-                    "",
-                    "HDF5 Files (*.h5 *.hdf5);;All Files (*)"
+                # No source file - must ask user where to save
+                self.graph_window.show_error_message(
+                    "Cannot determine output file. Please load data from a file first."
                 )
-                if not file_path:
-                    return  # User cancelled
-                output_path = Path(file_path)
-                is_nxcansas = False  # New file
-            else:
-                output_path = get_output_filepath(Path(source_path), is_nxcansas)
+                return
+
+            # Automatically determine output path
+            # For NXcanSAS: use same file
+            # For others (.dat, .txt, non-NXcanSAS .h5): create {name}_NX.h5
+            output_path = get_output_filepath(Path(source_path), is_nxcansas)
 
             # Gather parameters
             num_levels = self.num_levels_spin.value()
