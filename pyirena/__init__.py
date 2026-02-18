@@ -25,9 +25,12 @@ __author__ = "Jan Ilavsky"
 __email__ = "ilavsky@aps.anl.gov"
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, load_data_from_nxcansas
+from pyirena.batch import fit_unified, fit_pyirena
 
 __all__ = [
     "UnifiedFitModel",
     "UnifiedLevel",
     "load_data_from_nxcansas",
+    "fit_unified",
+    "fit_pyirena",
 ]

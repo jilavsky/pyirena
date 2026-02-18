@@ -19,6 +19,7 @@ Python tools for small-angle scattering data analysis, centered on the **Unified
 | Unified Fit GUI guide | [docs/unified_fit_gui.md](docs/unified_fit_gui.md) |
 | Unified Fit features & parameters | [docs/unified_fit_features.md](docs/unified_fit_features.md) |
 | NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
+| Batch fitting API (scripting & automation) | [docs/batch_api.md](docs/batch_api.md) |
 | Usage guide (scripting) | [docs/usage_guide.md](docs/usage_guide.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
 | Distribution / packaging | [docs/distribution.md](docs/distribution.md) |

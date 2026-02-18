@@ -392,6 +392,9 @@ class UnifiedFitGraphWindow(QWidget):
         # Result text annotations
         self.result_text_items = []  # Store text items for later removal
 
+        # Current data folder — updated when data is loaded; used for file dialogs
+        self.data_folder = str(Path.cwd())
+
         # Layout
         layout = QVBoxLayout()
         layout.addWidget(self.graphics_layout)
@@ -519,6 +522,34 @@ class UnifiedFitGraphWindow(QWidget):
         # Set height ratios: main plot gets 4 parts (80%), residuals get 1 part (20%)
         self.graphics_layout.ci.layout.setRowStretchFactor(0, 4)
         self.graphics_layout.ci.layout.setRowStretchFactor(1, 1)
+
+        # Add "Save graph as JPEG" to the top plot's right-click context menu
+        vb = self.main_plot.getViewBox()
+        vb.menu.addSeparator()
+        save_action = vb.menu.addAction("Save graph as JPEG…")
+        save_action.triggered.connect(self.save_top_graph_as_jpeg)
+
+    def save_top_graph_as_jpeg(self):
+        """Export the top (main) plot to a JPEG file chosen by the user."""
+        from pyqtgraph.exporters import ImageExporter
+
+        default_name = str(Path(self.data_folder) / "unified_fit_graph.jpg")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Graph as JPEG",
+            default_name,
+            "JPEG Images (*.jpg *.jpeg);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            exporter = ImageExporter(self.main_plot)
+            # Export at 1600 px wide for good quality; height scales proportionally
+            exporter.parameters()['width'] = 1600
+            exporter.export(file_path)
+        except Exception as e:
+            QMessageBox.warning(self, "Export Failed", f"Could not save image:\n{e}")
 
     def clear_result_text_annotations(self):
         """Remove all result text annotations from the graph."""
@@ -1633,6 +1664,11 @@ class UnifiedFitPanel(QWidget):
         # Backup for revert functionality
         self.parameter_backup = None
 
+        # Monte Carlo uncertainty estimates (std dev across MC runs).
+        # Structure mirrors fit parameters; all zeros when not yet computed.
+        # Reset whenever the number of levels changes.
+        self.fit_uncertainties = self._empty_uncertainties()
+
         self.init_ui()
         self.load_state()
 
@@ -1812,6 +1848,7 @@ class UnifiedFitPanel(QWidget):
         """)
         self.graph_unified_button.clicked.connect(self.graph_unified)
         fit_buttons.addWidget(self.graph_unified_button)
+        fit_buttons.addStretch()
 
         self.fit_button = QPushButton("Fit")
         self.fit_button.setMinimumHeight(28)
@@ -1846,7 +1883,22 @@ class UnifiedFitPanel(QWidget):
         self.revert_button.clicked.connect(self.revert_to_backup)
         fit_buttons.addWidget(self.revert_button)
 
-        fit_buttons.addStretch()
+        self.fix_limits_button = QPushButton("Fix limits?")
+        self.fix_limits_button.setMinimumHeight(28)
+        self.fix_limits_button.setMaximumWidth(120)
+        self.fix_limits_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+        """)
+        self.fix_limits_button.clicked.connect(self.fix_all_limits)
+        fit_buttons.addWidget(self.fix_limits_button)
+
         layout.addLayout(fit_buttons)
 
         # Additional buttons row with Reset
@@ -1866,35 +1918,6 @@ class UnifiedFitPanel(QWidget):
         """)
         self.reset_button.clicked.connect(self.reset_to_defaults)
         additional_buttons.addWidget(self.reset_button)
-
-        self.reset_unif_button = QPushButton("reset unif?")
-        self.reset_unif_button.setMinimumHeight(26)  # Reduced from 30
-        self.reset_unif_button.setStyleSheet("""
-            QPushButton {
-                background-color: #ff9800;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #fb8c00;
-            }
-        """)
-        additional_buttons.addWidget(self.reset_unif_button)
-
-        self.fix_limits_button = QPushButton("Fix limits?")
-        self.fix_limits_button.setMinimumHeight(26)  # Reduced from 30
-        self.fix_limits_button.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2ecc71;
-            }
-        """)
-        self.fix_limits_button.clicked.connect(self.fix_all_limits)
-        additional_buttons.addWidget(self.fix_limits_button)
 
         layout.addLayout(additional_buttons)
 
@@ -1956,11 +1979,13 @@ class UnifiedFitPanel(QWidget):
 
         self.export_params_button = QPushButton("Export Parameters")
         self.export_params_button.setMinimumHeight(26)
+        self.export_params_button.setStyleSheet("background-color: lightgreen;")
         self.export_params_button.clicked.connect(self.export_parameters)
         results_buttons2.addWidget(self.export_params_button)
 
         self.import_params_button = QPushButton("Import Parameters")
         self.import_params_button.setMinimumHeight(26)
+        self.import_params_button.setStyleSheet("background-color: lightgreen;")
         self.import_params_button.clicked.connect(self.import_parameters)
         results_buttons2.addWidget(self.import_params_button)
 
@@ -1968,8 +1993,10 @@ class UnifiedFitPanel(QWidget):
 
         # Results buttons row 3
         results_buttons3 = QHBoxLayout()
-        self.analyze_results_button = QPushButton("Analyze Results")
+        self.analyze_results_button = QPushButton("Calculate uncertainties")
         self.analyze_results_button.setMinimumHeight(30)
+        self.analyze_results_button.setStyleSheet("background-color: lightblue;")
+        self.analyze_results_button.clicked.connect(self.analyze_results)
         results_buttons3.addWidget(self.analyze_results_button)
 
         layout.addLayout(results_buttons3)
@@ -1989,9 +2016,25 @@ class UnifiedFitPanel(QWidget):
         panel.setLayout(layout)
         return panel
 
+    @staticmethod
+    def _empty_uncertainties() -> dict:
+        """Return a fresh uncertainty dict with all values zero."""
+        return {
+            'levels': [
+                {'G': 0.0, 'Rg': 0.0, 'B': 0.0, 'P': 0.0, 'ETA': 0.0, 'PACK': 0.0}
+                for _ in range(5)
+            ],
+            'background': 0.0,
+        }
+
+    def reset_uncertainties(self):
+        """Reset all MC uncertainties to zero (called when model structure changes)."""
+        self.fit_uncertainties = self._empty_uncertainties()
+
     def on_num_levels_changed(self, value):
         """Handle change in number of levels."""
         self.update_level_tabs()
+        self.reset_uncertainties()
 
         # Recalculate if "Update automatically" is checked
         if self.update_auto_check.isChecked() and self.data is not None:
@@ -2050,6 +2093,8 @@ class UnifiedFitPanel(QWidget):
 
         # Plot the data
         if self.graph_window:
+            if filepath:
+                self.graph_window.data_folder = str(Path(filepath).parent)
             self.graph_window.init_plots()
             self.graph_window.plot_data(q, intensity, error, label)
 
@@ -3033,83 +3078,217 @@ class UnifiedFitPanel(QWidget):
             QMessageBox.information(self, "Reset Complete", "All parameters reset to defaults")
             self.status_label.setText("Reset to defaults")
 
+    def analyze_results(self):
+        """Monte Carlo uncertainty analysis: 10 fits on Gaussian-randomised data."""
+        if self.data is None:
+            self.graph_window.show_error_message("No data loaded.")
+            return
+        if not hasattr(self, 'fit_result') or self.fit_result is None:
+            self.graph_window.show_error_message(
+                "No fit result available. Run Fit first, then Analyze Results."
+            )
+            return
+        if self.data.get('Error') is None:
+            self.graph_window.show_error_message(
+                "Data has no uncertainties — cannot run Monte Carlo analysis."
+            )
+            return
+
+        N_RUNS = 10
+        num_levels = self.num_levels_spin.value()
+        no_limits = self.no_limits_check.isChecked()
+        fit_background = self.fit_background_check.isChecked()
+        background_init = float(self.background_value.text() or 0)
+
+        # Capture current (fitted) level parameters once — used as starting point
+        # for every MC run so we always start from the same initial guess.
+        level_params_list = [self.level_widgets[i].get_parameters() for i in range(num_levels)]
+
+        # Full Q / I / Error arrays
+        Q = self.data['Q']
+        I_orig = self.data['Intensity']
+        Error = self.data['Error']
+
+        # Apply cursor Q range
+        cursor_range = self.graph_window.get_cursor_range()
+        if cursor_range is not None:
+            q_min, q_max = cursor_range
+            mask = (Q >= q_min) & (Q <= q_max)
+        else:
+            mask = np.ones(len(Q), dtype=bool)
+
+        q_fit = Q[mask]
+        I_fit_orig = I_orig[mask]
+        err_fit = Error[mask]
+
+        # Storage for MC results
+        mc = {
+            'background': [],
+            'G':    [[] for _ in range(num_levels)],
+            'Rg':   [[] for _ in range(num_levels)],
+            'B':    [[] for _ in range(num_levels)],
+            'P':    [[] for _ in range(num_levels)],
+            'ETA':  [[] for _ in range(num_levels)],
+            'PACK': [[] for _ in range(num_levels)],
+        }
+
+        for run in range(N_RUNS):
+            self.status_label.setText(f"Monte Carlo: run {run + 1}/{N_RUNS} …")
+            QApplication.processEvents()
+
+            # Randomise intensities within uncertainties (Gaussian, σ = 1×Error)
+            I_noisy = I_fit_orig + np.random.normal(0.0, 1.0, len(q_fit)) * err_fit
+            # Clip to positive values to avoid numerical issues
+            I_noisy = np.maximum(I_noisy, 1e-30)
+
+            # Build model from current (pre-MC) GUI parameters
+            levels = []
+            for i in range(num_levels):
+                p = level_params_list[i]
+                if no_limits:
+                    lv = UnifiedLevel(
+                        Rg=p['Rg'], G=p['G'], P=p['P'], B=p['B'],
+                        RgCO=p['RgCutoff'], ETA=p['ETA'], PACK=p['PACK'],
+                        correlations=p['correlated'],
+                        fit_Rg=p['fit_Rg'], fit_G=p['fit_G'],
+                        fit_P=p['fit_P'], fit_B=p['fit_B'],
+                        fit_ETA=p['fit_ETA'], fit_PACK=p['fit_PACK'],
+                        Rg_limits=(0.1, 1e6), G_limits=(1e-10, 1e10),
+                        B_limits=(1e-20, 1e10), P_limits=(0.0, 6.0),
+                        ETA_limits=(0.1, 1e6), PACK_limits=(0.0, 16.0),
+                    )
+                else:
+                    lv = UnifiedLevel(
+                        Rg=p['Rg'], G=p['G'], P=p['P'], B=p['B'],
+                        RgCO=p['RgCutoff'], ETA=p['ETA'], PACK=p['PACK'],
+                        correlations=p['correlated'],
+                        fit_Rg=p['fit_Rg'], fit_G=p['fit_G'],
+                        fit_P=p['fit_P'], fit_B=p['fit_B'],
+                        fit_ETA=p['fit_ETA'], fit_PACK=p['fit_PACK'],
+                        Rg_limits=(p['Rg_low'], p['Rg_high']),
+                        G_limits=(p['G_low'], p['G_high']),
+                        B_limits=(p['B_low'], p['B_high']),
+                        P_limits=(p['P_low'], p['P_high']),
+                        ETA_limits=(p['ETA_low'], p['ETA_high']),
+                        PACK_limits=(p['PACK_low'], p['PACK_high']),
+                    )
+                levels.append(lv)
+
+            mc_model = UnifiedFitModel(num_levels=num_levels)
+            mc_model.levels = levels
+            mc_model.background = background_init
+            mc_model.fit_background = fit_background
+
+            try:
+                result = mc_model.fit(q_fit, I_noisy, err_fit)
+                if not result.get('success', False):
+                    continue
+                mc['background'].append(result['background'])
+                for i in range(num_levels):
+                    fitted_lv = result['levels'][i]
+                    mc['G'][i].append(fitted_lv.G)
+                    mc['Rg'][i].append(fitted_lv.Rg)
+                    mc['B'][i].append(fitted_lv.B)
+                    mc['P'][i].append(fitted_lv.P)
+                    mc['ETA'][i].append(fitted_lv.ETA)
+                    mc['PACK'][i].append(fitted_lv.PACK)
+            except Exception:
+                pass  # Failed runs are silently skipped
+
+        # --- Compute statistics ---
+        self.fit_uncertainties = self._empty_uncertainties()
+        n_success = len(mc['background'])
+
+        if n_success > 1:
+            self.fit_uncertainties['background'] = float(np.std(mc['background'], ddof=1))
+            for i in range(num_levels):
+                ud = self.fit_uncertainties['levels'][i]
+                for key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
+                    vals = mc[key][i]
+                    ud[key] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+
+        # --- Restore original model and replot ---
+        self.graph_unified()
+
+        msg = (f"Monte Carlo analysis complete: {n_success}/{N_RUNS} successful runs. "
+               f"Uncertainties updated — click 'Results to graphs' to display.")
+        self.status_label.setText(
+            f"MC analysis: {n_success}/{N_RUNS} runs OK"
+        )
+        self.graph_window.show_success_message(msg)
+
     def display_results_on_graph(self):
-        """Display formatted text boxes with results for each level on the graph."""
-        print("DEBUG: display_results_on_graph called")
+        """Display formatted text boxes with results for each level on the graph.
+
+        If Monte Carlo uncertainties are available (from Analyze Results), each
+        fitted parameter is shown as  value ± std_dev.
+        """
+        def _fmt(val, err=0.0, fmt='e'):
+            """Format a value with optional ±uncertainty."""
+            v_str = f"{val:.3{fmt}}"
+            if err > 0.0:
+                return f"{v_str} ± {err:.2e}"
+            return v_str
 
         try:
             if self.data is None:
-                print("DEBUG: No data loaded")
                 self.graph_window.show_error_message("No data loaded. Please load data first.")
                 return
 
-            # Clear any existing result annotations
             self.graph_window.clear_result_text_annotations()
-            print("DEBUG: Cleared existing annotations")
 
-            # Save current view range to restore after adding text items
             view_range = self.graph_window.main_plot.viewRange()
-            print(f"DEBUG: View range: {view_range}")
 
             num_levels = self.num_levels_spin.value()
             q = self.data['Q']
             intensity = self.data['Intensity']
-            print(f"DEBUG: Number of levels: {num_levels}")
+
+            unc = self.fit_uncertainties  # may be all-zeros if MC not run
 
             for i in range(num_levels):
                 params = self.level_widgets[i].get_parameters()
+                ud = unc['levels'][i]
                 level_num = i + 1
 
-                # Calculate attachment point: Q = 2/Rg
+                # Attach annotation near Q = 2/Rg for each level
                 Rg = params['Rg']
-                if Rg > 0 and Rg < 1e9:  # Valid Rg value
-                    target_q = 2.0 / Rg
-                else:
-                    target_q = q[0]  # Use first point if Rg is too large
-
-                # Find closest Q point in data
-                if target_q < q[0]:
-                    q_index = 0
-                elif target_q > q[-1]:
-                    q_index = len(q) - 1
-                else:
-                    q_index = np.argmin(np.abs(q - target_q))
-
+                target_q = (2.0 / Rg) if (0 < Rg < 1e9) else q[0]
+                q_index = np.argmin(np.abs(q - np.clip(target_q, q[0], q[-1])))
                 q_pos = q[q_index]
                 y_pos = intensity[q_index]
-                print(f"DEBUG: Level {level_num} - Q pos: {q_pos}, Y pos: {y_pos}")
 
-                # Build result text
                 text_lines = [f"Level {level_num}:"]
-                text_lines.append(f"G = {params['G']:.3e}")
-                text_lines.append(f"Rg = {params['Rg']:.3e}")
-                text_lines.append(f"B = {params['B']:.3e}")
-                text_lines.append(f"P = {params['P']:.3f}")
+                text_lines.append(f"G  = {_fmt(params['G'],  ud['G'])}")
+                text_lines.append(f"Rg = {_fmt(params['Rg'], ud['Rg'])}")
+                text_lines.append(f"B  = {_fmt(params['B'],  ud['B'])}")
+                text_lines.append(f"P  = {_fmt(params['P'],  ud['P'], fmt='f')}")
 
-                # Add RgCutoff if non-zero
                 if params['RgCutoff'] > 0.01:
                     text_lines.append(f"RgCO = {params['RgCutoff']:.3e}")
 
-                # Add correlation parameters if enabled
                 if params['correlated']:
-                    text_lines.append(f"ETA = {params['ETA']:.3e}")
-                    text_lines.append(f"PACK = {params['PACK']:.3f}")
+                    text_lines.append(f"ETA  = {_fmt(params['ETA'],  ud['ETA'])}")
+                    text_lines.append(f"PACK = {_fmt(params['PACK'], ud['PACK'], fmt='f')}")
 
-                result_text = "\n".join(text_lines)
-                print(f"DEBUG: Adding text for level {level_num}:\n{result_text}")
+                self.graph_window.add_result_text_annotation(
+                    q_pos, y_pos, "\n".join(text_lines), color='black'
+                )
 
-                # Add text annotation to graph
-                self.graph_window.add_result_text_annotation(q_pos, y_pos, result_text, color='black')
+            # Restore view so text items don't force a re-zoom
+            self.graph_window.main_plot.setRange(
+                xRange=view_range[0], yRange=view_range[1], padding=0
+            )
 
-            # Restore the original view range (text items shouldn't affect zoom)
-            self.graph_window.main_plot.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
-            print("DEBUG: Restored view range")
-
-            self.status_label.setText(f"Displayed results for {num_levels} level(s) on graph")
-            print("DEBUG: display_results_on_graph completed successfully")
+            has_unc = any(
+                self.fit_uncertainties['levels'][i]['Rg'] > 0
+                for i in range(num_levels)
+            )
+            suffix = " (with MC uncertainties)" if has_unc else ""
+            self.status_label.setText(
+                f"Displayed results for {num_levels} level(s) on graph{suffix}"
+            )
 
         except Exception as e:
-            print(f"ERROR in display_results_on_graph: {e}")
             import traceback
             traceback.print_exc()
             self.graph_window.show_error_message(f"Error displaying results: {str(e)}")
@@ -3237,48 +3416,164 @@ class UnifiedFitPanel(QWidget):
                 background=background,
                 chi_squared=chi_squared,
                 num_levels=num_levels,
-                error=self.data.get('Error')
+                error=self.data.get('Error'),
+                uncertainties=self.fit_uncertainties
             )
 
             self.status_label.setText(f"Saved results to {output_path.name}")
             self.graph_window.show_success_message(f"Unified Fit results saved to: {output_path}")
 
+        except OSError as e:
+            # errno 35 / errno 11 = resource temporarily unavailable (file locked)
+            if e.errno in (11, 35):
+                self.graph_window.show_error_message(
+                    f"Cannot write to file — it is locked by another application "
+                    f"(e.g. HDFView or another Python process).\n"
+                    f"Close the file in the other tool and try again.\n"
+                    f"File: {output_path if 'output_path' in dir() else 'unknown'}"
+                )
+            else:
+                self.graph_window.show_error_message(f"Error saving results: {str(e)}")
+            import traceback
+            traceback.print_exc()
         except Exception as e:
             self.graph_window.show_error_message(f"Error saving results: {str(e)}")
             import traceback
             traceback.print_exc()
 
+    def _get_data_folder(self) -> str:
+        """Return the folder of the currently loaded data file, or cwd."""
+        if self.data is not None:
+            fp = self.data.get('filepath')
+            if fp:
+                return str(Path(fp).parent)
+        return str(Path.cwd())
+
     def export_parameters(self):
-        """Export current parameters to JSON file."""
+        """Export current Unified Fit configuration to a pyIrena JSON config file."""
+        import json
+        import datetime
+        from pyirena import __version__ as _version
+
+        default_dir = self._get_data_folder()
+        default_path = str(Path(default_dir) / "pyirena_config.json")
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Parameters",
-            "",
-            "JSON Files (*.json);;All Files (*)"
+            "Export pyIrena Configuration",
+            default_path,
+            "pyIrena Config (*.json);;All Files (*)"
         )
+        if not file_path:
+            return
 
-        if file_path:
-            state = self.get_current_state()
-            if self.state_manager.export_tool_state('unified_fit', Path(file_path)):
-                QMessageBox.information(self, "Export Complete", f"Parameters exported to:\n{file_path}")
-            else:
-                QMessageBox.warning(self, "Export Failed", "Failed to export parameters")
+        file_path = Path(file_path)
+
+        # Load existing config or start fresh
+        config = {}
+        if file_path.exists():
+            try:
+                with open(file_path, 'r') as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+
+            # Reject files that are not pyIrena config files
+            if '_pyirena_config' not in config:
+                QMessageBox.warning(
+                    self,
+                    "Not a pyIrena File",
+                    f"The selected file is not a pyIrena configuration file:\n{file_path}\n\n"
+                    "Choose a different file or enter a new filename."
+                )
+                return
+
+            # Confirm overwrite of existing Unified Fit group
+            if 'unified_fit' in config:
+                reply = QMessageBox.question(
+                    self,
+                    "Overwrite Unified Fit Parameters?",
+                    f"File already contains Unified Fit parameters:\n{file_path}\n\n"
+                    "Overwrite the existing Unified Fit group?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+        # Build / update the config envelope
+        now = datetime.datetime.now().isoformat(timespec='seconds')
+        if '_pyirena_config' not in config:
+            config['_pyirena_config'] = {
+                'file_type': 'pyIrena Configuration File',
+                'version': _version,
+                'created': now,
+            }
+        config['_pyirena_config']['modified'] = now
+        config['_pyirena_config']['written_by'] = f"pyIrena {_version}"
+
+        # Collect full Unified Fit state and write it into the config
+        self.state_manager.update('unified_fit', self.get_current_state())
+        config['unified_fit'] = self.state_manager.get('unified_fit')
+
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            QMessageBox.warning(self, "Export Failed", f"Could not write file:\n{e}")
+            return
+
+        msg = f"Configuration saved to: {file_path.name}"
+        self.status_label.setText(msg)
+        self.graph_window.show_success_message(msg)
 
     def import_parameters(self):
-        """Import parameters from JSON file."""
+        """Import Unified Fit configuration from a pyIrena JSON config file."""
+        import json
+
+        default_dir = self._get_data_folder()
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Parameters",
-            "",
-            "JSON Files (*.json);;All Files (*)"
+            "Import pyIrena Configuration",
+            default_dir,
+            "pyIrena Config (*.json);;All Files (*)"
         )
+        if not file_path:
+            return
 
-        if file_path:
-            if self.state_manager.import_tool_state('unified_fit', Path(file_path)):
-                self.load_state()
-                QMessageBox.information(self, "Import Complete", f"Parameters imported from:\n{file_path}")
-            else:
-                QMessageBox.warning(self, "Import Failed", "Failed to import parameters")
+        file_path = Path(file_path)
+
+        try:
+            with open(file_path, 'r') as f:
+                config = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Failed", f"Could not read file:\n{e}")
+            return
+
+        if '_pyirena_config' not in config:
+            QMessageBox.warning(
+                self,
+                "Not a pyIrena File",
+                f"The selected file is not a pyIrena configuration file:\n{file_path}"
+            )
+            return
+
+        if 'unified_fit' not in config:
+            QMessageBox.warning(
+                self,
+                "No Unified Fit Parameters",
+                f"The file does not contain a Unified Fit parameter group:\n{file_path}"
+            )
+            return
+
+        unified_state = config['unified_fit']
+        self.state_manager.update('unified_fit', unified_state)
+        self.apply_state(unified_state)
+
+        written_by = config['_pyirena_config'].get('written_by', 'unknown version')
+        msg = f"Unified Fit parameters loaded from: {file_path.name}  (written by {written_by})"
+        self.status_label.setText(f"Loaded config: {file_path.name}")
+        self.graph_window.show_success_message(msg)
 
     def closeEvent(self, event):
         """Handle window close - auto-save state."""

@@ -91,7 +91,8 @@ def save_unified_fit_results(filepath: Path,
                              background: float,
                              chi_squared: float,
                              num_levels: int,
-                             error: Optional[np.ndarray] = None) -> None:
+                             error: Optional[np.ndarray] = None,
+                             uncertainties: Optional[Dict] = None) -> None:
     """
     Save Unified Fit results to NXcanSAS HDF5 file.
 
@@ -109,6 +110,11 @@ def save_unified_fit_results(filepath: Path,
         chi_squared: Chi-squared value from fit
         num_levels: Number of levels used
         error: Error/uncertainty data (1/cm), optional
+        uncertainties: Monte Carlo parameter uncertainties (std devs), optional.
+            Structure: {'levels': [{'G': float, 'Rg': float, ...}, ...],
+                        'background': float}
+            Non-zero values are stored as  <param>_err  attributes on each level
+            group and as  background_err  on the unified_fit_results group.
     """
     timestamp = datetime.now().isoformat()
 
@@ -145,6 +151,10 @@ def save_unified_fit_results(filepath: Path,
         unified_group.attrs['num_levels'] = num_levels
         unified_group.attrs['background'] = background
         unified_group.attrs['chi_squared'] = chi_squared
+        if uncertainties is not None:
+            bg_err = uncertainties.get('background', 0.0)
+            if bg_err > 0.0:
+                unified_group.attrs['background_err'] = bg_err
 
         # Store Q vector
         ds_q = unified_group.create_dataset('Q', data=q)
@@ -170,19 +180,25 @@ def save_unified_fit_results(filepath: Path,
         ds_resid = unified_group.create_dataset('residuals', data=residuals)
         ds_resid.attrs['long_name'] = 'Fit residuals (normalized)'
 
-        # Store level parameters
+        # Store level parameters (and MC uncertainties if available)
         for i, level_params in enumerate(levels):
             level_num = i + 1
             level_group = unified_group.create_group(f'level_{level_num}')
             level_group.attrs['level_number'] = level_num
 
-            # Store all parameters
             for param_name, param_value in level_params.items():
                 if isinstance(param_value, (int, float, bool)):
                     level_group.attrs[param_name] = param_value
                 elif isinstance(param_value, str):
                     level_group.attrs[param_name] = param_value
-                # Skip complex types like tuples (limits)
+
+            # Store MC uncertainties as <param>_err attributes (non-zero only)
+            if uncertainties is not None and i < len(uncertainties.get('levels', [])):
+                ud = uncertainties['levels'][i]
+                for param_key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
+                    err_val = ud.get(param_key, 0.0)
+                    if err_val > 0.0:
+                        level_group.attrs[f'{param_key}_err'] = err_val
 
         print(f"Saved Unified Fit results to {filepath}")
 
