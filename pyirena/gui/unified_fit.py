@@ -9,7 +9,8 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
         QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
-        QGridLayout, QMessageBox, QSplitter, QFileDialog
+        QGridLayout, QMessageBox, QSplitter, QFileDialog,
+        QDialog, QComboBox, QRadioButton
     )
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtGui import QFont, QDoubleValidator
@@ -18,7 +19,8 @@ except ImportError:
         from PyQt6.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
             QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
-            QGridLayout, QMessageBox, QSplitter, QFileDialog
+            QGridLayout, QMessageBox, QSplitter, QFileDialog,
+            QDialog, QComboBox, QRadioButton
         )
         from PyQt6.QtCore import Qt, pyqtSignal as Signal
         from PyQt6.QtGui import QFont, QDoubleValidator
@@ -27,7 +29,8 @@ except ImportError:
             from PyQt5.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                 QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
-                QGridLayout, QMessageBox, QSplitter, QFileDialog
+                QGridLayout, QMessageBox, QSplitter, QFileDialog,
+                QDialog, QComboBox, QRadioButton
             )
             from PyQt5.QtCore import Qt, pyqtSignal as Signal
             from PyQt5.QtGui import QFont, QDoubleValidator
@@ -976,13 +979,15 @@ class LevelParametersWidget(QWidget):
             self.link_rgco_check = None
 
         # RgCutoff and Correlations checkbox on same row
-        rg_cutoff_corr_layout = QHBoxLayout()
-        rg_cutoff_corr_layout.addWidget(QLabel("RgCutoff"))
+        # RgCutoff is hidden for level 1 (always 0); shown for levels 2-5
         self.rg_cutoff = ScrubbableLineEdit("0")
         self.rg_cutoff.setValidator(QDoubleValidator())
         self.rg_cutoff.setMaximumWidth(100)
-        rg_cutoff_corr_layout.addWidget(self.rg_cutoff)
-        rg_cutoff_corr_layout.addSpacing(20)
+        rg_cutoff_corr_layout = QHBoxLayout()
+        if self.level_number > 1:
+            rg_cutoff_corr_layout.addWidget(QLabel("RgCutoff"))
+            rg_cutoff_corr_layout.addWidget(self.rg_cutoff)
+            rg_cutoff_corr_layout.addSpacing(20)
         self.correlated_check = QCheckBox("Correlations?")
         self.correlated_check.stateChanged.connect(self._on_correlations_changed)
         rg_cutoff_corr_layout.addWidget(self.correlated_check)
@@ -1048,9 +1053,9 @@ class LevelParametersWidget(QWidget):
         self.corr_params_widget.setVisible(False)  # Hidden by default
         layout.addWidget(self.corr_params_widget)
 
-        # Copy/Move/swap button
-        self.copy_move_button = QPushButton("Copy/Move/swap level")
-        self.copy_move_button.setMinimumHeight(24)  # Reduced by ~20% from 30
+        # Copy/Swap button
+        self.copy_move_button = QPushButton("Copy/Swap level")
+        self.copy_move_button.setMinimumHeight(24)
         layout.addWidget(self.copy_move_button)
 
         # Calculated values display - Sv and Invariant
@@ -1503,7 +1508,7 @@ class LevelParametersWidget(QWidget):
             'Rg': float(self.rg_value.text() or 0),
             'B': float(self.b_value.text() or 0),
             'P': float(self.p_value.text() or 0),
-            'RgCutoff': float(self.rg_cutoff.text() or 0),
+            'RgCutoff': 0.0 if self.level_number == 1 else float(self.rg_cutoff.text() or 0),
             'ETA': float(self.eta_value.text() or 0),
             'PACK': float(self.pack_value.text() or 0),
             'fit_G': self.g_fit.isChecked(),
@@ -1741,6 +1746,7 @@ class UnifiedFitPanel(QWidget):
             # Connect fit buttons
             level_widget.fit_rg_g_button.clicked.connect(lambda checked, level=i: self.fit_local_guinier(level))
             level_widget.fit_p_b_button.clicked.connect(lambda checked, level=i: self.fit_local_porod(level))
+            level_widget.copy_move_button.clicked.connect(lambda checked, level=i: self.copy_swap_level(level))
             self.level_widgets.append(level_widget)
             self.level_tabs.addTab(level_widget, f"{i}. Level")
 
@@ -2812,6 +2818,87 @@ class UnifiedFitPanel(QWidget):
         else:
             QMessageBox.warning(self, "Save Failed", "Failed to save state")
 
+    def copy_swap_level(self, source_level: int):
+        """Copy or swap all parameters between source level and a chosen target level."""
+        num_levels = self.num_levels_spin.value()
+
+        # Build list of valid target levels (all active levels except the source)
+        target_options = [l for l in range(1, num_levels + 1) if l != source_level]
+        if not target_options:
+            self.graph_window.show_error_message(
+                f"Only one level active — nothing to copy/swap."
+            )
+            return
+
+        # --- Dialog ---
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Copy / Swap Level {source_level}")
+        dialog.setModal(True)
+        dlg_layout = QVBoxLayout(dialog)
+        dlg_layout.setSpacing(12)
+
+        # Target level selector
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Target level:"))
+        target_combo = QComboBox()
+        for l in target_options:
+            target_combo.addItem(f"Level {l}", l)
+        target_row.addWidget(target_combo)
+        target_row.addStretch()
+        dlg_layout.addLayout(target_row)
+
+        # Copy vs Swap radio buttons
+        copy_radio = QRadioButton(
+            f"Copy  —  source Level {source_level} → target level\n"
+            f"(target gets same parameters as source; source unchanged)"
+        )
+        swap_radio = QRadioButton(
+            f"Swap  —  exchange parameters between Level {source_level} and target level"
+        )
+        copy_radio.setChecked(True)
+        dlg_layout.addWidget(copy_radio)
+        dlg_layout.addWidget(swap_radio)
+
+        # OK / Cancel buttons
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        ok_btn.setDefault(True)
+        cancel_btn = QPushButton("Cancel")
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        dlg_layout.addLayout(btn_row)
+
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        target_level = target_combo.currentData()
+        do_swap = swap_radio.isChecked()
+
+        src_widget = self.level_widgets[source_level - 1]
+        tgt_widget = self.level_widgets[target_level - 1]
+
+        src_params = src_widget.get_parameters()
+        tgt_params = tgt_widget.get_parameters()
+
+        # Apply: always write source params to target
+        tgt_widget.set_parameters(src_params)
+        if do_swap:
+            # Also write original target params to source
+            src_widget.set_parameters(tgt_params)
+
+        action = "Swapped" if do_swap else "Copied"
+        msg = (
+            f"{action} parameters between Level {source_level} "
+            f"and Level {target_level}"
+        )
+        self.status_label.setText(msg)
+        self.graph_window.show_success_message(msg)
+        self.on_parameter_changed()
+
     def fix_all_limits(self):
         """Fix fitting limits for all levels based on current parameter values."""
         num_levels = self.num_levels_spin.value()
@@ -3154,11 +3241,7 @@ class UnifiedFitPanel(QWidget):
             )
 
             self.status_label.setText(f"Saved results to {output_path.name}")
-            QMessageBox.information(
-                self,
-                "Save Complete",
-                f"Unified Fit results saved to:\n{output_path}"
-            )
+            self.graph_window.show_success_message(f"Unified Fit results saved to: {output_path}")
 
         except Exception as e:
             self.graph_window.show_error_message(f"Error saving results: {str(e)}")
