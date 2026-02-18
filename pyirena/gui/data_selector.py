@@ -7,6 +7,7 @@ their content as graphs.
 
 import os
 import sys
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -14,19 +15,21 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-        QAbstractItemView, QMessageBox, QMenuBar, QMenu
+        QAbstractItemView, QMessageBox, QMenuBar, QMenu,
+        QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
     )
     from PySide6.QtCore import Qt, QDir
-    from PySide6.QtGui import QAction
+    from PySide6.QtGui import QAction, QDoubleValidator
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-            QAbstractItemView, QMessageBox, QMenuBar, QMenu
+            QAbstractItemView, QMessageBox, QMenuBar, QMenu,
+            QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
         )
         from PyQt6.QtCore import Qt, QDir
-        from PyQt6.QtGui import QAction
+        from PyQt6.QtGui import QAction, QDoubleValidator
     except ImportError:
         raise ImportError(
             "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
@@ -39,8 +42,311 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.state import StateManager
+
+
+def _build_report(file_path: str,
+                  data_info: Optional[dict] = None,
+                  fit_results: Optional[dict] = None) -> str:
+    """
+    Build a Markdown report string.
+
+    Args:
+        file_path:   Absolute path to the source file.
+        data_info:   Dict with keys 'Q', 'I', 'I_error' (optional array).
+                     Pass None to omit the data section.
+        fit_results: Dict from load_unified_fit_results().
+                     Pass None to omit the fit section.
+
+    Returns:
+        Multi-line Markdown string ready to be written to a .md file.
+    """
+    from datetime import datetime as _dt
+
+    filename = os.path.basename(file_path)
+    now = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    L = []
+
+    # ── Header ───────────────────────────────────────────────────────────────
+    L += [
+        "# pyIrena Report",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| **File** | `{filename}` |",
+        f"| **Report generated** | {now} |",
+    ]
+    if fit_results is not None:
+        L += [
+            f"| **Fit timestamp** | {fit_results.get('timestamp', 'unknown')} |",
+            f"| **Program** | {fit_results.get('program', 'pyirena')} |",
+        ]
+    L.append("")
+
+    # ── Data summary ─────────────────────────────────────────────────────────
+    if data_info is not None:
+        Q = data_info['Q']
+        I = data_info['I']
+        I_error = data_info.get('I_error')
+        L += [
+            "## Data Summary",
+            "",
+            "| Parameter | Value |",
+            "|-----------|-------|",
+            f"| Q range | {Q.min():.4g} – {Q.max():.4g} Å⁻¹ |",
+            f"| Intensity range | {I.min():.4e} – {I.max():.4e} cm⁻¹ |",
+            f"| Data points | {len(Q)} |",
+        ]
+        if I_error is not None:
+            L.append(
+                f"| Uncertainty range | {I_error.min():.4e} – {I_error.max():.4e} cm⁻¹ |"
+            )
+        L.append("")
+
+    # ── Fit quality ──────────────────────────────────────────────────────────
+    if fit_results is not None:
+        chi2      = fit_results['chi_squared']
+        bg        = fit_results['background']
+        n_levels  = fit_results['num_levels']
+        Q_fit     = fit_results['Q']
+        residuals = fit_results['residuals']
+        levels    = fit_results.get('levels', [])
+
+        L += [
+            "## Fit Quality",
+            "",
+            "| Parameter | Value |",
+            "|-----------|-------|",
+            f"| Chi-squared (χ²) | {chi2:.4f} |",
+            f"| Number of levels | {n_levels} |",
+            f"| Background | {bg:.4e} cm⁻¹ |",
+            f"| Q range (fit) | {Q_fit.min():.4g} – {Q_fit.max():.4g} Å⁻¹ |",
+            f"| Data points (fit) | {len(Q_fit)} |",
+            f"| Residuals mean | {np.mean(residuals):.4f} |",
+            f"| Residuals std dev | {np.std(residuals):.4f} |",
+            f"| Max \\|residual\\| | {np.max(np.abs(residuals)):.4f} |",
+            "",
+        ]
+
+        # ── Level parameters ──────────────────────────────────────────────
+        for i, level in enumerate(levels):
+            lnum = i + 1
+            L.append(f"## Level {lnum} Parameters")
+            L.append("")
+
+            has_mc = any(f'{p}_err' in level for p in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'))
+            if has_mc:
+                L += ["| Parameter | Value | Uncertainty (1σ) |",
+                      "|-----------|-------|------------------|"]
+            else:
+                L += ["| Parameter | Value |",
+                      "|-----------|-------|"]
+
+            def _row(label, key, unit='', fmt='.4e'):
+                val = level.get(key)
+                if val is None:
+                    return
+                val_str = f"{val:{fmt}}{unit}"
+                if has_mc:
+                    err = level.get(f'{key}_err', 0.0)
+                    err_str = f"± {err:{fmt}}{unit}" if err > 0 else "—"
+                    L.append(f"| {label} | {val_str} | {err_str} |")
+                else:
+                    L.append(f"| {label} | {val_str} |")
+
+            _row('G',  'G')
+            _row('Rg', 'Rg', ' Å')
+            _row('B',  'B')
+            _row('P',  'P',  fmt='.4f')
+
+            rgcut = level.get('RgCutoff', 0.0)
+            if isinstance(rgcut, float) and rgcut > 0.01:
+                _row('RgCutoff', 'RgCutoff', ' Å')
+
+            if level.get('correlated', False):
+                _row('ETA',  'ETA',  ' Å', fmt='.2f')
+                _row('PACK', 'PACK', '',   fmt='.4f')
+
+            sv = level.get('Sv')
+            if sv is not None and sv != 'N/A' and isinstance(sv, (int, float)):
+                _row('Sv', 'Sv', ' m²/cm³')
+
+            inv = level.get('Invariant')
+            if inv is not None and inv != 'N/A' and isinstance(inv, (int, float)):
+                _row('Invariant', 'Invariant', ' cm⁻⁴')
+
+            L.append("")
+
+    L += ["---", "*Generated by pyIrena*", ""]
+    return "\n".join(L)
+
+
+class DataSelectorConfigDialog(QDialog):
+    """
+    Extensible configuration dialog for the Data Selector.
+
+    Settings are defined as a list of field specifications (FIELD_SPECS).
+    Adding a new configurable parameter only requires adding one entry to that list.
+
+    Supported field types
+    ---------------------
+    'float'  — QLineEdit with QDoubleValidator
+    'int'    — QLineEdit with integer validation
+    'str'    — plain QLineEdit
+    'bool'   — QCheckBox
+    'color'  — QPushButton that opens QColorDialog (stores hex color string)
+    """
+
+    # ---------------------------------------------------------------------------
+    # Field specifications — add new settings here
+    # ---------------------------------------------------------------------------
+    FIELD_SPECS = [
+        {
+            'group':    'Text File Options',
+            'key':      'error_fraction',
+            'label':    'Generated uncertainty fraction',
+            'tooltip':  (
+                'When a text file has only two columns (Q and I) and no uncertainty\n'
+                'column, the uncertainty is generated as:  σ = I × this_value\n'
+                'Default: 0.05  (5 % of intensity)'
+            ),
+            'type':     'float',
+            'default':  0.05,
+            'min':      0.0,
+            'max':      100.0,
+            'decimals': 4,
+        },
+        # -----------------------------------------------------------------------
+        # Future settings — just append a dict here, no other code changes needed
+        # -----------------------------------------------------------------------
+        # {
+        #     'group':   'Text File Options',
+        #     'key':     'q_units_scale',
+        #     'label':   'Q unit scale factor',
+        #     'tooltip': 'Multiply Q by this factor on load (1.0 = no change)',
+        #     'type':    'float',
+        #     'default': 1.0,
+        #     'min':     0.0,
+        #     'max':     1000.0,
+        #     'decimals': 6,
+        # },
+        # {
+        #     'group':   'Display',
+        #     'key':     'plot_color',
+        #     'label':   'Default plot color',
+        #     'tooltip': 'Color used for single-file plots',
+        #     'type':    'color',
+        #     'default': '#3498db',
+        # },
+    ]
+
+    def __init__(self, current_values: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Data Selector — Configure")
+        self.setMinimumWidth(420)
+        self._widgets = {}   # key -> (field_type, widget)
+        self._init_ui(current_values)
+
+    def _init_ui(self, current_values: dict):
+        outer = QVBoxLayout()
+        outer.setSpacing(12)
+
+        # Group fields by their 'group' key
+        groups = {}
+        for spec in self.FIELD_SPECS:
+            g = spec.get('group', 'General')
+            groups.setdefault(g, []).append(spec)
+
+        for group_name, specs in groups.items():
+            box = QGroupBox(group_name)
+            form = QFormLayout()
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+
+            for spec in specs:
+                key       = spec['key']
+                label_txt = spec['label']
+                ftype     = spec['type']
+                value     = current_values.get(key, spec.get('default', ''))
+                tooltip   = spec.get('tooltip', '')
+
+                if ftype in ('float', 'int'):
+                    widget = QLineEdit(str(value))
+                    validator = QDoubleValidator(
+                        float(spec.get('min', -1e300)),
+                        float(spec.get('max',  1e300)),
+                        int(spec.get('decimals', 6)),
+                    )
+                    widget.setValidator(validator)
+                    widget.setMaximumWidth(120)
+
+                elif ftype == 'bool':
+                    widget = QCheckBox()
+                    widget.setChecked(bool(value))
+
+                elif ftype == 'color':
+                    widget = QPushButton()
+                    widget._color = str(value)
+                    widget.setStyleSheet(f"background-color: {value};")
+                    widget.setFixedSize(60, 24)
+                    widget.clicked.connect(
+                        lambda checked, btn=widget: self._pick_color(btn)
+                    )
+
+                else:   # 'str'
+                    widget = QLineEdit(str(value))
+
+                if tooltip:
+                    widget.setToolTip(tooltip)
+
+                lbl = QLabel(label_txt)
+                if tooltip:
+                    lbl.setToolTip(tooltip)
+
+                form.addRow(lbl, widget)
+                self._widgets[key] = (ftype, widget)
+
+            box.setLayout(form)
+            outer.addWidget(box)
+
+        # OK / Cancel buttons
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        outer.addWidget(btn_box)
+
+        self.setLayout(outer)
+
+    def _pick_color(self, btn):
+        color = QColorDialog.getColor(parent=self)
+        if color.isValid():
+            btn._color = color.name()
+            btn.setStyleSheet(f"background-color: {color.name()};")
+
+    def get_values(self) -> dict:
+        """Return validated values from all widgets keyed by field key."""
+        result = {}
+        for spec in self.FIELD_SPECS:
+            key   = spec['key']
+            ftype = spec['type']
+            _, widget = self._widgets[key]
+
+            if ftype in ('float', 'int'):
+                try:
+                    result[key] = float(widget.text()) if ftype == 'float' else int(widget.text())
+                except ValueError:
+                    result[key] = spec.get('default', 0)
+            elif ftype == 'bool':
+                result[key] = widget.isChecked()
+            elif ftype == 'color':
+                result[key] = widget._color
+            else:
+                result[key] = widget.text()
+        return result
 
 
 class GraphWindow(QWidget):
@@ -62,12 +368,13 @@ class GraphWindow(QWidget):
         layout.addWidget(self.canvas)
         self.setLayout(layout)
 
-    def plot_data(self, file_paths: List[str]):
+    def plot_data(self, file_paths: List[str], error_fraction: float = 0.05):
         """
         Plot data from the selected files.
 
         Args:
             file_paths: List of file paths to plot
+            error_fraction: Fraction used to generate uncertainty for 2-column text files
         """
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -80,7 +387,7 @@ class GraphWindow(QWidget):
 
                 if ext.lower() in ['.txt', '.dat']:
                     # Read text file
-                    data = readTextFile(path, filename)
+                    data = readTextFile(path, filename, error_fraction=error_fraction)
                 else:
                     # Read HDF5 file
                     data = readGenericNXcanSAS(path, filename)
@@ -112,6 +419,117 @@ class GraphWindow(QWidget):
         self.show()
 
 
+class UnifiedFitResultsWindow(QWidget):
+    """
+    Separate window for displaying Unified Fit results stored in HDF5 files.
+
+    Shows a two-panel matplotlib figure: data + model fit (top) and
+    normalised residuals (bottom).  Files that contain no unified fit group
+    are silently skipped.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - Unified Fit Results")
+        self.setGeometry(130, 130, 900, 700)
+
+        self.figure = Figure(figsize=(9, 7))
+        self.canvas = FigureCanvas(self.figure)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
+
+    def plot_results(self, file_paths: List[str]):
+        """
+        Load and plot Unified Fit results from the given file paths.
+
+        Only HDF5 files are considered.  Files without a unified fit group
+        are skipped silently.
+        """
+        self.figure.clear()
+        ax_main  = self.figure.add_subplot(211)
+        ax_resid = self.figure.add_subplot(212)
+
+        found_any = False
+
+        for file_path in file_paths:
+            _, ext = os.path.splitext(file_path)
+            if ext.lower() not in ['.h5', '.hdf5', '.hdf']:
+                continue   # text files cannot carry unified fit results
+
+            try:
+                results = load_unified_fit_results(Path(file_path))
+            except Exception:
+                continue   # no unified fit group or unreadable — skip silently
+
+            label = os.path.basename(file_path)
+            Q         = results['Q']
+            I_data    = results['intensity_data']
+            I_model   = results['intensity_model']
+            residuals = results['residuals']
+            I_error   = results.get('intensity_error')
+            chi2      = results.get('chi_squared', float('nan'))
+
+            # ── data points ────────────────────────────────────────────────
+            if I_error is not None:
+                pts = ax_main.errorbar(
+                    Q, I_data, yerr=I_error,
+                    fmt='o', markersize=3,
+                    label=f'{label}  (data)', alpha=0.8,
+                    capsize=2,
+                )
+                color = pts[0].get_color()
+            else:
+                pts, = ax_main.plot(
+                    Q, I_data, 'o', markersize=3,
+                    label=f'{label}  (data)', alpha=0.8,
+                )
+                color = pts.get_color()
+
+            # ── model line ─────────────────────────────────────────────────
+            ax_main.plot(
+                Q, I_model, '-', linewidth=1.5, color=color,
+                label=f'{label}  fit  χ²={chi2:.3f}',
+            )
+
+            # ── residuals ──────────────────────────────────────────────────
+            ax_resid.plot(
+                Q, residuals, 'o-', markersize=3, linewidth=1,
+                color=color, label=label, alpha=0.8,
+            )
+
+            found_any = True
+
+        if found_any:
+            ax_main.set_xscale('log')
+            ax_main.set_yscale('log')
+            ax_main.set_ylabel('Intensity (cm⁻¹)', fontsize=11)
+            ax_main.grid(True, alpha=0.3, which='both')
+            ax_main.legend(fontsize=9)
+            ax_main.set_title('Unified Fit Results', fontsize=13)
+
+            ax_resid.axhline(y=0, color='k', linestyle='-', linewidth=0.8)
+            ax_resid.set_xscale('log')
+            ax_resid.set_xlabel('Q (Å⁻¹)', fontsize=11)
+            ax_resid.set_ylabel('Residuals (normalised)', fontsize=11)
+            ax_resid.grid(True, alpha=0.3)
+            ax_resid.legend(fontsize=9)
+        else:
+            ax_main.text(
+                0.5, 0.5,
+                'No Unified Fit results found\nin selected files',
+                ha='center', va='center',
+                transform=ax_main.transAxes,
+                fontsize=14, color='gray',
+            )
+            self.figure.delaxes(ax_resid)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+        self.show()
+
+
 class DataSelectorPanel(QWidget):
     """
     Main data selector panel for pyIrena.
@@ -128,6 +546,7 @@ class DataSelectorPanel(QWidget):
         self.current_folder = None
         self.last_folder = None  # Remember last selected folder
         self.graph_window = None
+        self.unified_fit_results_window = None  # Graph of stored fit results
         self.unified_fit_window = None  # Unified fit panel
 
         # Initialize state manager
@@ -228,56 +647,104 @@ class DataSelectorPanel(QWidget):
         self.file_list.itemSelectionChanged.connect(self.update_plot_button_state)
         left_layout.addWidget(self.file_list)
 
+        # Configure button — small, sits below the file list
+        configure_row = QHBoxLayout()
+        self.configure_button = QPushButton("Configure...")
+        self.configure_button.setMaximumWidth(110)
+        self.configure_button.setMinimumHeight(24)
+        self.configure_button.setToolTip("Configure data loading options")
+        self.configure_button.clicked.connect(self.open_configure_dialog)
+        configure_row.addWidget(self.configure_button)
+        configure_row.addStretch()
+        left_layout.addLayout(configure_row)
+
         file_area_layout.addLayout(left_layout, stretch=2)
 
-        # Right side: action buttons
+        # Right side: action buttons — starts at same level as Filter row
         right_layout = QVBoxLayout()
-        right_layout.addStretch()
+        right_layout.setSpacing(6)
+
+        # ── Graph content checkboxes ───────────────────────────────────────
+        graph_content_label = QLabel("Show in graph:")
+        graph_content_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        right_layout.addWidget(graph_content_label)
+
+        cb_row = QHBoxLayout()
+        cb_row.setSpacing(10)
+        self.data_checkbox = QCheckBox("Data")
+        self.data_checkbox.setChecked(True)
+        self.data_checkbox.setToolTip("Plot experimental data for selected files")
+        cb_row.addWidget(self.data_checkbox)
+
+        self.unified_fit_result_checkbox = QCheckBox("Unified Fit")
+        self.unified_fit_result_checkbox.setChecked(False)
+        self.unified_fit_result_checkbox.setToolTip(
+            "Plot stored Unified Fit results (data + model + residuals).\n"
+            "Only HDF5 files are checked; files without fit results are skipped."
+        )
+        cb_row.addWidget(self.unified_fit_result_checkbox)
+        cb_row.addStretch()
+        right_layout.addLayout(cb_row)
+
+        right_layout.addSpacing(4)
+
+        # ── Create Graph / Create Report side by side ──────────────────────
+        _btn_style_blue = """
+            QPushButton {
+                background-color: #3498db; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 5px 8px;
+            }
+            QPushButton:hover { background-color: #2980b9; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        _btn_style_purple = """
+            QPushButton {
+                background-color: #8e44ad; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 5px 8px;
+            }
+            QPushButton:hover { background-color: #7d3c98; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+
+        graph_row = QHBoxLayout()
+        graph_row.setSpacing(6)
 
         self.plot_button = QPushButton("Create Graph")
-        self.plot_button.setMinimumWidth(150)
-        self.plot_button.setMinimumHeight(50)
-        self.plot_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 5px;
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-            }
-        """)
+        self.plot_button.setMinimumHeight(34)
+        self.plot_button.setStyleSheet(_btn_style_blue)
         self.plot_button.clicked.connect(self.plot_selected_files)
         self.plot_button.setEnabled(False)
-        right_layout.addWidget(self.plot_button)
+        graph_row.addWidget(self.plot_button)
 
-        right_layout.addSpacing(20)
+        self.report_button = QPushButton("Create Report")
+        self.report_button.setMinimumHeight(34)
+        self.report_button.setStyleSheet(_btn_style_purple)
+        self.report_button.setToolTip(
+            "Generate a Markdown report (.md) summarising the Unified Fit\n"
+            "results for each selected HDF5 file.  Files without stored\n"
+            "fit results are skipped."
+        )
+        self.report_button.clicked.connect(self.create_report)
+        self.report_button.setEnabled(False)
+        graph_row.addWidget(self.report_button)
 
-        # Unified Fit button
+        right_layout.addLayout(graph_row)
+
+        right_layout.addSpacing(10)
+
+        # ── Unified Fit model button ───────────────────────────────────────
         self.unified_fit_button = QPushButton("Unified Fit")
-        self.unified_fit_button.setMinimumWidth(150)
-        self.unified_fit_button.setMinimumHeight(50)
+        self.unified_fit_button.setMinimumHeight(38)
         self.unified_fit_button.setStyleSheet("""
             QPushButton {
-                background-color: #27ae60;
-                color: white;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 5px;
-                padding: 10px;
+                background-color: #27ae60; color: white;
+                font-size: 13px; font-weight: bold;
+                border-radius: 4px; padding: 6px 10px;
             }
-            QPushButton:hover {
-                background-color: #229954;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-            }
+            QPushButton:hover { background-color: #229954; }
+            QPushButton:disabled { background-color: #bdc3c7; }
         """)
         self.unified_fit_button.clicked.connect(self.launch_unified_fit)
         self.unified_fit_button.setEnabled(False)
@@ -429,13 +896,14 @@ class DataSelectorPanel(QWidget):
         self.status_label.setText(f"Showing {visible_count} of {self.file_list.count()} files")
 
     def update_plot_button_state(self):
-        """Enable or disable the plot and unified fit buttons based on file selection."""
+        """Enable or disable buttons based on file selection."""
         has_selection = len(self.file_list.selectedItems()) > 0
         self.plot_button.setEnabled(has_selection)
+        self.report_button.setEnabled(has_selection)
         self.unified_fit_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
-        """Plot the selected files."""
+        """Plot the selected files according to the Data / Unified Fit checkboxes."""
         selected_items = self.file_list.selectedItems()
 
         if not selected_items:
@@ -446,26 +914,138 @@ class DataSelectorPanel(QWidget):
             )
             return
 
-        # Get full file paths
-        file_paths = []
-        for item in selected_items:
-            file_path = os.path.join(self.current_folder, item.text())
-            file_paths.append(file_path)
+        file_paths = [
+            os.path.join(self.current_folder, item.text())
+            for item in selected_items
+        ]
 
-        # Create or update graph window
-        if self.graph_window is None:
-            self.graph_window = GraphWindow()
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        plotted = []
 
-        try:
-            self.graph_window.plot_data(file_paths)
-            self.status_label.setText(f"Plotted {len(file_paths)} file(s)")
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Plot Error",
-                f"Error creating plot:\n{str(e)}"
+        # ── Experimental data ──────────────────────────────────────────────
+        if self.data_checkbox.isChecked():
+            if self.graph_window is None:
+                self.graph_window = GraphWindow()
+            try:
+                self.graph_window.plot_data(file_paths, error_fraction=error_fraction)
+                plotted.append("data")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Plot Error", f"Error creating data plot:\n{str(e)}"
+                )
+
+        # ── Unified Fit results ────────────────────────────────────────────
+        if self.unified_fit_result_checkbox.isChecked():
+            if self.unified_fit_results_window is None:
+                self.unified_fit_results_window = UnifiedFitResultsWindow()
+            try:
+                self.unified_fit_results_window.plot_results(file_paths)
+                plotted.append("Unified Fit results")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Plot Error", f"Error creating Unified Fit plot:\n{str(e)}"
+                )
+
+        if plotted:
+            self.status_label.setText(
+                f"Plotted {len(file_paths)} file(s): {', '.join(plotted)}"
             )
-            self.status_label.setText(f"Error: {str(e)}")
+        else:
+            self.status_label.setText("Nothing to plot — check 'Data' or 'Unified Fit' checkbox")
+
+    def create_report(self):
+        """
+        Generate a Markdown report for each selected file.
+
+        Content depends on which checkboxes are ticked:
+          - 'Data'        → basic data summary (Q range, I range, N points)
+          - 'Unified Fit' → fit quality metrics and level parameters (HDF5 only)
+        Both can be active simultaneously.
+        """
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Please select files to report.")
+            return
+
+        show_data = self.data_checkbox.isChecked()
+        show_fit  = self.unified_fit_result_checkbox.isChecked()
+
+        if not show_data and not show_fit:
+            self.status_label.setText(
+                "Nothing to report — check 'Data' or 'Unified Fit' checkbox"
+            )
+            return
+
+        file_paths = [
+            os.path.join(self.current_folder, item.text())
+            for item in selected_items
+        ]
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        saved, skipped = [], []
+
+        for file_path in file_paths:
+            _, ext = os.path.splitext(file_path)
+            is_hdf = ext.lower() in ['.h5', '.hdf5', '.hdf']
+
+            data_info   = None
+            fit_results = None
+
+            # ── Load raw data ──────────────────────────────────────────────
+            if show_data:
+                try:
+                    dir_path, filename = os.path.split(file_path)
+                    if ext.lower() in ['.txt', '.dat']:
+                        raw = readTextFile(dir_path, filename, error_fraction=error_fraction)
+                    else:
+                        raw = readGenericNXcanSAS(dir_path, filename)
+
+                    if raw is not None:
+                        data_info = {
+                            'Q':       raw['Q'],
+                            'I':       raw['Intensity'],
+                            'I_error': raw.get('Error'),
+                        }
+                except Exception:
+                    pass   # data load failure is non-fatal; section simply omitted
+
+            # ── Load fit results (HDF5 only) ───────────────────────────────
+            if show_fit and is_hdf:
+                try:
+                    fit_results = load_unified_fit_results(Path(file_path))
+                except Exception:
+                    pass   # no fit group or unreadable — section omitted silently
+
+            # Nothing to write for this file?
+            if data_info is None and fit_results is None:
+                skipped.append(os.path.basename(file_path))
+                continue
+
+            md = _build_report(file_path, data_info=data_info, fit_results=fit_results)
+            out_path = Path(file_path).parent / (Path(file_path).stem + '_report.md')
+            out_path.write_text(md, encoding='utf-8')
+            saved.append(out_path.name)
+
+            # Open in system default application for .md files
+            try:
+                if sys.platform == 'darwin':
+                    subprocess.run(['open', str(out_path)], check=False)
+                elif sys.platform == 'win32':
+                    os.startfile(str(out_path))
+                else:
+                    subprocess.run(['xdg-open', str(out_path)], check=False)
+            except Exception:
+                pass   # Opening is best-effort; don't fail the whole save
+
+        if saved:
+            msg = f"Report(s) saved: {', '.join(saved)}"
+            if skipped:
+                msg += f"  (skipped: {', '.join(skipped)})"
+            self.status_label.setText(msg)
+        else:
+            self.status_label.setText(
+                "No reportable content found — no reports generated"
+            )
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""
@@ -491,10 +1071,11 @@ class DataSelectorPanel(QWidget):
         path, filename = os.path.split(file_path)
         _, ext = os.path.splitext(filename)
 
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
             # Load data based on file extension
             if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename)
+                data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
             else:
                 data = readGenericNXcanSAS(path, filename)
@@ -536,6 +1117,21 @@ class DataSelectorPanel(QWidget):
                 f"Error loading data for Unified Fit:\n{str(e)}"
             )
             self.status_label.setText(f"Error: {str(e)}")
+
+    def open_configure_dialog(self):
+        """Open the extensible configuration dialog for data loading options."""
+        current = {
+            spec['key']: self.state_manager.get(
+                'data_selector', spec['key'], spec.get('default')
+            )
+            for spec in DataSelectorConfigDialog.FIELD_SPECS
+        }
+        dialog = DataSelectorConfigDialog(current, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            values = dialog.get_values()
+            for key, value in values.items():
+                self.state_manager.set('data_selector', key, value)
+            self.state_manager.save()
 
     def load_last_folder(self):
         """Load the last used folder from state and set it if it exists."""

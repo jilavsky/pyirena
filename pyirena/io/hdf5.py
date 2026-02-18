@@ -10,13 +10,19 @@ import datetime
 import logging
 
 
-def readTextFile(path, filename):
+def readTextFile(path, filename, error_fraction=0.05):
     """
-    Read text data files (.dat, .txt) with Q, Intensity, Error columns.
+    Read text data files (.dat, .txt) with Q, Intensity, and optional Error columns.
+
+    Files with only 2 columns (Q and I) are accepted. In that case the uncertainty
+    is generated as  Error = Intensity * error_fraction  so that downstream tools
+    always receive valid uncertainty data.
 
     Args:
         path: Directory path
         filename: File name
+        error_fraction: Fraction of intensity used to generate uncertainty when no
+                        error column is present in the file (default 0.05 = 5%).
 
     Returns:
         dict: Dictionary with 'Q', 'Intensity', 'Error', 'dQ' keys
@@ -65,10 +71,15 @@ def readTextFile(path, filename):
         Q = data[:, 0]
         I = data[:, 1]
 
-        # Check for error column
-        error = None
+        # Check for error column; generate from intensity if absent
         if data.shape[1] >= 3:
             error = data[:, 2]
+        else:
+            error = I * error_fraction
+            logging.info(
+                f"No uncertainty column in {filename}; "
+                f"generated as I × {error_fraction:.4f} (fractional uncertainty)"
+            )
 
         # Check for dQ column
         dQ = None

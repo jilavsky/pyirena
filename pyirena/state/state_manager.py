@@ -41,6 +41,10 @@ class StateManager:
     # Default state for the entire application
     DEFAULT_STATE = {
         "version": "1.0",
+        "data_selector": {
+            "last_folder": "",
+            "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
+        },
         "unified_fit": {
             "num_levels": 1,
             "levels": [
