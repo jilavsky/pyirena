@@ -361,7 +361,6 @@ class TestHDF5IO:
                 'volume_fraction': result['volume_fraction'],
                 'rg':             result['rg'],
                 'n_iterations':   result['n_iterations'],
-                'q_power':        s.q_power,
             }
             save_sizes_results(
                 fp,

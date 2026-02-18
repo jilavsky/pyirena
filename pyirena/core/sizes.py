@@ -65,10 +65,6 @@ class SizesDistribution:
         Constant background subtracted from the data before fitting [cm^-1].
     method : str
         Fitting method: ``'maxent'``, ``'regularization'``, or ``'tnnls'``.
-    q_power : float
-        Q-weighting exponent applied when no experimental errors are available.
-        0 = no weighting (default).  Typically 0–2.
-
     MaxEnt parameters
     -----------------
     maxent_sky_background : float
@@ -128,7 +124,6 @@ class SizesDistribution:
 
     # ── Method ────────────────────────────────────────────────────────────────
     method: str = 'regularization'
-    q_power: float = 0.0
 
     # ── MaxEnt parameters ─────────────────────────────────────────────────────
     maxent_sky_background: float = 1e-6
@@ -226,10 +221,6 @@ class SizesDistribution:
         r_grid = make_r_grid(self.r_min, self.r_max, self.n_bins, self.log_spacing)
         G = self._build_g_matrix(q, r_grid)
 
-        # Q-weighting (applied when no experimental errors, matching Igor)
-        if self.q_power != 0.0 and no_user_errors:
-            G, I, err = self._apply_q_weighting(G, I, err, q)
-
         # Fit
         try:
             method = self.method.lower()
@@ -238,7 +229,7 @@ class SizesDistribution:
             elif method == 'regularization':
                 x_raw, n_iter = self._fit_regularization(G, I, err)
             elif method in ('tnnls', 'ipg', 'nnls'):
-                x_raw, n_iter = self._fit_tnnls(G, I, err, q, no_user_errors)
+                x_raw, n_iter = self._fit_tnnls(G, I, err)
             else:
                 return self._fail(f"Unknown method '{self.method}'.")
         except Exception as exc:
@@ -266,17 +257,6 @@ class SizesDistribution:
 
     def _build_g_matrix(self, q: np.ndarray, r_grid: np.ndarray) -> np.ndarray:
         return build_g_matrix(q, r_grid, self.shape, self.contrast, **self.shape_params)
-
-    def _apply_q_weighting(
-        self,
-        G: np.ndarray,
-        I: np.ndarray,
-        err: np.ndarray,
-        q: np.ndarray,
-    ):
-        """Scale G rows, I, and err by Q^q_power."""
-        scale = q ** self.q_power
-        return G * scale[:, np.newaxis], I * scale, err * scale
 
     # ── Maximum Entropy ───────────────────────────────────────────────────────
 
@@ -583,8 +563,6 @@ class SizesDistribution:
         G: np.ndarray,
         I: np.ndarray,
         err: np.ndarray,
-        q: np.ndarray,
-        no_user_errors: bool,
     ) -> tuple[np.ndarray, int]:
         """
         Interior-Point Gradient (IPG) non-negative least squares
@@ -602,12 +580,6 @@ class SizesDistribution:
         # Scale by errors
         A = G / err[:, np.newaxis]   # [M, N]
         b = I / err                  # [M]
-
-        # Additional Q-weighting if no experimental errors
-        if self.q_power != 0.0 and no_user_errors:
-            scale = q ** self.q_power
-            A = A * scale[:, np.newaxis]
-            b = b * scale
 
         # Precompute
         AtA = A.T @ A    # [N, N]
@@ -738,7 +710,6 @@ class SizesDistribution:
             'shape_params':            dict(self.shape_params),
             'background':              self.background,
             'method':                  self.method,
-            'q_power':                 self.q_power,
             'maxent_sky_background':   self.maxent_sky_background,
             'maxent_stability':        self.maxent_stability,
             'maxent_max_iter':         self.maxent_max_iter,

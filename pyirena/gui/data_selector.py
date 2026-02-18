@@ -44,6 +44,7 @@ from matplotlib.figure import Figure
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
+from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
 
 
@@ -548,6 +549,7 @@ class DataSelectorPanel(QWidget):
         self.graph_window = None
         self.unified_fit_results_window = None  # Graph of stored fit results
         self.unified_fit_window = None  # Unified fit panel
+        self.sizes_fit_window = None   # Size distribution panel
 
         # Initialize state manager
         self.state_manager = StateManager()
@@ -750,6 +752,22 @@ class DataSelectorPanel(QWidget):
         self.unified_fit_button.setEnabled(False)
         right_layout.addWidget(self.unified_fit_button)
 
+        # ── Size Distribution model button ─────────────────────────────────
+        self.sizes_fit_button = QPushButton("Size Distribution")
+        self.sizes_fit_button.setMinimumHeight(38)
+        self.sizes_fit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2980b9; color: white;
+                font-size: 13px; font-weight: bold;
+                border-radius: 4px; padding: 6px 10px;
+            }
+            QPushButton:hover { background-color: #2471a3; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """)
+        self.sizes_fit_button.clicked.connect(self.launch_sizes_fit)
+        self.sizes_fit_button.setEnabled(False)
+        right_layout.addWidget(self.sizes_fit_button)
+
         right_layout.addStretch()
         file_area_layout.addLayout(right_layout, stretch=1)
 
@@ -794,6 +812,12 @@ class DataSelectorPanel(QWidget):
         unified_fit_action.setStatusTip("Open Unified Fit model panel")
         unified_fit_action.triggered.connect(self.launch_unified_fit)
         models_menu.addAction(unified_fit_action)
+
+        # Size Distribution action
+        sizes_fit_action = QAction("&Size Distribution", self)
+        sizes_fit_action.setStatusTip("Open Size Distribution fitting panel")
+        sizes_fit_action.triggered.connect(self.launch_sizes_fit)
+        models_menu.addAction(sizes_fit_action)
 
         # Add separator and future models placeholder
         models_menu.addSeparator()
@@ -901,6 +925,7 @@ class DataSelectorPanel(QWidget):
         self.plot_button.setEnabled(has_selection)
         self.report_button.setEnabled(has_selection)
         self.unified_fit_button.setEnabled(has_selection)
+        self.sizes_fit_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files according to the Data / Unified Fit checkboxes."""
@@ -1115,6 +1140,65 @@ class DataSelectorPanel(QWidget):
                 self,
                 "Error",
                 f"Error loading data for Unified Fit:\n{str(e)}"
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+    def launch_sizes_fit(self):
+        """Launch the Size Distribution fitting panel with selected data."""
+        selected_items = self.file_list.selectedItems()
+
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select one or more files to analyze with Size Distribution."
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        try:
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename, error_fraction=error_fraction)
+                is_nxcansas = False
+            else:
+                data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True
+
+            if data is None:
+                QMessageBox.critical(
+                    self,
+                    "Load Error",
+                    f"Could not load data from {filename}"
+                )
+                return
+
+            if self.sizes_fit_window is None:
+                self.sizes_fit_window = SizesFitPanel()
+
+            self.sizes_fit_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                filename,
+                filepath=file_path,
+                is_nxcansas=is_nxcansas,
+            )
+
+            self.sizes_fit_window.show()
+            self.sizes_fit_window.raise_()
+            self.sizes_fit_window.activateWindow()
+
+            self.status_label.setText(f"Opened Size Distribution for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error loading data for Size Distribution:\n{str(e)}"
             )
             self.status_label.setText(f"Error: {str(e)}")
 

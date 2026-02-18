@@ -55,7 +55,6 @@ class StateManager:
             "aspect_ratio": 1.0,           # used when shape == 'spheroid'
             "background": 0.0,
             "method": "regularization",    # 'maxent' | 'regularization' | 'tnnls'
-            "q_power": 0.0,
             "maxent_sky_background": 1e-6,
             "maxent_stability": 0.01,
             "maxent_max_iter": 1000,
