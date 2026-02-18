@@ -45,6 +45,25 @@ class StateManager:
             "last_folder": "",
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
         },
+        "sizes": {
+            "r_min": 10.0,
+            "r_max": 1000.0,
+            "n_bins": 50,
+            "log_spacing": False,
+            "shape": "sphere",
+            "contrast": 1.0,
+            "aspect_ratio": 1.0,           # used when shape == 'spheroid'
+            "background": 0.0,
+            "method": "regularization",    # 'maxent' | 'regularization' | 'tnnls'
+            "q_power": 0.0,
+            "maxent_sky_background": 1e-6,
+            "maxent_stability": 0.01,
+            "maxent_max_iter": 1000,
+            "regularization_evalue": 1.0,
+            "regularization_min_ratio": 1e-4,
+            "tnnls_approach_param": 0.95,
+            "tnnls_max_iter": 1000,
+        },
         "unified_fit": {
             "num_levels": 1,
             "levels": [
