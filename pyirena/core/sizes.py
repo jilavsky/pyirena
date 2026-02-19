@@ -31,7 +31,7 @@ import logging
 from typing import Optional
 
 import numpy as np
-from scipy.optimize import nnls
+from scipy.optimize import nnls, curve_fit
 
 from pyirena.core.form_factors import (
     build_g_matrix,
@@ -111,8 +111,8 @@ class SizesDistribution:
     # ── Grid ──────────────────────────────────────────────────────────────────
     r_min: float = 10.0
     r_max: float = 1000.0
-    n_bins: int = 50
-    log_spacing: bool = False
+    n_bins: int = 200
+    log_spacing: bool = True
 
     # ── Shape ─────────────────────────────────────────────────────────────────
     shape: str = 'sphere'
@@ -137,6 +137,13 @@ class SizesDistribution:
     # ── TNNLS parameters ──────────────────────────────────────────────────────
     tnnls_approach_param: float = 0.95
     tnnls_max_iter: int = 1000
+
+    # ── Error scaling ─────────────────────────────────────────────────────────
+    error_scale: float = 1.0   # Multiply measurement errors by this factor before fitting
+
+    # ── Power-law background ───────────────────────────────────────────────────
+    power_law_B: float = 0.0   # Amplitude of B·q^(-P) term  [same units as I]
+    power_law_P: float = 4.0   # Exponent of power-law term
 
     # ── Results ───────────────────────────────────────────────────────────────
     distribution: Optional[np.ndarray]
@@ -208,14 +215,19 @@ class SizesDistribution:
         if len(q) == 0:
             return self._fail("No valid data points after cleaning.")
 
-        # Subtract background
-        I = I - self.background
+        # Subtract complex background (B·q^(-P) + flat)
+        I = I - self.compute_complex_background(q)
 
         # Generate errors if absent
         no_user_errors = err is None
         if no_user_errors:
             err = I * 0.05
             err[err <= 0] = np.abs(I[err <= 0]) * 0.05 + 1e-20
+
+        # Apply user-specified error scaling (default 1.0 = no change)
+        if self.error_scale != 1.0:
+            err = err * float(self.error_scale)
+            err = np.maximum(err, 1e-300)
 
         # Build G matrix
         r_grid = make_r_grid(self.r_min, self.r_max, self.n_bins, self.log_spacing)
@@ -239,6 +251,7 @@ class SizesDistribution:
         # Post-process
         result = self._post_process(x_raw, r_grid, G, I, err)
         result['n_iterations'] = n_iter
+        result['n_data'] = len(I)   # number of Q points used; chi² target ≈ this value
         result['success'] = True
         result['message'] = (
             f"Fit converged in {n_iter} iterations; "
@@ -257,6 +270,150 @@ class SizesDistribution:
 
     def _build_g_matrix(self, q: np.ndarray, r_grid: np.ndarray) -> np.ndarray:
         return build_g_matrix(q, r_grid, self.shape, self.contrast, **self.shape_params)
+
+    # ── Complex background ─────────────────────────────────────────────────────
+
+    def compute_complex_background(self, q: np.ndarray) -> np.ndarray:
+        """Return B·q^(-P) + background for each q value.
+
+        When ``power_law_B`` is zero only the flat ``background`` is returned.
+        """
+        q = np.asarray(q, dtype=float)
+        bg = np.full(len(q), self.background, dtype=float)
+        if self.power_law_B != 0.0:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                pl = self.power_law_B * np.power(q, -self.power_law_P)
+            bg += np.where(np.isfinite(pl), pl, 0.0)
+        return bg
+
+    def fit_power_law(
+        self,
+        q: np.ndarray,
+        intensity: np.ndarray,
+        q_min: float,
+        q_max: float,
+        fit_B: bool = True,
+        fit_P: bool = True,
+    ) -> dict:
+        """Fit B·q^(-P) to data in [q_min, q_max].
+
+        ``fit_B`` / ``fit_P`` select which parameters are free (at least one
+        must be True).  Updates ``self.power_law_B`` and/or ``self.power_law_P``
+        on success.
+
+        Returns dict with keys ``'success'``, ``'B'``, ``'P'``, ``'message'``.
+        """
+        q = np.asarray(q, dtype=float)
+        I = np.asarray(intensity, dtype=float)
+
+        mask = ((q >= q_min) & (q <= q_max)
+                & np.isfinite(q) & np.isfinite(I)
+                & (q > 0) & (I > 0))
+        qf, If = q[mask], I[mask]
+
+        if len(qf) < 2:
+            return {
+                'success': False,
+                'message': 'Too few data points in Q range for power-law fit.',
+                'B': self.power_law_B, 'P': self.power_law_P,
+            }
+
+        try:
+            if fit_B and fit_P:
+                def model(q_, B, P):
+                    return B * np.power(q_, -P)
+                p0 = [max(self.power_law_B, float(If.mean())), self.power_law_P]
+                popt, _ = curve_fit(model, qf, If, p0=p0,
+                                    bounds=([0.0, 0.1], [np.inf, 12.0]),
+                                    maxfev=10000)
+                B_new, P_new = float(popt[0]), float(popt[1])
+
+            elif fit_B:
+                P_fixed = self.power_law_P
+                def model(q_, B):
+                    return B * np.power(q_, -P_fixed)
+                p0 = [max(self.power_law_B, float(If.mean()))]
+                popt, _ = curve_fit(model, qf, If, p0=p0,
+                                    bounds=([0.0], [np.inf]), maxfev=10000)
+                B_new, P_new = float(popt[0]), self.power_law_P
+
+            elif fit_P:
+                B_fixed = self.power_law_B
+                if B_fixed == 0.0:
+                    return {
+                        'success': False,
+                        'message': 'B is zero — set a non-zero B before fitting P alone.',
+                        'B': self.power_law_B, 'P': self.power_law_P,
+                    }
+                def model(q_, P):
+                    return B_fixed * np.power(q_, -P)
+                p0 = [self.power_law_P]
+                popt, _ = curve_fit(model, qf, If, p0=p0,
+                                    bounds=([0.1], [12.0]), maxfev=10000)
+                B_new, P_new = self.power_law_B, float(popt[0])
+
+            else:
+                return {
+                    'success': False,
+                    'message': 'No parameters selected for fitting (check Fit B or Fit P).',
+                    'B': self.power_law_B, 'P': self.power_law_P,
+                }
+
+            self.power_law_B = B_new
+            self.power_law_P = P_new
+            return {
+                'success': True,
+                'message': f'Power-law fit: B = {B_new:.4g}, P = {P_new:.4g}',
+                'B': B_new, 'P': P_new,
+            }
+        except Exception as exc:
+            return {
+                'success': False,
+                'message': f'Power-law fit failed: {exc}',
+                'B': self.power_law_B, 'P': self.power_law_P,
+            }
+
+    def fit_background_term(
+        self,
+        q: np.ndarray,
+        intensity: np.ndarray,
+        q_min: float,
+        q_max: float,
+    ) -> dict:
+        """Fit flat background by averaging I − B·q^(-P) in [q_min, q_max].
+
+        Updates ``self.background`` on success.
+        Returns dict with keys ``'success'``, ``'background'``, ``'message'``.
+        """
+        q = np.asarray(q, dtype=float)
+        I = np.asarray(intensity, dtype=float)
+
+        mask = ((q >= q_min) & (q <= q_max)
+                & np.isfinite(q) & np.isfinite(I)
+                & (q > 0))
+        qf, If = q[mask], I[mask]
+
+        if len(qf) < 1:
+            return {
+                'success': False,
+                'message': 'No data points in Q range for background fit.',
+                'background': self.background,
+            }
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            if self.power_law_B != 0.0:
+                pl = self.power_law_B * np.power(qf, -self.power_law_P)
+                pl = np.where(np.isfinite(pl), pl, 0.0)
+            else:
+                pl = np.zeros(len(qf))
+
+        bg = float(np.mean(If - pl))
+        self.background = bg
+        return {
+            'success': True,
+            'message': f'Background fit: {bg:.4g} cm⁻¹',
+            'background': bg,
+        }
 
     # ── Maximum Entropy ───────────────────────────────────────────────────────
 
@@ -346,39 +503,61 @@ class SizesDistribution:
                                 np.dot(cgrad, xi1),
                                 np.dot(cgrad, xi2)])
 
-            # Lagrange system: (Nm + λ·I_constraint)·β = -c_proj  (simplified)
-            # We use the MEMSYS-like approach: pick λ so that χ²+Δχ² → target
-            # For simplicity: balance entropy and chi² gradients via a single λ
-            # determined by the ratio (chi_target - c2) / c2.
+            # ── Lagrange step: balance chi² descent and entropy ascent.
+            #
+            # The step Δx = Σ βᵢ ξᵢ is found by solving:
+            #    Nm · β = c_proj − λ · s_proj
+            # where
+            #   c_proj = projections of chi²-descent gradient onto search dirs
+            #   s_proj = projections of entropy-ascent gradient onto search dirs
+            #   λ = (chi_target − c2)/c2   (negative when c2 > target, as usual)
+            #
+            # Sign reasoning: c_proj^T β > 0 ⟹ chi² decreases; adding the
+            # entropy term (weighted by −λ ≥ 0 when c2 > target) further biases
+            # the step toward higher-entropy solutions while still reducing chi².
             if abs(c2) < 1e-300:
                 break
 
             lam = (chi_target - c2) / c2
-            rhs = lam * s_proj - c_proj
+            rhs = c_proj - lam * s_proj     # both terms positive when c2 > target
 
-            # Solve 3×3 system: Nm·β = rhs (use only 2×2 if xi2 is zero)
+            # Solve 3×3 system Nm · β = rhs  (third row/col near-zero when N>3)
             try:
                 beta = np.linalg.solve(Nm + 1e-12 * np.eye(3), rhs)
             except np.linalg.LinAlgError:
                 beta = np.zeros(3)
 
-            # ── Update model
-            delta = beta[0] * xi0 + beta[1] * xi1 + beta[2] * xi2
-            x_new = x + delta
-            # Enforce positivity (clamp near-zero to sky/1000)
-            x_new = np.maximum(x_new, sky * 1e-6)
-            x = x_new
+            # ── Backtracking line search: halve step until chi² does not grow
+            step = 1.0
+            for _ in range(8):
+                delta = step * (beta[0] * xi0 + beta[1] * xi1 + beta[2] * xi2)
+                x_trial = np.maximum(x + delta, sky * 1e-6)
+                c2_trial = chi2(x_trial)
+                # Accept if chi² moved toward target (or is already there)
+                if c2_trial <= c2 + 1.0 or c2_trial <= chi_target:
+                    break
+                step *= 0.5
+
+            x = x_trial
 
             # ── Convergence check
-            c2_new = chi2(x)
+            c2_new = c2_trial
+            if n_iter % 50 == 0 or n_iter <= 5:
+                log.debug(
+                    "MaxEnt iter %d: chi2=%.4g  target=%.4g  step=%.3g",
+                    n_iter, c2_new, chi_target, step,
+                )
             if abs(c2_new - chi_target) < tol:
-                # Secondary entropy test
+                # Secondary test: entropy and chi² gradients nearly parallel
                 tnorm = float(np.dot(sgrad, cgrad))
                 test = np.sqrt(max(0.0, 0.5 * (1.0 - tnorm / (np.sqrt(snorm * cnorm) + 1e-300))))
+                log.debug("MaxEnt near target at iter %d: test=%.4g", n_iter, test)
                 if test < 0.05:
-                    log.debug(f"MaxEnt converged at iteration {n_iter}")
+                    log.debug("MaxEnt converged at iteration %d", n_iter)
                     break
 
+        log.debug("MaxEnt finished: %d iterations, chi2=%.4g, target=%.4g",
+                  n_iter, chi2(x), chi_target)
         return x, n_iter
 
     # ── Tikhonov Regularization ───────────────────────────────────────────────
@@ -717,6 +896,9 @@ class SizesDistribution:
             'regularization_min_ratio': self.regularization_min_ratio,
             'tnnls_approach_param':    self.tnnls_approach_param,
             'tnnls_max_iter':          self.tnnls_max_iter,
+            'error_scale':             self.error_scale,
+            'power_law_B':             self.power_law_B,
+            'power_law_P':             self.power_law_P,
         }
 
     @classmethod

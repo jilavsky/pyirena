@@ -46,14 +46,18 @@ class StateManager:
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
         },
         "sizes": {
+            # schema_version is bumped whenever a default value changes so that
+            # old saved states can be migrated automatically on load.
+            "schema_version": 2,
             "r_min": 10.0,
             "r_max": 1000.0,
-            "n_bins": 50,
-            "log_spacing": False,
+            "n_bins": 200,           # was 50 in schema_version 1
+            "log_spacing": True,     # was False in schema_version 1
             "shape": "sphere",
             "contrast": 1.0,
             "aspect_ratio": 1.0,           # used when shape == 'spheroid'
             "background": 0.0,
+            "error_scale": 1.0,            # new in schema_version 2
             "method": "regularization",    # 'maxent' | 'regularization' | 'tnnls'
             "maxent_sky_background": 1e-6,
             "maxent_stability": 0.01,
@@ -62,6 +66,13 @@ class StateManager:
             "regularization_min_ratio": 1e-4,
             "tnnls_approach_param": 0.95,
             "tnnls_max_iter": 1000,
+            # Power-law background: B·q^(-P) + flat background
+            "power_law_B": 0.0,
+            "power_law_P": 4.0,
+            "power_law_q_min": None,   # Q range for fitting B and/or P
+            "power_law_q_max": None,
+            "background_q_min": None,  # Q range for fitting flat background
+            "background_q_max": None,
         },
         "unified_fit": {
             "num_levels": 1,
@@ -199,8 +210,16 @@ class StateManager:
             with open(self.state_file, 'r') as f:
                 loaded_state = json.load(f)
 
+            # Capture schema versions BEFORE merging so we can detect old files.
+            # _merge_state gives loaded values priority over defaults, so after
+            # merging the 'schema_version' key would reflect DEFAULT_STATE (not
+            # the on-disk value) whenever the key is absent in the loaded file.
+            loaded_sizes_version = loaded_state.get('sizes', {}).get('schema_version', 1)
+
             # Merge loaded state with defaults (in case new fields were added)
             self.state = self._merge_state(self.DEFAULT_STATE, loaded_state)
+            # Apply any default-value migrations for changed schema versions
+            self._migrate_state(loaded_sizes_version)
             print(f"Loaded state from: {self.state_file}")
             return True
 
@@ -338,6 +357,37 @@ class StateManager:
         except Exception as e:
             print(f"Error importing state: {e}")
             return False
+
+    def _migrate_state(self, loaded_sizes_version: int = None):
+        """
+        Upgrade saved state to current schema.
+
+        When default values change (e.g. n_bins 50→200) we bump
+        ``schema_version`` in DEFAULT_STATE and reset the affected fields
+        here so that users automatically get the new defaults rather than
+        having the old on-disk values silently persist.
+
+        Args:
+            loaded_sizes_version: The schema_version read from the on-disk file
+                *before* merging with DEFAULT_STATE.  If None, falls back to
+                reading schema_version from the (already-merged) state dict,
+                which is only correct when called outside of load().
+        """
+        sizes = self.state.get('sizes', {})
+        # Use the pre-merge version when available (passed from load()); otherwise
+        # fall back to the merged state value (used when called standalone).
+        stored_version = loaded_sizes_version if loaded_sizes_version is not None \
+            else sizes.get('schema_version', 1)
+        target_version = self.DEFAULT_STATE['sizes']['schema_version']
+
+        if stored_version < 2 <= target_version:
+            # schema_version 1 → 2: n_bins default 50→200, log_spacing False→True,
+            # error_scale field added.
+            sizes['n_bins']      = self.DEFAULT_STATE['sizes']['n_bins']
+            sizes['log_spacing'] = self.DEFAULT_STATE['sizes']['log_spacing']
+            sizes['error_scale'] = self.DEFAULT_STATE['sizes']['error_scale']
+            sizes['schema_version'] = 2
+            self.state['sizes'] = sizes
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:
         """

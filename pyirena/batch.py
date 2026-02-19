@@ -382,6 +382,224 @@ def fit_unified(
     return result
 
 
+def fit_sizes(
+    data_file: Union[str, Path],
+    config_file: Union[str, Path],
+    save_to_nexus: bool = True,
+) -> Optional[Dict]:
+    """Fit a Size Distribution model to a data file using a pyIrena config file.
+
+    Parameters
+    ----------
+    data_file : str or Path
+        Path to SAS data file (.h5/.hdf5 NXcanSAS, or .dat/.txt text).
+    config_file : str or Path
+        Path to a pyIrena JSON configuration file (created by "Export Parameters"
+        in the Sizes GUI, or written manually).  Must contain a ``'sizes'`` group.
+    save_to_nexus : bool, optional
+        If True (default), save fit results to an NXcanSAS HDF5 file alongside
+        the input data (same file for NXcanSAS input, or ``<name>_NX.h5`` for
+        text input).
+
+    Returns
+    -------
+    dict or None
+        On success, a dictionary with:
+
+        ``'success'``       bool — True if fit converged.
+        ``'parameters'``    dict — chi_squared, volume_fraction, rg, peak_r, etc.
+        ``'data'``          dict — Q, Intensity, Error, Q_fit, r_grid,
+                            distribution, intensity_model, residuals.
+        ``'output_file'``   Path or None — NXcanSAS output path (if save_to_nexus).
+        ``'input_file'``    Path
+        ``'config_file'``   Path
+        ``'message'``       str — human-readable summary.
+
+        Returns None if loading, configuration, or fitting fails fatally.
+
+    Examples
+    --------
+    >>> result = fit_sizes("sample.h5", "pyirena_config.json")
+    >>> if result and result['success']:
+    ...     print(result['parameters']['rg'])
+    """
+    from pyirena.core.sizes import SizesDistribution
+
+    data_file = Path(data_file)
+    config_file = Path(config_file)
+
+    # --- Load config ---
+    try:
+        config = _load_config(config_file)
+        if config is None:
+            return None
+
+        if 'sizes' not in config:
+            print(f"[pyirena.batch] Config file '{config_file}' has no 'sizes' group.")
+            return None
+
+        sizes_state = config['sizes']
+    except Exception:
+        print(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
+        return None
+
+    # --- Load data ---
+    try:
+        data = _load_data(data_file)
+        if data is None:
+            return None
+    except Exception:
+        print(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
+        return None
+
+    # --- Build SizesDistribution from config ---
+    try:
+        s = SizesDistribution()
+        s.r_min              = float(sizes_state.get('r_min', 10.0))
+        s.r_max              = float(sizes_state.get('r_max', 1000.0))
+        s.n_bins             = int(sizes_state.get('n_bins', 200))
+        s.log_spacing        = bool(sizes_state.get('log_spacing', True))
+        s.shape              = str(sizes_state.get('shape', 'sphere'))
+        s.contrast           = float(sizes_state.get('contrast', 1.0))
+        ar = sizes_state.get('aspect_ratio', 1.0)
+        if s.shape == 'spheroid':
+            s.shape_params = {'aspect_ratio': float(ar)}
+        s.background         = float(sizes_state.get('background', 0.0))
+        s.error_scale        = float(sizes_state.get('error_scale', 1.0))
+        s.power_law_B        = float(sizes_state.get('power_law_B', 0.0))
+        s.power_law_P        = float(sizes_state.get('power_law_P', 4.0))
+        s.method             = str(sizes_state.get('method', 'regularization'))
+        s.maxent_sky_background  = float(sizes_state.get('maxent_sky_background', 1e-6))
+        s.maxent_stability       = float(sizes_state.get('maxent_stability', 0.01))
+        s.maxent_max_iter        = int(sizes_state.get('maxent_max_iter', 1000))
+        s.regularization_evalue  = float(sizes_state.get('regularization_evalue', 1.0))
+        s.regularization_min_ratio = float(sizes_state.get('regularization_min_ratio', 1e-4))
+        s.tnnls_approach_param   = float(sizes_state.get('tnnls_approach_param', 0.95))
+        s.tnnls_max_iter         = int(sizes_state.get('tnnls_max_iter', 1000))
+    except Exception:
+        print(f"[pyirena.batch] Error building Sizes model from config:\n{traceback.format_exc()}")
+        return None
+
+    # --- Apply Q range from saved cursor positions ---
+    try:
+        q_min = sizes_state.get('cursor_q_min')
+        q_max = sizes_state.get('cursor_q_max')
+        Q = data['Q']
+        Intensity = data['Intensity']
+        Error = data.get('Error')
+
+        if q_min is not None and q_max is not None:
+            mask = (Q >= float(q_min)) & (Q <= float(q_max))
+            q_fit = Q[mask]
+            intensity_fit = Intensity[mask]
+            error_fit = Error[mask] if Error is not None else None
+        else:
+            q_fit, intensity_fit, error_fit = Q, Intensity, Error
+    except Exception:
+        print(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
+        return None
+
+    # --- Run fit ---
+    try:
+        fit_result = s.fit(q_fit, intensity_fit, error_fit)
+    except Exception:
+        print(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
+        return None
+
+    # --- Build return structure ---
+    try:
+        r_grid       = fit_result.get('r_grid')
+        distribution = fit_result.get('distribution')
+        chi2         = fit_result.get('chi_squared', float('nan'))
+        vf           = fit_result.get('volume_fraction', float('nan'))
+        rg           = fit_result.get('rg', float('nan'))
+        intensity_model = fit_result.get('model_intensity', np.zeros_like(q_fit))
+        residuals    = fit_result.get('residuals', np.zeros_like(q_fit))
+
+        peak_r = float('nan')
+        if distribution is not None and r_grid is not None and len(distribution) > 0:
+            peak_r = float(r_grid[int(np.argmax(distribution))])
+
+        parameters = {
+            'method':          s.method,
+            'chi_squared':     chi2,
+            'volume_fraction': vf,
+            'rg':              rg,
+            'peak_r':          peak_r,
+            'n_iterations':    fit_result.get('n_iterations', 0),
+            'n_bins':          s.n_bins,
+            'r_min':           s.r_min,
+            'r_max':           s.r_max,
+            'shape':           s.shape,
+        }
+
+        success = bool(fit_result.get('success', False))
+        result = {
+            'success':     success,
+            'tool':        'sizes',
+            'input_file':  data_file,
+            'config_file': config_file,
+            'output_file': None,
+            'fit_result':  fit_result,
+            'parameters':  parameters,
+            'data': {
+                'Q':               Q,
+                'Intensity':       Intensity,
+                'Error':           Error,
+                'Q_fit':           q_fit,
+                'r_grid':          r_grid,
+                'distribution':    distribution,
+                'intensity_model': intensity_model,
+                'residuals':       residuals,
+            },
+            'message': (
+                f"Sizes ({s.method}): chi²={chi2:.4g}, "
+                f"Vf={vf:.4g}, Rg={rg:.4g} Å, peak_r={peak_r:.4g} Å, "
+                f"success={success}"
+            ),
+        }
+    except Exception:
+        print(f"[pyirena.batch] Error building result structure:\n{traceback.format_exc()}")
+        return None
+
+    # --- Save to NXcanSAS ---
+    if save_to_nexus and success:
+        try:
+            from pyirena.io.nxcansas_sizes import save_sizes_results
+            from pyirena.io.nxcansas_unified import (
+                get_output_filepath, create_nxcansas_file
+            )
+
+            source_path = Path(data['filepath'])
+            is_nxcansas = data.get('is_nxcansas', False)
+            output_path = get_output_filepath(source_path, is_nxcansas)
+
+            if not is_nxcansas and not output_path.exists():
+                label = data.get('label', 'data')
+                create_nxcansas_file(
+                    output_path, Q, Intensity, Error,
+                    sample_name=Path(label).stem
+                )
+
+            save_sizes_results(
+                filepath=output_path,
+                q=q_fit,
+                intensity_data=intensity_fit,
+                intensity_model=intensity_model,
+                residuals=residuals,
+                r_grid=r_grid,
+                distribution=distribution,
+                params=parameters,
+            )
+            result['output_file'] = output_path
+        except Exception:
+            print(f"[pyirena.batch] Warning: could not save NXcanSAS file:\n"
+                  f"{traceback.format_exc()}")
+
+    print(f"[pyirena.batch] {result['message']}")
+    return result
+
+
 def fit_pyirena(
     data_file: Union[str, Path],
     config_file: Union[str, Path],
@@ -395,6 +613,8 @@ def fit_pyirena(
 
     ``unified_fit``
         Runs :func:`fit_unified`.
+    ``sizes``
+        Runs :func:`fit_sizes`.
 
     Additional tool sections will be dispatched automatically as they are added
     to pyIrena.  Unknown sections in the config file are silently skipped.
@@ -434,6 +654,7 @@ def fit_pyirena(
     # Registry: config key → callable
     _TOOL_REGISTRY: Dict[str, callable] = {
         'unified_fit': lambda: fit_unified(data_file, config_file, save_to_nexus),
+        'sizes':       lambda: fit_sizes(data_file, config_file, save_to_nexus),
     }
 
     # --- Load config to discover which tools are present ---

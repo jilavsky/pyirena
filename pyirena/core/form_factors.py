@@ -24,6 +24,7 @@ where φ_j is the volume fraction of particles in bin j (dimensionless).
 from __future__ import annotations
 
 import numpy as np
+from scipy.special import spherical_jn
 from numpy.polynomial.legendre import leggauss
 
 
@@ -41,11 +42,11 @@ def _sphere_amplitude(qr: np.ndarray) -> np.ndarray:
     """
     out = np.empty_like(qr, dtype=float)
     small = qr < 1e-3   # Taylor expansion avoids catastrophic cancellation
-    # Taylor: F ≈ 1 - (Qr)²/10 + ...
+    # Taylor: F ≈ 1 - (Qr)²/10 + (Qr)^4/280 + ...
     qr2 = qr[small] ** 2
     out[small] = 1.0 - qr2 / 10.0 + qr2 ** 2 / 280.0
     x = qr[~small]
-    out[~small] = 3.0 * (np.sin(x) - x * np.cos(x)) / x ** 3
+    out[~small] = 3.0 * spherical_jn(1, x) / x
     return out
 
 

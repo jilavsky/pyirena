@@ -20,13 +20,13 @@ References:
     Beaucage, G. (1996). J. Appl. Cryst. 29, 134-146
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Jan Ilavsky"
 __email__ = "ilavsky@aps.anl.gov"
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, load_data_from_nxcansas
 from pyirena.core.sizes import SizesDistribution
-from pyirena.batch import fit_unified, fit_pyirena
+from pyirena.batch import fit_unified, fit_sizes, fit_pyirena
 
 __all__ = [
     "UnifiedFitModel",
@@ -34,5 +34,6 @@ __all__ = [
     "load_data_from_nxcansas",
     "SizesDistribution",
     "fit_unified",
+    "fit_sizes",
     "fit_pyirena",
 ]

@@ -192,50 +192,58 @@ def readGenericNXcanSAS(path, filename):
         for attr_name, attr_value in attributes.items():
             logging.debug(f"{attr_name}: {attr_value}")
 
-        data_location= current_location+'/'+attributes['signal']
+        # Initialise all output variables so the return dict is always complete.
+        intensity = None
+        Int_attributes = {}
+        units = None
+        Kfactor = None
+        OmegaFactor = None
+        blankname = None
+        thickness = None
+        label = ""
+        Q = None
+        Q_attributes = {}
+        Error = None
+        Error_attributes = {}
+        dQ = None
+        dQ_attributes = {}
+
+        data_location = current_location + '/' + attributes['signal']
         if data_location in f:
-            # Access the dataset at the specified location
             dataset = f[data_location]
-            # Read the data into a NumPy array
-            intensity = dataset[()] 
-            # Retrieve and print the list of attributes
+            intensity = dataset[()]
             Int_attributes = dataset.attrs
-            units=Int_attributes['units']
-            Kfactor = Int_attributes["Kfactor"]
-            OmegaFactor = Int_attributes["OmegaFactor"]
-            blankname = Int_attributes["blankname"]
-            thickness = Int_attributes["thickness"]
-            label = Int_attributes["label"]
+            units = Int_attributes.get('units')
+            # Kfactor and other instrument-specific attributes are only present
+            # in USAXS/calibrated data files; use .get() so that plain NXcanSAS
+            # files (e.g. without a Unified-fit group) can be read without errors.
+            Kfactor = Int_attributes.get("Kfactor")
+            OmegaFactor = Int_attributes.get("OmegaFactor")
+            blankname = Int_attributes.get("blankname")
+            thickness = Int_attributes.get("thickness")
+            label = Int_attributes.get("label", "")
 
-        data_location= current_location+'/'+attributes['I_axes']
+        data_location = current_location + '/' + attributes['I_axes']
         if data_location in f:
-            # Access the dataset at the specified location
             dataset = f[data_location]
-            # Read the data into a NumPy array
-            Q = dataset[()] 
-            # Retrieve and print the list of attributes
+            Q = dataset[()]
             Q_attributes = dataset.attrs
-            #for attr_name, attr_value in Q_attributes.items():
-            #    print(f"{attr_name}: {attr_value}")
 
-        data_location= current_location+'/'+Int_attributes['uncertainties']
-        if data_location in f:
-            # Access the dataset at the specified location
-            dataset = f[data_location]
-            # Read the data into a NumPy array
-            Error = dataset[()] 
-            # Retrieve and print the list of attributes
-            Error_attributes = dataset.attrs
+        uncertainties_key = Int_attributes.get('uncertainties')
+        if uncertainties_key:
+            data_location = current_location + '/' + uncertainties_key
+            if data_location in f:
+                dataset = f[data_location]
+                Error = dataset[()]
+                Error_attributes = dataset.attrs
 
-
-        data_location= current_location+'/'+Q_attributes['resolutions']
-        if data_location in f:
-            # Access the dataset at the specified location
-            dataset = f[data_location]
-            # Read the data into a NumPy array
-            dQ = dataset[()] 
-            # Retrieve and print the list of attributes
-            dQ_attributes = dataset.attrs
+        resolutions_key = Q_attributes.get('resolutions') if Q_attributes else None
+        if resolutions_key:
+            data_location = current_location + '/' + resolutions_key
+            if data_location in f:
+                dataset = f[data_location]
+                dQ = dataset[()]
+                dQ_attributes = dataset.attrs
         Data = {
             'Intensity':intensity,
             'Q':Q,
