@@ -171,19 +171,94 @@ strictly inside the positive orthant:
 
 ---
 
+## 4. McSAS (Monte Carlo Size Analysis)
+
+### Concept
+
+McSAS (Bressler et al., *J. Appl. Cryst.* **48**, 2015) approaches the inversion
+problem differently from the three deterministic methods above.  Instead of
+solving a linear system for the entire distribution at once, it builds the
+model from **N_c discrete particle contributions**, each with an independently
+optimised radius.
+
+The scattered intensity from N_c contributions with a common scale factor A is:
+
+```
+I(Q) ≈ A × Σⱼ g(Q, rⱼ)
+```
+
+where `g(Q, rⱼ)` is the form-factor column for radius `rⱼ` (the same quantity
+as one column of the G-matrix used by the other methods).
+
+The scale factor A is updated at each step by exact weighted least squares:
+
+```
+A = Σᵢ [I(Qᵢ) g_sum(Qᵢ) / σᵢ²]  /  Σᵢ [g_sum(Qᵢ)² / σᵢ²]
+```
+
+so that it always minimises the weighted χ² for the current set of radii.
+
+### Algorithm
+
+Each **repetition** (there are `N_repetitions` independent ones) proceeds as:
+
+1. Draw `N_c` radii log-uniformly from [R_min, R_max].
+2. Compute the total G-matrix sum `g_sum = Σⱼ g(Q, rⱼ)`.
+3. Find the optimal scale factor A by the formula above.
+4. Compute χ².
+5. **Replacement loop** (up to `max_iter` steps):
+   a. Pick a random contribution index j.
+   b. Draw a new candidate radius r_new.
+   c. Compute the trial `g_sum_trial = g_sum − g(Q, rⱼ) + g(Q, r_new)`.
+   d. Compute A_trial and χ²_trial.
+   e. **Accept** if χ²_trial ≤ χ² (Metropolis criterion at T=0).
+   f. Stop early if χ²/M ≤ `convergence` (default 1.0).
+6. Histogram the accepted radii {rⱼ} onto the output r_grid:
+   `x_raw[k] = A × count[k]`   (volume fraction in bin k).
+
+After all repetitions the per-bin mean and **standard deviation** of x_raw
+are computed.  The standard deviation gives a per-bin uncertainty that reflects
+how reproducibly the Monte Carlo reconstruction recovers the distribution —
+it is shown as ±1σ error bars on the P(r) plot.
+
+### Parameters
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| **N contrib** | `200` | Number of discrete particle contributions per repetition. More contributions give a smoother, more stable result but slow convergence. For unimodal distributions 50–200 is usually sufficient; for complex multi-modal systems increase to 500–1000. |
+| **N reps** | `10` | Number of independent repetitions. Error bars on P(r) are estimated from the spread across repetitions. Fewer than 5 gives unreliable uncertainty estimates; 10–20 is the practical range. |
+| **Convergence** | `1.0` | Stop the replacement loop when χ²/M ≤ this value (1.0 means on average one σ per point). Values > 1 stop earlier (rougher fit); values < 1 require a tighter fit (may never converge for noisy data). |
+| **Max iter** | `100000` | Safety cap on the number of replacement attempts per repetition. Typical convergence requires 10–50 × N_c steps; 100 000 is generous for N_c = 200. |
+
+### When to use McSAS
+
+- When you need a **model-independent uncertainty estimate** on P(r) — the
+  ±1σ error bars directly reflect information content of the data.
+- For **exploratory analysis** of data with uncertain noise levels, where the
+  deterministic methods' χ² targets may be poorly calibrated.
+- When the number of features in the distribution is not known a priori —
+  McSAS imposes no smoothness, so it can resolve features that MaxEnt or
+  Regularization would suppress.
+- **Caution**: the result depends on `N_c` (contribution count).  If N_c is
+  too small the histogram is sparsely populated and spurious gaps appear.
+  Always check that the P(r) shape is stable as N_c is increased.
+
+---
+
 ## Comparison Summary
 
-| | MaxEnt | Regularization | TNNLS |
-|---|---|---|---|
-| **Regularisation** | Entropy (information-theoretic) | Tikhonov smoothness penalty | None (positivity only) |
-| **χ² target** | Hard (χ² = M) | Hard, with L-curve fallback | Soft (χ² ≤ M) |
-| **Smoothness** | Implicit (maximum flatness) | Explicit (2nd-derivative penalty) | None |
-| **Sharpness** | Low | Medium | High |
-| **Robustness** | Good, sensitive to negative data | Very good, fallback available | Good |
-| **Speed** | Medium (20–200 iters) | Fast (<50 binary-search steps) | Medium (50–500 iters) |
-| **Best for** | Conservative/unimodal | General use | Sharp/exploratory |
+| | MaxEnt | Regularization | TNNLS | McSAS |
+|---|---|---|---|---|
+| **Regularisation** | Entropy (information-theoretic) | Tikhonov smoothness penalty | None (positivity only) | None (positivity only) |
+| **χ² target** | Hard (χ² = M) | Hard, with L-curve fallback | Soft (χ² ≤ M) | Soft (χ²/M ≤ convergence) |
+| **Smoothness** | Implicit (maximum flatness) | Explicit (2nd-derivative penalty) | None | None |
+| **Sharpness** | Low | Medium | High | High |
+| **Uncertainty** | None | None | None | Yes (±1σ from repetitions) |
+| **Robustness** | Good, sensitive to negative data | Very good, fallback available | Good | Good |
+| **Speed** | Medium (20–200 iters) | Fast (<50 binary-search steps) | Medium (50–500 iters) | Slow (MC loops × repetitions) |
+| **Best for** | Conservative/unimodal | General use | Sharp/exploratory | Uncertainty quantification |
 
-All three methods produce physically equivalent results when the data are
+All four methods produce physically equivalent results when the data are
 high quality and the size range is well chosen.  Significant disagreement
 between methods indicates that the problem is underdetermined — the data do not
 uniquely constrain the distribution.
@@ -224,3 +299,4 @@ uniquely constrain the distribution.
 - P.C. Hansen, *Rank-Deficient and Discrete Ill-Posed Problems*, SIAM (1998) — Tikhonov regularisation, L-curve.
 - J. Ilavsky & P.R. Jemian, *J. Appl. Cryst.* **42**, 347 (2009) — Irena package (Igor Pro original).
 - C.L. Lawson & R.J. Hanson, *Solving Least Squares Problems*, Prentice-Hall (1974) — NNLS.
+- I. Bressler, B.R. Pauw & A.F. Thünemann, *J. Appl. Cryst.* **48**, 962 (2015) — McSAS Monte Carlo method.

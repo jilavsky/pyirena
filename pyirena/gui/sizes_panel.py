@@ -918,7 +918,7 @@ class SizesFitPanel(QWidget):
         meth_row = QHBoxLayout()
         meth_row.addWidget(QLabel("Method:"))
         self.method_combo = QComboBox()
-        self.method_combo.addItems(["regularization", "maxent", "tnnls"])
+        self.method_combo.addItems(["regularization", "maxent", "tnnls", "mcsas"])
         self.method_combo.currentTextChanged.connect(self._on_method_changed)
         meth_row.addWidget(self.method_combo)
         meth_row.addStretch()
@@ -996,6 +996,54 @@ class SizesFitPanel(QWidget):
         r1.addStretch()
         tnnls_layout.addLayout(r1)
         method_layout.addWidget(self.tnnls_group)
+
+        # McSAS params — Contributions, Repetitions, Convergence, Max iter
+        self.mcsas_group = QWidget()
+        mcsas_layout = QVBoxLayout(self.mcsas_group)
+        mcsas_layout.setContentsMargins(0, 0, 0, 0)
+        mcsas_layout.setSpacing(2)
+
+        r1 = QHBoxLayout()
+        r1.addWidget(QLabel("N contrib:"))
+        self.mcsas_ncontrib_spin = QSpinBox()
+        self.mcsas_ncontrib_spin.setMinimum(10)
+        self.mcsas_ncontrib_spin.setMaximum(10000)
+        self.mcsas_ncontrib_spin.setSingleStep(10)
+        self.mcsas_ncontrib_spin.setValue(200)
+        self.mcsas_ncontrib_spin.setMaximumWidth(75)
+        self.mcsas_ncontrib_spin.valueChanged.connect(self._on_param_changed)
+        r1.addWidget(self.mcsas_ncontrib_spin)
+        r1.addWidget(QLabel("  N reps:"))
+        self.mcsas_nrep_spin = QSpinBox()
+        self.mcsas_nrep_spin.setMinimum(1)
+        self.mcsas_nrep_spin.setMaximum(100)
+        self.mcsas_nrep_spin.setValue(10)
+        self.mcsas_nrep_spin.setMaximumWidth(60)
+        self.mcsas_nrep_spin.valueChanged.connect(self._on_param_changed)
+        r1.addWidget(self.mcsas_nrep_spin)
+        r1.addStretch()
+        mcsas_layout.addLayout(r1)
+
+        r2 = QHBoxLayout()
+        r2.addWidget(QLabel("Convergence:"))
+        self.mcsas_conv_edit = ScrubbableLineEdit("1.0")
+        self.mcsas_conv_edit.setValidator(QDoubleValidator(0.01, 100.0, 6))
+        self.mcsas_conv_edit.setMaximumWidth(65)
+        self.mcsas_conv_edit.editingFinished.connect(self._on_param_changed)
+        r2.addWidget(self.mcsas_conv_edit)
+        r2.addWidget(QLabel("  Max iter:"))
+        self.mcsas_maxiter_spin = QSpinBox()
+        self.mcsas_maxiter_spin.setMinimum(1000)
+        self.mcsas_maxiter_spin.setMaximum(10000000)
+        self.mcsas_maxiter_spin.setSingleStep(10000)
+        self.mcsas_maxiter_spin.setValue(100000)
+        self.mcsas_maxiter_spin.setMaximumWidth(80)
+        self.mcsas_maxiter_spin.valueChanged.connect(self._on_param_changed)
+        r2.addWidget(self.mcsas_maxiter_spin)
+        r2.addStretch()
+        mcsas_layout.addLayout(r2)
+        method_layout.addWidget(self.mcsas_group)
+
         sizes_layout.addWidget(method_box)
         sizes_layout.addStretch()
 
@@ -1357,6 +1405,7 @@ class SizesFitPanel(QWidget):
         self.maxent_group.setVisible(method == "maxent")
         self.reg_group.setVisible(method == "regularization")
         self.tnnls_group.setVisible(method == "tnnls")
+        self.mcsas_group.setVisible(method == "mcsas")
 
     def _on_param_changed(self):
         """Called when any parameter field changes."""
@@ -1445,6 +1494,10 @@ class SizesFitPanel(QWidget):
         s.regularization_min_ratio = float(self.reg_minratio_edit.text() or 1e-4)
         s.tnnls_approach_param = float(self.tnnls_approach_edit.text() or 0.95)
         s.tnnls_max_iter = self.tnnls_maxiter_spin.value()
+        s.mcsas_n_contributions = self.mcsas_ncontrib_spin.value()
+        s.mcsas_n_repetitions = self.mcsas_nrep_spin.value()
+        s.mcsas_convergence = float(self.mcsas_conv_edit.text() or 1.0)
+        s.mcsas_max_iter = self.mcsas_maxiter_spin.value()
         return s
 
     def _get_bg_fit_q_range(self, q_min_edit, q_max_edit) -> tuple:
@@ -1667,6 +1720,9 @@ class SizesFitPanel(QWidget):
             if residuals is not None:
                 self.graph_window.plot_residuals(q, residuals)
             self.graph_window.plot_distribution(r_grid, distribution)
+            dist_std = result.get('distribution_std')
+            if dist_std is not None:
+                self.graph_window.plot_distribution_uncertainty(r_grid, distribution, dist_std)
 
             # ── Status message ────────────────────────────────────────────────
             n_iter = result.get('n_iterations', '?')
@@ -1996,6 +2052,10 @@ class SizesFitPanel(QWidget):
             'regularization_min_ratio': s.regularization_min_ratio,
             'tnnls_approach_param': s.tnnls_approach_param,
             'tnnls_max_iter': s.tnnls_max_iter,
+            'mcsas_n_contributions': s.mcsas_n_contributions,
+            'mcsas_n_repetitions': s.mcsas_n_repetitions,
+            'mcsas_convergence': s.mcsas_convergence,
+            'mcsas_max_iter': s.mcsas_max_iter,
             'error_scale': s.error_scale,
             'power_law_B': s.power_law_B,
             'power_law_P': s.power_law_P,
@@ -2037,6 +2097,10 @@ class SizesFitPanel(QWidget):
         self.reg_minratio_edit.setText(str(state.get('regularization_min_ratio', 1e-4)))
         self.tnnls_approach_edit.setText(str(state.get('tnnls_approach_param', 0.95)))
         self.tnnls_maxiter_spin.setValue(int(state.get('tnnls_max_iter', 1000)))
+        self.mcsas_ncontrib_spin.setValue(int(state.get('mcsas_n_contributions', 200)))
+        self.mcsas_nrep_spin.setValue(int(state.get('mcsas_n_repetitions', 10)))
+        self.mcsas_conv_edit.setText(str(state.get('mcsas_convergence', 1.0)))
+        self.mcsas_maxiter_spin.setValue(int(state.get('mcsas_max_iter', 100000)))
         self.error_scale_edit.setText(str(state.get('error_scale', 1.0)))
         self.power_law_B_edit.setText(str(state.get('power_law_B', 0.0)))
         self.power_law_P_edit.setText(str(state.get('power_law_P', 4.0)))
@@ -2261,6 +2325,7 @@ class SizesFitPanel(QWidget):
                 distribution=result['distribution'],
                 params=params,
                 intensity_error=i_err,
+                distribution_std=result.get('distribution_std'),
             )
 
             self.graph_window.show_success_message(

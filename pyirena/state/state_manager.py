@@ -48,7 +48,7 @@ class StateManager:
         "sizes": {
             # schema_version is bumped whenever a default value changes so that
             # old saved states can be migrated automatically on load.
-            "schema_version": 2,
+            "schema_version": 3,
             "r_min": 10.0,
             "r_max": 1000.0,
             "n_bins": 200,           # was 50 in schema_version 1
@@ -58,7 +58,7 @@ class StateManager:
             "aspect_ratio": 1.0,           # used when shape == 'spheroid'
             "background": 0.0,
             "error_scale": 1.0,            # new in schema_version 2
-            "method": "regularization",    # 'maxent' | 'regularization' | 'tnnls'
+            "method": "regularization",    # 'maxent' | 'regularization' | 'tnnls' | 'mcsas'
             "maxent_sky_background": 1e-6,
             "maxent_stability": 0.01,
             "maxent_max_iter": 1000,
@@ -66,6 +66,11 @@ class StateManager:
             "regularization_min_ratio": 1e-4,
             "tnnls_approach_param": 0.95,
             "tnnls_max_iter": 1000,
+            # McSAS Monte Carlo parameters (new in schema_version 3)
+            "mcsas_n_contributions": 200,
+            "mcsas_n_repetitions": 10,
+            "mcsas_convergence": 1.0,
+            "mcsas_max_iter": 100000,
             # Power-law background: B·q^(-P) + flat background
             "power_law_B": 0.0,
             "power_law_P": 4.0,
@@ -387,6 +392,15 @@ class StateManager:
             sizes['log_spacing'] = self.DEFAULT_STATE['sizes']['log_spacing']
             sizes['error_scale'] = self.DEFAULT_STATE['sizes']['error_scale']
             sizes['schema_version'] = 2
+            self.state['sizes'] = sizes
+
+        if stored_version < 3 <= target_version:
+            # schema_version 2 → 3: McSAS Monte Carlo parameters added.
+            sizes['mcsas_n_contributions'] = self.DEFAULT_STATE['sizes']['mcsas_n_contributions']
+            sizes['mcsas_n_repetitions']   = self.DEFAULT_STATE['sizes']['mcsas_n_repetitions']
+            sizes['mcsas_convergence']     = self.DEFAULT_STATE['sizes']['mcsas_convergence']
+            sizes['mcsas_max_iter']        = self.DEFAULT_STATE['sizes']['mcsas_max_iter']
+            sizes['schema_version'] = 3
             self.state['sizes'] = sizes
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:

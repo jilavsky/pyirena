@@ -217,11 +217,12 @@ For detailed instructions, see [UNIFIED_FIT_GUI.md](UNIFIED_FIT_GUI.md)
 ## Using the Size Distribution Tool
 
 After loading data, click **"Size Dist."** in the Data Selector to open the
-Size Distribution panel.  Three inversion methods are available:
+Size Distribution panel.  Four inversion methods are available:
 
 - **Regularization** — general-purpose; recommended default
 - **MaxEnt** — most conservative; fewest artefacts
 - **TNNLS** — sharpest peaks; no smoothness penalty
+- **McSAS** — Monte Carlo method; provides per-bin ±1σ uncertainty estimate
 
 For a full explanation of each method and its parameters, see
 [sizes_methods.md](sizes_methods.md).
