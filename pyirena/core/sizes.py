@@ -280,10 +280,33 @@ class SizesDistribution:
         # Post-process
         result = self._post_process(x_raw, r_grid, G, I, err)
 
+        # McSAS: the MC fit uses the standard G matrix (numerically stable, 6-decade
+        # dynamic range) so x_raw = A × count reflects the number distribution.
+        # Multiply by V(r) = (4/3)πr³ and renormalise to convert to volume distribution,
+        # matching the output of MaxEnt, Regularisation, and TNNLS for consistent display.
+        if method == 'mcsas':
+            _V_r = (4.0 / 3.0) * np.pi * r_grid ** 3
+            dist_vol = result['distribution'] * _V_r
+            _vf_orig = result['volume_fraction']
+            _vf_new = float(np.trapezoid(dist_vol, r_grid))
+            _mcsas_scale = (_vf_orig / _vf_new) if _vf_new > 0 else 1.0
+            dist_vol *= _mcsas_scale
+            result['distribution'] = dist_vol
+            result['volume_fraction'] = float(np.trapezoid(dist_vol, r_grid))
+            if result['volume_fraction'] > 0:
+                result['rg'] = float(np.sqrt(
+                    np.trapezoid(r_grid ** 2 * dist_vol, r_grid) / result['volume_fraction']
+                ))
+            else:
+                result['rg'] = 0.0
+
         # McSAS: add per-bin uncertainty from spread across repetitions
         if x_raw_std is not None:
             dw_safe = np.maximum(bin_widths(r_grid), 1e-300)
-            result['distribution_std'] = x_raw_std / dw_safe
+            dist_std = x_raw_std / dw_safe
+            if method == 'mcsas':
+                dist_std = dist_std * _V_r * _mcsas_scale
+            result['distribution_std'] = dist_std
         else:
             result['distribution_std'] = None
 
