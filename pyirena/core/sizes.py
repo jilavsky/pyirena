@@ -33,6 +33,7 @@ Usage example
 from __future__ import annotations
 
 import logging
+import math
 from typing import Optional
 
 import numpy as np
@@ -481,149 +482,224 @@ class SizesDistribution:
         self, G: np.ndarray, I: np.ndarray, err: np.ndarray
     ) -> tuple[np.ndarray, int]:
         """
-        Maximum Entropy inversion (port of IR1R_MaximumEntropy in Igor Pro).
+        Maximum Entropy inversion — faithful port of IR1R_MaximumEntropy (Igor Pro).
 
-        Maximises  S = -Σ (x/Z) ln(x/Z)  subject to  χ² ≈ M.
+        Maximises the Skilling-Bryan entropy S = Σ(x − sky − x·ln(x/sky))
+        subject to χ² = M (number of data points).
 
-        The algorithm uses three conjugate search directions derived from
-        the entropy gradient and the chi-squared gradient, and solves a 3×3
-        linear system for the optimal step sizes at each iteration.
+        Uses three model-space search directions with x-weighted inner products,
+        and IR1R_Move bisection to find the optimal step at each iteration.
         """
         M = len(I)
         N = G.shape[1]
         sky = float(self.maxent_sky_background)
-        tol = self.maxent_stability * np.sqrt(2.0 * M)
-        chi_target = float(M)
+        tolerance = self.maxent_stability * math.sqrt(2.0 * M)
+        tst_lim = 0.05
+        chizer = float(M)   # chi² target = number of data points
 
-        # Initialise model
+        # Initialise model at sky background level
         x = np.full(N, sky, dtype=float)
+        err2 = err ** 2
 
-        def chi2(x_):
-            resid = (I - G @ x_) / err
-            c2 = float(np.dot(resid, resid))
-            return c2 if np.isfinite(c2) else 1e300
+        # Working arrays (model space N×3, data space M×3)
+        xi  = np.zeros((N, 3))
+        eta = np.zeros((M, 3))
+        c1 = np.zeros(3)
+        s1 = np.zeros(3)
+        c2 = np.zeros((3, 3))
+        s2 = np.zeros((3, 3))
 
+        test = 0.0
+        chi2_cur = 0.0
         n_iter = 0
-        for n_iter in range(1, self.maxent_max_iter + 1):
-            ox = G @ x                     # forward problem [M]
-            resid = (I - ox) / err         # normalised residuals [M]
-            c2 = float(np.dot(resid, resid))
-            if not np.isfinite(c2):
-                c2 = 1e300
 
-            # ── Entropy gradient (∂S/∂x_j, with sign for maximisation → -grad)
-            fSum = float(x.sum())
-            sgrad = -(np.log(x / sky) + 1.0) / fSum   # shape [N]
+        for n_iter in range(self.maxent_max_iter):
+            # ── Forward model and chi² ────────────────────────────────────────
+            ox = G @ x                              # [M] predicted
+            ascratch = (ox - I) / err              # [M] (Gx − data) / err
+            ox_scaled = 2.0 * ascratch / err       # [M] 2·(Gx − data)/err²
+            chi2_cur = float(np.dot(ascratch, ascratch))
 
-            # ── Chi-squared gradient  ∂(χ²)/∂x_j = -2 Gᵀ[(I-Gx)/err²]
-            cgrad = G.T @ (resid / err)    # shape [N]  (up to constant 2)
-
-            # ── Build three search directions (xi vectors)
-            # xi0 proportional to entropy gradient
-            # xi1 proportional to chi² gradient
-            # xi2 orthogonalised remainder
-            snorm = float(np.dot(sgrad, sgrad))
-            cnorm = float(np.dot(cgrad, cgrad))
-
-            if snorm < 1e-300 or cnorm < 1e-300:
-                break   # degenerate gradients → converged or failed
-
-            xi0 = sgrad / np.sqrt(snorm)
-            xi1 = cgrad / np.sqrt(cnorm)
-
-            # Gram-Schmidt orthogonalise xi1 against xi0
-            xi1 = xi1 - np.dot(xi1, xi0) * xi0
-            xi1_norm = float(np.dot(xi1, xi1))
-            if xi1_norm < 1e-300:
-                xi1 = np.zeros(N)
-            else:
-                xi1 /= np.sqrt(xi1_norm)
-
-            # Third direction: orthogonal to both
-            xi2 = np.cross(xi0, xi1) if N == 3 else np.zeros(N)
-            # For N != 3 we use only 2 directions (xi2 stays zero)
-
-            # ── Map xi to data space for 3×3 normal equations
-            #   Aij = (G·xi_i)ᵀ (G·xi_j) / err²
-            Gxi = np.column_stack([G @ xi0, G @ xi1, G @ xi2])   # (M, 3)
-            Gxi_scaled = Gxi / err[:, np.newaxis]                  # (M, 3)
-
-            # 3×3 normal matrix:  N_ij = Σ_k (G·xi_i)[k] (G·xi_j)[k] / err[k]²
-            Nm = Gxi_scaled.T @ Gxi_scaled
-
-            # RHS: gradient of Lagrangian projected onto xi directions
-            # For entropy: ∂(χ²)/∂β_i where χ²-target → λ drives equality
-            # Use the self-consistent step:  β = λ A^{-1} s_proj + μ A^{-1} c_proj
-            # Simplified: solve for β by requiring χ²(x+Σβ_i ξ_i) → chi_target
-            # Project both gradients:
-            s_proj = np.array([np.dot(sgrad, xi0),
-                                np.dot(sgrad, xi1),
-                                np.dot(sgrad, xi2)])
-            c_proj = np.array([np.dot(cgrad, xi0),
-                                np.dot(cgrad, xi1),
-                                np.dot(cgrad, xi2)])
-
-            # ── Lagrange step: balance chi² descent and entropy ascent.
-            #
-            # The step Δx = Σ βᵢ ξᵢ is found by solving:
-            #    Nm · β = λ · s_proj − c_proj
-            # where
-            #   s_proj = projections of entropy gradient onto search dirs
-            #   c_proj = projections of chi²-descent gradient onto search dirs
-            #   λ = (chi_target − c2)/c2   (negative when c2 > target)
-            #
-            # Note: xi0 = sgrad/|sgrad| points in the all-negative direction
-            # (sgrad < 0 at initialisation), so c_proj[0] < 0 and s_proj[0] > 0.
-            # With λ < 0 (c2 > target):
-            #   rhs[0] = λ·s_proj[0] − c_proj[0]  →  (large negative) − (negative)
-            #   beta[0] < 0  →  delta ∝ beta·xi0 = negative·(−ones) = positive
-            # x increases → G@x grows → chi² falls toward target. ✓
-            # Reversing the sign (c_proj − λ·s_proj) gives beta[0] > 0, driving x
-            # to the clamp floor and preventing convergence.
-            if abs(c2) < 1e-300:
+            if chi2_cur < 1e-300:
                 break
 
-            lam = (chi_target - c2) / c2
-            rhs = lam * s_proj - c_proj
+            # chi² gradient in model space (UPHILL: points toward increasing χ²)
+            cgrad = G.T @ ox_scaled                # [N]  G^T · (2·(Gx−I)/err²)
 
-            # Solve 3×3 system Nm · β = rhs  (third row/col near-zero when N>3)
-            try:
-                beta = np.linalg.solve(Nm + 1e-12 * np.eye(3), rhs)
-            except np.linalg.LinAlgError:
+            # ── Entropy gradient (Skilling-Bryan): ∂S/∂xᵢ = −ln(xᵢ/sky) ──────
+            # Igor scales by 1/(sky·e) so the gradient is zero at x = sky
+            x_safe = np.maximum(x, sky * 1e-10)
+            sgrad = -np.log(x_safe / sky) / (sky * math.e)   # [N]
+
+            # ── x-weighted norms (natural gradient metric) ────────────────────
+            snorm = math.sqrt(max(0.0, float(np.sum(x * sgrad ** 2))))
+            cnorm = math.sqrt(max(0.0, float(np.sum(x * cgrad ** 2))))
+            tnorm = float(np.sum(x * sgrad * cgrad))
+
+            if cnorm < 1e-300:
+                break
+
+            # ── Test statistic: alignment of entropy & chi² gradients ─────────
+            # Converged when test → 0 (gradients parallel → saddle point)
+            if n_iter > 0:
+                denom = snorm * cnorm
+                test = math.sqrt(max(0.0, 0.5 * (1.0 - tnorm / denom))) if denom > 1e-300 else 1.0
+
+            # ── Parameters a, b for search directions ─────────────────────────
+            # iter 0: a=1, b=1/cnorm  (pure chi² direction + un-scaled entropy)
+            # iter>0: scale to make xi[:,1] ≈ orthogonal to xi[:,0] in x-metric
+            a = 1.0
+            b = 1.0 / cnorm
+            if n_iter > 0 and test > 1e-10:
+                a = 0.5 / (snorm * test)
+                b = 0.5 / (cnorm * test)
+
+            # ── Search directions in model space ──────────────────────────────
+            xi[:, 0] = x * cgrad / cnorm
+            xi[:, 1] = x * (a * sgrad - b * cgrad)
+
+            # Forward-map xi[:,0,1] to data space
+            eta[:, 0] = G @ xi[:, 0]
+            eta[:, 1] = G @ xi[:, 1]
+
+            # Third direction: TrOpus(eta[:,1] / err²), then x-weighted normalise
+            xiscratch = G.T @ (eta[:, 1] / err2)
+            a_val = float(np.sum(x * xiscratch ** 2))
+            if a_val > 0.0:
+                xi[:, 2] = x * xiscratch / math.sqrt(a_val)
+            else:
+                xi[:, 2] = 0.0
+            eta[:, 2] = G @ xi[:, 2]
+
+            # ── Build 3×3 matrices c1, s1, c2, s2 ────────────────────────────
+            for i in range(3):
+                s1[i] = float(np.dot(xi[:, i], sgrad))
+                c1[i] = float(np.dot(xi[:, i], cgrad))
+            c1 /= chi2_cur          # normalise c1 by χ²
+
+            s2[:] = 0.0
+            c2[:] = 0.0
+            for k in range(3):
+                for l in range(k + 1):
+                    s2[k, l] = -float(np.sum(xi[:, k] * xi[:, l] / x_safe))
+                    c2[k, l] =  float(np.sum(eta[:, k] * eta[:, l] / err2))
+            s2 /= sky
+            c2 *= 2.0 / chi2_cur
+            # Symmetrise upper triangle
+            for k in range(3):
+                for l in range(k):
+                    s2[l, k] = s2[k, l]
+                    c2[l, k] = c2[k, l]
+
+            # ── Compute optimal step beta ─────────────────────────────────────
+            if n_iter == 0:
+                # First iteration: simple chi² gradient step, no bisection
                 beta = np.zeros(3)
-
-            # ── Backtracking line search: halve step until chi² does not grow
-            step = 1.0
-            for _ in range(8):
-                delta = step * (beta[0] * xi0 + beta[1] * xi1 + beta[2] * xi2)
-                x_trial = np.maximum(x + delta, sky * 1e-6)
-                c2_trial = chi2(x_trial)
-                # Accept if chi² moved toward target (or is already there)
-                if c2_trial <= c2 + 1.0 or c2_trial <= chi_target:
-                    break
-                step *= 0.5
-
-            x = x_trial
-
-            # ── Convergence check
-            c2_new = c2_trial
-            if n_iter % 50 == 0 or n_iter <= 5:
-                log.debug(
-                    "MaxEnt iter %d: chi2=%.4g  target=%.4g  step=%.3g",
-                    n_iter, c2_new, chi_target, step,
+                if abs(c2[0, 0]) > 1e-300:
+                    beta[0] = -0.5 * c1[0] / c2[0, 0]
+            else:
+                beta = self._maxent_move(
+                    c1, s1, c2, s2, chi2_cur, chizer, float(x.sum()), sky
                 )
-            if abs(c2_new - chi_target) < tol:
-                # Secondary test: entropy and chi² gradients nearly parallel
-                tnorm = float(np.dot(sgrad, cgrad))
-                test = np.sqrt(max(0.0, 0.5 * (1.0 - tnorm / (np.sqrt(snorm * cnorm) + 1e-300))))
-                log.debug("MaxEnt near target at iter %d: test=%.4g", n_iter, test)
-                if test < 0.05:
-                    log.debug("MaxEnt converged at iteration %d", n_iter)
-                    break
 
-        log.debug("MaxEnt finished: %d iterations, chi2=%.4g, target=%.4g",
-                  n_iter, chi2(x), chi_target)
+            # ── Update model ──────────────────────────────────────────────────
+            for i in range(N):
+                df = beta[0]*xi[i, 0] + beta[1]*xi[i, 1] + beta[2]*xi[i, 2]
+                if df < -x[i]:
+                    df = 0.001 * sky - x[i]   # floor patch: keep x ≥ 0.001·sky
+                x[i] += df
+
+            # ── Recompute chi² on updated model ──────────────────────────────
+            resid2 = (I - G @ x) / err
+            chi2_new = float(np.dot(resid2, resid2))
+
+            if n_iter % 10 == 0 or n_iter < 5:
+                log.debug(
+                    "MaxEnt iter %d: chi2=%.4g  target=%.4g  test=%.4g",
+                    n_iter, chi2_new, chizer, test,
+                )
+
+            # ── Convergence check ─────────────────────────────────────────────
+            if abs(chi2_new - chizer) < tolerance and test < tst_lim:
+                log.debug("MaxEnt converged at iter %d, chi2=%.4g", n_iter, chi2_new)
+                break
+
+        log.debug(
+            "MaxEnt finished: %d iters, chi2=%.4g, target=%.4g",
+            n_iter, float(np.sum(((I - G @ x) / err) ** 2)), chizer,
+        )
         return x, n_iter
+
+    def _maxent_move(
+        self,
+        c1: np.ndarray, s1: np.ndarray,
+        c2: np.ndarray, s2: np.ndarray,
+        chi2: float, chizer: float,
+        fSum: float, sky: float,
+    ) -> np.ndarray:
+        """
+        IR1R_Move: find optimal step beta by bisection on ax ∈ [0, 1].
+
+        At ax=0: pure chi² step.  At ax=1: pure entropy step.
+        Bisects to find the ax that brings chi²_predicted to the target chizer.
+        Then applies IR1R_Dist step-magnitude limiter.
+        """
+        MAX_LOOP = 500
+        PASSES = 0.001      # bisection convergence tolerance
+
+        def chi_now(ax: float):
+            """
+            IR1R_ChiNow: solve (bx·c2 − ax·s2)·beta = −(bx·c1 − ax·s1)
+            and return (ChiNow, beta) where ChiNow = χ²_new / χ²_current.
+            """
+            bx = 1.0 - ax
+            A = bx * c2 - ax * s2
+            b_vec = -(bx * c1 - ax * s1)
+            try:
+                beta_loc = np.linalg.solve(A, b_vec)
+            except np.linalg.LinAlgError:
+                beta_loc, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
+            # ChiNow = 1 + beta^T (c1 + 0.5 c2 beta)
+            w = float(np.dot(beta_loc, c1 + 0.5 * (c2 @ beta_loc)))
+            return 1.0 + w, beta_loc
+
+        # Initial bracket
+        a1, a2 = 0.0, 1.0
+        cmin, beta_final = chi_now(a1)
+
+        # Choose bisection target based on whether pure chi² step overshoots
+        if cmin * chi2 > chizer:
+            ctarg = 0.5 * (1.0 + cmin)
+        else:
+            ctarg = chizer / chi2
+
+        f1 = cmin - ctarg
+        cn2, _ = chi_now(a2)
+        f2 = cn2 - ctarg
+
+        # Bisection
+        for _ in range(MAX_LOOP):
+            anew = 0.5 * (a1 + a2)
+            fx_val, beta_new = chi_now(anew)
+            fx = fx_val - ctarg
+            if f1 * fx > 0:
+                a1, f1 = anew, fx
+            if f2 * fx > 0:
+                a2, f2 = anew, fx
+            beta_final = beta_new
+            if abs(fx) < PASSES:
+                break
+
+        # IR1R_Dist: w = −beta^T s2 beta  (step magnitude in entropy space)
+        # s2 is negative-definite so −s2 is positive-definite → w ≥ 0
+        w = float(-np.dot(beta_final, s2 @ beta_final))
+
+        # Step limiter: scale down if step is too large relative to model total
+        limit = 0.1 * fSum / sky if sky > 0 else 1e300
+        if w > limit:
+            beta_final = beta_final * math.sqrt(limit / w)
+
+        return beta_final
 
     # ── Tikhonov Regularization ───────────────────────────────────────────────
 
