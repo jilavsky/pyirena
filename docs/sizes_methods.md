@@ -182,59 +182,55 @@ solving a linear system, it models the scattered intensity as a sum of
 r_grid bins defined in the **Size Grid** section — no extra "N contributions"
 parameter is needed.
 
-Each contribution represents **one particle** with number density A_n [Å⁻³].
-Using volume-weighted G columns in the forward model:
+The forward model is the standard intensity model shared by all four methods:
 
 ```
-I(Q) = A_n × Σ_k count[k] × G[:,k] × V(r_k)
+I(Q) = A × Σ_k count[k] × G[:,k]
 ```
 
-where `V(r_k) = (4/3)π r_k³` [Å³], ensures that the converged `count[k]`
-reflects the **number distribution** Nd(r).  The output is then converted to the
-same **volume distribution** P(r) used by the other methods:
+where `G[:,k] = V(r_k) × F²_norm(Q, r_k) × contrast × 1e-4` and `A` is a global
+scale factor found by weighted least squares.  For a monodisperse sample the
+optimal `A = Vf / N_c`, so:
 
 ```
-P(r_k) = [A_n × count[k] × V(r_k)] / bin_width[k]
-        = Nd(r_k) × V(r_k) / bin_width[k]   [volume fraction / Å]
+x_raw[k] = A × count[k]   [volume fraction per bin]
 ```
 
-The number-density scale factor A_n is found by exact weighted least squares at
-every MC step:
+This is identical to the `x_raw` produced by MaxEnt, Regularization, and TNNLS,
+so all four methods produce consistent **volume distributions** P(r):
 
 ```
-A_n = Σᵢ [gv_sum(Qᵢ) I(Qᵢ) / σᵢ²]  /  Σᵢ [gv_sum(Qᵢ)² / σᵢ²]
+P(r_k) = x_raw[k] / bin_width[k]   [volume fraction / Å]
 ```
-
-where `gv_sum = Σ_k count[k] × G[:,k] × V(r_k)`.
 
 ### Algorithm
 
-Each **repetition** (there are `N_repetitions` independent ones) proceeds as:
+The **single fit** (triggered by the *Fit Sizes* button) proceeds as:
 
 1. Randomly assign N_c = N_bins contributions to r_grid bins.
-2. Compute `gv_sum = Σ_k count[k] × G[:,k] × V(r_k)`.
-3. Find optimal A_n by weighted least squares.
+2. Compute `g_sum = G @ counts`.
+3. Find optimal scale factor A by weighted least squares.
 4. **Replacement loop** (up to `max_iter` steps):
    a. Pick a random contribution j (currently in bin k_old).
    b. Draw a new random target bin k_new.
-   c. Update `gv_sum_trial` by subtracting G[:,k_old]×V(r_{k_old}) and
-      adding G[:,k_new]×V(r_{k_new}).
-   d. Compute A_n_trial and χ²_trial.
+   c. Update `g_sum_trial = g_sum + G[:,k_new] − G[:,k_old]` (O(M) incremental).
+   d. Compute A_trial and χ²_trial.
    e. **Accept** if χ²_trial ≤ χ² (Metropolis at T = 0).
    f. Stop early if χ²/M ≤ `convergence`.
-5. `x_raw[k] = A_n × count[k] × V(r_k)` — volume fraction per bin.
+5. `x_raw[k] = A × count[k]` — volume fraction per bin.
 
-After all repetitions the per-bin mean and **standard deviation** of x_raw
-are computed.  The std gives ±1σ error bars on the P(r) plot that directly
-reflect the reproducibility of the reconstruction across repetitions.
+**Uncertainty estimation** (*Calculate Uncertainty* button) uses the same
+data-perturbation approach as the other methods: repeat the single fit `N reps`
+times on Gaussian-noise-perturbed data (ΔI = σᵢ × N(0,1)), then report the
+per-bin mean and standard deviation of P(r) as ±1σ error bars.
 
 ### Parameters
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| **N reps** | `10` | Number of independent repetitions. Error bars on P(r) are estimated from the spread across repetitions. Fewer than 5 gives unreliable uncertainty estimates; 10–20 is the practical range. |
+| **N reps** | `10` | Number of noise-perturbed fits run by *Calculate Uncertainty*. More reps give better uncertainty estimates (10–20 is practical). Has no effect on the single *Fit Sizes* run. |
 | **Convergence** | `1.0` | Stop when χ²/M ≤ this value (1.0 = one σ per point on average). Values > 1 stop earlier (rougher fit); values < 1 require a tighter fit (may not converge for noisy data). |
-| **Max iter** | `100000` | Safety cap on replacement attempts per repetition. |
+| **Max iter** | `100000` | Safety cap on replacement attempts per fit. |
 
 > **Note**: The number of MC contributions equals **N bins** (Size Grid setting).
 > Increase N_bins for finer size resolution and more contributions.
@@ -242,7 +238,8 @@ reflect the reproducibility of the reconstruction across repetitions.
 ### When to use McSAS
 
 - When you need a **model-independent uncertainty estimate** on P(r) — the
-  ±1σ error bars directly reflect the information content of the data.
+  ±1σ error bars from data perturbation directly reflect measurement noise
+  propagation.
 - For **exploratory analysis** with uncertain noise levels, where the
   deterministic methods' χ² targets may be poorly calibrated.
 - When the number of features in the distribution is unknown — McSAS imposes

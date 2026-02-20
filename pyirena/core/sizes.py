@@ -10,8 +10,9 @@ Four inversion methods are provided, all sharing the same G-matrix framework:
   * TNNLS / IPG               — Interior-Point Gradient non-negative least
     squares; no explicit smoothness penalty but enforces x ≥ 0 strictly.
   * McSAS (Monte Carlo)       — Monte Carlo replacement algorithm; draws N_c
-    random contributions and optimises them one at a time.  Runs n_repetitions
-    independent times; the spread gives per-bin uncertainties.
+    random contributions and optimises them one at a time.  A single run is
+    returned by ``fit()``; per-bin uncertainties come from the GUI's
+    "Calculate Uncertainty" function (data perturbation, same as other methods).
 
 The first three methods are faithful ports of the Igor Pro IR1R_sizes.ipf
 package (Jan Ilavsky, Argonne National Laboratory).  McSAS follows the
@@ -858,34 +859,49 @@ class SizesDistribution:
         I: np.ndarray,
         err: np.ndarray,
         r_grid: np.ndarray,
-    ) -> tuple[np.ndarray, int, np.ndarray]:
+        n_reps: Optional[int] = None,
+    ) -> tuple[np.ndarray, int, Optional[np.ndarray]]:
         """
         Monte Carlo Size Analysis (McSAS) inversion.
 
-        Uses the same r_grid as the other methods.  Each of the N_c = n_bins
-        contributions is assigned to one of the N r_grid bins (discrete).
-        The forward model uses volume-weighted G columns so that the scale
-        factor has units of number density [Å^-3] and the output is a proper
-        volume distribution:
+        Uses the same G matrix and r_grid as the other methods.  N_c = n_bins
+        contributions are randomly assigned to r_grid bins and then optimised
+        by single-contribution replacement to minimise χ².
 
-            I(q) = A_n × Σ_k count[k] × G[:,k] × V(r_k)
-            x_raw[k] = A_n × count[k] × V(r_k)   [volume fraction]
+        The forward model is the standard intensity model:
 
-        where V(r_k) = (4/3)π r_k³ [Å³].  Using the volume-weighted columns
-        ensures that the MC replacement loop implicitly treats each contribution
-        as ONE PARTICLE (number density A_n), so the converged count[k]
-        reflects the number distribution Nd(r), and x_raw[k] = Nd(r_k)×V(r_k)
-        is the volume distribution.
+            I(q) = A × Σ_k count[k] × G[:,k]
 
-        For each of ``mcsas_n_repetitions`` independent repetitions:
-          1. Randomly assign N_c = n_bins contributions to bins.
-          2. Find the optimal number-density scale factor A_n by weighted LS
-             using the V-weighted model sum G_V @ counts.
-          3. Iterate: pick a random contribution, reassign it to a random bin,
-             accept if chi² does not increase.
-          4. Stop when chi²/M ≤ ``mcsas_convergence`` or ``mcsas_max_iter``
-             attempts have been made.
-          5. x_raw[k] = A_n × count[k] × V(r_k).
+        where G[:,k] = V(r_k) × F²_norm(q, r_k) × contrast × 1e-4  [cm⁻¹ per
+        unit volume fraction].  The optimal scale factor A (least-squares, ≥ 0)
+        equals  Vf / N_c  for a monodisperse sample, so:
+
+            x_raw[k] = A × count[k]   [volume fraction per bin]
+
+        This is identical to the x_raw produced by MaxEnt, Regularization, and
+        TNNLS, so all four methods feed into the same ``_post_process`` pipeline
+        and produce consistent volume distributions.
+
+        Note: an earlier implementation used volume-weighted G columns
+        (G_V[:,k] = G[:,k]×V(r_k)) to make the number-density interpretation
+        explicit, but that caused a 12-decade dynamic-range problem with log-
+        spaced grids, leading to ringing artefacts.  The standard G model has
+        only a 6-decade range (r³ instead of r⁶) and is numerically stable.
+
+        Parameters
+        ----------
+        G : (M, N) array
+            Pre-built G matrix from ``_build_g_matrix``.
+        I : (M,) array
+            Background-subtracted, error-scaled experimental intensity.
+        err : (M,) array
+            Measurement uncertainties after scaling.
+        r_grid : (N,) array
+            Radius bin centres [Å].
+        n_reps : int, optional
+            Number of independent MC repetitions.  Defaults to
+            ``self.mcsas_n_repetitions``.  Pass ``1`` for a single-run fit
+            (the ``distribution_std`` return value will be ``None``).
 
         Returns
         -------
@@ -893,33 +909,27 @@ class SizesDistribution:
             Mean volume-fraction per bin across repetitions.
         n_iter_avg : int
             Average number of MC iterations per repetition.
-        x_raw_std : (N,) array
+        x_raw_std : (N,) array or None
             Std of volume-fraction per bin across repetitions.
+            ``None`` when *n_reps* == 1 (no meaningful spread from a single run).
         """
         M, N = G.shape
         N_c = N   # one contribution per r_grid bin; they can cluster during MC
-        n_rep = int(self.mcsas_n_repetitions)
+        n_rep = int(n_reps if n_reps is not None else self.mcsas_n_repetitions)
         convergence = float(self.mcsas_convergence)
         max_iter = int(self.mcsas_max_iter)
-
-        # Sphere volume at each grid point [Å³]
-        V_r = (4.0 / 3.0) * np.pi * r_grid ** 3   # (N,)
-
-        # Volume-weighted G columns: G_V[:,k] = G[:,k] × V(r_k)
-        # With this model: I = A_n × (G_V @ counts) gives number-density scaling.
-        G_V = G * V_r[np.newaxis, :]               # (M, N)
 
         rng = np.random.default_rng()
         inv_err2 = 1.0 / (err ** 2)               # (M,)
 
-        def _scale_factor(gv_sum: np.ndarray) -> float:
-            """Optimal number-density A_n = (gv·I/σ²)/(gv·gv/σ²), clamped ≥ 0."""
-            num = float(np.dot(gv_sum * inv_err2, I))
-            den = float(np.dot(gv_sum * inv_err2, gv_sum))
+        def _scale_factor(g_sum: np.ndarray) -> float:
+            """Optimal A = (g·I/σ²)/(g·g/σ²), clamped ≥ 0."""
+            num = float(np.dot(g_sum * inv_err2, I))
+            den = float(np.dot(g_sum * inv_err2, g_sum))
             return max(num / den, 0.0) if den > 1e-300 else 0.0
 
-        def _chi2(gv_sum: np.ndarray, A: float) -> float:
-            resid = (I - A * gv_sum) / err
+        def _chi2(g_sum: np.ndarray, A: float) -> float:
+            resid = (I - A * g_sum) / err
             return float(np.dot(resid, resid))
 
         x_raw_reps = np.zeros((n_rep, N), dtype=float)
@@ -930,9 +940,9 @@ class SizesDistribution:
             contrib_bins = rng.integers(0, N, size=N_c)      # (N_c,) bin indices
             counts = np.bincount(contrib_bins, minlength=N).astype(float)  # (N,)
 
-            gv_sum = G_V @ counts                            # (M,)
-            A = _scale_factor(gv_sum)
-            chi2_val = _chi2(gv_sum, A)
+            g_sum = G @ counts                               # (M,)
+            A = _scale_factor(g_sum)
+            chi2_val = _chi2(g_sum, A)
 
             # ── MC replacement loop ────────────────────────────────────────────
             rep_iters = 0
@@ -944,16 +954,16 @@ class SizesDistribution:
                 if k_new == k_old:
                     continue
 
-                # Incremental update of gv_sum (O(M) not O(M×N))
-                gv_sum_trial = gv_sum + G_V[:, k_new] - G_V[:, k_old]
-                A_trial = _scale_factor(gv_sum_trial)
-                chi2_trial = _chi2(gv_sum_trial, A_trial)
+                # Incremental update (O(M) not O(M×N))
+                g_sum_trial = g_sum + G[:, k_new] - G[:, k_old]
+                A_trial = _scale_factor(g_sum_trial)
+                chi2_trial = _chi2(g_sum_trial, A_trial)
 
                 if chi2_trial <= chi2_val:
                     contrib_bins[j] = k_new
                     counts[k_old] -= 1.0
                     counts[k_new] += 1.0
-                    gv_sum = gv_sum_trial
+                    g_sum = g_sum_trial
                     A = A_trial
                     chi2_val = chi2_trial
 
@@ -966,11 +976,11 @@ class SizesDistribution:
                 rep + 1, n_rep, rep_iters, chi2_val, convergence * M,
             )
 
-            # ── Volume distribution: x_raw[k] = A_n × count[k] × V(r_k) ──────
-            x_raw_reps[rep] = A * counts * V_r
+            # x_raw[k] = A × count[k]  →  volume fraction per bin (same as other methods)
+            x_raw_reps[rep] = A * counts
 
         x_raw_mean = np.mean(x_raw_reps, axis=0)
-        x_raw_std  = np.std(x_raw_reps, axis=0)
+        x_raw_std  = np.std(x_raw_reps, axis=0) if n_rep > 1 else None
         n_iter_avg = total_iters // max(n_rep, 1)
 
         return x_raw_mean, n_iter_avg, x_raw_std

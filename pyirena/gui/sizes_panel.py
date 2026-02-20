@@ -1633,6 +1633,11 @@ class SizesFitPanel(QWidget):
 
             self.status_label.setText(f"Fitting {len(q)} points with {s.method}…")
 
+            # McSAS: single-run for the main Fit button (no error bars).
+            # Uncertainty comes from "Calculate Uncertainty" like other methods.
+            if s.method == 'mcsas':
+                s.mcsas_n_repetitions = 1
+
             result = s.fit(q, intensity, error)
 
             if not result.get('success', False):
@@ -1876,11 +1881,17 @@ class SizesFitPanel(QWidget):
     # ── Monte-Carlo uncertainty estimation ───────────────────────────────────
 
     def calculate_uncertainty(self):
-        """Run N Monte-Carlo fits on noise-perturbed data to estimate uncertainties.
+        """Run N noise-perturbed fits to estimate size distribution uncertainties.
 
         Each data point is perturbed by  ΔI = σᵢ · N(0,1)  where σᵢ is the
         measurement error.  The spread of the resulting size distributions gives
         per-bin statistical uncertainties; Rg, Vf, and peak r are also propagated.
+
+        For MaxEnt / Regularization / TNNLS: always runs 10 perturbed fits.
+
+        For McSAS: runs ``mcsas_n_repetitions`` perturbed fits (user-controlled
+        via the N reps spinner), each using a single internal MC run.  This gives
+        the same data-perturbation uncertainty estimate as the other methods.
         """
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
@@ -1891,8 +1902,17 @@ class SizesFitPanel(QWidget):
             )
             return
 
-        N_runs = 10
         s = self._collect_params()
+
+        # For McSAS: use mcsas_n_repetitions as the number of perturbed fits
+        # (each fit is a single internal MC run, matching the other methods).
+        # For other methods: 10 hard-coded perturbed fits.
+        if s.method == 'mcsas':
+            N_runs = s.mcsas_n_repetitions
+            s.mcsas_n_repetitions = 1  # one MC run per perturbed fit
+        else:
+            N_runs = 10
+
         q, intensity, error = self._get_q_filtered_data()
 
         if len(q) < 5:
