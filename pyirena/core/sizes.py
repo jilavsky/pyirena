@@ -94,8 +94,6 @@ class SizesDistribution:
 
     McSAS parameters
     ----------------
-    mcsas_n_contributions : int
-        Number of random particle contributions per repetition (default 200).
     mcsas_n_repetitions : int
         Number of independent MC repetitions (default 10).  The mean and std
         of the per-bin volume fractions across repetitions are returned.
@@ -159,7 +157,6 @@ class SizesDistribution:
     tnnls_max_iter: int = 1000
 
     # ── McSAS parameters ──────────────────────────────────────────────────────
-    mcsas_n_contributions: int = 200
     mcsas_n_repetitions: int = 10
     mcsas_convergence: float = 1.0
     mcsas_max_iter: int = 100000
@@ -272,7 +269,7 @@ class SizesDistribution:
             elif method in ('tnnls', 'ipg', 'nnls'):
                 x_raw, n_iter = self._fit_tnnls(G, I, err)
             elif method == 'mcsas':
-                x_raw, n_iter, x_raw_std = self._fit_mcsas(G, I, err, q, r_grid)
+                x_raw, n_iter, x_raw_std = self._fit_mcsas(G, I, err, r_grid)
             else:
                 return self._fail(f"Unknown method '{self.method}'.")
         except Exception as exc:
@@ -860,108 +857,103 @@ class SizesDistribution:
         G: np.ndarray,
         I: np.ndarray,
         err: np.ndarray,
-        q: np.ndarray,
         r_grid: np.ndarray,
     ) -> tuple[np.ndarray, int, np.ndarray]:
         """
         Monte Carlo Size Analysis (McSAS) inversion.
 
-        Algorithm (Bressler et al., J. Appl. Cryst. 48, 2015):
+        Uses the same r_grid as the other methods.  Each of the N_c = n_bins
+        contributions is assigned to one of the N r_grid bins (discrete).
+        The forward model uses volume-weighted G columns so that the scale
+        factor has units of number density [Å^-3] and the output is a proper
+        volume distribution:
+
+            I(q) = A_n × Σ_k count[k] × G[:,k] × V(r_k)
+            x_raw[k] = A_n × count[k] × V(r_k)   [volume fraction]
+
+        where V(r_k) = (4/3)π r_k³ [Å³].  Using the volume-weighted columns
+        ensures that the MC replacement loop implicitly treats each contribution
+        as ONE PARTICLE (number density A_n), so the converged count[k]
+        reflects the number distribution Nd(r), and x_raw[k] = Nd(r_k)×V(r_k)
+        is the volume distribution.
 
         For each of ``mcsas_n_repetitions`` independent repetitions:
-          1. Draw ``mcsas_n_contributions`` radii log-uniformly from
-             [r_min, r_max] and build the corresponding G-matrix columns.
-          2. Find the optimal common scale factor A by weighted least squares.
-          3. Iterate: replace one random contribution with a new random radius,
-             accept only if the weighted χ² does not increase.
-          4. Stop when χ²/M ≤ ``mcsas_convergence`` or ``mcsas_max_iter``
-             replacements have been attempted.
-          5. Histogram the accepted radii onto ``r_grid``:
-             x_raw[k] = A × (number of contributions in bin k).
-
-        The mean and std of x_raw across repetitions are returned; the caller
-        divides by bin widths to obtain P(r) and its uncertainty.
+          1. Randomly assign N_c = n_bins contributions to bins.
+          2. Find the optimal number-density scale factor A_n by weighted LS
+             using the V-weighted model sum G_V @ counts.
+          3. Iterate: pick a random contribution, reassign it to a random bin,
+             accept if chi² does not increase.
+          4. Stop when chi²/M ≤ ``mcsas_convergence`` or ``mcsas_max_iter``
+             attempts have been made.
+          5. x_raw[k] = A_n × count[k] × V(r_k).
 
         Returns
         -------
         x_raw_mean : (N,) array
-            Mean volume-fraction per bin.
+            Mean volume-fraction per bin across repetitions.
         n_iter_avg : int
-            Average number of MC replacement iterations across repetitions.
+            Average number of MC iterations per repetition.
         x_raw_std : (N,) array
             Std of volume-fraction per bin across repetitions.
         """
-        M = len(I)
-        N = len(r_grid)
-        N_c = int(self.mcsas_n_contributions)
+        M, N = G.shape
+        N_c = N   # one contribution per r_grid bin; they can cluster during MC
         n_rep = int(self.mcsas_n_repetitions)
         convergence = float(self.mcsas_convergence)
         max_iter = int(self.mcsas_max_iter)
 
-        log_r_min = np.log10(float(self.r_min))
-        log_r_max = np.log10(float(self.r_max))
+        # Sphere volume at each grid point [Å³]
+        V_r = (4.0 / 3.0) * np.pi * r_grid ** 3   # (N,)
+
+        # Volume-weighted G columns: G_V[:,k] = G[:,k] × V(r_k)
+        # With this model: I = A_n × (G_V @ counts) gives number-density scaling.
+        G_V = G * V_r[np.newaxis, :]               # (M, N)
 
         rng = np.random.default_rng()
+        inv_err2 = 1.0 / (err ** 2)               # (M,)
 
-        # Pre-compute error quantities (constant across iterations)
-        inv_err2 = 1.0 / (err ** 2)   # (M,)
-
-        def _scale_factor(g_sum: np.ndarray) -> float:
-            """Optimal A = (g·I/σ²) / (g·g/σ²) clamped to ≥ 0."""
-            num = float(np.dot(g_sum * inv_err2, I))
-            den = float(np.dot(g_sum * inv_err2, g_sum))
+        def _scale_factor(gv_sum: np.ndarray) -> float:
+            """Optimal number-density A_n = (gv·I/σ²)/(gv·gv/σ²), clamped ≥ 0."""
+            num = float(np.dot(gv_sum * inv_err2, I))
+            den = float(np.dot(gv_sum * inv_err2, gv_sum))
             return max(num / den, 0.0) if den > 1e-300 else 0.0
 
-        def _chi2(g_sum: np.ndarray, A: float) -> float:
-            resid = (I - A * g_sum) / err
+        def _chi2(gv_sum: np.ndarray, A: float) -> float:
+            resid = (I - A * gv_sum) / err
             return float(np.dot(resid, resid))
-
-        def _g_col(r: float) -> np.ndarray:
-            """G-matrix column for a single radius r."""
-            return self._build_g_matrix(q, np.array([r]))[:, 0]
-
-        # Compute bin edges from r_grid centres for the output histogram
-        if N == 1:
-            _edges = np.array([r_grid[0] * 0.5, r_grid[0] * 1.5])
-        else:
-            mids = 0.5 * (r_grid[:-1] + r_grid[1:])
-            _edges = np.concatenate([
-                [r_grid[0] - 0.5 * (r_grid[1] - r_grid[0])],
-                mids,
-                [r_grid[-1] + 0.5 * (r_grid[-1] - r_grid[-2])],
-            ])
-            _edges = np.maximum(_edges, 0.0)
 
         x_raw_reps = np.zeros((n_rep, N), dtype=float)
         total_iters = 0
 
         for rep in range(n_rep):
-            # ── Initialise: draw N_c log-uniform radii ─────────────────────────
-            log_r = rng.uniform(log_r_min, log_r_max, N_c)
-            radii = 10.0 ** log_r                  # (N_c,)
+            # ── Initialise: assign each of N_c contributions to a random bin ──
+            contrib_bins = rng.integers(0, N, size=N_c)      # (N_c,) bin indices
+            counts = np.bincount(contrib_bins, minlength=N).astype(float)  # (N,)
 
-            # Build full G_contrib at once (vectorised over r)
-            G_contrib = self._build_g_matrix(q, radii)  # (M, N_c)
-            g_sum = G_contrib.sum(axis=1)               # (M,)
-
-            A = _scale_factor(g_sum)
-            chi2_val = _chi2(g_sum, A)
+            gv_sum = G_V @ counts                            # (M,)
+            A = _scale_factor(gv_sum)
+            chi2_val = _chi2(gv_sum, A)
 
             # ── MC replacement loop ────────────────────────────────────────────
             rep_iters = 0
             for rep_iters in range(1, max_iter + 1):
                 j = int(rng.integers(N_c))
-                r_new = 10.0 ** rng.uniform(log_r_min, log_r_max)
-                g_new = _g_col(r_new)                        # (M,)
+                k_old = int(contrib_bins[j])
+                k_new = int(rng.integers(N))
 
-                g_sum_trial = g_sum - G_contrib[:, j] + g_new
-                A_trial = _scale_factor(g_sum_trial)
-                chi2_trial = _chi2(g_sum_trial, A_trial)
+                if k_new == k_old:
+                    continue
+
+                # Incremental update of gv_sum (O(M) not O(M×N))
+                gv_sum_trial = gv_sum + G_V[:, k_new] - G_V[:, k_old]
+                A_trial = _scale_factor(gv_sum_trial)
+                chi2_trial = _chi2(gv_sum_trial, A_trial)
 
                 if chi2_trial <= chi2_val:
-                    g_sum = g_sum_trial
-                    G_contrib[:, j] = g_new
-                    radii[j] = r_new
+                    contrib_bins[j] = k_new
+                    counts[k_old] -= 1.0
+                    counts[k_new] += 1.0
+                    gv_sum = gv_sum_trial
                     A = A_trial
                     chi2_val = chi2_trial
 
@@ -974,9 +966,8 @@ class SizesDistribution:
                 rep + 1, n_rep, rep_iters, chi2_val, convergence * M,
             )
 
-            # ── Histogram radii onto r_grid ────────────────────────────────────
-            counts, _ = np.histogram(radii, bins=_edges)   # (N,)
-            x_raw_reps[rep] = A * counts.astype(float)
+            # ── Volume distribution: x_raw[k] = A_n × count[k] × V(r_k) ──────
+            x_raw_reps[rep] = A * counts * V_r
 
         x_raw_mean = np.mean(x_raw_reps, axis=0)
         x_raw_std  = np.std(x_raw_reps, axis=0)
@@ -1071,7 +1062,6 @@ class SizesDistribution:
             'regularization_min_ratio': self.regularization_min_ratio,
             'tnnls_approach_param':     self.tnnls_approach_param,
             'tnnls_max_iter':           self.tnnls_max_iter,
-            'mcsas_n_contributions':    self.mcsas_n_contributions,
             'mcsas_n_repetitions':      self.mcsas_n_repetitions,
             'mcsas_convergence':        self.mcsas_convergence,
             'mcsas_max_iter':           self.mcsas_max_iter,

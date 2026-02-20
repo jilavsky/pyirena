@@ -177,71 +177,79 @@ strictly inside the positive orthant:
 
 McSAS (Bressler et al., *J. Appl. Cryst.* **48**, 2015) approaches the inversion
 problem differently from the three deterministic methods above.  Instead of
-solving a linear system for the entire distribution at once, it builds the
-model from **N_c discrete particle contributions**, each with an independently
-optimised radius.
+solving a linear system, it models the scattered intensity as a sum of
+**N_c = N_bins discrete particle contributions**, each assigned to one of the
+r_grid bins defined in the **Size Grid** section — no extra "N contributions"
+parameter is needed.
 
-The scattered intensity from N_c contributions with a common scale factor A is:
-
-```
-I(Q) ≈ A × Σⱼ g(Q, rⱼ)
-```
-
-where `g(Q, rⱼ)` is the form-factor column for radius `rⱼ` (the same quantity
-as one column of the G-matrix used by the other methods).
-
-The scale factor A is updated at each step by exact weighted least squares:
+Each contribution represents **one particle** with number density A_n [Å⁻³].
+Using volume-weighted G columns in the forward model:
 
 ```
-A = Σᵢ [I(Qᵢ) g_sum(Qᵢ) / σᵢ²]  /  Σᵢ [g_sum(Qᵢ)² / σᵢ²]
+I(Q) = A_n × Σ_k count[k] × G[:,k] × V(r_k)
 ```
 
-so that it always minimises the weighted χ² for the current set of radii.
+where `V(r_k) = (4/3)π r_k³` [Å³], ensures that the converged `count[k]`
+reflects the **number distribution** Nd(r).  The output is then converted to the
+same **volume distribution** P(r) used by the other methods:
+
+```
+P(r_k) = [A_n × count[k] × V(r_k)] / bin_width[k]
+        = Nd(r_k) × V(r_k) / bin_width[k]   [volume fraction / Å]
+```
+
+The number-density scale factor A_n is found by exact weighted least squares at
+every MC step:
+
+```
+A_n = Σᵢ [gv_sum(Qᵢ) I(Qᵢ) / σᵢ²]  /  Σᵢ [gv_sum(Qᵢ)² / σᵢ²]
+```
+
+where `gv_sum = Σ_k count[k] × G[:,k] × V(r_k)`.
 
 ### Algorithm
 
 Each **repetition** (there are `N_repetitions` independent ones) proceeds as:
 
-1. Draw `N_c` radii log-uniformly from [R_min, R_max].
-2. Compute the total G-matrix sum `g_sum = Σⱼ g(Q, rⱼ)`.
-3. Find the optimal scale factor A by the formula above.
-4. Compute χ².
-5. **Replacement loop** (up to `max_iter` steps):
-   a. Pick a random contribution index j.
-   b. Draw a new candidate radius r_new.
-   c. Compute the trial `g_sum_trial = g_sum − g(Q, rⱼ) + g(Q, r_new)`.
-   d. Compute A_trial and χ²_trial.
-   e. **Accept** if χ²_trial ≤ χ² (Metropolis criterion at T=0).
-   f. Stop early if χ²/M ≤ `convergence` (default 1.0).
-6. Histogram the accepted radii {rⱼ} onto the output r_grid:
-   `x_raw[k] = A × count[k]`   (volume fraction in bin k).
+1. Randomly assign N_c = N_bins contributions to r_grid bins.
+2. Compute `gv_sum = Σ_k count[k] × G[:,k] × V(r_k)`.
+3. Find optimal A_n by weighted least squares.
+4. **Replacement loop** (up to `max_iter` steps):
+   a. Pick a random contribution j (currently in bin k_old).
+   b. Draw a new random target bin k_new.
+   c. Update `gv_sum_trial` by subtracting G[:,k_old]×V(r_{k_old}) and
+      adding G[:,k_new]×V(r_{k_new}).
+   d. Compute A_n_trial and χ²_trial.
+   e. **Accept** if χ²_trial ≤ χ² (Metropolis at T = 0).
+   f. Stop early if χ²/M ≤ `convergence`.
+5. `x_raw[k] = A_n × count[k] × V(r_k)` — volume fraction per bin.
 
 After all repetitions the per-bin mean and **standard deviation** of x_raw
-are computed.  The standard deviation gives a per-bin uncertainty that reflects
-how reproducibly the Monte Carlo reconstruction recovers the distribution —
-it is shown as ±1σ error bars on the P(r) plot.
+are computed.  The std gives ±1σ error bars on the P(r) plot that directly
+reflect the reproducibility of the reconstruction across repetitions.
 
 ### Parameters
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| **N contrib** | `200` | Number of discrete particle contributions per repetition. More contributions give a smoother, more stable result but slow convergence. For unimodal distributions 50–200 is usually sufficient; for complex multi-modal systems increase to 500–1000. |
 | **N reps** | `10` | Number of independent repetitions. Error bars on P(r) are estimated from the spread across repetitions. Fewer than 5 gives unreliable uncertainty estimates; 10–20 is the practical range. |
-| **Convergence** | `1.0` | Stop the replacement loop when χ²/M ≤ this value (1.0 means on average one σ per point). Values > 1 stop earlier (rougher fit); values < 1 require a tighter fit (may never converge for noisy data). |
-| **Max iter** | `100000` | Safety cap on the number of replacement attempts per repetition. Typical convergence requires 10–50 × N_c steps; 100 000 is generous for N_c = 200. |
+| **Convergence** | `1.0` | Stop when χ²/M ≤ this value (1.0 = one σ per point on average). Values > 1 stop earlier (rougher fit); values < 1 require a tighter fit (may not converge for noisy data). |
+| **Max iter** | `100000` | Safety cap on replacement attempts per repetition. |
+
+> **Note**: The number of MC contributions equals **N bins** (Size Grid setting).
+> Increase N_bins for finer size resolution and more contributions.
 
 ### When to use McSAS
 
 - When you need a **model-independent uncertainty estimate** on P(r) — the
-  ±1σ error bars directly reflect information content of the data.
-- For **exploratory analysis** of data with uncertain noise levels, where the
+  ±1σ error bars directly reflect the information content of the data.
+- For **exploratory analysis** with uncertain noise levels, where the
   deterministic methods' χ² targets may be poorly calibrated.
-- When the number of features in the distribution is not known a priori —
-  McSAS imposes no smoothness, so it can resolve features that MaxEnt or
-  Regularization would suppress.
-- **Caution**: the result depends on `N_c` (contribution count).  If N_c is
-  too small the histogram is sparsely populated and spurious gaps appear.
-  Always check that the P(r) shape is stable as N_c is increased.
+- When the number of features in the distribution is unknown — McSAS imposes
+  no smoothness, potentially resolving features that MaxEnt or Regularization
+  would suppress.
+- **Caution**: more N_bins = finer resolution but slower convergence.  Start
+  with N_bins ≈ 50 and increase if needed.
 
 ---
 

@@ -67,7 +67,6 @@ class StateManager:
             "tnnls_approach_param": 0.95,
             "tnnls_max_iter": 1000,
             # McSAS Monte Carlo parameters (new in schema_version 3)
-            "mcsas_n_contributions": 200,
             "mcsas_n_repetitions": 10,
             "mcsas_convergence": 1.0,
             "mcsas_max_iter": 100000,
@@ -396,7 +395,6 @@ class StateManager:
 
         if stored_version < 3 <= target_version:
             # schema_version 2 → 3: McSAS Monte Carlo parameters added.
-            sizes['mcsas_n_contributions'] = self.DEFAULT_STATE['sizes']['mcsas_n_contributions']
             sizes['mcsas_n_repetitions']   = self.DEFAULT_STATE['sizes']['mcsas_n_repetitions']
             sizes['mcsas_convergence']     = self.DEFAULT_STATE['sizes']['mcsas_convergence']
             sizes['mcsas_max_iter']        = self.DEFAULT_STATE['sizes']['mcsas_max_iter']

@@ -997,23 +997,15 @@ class SizesFitPanel(QWidget):
         tnnls_layout.addLayout(r1)
         method_layout.addWidget(self.tnnls_group)
 
-        # McSAS params — Contributions, Repetitions, Convergence, Max iter
+        # McSAS params — Repetitions, Convergence, Max iter
+        # (N contributions = N size bins, shared with the Size Grid above)
         self.mcsas_group = QWidget()
         mcsas_layout = QVBoxLayout(self.mcsas_group)
         mcsas_layout.setContentsMargins(0, 0, 0, 0)
         mcsas_layout.setSpacing(2)
 
         r1 = QHBoxLayout()
-        r1.addWidget(QLabel("N contrib:"))
-        self.mcsas_ncontrib_spin = QSpinBox()
-        self.mcsas_ncontrib_spin.setMinimum(10)
-        self.mcsas_ncontrib_spin.setMaximum(10000)
-        self.mcsas_ncontrib_spin.setSingleStep(10)
-        self.mcsas_ncontrib_spin.setValue(200)
-        self.mcsas_ncontrib_spin.setMaximumWidth(75)
-        self.mcsas_ncontrib_spin.valueChanged.connect(self._on_param_changed)
-        r1.addWidget(self.mcsas_ncontrib_spin)
-        r1.addWidget(QLabel("  N reps:"))
+        r1.addWidget(QLabel("N reps:"))
         self.mcsas_nrep_spin = QSpinBox()
         self.mcsas_nrep_spin.setMinimum(1)
         self.mcsas_nrep_spin.setMaximum(100)
@@ -1494,7 +1486,6 @@ class SizesFitPanel(QWidget):
         s.regularization_min_ratio = float(self.reg_minratio_edit.text() or 1e-4)
         s.tnnls_approach_param = float(self.tnnls_approach_edit.text() or 0.95)
         s.tnnls_max_iter = self.tnnls_maxiter_spin.value()
-        s.mcsas_n_contributions = self.mcsas_ncontrib_spin.value()
         s.mcsas_n_repetitions = self.mcsas_nrep_spin.value()
         s.mcsas_convergence = float(self.mcsas_conv_edit.text() or 1.0)
         s.mcsas_max_iter = self.mcsas_maxiter_spin.value()
@@ -2052,7 +2043,6 @@ class SizesFitPanel(QWidget):
             'regularization_min_ratio': s.regularization_min_ratio,
             'tnnls_approach_param': s.tnnls_approach_param,
             'tnnls_max_iter': s.tnnls_max_iter,
-            'mcsas_n_contributions': s.mcsas_n_contributions,
             'mcsas_n_repetitions': s.mcsas_n_repetitions,
             'mcsas_convergence': s.mcsas_convergence,
             'mcsas_max_iter': s.mcsas_max_iter,
@@ -2097,7 +2087,6 @@ class SizesFitPanel(QWidget):
         self.reg_minratio_edit.setText(str(state.get('regularization_min_ratio', 1e-4)))
         self.tnnls_approach_edit.setText(str(state.get('tnnls_approach_param', 0.95)))
         self.tnnls_maxiter_spin.setValue(int(state.get('tnnls_max_iter', 1000)))
-        self.mcsas_ncontrib_spin.setValue(int(state.get('mcsas_n_contributions', 200)))
         self.mcsas_nrep_spin.setValue(int(state.get('mcsas_n_repetitions', 10)))
         self.mcsas_conv_edit.setText(str(state.get('mcsas_convergence', 1.0)))
         self.mcsas_maxiter_spin.setValue(int(state.get('mcsas_max_iter', 100000)))
