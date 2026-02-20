@@ -186,38 +186,68 @@ def _build_report(file_path: str,
 
     # ── Size Distribution results ─────────────────────────────────────────────
     if sizes_results is not None:
-        params    = sizes_results.get('params', {})
+        # All scalar metadata is at the top level of the dict returned by
+        # load_sizes_results() — not nested under a 'params' key.
         r_grid    = sizes_results.get('r_grid')
         dist      = sizes_results.get('distribution')
         residuals = sizes_results.get('residuals')
 
-        chi2   = params.get('chi_squared',     float('nan'))
-        vf     = params.get('volume_fraction',  float('nan'))
-        rg     = params.get('rg',              float('nan'))
-        method = params.get('method',          'unknown')
-        shape  = params.get('shape',           'unknown')
-        n_bins = params.get('n_bins',          0)
-        r_min  = params.get('r_min',           float('nan'))
-        r_max  = params.get('r_max',           float('nan'))
+        def _sv(key, default=float('nan')):
+            """Return scalar from sizes_results, substituting default for None."""
+            v = sizes_results.get(key)
+            return v if v is not None else default
+
+        chi2        = _sv('chi_squared')
+        vf          = _sv('volume_fraction')
+        rg          = _sv('rg')
+        n_iter      = _sv('n_iterations', 'N/A')
+        method      = _sv('method', 'unknown')
+        shape       = _sv('shape', 'unknown')
+        contrast    = _sv('contrast')
+        aspect_ratio = _sv('aspect_ratio')
+        n_bins      = _sv('n_bins', 0)
+        r_min       = _sv('r_min')
+        r_max       = _sv('r_max')
+        log_spacing = _sv('log_spacing', False)
+        background  = _sv('background')
+        error_scale = _sv('error_scale')
+        power_law_B = _sv('power_law_B')
+        power_law_P = _sv('power_law_P')
+        q_fit_min   = sizes_results.get('cursor_q_min')
+        q_fit_max   = sizes_results.get('cursor_q_max')
 
         peak_r = float('nan')
         if dist is not None and r_grid is not None and len(dist) > 0:
             peak_r = float(r_grid[int(np.argmax(dist))])
 
+        def _fmt(v, spec='.4g', suffix=''):
+            """Format a value, returning 'N/A' for None/nan."""
+            if v is None:
+                return 'N/A'
+            try:
+                if np.isnan(float(v)):
+                    return 'N/A'
+            except (TypeError, ValueError):
+                pass
+            try:
+                return f"{v:{spec}}{suffix}"
+            except (TypeError, ValueError):
+                return str(v)
+
         L += [
             "## Size Distribution",
+            "",
+            "**Fit results:**",
             "",
             "| Parameter | Value |",
             "|-----------|-------|",
             f"| Method | {method} |",
             f"| Particle shape | {shape} |",
-            f"| Chi-squared (χ²) | {chi2:.4g} |",
-            f"| Volume fraction | {vf:.4e} |",
-            f"| Rg | {rg:.4g} Å |",
-            f"| Peak r | {peak_r:.4g} Å |",
-            f"| r min | {r_min:.4g} Å |",
-            f"| r max | {r_max:.4g} Å |",
-            f"| Bins | {n_bins} |",
+            f"| Chi-squared (χ²) | {_fmt(chi2)} |",
+            f"| Volume fraction | {_fmt(vf, '.4e')} |",
+            f"| Rg | {_fmt(rg)} Å |",
+            f"| Peak r | {_fmt(peak_r)} Å |",
+            f"| Iterations | {n_iter} |",
         ]
         if residuals is not None:
             L += [
@@ -225,6 +255,90 @@ def _build_report(file_path: str,
                 f"| Residuals std dev | {np.std(residuals):.4f} |",
             ]
         L.append("")
+
+        L += [
+            "**Grid / model setup:**",
+            "",
+            "| Parameter | Value |",
+            "|-----------|-------|",
+            f"| r min | {_fmt(r_min)} Å |",
+            f"| r max | {_fmt(r_max)} Å |",
+            f"| Bins | {n_bins} |",
+            f"| Log spacing | {log_spacing} |",
+            f"| Contrast (Δρ)² | {_fmt(contrast)} ×10²⁰ cm⁻⁴ |",
+        ]
+        try:
+            if aspect_ratio is not None and not np.isnan(float(aspect_ratio)) and float(aspect_ratio) != 1.0:
+                L.append(f"| Aspect ratio | {_fmt(aspect_ratio, '.4f')} |")
+        except (TypeError, ValueError):
+            pass
+        L += [
+            f"| Background | {_fmt(background, '.4e')} cm⁻¹ |",
+            f"| Error scale | {_fmt(error_scale)} |",
+        ]
+        try:
+            if power_law_B is not None and not np.isnan(float(power_law_B)) and float(power_law_B) != 0.0:
+                L.append(f"| Power law B | {_fmt(power_law_B, '.4e')} |")
+                L.append(f"| Power law P | {_fmt(power_law_P, '.4f')} |")
+        except (TypeError, ValueError):
+            pass
+        if q_fit_min is not None and q_fit_max is not None:
+            L.append(f"| Q range (fit) | {_fmt(q_fit_min)} – {_fmt(q_fit_max)} Å⁻¹ |")
+        L.append("")
+
+        # Method-specific parameters
+        if str(method).lower() == 'maxent':
+            sky      = _sv('maxent_sky_background')
+            stab     = _sv('maxent_stability')
+            max_iter = _sv('maxent_max_iter', 'N/A')
+            L += [
+                "**MaxEnt parameters:**",
+                "",
+                "| Parameter | Value |",
+                "|-----------|-------|",
+                f"| Sky background | {_fmt(sky)} |",
+                f"| Stability | {_fmt(stab)} |",
+                f"| Max iterations | {max_iter} |",
+                "",
+            ]
+        elif str(method).lower() == 'regularization':
+            evalue    = _sv('regularization_evalue')
+            min_ratio = _sv('regularization_min_ratio')
+            L += [
+                "**Regularization parameters:**",
+                "",
+                "| Parameter | Value |",
+                "|-----------|-------|",
+                f"| Eigenvalue weight | {_fmt(evalue)} |",
+                f"| Min ratio | {_fmt(min_ratio)} |",
+                "",
+            ]
+        elif str(method).lower() == 'tnnls':
+            approach = _sv('tnnls_approach_param')
+            max_iter = _sv('tnnls_max_iter', 'N/A')
+            L += [
+                "**TNNLS parameters:**",
+                "",
+                "| Parameter | Value |",
+                "|-----------|-------|",
+                f"| Approach parameter | {_fmt(approach)} |",
+                f"| Max iterations | {max_iter} |",
+                "",
+            ]
+        elif str(method).lower() == 'mcsas':
+            n_rep    = _sv('mcsas_n_repetitions', 'N/A')
+            conv     = _sv('mcsas_convergence')
+            max_iter = _sv('mcsas_max_iter', 'N/A')
+            L += [
+                "**McSAS parameters:**",
+                "",
+                "| Parameter | Value |",
+                "|-----------|-------|",
+                f"| Repetitions | {n_rep} |",
+                f"| Convergence | {_fmt(conv)} |",
+                f"| Max iterations | {max_iter} |",
+                "",
+            ]
 
     L += ["---", "*Generated by pyIrena*", ""]
     return "\n".join(L)

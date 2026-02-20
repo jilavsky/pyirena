@@ -1,7 +1,7 @@
 """
 Particle size distribution fitting for SAS data.
 
-Three inversion methods are provided, all sharing the same G-matrix framework:
+Four inversion methods are provided, all sharing the same G-matrix framework:
 
   * Maximum Entropy (MaxEnt)  — entropy-regularised inversion; produces the
     smoothest distribution consistent with the data.
@@ -9,9 +9,14 @@ Three inversion methods are provided, all sharing the same G-matrix framework:
     search on the regularisation parameter α.
   * TNNLS / IPG               — Interior-Point Gradient non-negative least
     squares; no explicit smoothness penalty but enforces x ≥ 0 strictly.
+  * McSAS (Monte Carlo)       — Monte Carlo replacement algorithm; draws N_c
+    random contributions and optimises them one at a time.  A single run is
+    returned by ``fit()``; per-bin uncertainties come from the GUI's
+    "Calculate Uncertainty" function (data perturbation, same as other methods).
 
-All three methods are faithful ports of the Igor Pro IR1R_sizes.ipf package
-(Jan Ilavsky, Argonne National Laboratory).
+The first three methods are faithful ports of the Igor Pro IR1R_sizes.ipf
+package (Jan Ilavsky, Argonne National Laboratory).  McSAS follows the
+algorithm of Bressler et al., J. Appl. Cryst. 48 (2015).
 
 Usage example
 -------------
@@ -88,10 +93,24 @@ class SizesDistribution:
     tnnls_max_iter : int
         Maximum number of iterations.
 
+    McSAS parameters
+    ----------------
+    mcsas_n_repetitions : int
+        Number of independent MC repetitions (default 10).  The mean and std
+        of the per-bin volume fractions across repetitions are returned.
+    mcsas_convergence : float
+        Convergence criterion: stop the MC loop when χ²/M ≤ this value
+        (default 1.0 = one standard deviation per point on average).
+    mcsas_max_iter : int
+        Maximum number of replacement iterations per repetition (default 100000).
+
     Results (populated after ``fit()``)
     ------------------------------------
     distribution : np.ndarray or None
         Normalised size distribution P(r)  [volume fraction / Å].
+    distribution_std : np.ndarray or None
+        Per-bin standard deviation of P(r) across McSAS repetitions.
+        None for deterministic methods (MaxEnt, Regularization, TNNLS).
     r_grid : np.ndarray or None
         Radius bin centres [Å].
     model_intensity : np.ndarray or None
@@ -138,6 +157,11 @@ class SizesDistribution:
     tnnls_approach_param: float = 0.95
     tnnls_max_iter: int = 1000
 
+    # ── McSAS parameters ──────────────────────────────────────────────────────
+    mcsas_n_repetitions: int = 10
+    mcsas_convergence: float = 1.0
+    mcsas_max_iter: int = 100000
+
     # ── Error scaling ─────────────────────────────────────────────────────────
     error_scale: float = 1.0   # Multiply measurement errors by this factor before fitting
 
@@ -147,6 +171,7 @@ class SizesDistribution:
 
     # ── Results ───────────────────────────────────────────────────────────────
     distribution: Optional[np.ndarray]
+    distribution_std: Optional[np.ndarray]
     r_grid: Optional[np.ndarray]
     model_intensity: Optional[np.ndarray]
     residuals: Optional[np.ndarray]
@@ -158,6 +183,7 @@ class SizesDistribution:
     def __init__(self):
         self.shape_params = {}
         self.distribution = None
+        self.distribution_std = None
         self.r_grid = None
         self.model_intensity = None
         self.residuals = None
@@ -236,12 +262,15 @@ class SizesDistribution:
         # Fit
         try:
             method = self.method.lower()
+            x_raw_std = None
             if method == 'maxent':
                 x_raw, n_iter = self._fit_maxent(G, I, err)
             elif method == 'regularization':
                 x_raw, n_iter = self._fit_regularization(G, I, err)
             elif method in ('tnnls', 'ipg', 'nnls'):
                 x_raw, n_iter = self._fit_tnnls(G, I, err)
+            elif method == 'mcsas':
+                x_raw, n_iter, x_raw_std = self._fit_mcsas(G, I, err, r_grid)
             else:
                 return self._fail(f"Unknown method '{self.method}'.")
         except Exception as exc:
@@ -250,6 +279,37 @@ class SizesDistribution:
 
         # Post-process
         result = self._post_process(x_raw, r_grid, G, I, err)
+
+        # McSAS: the MC fit uses the standard G matrix (numerically stable, 6-decade
+        # dynamic range) so x_raw = A × count reflects the number distribution.
+        # Multiply by V(r) = (4/3)πr³ and renormalise to convert to volume distribution,
+        # matching the output of MaxEnt, Regularisation, and TNNLS for consistent display.
+        if method == 'mcsas':
+            _V_r = (4.0 / 3.0) * np.pi * r_grid ** 3
+            dist_vol = result['distribution'] * _V_r
+            _vf_orig = result['volume_fraction']
+            _vf_new = float(np.trapezoid(dist_vol, r_grid))
+            _mcsas_scale = (_vf_orig / _vf_new) if _vf_new > 0 else 1.0
+            dist_vol *= _mcsas_scale
+            result['distribution'] = dist_vol
+            result['volume_fraction'] = float(np.trapezoid(dist_vol, r_grid))
+            if result['volume_fraction'] > 0:
+                result['rg'] = float(np.sqrt(
+                    np.trapezoid(r_grid ** 2 * dist_vol, r_grid) / result['volume_fraction']
+                ))
+            else:
+                result['rg'] = 0.0
+
+        # McSAS: add per-bin uncertainty from spread across repetitions
+        if x_raw_std is not None:
+            dw_safe = np.maximum(bin_widths(r_grid), 1e-300)
+            dist_std = x_raw_std / dw_safe
+            if method == 'mcsas':
+                dist_std = dist_std * _V_r * _mcsas_scale
+            result['distribution_std'] = dist_std
+        else:
+            result['distribution_std'] = None
+
         result['n_iterations'] = n_iter
         result['n_data'] = len(I)   # number of Q points used; chi² target ≈ this value
         result['success'] = True
@@ -259,8 +319,8 @@ class SizesDistribution:
         )
 
         # Store results on self
-        for k in ('distribution', 'r_grid', 'model_intensity', 'residuals',
-                  'chi_squared', 'volume_fraction', 'rg', 'n_iterations'):
+        for k in ('distribution', 'distribution_std', 'r_grid', 'model_intensity',
+                  'residuals', 'chi_squared', 'volume_fraction', 'rg', 'n_iterations'):
             setattr(self, k, result.get(k))
         self.r_grid = r_grid
 
@@ -814,6 +874,140 @@ class SizesDistribution:
 
         return x, n_iter
 
+    # ── McSAS / Monte-Carlo ────────────────────────────────────────────────────
+
+    def _fit_mcsas(
+        self,
+        G: np.ndarray,
+        I: np.ndarray,
+        err: np.ndarray,
+        r_grid: np.ndarray,
+        n_reps: Optional[int] = None,
+    ) -> tuple[np.ndarray, int, Optional[np.ndarray]]:
+        """
+        Monte Carlo Size Analysis (McSAS) inversion.
+
+        Uses the same G matrix and r_grid as the other methods.  N_c = n_bins
+        contributions are randomly assigned to r_grid bins and then optimised
+        by single-contribution replacement to minimise χ².
+
+        The forward model is the standard intensity model:
+
+            I(q) = A × Σ_k count[k] × G[:,k]
+
+        where G[:,k] = V(r_k) × F²_norm(q, r_k) × contrast × 1e-4  [cm⁻¹ per
+        unit volume fraction].  The optimal scale factor A (least-squares, ≥ 0)
+        equals  Vf / N_c  for a monodisperse sample, so:
+
+            x_raw[k] = A × count[k]   [volume fraction per bin]
+
+        This is identical to the x_raw produced by MaxEnt, Regularization, and
+        TNNLS, so all four methods feed into the same ``_post_process`` pipeline
+        and produce consistent volume distributions.
+
+        Note: an earlier implementation used volume-weighted G columns
+        (G_V[:,k] = G[:,k]×V(r_k)) to make the number-density interpretation
+        explicit, but that caused a 12-decade dynamic-range problem with log-
+        spaced grids, leading to ringing artefacts.  The standard G model has
+        only a 6-decade range (r³ instead of r⁶) and is numerically stable.
+
+        Parameters
+        ----------
+        G : (M, N) array
+            Pre-built G matrix from ``_build_g_matrix``.
+        I : (M,) array
+            Background-subtracted, error-scaled experimental intensity.
+        err : (M,) array
+            Measurement uncertainties after scaling.
+        r_grid : (N,) array
+            Radius bin centres [Å].
+        n_reps : int, optional
+            Number of independent MC repetitions.  Defaults to
+            ``self.mcsas_n_repetitions``.  Pass ``1`` for a single-run fit
+            (the ``distribution_std`` return value will be ``None``).
+
+        Returns
+        -------
+        x_raw_mean : (N,) array
+            Mean volume-fraction per bin across repetitions.
+        n_iter_avg : int
+            Average number of MC iterations per repetition.
+        x_raw_std : (N,) array or None
+            Std of volume-fraction per bin across repetitions.
+            ``None`` when *n_reps* == 1 (no meaningful spread from a single run).
+        """
+        M, N = G.shape
+        N_c = N   # one contribution per r_grid bin; they can cluster during MC
+        n_rep = int(n_reps if n_reps is not None else self.mcsas_n_repetitions)
+        convergence = float(self.mcsas_convergence)
+        max_iter = int(self.mcsas_max_iter)
+
+        rng = np.random.default_rng()
+        inv_err2 = 1.0 / (err ** 2)               # (M,)
+
+        def _scale_factor(g_sum: np.ndarray) -> float:
+            """Optimal A = (g·I/σ²)/(g·g/σ²), clamped ≥ 0."""
+            num = float(np.dot(g_sum * inv_err2, I))
+            den = float(np.dot(g_sum * inv_err2, g_sum))
+            return max(num / den, 0.0) if den > 1e-300 else 0.0
+
+        def _chi2(g_sum: np.ndarray, A: float) -> float:
+            resid = (I - A * g_sum) / err
+            return float(np.dot(resid, resid))
+
+        x_raw_reps = np.zeros((n_rep, N), dtype=float)
+        total_iters = 0
+
+        for rep in range(n_rep):
+            # ── Initialise: assign each of N_c contributions to a random bin ──
+            contrib_bins = rng.integers(0, N, size=N_c)      # (N_c,) bin indices
+            counts = np.bincount(contrib_bins, minlength=N).astype(float)  # (N,)
+
+            g_sum = G @ counts                               # (M,)
+            A = _scale_factor(g_sum)
+            chi2_val = _chi2(g_sum, A)
+
+            # ── MC replacement loop ────────────────────────────────────────────
+            rep_iters = 0
+            for rep_iters in range(1, max_iter + 1):
+                j = int(rng.integers(N_c))
+                k_old = int(contrib_bins[j])
+                k_new = int(rng.integers(N))
+
+                if k_new == k_old:
+                    continue
+
+                # Incremental update (O(M) not O(M×N))
+                g_sum_trial = g_sum + G[:, k_new] - G[:, k_old]
+                A_trial = _scale_factor(g_sum_trial)
+                chi2_trial = _chi2(g_sum_trial, A_trial)
+
+                if chi2_trial <= chi2_val:
+                    contrib_bins[j] = k_new
+                    counts[k_old] -= 1.0
+                    counts[k_new] += 1.0
+                    g_sum = g_sum_trial
+                    A = A_trial
+                    chi2_val = chi2_trial
+
+                if chi2_val / M <= convergence:
+                    break
+
+            total_iters += rep_iters
+            log.debug(
+                "McSAS rep %d/%d: %d iters, chi2=%.4g (target %.4g)",
+                rep + 1, n_rep, rep_iters, chi2_val, convergence * M,
+            )
+
+            # x_raw[k] = A × count[k]  →  volume fraction per bin (same as other methods)
+            x_raw_reps[rep] = A * counts
+
+        x_raw_mean = np.mean(x_raw_reps, axis=0)
+        x_raw_std  = np.std(x_raw_reps, axis=0) if n_rep > 1 else None
+        n_iter_avg = total_iters // max(n_rep, 1)
+
+        return x_raw_mean, n_iter_avg, x_raw_std
+
     # ── Post-processing ───────────────────────────────────────────────────────
 
     def _post_process(
@@ -885,25 +1079,28 @@ class SizesDistribution:
     def to_dict(self) -> dict:
         """Serialise all parameters (not results) to a plain dict."""
         return {
-            'r_min':                   self.r_min,
-            'r_max':                   self.r_max,
-            'n_bins':                  self.n_bins,
-            'log_spacing':             self.log_spacing,
-            'shape':                   self.shape,
-            'contrast':                self.contrast,
-            'shape_params':            dict(self.shape_params),
-            'background':              self.background,
-            'method':                  self.method,
-            'maxent_sky_background':   self.maxent_sky_background,
-            'maxent_stability':        self.maxent_stability,
-            'maxent_max_iter':         self.maxent_max_iter,
-            'regularization_evalue':   self.regularization_evalue,
+            'r_min':                    self.r_min,
+            'r_max':                    self.r_max,
+            'n_bins':                   self.n_bins,
+            'log_spacing':              self.log_spacing,
+            'shape':                    self.shape,
+            'contrast':                 self.contrast,
+            'shape_params':             dict(self.shape_params),
+            'background':               self.background,
+            'method':                   self.method,
+            'maxent_sky_background':    self.maxent_sky_background,
+            'maxent_stability':         self.maxent_stability,
+            'maxent_max_iter':          self.maxent_max_iter,
+            'regularization_evalue':    self.regularization_evalue,
             'regularization_min_ratio': self.regularization_min_ratio,
-            'tnnls_approach_param':    self.tnnls_approach_param,
-            'tnnls_max_iter':          self.tnnls_max_iter,
-            'error_scale':             self.error_scale,
-            'power_law_B':             self.power_law_B,
-            'power_law_P':             self.power_law_P,
+            'tnnls_approach_param':     self.tnnls_approach_param,
+            'tnnls_max_iter':           self.tnnls_max_iter,
+            'mcsas_n_repetitions':      self.mcsas_n_repetitions,
+            'mcsas_convergence':        self.mcsas_convergence,
+            'mcsas_max_iter':           self.mcsas_max_iter,
+            'error_scale':              self.error_scale,
+            'power_law_B':              self.power_law_B,
+            'power_law_P':              self.power_law_P,
         }
 
     @classmethod
@@ -920,14 +1117,15 @@ class SizesDistribution:
     @staticmethod
     def _fail(message: str) -> dict:
         return {
-            'success': False,
-            'message': message,
-            'distribution':    None,
-            'r_grid':          None,
-            'model_intensity': None,
-            'residuals':       None,
-            'chi_squared':     None,
-            'volume_fraction': None,
-            'rg':              None,
-            'n_iterations':    None,
+            'success':           False,
+            'message':           message,
+            'distribution':      None,
+            'distribution_std':  None,
+            'r_grid':            None,
+            'model_intensity':   None,
+            'residuals':         None,
+            'chi_squared':       None,
+            'volume_fraction':   None,
+            'rg':                None,
+            'n_iterations':      None,
         }

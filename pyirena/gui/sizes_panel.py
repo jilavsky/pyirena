@@ -204,8 +204,9 @@ class SizesFitGraphWindow(QWidget):
         self.main_plot.setLabel('left',   'I  (cm⁻¹)')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.main_plot.addLegend(offset=(10, 10))
+        self.main_plot.addLegend(offset=(10, 10), labelTextSize='14pt', labelTextColor='k')
         _style_axes(self.main_plot)
+        self.main_plot.getAxis('left').setWidth(65)
 
         # ── Residuals plot  (log-x, linear-y) ───────────────────────────────
         self.residuals_plot.setLogMode(x=True, y=False)
@@ -218,16 +219,27 @@ class SizesFitGraphWindow(QWidget):
         )
         self.residuals_plot.addItem(self._zero_line)
         _style_axes(self.residuals_plot)
+        self.residuals_plot.getAxis('left').setWidth(65)
 
         # ── Distribution plot  (log-x, linear-y — r in Å) ───────────────────
         self.distribution_plot.setLogMode(x=True, y=False)
         self.distribution_plot.setLabel('left',   'P(r)  (a.u.)')
         self.distribution_plot.setLabel('bottom', 'r  (Å)')
         self.distribution_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.distribution_plot.addLegend(offset=(10, 10))
+        self.distribution_plot.addLegend(offset=(10, 10), labelTextSize='14pt', labelTextColor='k')
         _style_axes(self.distribution_plot)
+        self.distribution_plot.getAxis('left').setWidth(65)
 
         layout.addWidget(self.graphics_layout)
+
+        # ── "Save graph as JPEG" in right-click context menu of each plot ────
+        for _plot in (self.main_plot, self.distribution_plot):
+            _vb = _plot.getViewBox()
+            _vb.menu.addSeparator()
+            _action = _vb.menu.addAction("Save graph as JPEG…")
+            _action.triggered.connect(
+                lambda checked=False, p=_plot: self._save_plot_as_jpeg(p)
+            )
 
         # ── Status message (QTextEdit so the user can select/copy text) ─────────
         self.status_message = QTextEdit("")
@@ -248,6 +260,28 @@ class SizesFitGraphWindow(QWidget):
         layout.addWidget(self.status_message)
 
         self.setLayout(layout)
+
+    # ── JPEG export ──────────────────────────────────────────────────────────
+
+    def _save_plot_as_jpeg(self, plot):
+        """Export a plot panel to a JPEG file chosen via file dialog."""
+        from pyqtgraph.exporters import ImageExporter
+        default_dir = self.data_folder or str(Path.home())
+        default_name = str(Path(default_dir) / "sizes_graph.jpg")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Graph as JPEG",
+            default_name,
+            "JPEG Images (*.jpg *.jpeg);;All Files (*)",
+        )
+        if not file_path:
+            return
+        try:
+            exporter = ImageExporter(plot)
+            exporter.parameters()['width'] = 1600
+            exporter.export(file_path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Export Failed", f"Could not save image:\n{exc}")
 
     # ── Cursor management ────────────────────────────────────────────────────
 
@@ -918,7 +952,7 @@ class SizesFitPanel(QWidget):
         meth_row = QHBoxLayout()
         meth_row.addWidget(QLabel("Method:"))
         self.method_combo = QComboBox()
-        self.method_combo.addItems(["regularization", "maxent", "tnnls"])
+        self.method_combo.addItems(["regularization", "maxent", "tnnls", "mcsas"])
         self.method_combo.currentTextChanged.connect(self._on_method_changed)
         meth_row.addWidget(self.method_combo)
         meth_row.addStretch()
@@ -996,6 +1030,34 @@ class SizesFitPanel(QWidget):
         r1.addStretch()
         tnnls_layout.addLayout(r1)
         method_layout.addWidget(self.tnnls_group)
+
+        # McSAS params — Convergence, Max iter
+        # (N contributions = N size bins, shared with the Size Grid above)
+        self.mcsas_group = QWidget()
+        mcsas_layout = QVBoxLayout(self.mcsas_group)
+        mcsas_layout.setContentsMargins(0, 0, 0, 0)
+        mcsas_layout.setSpacing(2)
+
+        r2 = QHBoxLayout()
+        r2.addWidget(QLabel("Convergence:"))
+        self.mcsas_conv_edit = ScrubbableLineEdit("1.0")
+        self.mcsas_conv_edit.setValidator(QDoubleValidator(0.01, 100.0, 6))
+        self.mcsas_conv_edit.setMaximumWidth(65)
+        self.mcsas_conv_edit.editingFinished.connect(self._on_param_changed)
+        r2.addWidget(self.mcsas_conv_edit)
+        r2.addWidget(QLabel("  Max iter:"))
+        self.mcsas_maxiter_spin = QSpinBox()
+        self.mcsas_maxiter_spin.setMinimum(1000)
+        self.mcsas_maxiter_spin.setMaximum(10000000)
+        self.mcsas_maxiter_spin.setSingleStep(10000)
+        self.mcsas_maxiter_spin.setValue(100000)
+        self.mcsas_maxiter_spin.setMaximumWidth(80)
+        self.mcsas_maxiter_spin.valueChanged.connect(self._on_param_changed)
+        r2.addWidget(self.mcsas_maxiter_spin)
+        r2.addStretch()
+        mcsas_layout.addLayout(r2)
+        method_layout.addWidget(self.mcsas_group)
+
         sizes_layout.addWidget(method_box)
         sizes_layout.addStretch()
 
@@ -1195,7 +1257,15 @@ class SizesFitPanel(QWidget):
         layout.addLayout(btn_row1)
 
         btn_row_unc = QHBoxLayout()
-        self.uncertainty_button = QPushButton("Calculate Uncertainty (MC)")
+        btn_row_unc.addWidget(QLabel("Passes:"))
+        self.unc_n_runs_spin = QSpinBox()
+        self.unc_n_runs_spin.setMinimum(1)
+        self.unc_n_runs_spin.setMaximum(200)
+        self.unc_n_runs_spin.setValue(10)
+        self.unc_n_runs_spin.setMaximumWidth(52)
+        self.unc_n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
+        btn_row_unc.addWidget(self.unc_n_runs_spin)
+        self.uncertainty_button = QPushButton("Calc. Uncertainty (MC)")
         self.uncertainty_button.setMinimumHeight(26)
         self.uncertainty_button.setStyleSheet("""
             QPushButton { background-color: #16a085; color: white; font-weight: bold; }
@@ -1243,7 +1313,6 @@ class SizesFitPanel(QWidget):
         chi_vf_row.addWidget(QLabel("χ²:"))
         self.result_chi2 = QLineEdit("—")
         self.result_chi2.setReadOnly(True)
-        self.result_chi2.setMaximumWidth(72)
         self.result_chi2.setStyleSheet(
             "background-color: #ecf0f1; color: #2c3e50; font-weight: bold;")
         chi_vf_row.addWidget(self.result_chi2)
@@ -1256,31 +1325,26 @@ class SizesFitPanel(QWidget):
         chi_vf_row.addWidget(QLabel("Vf:"))
         self.result_vf = QLineEdit("—")
         self.result_vf.setReadOnly(True)
-        self.result_vf.setMaximumWidth(90)
         self.result_vf.setStyleSheet(
             "background-color: #ecf0f1; color: #2c3e50; font-weight: bold;")
         chi_vf_row.addWidget(self.result_vf)
-        chi_vf_row.addStretch()
         res_layout.addLayout(chi_vf_row)
 
-        # Row 2: Rg and Peak r
+        # Row 2: Rg and Peak r  (expand to fill; no addStretch — uncertainties need room)
         rg_pr_row = QHBoxLayout()
         rg_pr_row.addWidget(QLabel("Rg:"))
         self.result_rg = QLineEdit("—")
         self.result_rg.setReadOnly(True)
-        self.result_rg.setMaximumWidth(90)
         self.result_rg.setStyleSheet(
             "background-color: #ecf0f1; color: #2c3e50; font-weight: bold;")
         rg_pr_row.addWidget(self.result_rg)
         rg_pr_row.addWidget(QLabel("Å  Peak r:"))
         self.result_peak_r = QLineEdit("—")
         self.result_peak_r.setReadOnly(True)
-        self.result_peak_r.setMaximumWidth(80)
         self.result_peak_r.setStyleSheet(
             "background-color: #ecf0f1; color: #2c3e50; font-weight: bold;")
         rg_pr_row.addWidget(self.result_peak_r)
         rg_pr_row.addWidget(QLabel("Å"))
-        rg_pr_row.addStretch()
         res_layout.addLayout(rg_pr_row)
 
         layout.addWidget(results_box)
@@ -1357,6 +1421,7 @@ class SizesFitPanel(QWidget):
         self.maxent_group.setVisible(method == "maxent")
         self.reg_group.setVisible(method == "regularization")
         self.tnnls_group.setVisible(method == "tnnls")
+        self.mcsas_group.setVisible(method == "mcsas")
 
     def _on_param_changed(self):
         """Called when any parameter field changes."""
@@ -1445,6 +1510,9 @@ class SizesFitPanel(QWidget):
         s.regularization_min_ratio = float(self.reg_minratio_edit.text() or 1e-4)
         s.tnnls_approach_param = float(self.tnnls_approach_edit.text() or 0.95)
         s.tnnls_max_iter = self.tnnls_maxiter_spin.value()
+        s.mcsas_n_repetitions = 1  # main fit always uses a single MC run
+        s.mcsas_convergence = float(self.mcsas_conv_edit.text() or 1.0)
+        s.mcsas_max_iter = self.mcsas_maxiter_spin.value()
         return s
 
     def _get_bg_fit_q_range(self, q_min_edit, q_max_edit) -> tuple:
@@ -1589,6 +1657,11 @@ class SizesFitPanel(QWidget):
 
             self.status_label.setText(f"Fitting {len(q)} points with {s.method}…")
 
+            # McSAS: single-run for the main Fit button (no error bars).
+            # Uncertainty comes from "Calculate Uncertainty" like other methods.
+            if s.method == 'mcsas':
+                s.mcsas_n_repetitions = 1
+
             result = s.fit(q, intensity, error)
 
             if not result.get('success', False):
@@ -1667,6 +1740,9 @@ class SizesFitPanel(QWidget):
             if residuals is not None:
                 self.graph_window.plot_residuals(q, residuals)
             self.graph_window.plot_distribution(r_grid, distribution)
+            dist_std = result.get('distribution_std')
+            if dist_std is not None:
+                self.graph_window.plot_distribution_uncertainty(r_grid, distribution, dist_std)
 
             # ── Status message ────────────────────────────────────────────────
             n_iter = result.get('n_iterations', '?')
@@ -1829,11 +1905,14 @@ class SizesFitPanel(QWidget):
     # ── Monte-Carlo uncertainty estimation ───────────────────────────────────
 
     def calculate_uncertainty(self):
-        """Run N Monte-Carlo fits on noise-perturbed data to estimate uncertainties.
+        """Run N noise-perturbed fits to estimate size distribution uncertainties.
 
         Each data point is perturbed by  ΔI = σᵢ · N(0,1)  where σᵢ is the
         measurement error.  The spread of the resulting size distributions gives
         per-bin statistical uncertainties; Rg, Vf, and peak r are also propagated.
+
+        The number of perturbed fits is controlled by the Passes spinner (default 10).
+        For McSAS each perturbed fit uses a single internal MC run.
         """
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
@@ -1844,8 +1923,14 @@ class SizesFitPanel(QWidget):
             )
             return
 
-        N_runs = 10
         s = self._collect_params()
+
+        # Number of perturbed fits — controlled by the Passes spinner.
+        # For McSAS, ensure each perturbed fit uses a single internal MC run.
+        N_runs = self.unc_n_runs_spin.value()
+        if s.method == 'mcsas':
+            s.mcsas_n_repetitions = 1  # one MC run per perturbed fit
+
         q, intensity, error = self._get_q_filtered_data()
 
         if len(q) < 5:
@@ -1914,13 +1999,10 @@ class SizesFitPanel(QWidget):
         pr_mean  = float(np.nanmean(peak_r_vals))
         pr_std   = float(np.nanstd(peak_r_vals, ddof=min(1, n_ok - 1)))
 
-        # Update result fields with ± notation
-        self.result_rg.setMaximumWidth(160)
-        self.result_vf.setMaximumWidth(160)
-        self.result_peak_r.setMaximumWidth(160)
-        self.result_rg.setText(f"{_fmt(rg_mean)} ± {_fmt(rg_std)}")
-        self.result_vf.setText(f"{_fmt(vf_mean, sig=4)} ± {_fmt(vf_std, sig=4)}")
-        self.result_peak_r.setText(f"{_fmt(pr_mean)} ± {_fmt(pr_std)}")
+        # Update result fields with ± notation (2 sig figs on uncertainty)
+        self.result_rg.setText(_fmt_unc(rg_mean, rg_std))
+        self.result_vf.setText(_fmt_unc(vf_mean, vf_std))
+        self.result_peak_r.setText(_fmt_unc(pr_mean, pr_std))
 
         # Re-plot the mean distribution with uncertainty error bars
         self.graph_window.plot_distribution(r_grid_ref, dist_mean)
@@ -1996,6 +2078,9 @@ class SizesFitPanel(QWidget):
             'regularization_min_ratio': s.regularization_min_ratio,
             'tnnls_approach_param': s.tnnls_approach_param,
             'tnnls_max_iter': s.tnnls_max_iter,
+            'mcsas_convergence': s.mcsas_convergence,
+            'unc_n_runs': self.unc_n_runs_spin.value(),
+            'mcsas_max_iter': s.mcsas_max_iter,
             'error_scale': s.error_scale,
             'power_law_B': s.power_law_B,
             'power_law_P': s.power_law_P,
@@ -2037,6 +2122,9 @@ class SizesFitPanel(QWidget):
         self.reg_minratio_edit.setText(str(state.get('regularization_min_ratio', 1e-4)))
         self.tnnls_approach_edit.setText(str(state.get('tnnls_approach_param', 0.95)))
         self.tnnls_maxiter_spin.setValue(int(state.get('tnnls_max_iter', 1000)))
+        self.mcsas_conv_edit.setText(str(state.get('mcsas_convergence', 1.0)))
+        self.mcsas_maxiter_spin.setValue(int(state.get('mcsas_max_iter', 100000)))
+        self.unc_n_runs_spin.setValue(int(state.get('unc_n_runs', 10)))
         self.error_scale_edit.setText(str(state.get('error_scale', 1.0)))
         self.power_law_B_edit.setText(str(state.get('power_law_B', 0.0)))
         self.power_law_P_edit.setText(str(state.get('power_law_P', 4.0)))
@@ -2261,6 +2349,7 @@ class SizesFitPanel(QWidget):
                 distribution=result['distribution'],
                 params=params,
                 intensity_error=i_err,
+                distribution_std=result.get('distribution_std'),
             )
 
             self.graph_window.show_success_message(
@@ -2290,3 +2379,39 @@ def _fmt(value, sig=4):
         return f"{v:.{sig}g}"
     except Exception:
         return "—"
+
+
+def _fmt_unc(value, uncertainty):
+    """Format 'value ± uncertainty' with 2 significant figures on the uncertainty.
+
+    The value is rounded to the same decimal place as the last significant digit
+    of the uncertainty.  Falls back to _fmt for each if uncertainty is not finite
+    or positive.
+
+    Examples
+    --------
+    _fmt_unc(123.456, 1.23)   → "123 ± 1.2"
+    _fmt_unc(0.01234, 0.00123) → "0.0123 ± 0.0012"
+    _fmt_unc(1.23e-5, 1.1e-6) → "1.23e-05 ± 1.1e-06"
+    """
+    import math
+    try:
+        v = float(value)
+        u = float(uncertainty)
+        if not (np.isfinite(v) and np.isfinite(u) and u > 0):
+            return f"{_fmt(v)} ± {_fmt(u)}"
+        mag_u = math.floor(math.log10(abs(u)))       # exponent of leading digit of u
+        dp = max(0, 1 - mag_u)                        # decimal places for 2 sig figs
+        # Use plain fixed-point when values are in a human-friendly range
+        use_exp = abs(v) >= 1e5 or (abs(v) < 1e-3 and v != 0)
+        if use_exp:
+            # Scale both to same power of 10 as the value for consistency
+            exp = math.floor(math.log10(abs(v))) if v != 0 else 0
+            scale = 10 ** exp
+            v_s = v / scale
+            u_s = u / scale
+            dp_s = max(0, 1 - (mag_u - exp))
+            return f"{v_s:.{dp_s}f}e{exp:+03d} ± {u_s:.{dp_s}f}e{exp:+03d}"
+        return f"{v:.{dp}f} ± {u:.{dp}f}"
+    except Exception:
+        return f"{_fmt(value)} ± {_fmt(uncertainty)}"

@@ -16,6 +16,7 @@ intensity_model    — fitted model intensity [cm^-1]
 residuals          — normalised residuals (I_data - I_model) / error
 r_grid             — radius bin centres [Å]
 distribution       — size distribution P(r) [volume fraction / Å]
+distribution_std   — per-bin std of P(r) across McSAS repetitions (if available)
 
 Group attributes (fit results)
 -------------------------------
@@ -30,6 +31,7 @@ method, error_scale,
 maxent_sky_background, maxent_stability, maxent_max_iter,
 regularization_evalue, regularization_min_ratio,
 tnnls_approach_param, tnnls_max_iter,
+mcsas_n_repetitions, mcsas_convergence, mcsas_max_iter,
 power_law_q_min, power_law_q_max,
 background_q_min, background_q_max,
 cursor_q_min, cursor_q_max,
@@ -59,6 +61,7 @@ def save_sizes_results(
     distribution: np.ndarray,
     params: dict,
     intensity_error: Optional[np.ndarray] = None,
+    distribution_std: Optional[np.ndarray] = None,
 ) -> None:
     """
     Save size distribution fitting results to an NXcanSAS HDF5 file.
@@ -88,10 +91,14 @@ def save_sizes_results(
                            ``maxent_max_iter``, ``regularization_evalue``,
                            ``regularization_min_ratio``,
                            ``tnnls_approach_param``, ``tnnls_max_iter``,
+                           ``mcsas_n_repetitions``,
+                           ``mcsas_convergence``, ``mcsas_max_iter``,
                            ``power_law_q_min``, ``power_law_q_max``,
                            ``background_q_min``, ``background_q_max``,
                            ``cursor_q_min``, ``cursor_q_max``.
-        intensity_error: Measurement uncertainty [cm^-1]; stored if provided.
+        intensity_error:  Measurement uncertainty [cm^-1]; stored if provided.
+        distribution_std: Per-bin std of P(r) across McSAS repetitions;
+                          stored if provided (McSAS only).
     """
     filepath = Path(filepath)
     timestamp = datetime.now().isoformat()
@@ -120,6 +127,8 @@ def save_sizes_results(
             'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
             'regularization_evalue', 'regularization_min_ratio',
             'tnnls_approach_param', 'tnnls_max_iter',
+            'mcsas_n_repetitions',
+            'mcsas_convergence', 'mcsas_max_iter',
             # Q ranges used during fitting
             'power_law_q_min', 'power_law_q_max',
             'background_q_min', 'background_q_max',
@@ -139,6 +148,10 @@ def save_sizes_results(
 
         if intensity_error is not None:
             grp.create_dataset('intensity_error', data=intensity_error.astype('f8'), compression='gzip')
+
+        if distribution_std is not None:
+            grp.create_dataset('distribution_std', data=distribution_std.astype('f8'), compression='gzip')
+            grp['distribution_std'].attrs['units'] = 'volume_fraction/angstrom'
 
         # Units annotations
         grp['Q'].attrs['units']              = '1/angstrom'
@@ -202,6 +215,11 @@ def load_sizes_results(filepath: Path) -> dict:
         else:
             result['intensity_error'] = None
 
+        if 'distribution_std' in grp:
+            result['distribution_std'] = grp['distribution_std'][:]
+        else:
+            result['distribution_std'] = None
+
         # Scalar metadata from attributes
         for k in (
             # Fit results
@@ -215,6 +233,8 @@ def load_sizes_results(filepath: Path) -> dict:
             'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
             'regularization_evalue', 'regularization_min_ratio',
             'tnnls_approach_param', 'tnnls_max_iter',
+            'mcsas_n_repetitions',
+            'mcsas_convergence', 'mcsas_max_iter',
             # Q ranges used during fitting
             'power_law_q_min', 'power_law_q_max',
             'background_q_min', 'background_q_max',
