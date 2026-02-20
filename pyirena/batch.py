@@ -520,18 +520,51 @@ def fit_sizes(
         if distribution is not None and r_grid is not None and len(distribution) > 0:
             peak_r = float(r_grid[int(np.argmax(distribution))])
 
-        parameters = {
-            'method':          s.method,
+        # Build a complete params dict matching what the GUI saves via _get_current_state().
+        # This is passed both to save_sizes_results() and returned as 'parameters'.
+        ar = s.shape_params.get('aspect_ratio', 1.0) if s.shape == 'spheroid' else None
+        save_params = {
+            # Fit results
             'chi_squared':     chi2,
             'volume_fraction': vf,
             'rg':              rg,
-            'peak_r':          peak_r,
             'n_iterations':    fit_result.get('n_iterations', 0),
-            'n_bins':          s.n_bins,
+            # Model / grid setup
+            'method':          s.method,
+            'shape':           s.shape,
+            'contrast':        s.contrast,
+            'aspect_ratio':    ar,
             'r_min':           s.r_min,
             'r_max':           s.r_max,
-            'shape':           s.shape,
+            'n_bins':          s.n_bins,
+            'log_spacing':     s.log_spacing,
+            'background':      s.background,
+            'error_scale':     s.error_scale,
+            'power_law_B':     s.power_law_B,
+            'power_law_P':     s.power_law_P,
+            # Method-specific parameters
+            'maxent_sky_background':    s.maxent_sky_background,
+            'maxent_stability':         s.maxent_stability,
+            'maxent_max_iter':          s.maxent_max_iter,
+            'regularization_evalue':    s.regularization_evalue,
+            'regularization_min_ratio': s.regularization_min_ratio,
+            'tnnls_approach_param':     s.tnnls_approach_param,
+            'tnnls_max_iter':           s.tnnls_max_iter,
+            'mcsas_n_repetitions':      getattr(s, 'mcsas_n_repetitions', 1),
+            'mcsas_convergence':        s.mcsas_convergence,
+            'mcsas_max_iter':           s.mcsas_max_iter,
+            # Q ranges from config (cursor / background / power-law)
+            'cursor_q_min':      sizes_state.get('cursor_q_min'),
+            'cursor_q_max':      sizes_state.get('cursor_q_max'),
+            'power_law_q_min':   sizes_state.get('power_law_q_min'),
+            'power_law_q_max':   sizes_state.get('power_law_q_max'),
+            'background_q_min':  sizes_state.get('background_q_min'),
+            'background_q_max':  sizes_state.get('background_q_max'),
         }
+
+        # Convenience summary for the caller (add computed peak_r)
+        parameters = dict(save_params)
+        parameters['peak_r'] = peak_r
 
         success = bool(fit_result.get('success', False))
         result = {
@@ -589,7 +622,8 @@ def fit_sizes(
                 residuals=residuals,
                 r_grid=r_grid,
                 distribution=distribution,
-                params=parameters,
+                params=save_params,           # complete parameter set
+                distribution_std=fit_result.get('distribution_std'),
             )
             result['output_file'] = output_path
         except Exception:

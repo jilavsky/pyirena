@@ -86,8 +86,11 @@ def _build_report(file_path: str,
     ]
     if fit_results is not None:
         L += [
-            f"| **Fit timestamp** | {fit_results.get('timestamp', 'unknown')} |",
-            f"| **Program** | {fit_results.get('program', 'pyirena')} |",
+            f"| **Unified Fit timestamp** | {fit_results.get('timestamp', 'unknown')} |",
+        ]
+    if sizes_results is not None:
+        L += [
+            f"| **Size Dist. timestamp** | {sizes_results.get('timestamp', 'unknown')} |",
         ]
     L.append("")
 
