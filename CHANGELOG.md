@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`load_result(filepath, analysis)`** (`pyirena/io/results.py`) — new top-level
+  importable function for scripting / command-line users.  Pass an NXcanSAS HDF5
+  file path and an analysis name (``'unified_fit'`` or ``'size_distribution'``) to
+  retrieve a fully documented dictionary of stored fit results.  If the file does not
+  contain results for the requested package, a complete empty structure (all keys
+  present, values ``None``, ``found=False``) is returned — no exception is raised.
+  Available directly as ``from pyirena import load_result``.
+  - ``'unified_fit'`` dict keys: ``found``, ``timestamp``, ``program``,
+    ``chi_squared``, ``background``, ``background_err``, ``num_levels``,
+    ``Q``, ``intensity_data``, ``intensity_model``, ``intensity_error``,
+    ``residuals``, ``levels`` (list of per-level dicts including MC ``*_err`` fields).
+  - ``'size_distribution'`` dict keys: ``found``, ``timestamp``, ``program``,
+    ``Q``, ``intensity_data``, ``intensity_model``, ``intensity_error``,
+    ``residuals``, ``r_grid``, ``distribution``, ``distribution_std``,
+    ``chi_squared``, ``volume_fraction``, ``rg``, ``n_iterations``, ``q_power``,
+    ``shape``, ``contrast``, ``aspect_ratio``, ``r_min``, ``r_max``, ``n_bins``,
+    ``log_spacing``, ``background``, ``power_law_B``, ``power_law_P``,
+    ``method``, ``error_scale``, plus method-specific parameters for MaxEnt,
+    Regularization, TNNLS, and McSAS, and all Q-range fields.
+- ``SUPPORTED_ANALYSES`` tuple exported from ``pyirena`` listing recognised
+  analysis package names.
+
+### Fixed
+- **Report generation** (`data_selector.py`): Size Distribution section now correctly
+  reads scalar parameters directly from the flat dict returned by `load_sizes_results()`
+  instead of looking for a non-existent nested `'params'` key. Previously all parameters
+  showed as `nan`/`unknown` in the generated Markdown report.
+- **Report generation** — Size Distribution section now includes all parameters stored
+  in the HDF5 group: contrast, aspect ratio, log spacing, background, error scale, power
+  law B/P, Q range, n_iterations; plus method-specific sub-tables for MaxEnt,
+  Regularization, TNNLS, and McSAS parameters.
+
 ## [0.1.1] - 2026-02-19
 
 ### Added
