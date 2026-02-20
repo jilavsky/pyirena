@@ -18,7 +18,7 @@ try:
         QAbstractItemView, QMessageBox, QMenuBar, QMenu,
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
     )
-    from PySide6.QtCore import Qt, QDir
+    from PySide6.QtCore import Qt, QDir, QThread, Signal
     from PySide6.QtGui import QAction, QDoubleValidator
 except ImportError:
     try:
@@ -28,7 +28,7 @@ except ImportError:
             QAbstractItemView, QMessageBox, QMenuBar, QMenu,
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
         )
-        from PyQt6.QtCore import Qt, QDir
+        from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal
         from PyQt6.QtGui import QAction, QDoubleValidator
     except ImportError:
         raise ImportError(
@@ -46,6 +46,7 @@ from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
+from pyirena.batch import fit_unified, fit_sizes
 
 
 def _build_report(file_path: str,
@@ -690,6 +691,44 @@ class UnifiedFitResultsWindow(QWidget):
         self.show()
 
 
+class BatchWorker(QThread):
+    """
+    Background thread for running batch fitting (Unified Fit or Size Distribution)
+    on a list of files with a shared pyirena_config.json.
+    """
+    progress = Signal(str)              # emitted before each file: "Working: N/M — name"
+    finished = Signal(int, int, list)   # n_ok, n_fail, per-file messages
+
+    def __init__(self, tool: str, file_paths: list, config_file: str, parent=None):
+        super().__init__(parent)
+        self.tool = tool                # 'unified' or 'sizes'
+        self.file_paths = file_paths
+        self.config_file = config_file
+
+    def run(self):
+        n_ok, n_fail = 0, 0
+        messages = []
+        fit_fn = fit_unified if self.tool == 'unified' else fit_sizes
+        total = len(self.file_paths)
+
+        for i, fp in enumerate(self.file_paths):
+            fname = os.path.basename(fp)
+            self.progress.emit(f"Working: {i + 1}/{total} — {fname}")
+            try:
+                result = fit_fn(fp, self.config_file, save_to_nexus=True)
+                if result.get('success', False):
+                    n_ok += 1
+                    messages.append(f"✓ {fname}")
+                else:
+                    n_fail += 1
+                    messages.append(f"✗ {fname}: {result.get('message', 'fit failed')}")
+            except Exception as exc:
+                n_fail += 1
+                messages.append(f"✗ {fname}: {exc}")
+
+        self.finished.emit(n_ok, n_fail, messages)
+
+
 class DataSelectorPanel(QWidget):
     """
     Main data selector panel for pyIrena.
@@ -709,6 +748,7 @@ class DataSelectorPanel(QWidget):
         self.unified_fit_results_window = None  # Graph of stored fit results
         self.unified_fit_window = None  # Unified fit panel
         self.sizes_fit_window = None   # Size distribution panel
+        self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
         self.state_manager = StateManager()
@@ -825,6 +865,17 @@ class DataSelectorPanel(QWidget):
         right_layout = QVBoxLayout()
         right_layout.setSpacing(6)
 
+        # ── Batch script status display ────────────────────────────────────
+        self.batch_status_label = QLabel("")
+        self.batch_status_label.setWordWrap(True)
+        self.batch_status_label.setMinimumHeight(28)
+        self.batch_status_label.setMaximumHeight(56)
+        self.batch_status_label.setVisible(False)
+        self.batch_status_label.setStyleSheet(
+            "QLabel { padding: 5px 8px; border-radius: 4px; font-size: 12px; }"
+        )
+        right_layout.addWidget(self.batch_status_label)
+
         # ── Graph content checkboxes ───────────────────────────────────────
         graph_content_label = QLabel("Show in graph:")
         graph_content_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
@@ -904,37 +955,93 @@ class DataSelectorPanel(QWidget):
 
         right_layout.addSpacing(10)
 
-        # ── Unified Fit model button ───────────────────────────────────────
-        self.unified_fit_button = QPushButton("Unified Fit")
-        self.unified_fit_button.setMinimumHeight(38)
-        self.unified_fit_button.setStyleSheet("""
+        # ── Unified Fit: GUI button + Script batch button side by side ─────
+        _uf_gui_style = """
             QPushButton {
                 background-color: #27ae60; color: white;
-                font-size: 13px; font-weight: bold;
-                border-radius: 4px; padding: 6px 10px;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 6px 8px;
             }
             QPushButton:hover { background-color: #229954; }
             QPushButton:disabled { background-color: #bdc3c7; }
-        """)
+        """
+        _uf_script_style = """
+            QPushButton {
+                background-color: #1e8449; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 6px 8px;
+            }
+            QPushButton:hover { background-color: #196f3d; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.unified_fit_button = QPushButton("Unified Fit (GUI)")
+        self.unified_fit_button.setMinimumHeight(38)
+        self.unified_fit_button.setStyleSheet(_uf_gui_style)
+        self.unified_fit_button.setToolTip(
+            "Open Unified Fit panel for the first selected file."
+        )
         self.unified_fit_button.clicked.connect(self.launch_unified_fit)
         self.unified_fit_button.setEnabled(False)
-        right_layout.addWidget(self.unified_fit_button)
 
-        # ── Size Distribution model button ─────────────────────────────────
-        self.sizes_fit_button = QPushButton("Size Distribution")
-        self.sizes_fit_button.setMinimumHeight(38)
-        self.sizes_fit_button.setStyleSheet("""
+        self.unified_script_button = QPushButton("Unified Fit (script)")
+        self.unified_script_button.setMinimumHeight(38)
+        self.unified_script_button.setStyleSheet(_uf_script_style)
+        self.unified_script_button.setToolTip(
+            "Batch-fit all selected files with Unified Fit using pyirena_config.json.\n"
+            "Results are saved into each file's NXcanSAS record."
+        )
+        self.unified_script_button.clicked.connect(self.run_unified_script)
+        self.unified_script_button.setEnabled(False)
+
+        unified_row = QHBoxLayout()
+        unified_row.setSpacing(4)
+        unified_row.addWidget(self.unified_fit_button)
+        unified_row.addWidget(self.unified_script_button)
+        right_layout.addLayout(unified_row)
+
+        # ── Size Distribution: GUI button + Script batch button ────────────
+        _sz_gui_style = """
             QPushButton {
                 background-color: #2980b9; color: white;
-                font-size: 13px; font-weight: bold;
-                border-radius: 4px; padding: 6px 10px;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 6px 8px;
             }
             QPushButton:hover { background-color: #2471a3; }
             QPushButton:disabled { background-color: #bdc3c7; }
-        """)
+        """
+        _sz_script_style = """
+            QPushButton {
+                background-color: #1f618d; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 6px 8px;
+            }
+            QPushButton:hover { background-color: #1a5276; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.sizes_fit_button = QPushButton("Size Distribution (GUI)")
+        self.sizes_fit_button.setMinimumHeight(38)
+        self.sizes_fit_button.setStyleSheet(_sz_gui_style)
+        self.sizes_fit_button.setToolTip(
+            "Open Size Distribution panel for the first selected file."
+        )
         self.sizes_fit_button.clicked.connect(self.launch_sizes_fit)
         self.sizes_fit_button.setEnabled(False)
-        right_layout.addWidget(self.sizes_fit_button)
+
+        self.sizes_script_button = QPushButton("Size Distribution (script)")
+        self.sizes_script_button.setMinimumHeight(38)
+        self.sizes_script_button.setStyleSheet(_sz_script_style)
+        self.sizes_script_button.setToolTip(
+            "Batch-fit all selected files with Size Distribution using pyirena_config.json.\n"
+            "Results are saved into each file's NXcanSAS record."
+        )
+        self.sizes_script_button.clicked.connect(self.run_sizes_script)
+        self.sizes_script_button.setEnabled(False)
+
+        sizes_row = QHBoxLayout()
+        sizes_row.setSpacing(4)
+        sizes_row.addWidget(self.sizes_fit_button)
+        sizes_row.addWidget(self.sizes_script_button)
+        right_layout.addLayout(sizes_row)
 
         right_layout.addStretch()
         file_area_layout.addLayout(right_layout, stretch=1)
@@ -1093,7 +1200,9 @@ class DataSelectorPanel(QWidget):
         self.plot_button.setEnabled(has_selection)
         self.report_button.setEnabled(has_selection)
         self.unified_fit_button.setEnabled(has_selection)
+        self.unified_script_button.setEnabled(has_selection)
         self.sizes_fit_button.setEnabled(has_selection)
+        self.sizes_script_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files according to the Data / Unified Fit checkboxes."""
@@ -1392,6 +1501,114 @@ class DataSelectorPanel(QWidget):
                 f"Error loading data for Size Distribution:\n{str(e)}"
             )
             self.status_label.setText(f"Error: {str(e)}")
+
+    # ── Batch script fitting ───────────────────────────────────────────────
+
+    def run_unified_script(self):
+        """Batch-fit all selected files with Unified Fit."""
+        self._run_batch_fit('unified')
+
+    def run_sizes_script(self):
+        """Batch-fit all selected files with Size Distribution."""
+        self._run_batch_fit('sizes')
+
+    def _find_config_file(self) -> Optional[str]:
+        """
+        Return the path to pyirena_config.json.
+        Looks first in the current folder; if not found, prompts the user.
+        """
+        if self.current_folder:
+            candidate = os.path.join(self.current_folder, 'pyirena_config.json')
+            if os.path.isfile(candidate):
+                return candidate
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select pyirena_config.json",
+            self.current_folder or str(Path.home()),
+            "pyIrena Config (*.json);;All Files (*)",
+        )
+        return path or None
+
+    def _run_batch_fit(self, tool: str):
+        """Start a BatchWorker thread for the given tool ('unified' or 'sizes')."""
+        if self._batch_worker is not None and self._batch_worker.isRunning():
+            QMessageBox.information(
+                self, "Busy", "A batch fit is already in progress — please wait."
+            )
+            return
+
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(
+                self, "No Selection", "Please select one or more files to fit."
+            )
+            return
+
+        config_file = self._find_config_file()
+        if not config_file:
+            QMessageBox.warning(
+                self,
+                "No Config File",
+                "No pyirena_config.json found.\n"
+                "Export parameters from a GUI fit panel first, then try again.",
+            )
+            return
+
+        file_paths = [
+            os.path.join(self.current_folder, item.text())
+            for item in selected_items
+        ]
+        tool_name = "Unified Fit" if tool == 'unified' else "Size Distribution"
+        self._set_batch_status(
+            f"⏳  Starting {tool_name} batch on {len(file_paths)} file(s)…", 'working'
+        )
+
+        self._batch_worker = BatchWorker(tool, file_paths, config_file, parent=self)
+        self._batch_worker.progress.connect(self._on_batch_progress)
+        self._batch_worker.finished.connect(self._on_batch_finished)
+        self._batch_worker.start()
+
+    def _set_batch_status(self, text: str, state: str):
+        """Update the batch status label colour and text."""
+        colour_map = {
+            'working': ('#f39c12', 'white'),
+            'done':    ('#27ae60', 'white'),
+            'partial': ('#e67e22', 'white'),
+            'error':   ('#e74c3c', 'white'),
+        }
+        bg, fg = colour_map.get(state, ('#7f8c8d', 'white'))
+        self.batch_status_label.setStyleSheet(
+            f"QLabel {{ padding: 5px 8px; border-radius: 4px; font-size: 12px; "
+            f"background-color: {bg}; color: {fg}; }}"
+        )
+        self.batch_status_label.setText(text)
+        self.batch_status_label.setVisible(True)
+
+    def _on_batch_progress(self, msg: str):
+        self._set_batch_status(f"⏳  {msg}", 'working')
+
+    def _on_batch_finished(self, n_ok: int, n_fail: int, messages: list):
+        total = n_ok + n_fail
+        if n_fail == 0:
+            summary = f"✓  Done: all {total} fit(s) succeeded"
+            state = 'done'
+        elif n_ok == 0:
+            summary = f"✗  Done: all {total} fit(s) failed"
+            state = 'error'
+        else:
+            summary = f"⚠  Done: {n_ok} succeeded, {n_fail} failed (out of {total})"
+            state = 'partial'
+        self._set_batch_status(summary, state)
+        self.status_label.setText(f"Batch complete — {summary.lstrip('✓✗⚠ ')}")
+
+        # Show detail list if there were any failures
+        if n_fail > 0:
+            detail = "\n".join(messages)
+            QMessageBox.information(
+                self,
+                "Batch Fit — Details",
+                f"{summary}\n\n{detail}",
+            )
 
     def open_configure_dialog(self):
         """Open the extensible configuration dialog for data loading options."""
