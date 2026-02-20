@@ -506,20 +506,25 @@ class SizesDistribution:
             # ── Lagrange step: balance chi² descent and entropy ascent.
             #
             # The step Δx = Σ βᵢ ξᵢ is found by solving:
-            #    Nm · β = c_proj − λ · s_proj
+            #    Nm · β = λ · s_proj − c_proj
             # where
+            #   s_proj = projections of entropy gradient onto search dirs
             #   c_proj = projections of chi²-descent gradient onto search dirs
-            #   s_proj = projections of entropy-ascent gradient onto search dirs
-            #   λ = (chi_target − c2)/c2   (negative when c2 > target, as usual)
+            #   λ = (chi_target − c2)/c2   (negative when c2 > target)
             #
-            # Sign reasoning: c_proj^T β > 0 ⟹ chi² decreases; adding the
-            # entropy term (weighted by −λ ≥ 0 when c2 > target) further biases
-            # the step toward higher-entropy solutions while still reducing chi².
+            # Note: xi0 = sgrad/|sgrad| points in the all-negative direction
+            # (sgrad < 0 at initialisation), so c_proj[0] < 0 and s_proj[0] > 0.
+            # With λ < 0 (c2 > target):
+            #   rhs[0] = λ·s_proj[0] − c_proj[0]  →  (large negative) − (negative)
+            #   beta[0] < 0  →  delta ∝ beta·xi0 = negative·(−ones) = positive
+            # x increases → G@x grows → chi² falls toward target. ✓
+            # Reversing the sign (c_proj − λ·s_proj) gives beta[0] > 0, driving x
+            # to the clamp floor and preventing convergence.
             if abs(c2) < 1e-300:
                 break
 
             lam = (chi_target - c2) / c2
-            rhs = c_proj - lam * s_proj     # both terms positive when c2 > target
+            rhs = lam * s_proj - c_proj
 
             # Solve 3×3 system Nm · β = rhs  (third row/col near-zero when N>3)
             try:

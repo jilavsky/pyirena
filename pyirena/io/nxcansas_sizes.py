@@ -17,10 +17,23 @@ residuals          — normalised residuals (I_data - I_model) / error
 r_grid             — radius bin centres [Å]
 distribution       — size distribution P(r) [volume fraction / Å]
 
-Group attributes
-----------------
-shape, method, contrast, chi_squared, volume_fraction, rg, n_iterations,
-q_power, timestamp, program
+Group attributes (fit results)
+-------------------------------
+chi_squared, volume_fraction, rg, n_iterations, q_power
+
+Group attributes (model / grid setup)
+--------------------------------------
+shape, contrast, aspect_ratio,
+r_min, r_max, n_bins, log_spacing,
+background, power_law_B, power_law_P,
+method, error_scale,
+maxent_sky_background, maxent_stability, maxent_max_iter,
+regularization_evalue, regularization_min_ratio,
+tnnls_approach_param, tnnls_max_iter,
+power_law_q_min, power_law_q_max,
+background_q_min, background_q_max,
+cursor_q_min, cursor_q_max,
+timestamp, program
 """
 
 from __future__ import annotations
@@ -63,10 +76,21 @@ def save_sizes_results(
         r_grid:          Radius bin centres [Å].
         distribution:    Size distribution P(r) [volume fraction / Å].
         params:          Dict of scalar metadata to store as group attributes.
-                         Expected keys (all optional):
-                           ``shape``, ``method``, ``contrast``,
+                         All keys are optional.  Fit results:
                            ``chi_squared``, ``volume_fraction``, ``rg``,
                            ``n_iterations``, ``q_power``.
+                         Model / grid setup:
+                           ``shape``, ``contrast``, ``aspect_ratio``,
+                           ``r_min``, ``r_max``, ``n_bins``, ``log_spacing``,
+                           ``background``, ``power_law_B``, ``power_law_P``,
+                           ``method``, ``error_scale``,
+                           ``maxent_sky_background``, ``maxent_stability``,
+                           ``maxent_max_iter``, ``regularization_evalue``,
+                           ``regularization_min_ratio``,
+                           ``tnnls_approach_param``, ``tnnls_max_iter``,
+                           ``power_law_q_min``, ``power_law_q_max``,
+                           ``background_q_min``, ``background_q_max``,
+                           ``cursor_q_min``, ``cursor_q_max``.
         intensity_error: Measurement uncertainty [cm^-1]; stored if provided.
     """
     filepath = Path(filepath)
@@ -85,8 +109,21 @@ def save_sizes_results(
 
         # Store scalar metadata as attributes
         _scalar_keys = (
-            'shape', 'method', 'contrast', 'chi_squared',
-            'volume_fraction', 'rg', 'n_iterations', 'q_power',
+            # Fit results
+            'chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power',
+            # Model / grid setup
+            'shape', 'contrast', 'aspect_ratio',
+            'r_min', 'r_max', 'n_bins', 'log_spacing',
+            'background', 'power_law_B', 'power_law_P',
+            'method', 'error_scale',
+            # Method-specific parameters
+            'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
+            'regularization_evalue', 'regularization_min_ratio',
+            'tnnls_approach_param', 'tnnls_max_iter',
+            # Q ranges used during fitting
+            'power_law_q_min', 'power_law_q_max',
+            'background_q_min', 'background_q_max',
+            'cursor_q_min', 'cursor_q_max',
         )
         for k in _scalar_keys:
             if k in params and params[k] is not None:
@@ -123,9 +160,18 @@ def load_sizes_results(filepath: Path) -> dict:
             ``Q``, ``intensity_data``, ``intensity_model``, ``residuals``,
             ``r_grid``, ``distribution``,
             ``intensity_error`` (may be None),
-            and all scalar metadata stored as attributes
-            (``shape``, ``method``, ``contrast``, ``chi_squared``,
-             ``volume_fraction``, ``rg``, ``n_iterations``, ``q_power``,
+            and all scalar metadata stored as group attributes
+            (fit results: ``chi_squared``, ``volume_fraction``, ``rg``,
+             ``n_iterations``, ``q_power``; model setup: ``shape``,
+             ``contrast``, ``aspect_ratio``, ``r_min``, ``r_max``,
+             ``n_bins``, ``log_spacing``, ``background``, ``power_law_B``,
+             ``power_law_P``, ``method``, ``error_scale``,
+             ``maxent_sky_background``, ``maxent_stability``,
+             ``maxent_max_iter``, ``regularization_evalue``,
+             ``regularization_min_ratio``, ``tnnls_approach_param``,
+             ``tnnls_max_iter``, ``power_law_q_min``, ``power_law_q_max``,
+             ``background_q_min``, ``background_q_max``,
+             ``cursor_q_min``, ``cursor_q_max``,
              ``timestamp``, ``program``).
 
     Raises:
@@ -157,9 +203,25 @@ def load_sizes_results(filepath: Path) -> dict:
             result['intensity_error'] = None
 
         # Scalar metadata from attributes
-        for k in ('shape', 'method', 'contrast', 'chi_squared',
-                  'volume_fraction', 'rg', 'n_iterations', 'q_power',
-                  'timestamp', 'program'):
+        for k in (
+            # Fit results
+            'chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power',
+            # Model / grid setup
+            'shape', 'contrast', 'aspect_ratio',
+            'r_min', 'r_max', 'n_bins', 'log_spacing',
+            'background', 'power_law_B', 'power_law_P',
+            'method', 'error_scale',
+            # Method-specific parameters
+            'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
+            'regularization_evalue', 'regularization_min_ratio',
+            'tnnls_approach_param', 'tnnls_max_iter',
+            # Q ranges used during fitting
+            'power_law_q_min', 'power_law_q_max',
+            'background_q_min', 'background_q_max',
+            'cursor_q_min', 'cursor_q_max',
+            # Administrative
+            'timestamp', 'program',
+        ):
             result[k] = grp.attrs.get(k)
 
     return result

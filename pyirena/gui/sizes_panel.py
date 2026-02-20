@@ -924,7 +924,7 @@ class SizesFitPanel(QWidget):
         meth_row.addStretch()
         method_layout.addLayout(meth_row)
 
-        # MaxEnt params — Sky bg, Stability on one row; Max iter on next
+        # MaxEnt params — Sky bg and Max iter (Stability is hardcoded at 0.01)
         self.maxent_group = QWidget()
         maxent_layout = QVBoxLayout(self.maxent_group)
         maxent_layout.setContentsMargins(0, 0, 0, 0)
@@ -937,12 +937,6 @@ class SizesFitPanel(QWidget):
         self.maxent_sky_edit.setMaximumWidth(80)
         self.maxent_sky_edit.editingFinished.connect(self._on_param_changed)
         r1.addWidget(self.maxent_sky_edit)
-        r1.addWidget(QLabel("  Stab:"))
-        self.maxent_stab_edit = ScrubbableLineEdit("0.01")
-        self.maxent_stab_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
-        self.maxent_stab_edit.setMaximumWidth(60)
-        self.maxent_stab_edit.editingFinished.connect(self._on_param_changed)
-        r1.addWidget(self.maxent_stab_edit)
         r1.addWidget(QLabel("  Max iter:"))
         self.maxent_maxiter_spin = QSpinBox()
         self.maxent_maxiter_spin.setMinimum(10)
@@ -1445,7 +1439,7 @@ class SizesFitPanel(QWidget):
         s.power_law_P = float(self.power_law_P_edit.text() or 4.0)
         s.method = self.method_combo.currentText()
         s.maxent_sky_background = float(self.maxent_sky_edit.text() or 1e-6)
-        s.maxent_stability = float(self.maxent_stab_edit.text() or 0.01)
+        s.maxent_stability = 0.01   # hardcoded; see docs/sizes_methods.md
         s.maxent_max_iter = self.maxent_maxiter_spin.value()
         s.regularization_evalue = float(self.reg_evalue_edit.text() or 1.0)
         s.regularization_min_ratio = float(self.reg_minratio_edit.text() or 1e-4)
@@ -1973,7 +1967,6 @@ class SizesFitPanel(QWidget):
         self.power_law_P_edit.setText(str(s.power_law_P))
         self.method_combo.setCurrentText(s.method)
         self.maxent_sky_edit.setText(str(s.maxent_sky_background))
-        self.maxent_stab_edit.setText(str(s.maxent_stability))
         self.maxent_maxiter_spin.setValue(s.maxent_max_iter)
         self.reg_evalue_edit.setText(str(s.regularization_evalue))
         self.reg_minratio_edit.setText(str(s.regularization_min_ratio))
@@ -2039,7 +2032,6 @@ class SizesFitPanel(QWidget):
         self.background_edit.setText(str(state.get('background', 0.0)))
         self.method_combo.setCurrentText(state.get('method', 'regularization'))
         self.maxent_sky_edit.setText(str(state.get('maxent_sky_background', 1e-6)))
-        self.maxent_stab_edit.setText(str(state.get('maxent_stability', 0.01)))
         self.maxent_maxiter_spin.setValue(int(state.get('maxent_max_iter', 1000)))
         self.reg_evalue_edit.setText(str(state.get('regularization_evalue', 1.0)))
         self.reg_minratio_edit.setText(str(state.get('regularization_min_ratio', 1e-4)))
@@ -2236,22 +2228,28 @@ class SizesFitPanel(QWidget):
             output_path = get_output_filepath(Path(source_path), is_nxcansas)
 
             q = self.data['Q']
-            # Get the Q range used for fitting
+            i_err_raw = self.data.get('Error')
+
+            # Apply cursor Q range if set
             cursor_range = self.graph_window.get_cursor_range()
             if cursor_range is not None:
                 q_min, q_max = cursor_range
                 mask = (q >= q_min) & (q <= q_max)
                 q_fit = q[mask]
                 i_data = self.data['Intensity'][mask]
+                i_err = i_err_raw[mask] if i_err_raw is not None else None
             else:
                 q_fit = q
                 i_data = self.data['Intensity']
+                i_err = i_err_raw
 
             result = self.fit_result
             params = self._get_current_state()
+            # Fit results
             params['chi_squared'] = result.get('chi_squared')
             params['volume_fraction'] = result.get('volume_fraction')
             params['rg'] = result.get('rg')
+            params['n_iterations'] = result.get('n_iterations')
 
             save_sizes_results(
                 filepath=output_path,
@@ -2262,6 +2260,7 @@ class SizesFitPanel(QWidget):
                 r_grid=result['r_grid'],
                 distribution=result['distribution'],
                 params=params,
+                intensity_error=i_err,
             )
 
             self.graph_window.show_success_message(
