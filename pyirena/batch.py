@@ -151,6 +151,55 @@ def _state_to_model(unified_state: Dict) -> UnifiedFitModel:
     return model
 
 
+def _compute_invariant_sv(G, Rg, B, P, RgCO, ETA, PACK, correlated):
+    """
+    Compute the scattering invariant and Sv for one Unified Fit level.
+
+    Mirrors LevelParametersWidget.update_porod_surface_and_invariant() in
+    unified_fit.py so that the batch path produces the same values as the GUI.
+
+    Returns (invariant_cm4, sv) where either value is None when not computable.
+    Sv is only meaningful when P is in the Porod regime (3.95 – 4.05).
+    """
+    from scipy.special import erf
+    from scipy.integrate import simpson as _simpson
+
+    if Rg <= 0 or B <= 0:
+        return None, None
+    try:
+        maxQ = 2 * np.pi / (Rg / 10)
+        surf_q = np.linspace(0, maxQ, 2000)
+
+        # Unified intensity (matches _calculate_unified_intensity in unified_fit.py)
+        K = 1.0 if P > 3 else 1.06
+        q_safe = np.where(np.abs(surf_q) < 1e-10, 1e-10, surf_q)
+        erf_cubed = erf(K * q_safe * Rg / np.sqrt(6)) ** 3
+        erf_cubed = np.where(np.abs(erf_cubed) < 1e-10, 1e-10, erf_cubed)
+        qstar = q_safe / erf_cubed
+        qstar = np.where(np.isfinite(qstar), qstar, 1e-10)
+        intensity = (G * np.exp(-surf_q**2 * Rg**2 / 3)
+                     + (B / qstar**P) * np.exp(-RgCO**2 * surf_q**2 / 3))
+        intensity = np.where(np.isfinite(intensity), intensity, 0.0)
+        if correlated and PACK > 0 and ETA > 0:
+            qr = np.where(surf_q * ETA == 0, 1e-10, surf_q * ETA)
+            sphere_amp = 3 * (np.sin(qr) - qr * np.cos(qr)) / qr**3
+            intensity = intensity / (1 + PACK * sphere_amp)
+        if intensity[0] == 0 or np.isnan(intensity[0]):
+            intensity[0] = intensity[1]
+
+        # Invariant = ∫ I(Q)·Q² dQ
+        invariant = _simpson(intensity * surf_q**2, x=surf_q)
+        if RgCO < 0.1:
+            invariant += -B * maxQ**(3 - abs(P)) / (3 - abs(P))
+        if invariant <= 0:
+            return None, None
+
+        sv = 1e4 * np.pi * B / invariant if 3.95 <= P <= 4.05 else None
+        return invariant * 1e24, sv   # convert to cm⁻⁴
+    except Exception:
+        return None, None
+
+
 def _save_to_nexus(data: Dict, model: UnifiedFitModel,
                    fit_result: Dict, num_levels: int) -> Optional[Path]:
     """Save fit results to NXcanSAS HDF5 file.  Returns output path, or None on error."""
@@ -165,11 +214,19 @@ def _save_to_nexus(data: Dict, model: UnifiedFitModel,
     # Build level dicts expected by save_unified_fit_results
     levels = []
     for lv in fit_result['levels']:
-        levels.append({
+        level_dict = {
             'G': lv.G, 'Rg': lv.Rg, 'B': lv.B, 'P': lv.P,
             'RgCutoff': lv.RgCO, 'ETA': lv.ETA, 'PACK': lv.PACK,
             'correlated': lv.correlations,
-        })
+        }
+        invariant, sv = _compute_invariant_sv(
+            lv.G, lv.Rg, lv.B, lv.P, lv.RgCO, lv.ETA, lv.PACK, lv.correlations
+        )
+        if invariant is not None:
+            level_dict['Invariant'] = invariant
+        if sv is not None:
+            level_dict['Sv'] = sv
+        levels.append(level_dict)
 
     intensity_model = model.calculate_intensity(data['Q'])
     if data.get('Error') is not None:

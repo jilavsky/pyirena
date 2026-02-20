@@ -13,20 +13,22 @@ from typing import List, Optional
 
 try:
     from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
         QAbstractItemView, QMessageBox, QMenuBar, QMenu,
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
+        QTableWidget, QTableWidgetItem,
     )
     from PySide6.QtCore import Qt, QDir, QThread, Signal
     from PySide6.QtGui import QAction, QDoubleValidator
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
             QAbstractItemView, QMessageBox, QMenuBar, QMenu,
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
+            QTableWidget, QTableWidgetItem,
         )
         from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal
         from PyQt6.QtGui import QAction, QDoubleValidator
@@ -35,11 +37,155 @@ except ImportError:
             "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
         )
 
+import re
 import numpy as np
-import matplotlib
-matplotlib.use('Qt5Agg')  # Use Qt backend for matplotlib
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+import pyqtgraph as pg
+
+# ── Shared colour palette for multi-file graphs ────────────────────────────
+def _gen_colors(n: int) -> list:
+    """
+    Return a list of *n* QColor objects evenly distributed from blue (index 0)
+    to red (index n-1) along the HSV hue wheel, covering the full visible
+    spectrum (blue → cyan → green → yellow → red).
+
+    With a single file a neutral blue is returned.  With N files the colours
+    are guaranteed to be unique — the palette never repeats regardless of how
+    many datasets are plotted simultaneously, making it easy to track where
+    features appear across an ordered series.
+    """
+    if n <= 0:
+        return []
+    if n == 1:
+        return [pg.hsvColor(0.60, sat=0.85, val=0.82)]   # single medium blue
+    return [
+        pg.hsvColor(0.667 * (1.0 - i / (n - 1)), sat=0.88, val=0.82)
+        for i in range(n)
+    ]
+
+
+class _LogDecadeAxis(pg.AxisItem):
+    """
+    Decade-only tick labels for log-mode plots.
+    Minor ticks at ×2 (log10≈0.301) and ×5 (log10≈0.699) per decade.
+    Identical to LogDecadeAxis in sizes_panel.py.
+    """
+    def tickValues(self, minVal, maxVal, size):
+        if not self.logMode:
+            return super().tickValues(minVal, maxVal, size)
+        import math
+        lo = math.floor(minVal - 0.001)
+        hi = math.ceil(maxVal + 0.001)
+        major = [float(v) for v in range(lo, hi + 1)
+                 if minVal - 0.01 <= float(v) <= maxVal + 0.01]
+        minor = []
+        for decade in range(lo, hi + 1):
+            for offset in (0.301, 0.699):
+                v = float(decade) + offset
+                if minVal - 0.01 <= v <= maxVal + 0.01:
+                    minor.append(v)
+        return [(1.0, major), (0.301, minor)]
+
+    def tickStrings(self, values, scale, spacing):
+        if not self.logMode:
+            return super().tickStrings(values, scale, spacing)
+        strings = []
+        for v in values:
+            if abs(v - round(v)) < 0.05:
+                pwr = int(round(v))
+                val = 10.0 ** pwr
+                strings.append(f'{val:g}' if 0.001 <= abs(val) <= 999 else f'1e{pwr}')
+            else:
+                strings.append('')
+        return strings
+
+
+def _style_plot(plot_item):
+    """White background, black axes, SI-prefix scaling disabled."""
+    for side in ('left', 'bottom'):
+        ax = plot_item.getAxis(side)
+        ax.setPen(pg.mkPen('k'))
+        ax.setTextPen(pg.mkPen('k'))
+        ax.enableAutoSIPrefix(False)
+
+
+def _iq_error_bars(q, I, err, cap_frac=0.05):
+    """
+    Build NaN-separated (x, y) arrays for I(Q) error bars on a log-log plot.
+    Caps are ±cap_frac in multiplicative (log) space.
+    """
+    x_lines, y_lines = [], []
+    for i in range(len(q)):
+        if q[i] <= 0 or I[i] <= 0 or not (err[i] > 0):
+            continue
+        y_top = I[i] + err[i]
+        y_bot = max(I[i] - err[i], I[i] * 0.001)
+        x_lines.extend([q[i], q[i], np.nan])
+        y_lines.extend([y_bot, y_top, np.nan])
+        x_lines.extend([q[i] / (1 + cap_frac), q[i] * (1 + cap_frac), np.nan])
+        y_lines.extend([y_top, y_top, np.nan])
+        x_lines.extend([q[i] / (1 + cap_frac), q[i] * (1 + cap_frac), np.nan])
+        y_lines.extend([y_bot, y_bot, np.nan])
+    return np.array(x_lines, dtype=float), np.array(y_lines, dtype=float)
+
+
+# ── Filename sort-key extractors ───────────────────────────────────────────
+def _sort_key_name(name: str) -> str:
+    return name.lower()
+
+def _sort_key_temperature(name: str) -> float:
+    m = re.search(r'_(-?\d+(?:\.\d+)?)C(?=_|\.|$)', name, re.IGNORECASE)
+    return float(m.group(1)) if m else float('inf')
+
+def _sort_key_time(name: str) -> float:
+    m = re.search(r'_(\d+(?:\.\d+)?)min(?=_|\.|$)', name, re.IGNORECASE)
+    return float(m.group(1)) if m else float('inf')
+
+def _sort_key_order(name: str) -> float:
+    # last _NNN before the file extension
+    m = re.search(r'_(\d+)(?:\.[^.]+)?$', name)
+    return float(m.group(1)) if m else float('inf')
+
+def _sort_key_pressure(name: str) -> float:
+    m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)
+    return float(m.group(1)) if m else float('inf')
+
+_SORT_KEYS = [
+    _sort_key_name,        # 0 Filename A→Z
+    _sort_key_name,        # 1 Filename Z→A
+    _sort_key_temperature, # 2 Temperature ↑
+    _sort_key_temperature, # 3 Temperature ↓
+    _sort_key_time,        # 4 Time ↑
+    _sort_key_time,        # 5 Time ↓
+    _sort_key_order,       # 6 Order number ↑
+    _sort_key_order,       # 7 Order number ↓
+    _sort_key_pressure,    # 8 Pressure ↑
+    _sort_key_pressure,    # 9 Pressure ↓
+]
+
+
+# ── JPEG export helper ─────────────────────────────────────────────────────
+def _add_jpeg_export(window, *plot_items):
+    """
+    Add a 'Save as JPEG…' action to the ViewBox context menu of every
+    PlotItem passed in.  Captures the whole *window* widget via grab().
+    """
+    def _save():
+        path, _ = QFileDialog.getSaveFileName(
+            window, "Save as JPEG",
+            str(Path.home()),
+            "JPEG images (*.jpg *.jpeg);;All files (*)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(('.jpg', '.jpeg')):
+            path += '.jpg'
+        window.grab().save(path, 'JPEG', 95)
+
+    for plot_item in plot_items:
+        act = QAction("Save as JPEG…", window)
+        act.triggered.connect(_save)
+        plot_item.getViewBox().menu.addAction(act)
+
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
 from pyirena.io.nxcansas_unified import load_unified_fit_results
@@ -178,13 +324,8 @@ def _build_report(file_path: str,
                 _row('ETA',  'ETA',  ' Å', fmt='.2f')
                 _row('PACK', 'PACK', '',   fmt='.4f')
 
-            sv = level.get('Sv')
-            if sv is not None and sv != 'N/A' and isinstance(sv, (int, float)):
-                _row('Sv', 'Sv', ' m²/cm³')
-
-            inv = level.get('Invariant')
-            if inv is not None and inv != 'N/A' and isinstance(inv, (int, float)):
-                _row('Invariant', 'Invariant', ' cm⁻⁴')
+            _row('Sv',        'Sv',        ' m²/cm³')
+            _row('Invariant', 'Invariant', ' cm⁻⁴')
 
             L.append("")
 
@@ -515,21 +656,36 @@ class DataSelectorConfigDialog(QDialog):
 
 class GraphWindow(QWidget):
     """
-    Separate window for displaying graphs.
+    Separate window for displaying raw SAS data.
+    Uses pyqtgraph for fast, interactive rendering even with large datasets.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Data Viewer")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 850, 620)
 
-        # Create matplotlib figure and canvas
-        self.figure = Figure(figsize=(8, 6))
-        self.canvas = FigureCanvas(self.figure)
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
 
-        # Layout
+        self.plot = self.gl.addPlot(
+            row=0, col=0,
+            axisItems={
+                'left':   _LogDecadeAxis(orientation='left'),
+                'bottom': _LogDecadeAxis(orientation='bottom'),
+            }
+        )
+        self.plot.setLogMode(True, True)
+        self.plot.setLabel('left', 'Intensity (cm⁻¹)')
+        self.plot.setLabel('bottom', 'Q (Å⁻¹)')
+        self.plot.setTitle('Small-Angle Scattering Data', size='13pt')
+        self.plot.showGrid(x=True, y=True, alpha=0.3)
+        self.plot.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        _style_plot(self.plot)
+        _add_jpeg_export(self, self.plot)
+
         layout = QVBoxLayout()
-        layout.addWidget(self.canvas)
+        layout.addWidget(self.gl)
         self.setLayout(layout)
 
     def plot_data(self, file_paths: List[str], error_fraction: float = 0.05):
@@ -537,49 +693,54 @@ class GraphWindow(QWidget):
         Plot data from the selected files.
 
         Args:
-            file_paths: List of file paths to plot
-            error_fraction: Fraction used to generate uncertainty for 2-column text files
+            file_paths:     List of file paths to plot.
+            error_fraction: Fraction used to synthesise uncertainty for 2-column
+                            text files.
         """
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
+        self.plot.clear()
+        if self.plot.legend is not None:
+            self.plot.legend.clear()
 
-        for file_path in file_paths:
+        colors = _gen_colors(len(file_paths))
+        for idx, file_path in enumerate(file_paths):
+            color = colors[idx]
             try:
-                # Load data based on file extension
                 path, filename = os.path.split(file_path)
                 _, ext = os.path.splitext(filename)
 
-                if ext.lower() in ['.txt', '.dat']:
-                    # Read text file
+                if ext.lower() in ('.txt', '.dat'):
                     data = readTextFile(path, filename, error_fraction=error_fraction)
                 else:
-                    # Read HDF5 file
                     data = readGenericNXcanSAS(path, filename)
 
                 if data is None:
                     continue
 
-                q = data['Q']
-                intensity = data['Intensity']
+                q   = np.asarray(data['Q'],         dtype=float)
+                I   = np.asarray(data['Intensity'],  dtype=float)
+                err = data.get('Error')
 
-                # Plot
                 label = os.path.basename(file_path)
-                ax.plot(q, intensity, 'o-', label=label, markersize=4, linewidth=1.5)
+
+                self.plot.plot(
+                    q, I,
+                    pen=None, symbol='o', symbolSize=4,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                    name=label,
+                )
+
+                if err is not None:
+                    err = np.asarray(err, dtype=float)
+                    xb, yb = _iq_error_bars(q, I, err)
+                    if len(xb):
+                        self.plot.plot(xb, yb,
+                                       pen=pg.mkPen(color, width=1),
+                                       connect='finite')
 
             except Exception as e:
                 print(f"Error loading {file_path}: {e}")
-                continue
 
-        # Configure plot
-        ax.set_xlabel('Q (Å⁻¹)', fontsize=12)
-        ax.set_ylabel('Intensity (cm⁻¹)', fontsize=12)
-        ax.set_xscale('log')
-        ax.set_yscale('log')
-        ax.grid(True, alpha=0.3, which='both')
-        ax.legend(fontsize=10)
-        ax.set_title('Small-Angle Scattering Data', fontsize=14)
-
-        self.canvas.draw()
         self.show()
 
 
@@ -587,9 +748,9 @@ class UnifiedFitResultsWindow(QWidget):
     """
     Separate window for displaying Unified Fit results stored in HDF5 files.
 
-    Shows a two-panel matplotlib figure: data + model fit (top) and
-    normalised residuals (bottom).  Files that contain no unified fit group
-    are silently skipped.
+    Two pyqtgraph panels: I(Q) data + model fit (top), normalised residuals
+    (bottom).  X-axes are linked so zoom/pan stays synchronised.
+    Files that contain no unified fit group are silently skipped.
     """
 
     def __init__(self, parent=None):
@@ -597,11 +758,46 @@ class UnifiedFitResultsWindow(QWidget):
         self.setWindowTitle("pyIrena - Unified Fit Results")
         self.setGeometry(130, 130, 900, 700)
 
-        self.figure = Figure(figsize=(9, 7))
-        self.canvas = FigureCanvas(self.figure)
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
+
+        # ── Top panel: data + model ────────────────────────────────────────
+        self.ax_main = self.gl.addPlot(
+            row=0, col=0,
+            axisItems={
+                'left':   _LogDecadeAxis(orientation='left'),
+                'bottom': _LogDecadeAxis(orientation='bottom'),
+            }
+        )
+        self.ax_main.setLogMode(True, True)
+        self.ax_main.setLabel('left', 'Intensity (cm⁻¹)')
+        self.ax_main.setTitle('Unified Fit Results', size='13pt')
+        self.ax_main.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        _style_plot(self.ax_main)
+
+        # ── Bottom panel: residuals ────────────────────────────────────────
+        self.ax_resid = self.gl.addPlot(
+            row=1, col=0,
+            axisItems={'bottom': _LogDecadeAxis(orientation='bottom')},
+        )
+        self.ax_resid.setLogMode(True, False)
+        self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
+        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_resid.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        _style_plot(self.ax_resid)
+
+        # Synchronise x-axes
+        self.ax_resid.setXLink(self.ax_main)
+
+        # Allocate more vertical space to the main panel
+        self.gl.ci.layout.setRowStretchFactor(0, 3)
+        self.gl.ci.layout.setRowStretchFactor(1, 1)
+        _add_jpeg_export(self, self.ax_main, self.ax_resid)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.canvas)
+        layout.addWidget(self.gl)
         self.setLayout(layout)
 
     def plot_results(self, file_paths: List[str]):
@@ -611,22 +807,30 @@ class UnifiedFitResultsWindow(QWidget):
         Only HDF5 files are considered.  Files without a unified fit group
         are skipped silently.
         """
-        self.figure.clear()
-        ax_main  = self.figure.add_subplot(211)
-        ax_resid = self.figure.add_subplot(212)
+        self.ax_main.clear()
+        self.ax_resid.clear()
+        if self.ax_main.legend is not None:
+            self.ax_main.legend.clear()
+        if self.ax_resid.legend is not None:
+            self.ax_resid.legend.clear()
+
+        # Restore the zero-line after clear()
+        self.ax_resid.addLine(y=0, pen=pg.mkPen('k', width=1))
 
         found_any = False
+        colors = _gen_colors(len(file_paths))
 
-        for file_path in file_paths:
+        for idx, file_path in enumerate(file_paths):
             _, ext = os.path.splitext(file_path)
-            if ext.lower() not in ['.h5', '.hdf5', '.hdf']:
-                continue   # text files cannot carry unified fit results
+            if ext.lower() not in ('.h5', '.hdf5', '.hdf'):
+                continue
 
             try:
                 results = load_unified_fit_results(Path(file_path))
             except Exception:
-                continue   # no unified fit group or unreadable — skip silently
+                continue
 
+            color = colors[idx]
             label = os.path.basename(file_path)
             Q         = results['Q']
             I_data    = results['intensity_data']
@@ -636,62 +840,320 @@ class UnifiedFitResultsWindow(QWidget):
             chi2      = results.get('chi_squared', float('nan'))
 
             # ── data points ────────────────────────────────────────────────
+            self.ax_main.plot(
+                Q, I_data,
+                pen=None, symbol='o', symbolSize=4,
+                symbolPen=pg.mkPen(color, width=1),
+                symbolBrush=pg.mkBrush(color),
+                name=f'{label}  data',
+            )
+
+            # ── error bars ─────────────────────────────────────────────────
             if I_error is not None:
-                pts = ax_main.errorbar(
-                    Q, I_data, yerr=I_error,
-                    fmt='o', markersize=3,
-                    label=f'{label}  (data)', alpha=0.8,
-                    capsize=2,
-                )
-                color = pts[0].get_color()
-            else:
-                pts, = ax_main.plot(
-                    Q, I_data, 'o', markersize=3,
-                    label=f'{label}  (data)', alpha=0.8,
-                )
-                color = pts.get_color()
+                xb, yb = _iq_error_bars(Q, I_data, I_error)
+                if len(xb):
+                    self.ax_main.plot(xb, yb,
+                                      pen=pg.mkPen(color, width=1),
+                                      connect='finite')
 
             # ── model line ─────────────────────────────────────────────────
-            ax_main.plot(
-                Q, I_model, '-', linewidth=1.5, color=color,
-                label=f'{label}  fit  χ²={chi2:.3f}',
+            fit_color = pg.mkColor(color)
+            fit_color.setAlpha(210)
+            self.ax_main.plot(
+                Q, I_model,
+                pen=pg.mkPen(fit_color, width=2.5),
+                name=f'{label}  fit  χ²={chi2:.3f}',
             )
 
             # ── residuals ──────────────────────────────────────────────────
-            ax_resid.plot(
-                Q, residuals, 'o-', markersize=3, linewidth=1,
-                color=color, label=label, alpha=0.8,
+            self.ax_resid.plot(
+                Q, residuals,
+                pen=None, symbol='o', symbolSize=3,
+                symbolPen=pg.mkPen(color, width=1),
+                symbolBrush=pg.mkBrush(color),
+                name=label,
             )
 
             found_any = True
 
-        if found_any:
-            ax_main.set_xscale('log')
-            ax_main.set_yscale('log')
-            ax_main.set_ylabel('Intensity (cm⁻¹)', fontsize=11)
-            ax_main.grid(True, alpha=0.3, which='both')
-            ax_main.legend(fontsize=9)
-            ax_main.set_title('Unified Fit Results', fontsize=13)
-
-            ax_resid.axhline(y=0, color='k', linestyle='-', linewidth=0.8)
-            ax_resid.set_xscale('log')
-            ax_resid.set_xlabel('Q (Å⁻¹)', fontsize=11)
-            ax_resid.set_ylabel('Residuals (normalised)', fontsize=11)
-            ax_resid.grid(True, alpha=0.3)
-            ax_resid.legend(fontsize=9)
-        else:
-            ax_main.text(
-                0.5, 0.5,
-                'No Unified Fit results found\nin selected files',
-                ha='center', va='center',
-                transform=ax_main.transAxes,
-                fontsize=14, color='gray',
+        if not found_any:
+            self.ax_main.setTitle(
+                'No Unified Fit results found in selected files',
+                size='12pt', color='#7f8c8d',
             )
-            self.figure.delaxes(ax_resid)
 
-        self.figure.tight_layout()
-        self.canvas.draw()
         self.show()
+
+
+class SizeDistResultsWindow(QWidget):
+    """
+    Separate window for displaying Size Distribution fit results stored in HDF5 files.
+
+    Three pyqtgraph panels (all x-axes linked):
+      top    — I(Q) data + model fit (log-log)
+      middle — normalised residuals vs Q (log x)
+      bottom — P(r) size distribution vs r (log x)
+    Files that contain no sizes_results group are silently skipped.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - Size Distribution Results")
+        self.setGeometry(150, 150, 900, 900)
+
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
+
+        # ── Top: I(Q) data + model ─────────────────────────────────────────
+        self.ax_main = self.gl.addPlot(
+            row=0, col=0,
+            axisItems={
+                'left':   _LogDecadeAxis(orientation='left'),
+                'bottom': _LogDecadeAxis(orientation='bottom'),
+            }
+        )
+        self.ax_main.setLogMode(True, True)
+        self.ax_main.setLabel('left', 'Intensity (cm⁻¹)')
+        self.ax_main.setTitle('Size Distribution Fit Results', size='13pt')
+        self.ax_main.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        _style_plot(self.ax_main)
+
+        # ── Middle: residuals ──────────────────────────────────────────────
+        self.ax_resid = self.gl.addPlot(
+            row=1, col=0,
+            axisItems={'bottom': _LogDecadeAxis(orientation='bottom')},
+        )
+        self.ax_resid.setLogMode(True, False)
+        self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
+        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
+        _style_plot(self.ax_resid)
+        self.ax_resid.setXLink(self.ax_main)
+
+        # ── Bottom: P(r) distribution ──────────────────────────────────────
+        self.ax_dist = self.gl.addPlot(
+            row=2, col=0,
+            axisItems={'bottom': _LogDecadeAxis(orientation='bottom')},
+        )
+        self.ax_dist.setLogMode(True, False)
+        self.ax_dist.setLabel('bottom', 'r (Å)')
+        self.ax_dist.setLabel('left', 'P(r)  (vol. frac. Å⁻¹)')
+        self.ax_dist.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_dist.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        _style_plot(self.ax_dist)
+
+        # Allocate space: main 3×, residuals 1×, distribution 2×
+        self.gl.ci.layout.setRowStretchFactor(0, 3)
+        self.gl.ci.layout.setRowStretchFactor(1, 1)
+        self.gl.ci.layout.setRowStretchFactor(2, 2)
+        _add_jpeg_export(self, self.ax_main, self.ax_resid, self.ax_dist)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.gl)
+        self.setLayout(layout)
+
+    def plot_results(self, file_paths: List[str]):
+        """
+        Load and plot Size Distribution results from the given file paths.
+
+        Only HDF5 files are considered.  Files without a sizes_results group
+        are skipped silently.
+        """
+        from pyirena.io.nxcansas_sizes import load_sizes_results
+
+        self.ax_main.clear()
+        self.ax_resid.clear()
+        self.ax_dist.clear()
+        for ax in (self.ax_main, self.ax_resid, self.ax_dist):
+            if ax.legend is not None:
+                ax.legend.clear()
+
+        self.ax_resid.addLine(y=0, pen=pg.mkPen('k', width=1))
+
+        found_any = False
+        colors = _gen_colors(len(file_paths))
+
+        for idx, file_path in enumerate(file_paths):
+            _, ext = os.path.splitext(file_path)
+            if ext.lower() not in ('.h5', '.hdf5', '.hdf'):
+                continue
+
+            try:
+                results = load_sizes_results(Path(file_path))
+            except Exception:
+                continue
+
+            color = colors[idx]
+            label = os.path.basename(file_path)
+            Q         = results.get('Q')
+            I_data    = results.get('intensity_data')
+            I_model   = results.get('intensity_model')
+            I_error   = results.get('intensity_error')
+            residuals = results.get('residuals')
+            r_grid    = results.get('r_grid')
+            dist      = results.get('distribution')
+            dist_std  = results.get('distribution_std')
+            chi2      = results.get('chi_squared', float('nan'))
+            vf        = results.get('volume_fraction', float('nan'))
+
+            if Q is None or I_data is None or I_model is None:
+                continue
+
+            # ── data points ────────────────────────────────────────────────
+            self.ax_main.plot(
+                Q, I_data,
+                pen=None, symbol='o', symbolSize=4,
+                symbolPen=pg.mkPen(color, width=1),
+                symbolBrush=pg.mkBrush(color),
+                name=f'{label}  data',
+            )
+
+            # ── error bars ─────────────────────────────────────────────────
+            if I_error is not None:
+                xb, yb = _iq_error_bars(Q, I_data, I_error)
+                if len(xb):
+                    self.ax_main.plot(xb, yb,
+                                      pen=pg.mkPen(color, width=1),
+                                      connect='finite')
+
+            # ── model line ─────────────────────────────────────────────────
+            fit_color = pg.mkColor(color)
+            fit_color.setAlpha(210)
+            vf_str = f'{vf:.3g}' if (vf == vf) else 'N/A'
+            self.ax_main.plot(
+                Q, I_model,
+                pen=pg.mkPen(fit_color, width=2.5),
+                name=f'{label}  fit  χ²={chi2:.3f}',
+            )
+
+            # ── residuals ──────────────────────────────────────────────────
+            if residuals is not None:
+                self.ax_resid.plot(
+                    Q, residuals,
+                    pen=None, symbol='o', symbolSize=3,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                )
+
+            # ── size distribution ───────────────────────────────────────────
+            if r_grid is not None and dist is not None:
+                # ±1σ band as dashed upper/lower bounds
+                if dist_std is not None:
+                    band_color = pg.mkColor(color)
+                    band_color.setAlpha(120)
+                    band_pen = pg.mkPen(band_color, width=1,
+                                        style=Qt.PenStyle.DashLine)
+                    upper = np.maximum(dist + dist_std, 0.0)
+                    lower = np.maximum(dist - dist_std, 0.0)
+                    self.ax_dist.plot(r_grid, upper, pen=band_pen)
+                    self.ax_dist.plot(r_grid, lower, pen=band_pen)
+
+                self.ax_dist.plot(
+                    r_grid, dist,
+                    pen=pg.mkPen(color, width=2),
+                    name=f'{label}  Vf={vf_str}',
+                )
+
+            found_any = True
+
+        if not found_any:
+            self.ax_main.setTitle(
+                'No Size Distribution results found in selected files',
+                size='12pt', color='#7f8c8d',
+            )
+
+        self.show()
+
+
+class TabulateResultsWindow(QWidget):
+    """
+    Separate window that shows fit results for selected files in a spreadsheet-like
+    table and lets the user save them as a CSV file.
+
+    One row per file.  Columns include Unified Fit scalars + per-level parameters
+    and/or Size Distribution scalars, depending on which results were found.
+    CSV is plain ASCII with comma separators — readable by Excel, Igor Pro,
+    Origin, SigmaPlot, and any scripting language.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - Tabulated Results")
+        self.setGeometry(160, 160, 1300, 500)
+
+        self._headers: list = []
+        self._rows: list    = []
+
+        self.table = QTableWidget()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(False)
+
+        self.save_btn = QPushButton("Save as CSV…")
+        self.save_btn.setMinimumHeight(32)
+        self.save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #16a085; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 5px 12px;
+            }
+            QPushButton:hover { background-color: #138d75; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """)
+        self.save_btn.clicked.connect(self._save_csv)
+        self.save_btn.setEnabled(False)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(self.save_btn)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.table)
+        layout.addLayout(btn_row)
+        self.setLayout(layout)
+
+    def set_data(self, headers: list, rows: list, default_save_path: str = ''):
+        """Populate the table and remember data for CSV export."""
+        self._headers = headers
+        self._rows    = rows
+        self._default_save_path = default_save_path
+
+        self.table.setColumnCount(len(headers))
+        self.table.setRowCount(len(rows))
+        self.table.setHorizontalHeaderLabels(headers)
+
+        for r, row in enumerate(rows):
+            for c, val in enumerate(row):
+                text = '' if val is None else str(val)
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(r, c, item)
+
+        self.table.resizeColumnsToContents()
+        self.save_btn.setEnabled(bool(rows))
+        self.show()
+
+    def _save_csv(self):
+        import csv as _csv
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save tabulated results as CSV",
+            self._default_save_path,
+            "CSV files (*.csv);;All files (*)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith('.csv'):
+            path += '.csv'
+        with open(path, 'w', newline='', encoding='utf-8') as fh:
+            writer = _csv.writer(fh)
+            writer.writerow(self._headers)
+            writer.writerows(
+                ['' if v is None else v for v in row]
+                for row in self._rows
+            )
 
 
 class BatchWorker(QThread):
@@ -749,6 +1211,8 @@ class DataSelectorPanel(QWidget):
         self.last_folder = None  # Remember last selected folder
         self.graph_window = None
         self.unified_fit_results_window = None  # Graph of stored fit results
+        self.size_dist_results_window = None   # Graph of stored size dist results
+        self.tabulate_results_window = None    # Tabulated results window
         self.unified_fit_window = None  # Unified fit panel
         self.sizes_fit_window = None   # Size distribution panel
         self._batch_worker = None      # Batch fitting thread
@@ -842,6 +1306,35 @@ class DataSelectorPanel(QWidget):
         filter_layout.addWidget(self.filter_input)
         left_layout.addLayout(filter_layout)
 
+        # Sort row
+        sort_row = QHBoxLayout()
+        sort_row.addWidget(QLabel("Sort:"))
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems([
+            "Filename  A→Z",
+            "Filename  Z→A",
+            "Temperature  ↑",
+            "Temperature  ↓",
+            "Time  ↑",
+            "Time  ↓",
+            "Order number  ↑",
+            "Order number  ↓",
+            "Pressure  ↑",
+            "Pressure  ↓",
+        ])
+        self.sort_combo.setToolTip(
+            "Sort order for the file list.\n"
+            "Patterns recognised in filenames:\n"
+            "  Temperature : _25C\n"
+            "  Time        : _50min\n"
+            "  Order number: _354  (last underscore-number before extension)\n"
+            "  Pressure    : _35PSI"
+        )
+        self.sort_combo.currentIndexChanged.connect(self.sort_file_list)
+        sort_row.addWidget(self.sort_combo)
+        sort_row.addStretch()
+        left_layout.addLayout(sort_row)
+
         # File list
         self.file_list = QListWidget()
         self.file_list.setMinimumWidth(400)  # At least 30 characters wide
@@ -880,7 +1373,7 @@ class DataSelectorPanel(QWidget):
         right_layout.addWidget(self.batch_status_label)
 
         # ── Graph content checkboxes ───────────────────────────────────────
-        graph_content_label = QLabel("Show in graph:")
+        graph_content_label = QLabel("Show in graph/reports:")
         graph_content_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
         right_layout.addWidget(graph_content_label)
 
@@ -932,15 +1425,11 @@ class DataSelectorPanel(QWidget):
             QPushButton:disabled { background-color: #bdc3c7; }
         """
 
-        graph_row = QHBoxLayout()
-        graph_row.setSpacing(6)
-
         self.plot_button = QPushButton("Create Graph")
         self.plot_button.setMinimumHeight(34)
         self.plot_button.setStyleSheet(_btn_style_blue)
         self.plot_button.clicked.connect(self.plot_selected_files)
         self.plot_button.setEnabled(False)
-        graph_row.addWidget(self.plot_button)
 
         self.report_button = QPushButton("Create Report")
         self.report_button.setMinimumHeight(34)
@@ -952,9 +1441,26 @@ class DataSelectorPanel(QWidget):
         )
         self.report_button.clicked.connect(self.create_report)
         self.report_button.setEnabled(False)
-        graph_row.addWidget(self.report_button)
 
-        right_layout.addLayout(graph_row)
+        _btn_style_teal = """
+            QPushButton {
+                background-color: #16a085; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 5px 8px;
+            }
+            QPushButton:hover { background-color: #138d75; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.tabulate_button = QPushButton("Tabulate Results")
+        self.tabulate_button.setMinimumHeight(34)
+        self.tabulate_button.setStyleSheet(_btn_style_teal)
+        self.tabulate_button.setToolTip(
+            "Build a table of fit results for selected files and display it.\n"
+            "Results included depend on the checked checkboxes.\n"
+            "You can save the table as a CSV file (Excel, Igor Pro, Origin, etc.)."
+        )
+        self.tabulate_button.clicked.connect(self.tabulate_results)
+        self.tabulate_button.setEnabled(False)
 
         right_layout.addSpacing(10)
 
@@ -996,12 +1502,6 @@ class DataSelectorPanel(QWidget):
         self.unified_script_button.clicked.connect(self.run_unified_script)
         self.unified_script_button.setEnabled(False)
 
-        unified_row = QHBoxLayout()
-        unified_row.setSpacing(4)
-        unified_row.addWidget(self.unified_fit_button)
-        unified_row.addWidget(self.unified_script_button)
-        right_layout.addLayout(unified_row)
-
         # ── Size Distribution: GUI button + Script batch button ────────────
         _sz_gui_style = """
             QPushButton {
@@ -1040,11 +1540,26 @@ class DataSelectorPanel(QWidget):
         self.sizes_script_button.clicked.connect(self.run_sizes_script)
         self.sizes_script_button.setEnabled(False)
 
-        sizes_row = QHBoxLayout()
-        sizes_row.setSpacing(4)
-        sizes_row.addWidget(self.sizes_fit_button)
-        sizes_row.addWidget(self.sizes_script_button)
-        right_layout.addLayout(sizes_row)
+        # ── Single grid so all buttons share equal column widths ───────────
+        # Row 0: Create Graph | Create Report
+        # Row 1: Tabulate Results (spans both columns)
+        # Row 2: spacer
+        # Row 3: Unified Fit (GUI) | Unified Fit (script)
+        # Row 4: Size Distribution (GUI) | Size Distribution (script)
+        btn_grid = QGridLayout()
+        btn_grid.setHorizontalSpacing(4)
+        btn_grid.setVerticalSpacing(4)
+        btn_grid.setColumnStretch(0, 1)
+        btn_grid.setColumnStretch(1, 1)
+        btn_grid.addWidget(self.plot_button,            0, 0)
+        btn_grid.addWidget(self.report_button,          0, 1)
+        btn_grid.addWidget(self.tabulate_button,        1, 0, 1, 2)  # full-width
+        btn_grid.setRowMinimumHeight(2, 10)                          # visual separator
+        btn_grid.addWidget(self.unified_fit_button,     3, 0)
+        btn_grid.addWidget(self.unified_script_button,  3, 1)
+        btn_grid.addWidget(self.sizes_fit_button,       4, 0)
+        btn_grid.addWidget(self.sizes_script_button,    4, 1)
+        right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
         file_area_layout.addLayout(right_layout, stretch=1)
@@ -1168,9 +1683,9 @@ class DataSelectorPanel(QWidget):
                     if ext.lower() in extensions:
                         files.append(file)
 
-            files.sort()
             self.file_list.addItems(files)
             self.status_label.setText(f"Found {len(files)} files")
+            self.sort_file_list()   # apply current sort-combo order
             self.update_plot_button_state()
 
         except Exception as e:
@@ -1197,11 +1712,35 @@ class DataSelectorPanel(QWidget):
 
         self.status_label.setText(f"Showing {visible_count} of {self.file_list.count()} files")
 
+    def sort_file_list(self):
+        """
+        Re-order all items in the file list according to the sort combo selection.
+        The current text filter is re-applied afterwards so hidden items stay hidden.
+        """
+        n = self.file_list.count()
+        if n == 0:
+            return
+
+        items = [self.file_list.item(i).text() for i in range(n)]
+
+        idx     = self.sort_combo.currentIndex()
+        reverse = bool(idx % 2)                 # odd indices → descending
+        key_fn  = _SORT_KEYS[min(idx, len(_SORT_KEYS) - 1)]
+
+        items.sort(key=key_fn, reverse=reverse)
+
+        self.file_list.clear()
+        self.file_list.addItems(items)
+
+        # Re-apply whatever text filter is active
+        self.filter_files(self.filter_input.text())
+
     def update_plot_button_state(self):
         """Enable or disable buttons based on file selection."""
         has_selection = len(self.file_list.selectedItems()) > 0
         self.plot_button.setEnabled(has_selection)
         self.report_button.setEnabled(has_selection)
+        self.tabulate_button.setEnabled(has_selection)
         self.unified_fit_button.setEnabled(has_selection)
         self.unified_script_button.setEnabled(has_selection)
         self.sizes_fit_button.setEnabled(has_selection)
@@ -1251,10 +1790,17 @@ class DataSelectorPanel(QWidget):
                     self, "Plot Error", f"Error creating Unified Fit plot:\n{str(e)}"
                 )
 
-        # ── Size Distribution — open the Sizes panel with the first file ──
+        # ── Size Distribution results ───────────────────────────────────────
         if self.size_dist_checkbox.isChecked():
-            self.launch_sizes_fit()
-            plotted.append("Size Distribution")
+            if self.size_dist_results_window is None:
+                self.size_dist_results_window = SizeDistResultsWindow()
+            try:
+                self.size_dist_results_window.plot_results(file_paths)
+                plotted.append("Size Distribution results")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Plot Error", f"Error creating Size Distribution plot:\n{str(e)}"
+                )
 
         if plotted:
             self.status_label.setText(
@@ -1374,6 +1920,181 @@ class DataSelectorPanel(QWidget):
             self.status_label.setText(
                 "No reportable content found — no reports generated"
             )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def tabulate_results(self):
+        """
+        Collect fit results from selected HDF5 files and display them in a
+        spreadsheet-like table.  The active checkboxes control which result
+        sets are included:
+          • 'Unified Fit' checkbox → Unified Fit scalars + per-level parameters
+          • 'Size Dist.'  checkbox → Size Distribution scalars
+
+        The table can be saved as a CSV file from within the result window.
+        """
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Please select files to tabulate.")
+            return
+
+        show_unified = self.unified_fit_result_checkbox.isChecked()
+        show_sizes   = self.size_dist_checkbox.isChecked()
+
+        if not show_unified and not show_sizes:
+            self.status_label.setText(
+                "Nothing to tabulate — check 'Unified Fit' or 'Size Dist.' checkbox"
+            )
+            return
+
+        file_paths = [
+            os.path.join(self.current_folder, item.text())
+            for item in selected_items
+        ]
+
+        from pyirena.io.nxcansas_unified import load_unified_fit_results
+        from pyirena.io.nxcansas_sizes import load_sizes_results
+
+        # ── First pass: load all data, determine max unified-fit levels ──────
+        loaded = []   # list of (fname, uf_dict_or_None, sz_dict_or_None)
+        max_levels = 0
+
+        for fp in file_paths:
+            _, ext = os.path.splitext(fp)
+            is_hdf = ext.lower() in ('.h5', '.hdf5', '.hdf')
+            fname  = os.path.basename(fp)
+
+            uf = None
+            sz = None
+
+            if is_hdf:
+                if show_unified:
+                    try:
+                        uf = load_unified_fit_results(Path(fp))
+                        max_levels = max(max_levels, len(uf.get('levels', [])))
+                    except Exception:
+                        pass
+                if show_sizes:
+                    try:
+                        sz = load_sizes_results(Path(fp))
+                    except Exception:
+                        pass
+
+            loaded.append((fname, uf, sz))
+
+        # ── Build column headers ──────────────────────────────────────────────
+        headers = ['filename']
+
+        if show_unified:
+            headers += ['UF_chi2', 'UF_background', 'UF_background_err', 'UF_num_levels']
+            _uf_level_params = ['G', 'G_err', 'Rg', 'Rg_err',
+                                 'B', 'B_err', 'P', 'P_err',
+                                 'RgCutoff', 'ETA', 'ETA_err',
+                                 'PACK', 'PACK_err', 'correlated',
+                                 'Sv', 'Invariant']
+            for lvl in range(1, max_levels + 1):
+                for p in _uf_level_params:
+                    headers.append(f'L{lvl}_{p}')
+
+        if show_sizes:
+            headers += [
+                'SD_method', 'SD_shape', 'SD_chi2', 'SD_volume_fraction',
+                'SD_rg', 'SD_n_iterations', 'SD_q_power',
+                'SD_contrast', 'SD_aspect_ratio',
+                'SD_background', 'SD_error_scale',
+                'SD_power_law_B', 'SD_power_law_P',
+                'SD_r_min', 'SD_r_max', 'SD_n_bins', 'SD_log_spacing',
+                'SD_cursor_q_min', 'SD_cursor_q_max',
+            ]
+
+        # ── Build rows ────────────────────────────────────────────────────────
+        def _fmt(v):
+            """Format a value for CSV/table: round floats to 6 sig-figs."""
+            if v is None:
+                return None
+            if isinstance(v, float):
+                import math
+                if math.isnan(v) or math.isinf(v):
+                    return None
+                return float(f'{v:.6g}')
+            return v
+
+        rows = []
+        for fname, uf, sz in loaded:
+            row = [fname]
+
+            if show_unified:
+                if uf is not None:
+                    row += [
+                        _fmt(uf.get('chi_squared')),
+                        _fmt(uf.get('background')),
+                        _fmt(uf.get('background_err')),
+                        uf.get('num_levels'),
+                    ]
+                    levels = uf.get('levels', [])
+                    for lvl_idx in range(max_levels):
+                        lv = levels[lvl_idx] if lvl_idx < len(levels) else {}
+                        row += [
+                            _fmt(lv.get('G')),
+                            _fmt(lv.get('G_err')),
+                            _fmt(lv.get('Rg')),
+                            _fmt(lv.get('Rg_err')),
+                            _fmt(lv.get('B')),
+                            _fmt(lv.get('B_err')),
+                            _fmt(lv.get('P')),
+                            _fmt(lv.get('P_err')),
+                            _fmt(lv.get('RgCutoff')),
+                            _fmt(lv.get('ETA')),
+                            _fmt(lv.get('ETA_err')),
+                            _fmt(lv.get('PACK')),
+                            _fmt(lv.get('PACK_err')),
+                            lv.get('correlated'),
+                            _fmt(lv.get('Sv')),
+                            _fmt(lv.get('Invariant')),
+                        ]
+                else:
+                    row += [None] * (4 + max_levels * 16)
+
+            if show_sizes:
+                if sz is not None:
+                    row += [
+                        sz.get('method'),
+                        sz.get('shape'),
+                        _fmt(sz.get('chi_squared')),
+                        _fmt(sz.get('volume_fraction')),
+                        _fmt(sz.get('rg')),
+                        sz.get('n_iterations'),
+                        _fmt(sz.get('q_power')),
+                        _fmt(sz.get('contrast')),
+                        _fmt(sz.get('aspect_ratio')),
+                        _fmt(sz.get('background')),
+                        _fmt(sz.get('error_scale')),
+                        _fmt(sz.get('power_law_B')),
+                        _fmt(sz.get('power_law_P')),
+                        _fmt(sz.get('r_min')),
+                        _fmt(sz.get('r_max')),
+                        sz.get('n_bins'),
+                        sz.get('log_spacing'),
+                        _fmt(sz.get('cursor_q_min')),
+                        _fmt(sz.get('cursor_q_max')),
+                    ]
+                else:
+                    row += [None] * 19
+
+            rows.append(row)
+
+        # ── Display ───────────────────────────────────────────────────────────
+        default_path = os.path.join(
+            self.current_folder or '',
+            'pyIrena_TableOfResults.csv',
+        )
+
+        if self.tabulate_results_window is None:
+            self.tabulate_results_window = TabulateResultsWindow()
+
+        self.tabulate_results_window.set_data(headers, rows, default_path)
+        self.status_label.setText(
+            f"Tabulated {len(rows)} file(s) — use 'Save as CSV' in the results window."
+        )
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""

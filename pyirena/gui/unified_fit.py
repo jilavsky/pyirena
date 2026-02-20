@@ -12,7 +12,7 @@ try:
         QGridLayout, QMessageBox, QSplitter, QFileDialog,
         QDialog, QComboBox, QRadioButton
     )
-    from PySide6.QtCore import Qt, Signal
+    from PySide6.QtCore import Qt, Signal, QTimer
     from PySide6.QtGui import QFont, QDoubleValidator
 except ImportError:
     try:
@@ -22,7 +22,7 @@ except ImportError:
             QGridLayout, QMessageBox, QSplitter, QFileDialog,
             QDialog, QComboBox, QRadioButton
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer
         from PyQt6.QtGui import QFont, QDoubleValidator
     except ImportError:
         try:
@@ -32,7 +32,7 @@ except ImportError:
                 QGridLayout, QMessageBox, QSplitter, QFileDialog,
                 QDialog, QComboBox, QRadioButton
             )
-            from PyQt5.QtCore import Qt, pyqtSignal as Signal
+            from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer
             from PyQt5.QtGui import QFont, QDoubleValidator
         except ImportError:
             raise ImportError(
@@ -152,6 +152,29 @@ class ScrubbableLineEdit(QLineEdit):
 
         # Accept the event so it doesn't propagate
         event.accept()
+
+
+class _SafeInfiniteLine(pg.InfiniteLine):
+    """
+    pg.InfiniteLine subclass that prevents PySide6/Shiboken segfaults on macOS ARM.
+
+    On PySide6 6.x, if a Python exception escapes a QGraphicsItem virtual method
+    override (mouseMoveEvent, mouseDragEvent), Shiboken calls PepException_GetArgs()
+    on an already-invalid pointer and segfaults.  Wrapping those overrides here in
+    try/except ensures no exception can reach the C++→Python boundary.
+    """
+
+    def mouseMoveEvent(self, ev):
+        try:
+            super().mouseMoveEvent(ev)
+        except Exception:
+            ev.ignore()
+
+    def mouseDragEvent(self, ev):
+        try:
+            super().mouseDragEvent(ev)
+        except Exception:
+            ev.ignore()
 
 
 class DraggableCursor(pg.GraphicsObject):
@@ -387,6 +410,7 @@ class UnifiedFitGraphWindow(QWidget):
         self.cursor_right = None
         self.cursor_left_line = None  # pg.InfiniteLine object
         self.cursor_right_line = None  # pg.InfiniteLine object
+        self._cursor_updating = False  # re-entrancy guard for cursor callbacks
         self.q_data = None
 
         # Result text annotations
@@ -729,8 +753,8 @@ class UnifiedFitGraphWindow(QWidget):
         cursor_left_log = np.log10(self.cursor_left) if self.cursor_left > 0 else -10
         cursor_right_log = np.log10(self.cursor_right) if self.cursor_right > 0 else -10
 
-        # Left cursor: RED, dashed
-        self.cursor_left_line = pg.InfiniteLine(
+        # Left cursor: RED, dashed  (_SafeInfiniteLine prevents PySide6 segfaults)
+        self.cursor_left_line = _SafeInfiniteLine(
             pos=cursor_left_log,  # Position in log space
             angle=90,  # Vertical
             movable=True,
@@ -740,8 +764,8 @@ class UnifiedFitGraphWindow(QWidget):
         )
         self.cursor_left_line.setZValue(100)  # Draw on top
 
-        # Right cursor: BLUE, dashed
-        self.cursor_right_line = pg.InfiniteLine(
+        # Right cursor: BLUE, dashed  (_SafeInfiniteLine prevents PySide6 segfaults)
+        self.cursor_right_line = _SafeInfiniteLine(
             pos=cursor_right_log,  # Position in log space
             angle=90,  # Vertical
             movable=True,
@@ -761,33 +785,57 @@ class UnifiedFitGraphWindow(QWidget):
 
     def on_left_cursor_moved(self, line):
         """Handle left cursor movement."""
-        import numpy as np
-        # InfiniteLine returns position in log space (since plot is in log mode)
-        # Convert back to linear for storage
-        new_pos_log = line.value()
-        new_pos_linear = 10**new_pos_log
+        if self._cursor_updating:
+            return
+        try:
+            new_pos_log = line.value()
+            new_pos_linear = 10**new_pos_log
+            if new_pos_linear < self.cursor_right:
+                self.cursor_left = new_pos_linear
+            else:
+                # Defer snap-back so it never happens mid-drag inside pyqtgraph
+                QTimer.singleShot(0, self._snap_left_cursor)
+        except Exception:
+            pass
 
-        # Ensure left cursor doesn't cross right cursor (compare in linear space)
-        if new_pos_linear < self.cursor_right:
-            self.cursor_left = new_pos_linear
-        else:
-            # Reset to valid position (convert back to log)
-            line.setValue(np.log10(self.cursor_left))
+    def _snap_left_cursor(self):
+        """Deferred: snap left cursor back to last valid position."""
+        if self.cursor_left_line is None or self.cursor_left is None:
+            return
+        self._cursor_updating = True
+        try:
+            self.cursor_left_line.setValue(np.log10(self.cursor_left))
+        except Exception:
+            pass
+        finally:
+            self._cursor_updating = False
 
     def on_right_cursor_moved(self, line):
         """Handle right cursor movement."""
-        import numpy as np
-        # InfiniteLine returns position in log space (since plot is in log mode)
-        # Convert back to linear for storage
-        new_pos_log = line.value()
-        new_pos_linear = 10**new_pos_log
+        if self._cursor_updating:
+            return
+        try:
+            new_pos_log = line.value()
+            new_pos_linear = 10**new_pos_log
+            if new_pos_linear > self.cursor_left:
+                self.cursor_right = new_pos_linear
+            else:
+                # Defer snap-back so it never happens mid-drag inside pyqtgraph
+                QTimer.singleShot(0, self._snap_right_cursor)
+        except Exception:
+            pass
 
-        # Ensure right cursor doesn't cross left cursor (compare in linear space)
-        if new_pos_linear > self.cursor_left:
-            self.cursor_right = new_pos_linear
-        else:
-            # Reset to valid position (convert back to log)
-            line.setValue(np.log10(self.cursor_right))
+    def _snap_right_cursor(self):
+        """Deferred: snap right cursor back to last valid position."""
+        if self.cursor_right_line is None or self.cursor_right is None:
+            return
+        self._cursor_updating = True
+        try:
+            self.cursor_right_line.setValue(np.log10(self.cursor_right))
+        except Exception:
+            pass
+        finally:
+            self._cursor_updating = False
 
     def get_cursor_range(self):
         """Get the current cursor Q range."""
