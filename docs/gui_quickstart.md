@@ -222,7 +222,7 @@ Size Distribution panel.  Four inversion methods are available:
 - **Regularization** — general-purpose; recommended default
 - **MaxEnt** — most conservative; fewest artefacts
 - **TNNLS** — sharpest peaks; no smoothness penalty
-- **McSAS** — Monte Carlo method; provides per-bin ±1σ uncertainty estimate
+- **Monte Carlo** — Monte Carlo method; provides per-bin ±1σ uncertainty estimate
 
 For a full explanation of each method and its parameters, see
 [sizes_methods.md](sizes_methods.md).

@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     ``shape``, ``contrast``, ``aspect_ratio``, ``r_min``, ``r_max``, ``n_bins``,
     ``log_spacing``, ``background``, ``power_law_B``, ``power_law_P``,
     ``method``, ``error_scale``, plus method-specific parameters for MaxEnt,
-    Regularization, TNNLS, and McSAS, and all Q-range fields.
+    Regularization, TNNLS, and Monte Carlo, and all Q-range fields.
 - ``SUPPORTED_ANALYSES`` tuple exported from ``pyirena`` listing recognised
   analysis package names.
 
@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Report generation** — Size Distribution section now includes all parameters stored
   in the HDF5 group: contrast, aspect ratio, log spacing, background, error scale, power
   law B/P, Q range, n_iterations; plus method-specific sub-tables for MaxEnt,
-  Regularization, TNNLS, and McSAS parameters.
+  Regularization, TNNLS, and Monte Carlo parameters.
 
 ## [0.1.1] - 2026-02-19
 

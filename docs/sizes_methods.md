@@ -171,11 +171,11 @@ strictly inside the positive orthant:
 
 ---
 
-## 4. McSAS (Monte Carlo Size Analysis)
+## 4. Monte Carlo Size Analysis
 
 ### Concept
 
-McSAS (Bressler et al., *J. Appl. Cryst.* **48**, 2015) approaches the inversion
+The Monte Carlo method (Bressler et al., *J. Appl. Cryst.* **48**, 2015) approaches the inversion
 problem differently from the three deterministic methods above.  Instead of
 solving a linear system, it models the scattered intensity as a sum of
 **N_c = N_bins discrete particle contributions**, each assigned to one of the
@@ -235,16 +235,16 @@ per-bin mean and standard deviation of P(r) as ±1σ error bars.
 > **Note**: The number of MC contributions equals **N bins** (Size Grid setting).
 > Increase N_bins for finer size resolution and more contributions.
 
-### When to use McSAS
+### When to use Monte Carlo
 
 - When you need a **model-independent uncertainty estimate** on P(r) — the
   ±1σ error bars from data perturbation directly reflect measurement noise
   propagation.
 - For **exploratory analysis** with uncertain noise levels, where the
   deterministic methods' χ² targets may be poorly calibrated.
-- When the number of features in the distribution is unknown — McSAS imposes
-  no smoothness, potentially resolving features that MaxEnt or Regularization
-  would suppress.
+- When the number of features in the distribution is unknown — the Monte Carlo
+  method imposes no smoothness, potentially resolving features that MaxEnt or
+  Regularization would suppress.
 - **Caution**: more N_bins = finer resolution but slower convergence.  Start
   with N_bins ≈ 50 and increase if needed.
 
@@ -252,7 +252,7 @@ per-bin mean and standard deviation of P(r) as ±1σ error bars.
 
 ## Comparison Summary
 
-| | MaxEnt | Regularization | TNNLS | McSAS |
+| | MaxEnt | Regularization | TNNLS | Monte Carlo |
 |---|---|---|---|---|
 | **Regularisation** | Entropy (information-theoretic) | Tikhonov smoothness penalty | None (positivity only) | None (positivity only) |
 | **χ² target** | Hard (χ² = M) | Hard, with L-curve fallback | Soft (χ² ≤ M) | Soft (χ²/M ≤ convergence) |
