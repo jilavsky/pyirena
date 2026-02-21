@@ -59,6 +59,7 @@ def plot_saxs(
     max_per_graph: Optional[int] = None,
     dpi: int = 150,
     show: bool = False,
+    verbose: bool = True,
 ) -> List[Path]:
     """Create log-log I(Q) graphs from SAS data files, saved as JPEG images.
 
@@ -93,11 +94,16 @@ def plot_saxs(
     show : bool
         If ``True`` call ``plt.show()`` to display each graph interactively.
         Default ``False``.
+    verbose : bool
+        If ``True`` (default) print a line for each JPEG saved.  Set to
+        ``False`` to suppress output when calling from another script.
 
     Returns
     -------
     list of Path
         Absolute paths to the created JPEG files (one per graph chunk).
+        Chunks where no file yielded any plottable data are silently skipped
+        and do not appear in this list.
 
     Raises
     ------
@@ -189,9 +195,11 @@ def plot_saxs(
         fig.subplots_adjust(hspace=0.35, wspace=0.35)
 
         # ── Load and plot each file ─────────────────────────────────────────
+        plotted_count = 0   # track whether anything was actually drawn
         for idx, fpath in enumerate(chunk):
             color = colors[idx]
             label = fpath.name
+            file_plotted = False
 
             # -- Raw data (I(Q)) --
             if 'data' in content and ax_iq is not None:
@@ -204,6 +212,7 @@ def plot_saxs(
                         label=label, alpha=0.85,
                         linewidths=0,
                     )
+                    file_plotted = True
 
             # -- Unified Fit model I(Q) --
             if 'unified_fit' in content and ax_iq is not None:
@@ -216,6 +225,7 @@ def plot_saxs(
                         color=color, linewidth=1.8, alpha=0.9,
                         label=fit_lbl, linestyle='--',
                     )
+                    file_plotted = True
 
             # -- Size distribution P(r) --
             if 'size_distribution' in content and ax_dist is not None:
@@ -227,6 +237,15 @@ def plot_saxs(
                         color=color, linewidth=1.6, alpha=0.9,
                         label=label,
                     )
+                    file_plotted = True
+
+            if file_plotted:
+                plotted_count += 1
+
+        # Skip this chunk entirely if no file yielded plottable data
+        if plotted_count == 0:
+            plt.close(fig)
+            continue
 
         # ── Axes formatting ─────────────────────────────────────────────────
         if ax_iq is not None:
@@ -261,7 +280,8 @@ def plot_saxs(
             bbox_inches='tight',
         )
         output_paths.append(out_path)
-        print(f"[plot_saxs] Saved: {out_path}")
+        if verbose:
+            print(f"[plot_saxs] Saved: {out_path}")
 
         if show:
             plt.show()

@@ -55,7 +55,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -201,12 +203,12 @@ def main(argv: list[str] | None = None) -> int:
 
         stem = _dir_stem(root, directory)
 
-        # When max_per_graph splits into multiple chunks, append _part001 etc.
-        # plot_saxs handles chunking internally and returns list of paths.
-        # We need a custom output_dir per-directory so stems don't collide.
-        # Strategy: use a temp subdir, then rename with our stem.
-        import tempfile, shutil
-
+        # plot_saxs generates output filenames based on input file stems.
+        # We want filenames based on directory path instead, so we stage the
+        # JPEGs in a temporary directory then rename and move them.
+        # The temp dir lives in the OS temp folder (e.g. /tmp on Linux/macOS)
+        # and is deleted automatically when the 'with' block exits — no files
+        # are left there.
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             try:
@@ -217,9 +219,15 @@ def main(argv: list[str] | None = None) -> int:
                     max_per_graph=args.max_per_graph,
                     dpi=args.dpi,
                     show=args.show,
+                    verbose=False,   # suppress internal path messages
                 )
             except Exception as exc:
                 print(f"  [SKIP] {directory}: {exc}", file=sys.stderr)
+                skipped_dirs += 1
+                continue
+
+            # plot_saxs returns an empty list when no file had plottable data
+            if not created:
                 skipped_dirs += 1
                 continue
 
