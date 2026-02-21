@@ -63,6 +63,21 @@ def _gen_colors(n: int) -> list:
     ]
 
 
+def _legend_indices(n: int, max_items: int) -> set:
+    """Return the set of file indices that should receive a legend entry.
+
+    Always includes the first and last index.  Middle indices are thinned so
+    that the total does not exceed *max_items*.
+    """
+    if n <= max_items:
+        return set(range(n))
+    if max_items <= 2:
+        return {0, n - 1}
+    step = max(1, (n - 2) // (max_items - 2))
+    middle = list(range(1, n - 1, step))[:(max_items - 2)]
+    return {0} | set(middle) | {n - 1}
+
+
 class _LogDecadeAxis(pg.AxisItem):
     """
     Decade-only tick labels for log-mode plots.
@@ -524,6 +539,21 @@ class DataSelectorConfigDialog(QDialog):
             'max':      100.0,
             'decimals': 4,
         },
+        {
+            'group':   'Graph Options',
+            'key':     'max_legend_items',
+            'label':   'Maximum items in legend',
+            'tooltip': (
+                'When more datasets than this limit are plotted, the legend shows\n'
+                'only the first, last, and evenly spaced items in between.\n'
+                'Default: 12'
+            ),
+            'type':    'int',
+            'default': 12,
+            'min':     2,
+            'max':     200,
+            'decimals': 0,
+        },
         # -----------------------------------------------------------------------
         # Future settings — just append a dict here, no other code changes needed
         # -----------------------------------------------------------------------
@@ -688,19 +718,28 @@ class GraphWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
-    def plot_data(self, file_paths: List[str], error_fraction: float = 0.05):
+    def plot_data(
+        self,
+        file_paths: List[str],
+        error_fraction: float = 0.05,
+        max_legend_items: int = 12,
+    ):
         """
         Plot data from the selected files.
 
         Args:
-            file_paths:     List of file paths to plot.
-            error_fraction: Fraction used to synthesise uncertainty for 2-column
-                            text files.
+            file_paths:       List of file paths to plot.
+            error_fraction:   Fraction used to synthesise uncertainty for 2-column
+                              text files.
+            max_legend_items: Maximum number of entries shown in the legend.
+                              When there are more files, only first, last, and
+                              evenly-spaced intermediate files are labelled.
         """
         self.plot.clear()
         if self.plot.legend is not None:
             self.plot.legend.clear()
 
+        legend_idx = _legend_indices(len(file_paths), max_legend_items)
         colors = _gen_colors(len(file_paths))
         for idx, file_path in enumerate(file_paths):
             color = colors[idx]
@@ -721,14 +760,17 @@ class GraphWindow(QWidget):
                 err = data.get('Error')
 
                 label = os.path.basename(file_path)
+                name  = label if idx in legend_idx else None
 
                 self.plot.plot(
                     q, I,
                     pen=None, symbol='o', symbolSize=4,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
-                    name=label,
+                    name=name,
                 )
+                if name is not None and self.plot.legend is not None and self.plot.legend.items:
+                    self.plot.legend.items[-1][1].setAttr('color', color.name())
 
                 if err is not None:
                     err = np.asarray(err, dtype=float)
@@ -800,12 +842,16 @@ class UnifiedFitResultsWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
-    def plot_results(self, file_paths: List[str]):
+    def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
         """
         Load and plot Unified Fit results from the given file paths.
 
         Only HDF5 files are considered.  Files without a unified fit group
         are skipped silently.
+
+        Args:
+            file_paths:       List of file paths to load.
+            max_legend_items: Maximum number of files shown in the legend.
         """
         self.ax_main.clear()
         self.ax_resid.clear()
@@ -819,6 +865,7 @@ class UnifiedFitResultsWindow(QWidget):
 
         found_any = False
         colors = _gen_colors(len(file_paths))
+        legend_idx = _legend_indices(len(file_paths), max_legend_items)
 
         for idx, file_path in enumerate(file_paths):
             _, ext = os.path.splitext(file_path)
@@ -832,6 +879,7 @@ class UnifiedFitResultsWindow(QWidget):
 
             color = colors[idx]
             label = os.path.basename(file_path)
+            in_legend = idx in legend_idx
             Q         = results['Q']
             I_data    = results['intensity_data']
             I_model   = results['intensity_model']
@@ -840,13 +888,16 @@ class UnifiedFitResultsWindow(QWidget):
             chi2      = results.get('chi_squared', float('nan'))
 
             # ── data points ────────────────────────────────────────────────
+            data_name = f'{label}  data' if in_legend else None
             self.ax_main.plot(
                 Q, I_data,
                 pen=None, symbol='o', symbolSize=4,
                 symbolPen=pg.mkPen(color, width=1),
                 symbolBrush=pg.mkBrush(color),
-                name=f'{label}  data',
+                name=data_name,
             )
+            if data_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
+                self.ax_main.legend.items[-1][1].setAttr('color', color.name())
 
             # ── error bars ─────────────────────────────────────────────────
             if I_error is not None:
@@ -859,20 +910,26 @@ class UnifiedFitResultsWindow(QWidget):
             # ── model line ─────────────────────────────────────────────────
             fit_color = pg.mkColor(color)
             fit_color.setAlpha(210)
+            fit_name = f'{label}  fit  χ²={chi2:.3f}' if in_legend else None
             self.ax_main.plot(
                 Q, I_model,
                 pen=pg.mkPen(fit_color, width=2.5),
-                name=f'{label}  fit  χ²={chi2:.3f}',
+                name=fit_name,
             )
+            if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
+                self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
             # ── residuals ──────────────────────────────────────────────────
+            resid_name = label if in_legend else None
             self.ax_resid.plot(
                 Q, residuals,
                 pen=None, symbol='o', symbolSize=3,
                 symbolPen=pg.mkPen(color, width=1),
                 symbolBrush=pg.mkBrush(color),
-                name=label,
+                name=resid_name,
             )
+            if resid_name is not None and self.ax_resid.legend is not None and self.ax_resid.legend.items:
+                self.ax_resid.legend.items[-1][1].setAttr('color', color.name())
 
             found_any = True
 
@@ -953,12 +1010,16 @@ class SizeDistResultsWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
-    def plot_results(self, file_paths: List[str]):
+    def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
         """
         Load and plot Size Distribution results from the given file paths.
 
         Only HDF5 files are considered.  Files without a sizes_results group
         are skipped silently.
+
+        Args:
+            file_paths:       List of file paths to load.
+            max_legend_items: Maximum number of files shown in the legend.
         """
         from pyirena.io.nxcansas_sizes import load_sizes_results
 
@@ -973,6 +1034,7 @@ class SizeDistResultsWindow(QWidget):
 
         found_any = False
         colors = _gen_colors(len(file_paths))
+        legend_idx = _legend_indices(len(file_paths), max_legend_items)
 
         for idx, file_path in enumerate(file_paths):
             _, ext = os.path.splitext(file_path)
@@ -986,6 +1048,7 @@ class SizeDistResultsWindow(QWidget):
 
             color = colors[idx]
             label = os.path.basename(file_path)
+            in_legend = idx in legend_idx
             Q         = results.get('Q')
             I_data    = results.get('intensity_data')
             I_model   = results.get('intensity_model')
@@ -1001,13 +1064,16 @@ class SizeDistResultsWindow(QWidget):
                 continue
 
             # ── data points ────────────────────────────────────────────────
+            data_name = f'{label}  data' if in_legend else None
             self.ax_main.plot(
                 Q, I_data,
                 pen=None, symbol='o', symbolSize=4,
                 symbolPen=pg.mkPen(color, width=1),
                 symbolBrush=pg.mkBrush(color),
-                name=f'{label}  data',
+                name=data_name,
             )
+            if data_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
+                self.ax_main.legend.items[-1][1].setAttr('color', color.name())
 
             # ── error bars ─────────────────────────────────────────────────
             if I_error is not None:
@@ -1021,11 +1087,14 @@ class SizeDistResultsWindow(QWidget):
             fit_color = pg.mkColor(color)
             fit_color.setAlpha(210)
             vf_str = f'{vf:.3g}' if (vf == vf) else 'N/A'
+            fit_name = f'{label}  fit  χ²={chi2:.3f}' if in_legend else None
             self.ax_main.plot(
                 Q, I_model,
                 pen=pg.mkPen(fit_color, width=2.5),
-                name=f'{label}  fit  χ²={chi2:.3f}',
+                name=fit_name,
             )
+            if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
+                self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
             # ── residuals ──────────────────────────────────────────────────
             if residuals is not None:
@@ -1049,11 +1118,14 @@ class SizeDistResultsWindow(QWidget):
                     self.ax_dist.plot(r_grid, upper, pen=band_pen)
                     self.ax_dist.plot(r_grid, lower, pen=band_pen)
 
+                dist_name = f'{label}  Vf={vf_str}' if in_legend else None
                 self.ax_dist.plot(
                     r_grid, dist,
                     pen=pg.mkPen(color, width=2),
-                    name=f'{label}  Vf={vf_str}',
+                    name=dist_name,
                 )
+                if dist_name is not None and self.ax_dist.legend is not None and self.ax_dist.legend.items:
+                    self.ax_dist.legend.items[-1][1].setAttr('color', color.name())
 
             found_any = True
 
@@ -1763,7 +1835,8 @@ class DataSelectorPanel(QWidget):
             for item in selected_items
         ]
 
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        error_fraction    = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        max_legend_items  = int(self.state_manager.get('data_selector', 'max_legend_items', 12))
         plotted = []
 
         # ── Experimental data ──────────────────────────────────────────────
@@ -1771,7 +1844,11 @@ class DataSelectorPanel(QWidget):
             if self.graph_window is None:
                 self.graph_window = GraphWindow()
             try:
-                self.graph_window.plot_data(file_paths, error_fraction=error_fraction)
+                self.graph_window.plot_data(
+                    file_paths,
+                    error_fraction=error_fraction,
+                    max_legend_items=max_legend_items,
+                )
                 plotted.append("data")
             except Exception as e:
                 QMessageBox.critical(
@@ -1783,7 +1860,10 @@ class DataSelectorPanel(QWidget):
             if self.unified_fit_results_window is None:
                 self.unified_fit_results_window = UnifiedFitResultsWindow()
             try:
-                self.unified_fit_results_window.plot_results(file_paths)
+                self.unified_fit_results_window.plot_results(
+                    file_paths,
+                    max_legend_items=max_legend_items,
+                )
                 plotted.append("Unified Fit results")
             except Exception as e:
                 QMessageBox.critical(
@@ -1795,7 +1875,10 @@ class DataSelectorPanel(QWidget):
             if self.size_dist_results_window is None:
                 self.size_dist_results_window = SizeDistResultsWindow()
             try:
-                self.size_dist_results_window.plot_results(file_paths)
+                self.size_dist_results_window.plot_results(
+                    file_paths,
+                    max_legend_items=max_legend_items,
+                )
                 plotted.append("Size Distribution results")
             except Exception as e:
                 QMessageBox.critical(

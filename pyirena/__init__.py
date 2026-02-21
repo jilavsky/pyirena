@@ -38,6 +38,11 @@ from pyirena.core.sizes import SizesDistribution
 from pyirena.batch import fit_unified, fit_sizes, fit_pyirena
 from pyirena.io.results import load_result, SUPPORTED_ANALYSES
 
+try:
+    from pyirena.plotting.plot_saxs import plot_saxs
+except ImportError:
+    pass  # matplotlib not installed
+
 __all__ = [
     "UnifiedFitModel",
     "UnifiedLevel",
@@ -48,4 +53,5 @@ __all__ = [
     "fit_pyirena",
     "load_result",
     "SUPPORTED_ANALYSES",
+    "plot_saxs",
 ]

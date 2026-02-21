@@ -2343,8 +2343,6 @@ class UnifiedFitPanel(QWidget):
                     'ETA': fitted_level.ETA,
                     'PACK': fitted_level.PACK
                 })
-                # Fix limits after updating fitted values
-                self.level_widgets[i].fix_limits()
 
             self.background_value.setText(self.format_value_3sig(result['background']))
 

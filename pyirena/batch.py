@@ -200,8 +200,119 @@ def _compute_invariant_sv(G, Rg, B, P, RgCO, ETA, PACK, correlated):
         return None, None
 
 
+def _mc_uncertainty_unified(
+    model: UnifiedFitModel,
+    q_fit: np.ndarray,
+    intensity_fit: np.ndarray,
+    error_fit: Optional[np.ndarray],
+    n_runs: int = 10,
+) -> Optional[Dict]:
+    """Run MC noise-perturbation fits and return per-parameter std-devs.
+
+    Each of *n_runs* iterations perturbs intensity by Gaussian noise scaled by
+    the measurement errors, refits the model, and collects the fitted values.
+    Returns an ``uncertainties`` dict (format expected by
+    ``save_unified_fit_results``) or ``None`` when fewer than 2 runs succeed.
+    """
+    import copy
+
+    num_levels = model.num_levels
+    err = error_fit if error_fit is not None else intensity_fit * 0.05
+    err = np.maximum(err, 1e-30)
+
+    mc: Dict[str, list] = {
+        'background': [],
+        'G':    [[] for _ in range(num_levels)],
+        'Rg':   [[] for _ in range(num_levels)],
+        'B':    [[] for _ in range(num_levels)],
+        'P':    [[] for _ in range(num_levels)],
+        'ETA':  [[] for _ in range(num_levels)],
+        'PACK': [[] for _ in range(num_levels)],
+    }
+
+    for _ in range(n_runs):
+        I_noisy = intensity_fit + np.random.normal(0.0, 1.0, len(q_fit)) * err
+        I_noisy = np.maximum(I_noisy, 1e-30)
+        mc_model = copy.deepcopy(model)
+        try:
+            res = mc_model.fit(q_fit, I_noisy, error_fit)
+        except Exception:
+            continue
+        if not res.get('success', False):
+            continue
+        mc['background'].append(res.get('background', 0.0))
+        for i, lv in enumerate(res.get('levels', mc_model.levels)):
+            mc['G'][i].append(lv.G)
+            mc['Rg'][i].append(lv.Rg)
+            mc['B'][i].append(lv.B)
+            mc['P'][i].append(lv.P)
+            mc['ETA'][i].append(lv.ETA)
+            mc['PACK'][i].append(lv.PACK)
+
+    n_ok = len(mc['background'])
+    if n_ok < 2:
+        return None
+
+    ddof = 1
+    uncertainties: Dict = {
+        'background': float(np.std(mc['background'], ddof=ddof)),
+        'levels': [],
+    }
+    for i in range(num_levels):
+        ud: Dict[str, float] = {}
+        for key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
+            vals = mc[key][i]
+            ud[key] = float(np.std(vals, ddof=ddof)) if len(vals) > 1 else 0.0
+        uncertainties['levels'].append(ud)
+
+    return uncertainties
+
+
+def _mc_uncertainty_sizes(
+    s,
+    q_fit: np.ndarray,
+    intensity_fit: np.ndarray,
+    error_fit: Optional[np.ndarray],
+    n_runs: int = 10,
+) -> Optional[np.ndarray]:
+    """Run MC noise-perturbation fits and return per-bin std-dev of P(r).
+
+    Returns a 1-D array with the same length as the r-grid, or ``None``
+    when fewer than 2 runs succeed.
+    """
+    import copy
+
+    err = error_fit if error_fit is not None else intensity_fit * 0.05
+    err = np.maximum(err, 1e-30)
+
+    # For McSAS: one internal MC run per perturbed fit (same as GUI)
+    s_mc = copy.deepcopy(s)
+    if s_mc.method == 'mcsas':
+        s_mc.mcsas_n_repetitions = 1
+
+    distributions = []
+    for _ in range(n_runs):
+        I_perturbed = intensity_fit + err * np.random.randn(len(intensity_fit))
+        try:
+            res = s_mc.fit(q_fit, I_perturbed, error_fit)
+        except Exception:
+            continue
+        if not res.get('success', False):
+            continue
+        dist = res.get('distribution')
+        if dist is not None:
+            distributions.append(dist)
+
+    if len(distributions) < 2:
+        return None
+
+    arr = np.array(distributions)          # (n_ok, n_bins)
+    return np.std(arr, axis=0, ddof=1)
+
+
 def _save_to_nexus(data: Dict, model: UnifiedFitModel,
-                   fit_result: Dict, num_levels: int) -> Optional[Path]:
+                   fit_result: Dict, num_levels: int,
+                   uncertainties: Optional[Dict] = None) -> Optional[Path]:
     """Save fit results to NXcanSAS HDF5 file.  Returns output path, or None on error."""
     from pyirena.io.nxcansas_unified import (
         save_unified_fit_results, get_output_filepath, create_nxcansas_file
@@ -253,6 +364,7 @@ def _save_to_nexus(data: Dict, model: UnifiedFitModel,
         chi_squared=fit_result.get('chi_squared', 0.0),
         num_levels=num_levels,
         error=data.get('Error'),
+        uncertainties=uncertainties,
     )
 
     return output_path
@@ -266,6 +378,8 @@ def fit_unified(
     data_file: Union[str, Path],
     config_file: Union[str, Path],
     save_to_nexus: bool = True,
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 10,
 ) -> Optional[Dict]:
     """Fit Unified Fit model to a data file using parameters from a pyIrena config file.
 
@@ -280,20 +394,30 @@ def fit_unified(
         If True (default), save fit results to an NXcanSAS HDF5 file alongside
         the input data (same file for NXcanSAS input, or ``<name>_NX.h5`` for
         text input).
+    with_uncertainty : bool, optional
+        If True, run *n_mc_runs* Gaussian-noise-perturbed refits after the main
+        fit and store per-parameter 1σ uncertainties (``G_err``, ``Rg_err``,
+        ``B_err``, ``P_err``, ``ETA_err``, ``PACK_err``, ``background_err``)
+        in the NXcanSAS HDF5 file.  Default False.
+    n_mc_runs : int, optional
+        Number of Monte Carlo perturbation runs when *with_uncertainty* is True.
+        Default 10.
 
     Returns
     -------
     dict or None
         On success, a dictionary with:
 
-        ``'success'``      bool — True if fit converged.
-        ``'model'``        UnifiedFitModel — the fitted model object.
-        ``'parameters'``   dict — structured fit summary (levels, chi_squared, …).
-        ``'data'``         dict — Q, Intensity, Error, intensity_model, residuals.
-        ``'output_file'``  Path or None — NXcanSAS output path (if save_to_nexus).
-        ``'input_file'``   Path
-        ``'config_file'``  Path
-        ``'message'``      str — human-readable summary.
+        ``'success'``        bool — True if fit converged.
+        ``'model'``          UnifiedFitModel — the fitted model object.
+        ``'parameters'``     dict — structured fit summary (levels, chi_squared, …).
+        ``'uncertainties'``  dict or None — MC parameter uncertainties (None when
+                             ``with_uncertainty=False`` or fewer than 2 runs succeeded).
+        ``'data'``           dict — Q, Intensity, Error, intensity_model, residuals.
+        ``'output_file'``    Path or None — NXcanSAS output path (if save_to_nexus).
+        ``'input_file'``     Path
+        ``'config_file'``    Path
+        ``'message'``        str — human-readable summary.
 
         Returns None if loading, configuration, or fitting fails fatally.
         A failed fit (optimizer did not converge) still returns a dict with
@@ -304,6 +428,12 @@ def fit_unified(
     >>> result = fit_unified("sample.h5", "pyirena_config.json")
     >>> if result and result['success']:
     ...     print(result['parameters']['chi_squared'])
+
+    >>> # With MC uncertainty analysis:
+    >>> result = fit_unified("sample.h5", "pyirena_config.json",
+    ...                      with_uncertainty=True, n_mc_runs=20)
+    >>> if result and result['uncertainties']:
+    ...     print(result['uncertainties']['levels'][0]['Rg'])
     """
     data_file = Path(data_file)
     config_file = Path(config_file)
@@ -366,6 +496,19 @@ def fit_unified(
         print(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
         return None
 
+    # --- MC uncertainty analysis (optional) ---
+    uncertainties = None
+    if with_uncertainty and fit_result.get('success', False):
+        print(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
+        try:
+            uncertainties = _mc_uncertainty_unified(
+                model, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
+            )
+            if uncertainties is None:
+                print("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
+        except Exception:
+            print(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
+
     # --- Build return structure ---
     try:
         intensity_model = model.calculate_intensity(Q)
@@ -392,8 +535,9 @@ def fit_unified(
             'levels': level_summaries,
         }
 
+        success = bool(fit_result.get('success', False))
         result = {
-            'success': bool(fit_result.get('success', False)),
+            'success': success,
             'tool': 'unified_fit',
             'input_file': data_file,
             'config_file': config_file,
@@ -401,6 +545,7 @@ def fit_unified(
             'model': model,
             'fit_result': fit_result,
             'parameters': parameters,
+            'uncertainties': uncertainties,
             'data': {
                 'Q': Q,
                 'Intensity': Intensity,
@@ -412,15 +557,9 @@ def fit_unified(
             'message': (
                 f"Unified Fit: {num_levels} level(s), "
                 f"chi²={parameters['chi_squared']:.4g}, "
-                f"success={result['success'] if False else fit_result.get('success', False)}"
+                f"success={success}"
             ),
         }
-        # Fix message after dict is built
-        result['message'] = (
-            f"Unified Fit: {num_levels} level(s), "
-            f"chi²={parameters['chi_squared']:.4g}, "
-            f"success={result['success']}"
-        )
     except Exception:
         print(f"[pyirena.batch] Error building result structure:\n{traceback.format_exc()}")
         return None
@@ -428,7 +567,9 @@ def fit_unified(
     # --- Save to NXcanSAS ---
     if save_to_nexus:
         try:
-            output_path = _save_to_nexus(data, model, fit_result, num_levels)
+            output_path = _save_to_nexus(
+                data, model, fit_result, num_levels, uncertainties=uncertainties
+            )
             result['output_file'] = output_path
         except Exception:
             print(f"[pyirena.batch] Warning: could not save NXcanSAS file:\n"
@@ -443,6 +584,8 @@ def fit_sizes(
     data_file: Union[str, Path],
     config_file: Union[str, Path],
     save_to_nexus: bool = True,
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 10,
 ) -> Optional[Dict]:
     """Fit a Size Distribution model to a data file using a pyIrena config file.
 
@@ -457,20 +600,30 @@ def fit_sizes(
         If True (default), save fit results to an NXcanSAS HDF5 file alongside
         the input data (same file for NXcanSAS input, or ``<name>_NX.h5`` for
         text input).
+    with_uncertainty : bool, optional
+        If True, run *n_mc_runs* Gaussian-noise-perturbed refits after the main
+        fit and store the per-bin 1σ standard deviation of the size distribution
+        as ``distribution_std`` in the NXcanSAS HDF5 file.  For McSAS each
+        perturbed fit uses a single internal MC run.  Default False.
+    n_mc_runs : int, optional
+        Number of Monte Carlo perturbation runs when *with_uncertainty* is True.
+        Default 10.
 
     Returns
     -------
     dict or None
         On success, a dictionary with:
 
-        ``'success'``       bool — True if fit converged.
-        ``'parameters'``    dict — chi_squared, volume_fraction, rg, peak_r, etc.
-        ``'data'``          dict — Q, Intensity, Error, Q_fit, r_grid,
-                            distribution, intensity_model, residuals.
-        ``'output_file'``   Path or None — NXcanSAS output path (if save_to_nexus).
-        ``'input_file'``    Path
-        ``'config_file'``   Path
-        ``'message'``       str — human-readable summary.
+        ``'success'``           bool — True if fit converged.
+        ``'parameters'``        dict — chi_squared, volume_fraction, rg, peak_r, etc.
+        ``'distribution_std'``  ndarray or None — per-bin 1σ uncertainty (None when
+                                ``with_uncertainty=False`` or too few runs succeeded).
+        ``'data'``              dict — Q, Intensity, Error, Q_fit, r_grid,
+                                distribution, intensity_model, residuals.
+        ``'output_file'``       Path or None — NXcanSAS output path (if save_to_nexus).
+        ``'input_file'``        Path
+        ``'config_file'``       Path
+        ``'message'``           str — human-readable summary.
 
         Returns None if loading, configuration, or fitting fails fatally.
 
@@ -479,6 +632,14 @@ def fit_sizes(
     >>> result = fit_sizes("sample.h5", "pyirena_config.json")
     >>> if result and result['success']:
     ...     print(result['parameters']['rg'])
+
+    >>> # With MC uncertainty analysis:
+    >>> result = fit_sizes("sample.h5", "pyirena_config.json",
+    ...                    with_uncertainty=True, n_mc_runs=20)
+    >>> if result and result['distribution_std'] is not None:
+    ...     import numpy as np
+    ...     peak_r = result['data']['r_grid'][np.argmax(result['data']['distribution'])]
+    ...     print(f"Peak radius = {peak_r:.1f} Å")
     """
     from pyirena.core.sizes import SizesDistribution
 
@@ -563,6 +724,19 @@ def fit_sizes(
         print(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
         return None
 
+    # --- MC uncertainty analysis (optional) ---
+    distribution_std = None
+    if with_uncertainty and fit_result.get('success', False):
+        print(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
+        try:
+            distribution_std = _mc_uncertainty_sizes(
+                s, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
+            )
+            if distribution_std is None:
+                print("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
+        except Exception:
+            print(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
+
     # --- Build return structure ---
     try:
         r_grid       = fit_result.get('r_grid')
@@ -625,13 +799,14 @@ def fit_sizes(
 
         success = bool(fit_result.get('success', False))
         result = {
-            'success':     success,
-            'tool':        'sizes',
-            'input_file':  data_file,
-            'config_file': config_file,
-            'output_file': None,
-            'fit_result':  fit_result,
-            'parameters':  parameters,
+            'success':          success,
+            'tool':             'sizes',
+            'input_file':       data_file,
+            'config_file':      config_file,
+            'output_file':      None,
+            'fit_result':       fit_result,
+            'parameters':       parameters,
+            'distribution_std': distribution_std,
             'data': {
                 'Q':               Q,
                 'Intensity':       Intensity,
@@ -671,6 +846,10 @@ def fit_sizes(
                     sample_name=Path(label).stem
                 )
 
+            # Use MC distribution_std when available; fall back to any std
+            # produced by the method itself (e.g. McSAS with n_repetitions > 1).
+            std_to_save = distribution_std if distribution_std is not None \
+                else fit_result.get('distribution_std')
             save_sizes_results(
                 filepath=output_path,
                 q=q_fit,
@@ -680,7 +859,7 @@ def fit_sizes(
                 r_grid=r_grid,
                 distribution=distribution,
                 params=save_params,           # complete parameter set
-                distribution_std=fit_result.get('distribution_std'),
+                distribution_std=std_to_save,
             )
             result['output_file'] = output_path
         except Exception:
@@ -695,6 +874,8 @@ def fit_pyirena(
     data_file: Union[str, Path],
     config_file: Union[str, Path],
     save_to_nexus: bool = True,
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 10,
 ) -> Optional[Dict]:
     """Run all analysis tools that have a configuration group in the config file.
 
@@ -718,6 +899,10 @@ def fit_pyirena(
         Path to a pyIrena JSON configuration file.
     save_to_nexus : bool, optional
         Passed to each individual tool's fitting function (default True).
+    with_uncertainty : bool, optional
+        Passed to each individual tool's fitting function (default False).
+    n_mc_runs : int, optional
+        Passed to each individual tool's fitting function (default 10).
 
     Returns
     -------
@@ -744,8 +929,12 @@ def fit_pyirena(
 
     # Registry: config key → callable
     _TOOL_REGISTRY: Dict[str, callable] = {
-        'unified_fit': lambda: fit_unified(data_file, config_file, save_to_nexus),
-        'sizes':       lambda: fit_sizes(data_file, config_file, save_to_nexus),
+        'unified_fit': lambda: fit_unified(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
+        'sizes': lambda: fit_sizes(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
     }
 
     # --- Load config to discover which tools are present ---

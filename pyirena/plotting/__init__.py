@@ -16,10 +16,12 @@ try:
         plot_guinier_analysis,
         plot_porod_analysis,
     )
+    from pyirena.plotting.plot_saxs import plot_saxs
     __all__ = [
         "plot_fit_results",
         "plot_guinier_analysis",
         "plot_porod_analysis",
+        "plot_saxs",
     ]
 except ImportError:
     # matplotlib might not be installed
