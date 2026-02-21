@@ -485,12 +485,12 @@ def _build_report(file_path: str,
                 f"| Max iterations | {max_iter} |",
                 "",
             ]
-        elif str(method).lower() == 'mcsas':
-            n_rep    = _sv('mcsas_n_repetitions', 'N/A')
-            conv     = _sv('mcsas_convergence')
-            max_iter = _sv('mcsas_max_iter', 'N/A')
+        elif str(method).lower() in ('montecarlo', 'mcsas'):
+            n_rep    = _sv('montecarlo_n_repetitions') or _sv('mcsas_n_repetitions', 'N/A')
+            conv     = _sv('montecarlo_convergence') or _sv('mcsas_convergence')
+            max_iter = _sv('montecarlo_max_iter') or _sv('mcsas_max_iter', 'N/A')
             L += [
-                "**McSAS parameters:**",
+                "**Monte Carlo parameters:**",
                 "",
                 "| Parameter | Value |",
                 "|-----------|-------|",
@@ -1297,6 +1297,12 @@ class DataSelectorPanel(QWidget):
 
         self.init_ui()
 
+        # Restore saved sort selection (blockSignals to avoid premature sort_file_list call)
+        saved_sort = int(self.state_manager.get('data_selector', 'sort_index', 0) or 0)
+        self.sort_combo.blockSignals(True)
+        self.sort_combo.setCurrentIndex(saved_sort)
+        self.sort_combo.blockSignals(False)
+
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("pyIrena - Data Selector")
@@ -1349,7 +1355,7 @@ class DataSelectorPanel(QWidget):
 
         content_layout.addLayout(folder_layout)
 
-        # File type selection
+        # File type + Sort selection (combined row)
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("File Type:"))
 
@@ -1359,28 +1365,9 @@ class DataSelectorPanel(QWidget):
         self.file_type_combo.addItem("All Supported Files", "all")
         self.file_type_combo.currentIndexChanged.connect(self.refresh_file_list)
         type_layout.addWidget(self.file_type_combo)
-        type_layout.addStretch()
 
-        content_layout.addLayout(type_layout)
-
-        # Content area (listbox + graph button)
-        file_area_layout = QHBoxLayout()
-
-        # Left side: file list section
-        left_layout = QVBoxLayout()
-
-        # File filter input
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Filter:"))
-        self.filter_input = QLineEdit()
-        self.filter_input.setPlaceholderText("Enter text to filter files...")
-        self.filter_input.textChanged.connect(self.filter_files)
-        filter_layout.addWidget(self.filter_input)
-        left_layout.addLayout(filter_layout)
-
-        # Sort row
-        sort_row = QHBoxLayout()
-        sort_row.addWidget(QLabel("Sort:"))
+        type_layout.addSpacing(12)
+        type_layout.addWidget(QLabel("Sort:"))
         self.sort_combo = QComboBox()
         self.sort_combo.addItems([
             "Filename  A→Z",
@@ -1402,10 +1389,26 @@ class DataSelectorPanel(QWidget):
             "  Order number: _354  (last underscore-number before extension)\n"
             "  Pressure    : _35PSI"
         )
-        self.sort_combo.currentIndexChanged.connect(self.sort_file_list)
-        sort_row.addWidget(self.sort_combo)
-        sort_row.addStretch()
-        left_layout.addLayout(sort_row)
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        type_layout.addWidget(self.sort_combo)
+        type_layout.addStretch()
+
+        content_layout.addLayout(type_layout)
+
+        # Content area (listbox + graph button)
+        file_area_layout = QHBoxLayout()
+
+        # Left side: file list section
+        left_layout = QVBoxLayout()
+
+        # File filter input
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filter:"))
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Enter text to filter files...")
+        self.filter_input.textChanged.connect(self.filter_files)
+        filter_layout.addWidget(self.filter_input)
+        left_layout.addLayout(filter_layout)
 
         # File list
         self.file_list = QListWidget()
@@ -1783,6 +1786,12 @@ class DataSelectorPanel(QWidget):
                 visible_count += 1
 
         self.status_label.setText(f"Showing {visible_count} of {self.file_list.count()} files")
+
+    def _on_sort_changed(self, index: int):
+        """Save sort selection to state, then apply it to the file list."""
+        self.state_manager.set('data_selector', 'sort_index', index)
+        self.state_manager.save()
+        self.sort_file_list()
 
     def sort_file_list(self):
         """

@@ -122,8 +122,8 @@ def load_result(
             ``residuals`` — same meaning as above.
             ``r_grid`` — radius bin centres [Å].
             ``distribution`` — volume-fraction size distribution P(r) [Å⁻¹].
-            ``distribution_std`` — per-bin 1σ uncertainty from McSAS repetitions
-            (``None`` unless McSAS was the fitting method).
+            ``distribution_std`` — per-bin 1σ uncertainty from Monte Carlo repetitions
+            (``None`` unless Monte Carlo was the fitting method).
 
         Fit results (``None`` when not found)
             ``chi_squared``, ``volume_fraction``, ``rg`` [Å], ``n_iterations``,
@@ -139,7 +139,7 @@ def load_result(
             ``background`` — flat background [cm⁻¹].
             ``power_law_B``, ``power_law_P`` — power-law amplitude and exponent.
             ``method`` — fitting method (``'maxent'``, ``'regularization'``,
-            ``'tnnls'``, or ``'mcsas'``).
+            ``'tnnls'``, or ``'montecarlo'``).
             ``error_scale`` — multiplicative scale applied to measurement errors.
 
         Method-specific parameters (``None`` when not found or not applicable)
@@ -148,8 +148,8 @@ def load_result(
             Regularization: ``regularization_evalue``,
             ``regularization_min_ratio``.
             TNNLS: ``tnnls_approach_param``, ``tnnls_max_iter``.
-            McSAS: ``mcsas_n_repetitions``, ``mcsas_convergence``,
-            ``mcsas_max_iter``.
+            Monte Carlo: ``montecarlo_n_repetitions``, ``montecarlo_convergence``,
+            ``montecarlo_max_iter``.
 
         Q ranges (``None`` when not found or not set)
             ``power_law_q_min``, ``power_law_q_max`` — Q range for power-law fit.
@@ -273,10 +273,10 @@ def _empty_size_distribution() -> dict:
         # Method-specific — TNNLS
         'tnnls_approach_param':     None,
         'tnnls_max_iter':           None,
-        # Method-specific — McSAS
-        'mcsas_n_repetitions':      None,
-        'mcsas_convergence':        None,
-        'mcsas_max_iter':           None,
+        # Method-specific — Monte Carlo
+        'montecarlo_n_repetitions': None,
+        'montecarlo_convergence':   None,
+        'montecarlo_max_iter':      None,
         # Q ranges
         'power_law_q_min':   None,
         'power_law_q_max':   None,

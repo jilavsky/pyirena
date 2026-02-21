@@ -16,7 +16,7 @@ intensity_model    — fitted model intensity [cm^-1]
 residuals          — normalised residuals (I_data - I_model) / error
 r_grid             — radius bin centres [Å]
 distribution       — size distribution P(r) [volume fraction / Å]
-distribution_std   — per-bin std of P(r) across McSAS repetitions (if available)
+distribution_std   — per-bin std of P(r) across Monte Carlo repetitions (if available)
 
 Group attributes (fit results)
 -------------------------------
@@ -31,7 +31,7 @@ method, error_scale,
 maxent_sky_background, maxent_stability, maxent_max_iter,
 regularization_evalue, regularization_min_ratio,
 tnnls_approach_param, tnnls_max_iter,
-mcsas_n_repetitions, mcsas_convergence, mcsas_max_iter,
+montecarlo_n_repetitions, montecarlo_convergence, montecarlo_max_iter,
 power_law_q_min, power_law_q_max,
 background_q_min, background_q_max,
 cursor_q_min, cursor_q_max,
@@ -91,14 +91,14 @@ def save_sizes_results(
                            ``maxent_max_iter``, ``regularization_evalue``,
                            ``regularization_min_ratio``,
                            ``tnnls_approach_param``, ``tnnls_max_iter``,
-                           ``mcsas_n_repetitions``,
-                           ``mcsas_convergence``, ``mcsas_max_iter``,
+                           ``montecarlo_n_repetitions``,
+                           ``montecarlo_convergence``, ``montecarlo_max_iter``,
                            ``power_law_q_min``, ``power_law_q_max``,
                            ``background_q_min``, ``background_q_max``,
                            ``cursor_q_min``, ``cursor_q_max``.
         intensity_error:  Measurement uncertainty [cm^-1]; stored if provided.
-        distribution_std: Per-bin std of P(r) across McSAS repetitions;
-                          stored if provided (McSAS only).
+        distribution_std: Per-bin std of P(r) across Monte Carlo repetitions;
+                          stored if provided (Monte Carlo method only).
     """
     filepath = Path(filepath)
     timestamp = datetime.now().isoformat()
@@ -127,8 +127,8 @@ def save_sizes_results(
             'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
             'regularization_evalue', 'regularization_min_ratio',
             'tnnls_approach_param', 'tnnls_max_iter',
-            'mcsas_n_repetitions',
-            'mcsas_convergence', 'mcsas_max_iter',
+            'montecarlo_n_repetitions',
+            'montecarlo_convergence', 'montecarlo_max_iter',
             # Q ranges used during fitting
             'power_law_q_min', 'power_law_q_max',
             'background_q_min', 'background_q_max',
@@ -233,8 +233,8 @@ def load_sizes_results(filepath: Path) -> dict:
             'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
             'regularization_evalue', 'regularization_min_ratio',
             'tnnls_approach_param', 'tnnls_max_iter',
-            'mcsas_n_repetitions',
-            'mcsas_convergence', 'mcsas_max_iter',
+            'montecarlo_n_repetitions',
+            'montecarlo_convergence', 'montecarlo_max_iter',
             # Q ranges used during fitting
             'power_law_q_min', 'power_law_q_max',
             'background_q_min', 'background_q_max',
@@ -243,6 +243,18 @@ def load_sizes_results(filepath: Path) -> dict:
             'timestamp', 'program',
         ):
             result[k] = grp.attrs.get(k)
+
+        # Backward compatibility: old files stored 'mcsas_*' attribute names
+        # and method='mcsas'.  Map them to the new 'montecarlo_*' names.
+        for old_k, new_k in (
+            ('mcsas_n_repetitions', 'montecarlo_n_repetitions'),
+            ('mcsas_convergence',   'montecarlo_convergence'),
+            ('mcsas_max_iter',      'montecarlo_max_iter'),
+        ):
+            if result.get(new_k) is None and grp.attrs.get(old_k) is not None:
+                result[new_k] = grp.attrs.get(old_k)
+        if result.get('method') == 'mcsas':
+            result['method'] = 'montecarlo'
 
     return result
 

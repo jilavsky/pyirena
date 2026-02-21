@@ -952,7 +952,7 @@ class SizesFitPanel(QWidget):
         meth_row = QHBoxLayout()
         meth_row.addWidget(QLabel("Method:"))
         self.method_combo = QComboBox()
-        self.method_combo.addItems(["regularization", "maxent", "tnnls", "mcsas"])
+        self.method_combo.addItems(["regularization", "maxent", "tnnls", "montecarlo"])
         self.method_combo.currentTextChanged.connect(self._on_method_changed)
         meth_row.addWidget(self.method_combo)
         meth_row.addStretch()
@@ -1031,32 +1031,32 @@ class SizesFitPanel(QWidget):
         tnnls_layout.addLayout(r1)
         method_layout.addWidget(self.tnnls_group)
 
-        # McSAS params — Convergence, Max iter
+        # Monte Carlo params — Convergence, Max iter
         # (N contributions = N size bins, shared with the Size Grid above)
-        self.mcsas_group = QWidget()
-        mcsas_layout = QVBoxLayout(self.mcsas_group)
-        mcsas_layout.setContentsMargins(0, 0, 0, 0)
-        mcsas_layout.setSpacing(2)
+        self.montecarlo_group = QWidget()
+        montecarlo_layout = QVBoxLayout(self.montecarlo_group)
+        montecarlo_layout.setContentsMargins(0, 0, 0, 0)
+        montecarlo_layout.setSpacing(2)
 
         r2 = QHBoxLayout()
         r2.addWidget(QLabel("Convergence:"))
-        self.mcsas_conv_edit = ScrubbableLineEdit("1.0")
-        self.mcsas_conv_edit.setValidator(QDoubleValidator(0.01, 100.0, 6))
-        self.mcsas_conv_edit.setMaximumWidth(65)
-        self.mcsas_conv_edit.editingFinished.connect(self._on_param_changed)
-        r2.addWidget(self.mcsas_conv_edit)
+        self.montecarlo_conv_edit = ScrubbableLineEdit("1.0")
+        self.montecarlo_conv_edit.setValidator(QDoubleValidator(0.01, 100.0, 6))
+        self.montecarlo_conv_edit.setMaximumWidth(65)
+        self.montecarlo_conv_edit.editingFinished.connect(self._on_param_changed)
+        r2.addWidget(self.montecarlo_conv_edit)
         r2.addWidget(QLabel("  Max iter:"))
-        self.mcsas_maxiter_spin = QSpinBox()
-        self.mcsas_maxiter_spin.setMinimum(1000)
-        self.mcsas_maxiter_spin.setMaximum(10000000)
-        self.mcsas_maxiter_spin.setSingleStep(10000)
-        self.mcsas_maxiter_spin.setValue(100000)
-        self.mcsas_maxiter_spin.setMaximumWidth(80)
-        self.mcsas_maxiter_spin.valueChanged.connect(self._on_param_changed)
-        r2.addWidget(self.mcsas_maxiter_spin)
+        self.montecarlo_maxiter_spin = QSpinBox()
+        self.montecarlo_maxiter_spin.setMinimum(1000)
+        self.montecarlo_maxiter_spin.setMaximum(10000000)
+        self.montecarlo_maxiter_spin.setSingleStep(10000)
+        self.montecarlo_maxiter_spin.setValue(100000)
+        self.montecarlo_maxiter_spin.setMaximumWidth(80)
+        self.montecarlo_maxiter_spin.valueChanged.connect(self._on_param_changed)
+        r2.addWidget(self.montecarlo_maxiter_spin)
         r2.addStretch()
-        mcsas_layout.addLayout(r2)
-        method_layout.addWidget(self.mcsas_group)
+        montecarlo_layout.addLayout(r2)
+        method_layout.addWidget(self.montecarlo_group)
 
         sizes_layout.addWidget(method_box)
         sizes_layout.addStretch()
@@ -1421,7 +1421,7 @@ class SizesFitPanel(QWidget):
         self.maxent_group.setVisible(method == "maxent")
         self.reg_group.setVisible(method == "regularization")
         self.tnnls_group.setVisible(method == "tnnls")
-        self.mcsas_group.setVisible(method == "mcsas")
+        self.montecarlo_group.setVisible(method == "montecarlo")
 
     def _on_param_changed(self):
         """Called when any parameter field changes."""
@@ -1510,9 +1510,9 @@ class SizesFitPanel(QWidget):
         s.regularization_min_ratio = float(self.reg_minratio_edit.text() or 1e-4)
         s.tnnls_approach_param = float(self.tnnls_approach_edit.text() or 0.95)
         s.tnnls_max_iter = self.tnnls_maxiter_spin.value()
-        s.mcsas_n_repetitions = 1  # main fit always uses a single MC run
-        s.mcsas_convergence = float(self.mcsas_conv_edit.text() or 1.0)
-        s.mcsas_max_iter = self.mcsas_maxiter_spin.value()
+        s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run
+        s.montecarlo_convergence = float(self.montecarlo_conv_edit.text() or 1.0)
+        s.montecarlo_max_iter = self.montecarlo_maxiter_spin.value()
         return s
 
     def _get_bg_fit_q_range(self, q_min_edit, q_max_edit) -> tuple:
@@ -1657,10 +1657,10 @@ class SizesFitPanel(QWidget):
 
             self.status_label.setText(f"Fitting {len(q)} points with {s.method}…")
 
-            # McSAS: single-run for the main Fit button (no error bars).
+            # Monte Carlo: single-run for the main Fit button (no error bars).
             # Uncertainty comes from "Calculate Uncertainty" like other methods.
-            if s.method == 'mcsas':
-                s.mcsas_n_repetitions = 1
+            if s.method == 'montecarlo':
+                s.montecarlo_n_repetitions = 1
 
             result = s.fit(q, intensity, error)
 
@@ -1912,7 +1912,7 @@ class SizesFitPanel(QWidget):
         per-bin statistical uncertainties; Rg, Vf, and peak r are also propagated.
 
         The number of perturbed fits is controlled by the Passes spinner (default 10).
-        For McSAS each perturbed fit uses a single internal MC run.
+        For Monte Carlo each perturbed fit uses a single internal MC run.
         """
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
@@ -1926,10 +1926,10 @@ class SizesFitPanel(QWidget):
         s = self._collect_params()
 
         # Number of perturbed fits — controlled by the Passes spinner.
-        # For McSAS, ensure each perturbed fit uses a single internal MC run.
+        # For Monte Carlo, ensure each perturbed fit uses a single internal MC run.
         N_runs = self.unc_n_runs_spin.value()
-        if s.method == 'mcsas':
-            s.mcsas_n_repetitions = 1  # one MC run per perturbed fit
+        if s.method == 'montecarlo':
+            s.montecarlo_n_repetitions = 1  # one MC run per perturbed fit
 
         q, intensity, error = self._get_q_filtered_data()
 
@@ -2078,9 +2078,9 @@ class SizesFitPanel(QWidget):
             'regularization_min_ratio': s.regularization_min_ratio,
             'tnnls_approach_param': s.tnnls_approach_param,
             'tnnls_max_iter': s.tnnls_max_iter,
-            'mcsas_convergence': s.mcsas_convergence,
+            'montecarlo_convergence': s.montecarlo_convergence,
             'unc_n_runs': self.unc_n_runs_spin.value(),
-            'mcsas_max_iter': s.mcsas_max_iter,
+            'montecarlo_max_iter': s.montecarlo_max_iter,
             'error_scale': s.error_scale,
             'power_law_B': s.power_law_B,
             'power_law_P': s.power_law_P,
@@ -2115,15 +2115,20 @@ class SizesFitPanel(QWidget):
         self.contrast_edit.setText(str(state.get('contrast', 1.0)))
         self.aspect_ratio_edit.setText(str(state.get('aspect_ratio', 1.5)))
         self.background_edit.setText(str(state.get('background', 0.0)))
-        self.method_combo.setCurrentText(state.get('method', 'regularization'))
+        method = state.get('method', 'regularization')
+        if method == 'mcsas':
+            method = 'montecarlo'
+        self.method_combo.setCurrentText(method)
         self.maxent_sky_edit.setText(str(state.get('maxent_sky_background', 1e-6)))
         self.maxent_maxiter_spin.setValue(int(state.get('maxent_max_iter', 1000)))
         self.reg_evalue_edit.setText(str(state.get('regularization_evalue', 1.0)))
         self.reg_minratio_edit.setText(str(state.get('regularization_min_ratio', 1e-4)))
         self.tnnls_approach_edit.setText(str(state.get('tnnls_approach_param', 0.95)))
         self.tnnls_maxiter_spin.setValue(int(state.get('tnnls_max_iter', 1000)))
-        self.mcsas_conv_edit.setText(str(state.get('mcsas_convergence', 1.0)))
-        self.mcsas_maxiter_spin.setValue(int(state.get('mcsas_max_iter', 100000)))
+        self.montecarlo_conv_edit.setText(str(
+            state.get('montecarlo_convergence') or state.get('mcsas_convergence', 1.0)))
+        self.montecarlo_maxiter_spin.setValue(int(
+            state.get('montecarlo_max_iter') or state.get('mcsas_max_iter', 100000)))
         self.unc_n_runs_spin.setValue(int(state.get('unc_n_runs', 10)))
         self.error_scale_edit.setText(str(state.get('error_scale', 1.0)))
         self.power_law_B_edit.setText(str(state.get('power_law_B', 0.0)))

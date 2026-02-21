@@ -285,10 +285,10 @@ def _mc_uncertainty_sizes(
     err = error_fit if error_fit is not None else intensity_fit * 0.05
     err = np.maximum(err, 1e-30)
 
-    # For McSAS: one internal MC run per perturbed fit (same as GUI)
+    # For Monte Carlo method: one internal MC run per perturbed fit (same as GUI)
     s_mc = copy.deepcopy(s)
-    if s_mc.method == 'mcsas':
-        s_mc.mcsas_n_repetitions = 1
+    if s_mc.method == 'montecarlo':
+        s_mc.montecarlo_n_repetitions = 1
 
     distributions = []
     for _ in range(n_runs):
@@ -603,8 +603,8 @@ def fit_sizes(
     with_uncertainty : bool, optional
         If True, run *n_mc_runs* Gaussian-noise-perturbed refits after the main
         fit and store the per-bin 1σ standard deviation of the size distribution
-        as ``distribution_std`` in the NXcanSAS HDF5 file.  For McSAS each
-        perturbed fit uses a single internal MC run.  Default False.
+        as ``distribution_std`` in the NXcanSAS HDF5 file.  For the Monte Carlo
+        method each perturbed fit uses a single internal MC run.  Default False.
     n_mc_runs : int, optional
         Number of Monte Carlo perturbation runs when *with_uncertainty* is True.
         Default 10.
@@ -781,9 +781,9 @@ def fit_sizes(
             'regularization_min_ratio': s.regularization_min_ratio,
             'tnnls_approach_param':     s.tnnls_approach_param,
             'tnnls_max_iter':           s.tnnls_max_iter,
-            'mcsas_n_repetitions':      getattr(s, 'mcsas_n_repetitions', 1),
-            'mcsas_convergence':        s.mcsas_convergence,
-            'mcsas_max_iter':           s.mcsas_max_iter,
+            'montecarlo_n_repetitions': getattr(s, 'montecarlo_n_repetitions', 1),
+            'montecarlo_convergence':   s.montecarlo_convergence,
+            'montecarlo_max_iter':      s.montecarlo_max_iter,
             # Q ranges from config (cursor / background / power-law)
             'cursor_q_min':      sizes_state.get('cursor_q_min'),
             'cursor_q_max':      sizes_state.get('cursor_q_max'),
@@ -847,7 +847,7 @@ def fit_sizes(
                 )
 
             # Use MC distribution_std when available; fall back to any std
-            # produced by the method itself (e.g. McSAS with n_repetitions > 1).
+            # produced by the method itself (e.g. Monte Carlo with n_repetitions > 1).
             std_to_save = distribution_std if distribution_std is not None \
                 else fit_result.get('distribution_std')
             save_sizes_results(

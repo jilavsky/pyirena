@@ -94,15 +94,15 @@ class SizesDistribution:
     tnnls_max_iter : int
         Maximum number of iterations.
 
-    McSAS parameters
-    ----------------
-    mcsas_n_repetitions : int
+    Monte Carlo parameters
+    ----------------------
+    montecarlo_n_repetitions : int
         Number of independent MC repetitions (default 10).  The mean and std
         of the per-bin volume fractions across repetitions are returned.
-    mcsas_convergence : float
+    montecarlo_convergence : float
         Convergence criterion: stop the MC loop when χ²/M ≤ this value
         (default 1.0 = one standard deviation per point on average).
-    mcsas_max_iter : int
+    montecarlo_max_iter : int
         Maximum number of replacement iterations per repetition (default 100000).
 
     Results (populated after ``fit()``)
@@ -110,7 +110,7 @@ class SizesDistribution:
     distribution : np.ndarray or None
         Normalised size distribution P(r)  [volume fraction / Å].
     distribution_std : np.ndarray or None
-        Per-bin standard deviation of P(r) across McSAS repetitions.
+        Per-bin standard deviation of P(r) across Monte Carlo repetitions.
         None for deterministic methods (MaxEnt, Regularization, TNNLS).
     r_grid : np.ndarray or None
         Radius bin centres [Å].
@@ -158,10 +158,10 @@ class SizesDistribution:
     tnnls_approach_param: float = 0.95
     tnnls_max_iter: int = 1000
 
-    # ── McSAS parameters ──────────────────────────────────────────────────────
-    mcsas_n_repetitions: int = 10
-    mcsas_convergence: float = 1.0
-    mcsas_max_iter: int = 100000
+    # ── Monte Carlo parameters ─────────────────────────────────────────────────
+    montecarlo_n_repetitions: int = 10
+    montecarlo_convergence: float = 1.0
+    montecarlo_max_iter: int = 100000
 
     # ── Error scaling ─────────────────────────────────────────────────────────
     error_scale: float = 1.0   # Multiply measurement errors by this factor before fitting
@@ -270,8 +270,8 @@ class SizesDistribution:
                 x_raw, n_iter = self._fit_regularization(G, I, err)
             elif method in ('tnnls', 'ipg', 'nnls'):
                 x_raw, n_iter = self._fit_tnnls(G, I, err)
-            elif method == 'mcsas':
-                x_raw, n_iter, x_raw_std = self._fit_mcsas(G, I, err, r_grid)
+            elif method == 'montecarlo':
+                x_raw, n_iter, x_raw_std = self._fit_montecarlo(G, I, err, r_grid)
             else:
                 return self._fail(f"Unknown method '{self.method}'.")
         except Exception as exc:
@@ -281,17 +281,17 @@ class SizesDistribution:
         # Post-process
         result = self._post_process(x_raw, r_grid, G, I, err)
 
-        # McSAS: the MC fit uses the standard G matrix (numerically stable, 6-decade
-        # dynamic range) so x_raw = A × count reflects the number distribution.
+        # Monte Carlo (McSAS): the MC fit uses the standard G matrix (numerically stable,
+        # 6-decade dynamic range) so x_raw = A × count reflects the number distribution.
         # Multiply by V(r) = (4/3)πr³ and renormalise to convert to volume distribution,
         # matching the output of MaxEnt, Regularisation, and TNNLS for consistent display.
-        if method == 'mcsas':
+        if method == 'montecarlo':
             _V_r = (4.0 / 3.0) * np.pi * r_grid ** 3
             dist_vol = result['distribution'] * _V_r
             _vf_orig = result['volume_fraction']
             _vf_new = float(np.trapezoid(dist_vol, r_grid))
-            _mcsas_scale = (_vf_orig / _vf_new) if _vf_new > 0 else 1.0
-            dist_vol *= _mcsas_scale
+            _mc_scale = (_vf_orig / _vf_new) if _vf_new > 0 else 1.0
+            dist_vol *= _mc_scale
             result['distribution'] = dist_vol
             result['volume_fraction'] = float(np.trapezoid(dist_vol, r_grid))
             if result['volume_fraction'] > 0:
@@ -301,12 +301,12 @@ class SizesDistribution:
             else:
                 result['rg'] = 0.0
 
-        # McSAS: add per-bin uncertainty from spread across repetitions
+        # Monte Carlo: add per-bin uncertainty from spread across repetitions
         if x_raw_std is not None:
             dw_safe = np.maximum(bin_widths(r_grid), 1e-300)
             dist_std = x_raw_std / dw_safe
-            if method == 'mcsas':
-                dist_std = dist_std * _V_r * _mcsas_scale
+            if method == 'montecarlo':
+                dist_std = dist_std * _V_r * _mc_scale
             result['distribution_std'] = dist_std
         else:
             result['distribution_std'] = None
@@ -950,9 +950,9 @@ class SizesDistribution:
 
         return x, n_iter
 
-    # ── McSAS / Monte-Carlo ────────────────────────────────────────────────────
+    # ── Monte Carlo (McSAS algorithm) ──────────────────────────────────────────
 
-    def _fit_mcsas(
+    def _fit_montecarlo(
         self,
         G: np.ndarray,
         I: np.ndarray,
@@ -999,7 +999,7 @@ class SizesDistribution:
             Radius bin centres [Å].
         n_reps : int, optional
             Number of independent MC repetitions.  Defaults to
-            ``self.mcsas_n_repetitions``.  Pass ``1`` for a single-run fit
+            ``self.montecarlo_n_repetitions``.  Pass ``1`` for a single-run fit
             (the ``distribution_std`` return value will be ``None``).
 
         Returns
@@ -1014,9 +1014,9 @@ class SizesDistribution:
         """
         M, N = G.shape
         N_c = N   # one contribution per r_grid bin; they can cluster during MC
-        n_rep = int(n_reps if n_reps is not None else self.mcsas_n_repetitions)
-        convergence = float(self.mcsas_convergence)
-        max_iter = int(self.mcsas_max_iter)
+        n_rep = int(n_reps if n_reps is not None else self.montecarlo_n_repetitions)
+        convergence = float(self.montecarlo_convergence)
+        max_iter = int(self.montecarlo_max_iter)
 
         rng = np.random.default_rng()
         inv_err2 = 1.0 / (err ** 2)               # (M,)
@@ -1071,7 +1071,7 @@ class SizesDistribution:
 
             total_iters += rep_iters
             log.debug(
-                "McSAS rep %d/%d: %d iters, chi2=%.4g (target %.4g)",
+                "Monte Carlo rep %d/%d: %d iters, chi2=%.4g (target %.4g)",
                 rep + 1, n_rep, rep_iters, chi2_val, convergence * M,
             )
 
@@ -1171,9 +1171,9 @@ class SizesDistribution:
             'regularization_min_ratio': self.regularization_min_ratio,
             'tnnls_approach_param':     self.tnnls_approach_param,
             'tnnls_max_iter':           self.tnnls_max_iter,
-            'mcsas_n_repetitions':      self.mcsas_n_repetitions,
-            'mcsas_convergence':        self.mcsas_convergence,
-            'mcsas_max_iter':           self.mcsas_max_iter,
+            'montecarlo_n_repetitions': self.montecarlo_n_repetitions,
+            'montecarlo_convergence':   self.montecarlo_convergence,
+            'montecarlo_max_iter':      self.montecarlo_max_iter,
             'error_scale':              self.error_scale,
             'power_law_B':              self.power_law_B,
             'power_law_P':              self.power_law_P,
