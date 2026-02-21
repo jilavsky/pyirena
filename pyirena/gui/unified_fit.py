@@ -500,10 +500,12 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.addLegend()
 
         # Set axis colors to black for visibility on white background
-        self.main_plot.getAxis('bottom').setPen('k')
-        self.main_plot.getAxis('left').setPen('k')
-        self.main_plot.getAxis('bottom').setTextPen('k')
-        self.main_plot.getAxis('left').setTextPen('k')
+        # Disable SI-prefix auto-scaling so axes show plain units (e.g. cm⁻¹, not ×10⁹ cm⁻¹)
+        for side in ('left', 'bottom'):
+            ax = self.main_plot.getAxis(side)
+            ax.setPen('k')
+            ax.setTextPen('k')
+            ax.enableAutoSIPrefix(False)
 
         # Show top and right axes (without labels) to create a box
         self.main_plot.showAxis('top')
@@ -523,11 +525,12 @@ class UnifiedFitGraphWindow(QWidget):
         self.residual_plot.setLogMode(x=True, y=False)
         self.residual_plot.showGrid(x=True, y=True, alpha=0.3)
 
-        # Set axis colors to black for visibility on white background
-        self.residual_plot.getAxis('bottom').setPen('k')
-        self.residual_plot.getAxis('left').setPen('k')
-        self.residual_plot.getAxis('bottom').setTextPen('k')
-        self.residual_plot.getAxis('left').setTextPen('k')
+        # Set axis colors to black, disable SI-prefix auto-scaling
+        for side in ('left', 'bottom'):
+            ax = self.residual_plot.getAxis(side)
+            ax.setPen('k')
+            ax.setTextPen('k')
+            ax.enableAutoSIPrefix(False)
 
         # Show top and right axes (without labels) to create a box
         self.residual_plot.showAxis('top')
