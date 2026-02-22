@@ -11,6 +11,7 @@ try:
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
         QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox,
         QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
+        QFileDialog,
     )
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtGui import QDoubleValidator
@@ -20,6 +21,7 @@ except ImportError:
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
             QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox,
             QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
+            QFileDialog,
         )
         from PyQt6.QtCore import Qt, Signal
         from PyQt6.QtGui import QDoubleValidator
@@ -274,6 +276,27 @@ class SimpleFitsGraphWindow(QWidget):
             self._cursor_a.setPos(np.log10(q_min))
             self._cursor_b.setPos(np.log10(q_max))
 
+    # ── Result annotations ────────────────────────────────────────────────────
+
+    def clear_result_annotations(self):
+        """Remove all fit-result text annotations from the main plot."""
+        for item in list(getattr(self, '_annotation_items', [])):
+            self.main_plot.removeItem(item)
+        self._annotation_items = []
+
+    def add_result_annotation(self, text: str):
+        """Add a text annotation with fitted parameter values to the main plot."""
+        if not hasattr(self, '_annotation_items'):
+            self._annotation_items = []
+        item = pg.TextItem(text=text, color=(40, 40, 40), anchor=(0, 1))
+        # Place in the upper-left corner of the current view
+        vr = self.main_plot.viewRange()
+        x = vr[0][0] + 0.02 * (vr[0][1] - vr[0][0])
+        y = vr[1][1] - 0.02 * (vr[1][1] - vr[1][0])
+        item.setPos(x, y)
+        self.main_plot.addItem(item)
+        self._annotation_items.append(item)
+
 
 # ===========================================================================
 # SimpleFitsPanel
@@ -296,6 +319,7 @@ class SimpleFitsPanel(QWidget):
         self.model = SimpleFitModel()
         self.data: dict | None = None
         self.fit_result: dict | None = None
+        self._param_backup: dict | None = None   # snapshot taken before each fit
 
         # Dynamic widget references (rebuilt when model changes)
         self._param_value_edits:   dict[str, QLineEdit] = {}
@@ -424,7 +448,7 @@ class SimpleFitsPanel(QWidget):
         unc_row.addStretch()
         layout.addLayout(unc_row)
 
-        # ── Buttons ───────────────────────────────────────────────────────────
+        # ── Primary action buttons ────────────────────────────────────────────
         self.fit_btn = QPushButton('Fit')
         self.fit_btn.setMinimumHeight(28)
         self.fit_btn.setStyleSheet('font-weight: bold;')
@@ -440,6 +464,76 @@ class SimpleFitsPanel(QWidget):
         self.store_btn.setMinimumHeight(26)
         self.store_btn.clicked.connect(self._store_results)
         layout.addWidget(self.store_btn)
+
+        # ── Result / display buttons ───────────────────────────────────────────
+        row1 = QHBoxLayout()
+        self.results_to_graph_btn = QPushButton('Results to graph')
+        self.results_to_graph_btn.setMinimumHeight(26)
+        self.results_to_graph_btn.setStyleSheet(
+            'background-color: #81c784; color: white; font-weight: bold;'
+        )
+        self.results_to_graph_btn.setToolTip(
+            'Annotate the I(Q) plot with the current fitted parameter values.'
+        )
+        self.results_to_graph_btn.clicked.connect(self._results_to_graph)
+        row1.addWidget(self.results_to_graph_btn)
+
+        self.revert_btn = QPushButton('Revert back')
+        self.revert_btn.setMinimumHeight(26)
+        self.revert_btn.setStyleSheet(
+            'background-color: #e67e22; color: white; font-weight: bold;'
+        )
+        self.revert_btn.setToolTip(
+            'Restore the parameter values that were in place before the last fit.'
+        )
+        self.revert_btn.clicked.connect(self._revert_to_backup)
+        row1.addWidget(self.revert_btn)
+        layout.addLayout(row1)
+
+        # ── State / file buttons ───────────────────────────────────────────────
+        row2 = QHBoxLayout()
+        self.reset_btn = QPushButton('Reset to defaults')
+        self.reset_btn.setMinimumHeight(26)
+        self.reset_btn.setStyleSheet(
+            'background-color: #e67e22; color: white; font-weight: bold;'
+        )
+        self.reset_btn.setToolTip(
+            'Reset all parameters for the current model to their registry defaults.'
+        )
+        self.reset_btn.clicked.connect(self._reset_to_defaults)
+        row2.addWidget(self.reset_btn)
+
+        self.save_state_btn = QPushButton('Save state')
+        self.save_state_btn.setMinimumHeight(26)
+        self.save_state_btn.setStyleSheet(
+            'background-color: #3498db; color: white; font-weight: bold;'
+        )
+        self.save_state_btn.setToolTip(
+            'Save current model choice and parameter values to the state file.'
+        )
+        self.save_state_btn.clicked.connect(self._save_state_explicit)
+        row2.addWidget(self.save_state_btn)
+        layout.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        self.export_btn = QPushButton('Export parameters')
+        self.export_btn.setMinimumHeight(26)
+        self.export_btn.setStyleSheet('background-color: lightgreen;')
+        self.export_btn.setToolTip(
+            'Export current parameters to a pyIrena JSON configuration file.'
+        )
+        self.export_btn.clicked.connect(self._export_parameters)
+        row3.addWidget(self.export_btn)
+
+        self.import_btn = QPushButton('Import parameters')
+        self.import_btn.setMinimumHeight(26)
+        self.import_btn.setStyleSheet('background-color: lightgreen;')
+        self.import_btn.setToolTip(
+            'Import parameters from a pyIrena JSON configuration file.'
+        )
+        self.import_btn.clicked.connect(self._import_parameters)
+        row3.addWidget(self.import_btn)
+        layout.addLayout(row3)
 
         layout.addStretch()
         return panel
@@ -683,6 +777,14 @@ class SimpleFitsPanel(QWidget):
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
 
+        # Snapshot parameters before fitting so "Revert back" can restore them
+        self._param_backup = {
+            'model': self.model.model,
+            'use_complex_bg': self.model.use_complex_bg,
+            'params': dict(self.model.params),
+            'limits': {k: tuple(v) for k, v in self.model.limits.items()},
+        }
+
         model = self._collect_model()
         q, I, dI = self._get_filtered_data()
         if len(q) < 2:
@@ -810,6 +912,185 @@ class SimpleFitsPanel(QWidget):
         else:
             lin = None
         self.graph_window.plot_linearization(lin)
+
+    # ── Helper ────────────────────────────────────────────────────────────────
+
+    def _get_data_folder(self) -> str:
+        """Return the folder of the currently loaded file, or home dir."""
+        if self.data and self.data.get('filepath'):
+            return str(Path(self.data['filepath']).parent)
+        return str(Path.home())
+
+    # ── Revert / reset ────────────────────────────────────────────────────────
+
+    def _revert_to_backup(self):
+        """Restore parameters to the snapshot taken before the last fit."""
+        if self._param_backup is None:
+            QMessageBox.warning(self, 'No backup',
+                                'No parameter backup available — run a fit first.')
+            return
+        b = self._param_backup
+        if b['model'] != self.model.model:
+            self.model_combo.setCurrentText(b['model'])  # triggers _on_model_changed
+        self.model.params.update(b['params'])
+        self.model.limits.update(b['limits'])
+        self._build_param_widgets()
+        self.status_label.setText('Reverted to pre-fit parameters.')
+
+    def _reset_to_defaults(self):
+        """Reset the active model's parameters to registry defaults."""
+        reply = QMessageBox.question(
+            self, 'Reset to defaults',
+            f'Reset all {self.model.model} parameters to their default values?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.model._reset_to_defaults()
+            self._build_param_widgets()
+            self.status_label.setText('Parameters reset to defaults.')
+
+    # ── Save state (explicit button) ─────────────────────────────────────────
+
+    def _save_state_explicit(self):
+        """Save state and show a confirmation dialog."""
+        self.save_state()
+        QMessageBox.information(self, 'State saved',
+                                'Current model and parameters saved successfully.')
+
+    # ── Export / import parameters ────────────────────────────────────────────
+
+    def _export_parameters(self):
+        """Export current parameters to a pyIrena JSON configuration file."""
+        import json, datetime
+        try:
+            from pyirena import __version__ as _version
+        except Exception:
+            _version = 'unknown'
+
+        default_path = str(Path(self._get_data_folder()) / 'pyirena_config.json')
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 'Export pyIrena Configuration', default_path,
+            'pyIrena Config (*.json);;All Files (*)',
+        )
+        if not file_path:
+            return
+        file_path = Path(file_path)
+
+        config: dict = {}
+        if file_path.exists():
+            try:
+                with open(file_path, 'r') as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+            if '_pyirena_config' not in config:
+                QMessageBox.warning(
+                    self, 'Not a pyIrena file',
+                    f'The selected file is not a pyIrena configuration file:\n{file_path}\n\n'
+                    'Choose a different file or enter a new filename.',
+                )
+                return
+            if 'simple_fits' in config:
+                reply = QMessageBox.question(
+                    self, 'Overwrite Simple Fits parameters?',
+                    f'File already contains Simple Fits parameters:\n{file_path}\n\n'
+                    'Overwrite them?',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+        now = datetime.datetime.now().isoformat(timespec='seconds')
+        if '_pyirena_config' not in config:
+            config['_pyirena_config'] = {
+                'file_type': 'pyIrena Configuration File',
+                'version': _version,
+                'created': now,
+            }
+        config['_pyirena_config']['modified'] = now
+        config['_pyirena_config']['written_by'] = f'pyIrena {_version}'
+
+        self.save_state()
+        config['simple_fits'] = self.state_manager.get('simple_fits')
+
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Export failed', f'Could not write file:\n{exc}')
+            return
+
+        msg = f'Parameters exported to: {file_path.name}'
+        self.status_label.setText(msg)
+
+    def _import_parameters(self):
+        """Import parameters from a pyIrena JSON configuration file."""
+        import json
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 'Import pyIrena Configuration', self._get_data_folder(),
+            'pyIrena Config (*.json);;All Files (*)',
+        )
+        if not file_path:
+            return
+        file_path = Path(file_path)
+
+        try:
+            with open(file_path, 'r') as f:
+                config = json.load(f)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Import failed', f'Could not read file:\n{exc}')
+            return
+
+        if '_pyirena_config' not in config:
+            QMessageBox.warning(
+                self, 'Not a pyIrena file',
+                f'The selected file is not a pyIrena configuration file:\n{file_path}',
+            )
+            return
+        if 'simple_fits' not in config:
+            QMessageBox.warning(
+                self, 'No Simple Fits parameters',
+                f'The file does not contain a Simple Fits parameter group:\n{file_path}',
+            )
+            return
+
+        sf_state = config['simple_fits']
+        self.state_manager.update('simple_fits', sf_state)
+        self.load_state()
+        written_by = config['_pyirena_config'].get('written_by', 'unknown version')
+        msg = f'Parameters imported from: {file_path.name}  (written by {written_by})'
+        self.status_label.setText(msg)
+
+    # ── Results to graph ──────────────────────────────────────────────────────
+
+    def _results_to_graph(self):
+        """Annotate the I(Q) plot with the current fitted parameter values."""
+        if self.fit_result is None or not self.fit_result.get('success'):
+            QMessageBox.warning(self, 'No fit results',
+                                'Run a fit first to generate results.')
+            return
+
+        params = self.fit_result.get('params', {})
+        stds   = self.fit_result.get('params_std', {})
+        derived = self.fit_result.get('derived', {})
+        chi2   = self.fit_result.get('reduced_chi2')
+
+        lines = [f'Model: {self.model.model}']
+        if chi2 is not None:
+            lines.append(f'χ²_red = {chi2:.4g}')
+        for name, val in params.items():
+            std = stds.get(name)
+            if std is not None and np.isfinite(std) and std > 0:
+                lines.append(f'{name} = {val:.4g} ± {std:.3g}')
+            else:
+                lines.append(f'{name} = {val:.4g}')
+        for name, val in derived.items():
+            lines.append(f'{name} = {val:.4g}  [derived]')
+
+        self.graph_window.clear_result_annotations()
+        self.graph_window.add_result_annotation('\n'.join(lines))
+        self.status_label.setText('Results annotated on graph.')
 
     # ── State persistence ─────────────────────────────────────────────────────
 
