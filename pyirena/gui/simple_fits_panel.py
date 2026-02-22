@@ -322,11 +322,15 @@ class SimpleFitsPanel(QWidget):
         self._param_backup: dict | None = None   # snapshot taken before each fit
 
         # Dynamic widget references (rebuilt when model changes)
-        self._param_value_edits:   dict[str, QLineEdit] = {}
+        self._param_value_edits:   dict[str, ScrubbableLineEdit] = {}
         self._param_lo_edits:      dict[str, QLineEdit] = {}
         self._param_hi_edits:      dict[str, QLineEdit] = {}
         self._param_unc_labels:    dict[str, QLabel]    = {}
+        self._param_fit_checks:    dict[str, QCheckBox] = {}   # "Fit?" per param
         self._param_grid_widget:   QWidget | None = None
+        self._lo_header_lbl:       QLabel | None = None
+        self._hi_header_lbl:       QLabel | None = None
+        self._fit_col_header_lbl:  QLabel | None = None
 
         self.init_ui()
         self.load_state()
@@ -342,7 +346,7 @@ class SimpleFitsPanel(QWidget):
         splitter.addWidget(self._create_control_panel())
         self.graph_window = SimpleFitsGraphWindow()
         splitter.addWidget(self.graph_window)
-        splitter.setSizes([380, 820])
+        splitter.setSizes([420, 780])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         main_layout.addWidget(splitter)
@@ -354,11 +358,11 @@ class SimpleFitsPanel(QWidget):
 
     def _create_control_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setMinimumWidth(350)
-        panel.setMaximumWidth(420)
+        panel.setMinimumWidth(380)
+        panel.setMaximumWidth(460)
         layout = QVBoxLayout()
         layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(6)
+        layout.setSpacing(5)
         panel.setLayout(layout)
 
         # ── Model selector ────────────────────────────────────────────────────
@@ -371,39 +375,55 @@ class SimpleFitsPanel(QWidget):
         model_row.addWidget(self.model_combo, 1)
         layout.addLayout(model_row)
 
-        # ── Q range ───────────────────────────────────────────────────────────
+        # ── Q range (cursor-driven, read-only display) ────────────────────────
         q_box = QGroupBox('Q range for fit')
         q_layout = QGridLayout()
         q_layout.setContentsMargins(6, 4, 6, 4)
         q_box.setLayout(q_layout)
 
-        q_layout.addWidget(QLabel('Q min:'), 0, 0)
-        self.q_min_edit = QLineEdit('')
-        self.q_min_edit.setPlaceholderText('all data')
-        self.q_min_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
-        self.q_min_edit.setMaximumWidth(80)
-        q_layout.addWidget(self.q_min_edit, 0, 1)
-        q_layout.addWidget(QLabel('Å⁻¹'), 0, 2)
+        cursor_hint = QLabel('Drag cursors on I(Q) graph to set Q range')
+        cursor_hint.setStyleSheet('font-size: 10px; color: #7f8c8d; font-style: italic;')
+        cursor_hint.setWordWrap(True)
+        q_layout.addWidget(cursor_hint, 0, 0, 1, 3)
 
-        q_layout.addWidget(QLabel('Q max:'), 1, 0)
-        self.q_max_edit = QLineEdit('')
-        self.q_max_edit.setPlaceholderText('all data')
-        self.q_max_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
-        self.q_max_edit.setMaximumWidth(80)
-        q_layout.addWidget(self.q_max_edit, 1, 1)
+        q_layout.addWidget(QLabel('Q min:'), 1, 0)
+        self.q_min_display = QLineEdit()
+        self.q_min_display.setReadOnly(True)
+        self.q_min_display.setPlaceholderText('(cursor A)')
+        self.q_min_display.setStyleSheet(
+            'background-color: #ecf0f1; color: #7f8c8d;'
+        )
+        self.q_min_display.setMaximumWidth(90)
+        q_layout.addWidget(self.q_min_display, 1, 1)
         q_layout.addWidget(QLabel('Å⁻¹'), 1, 2)
 
-        self.cursors_btn = QPushButton('Set from cursors')
-        self.cursors_btn.setFixedHeight(22)
-        self.cursors_btn.clicked.connect(self._set_q_from_cursors)
-        q_layout.addWidget(self.cursors_btn, 2, 0, 1, 3)
+        q_layout.addWidget(QLabel('Q max:'), 2, 0)
+        self.q_max_display = QLineEdit()
+        self.q_max_display.setReadOnly(True)
+        self.q_max_display.setPlaceholderText('(cursor B)')
+        self.q_max_display.setStyleSheet(
+            'background-color: #ecf0f1; color: #7f8c8d;'
+        )
+        self.q_max_display.setMaximumWidth(90)
+        q_layout.addWidget(self.q_max_display, 2, 1)
+        q_layout.addWidget(QLabel('Å⁻¹'), 2, 2)
         layout.addWidget(q_box)
 
-        # ── Background ────────────────────────────────────────────────────────
+        # ── Global fitting options ─────────────────────────────────────────────
+        options_row = QHBoxLayout()
+        self.no_limits_check = QCheckBox('No limits?')
+        self.no_limits_check.setToolTip(
+            'When checked, ignore all parameter bounds and fit unconstrained.\n'
+            'The lo/hi input fields are hidden.'
+        )
+        self.no_limits_check.stateChanged.connect(self._on_no_limits_changed)
+        options_row.addWidget(self.no_limits_check)
+
         self.complex_bg_check = QCheckBox('Complex background  (A·Q⁻ⁿ + flat)')
         self.complex_bg_check.setChecked(False)
         self.complex_bg_check.stateChanged.connect(self._on_complex_bg_changed)
-        layout.addWidget(self.complex_bg_check)
+        options_row.addWidget(self.complex_bg_check)
+        layout.addLayout(options_row)
 
         # ── Parameters ────────────────────────────────────────────────────────
         self.params_box = QGroupBox('Parameters')
@@ -423,6 +443,49 @@ class SimpleFitsPanel(QWidget):
         # Build initial parameter widgets
         self._build_param_widgets()
 
+        # ── Primary action buttons: [Graph model] [Fit] ───────────────────────
+        btn_row1 = QHBoxLayout()
+
+        self.graph_model_btn = QPushButton('Graph model')
+        self.graph_model_btn.setMinimumHeight(28)
+        self.graph_model_btn.setStyleSheet("""
+            QPushButton { background-color: #52c77a; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #3eb56a; }
+        """)
+        self.graph_model_btn.setToolTip('Compute and display the current model curve without fitting.')
+        self.graph_model_btn.clicked.connect(self._graph_model)
+        btn_row1.addWidget(self.graph_model_btn)
+
+        self.fit_btn = QPushButton('Fit')
+        self.fit_btn.setMinimumHeight(28)
+        self.fit_btn.setStyleSheet("""
+            QPushButton { background-color: #27ae60; color: white; font-weight: bold; font-size: 13px; }
+            QPushButton:hover { background-color: #1e8449; }
+        """)
+        self.fit_btn.clicked.connect(self._run_fit)
+        btn_row1.addWidget(self.fit_btn)
+        layout.addLayout(btn_row1)
+
+        # ── Uncertainty: [Passes: [10]] [Calc. Uncertainty (MC)] ─────────────
+        btn_row_unc = QHBoxLayout()
+        btn_row_unc.addWidget(QLabel('Passes:'))
+        self.n_runs_spin = QSpinBox()
+        self.n_runs_spin.setRange(1, 500)
+        self.n_runs_spin.setValue(10)
+        self.n_runs_spin.setMaximumWidth(55)
+        self.n_runs_spin.setToolTip('Number of noise-perturbed fits for uncertainty estimation.')
+        btn_row_unc.addWidget(self.n_runs_spin)
+
+        self.unc_btn = QPushButton('Calc. Uncertainty (MC)')
+        self.unc_btn.setMinimumHeight(26)
+        self.unc_btn.setStyleSheet("""
+            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1abc9c; }
+        """)
+        self.unc_btn.clicked.connect(self._calculate_uncertainty)
+        btn_row_unc.addWidget(self.unc_btn)
+        layout.addLayout(btn_row_unc)
+
         # ── Fit results ───────────────────────────────────────────────────────
         results_box = QGroupBox('Fit results')
         results_layout = QGridLayout()
@@ -437,85 +500,58 @@ class SimpleFitsPanel(QWidget):
         results_layout.addWidget(self.rchi2_label, 1, 1)
         layout.addWidget(results_box)
 
-        # ── Uncertainty options ───────────────────────────────────────────────
-        unc_row = QHBoxLayout()
-        unc_row.addWidget(QLabel('MC runs:'))
-        self.n_runs_spin = QSpinBox()
-        self.n_runs_spin.setRange(5, 500)
-        self.n_runs_spin.setValue(50)
-        self.n_runs_spin.setMaximumWidth(70)
-        unc_row.addWidget(self.n_runs_spin)
-        unc_row.addStretch()
-        layout.addLayout(unc_row)
-
-        # ── Primary action buttons ────────────────────────────────────────────
-        self.fit_btn = QPushButton('Fit')
-        self.fit_btn.setMinimumHeight(28)
-        self.fit_btn.setStyleSheet('font-weight: bold;')
-        self.fit_btn.clicked.connect(self._run_fit)
-        layout.addWidget(self.fit_btn)
-
-        self.unc_btn = QPushButton('Calculate Uncertainty (MC)')
-        self.unc_btn.setMinimumHeight(26)
-        self.unc_btn.clicked.connect(self._calculate_uncertainty)
-        layout.addWidget(self.unc_btn)
-
-        self.store_btn = QPushButton('Store in File')
-        self.store_btn.setMinimumHeight(26)
-        self.store_btn.clicked.connect(self._store_results)
-        layout.addWidget(self.store_btn)
-
-        # ── Result / display buttons ───────────────────────────────────────────
-        row1 = QHBoxLayout()
+        # ── Output / display buttons ──────────────────────────────────────────
+        # Row 1: Results to graph | Revert back
+        row_out1 = QHBoxLayout()
         self.results_to_graph_btn = QPushButton('Results to graph')
         self.results_to_graph_btn.setMinimumHeight(26)
-        self.results_to_graph_btn.setStyleSheet(
-            'background-color: #81c784; color: white; font-weight: bold;'
-        )
+        self.results_to_graph_btn.setStyleSheet("""
+            QPushButton { background-color: #81c784; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #66bb6a; }
+        """)
         self.results_to_graph_btn.setToolTip(
             'Annotate the I(Q) plot with the current fitted parameter values.'
         )
         self.results_to_graph_btn.clicked.connect(self._results_to_graph)
-        row1.addWidget(self.results_to_graph_btn)
+        row_out1.addWidget(self.results_to_graph_btn)
 
         self.revert_btn = QPushButton('Revert back')
         self.revert_btn.setMinimumHeight(26)
-        self.revert_btn.setStyleSheet(
-            'background-color: #e67e22; color: white; font-weight: bold;'
-        )
+        self.revert_btn.setStyleSheet("""
+            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #f39c12; }
+        """)
         self.revert_btn.setToolTip(
             'Restore the parameter values that were in place before the last fit.'
         )
         self.revert_btn.clicked.connect(self._revert_to_backup)
-        row1.addWidget(self.revert_btn)
-        layout.addLayout(row1)
+        row_out1.addWidget(self.revert_btn)
+        layout.addLayout(row_out1)
 
-        # ── State / file buttons ───────────────────────────────────────────────
-        row2 = QHBoxLayout()
-        self.reset_btn = QPushButton('Reset to defaults')
-        self.reset_btn.setMinimumHeight(26)
-        self.reset_btn.setStyleSheet(
-            'background-color: #e67e22; color: white; font-weight: bold;'
-        )
-        self.reset_btn.setToolTip(
-            'Reset all parameters for the current model to their registry defaults.'
-        )
-        self.reset_btn.clicked.connect(self._reset_to_defaults)
-        row2.addWidget(self.reset_btn)
-
+        # Row 2: Save State | Store in File
+        row_out2 = QHBoxLayout()
         self.save_state_btn = QPushButton('Save state')
         self.save_state_btn.setMinimumHeight(26)
-        self.save_state_btn.setStyleSheet(
-            'background-color: #3498db; color: white; font-weight: bold;'
-        )
+        self.save_state_btn.setStyleSheet("""
+            QPushButton { background-color: #3498db; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #2980b9; }
+        """)
         self.save_state_btn.setToolTip(
             'Save current model choice and parameter values to the state file.'
         )
         self.save_state_btn.clicked.connect(self._save_state_explicit)
-        row2.addWidget(self.save_state_btn)
-        layout.addLayout(row2)
+        row_out2.addWidget(self.save_state_btn)
 
-        row3 = QHBoxLayout()
+        self.store_btn = QPushButton('Store in File')
+        self.store_btn.setMinimumHeight(26)
+        self.store_btn.setStyleSheet('background-color: lightgreen;')
+        self.store_btn.setToolTip('Save fit results to the HDF5 (NXcanSAS) file.')
+        self.store_btn.clicked.connect(self._store_results)
+        row_out2.addWidget(self.store_btn)
+        layout.addLayout(row_out2)
+
+        # Row 3: Export | Import parameters
+        row_out3 = QHBoxLayout()
         self.export_btn = QPushButton('Export parameters')
         self.export_btn.setMinimumHeight(26)
         self.export_btn.setStyleSheet('background-color: lightgreen;')
@@ -523,7 +559,7 @@ class SimpleFitsPanel(QWidget):
             'Export current parameters to a pyIrena JSON configuration file.'
         )
         self.export_btn.clicked.connect(self._export_parameters)
-        row3.addWidget(self.export_btn)
+        row_out3.addWidget(self.export_btn)
 
         self.import_btn = QPushButton('Import parameters')
         self.import_btn.setMinimumHeight(26)
@@ -532,8 +568,21 @@ class SimpleFitsPanel(QWidget):
             'Import parameters from a pyIrena JSON configuration file.'
         )
         self.import_btn.clicked.connect(self._import_parameters)
-        row3.addWidget(self.import_btn)
-        layout.addLayout(row3)
+        row_out3.addWidget(self.import_btn)
+        layout.addLayout(row_out3)
+
+        # Row 4: Reset to defaults (full width)
+        self.reset_btn = QPushButton('Reset to defaults')
+        self.reset_btn.setMinimumHeight(26)
+        self.reset_btn.setStyleSheet("""
+            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #f39c12; }
+        """)
+        self.reset_btn.setToolTip(
+            'Reset all parameters for the current model to their registry defaults.'
+        )
+        self.reset_btn.clicked.connect(self._reset_to_defaults)
+        layout.addWidget(self.reset_btn)
 
         layout.addStretch()
         return panel
@@ -550,6 +599,10 @@ class SimpleFitsPanel(QWidget):
         self._param_lo_edits.clear()
         self._param_hi_edits.clear()
         self._param_unc_labels.clear()
+        self._param_fit_checks.clear()
+        self._lo_header_lbl = None
+        self._hi_header_lbl = None
+        self._fit_col_header_lbl = None
 
         container = QWidget()
         grid = QGridLayout()
@@ -557,76 +610,101 @@ class SimpleFitsPanel(QWidget):
         grid.setSpacing(3)
         container.setLayout(grid)
 
-        # Header row
-        for col, text in enumerate(['Parameter', 'Value', 'lo', 'hi', '± std']):
+        no_limits = self.no_limits_check.isChecked() if hasattr(self, 'no_limits_check') else False
+
+        # Header row: [Fit? | Parameter | Value | lo | hi | ±std]
+        headers = [('Fit?', 0), ('Parameter', 1), ('Value', 2),
+                   ('lo', 3), ('hi', 4), ('± std', 5)]
+        for text, col in headers:
             lbl = QLabel(text)
             lbl.setStyleSheet('font-weight: bold; font-size: 10px;')
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setVisible(not (no_limits and text in ('lo', 'hi')))
             grid.addWidget(lbl, 0, col)
+            if text == 'lo':
+                self._lo_header_lbl = lbl
+            elif text == 'hi':
+                self._hi_header_lbl = lbl
+            elif text == 'Fit?':
+                self._fit_col_header_lbl = lbl
 
         entry = MODEL_REGISTRY[self.model.model]
+        n_model_params = len(entry['params'])
+        use_bg = self.model.use_complex_bg and entry['complex_bg']
+
         param_specs = list(entry['params'])
-        if self.model.use_complex_bg and entry['complex_bg']:
+        if use_bg:
             from pyirena.core.simple_fits import _BG_PARAMS
-            param_specs += _BG_PARAMS
+            param_specs = param_specs + list(_BG_PARAMS)
 
-        for row_i, (name, default, lo_def, hi_def) in enumerate(param_specs):
-            row = row_i + 1
-            val  = self.model.params.get(name, default)
-            lo_v, hi_v = self.model.limits.get(name, (lo_def, hi_def))
+        # Saved "Fit?" states from previous build or state
+        saved_fixed = getattr(self, '_saved_param_fixed', {})
 
-            # Separator between model params and BG params
-            if (self.model.use_complex_bg and entry['complex_bg']
-                    and row_i == len(entry['params'])):
+        row = 1  # header is at row 0
+        for i, (name, default, lo_def, hi_def) in enumerate(param_specs):
+            # Insert separator before the first BG param
+            if use_bg and i == n_model_params:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.HLine)
                 sep.setFrameShadow(QFrame.Shadow.Sunken)
-                grid.addWidget(sep, row, 0, 1, 5)
-                row_i += 1
+                grid.addWidget(sep, row, 0, 1, 6)
                 row += 1
-                row = row_i + 1  # keep synced
 
-            # Name label
+            val   = self.model.params.get(name, default)
+            lo_v, hi_v = self.model.limits.get(name, (lo_def, hi_def))
+
+            # Col 0: Fit? checkbox (default = True = fitted)
+            fit_chk = QCheckBox()
+            fit_chk.setChecked(not saved_fixed.get(name, False))
+            fit_chk.setToolTip(f'Fit {name}?  Uncheck to hold fixed during fitting.')
+            grid.addWidget(fit_chk, row, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+            self._param_fit_checks[name] = fit_chk
+
+            # Col 1: Name label
             name_lbl = QLabel(name + ':')
             name_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             name_lbl.setStyleSheet('font-size: 11px;')
-            grid.addWidget(name_lbl, row, 0)
+            grid.addWidget(name_lbl, row, 1)
 
-            # Value edit
+            # Col 2: Value edit (scrubable)
             val_edit = ScrubbableLineEdit(f'{val:.6g}')
             val_edit.setValidator(QDoubleValidator(-1e30, 1e30, 10))
             val_edit.setMaximumWidth(85)
             val_edit.setMinimumWidth(70)
-            val_edit.editingFinished.connect(self._on_param_edited)
-            grid.addWidget(val_edit, row, 1)
+            val_edit.editingFinished.connect(self._auto_graph_model)
+            grid.addWidget(val_edit, row, 2)
             self._param_value_edits[name] = val_edit
 
-            # Lo edit
+            # Col 3: lo bound
             lo_edit = QLineEdit('' if lo_v is None else f'{lo_v:.4g}')
             lo_edit.setPlaceholderText('−∞')
             lo_edit.setValidator(QDoubleValidator(-1e30, 1e30, 8))
-            lo_edit.setMaximumWidth(70)
-            lo_edit.setMinimumWidth(55)
-            grid.addWidget(lo_edit, row, 2)
+            lo_edit.setMaximumWidth(65)
+            lo_edit.setMinimumWidth(50)
+            lo_edit.setVisible(not no_limits)
+            grid.addWidget(lo_edit, row, 3)
             self._param_lo_edits[name] = lo_edit
 
-            # Hi edit
+            # Col 4: hi bound
             hi_edit = QLineEdit('' if hi_v is None else f'{hi_v:.4g}')
             hi_edit.setPlaceholderText('+∞')
             hi_edit.setValidator(QDoubleValidator(-1e30, 1e30, 8))
-            hi_edit.setMaximumWidth(70)
-            hi_edit.setMinimumWidth(55)
-            grid.addWidget(hi_edit, row, 3)
+            hi_edit.setMaximumWidth(65)
+            hi_edit.setMinimumWidth(50)
+            hi_edit.setVisible(not no_limits)
+            grid.addWidget(hi_edit, row, 4)
             self._param_hi_edits[name] = hi_edit
 
-            # Uncertainty label
+            # Col 5: ±std label
             unc_lbl = QLabel('')
             unc_lbl.setStyleSheet('font-size: 10px; color: #666;')
             unc_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(unc_lbl, row, 4)
+            grid.addWidget(unc_lbl, row, 5)
             self._param_unc_labels[name] = unc_lbl
 
-        grid.setColumnStretch(4, 1)
+            row += 1
+
+        grid.setColumnStretch(5, 1)
         self._param_grid_widget = container
         self._params_scroll_area.setWidget(container)
 
@@ -642,6 +720,7 @@ class SimpleFitsPanel(QWidget):
             for name, default, lo, hi in _BG_PARAMS:
                 self.model.params.setdefault(name, default)
                 self.model.limits.setdefault(name, (lo, hi))
+        self._saved_param_fixed = {}   # reset "Fit?" state for new model
         self._build_param_widgets()
         self.fit_result = None
         self.chi2_label.setText('—')
@@ -658,8 +737,20 @@ class SimpleFitsPanel(QWidget):
                 self.model.limits.setdefault(name, (lo, hi))
         self._build_param_widgets()
 
+    def _on_no_limits_changed(self, state):
+        """Show/hide the lo/hi bound columns when 'No limits?' is toggled."""
+        no_limits = bool(state)
+        if self._lo_header_lbl:
+            self._lo_header_lbl.setVisible(not no_limits)
+        if self._hi_header_lbl:
+            self._hi_header_lbl.setVisible(not no_limits)
+        for edit in self._param_lo_edits.values():
+            edit.setVisible(not no_limits)
+        for edit in self._param_hi_edits.values():
+            edit.setVisible(not no_limits)
+
     def _on_param_edited(self):
-        """Read the edited value back into self.model.params immediately."""
+        """Read edited values back into self.model.params."""
         for name, edit in self._param_value_edits.items():
             txt = edit.text().strip()
             if txt:
@@ -667,6 +758,12 @@ class SimpleFitsPanel(QWidget):
                     self.model.params[name] = float(txt)
                 except ValueError:
                     pass
+
+    def _auto_graph_model(self):
+        """Sync parameter values and auto-redisplay model curve after edit."""
+        self._on_param_edited()
+        if self.data is not None:
+            self._graph_model()
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
@@ -693,29 +790,30 @@ class SimpleFitsPanel(QWidget):
         )
         self.setWindowTitle(f'Simple Fits — {label}')
         self.status_label.setText(f"Loaded: {label} ({len(q)} points)")
+        self._update_q_display()
 
     # ── Q range helpers ───────────────────────────────────────────────────────
 
-    def _set_q_from_cursors(self):
-        """Copy cursor Q positions into the Q min/max fields."""
+    def _update_q_display(self):
+        """Read cursor positions and update the read-only Q range display fields."""
         q_min, q_max = self.graph_window.get_cursor_range()
         if q_min is not None:
-            self.q_min_edit.setText(f'{q_min:.6g}')
+            self.q_min_display.setText(f'{q_min:.6g}')
         if q_max is not None:
-            self.q_max_edit.setText(f'{q_max:.6g}')
+            self.q_max_display.setText(f'{q_max:.6g}')
 
     def _get_q_range(self):
-        """Return (q_min, q_max) or (None, None) from the Q range fields."""
-        def _parse(edit):
-            txt = edit.text().strip()
-            try:
-                return float(txt) if txt else None
-            except ValueError:
-                return None
-        return _parse(self.q_min_edit), _parse(self.q_max_edit)
+        """Return (q_min, q_max) from cursor positions, updating the display."""
+        q_min, q_max = self.graph_window.get_cursor_range()
+        # Update display fields
+        if q_min is not None:
+            self.q_min_display.setText(f'{q_min:.6g}')
+        if q_max is not None:
+            self.q_max_display.setText(f'{q_max:.6g}')
+        return q_min, q_max
 
     def _get_filtered_data(self):
-        """Return (q, I, dI) arrays filtered to the active Q range."""
+        """Return (q, I, dI) arrays filtered to the active Q range (from cursors)."""
         if self.data is None:
             return None, None, None
         q  = self.data['Q']
@@ -727,10 +825,7 @@ class SimpleFitsPanel(QWidget):
             mask &= (q >= q_min)
         if q_max is not None:
             mask &= (q <= q_max)
-        if dI is not None:
-            dI_f = dI[mask]
-        else:
-            dI_f = None
+        dI_f = dI[mask] if dI is not None else None
         return q[mask], I[mask], dI_f
 
     # ── Collect model from widgets ─────────────────────────────────────────────
@@ -756,6 +851,21 @@ class SimpleFitsPanel(QWidget):
             self.model.limits[name] = (lo, hi)
         return self.model
 
+    def _collect_fixed_params(self) -> dict:
+        """Return dict of param_name → current_value for unchecked 'Fit?' params."""
+        fixed = {}
+        for name, chk in self._param_fit_checks.items():
+            if not chk.isChecked():
+                val_edit = self._param_value_edits.get(name)
+                if val_edit:
+                    try:
+                        fixed[name] = float(val_edit.text())
+                    except ValueError:
+                        fixed[name] = self.model.params.get(name, 0.0)
+                else:
+                    fixed[name] = self.model.params.get(name, 0.0)
+        return fixed
+
     def _apply_result_to_widgets(self, result: dict):
         """Write fitted parameter values and ± uncertainties back to widgets."""
         params = result.get('params', {})
@@ -765,10 +875,48 @@ class SimpleFitsPanel(QWidget):
                 edit.setText(f'{params[name]:.6g}')
         for name, lbl in self._param_unc_labels.items():
             std = stds.get(name)
-            if std is not None and np.isfinite(std):
+            if std is not None and np.isfinite(std) and std > 0:
                 lbl.setText(f'±{std:.3g}')
             else:
                 lbl.setText('')
+
+    # ── Graph model (no fitting) ──────────────────────────────────────────────
+
+    def _graph_model(self):
+        """Compute and display the current model curve without fitting."""
+        if self.data is None:
+            return
+
+        self._collect_model()   # sync widget values → model.params
+
+        q_all = self.data['Q']
+        I_all = self.data['Intensity']
+        mask_all = np.isfinite(q_all) & np.isfinite(I_all) & (q_all > 0) & (I_all > 0)
+        q_plot = q_all[mask_all]
+
+        # Restrict to cursor Q range if available
+        q_min, q_max = self.graph_window.get_cursor_range()
+        if q_min is not None:
+            q_plot = q_plot[q_plot >= q_min]
+        if q_max is not None:
+            q_plot = q_plot[q_plot <= q_max]
+
+        if len(q_plot) < 2:
+            return
+
+        try:
+            I_model = self.model.compute(q_plot)
+        except Exception as exc:
+            self.status_label.setText(f'Model error: {exc}')
+            return
+
+        valid = np.isfinite(I_model) & (I_model > 0)
+        if valid.sum() < 2:
+            self.status_label.setText('Model returned no valid (positive) values.')
+            return
+
+        self.graph_window.plot_fit(q_plot[valid], I_model[valid])
+        self.status_label.setText(f'Model: {self.model.model}  (not fitted)')
 
     # ── Fit ───────────────────────────────────────────────────────────────────
 
@@ -776,6 +924,9 @@ class SimpleFitsPanel(QWidget):
         if self.data is None:
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
+
+        # Read cursor positions into display fields and get Q range
+        self._get_q_range()
 
         # Snapshot parameters before fitting so "Revert back" can restore them
         self._param_backup = {
@@ -786,13 +937,18 @@ class SimpleFitsPanel(QWidget):
         }
 
         model = self._collect_model()
+        fixed_params = self._collect_fixed_params()
+        no_limits = self.no_limits_check.isChecked()
+
         q, I, dI = self._get_filtered_data()
-        if len(q) < 2:
+        if q is None or len(q) < 2:
             QMessageBox.warning(self, 'Too few points',
                                 'Not enough data points in the selected Q range.')
             return
 
-        result = model.fit(q, I, dI)
+        result = model.fit(q, I, dI,
+                           fixed_params=fixed_params if fixed_params else None,
+                           no_limits=no_limits)
         if not result['success']:
             QMessageBox.critical(self, 'Fit failed',
                                  f"Fit failed:\n{result.get('error', 'Unknown error')}")
@@ -833,6 +989,8 @@ class SimpleFitsPanel(QWidget):
             return
 
         model = self._collect_model()
+        fixed_params = self._collect_fixed_params()
+        no_limits = self.no_limits_check.isChecked()
         q, I, dI = self._get_filtered_data()
         n_runs = self.n_runs_spin.value()
         dI_safe = dI if dI is not None else np.maximum(I * 0.05, 1e-30)
@@ -841,7 +999,9 @@ class SimpleFitsPanel(QWidget):
         n_ok = 0
         for _ in range(n_runs):
             I_pert = I + dI_safe * np.random.randn(len(I))
-            mc_res = model.fit(q, I_pert, dI)
+            mc_res = model.fit(q, I_pert, dI,
+                               fixed_params=fixed_params if fixed_params else None,
+                               no_limits=no_limits)
             if mc_res.get('success'):
                 for k in mc_params:
                     mc_params[k].append(mc_res['params'].get(k, float('nan')))
@@ -946,6 +1106,7 @@ class SimpleFitsPanel(QWidget):
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.model._reset_to_defaults()
+            self._saved_param_fixed = {}
             self._build_param_widgets()
             self.status_label.setText('Parameters reset to defaults.')
 
@@ -1020,8 +1181,7 @@ class SimpleFitsPanel(QWidget):
             QMessageBox.warning(self, 'Export failed', f'Could not write file:\n{exc}')
             return
 
-        msg = f'Parameters exported to: {file_path.name}'
-        self.status_label.setText(msg)
+        self.status_label.setText(f'Parameters exported to: {file_path.name}')
 
     def _import_parameters(self):
         """Import parameters from a pyIrena JSON configuration file."""
@@ -1059,8 +1219,8 @@ class SimpleFitsPanel(QWidget):
         self.state_manager.update('simple_fits', sf_state)
         self.load_state()
         written_by = config['_pyirena_config'].get('written_by', 'unknown version')
-        msg = f'Parameters imported from: {file_path.name}  (written by {written_by})'
-        self.status_label.setText(msg)
+        self.status_label.setText(
+            f'Parameters imported from: {file_path.name}  (written by {written_by})')
 
     # ── Results to graph ──────────────────────────────────────────────────────
 
@@ -1071,10 +1231,10 @@ class SimpleFitsPanel(QWidget):
                                 'Run a fit first to generate results.')
             return
 
-        params = self.fit_result.get('params', {})
-        stds   = self.fit_result.get('params_std', {})
+        params  = self.fit_result.get('params', {})
+        stds    = self.fit_result.get('params_std', {})
         derived = self.fit_result.get('derived', {})
-        chi2   = self.fit_result.get('reduced_chi2')
+        chi2    = self.fit_result.get('reduced_chi2')
 
         lines = [f'Model: {self.model.model}']
         if chi2 is not None:
@@ -1105,7 +1265,7 @@ class SimpleFitsPanel(QWidget):
         self.model = SimpleFitModel()
         self.model.model = model_name
         self.model.use_complex_bg = bool(state.get('use_complex_bg', False))
-        self.model.n_mc_runs = int(state.get('n_mc_runs', 50))
+        self.model.n_mc_runs = int(state.get('n_mc_runs', 10))
 
         saved_params = state.get('params', {})
         saved_limits = state.get('param_limits', {})
@@ -1116,35 +1276,62 @@ class SimpleFitsPanel(QWidget):
                 {k: tuple(v) for k, v in saved_limits.items()}
             )
 
+        # Restore "Fit?" (fixed) states — stored as {name: True if fixed}
+        self._saved_param_fixed = state.get('param_fixed', {})
+
         # Update UI controls (signals blocked to avoid cascading rebuilds)
         self.model_combo.blockSignals(True)
         self.model_combo.setCurrentText(model_name)
         self.model_combo.blockSignals(False)
+
         self.complex_bg_check.blockSignals(True)
         self.complex_bg_check.setChecked(self.model.use_complex_bg)
         self.complex_bg_check.blockSignals(False)
+
+        no_limits = bool(state.get('no_limits', False))
+        self.no_limits_check.blockSignals(True)
+        self.no_limits_check.setChecked(no_limits)
+        self.no_limits_check.blockSignals(False)
+
         self.n_runs_spin.setValue(self.model.n_mc_runs)
 
+        # Restore cursor positions if saved
         q_min = state.get('q_min')
         q_max = state.get('q_max')
-        if q_min is not None:
-            self.q_min_edit.setText(str(q_min))
-        if q_max is not None:
-            self.q_max_edit.setText(str(q_max))
+        if q_min is not None and q_max is not None:
+            try:
+                self.graph_window.set_cursor_range(float(q_min), float(q_max))
+                self.q_min_display.setText(f'{float(q_min):.6g}')
+                self.q_max_display.setText(f'{float(q_max):.6g}')
+            except Exception:
+                pass
 
         self._build_param_widgets()
 
     def save_state(self):
         """Persist current panel state via StateManager."""
-        q_min_txt = self.q_min_edit.text().strip()
-        q_max_txt = self.q_max_edit.text().strip()
+        # Read cursor Q range (and update display)
+        q_min, q_max = self.graph_window.get_cursor_range()
+        if q_min is not None:
+            self.q_min_display.setText(f'{q_min:.6g}')
+        if q_max is not None:
+            self.q_max_display.setText(f'{q_max:.6g}')
+
+        # Collect which params are fixed (Fit? unchecked)
+        param_fixed = {
+            name: not chk.isChecked()
+            for name, chk in self._param_fit_checks.items()
+        }
+
         state = {
             'model': self.model.model,
-            'q_min': float(q_min_txt) if q_min_txt else None,
-            'q_max': float(q_max_txt) if q_max_txt else None,
+            'q_min': q_min,
+            'q_max': q_max,
             'use_complex_bg': self.model.use_complex_bg,
+            'no_limits': self.no_limits_check.isChecked(),
             'params': dict(self.model.params),
             'param_limits': {k: list(v) for k, v in self.model.limits.items()},
+            'param_fixed': param_fixed,
             'n_mc_runs': self.n_runs_spin.value(),
         }
         self.state_manager.update('simple_fits', state)

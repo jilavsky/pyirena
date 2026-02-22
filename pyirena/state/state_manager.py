@@ -52,9 +52,11 @@ class StateManager:
             "q_min": None,
             "q_max": None,
             "use_complex_bg": False,
+            "no_limits": False,
             "params": {},        # {param_name: current_value, …}
             "param_limits": {},  # {param_name: [lo, hi], …}  (None entries = ±∞)
-            "n_mc_runs": 50,
+            "param_fixed": {},   # {param_name: True} for fixed (Fit? unchecked) params
+            "n_mc_runs": 10,
         },
         "sizes": {
             # schema_version is bumped whenever a default value changes so that

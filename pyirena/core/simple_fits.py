@@ -525,6 +525,22 @@ class SimpleFitModel:
                 self.params.setdefault(name, default)
                 self.limits.setdefault(name, (lo, hi))
 
+    # ── Forward model evaluation ───────────────────────────────────────────────
+
+    def compute(self, q: np.ndarray) -> np.ndarray:
+        """Evaluate the model at *q* with current parameter values (no fitting).
+
+        Returns the model intensity array (same shape as *q*).
+        Negative or non-finite values are replaced with NaN.
+        """
+        q = np.asarray(q, dtype=float)
+        func = self._build_fit_func()
+        specs = self._active_param_specs()
+        vals = [s[1] for s in specs]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            result = func(q, *vals)
+        return np.where(np.isfinite(result) & (result > 0), result, np.nan)
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _active_param_specs(self) -> list[tuple]:
@@ -569,6 +585,8 @@ class SimpleFitModel:
         q: np.ndarray,
         intensity: np.ndarray,
         error: Optional[np.ndarray] = None,
+        fixed_params: Optional[dict] = None,
+        no_limits: bool = False,
     ) -> dict:
         """
         Fit the active model to experimental SAS data.
@@ -581,6 +599,12 @@ class SimpleFitModel:
             Measured intensity.
         error : array or None
             Measurement uncertainty.  If None, set to ``intensity × 0.05``.
+        fixed_params : dict or None
+            Parameters that should be held fixed during fitting.
+            Keys are parameter names; values are the fixed values to use.
+            Parameters not in this dict are fitted normally.
+        no_limits : bool
+            When True, ignore all lower/upper bounds (fit unconstrained).
 
         Returns
         -------
@@ -603,17 +627,66 @@ class SimpleFitModel:
         if len(qf) < 2:
             return self._failure('Not enough valid data points (need ≥ 2).')
 
+        fixed = dict(fixed_params) if fixed_params else {}
         specs = self._active_param_specs()
-        param_names = [s[0] for s in specs]
-        p0 = [s[1] for s in specs]
-        bounds_lo = [-np.inf if s[2] is None else s[2] for s in specs]
-        bounds_hi = [np.inf if s[3] is None else s[3] for s in specs]
+        all_names = [s[0] for s in specs]
+
+        # Split parameters into free (to be fitted) and fixed
+        free_specs = [(n, v, lo, hi) for (n, v, lo, hi) in specs if n not in fixed]
+        free_names = [s[0] for s in free_specs]
+
+        base_func = self._build_fit_func()
+
+        # ── All parameters fixed: just evaluate the model ─────────────────────
+        if not free_names:
+            all_vals = [fixed.get(n, v) for (n, v, lo, hi) in specs]
+            try:
+                I_model_fit = base_func(qf, *all_vals)
+                residuals_fit = (If - I_model_fit) / dIf
+                chi2 = float(np.sum(residuals_fit**2))
+                dof = max(len(qf), 1)
+                I_model = base_func(q, *all_vals)
+                residuals_full = (I - I_model) / dI
+            except Exception as exc:
+                return self._failure(str(exc))
+            all_fitted = {n: fixed.get(n, v) for (n, v, lo, hi) in specs}
+            self.params.update(all_fitted)
+            derived = self._compute_derived(all_fitted)
+            return {
+                'success': True,
+                'model': self.model,
+                'params': all_fitted,
+                'params_std': {n: 0.0 for n in all_names},
+                'I_model': I_model,
+                'q': q,
+                'residuals': residuals_full,
+                'chi2': chi2,
+                'dof': dof,
+                'reduced_chi2': chi2 / dof,
+                'derived': derived,
+                'error': None,
+            }
+
+        # ── Build wrapper that only accepts free parameters ───────────────────
+        def func(q_arr, *free_vals):
+            free_map = dict(zip(free_names, free_vals))
+            all_vals = [
+                fixed[n] if n in fixed else free_map[n]
+                for n in all_names
+            ]
+            return base_func(q_arr, *all_vals)
+
+        p0 = [s[1] for s in free_specs]
+        if no_limits:
+            bounds_lo = [-np.inf] * len(free_names)
+            bounds_hi = [np.inf] * len(free_names)
+        else:
+            bounds_lo = [-np.inf if s[2] is None else s[2] for s in free_specs]
+            bounds_hi = [np.inf if s[3] is None else s[3] for s in free_specs]
 
         # Clamp p0 to bounds
         p0 = [max(lo, min(hi, v)) if not (np.isinf(lo) and np.isinf(hi)) else v
               for v, lo, hi in zip(p0, bounds_lo, bounds_hi)]
-
-        func = self._build_fit_func()
 
         try:
             popt, pcov = curve_fit(
@@ -627,31 +700,33 @@ class SimpleFitModel:
         except Exception as exc:
             return self._failure(str(exc))
 
-        # Parameter uncertainties from covariance diagonal
-        param_std = {}
-        try:
-            diag = np.diag(pcov)
-            param_std = {
-                name: float(np.sqrt(max(d, 0.0)))
-                for name, d in zip(param_names, diag)
-            }
-        except Exception:
-            param_std = {name: float('nan') for name in param_names}
-
-        # Store fitted values back into self.params
-        fitted_params = {name: float(v) for name, v in zip(param_names, popt)}
+        # Combine free fitted values + fixed values into full result dict
+        free_fitted = dict(zip(free_names, popt))
+        fitted_params = {}
+        for (n, v, lo, hi) in specs:
+            fitted_params[n] = fixed[n] if n in fixed else free_fitted[n]
+        fitted_params = {k: float(v) for k, v in fitted_params.items()}
         self.params.update(fitted_params)
 
-        # Model intensity and residuals
-        I_model = func(q, *popt)
-        residuals_full = (I - I_model) / dI
+        # Parameter uncertainties (0 for fixed params, from pcov for free)
+        param_std: dict[str, float] = {n: 0.0 for n in fixed}
+        try:
+            diag = np.diag(pcov)
+            for name, d in zip(free_names, diag):
+                param_std[name] = float(np.sqrt(max(d, 0.0)))
+        except Exception:
+            for name in free_names:
+                param_std[name] = float('nan')
 
-        I_model_fit = func(qf, *popt)
+        # Model intensity and residuals (using free_vals order)
+        free_vals_opt = [free_fitted[n] for n in free_names]
+        I_model = func(q, *free_vals_opt)
+        residuals_full = (I - I_model) / dI
+        I_model_fit = func(qf, *free_vals_opt)
         residuals_fit = (If - I_model_fit) / dIf
         chi2 = float(np.sum(residuals_fit**2))
-        dof = max(len(qf) - len(popt), 1)
+        dof = max(len(qf) - len(free_names), 1)
 
-        # Derived quantities (model-specific)
         derived = self._compute_derived(fitted_params)
 
         return {

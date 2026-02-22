@@ -2042,11 +2042,22 @@ class UnifiedFitPanel(QWidget):
 
         layout.addLayout(results_buttons2)
 
-        # Results buttons row 3
+        # Results buttons row 3: Passes spinbox + Calc. Uncertainty (MC)
         results_buttons3 = QHBoxLayout()
-        self.analyze_results_button = QPushButton("Calculate uncertainties")
-        self.analyze_results_button.setMinimumHeight(30)
-        self.analyze_results_button.setStyleSheet("background-color: lightblue;")
+        results_buttons3.addWidget(QLabel("Passes:"))
+        self.n_runs_spin = QSpinBox()
+        self.n_runs_spin.setMinimum(1)
+        self.n_runs_spin.setMaximum(500)
+        self.n_runs_spin.setValue(10)
+        self.n_runs_spin.setMaximumWidth(55)
+        self.n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
+        results_buttons3.addWidget(self.n_runs_spin)
+        self.analyze_results_button = QPushButton("Calc. Uncertainty (MC)")
+        self.analyze_results_button.setMinimumHeight(28)
+        self.analyze_results_button.setStyleSheet("""
+            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1abc9c; }
+        """)
         self.analyze_results_button.clicked.connect(self.analyze_results)
         results_buttons3.addWidget(self.analyze_results_button)
 
@@ -3128,7 +3139,7 @@ class UnifiedFitPanel(QWidget):
             self.status_label.setText("Reset to defaults")
 
     def analyze_results(self):
-        """Monte Carlo uncertainty analysis: 10 fits on Gaussian-randomised data."""
+        """Monte Carlo uncertainty analysis on Gaussian-randomised data."""
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return
@@ -3143,7 +3154,7 @@ class UnifiedFitPanel(QWidget):
             )
             return
 
-        N_RUNS = 10
+        N_RUNS = self.n_runs_spin.value()
         num_levels = self.num_levels_spin.value()
         no_limits = self.no_limits_check.isChecked()
         fit_background = self.fit_background_check.isChecked()
