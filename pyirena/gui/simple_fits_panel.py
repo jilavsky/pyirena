@@ -1347,6 +1347,19 @@ class SimpleFitsPanel(QWidget):
                 {k: tuple(v) for k, v in saved_limits.items()}
             )
 
+        # Remove stale params that are no longer in the registry for this model
+        # (e.g. Background was removed from Sphere/Spheroid)
+        _registry_param_names = {
+            name for name, *_ in MODEL_REGISTRY.get(model_name, {}).get('params', [])
+        }
+        _bg_keys = {'BG_A', 'BG_n', 'BG_flat'}
+        for stale_key in list(self.model.params.keys()):
+            if stale_key not in _registry_param_names and stale_key not in _bg_keys:
+                del self.model.params[stale_key]
+        for stale_key in list(self.model.limits.keys()):
+            if stale_key not in _registry_param_names and stale_key not in _bg_keys:
+                del self.model.limits[stale_key]
+
         # Restore "Fit?" (fixed) states — stored as {name: True if fixed}
         self._saved_param_fixed = state.get('param_fixed', {})
 

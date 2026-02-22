@@ -12,7 +12,7 @@ From SimpleFits:
   * Guinier Sheet    — I0·exp(−Q²Rg²)/Q²
   * Porod            — Kp·Q⁻⁴ + Background
   * Power Law        — Prefactor·Q⁻Exponent + Background
-  * Sphere           — Scale·|FF(QR)|² + Background
+  * Sphere           — Scale·|FF(QR)|²
   * Spheroid         — orientationally-averaged sphere FF with aspect ratio
 
 From SystemSpecificModels:
@@ -123,14 +123,12 @@ def _sphere_ff_sq(u: np.ndarray) -> np.ndarray:
     return ff**2
 
 
-def _sphere(q: np.ndarray, Scale: float, R: float,
-            Background: float) -> np.ndarray:
-    """I(Q) = Scale·|FF(QR)|² + Background"""
-    return Scale * _sphere_ff_sq(q * R) + Background
+def _sphere(q: np.ndarray, Scale: float, R: float) -> np.ndarray:
+    """I(Q) = Scale·|FF(QR)|²"""
+    return Scale * _sphere_ff_sq(q * R)
 
 
-def _spheroid(q: np.ndarray, Scale: float, R: float, Beta: float,
-              Background: float) -> np.ndarray:
+def _spheroid(q: np.ndarray, Scale: float, R: float, Beta: float) -> np.ndarray:
     """Orientationally-averaged spheroid form factor.
 
     Uses Gauss-Legendre quadrature over cos(θ) from 0 to 1.
@@ -146,7 +144,7 @@ def _spheroid(q: np.ndarray, Scale: float, R: float, Beta: float,
     ff_sq = _sphere_ff_sq(u)                       # (n_q, N)
     avg = np.einsum('ij,j->i', ff_sq, w)          # weighted sum over j
 
-    return Scale * avg + Background
+    return Scale * avg
 
 
 def _debye_bueche(q: np.ndarray, Prefactor: float, Eta: float,
@@ -368,9 +366,8 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
     'Sphere': {
         'params': [
-            ('Scale',      1.0,  1e-30, None),
-            ('R',          50.0, 0.1,   10_000.0),
-            ('Background', 0.0,  None,  None),
+            ('Scale', 1.0,  1e-30, None),
+            ('R',     50.0, 0.1,   10_000.0),
         ],
         'formula': _sphere,
         'linearization': None,
@@ -378,10 +375,9 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
     'Spheroid': {
         'params': [
-            ('Scale',      1.0,  1e-30,  None),
-            ('R',          50.0, 0.1,    10_000.0),
-            ('Beta',       1.0,  0.001,  1000.0),
-            ('Background', 0.0,  None,   None),
+            ('Scale', 1.0,  1e-30,  None),
+            ('R',     50.0, 0.1,    10_000.0),
+            ('Beta',  1.0,  0.001,  1000.0),
         ],
         'formula': _spheroid,
         'linearization': None,
