@@ -802,8 +802,22 @@ class SimpleFitModel:
         error: Optional[np.ndarray] = None,
     ) -> Optional[dict]:
         """
-        Return linearized (X, Y, dY) arrays and a fitted line for the current
+        Return linearized (X, Y, dY) arrays and a model line for the current
         model.  Returns None if the model has no linearization.
+
+        Data points are background-corrected: when ``use_complex_bg`` is True
+        the fitted complex background (BG_A·Q⁻BG_n + BG_flat) is subtracted
+        before applying the log/Porod transform so that the resulting data
+        points are linear in the transformed space.
+
+        The model line (``Y_fit``) is computed **analytically** from the
+        currently fitted model parameters, not by linear regression.  This
+        ensures the line matches the fit shown in the main I(Q) plot even
+        when background is present.
+
+        slope/intercept are derived analytically from the model params and
+        displayed in the panel title; R² is computed by comparing the
+        (background-subtracted) data points to the analytic model line.
 
         Returns
         -------
@@ -826,59 +840,89 @@ class SimpleFitModel:
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
         q, I, dI = q[mask], I[mask], dI[mask]
 
+        # ── Subtract complex background (Guinier-family only) ─────────────────
+        # Porod and Power Law have an explicit Background param in their formula;
+        # they are not combined with the complex background widget.
+        I_corr = I.copy()
+        if lin != 'porod' and self.use_complex_bg and MODEL_REGISTRY[self.model].get('complex_bg', False):
+            BG_A    = self.params.get('BG_A',    0.0)
+            BG_n    = self.params.get('BG_n',    4.0)
+            BG_flat = self.params.get('BG_flat', 0.0)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                bg = np.where(q > 0, BG_A * q**(-BG_n), 0.0) + BG_flat
+            I_corr = I - bg
+
+        # Only keep points where background-corrected intensity is positive
+        pos = I_corr > 0
+        q, I_corr, dI = q[pos], I_corr[pos], dI[pos]
+
+        if len(q) < 2:
+            return None
+
+        # ── Transform data ────────────────────────────────────────────────────
         if lin == 'guinier':
+            # I_model = I0·exp(−Q²·Rg²/3)  →  ln(I_model) = ln(I0) − Q²·Rg²/3
             X = q**2
-            Y = np.log(I)
-            dY = dI / I
+            Y = np.log(I_corr)
+            dY = dI / I_corr           # d(ln I) = dI/I
             x_label, y_label = 'Q²  [Å⁻²]', 'ln(I)'
+            I0 = self.params.get('I0', 1.0)
+            Rg = self.params.get('Rg', 50.0)
+            slope     = -Rg**2 / 3.0
+            intercept = np.log(max(I0, 1e-300))
         elif lin == 'guinier_rod':
+            # Q·I_model = I0·exp(−Q²·Rc²/2)  →  ln(Q·I) = ln(I0) − Q²·Rc²/2
             X = q**2
-            Y = np.log(q * I)
-            dY = dI / I
+            Y = np.log(q * I_corr)
+            dY = dI / I_corr
             x_label, y_label = 'Q²  [Å⁻²]', 'ln(Q·I)'
+            I0 = self.params.get('I0', 1.0)
+            Rc = self.params.get('Rc', 10.0)
+            slope     = -Rc**2 / 2.0
+            intercept = np.log(max(I0, 1e-300))
         elif lin == 'guinier_sheet':
+            # Q²·I_model = I0·exp(−Q²·Rg²)  →  ln(Q²·I) = ln(I0) − Q²·Rg²
             X = q**2
-            Y = np.log(q**2 * I)
-            dY = dI / I
+            Y = np.log(q**2 * I_corr)
+            dY = dI / I_corr
             x_label, y_label = 'Q²  [Å⁻²]', 'ln(Q²·I)'
+            I0 = self.params.get('I0', 1.0)
+            Rg = self.params.get('Rg', 10.0)
+            slope     = -Rg**2
+            intercept = np.log(max(I0, 1e-300))
         elif lin == 'porod':
+            # I = Kp·Q⁻⁴ + Background  →  I·Q⁴ = Kp + Background·Q⁴
             X = q**4
-            Y = I * q**4
+            Y = I_corr * q**4          # I_corr == I for Porod (no bg subtraction)
             dY = dI * q**4
             x_label, y_label = 'Q⁴  [Å⁻⁴]', 'I·Q⁴'
+            Kp         = self.params.get('Kp',         1.0)
+            Background = self.params.get('Background', 0.0)
+            slope     = Background      # coefficient of Q⁴
+            intercept = Kp             # constant term
         else:
             return None
 
-        # Weighted linear fit:  Y = slope·X + intercept
-        if len(X) < 2:
-            return None
-        w = 1.0 / np.maximum(dY, 1e-30)**2
-        sw = np.sum(w)
-        sx = np.sum(w * X)
-        sy = np.sum(w * Y)
-        sxx = np.sum(w * X**2)
-        sxy = np.sum(w * X * Y)
-        ddet = sw * sxx - sx**2
-        if abs(ddet) < 1e-60:
-            slope, intercept = 0.0, np.mean(Y)
-        else:
-            slope = (sw * sxy - sx * sy) / ddet
-            intercept = (sy - slope * sx) / sw
-
+        # ── Analytic model line ───────────────────────────────────────────────
         Y_fit = slope * X + intercept
+
+        # ── R² of data vs analytic model ──────────────────────────────────────
+        w = 1.0 / np.maximum(dY, 1e-30)**2
+        sw   = np.sum(w)
+        Y_mean_w = np.sum(w * Y) / sw
         ss_res = np.sum(w * (Y - Y_fit)**2)
-        ss_tot = np.sum(w * (Y - np.sum(w * Y) / sw)**2)
+        ss_tot = np.sum(w * (Y - Y_mean_w)**2)
         r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
 
         return {
-            'x_label': x_label,
-            'y_label': y_label,
-            'X': X,
-            'Y': Y,
-            'dY': dY,
-            'X_fit': X,
-            'Y_fit': Y_fit,
-            'slope': float(slope),
+            'x_label':   x_label,
+            'y_label':   y_label,
+            'X':         X,
+            'Y':         Y,
+            'dY':        dY,
+            'X_fit':     X,
+            'Y_fit':     Y_fit,
+            'slope':     float(slope),
             'intercept': float(intercept),
             'r_squared': float(r_sq),
         }

@@ -224,7 +224,12 @@ class SimpleFitsGraphWindow(QWidget):
         self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
 
     def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
-        """Plot (I−model)/err residuals.  *q* in linear units; *residuals* linear."""
+        """Plot (I−model)/err residuals.  *q* in linear units; *residuals* linear.
+
+        Uses ``residuals_plot.plot()`` (returns PlotDataItem) rather than a
+        standalone ScatterPlotItem so that pyqtgraph applies the log-x transform
+        correctly via its internal dataItems bookkeeping.
+        """
         self.residuals_plot.clear()
         zero = pg.InfiniteLine(
             pos=0, angle=0,
@@ -236,14 +241,15 @@ class SimpleFitsGraphWindow(QWidget):
         mask = np.isfinite(q) & np.isfinite(residuals) & (q > 0)
         if mask.sum() < 1:
             return
-        scatter = pg.ScatterPlotItem(
-            x=q[mask], y=residuals[mask],
+        item = self.residuals_plot.plot(
+            q[mask], residuals[mask],
             pen=None,
-            brush=SASPlotStyle.RESID_BRUSH,
-            size=SASPlotStyle.RESID_SIZE,
+            symbol='o',
+            symbolSize=SASPlotStyle.RESID_SIZE,
+            symbolPen=None,
+            symbolBrush=SASPlotStyle.RESID_BRUSH,
         )
-        self.residuals_plot.addItem(scatter)
-        self._resid_item = scatter
+        self._resid_item = item
 
     def plot_linearization(self, lin_result):
         """Plot linearized data + fit.  lin_result is from SimpleFitModel.linearize()."""
