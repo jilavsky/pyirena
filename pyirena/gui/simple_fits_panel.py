@@ -8,18 +8,18 @@ interactive single-model fitting of SAS data.
 
 try:
     from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-        QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox, QSplitter,
-        QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+        QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox,
+        QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
     )
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtGui import QDoubleValidator
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-            QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox, QSplitter,
-            QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
+            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+            QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox,
+            QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
         )
         from PyQt6.QtCore import Qt, Signal
         from PyQt6.QtGui import QDoubleValidator
