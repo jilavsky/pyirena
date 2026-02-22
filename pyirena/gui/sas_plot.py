@@ -280,7 +280,16 @@ def plot_iq_data(
             pass   # already masked
         else:
             dI_ = np.zeros_like(q_)
-        error_item = _draw_error_bars(plot, q_, I_, dI_)
+        # Global cap: prevent error bar tops from exceeding 3 decades above the 99th
+        # percentile of the data. Without this, a few extreme outlier data points
+        # (e.g. uncalibrated WAXS or Bragg peaks with very large I) drive the error
+        # bar caps to astronomically large values (10^38+) visible on extreme zoom-out.
+        valid_I = I_[I_ > 0]
+        if len(valid_I) >= 5:
+            y_global_max = 10.0 ** (float(np.percentile(np.log10(valid_I), 99)) + 3)
+        else:
+            y_global_max = None
+        error_item = _draw_error_bars(plot, q_, I_, dI_, y_global_max=y_global_max)
 
     # Override auto-range with percentile-based bounds from the data only.
     # Without this, error bar segments are included in pyqtgraph's bounds
@@ -316,8 +325,11 @@ def set_robust_y_range(plot: pg.PlotItem, I: np.ndarray) -> None:
         return
     log_i = np.log10(np.asarray(I)[valid])
     lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade
-    hi = np.percentile(log_i, 100) + 0.5  # max plus half-decade
+    hi = np.percentile(log_i, 99) + 0.5   # 99th percentile plus half-decade (excludes extreme outliers)
     plot.setYRange(lo, hi, padding=0)
+    # Prevent zooming to extreme y values (e.g. from cosmic rays or uncalibrated data).
+    # Allow 3 extra decades of zoom room beyond the data range before hitting a hard limit.
+    plot.getViewBox().setLimits(yMin=lo - 3, yMax=hi + 3)
 
 
 def _draw_error_bars(
@@ -325,6 +337,7 @@ def _draw_error_bars(
     q: np.ndarray,
     I: np.ndarray,
     dI: np.ndarray,
+    y_global_max: float | None = None,
 ) -> pg.PlotDataItem | None:
     """Draw I(Q) error bars as NaN-separated line segments.
 
@@ -348,7 +361,9 @@ def _draw_error_bars(
     for qi, Ii, dIi in zip(q, I, dI):
         if not (np.isfinite(dIi) and dIi > 0):
             continue
-        y_top = min(Ii + dIi, Ii * 1000)    # clip to 3 decades above I (symmetric with y_bot)
+        y_top = min(Ii + dIi, Ii * 1000)    # clip to 3 decades above local I
+        if y_global_max is not None:
+            y_top = min(y_top, y_global_max) # also cap at global 99th-percentile + 3 decades
         y_bot = max(Ii - dIi, Ii * 0.001)   # stay positive for log scale
 
         # Vertical bar
