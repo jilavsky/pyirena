@@ -18,6 +18,7 @@ Python tools for small-angle scattering data analysis, centered on the **Unified
 | Quick start (GUI) | [docs/gui_quickstart.md](docs/gui_quickstart.md) |
 | Unified Fit GUI guide | [docs/unified_fit_gui.md](docs/unified_fit_gui.md) |
 | Unified Fit features & parameters | [docs/unified_fit_features.md](docs/unified_fit_features.md) |
+| Simple Fits GUI guide | [docs/simple_fits_gui.md](docs/simple_fits_gui.md) |
 | NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
 | Batch fitting API (scripting & automation) | [docs/batch_api.md](docs/batch_api.md) |
 | Usage guide (scripting) | [docs/usage_guide.md](docs/usage_guide.md) |
@@ -54,10 +55,12 @@ See [docs/gui_quickstart.md](docs/gui_quickstart.md) for a full walkthrough.
 
 `pyIrena` is a Python port of the Igor Pro **Irena** package for SAS data analysis. Current capabilities:
 
-- **Unified Fit Model** — Beaucage hierarchical fit, 1–5 structural levels
-- **Interactive GUI** — load data, adjust parameters, fit, store results
-- **NXcanSAS I/O** — read/write HDF5 files in NXcanSAS format
-- **Local fits** — Guinier and Porod region fits with cursor selection
+- **Unified Fit Model** — Beaucage hierarchical fit, 1–5 structural levels, Born-Green correlation function
+- **Size Distribution** — indirect Fourier transform with four inversion methods (MaxEnt, Regularization, TNNLS, Monte Carlo)
+- **Simple Fits** — 13 direct analytical models (Guinier family, Porod, Sphere, Spheroid, Debye-Bueche, Treubner-Strey, and more) with linearization plots and Monte Carlo uncertainty
+- **Interactive GUI** — load data, adjust parameters, fit, store results; all tools share a common Data Selector
+- **NXcanSAS I/O** — read/write HDF5 files in NXcanSAS format; all fit results stored alongside raw data
+- **Batch scripting API** — `fit_unified`, `fit_sizes`, `fit_simple`, `fit_pyirena`; headless fitting from JSON config files
 
 ---
 

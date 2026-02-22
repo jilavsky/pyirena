@@ -12,33 +12,43 @@ is no need to write configuration code by hand.
 1. [Quick start](#quick-start)
 2. [Configuration file format](#configuration-file-format)
 3. [API reference — `fit_unified`](#fit_unified)
-4. [API reference — `fit_pyirena`](#fit_pyirena)
-5. [Return structures](#return-structures)
-6. [Error handling](#error-handling)
-7. [Batch processing patterns](#batch-processing-patterns)
-8. [Extending with new tools](#extending-with-new-tools)
+4. [API reference — `fit_sizes`](#fit_sizes)
+5. [API reference — `fit_simple`](#fit_simple)
+6. [API reference — `fit_pyirena`](#fit_pyirena)
+7. [Return structures](#return-structures)
+8. [Error handling](#error-handling)
+9. [Batch processing patterns](#batch-processing-patterns)
+10. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
 ## Quick start
 
 ```python
-from pyirena.batch import fit_unified, fit_pyirena
+from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_pyirena
 
 # Fit one file with Unified Fit, save results to NXcanSAS
 result = fit_unified("sample.h5", "pyirena_config.json")
-
 if result and result['success']:
     p = result['parameters']
     print(f"chi² = {p['chi_squared']:.4g}")
     print(f"Level 1 Rg = {p['levels'][0]['Rg']:.2f} Å")
-    print(f"Results saved to: {result['output_file']}")
 
-# Run all configured tools on one file
+# Fit a size distribution (reads 'sizes' section from config)
+result = fit_sizes("sample.h5", "pyirena_config.json")
+if result and result['success']:
+    print(f"Volume fraction = {result['volume_fraction']:.4g}")
+
+# Fit a simple analytical model (no config file needed)
+result = fit_simple("sample.h5",
+                    config={'model': 'Guinier', 'params': {'I0': 1.0, 'Rg': 50.0}})
+if result and result['success']:
+    print(f"Rg = {result['params']['Rg']:.2f} ± {result['params_std']['Rg']:.2f} Å")
+
+# Run ALL configured tools on one file (one function call)
 results = fit_pyirena("sample.h5", "pyirena_config.json")
-uf = results['results']['unified_fit']
 
-# Fit many files, save results, collect summaries
+# Fit many files, collect summaries
 from pathlib import Path
 data_files = sorted(Path("data/").glob("*.h5"))
 config = "pyirena_config.json"
@@ -216,6 +226,105 @@ A failed fit (optimizer did not converge) still returns a dict with `success=Fal
 
 ---
 
+## `fit_sizes`
+
+```python
+from pyirena.batch import fit_sizes
+
+result = fit_sizes(
+    data_file,           # str or Path — input SAS data file
+    config_file,         # str or Path — pyIrena JSON config with 'sizes' section
+    save_to_nexus=True,  # bool — write results to NXcanSAS HDF5 file
+    with_uncertainty=False,
+    n_mc_runs=10,
+)
+```
+
+### What it does
+
+Reads the `sizes` section from the config file and runs the size-distribution
+inversion (same four methods as the GUI: Regularization, MaxEnt, TNNLS, Monte Carlo).
+Saves the full size distribution, residuals, and all scalar parameters to
+`entry/sizes_results` in the HDF5 file.
+
+### Returns
+
+`dict` with keys `success`, `message`, `input_file`, `config_file`, `output_file`,
+and all the scalar values produced by the inversion (same as `load_sizes_results()`).
+
+---
+
+## `fit_simple`
+
+```python
+from pyirena.batch import fit_simple
+
+result = fit_simple(
+    data_file,            # str or Path — input SAS data file
+    config,               # dict or SimpleFitModel
+    with_uncertainty=False,
+    n_mc_runs=50,
+    q_min=None,           # float or None — lower Q bound (Å⁻¹)
+    q_max=None,           # float or None — upper Q bound (Å⁻¹)
+    verbose=True,
+)
+```
+
+### What it does
+
+Fits a single analytical model to one SAS file and, for NXcanSAS HDF5 inputs,
+saves the results to `entry/simple_fit_results`.  The `config` argument accepts
+either a `SimpleFitModel` instance or a plain dict:
+
+```python
+# Minimal dict config
+result = fit_simple("sample.h5",
+                    {'model': 'Guinier', 'params': {'I0': 1.0, 'Rg': 50.0}})
+
+# With bounds and complex background
+result = fit_simple("sample.h5", {
+    'model':          'Sphere',
+    'params':         {'Scale': 1e6, 'R': 100.0},
+    'limits':         {'Scale': [1e3, 1e9], 'R': [10.0, 1000.0]},
+    'use_complex_bg': True,
+})
+
+# With Monte Carlo uncertainty
+result = fit_simple("sample.h5",
+                    {'model': 'Guinier'},
+                    with_uncertainty=True,
+                    n_mc_runs=100,
+                    q_min=0.005, q_max=0.1)
+```
+
+### Supported models
+
+| Model | Key parameters |
+|-------|---------------|
+| `Guinier` | I0, Rg |
+| `Guinier Rod` | I0, Rc |
+| `Guinier Sheet` | I0, Rg |
+| `Porod` | Kp, Background |
+| `Power Law` | P, Exponent, Background |
+| `Sphere` | Scale, R |
+| `Spheroid` | Scale, R, Beta |
+| `Debye-Bueche` | Prefactor, Eta, CorrLength |
+| `Treubner-Strey` | Prefactor, A, C1, C2 |
+| `Benedetti-Ciccariello` | SolidSLD, VoidSLD, LayerSLD, Sp, t |
+| `Hermans` | B, s, d1, d2, sigma1, sigma2 |
+| `Hybrid Hermans` | Hermans params + G2, Rg2, G3, Rg3, B3, P3 |
+| `Unified Born Green` | G1, Rg1, B1, P1, G2, Rg2, B2, P2, eta, ksi |
+
+Use `from pyirena import MODEL_NAMES` for the full list at runtime.
+
+### Returns
+
+`dict` with keys `success`, `model`, `params`, `params_std`, `I_model`, `q`,
+`residuals`, `chi2`, `reduced_chi2`, `dof`, `derived`.  On failure: `success=False`
+and `error` message.  Returns `None` only if the data file cannot be loaded.
+
+---
+
 ## `fit_pyirena`
 
 ```python
@@ -224,18 +333,22 @@ from pyirena.batch import fit_pyirena
 results = fit_pyirena(
     data_file,          # str or Path — input SAS data file
     config_file,        # str or Path — pyIrena JSON config file
-    save_to_nexus=True  # bool — passed to each tool's fitting function
+    save_to_nexus=True, # bool — passed to each tool's fitting function
+    with_uncertainty=False,
+    n_mc_runs=10,
 )
 ```
 
 ### What it does
 
 Reads the config file, discovers which tool sections are present, and dispatches
-to the appropriate fitting function for each.  Currently recognised tool sections:
+to the appropriate fitting function for each.  Recognised tool sections:
 
 | Config key | Function called |
 |------------|----------------|
 | `unified_fit` | `fit_unified()` |
+| `sizes` | `fit_sizes()` |
+| `simple_fits` | `fit_simple_from_config()` |
 
 Unknown sections in the config file are silently skipped.  This means a config
 file created today will still work correctly when new tools are added to pyIrena,
@@ -505,8 +618,10 @@ When a new analysis tool is added to pyIrena, three things happen:
 
 ```python
 _TOOL_REGISTRY = {
-    'unified_fit':       lambda: fit_unified(data_file, config_file, save_to_nexus),
-    'size_distribution': lambda: fit_size_dist(data_file, config_file, save_to_nexus),
+    'unified_fit': lambda: fit_unified(data_file, config_file, save_to_nexus, ...),
+    'sizes':       lambda: fit_sizes(data_file, config_file, save_to_nexus, ...),
+    'simple_fits': lambda: fit_simple_from_config(data_file, config_file, save_to_nexus, ...),
+    # add new tools here
 }
 ```
 
