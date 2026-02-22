@@ -35,10 +35,12 @@ import pyqtgraph as pg
 
 from pyirena.core.simple_fits import SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY
 from pyirena.state.state_manager import StateManager
-
-# Re-use the ScrubbableLineEdit and LogDecadeAxis from sizes_panel to keep
-# a consistent look and feel.
-from pyirena.gui.sizes_panel import ScrubbableLineEdit, LogDecadeAxis
+from pyirena.gui.sizes_panel import ScrubbableLineEdit
+from pyirena.gui.sas_plot import (
+    make_sas_plot, plot_iq_data, plot_iq_model,
+    make_cursors, get_cursor_q_range, set_cursor_q_range,
+    add_plot_annotation, _SafeInfiniteLine, SASPlotStyle,
+)
 
 
 # ===========================================================================
@@ -47,21 +49,28 @@ from pyirena.gui.sizes_panel import ScrubbableLineEdit, LogDecadeAxis
 
 class SimpleFitsGraphWindow(QWidget):
     """
-    Three-panel pyqtgraph display:
-      - Row 0 (50%): log-log I(Q) vs Q with data scatter + model line + cursors
+    Three-panel pyqtgraph display using the standard pyIrena SAS plot style:
+      - Row 0 (50%): log-log I(Q) vs Q — data scatter + error bars + model line + cursors
       - Row 1 (10%): residuals (I−model)/err vs Q  (log-x, linear-y)
-      - Row 2 (40%): linearization (Guinier/Porod) or disabled placeholder
+      - Row 2 (40%): linearization (Guinier/Porod) or 'not available' label
+
+    All data passed to ``plot_data`` / ``plot_fit`` must be in physical
+    (linear) units.  ``setLogMode(x=True, y=True)`` is applied to the top two
+    plots; pyqtgraph handles the log10 transform internally.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._data_item  = None
-        self._fit_item   = None
-        self._resid_item = None
-        self._lin_data_item = None
-        self._lin_fit_item  = None
-        self._cursor_a   = None
-        self._cursor_b   = None
+        self._data_item      = None   # ScatterPlotItem (data points)
+        self._error_item     = None   # PlotDataItem (error bars)
+        self._fit_item       = None   # PlotDataItem (model curve)
+        self._resid_item     = None   # ScatterPlotItem (residuals)
+        self._lin_data_item  = None
+        self._lin_fit_item   = None
+        self._cursor_a       = None   # _SafeInfiniteLine in log10 space
+        self._cursor_b       = None
+        self._annotation_items: list = []
+        self._parent_ref     = parent
         self.init_ui()
 
     def init_ui(self):
@@ -73,45 +82,47 @@ class SimpleFitsGraphWindow(QWidget):
         self.graphics_layout = pg.GraphicsLayoutWidget()
         self.graphics_layout.setBackground('w')
 
-        # ── I(Q) main plot ────────────────────────────────────────────────────
-        self.main_plot = self.graphics_layout.addPlot(
-            row=0, col=0,
-            axisItems={
-                'left':   LogDecadeAxis(orientation='left'),
-                'bottom': LogDecadeAxis(orientation='bottom'),
-            },
+        # ── I(Q) main plot: log-log, cursors, JPEG export ─────────────────────
+        self.main_plot = make_sas_plot(
+            self.graphics_layout, row=0, col=0,
+            x_label='Q  (Å⁻¹)', y_label='I',
+            log_x=True, log_y=True,
+            parent_widget=self._parent_ref,
+            jpeg_default_name='simple_fits_IQ',
         )
-        self.main_plot.setLabel('left',   'I')
-        self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
-        self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.main_plot.getAxis('left').enableAutoSIPrefix(False)
-        self.main_plot.getAxis('bottom').enableAutoSIPrefix(False)
 
-        # ── Residuals plot ────────────────────────────────────────────────────
-        self.residuals_plot = self.graphics_layout.addPlot(
-            row=1, col=0,
-            axisItems={'bottom': LogDecadeAxis(orientation='bottom')},
+        # ── Residuals plot: log-x, linear-y, JPEG export ──────────────────────
+        self.residuals_plot = make_sas_plot(
+            self.graphics_layout, row=1, col=0,
+            x_label='Q  (Å⁻¹)', y_label='(I−fit)/σ',
+            log_x=True, log_y=False,
+            x_link=self.main_plot,
+            parent_widget=self._parent_ref,
+            jpeg_default_name='simple_fits_residuals',
         )
-        self.residuals_plot.setLabel('left',   '(I−fit)/err')
-        self.residuals_plot.setLabel('bottom', 'Q  (Å⁻¹)')
-        self.residuals_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.residuals_plot.setXLink(self.main_plot)
-        self.residuals_plot.getAxis('left').enableAutoSIPrefix(False)
-        self.residuals_plot.getAxis('bottom').enableAutoSIPrefix(False)
-        # Zero line
-        zero = pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen('k', width=1, style=Qt.PenStyle.DashLine))
+        # Zero line for residuals
+        zero = pg.InfiniteLine(
+            pos=0, angle=0,
+            pen=pg.mkPen('k', width=1, style=Qt.PenStyle.DashLine),
+        )
         self.residuals_plot.addItem(zero)
+        self._resid_zero = zero
 
-        # ── Linearization plot ─────────────────────────────────────────────────
-        self.lin_plot = self.graphics_layout.addPlot(
-            row=2, col=0,
-        )
+        # ── Linearization plot: fully linear, JPEG export ─────────────────────
+        self.lin_plot = self.graphics_layout.addPlot(row=2, col=0)
         self.lin_plot.setLabel('left',   'Y')
         self.lin_plot.setLabel('bottom', 'X')
-        self.lin_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.lin_plot.showGrid(x=True, y=True, alpha=SASPlotStyle.GRID_ALPHA)
         self.lin_plot.getAxis('left').enableAutoSIPrefix(False)
         self.lin_plot.getAxis('bottom').enableAutoSIPrefix(False)
-        self._lin_title = self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
+        self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
+        # JPEG export for linearization plot
+        _vb_lin = self.lin_plot.getViewBox()
+        _vb_lin.menu.addSeparator()
+        _lin_action = _vb_lin.menu.addAction("Save graph as JPEG…")
+        _lin_action.triggered.connect(
+            lambda checked=False: self._save_lin_plot_as_jpeg()
+        )
 
         # ── Height ratios 5:1:4 ───────────────────────────────────────────────
         ci = self.graphics_layout.ci
@@ -127,57 +138,98 @@ class SimpleFitsGraphWindow(QWidget):
         self.status_label.setStyleSheet('font-size: 11px; color: #444;')
         layout.addWidget(self.status_label)
 
+    def _save_lin_plot_as_jpeg(self):
+        from pyqtgraph.exporters import ImageExporter
+        file_path, _ = QFileDialog.getSaveFileName(
+            self._parent_ref, 'Save Graph as JPEG',
+            str(Path.home() / 'simple_fits_linearization.jpg'),
+            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
+        )
+        if not file_path:
+            return
+        try:
+            exporter = ImageExporter(self.lin_plot)
+            exporter.parameters()['width'] = 1600
+            exporter.export(file_path)
+        except Exception as exc:
+            QMessageBox.warning(self._parent_ref, 'Export Failed',
+                                f'Could not save image:\n{exc}')
+
     # ── Data plotting ─────────────────────────────────────────────────────────
 
     def plot_data(self, q: np.ndarray, I: np.ndarray, dI=None, label: str = 'Data'):
-        """Plot the raw I(Q) data as scatter + optional error bars."""
-        self.main_plot.clear()
-        self._fit_item = None
+        """Plot I(Q) data scatter + error bars.
 
-        # Restore cursors removed by clear() — always re-add if they exist
-        if self._cursor_a is not None:
-            self.main_plot.addItem(self._cursor_a)
-        if self._cursor_b is not None:
-            self.main_plot.addItem(self._cursor_b)
+        Data must be in **physical (linear) units** — pyqtgraph applies log10
+        internally via ``setLogMode``.  Existing data, error, and fit items
+        are removed before re-plotting; cursors and annotations are kept.
+        """
+        # Remove old data / error / fit items without clearing the whole plot
+        for attr in ('_data_item', '_error_item', '_fit_item'):
+            item = getattr(self, attr, None)
+            if item is not None:
+                try:
+                    self.main_plot.removeItem(item)
+                except Exception:
+                    pass
+            setattr(self, attr, None)
 
-        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-        q, I = q[mask], I[mask]
+        # Plot new data with error bars
+        scatter, error = plot_iq_data(self.main_plot, q, I, dI, label=label)
+        self._data_item  = scatter
+        self._error_item = error
 
-        if dI is not None:
-            dI = np.asarray(dI, dtype=float)[mask]
-            dI = np.maximum(dI, 1e-30 * I)
-
-        scatter = pg.ScatterPlotItem(
-            x=np.log10(q), y=np.log10(I),
-            pen=None, brush=pg.mkBrush(80, 80, 80, 180), size=5,
-        )
-        self.main_plot.addItem(scatter)
-        self._data_item = scatter
-        # Only create cursors on the first data load; afterwards keep user positions
-        self._ensure_cursors(np.log10(q.min()), np.log10(q.max()))
+        # Create cursors on the very first data load only
+        if self._cursor_a is None:
+            mask = np.isfinite(q) & (q > 0) & np.isfinite(I) & (I > 0)
+            if mask.any():
+                self._cursor_a, self._cursor_b = make_cursors(
+                    self.main_plot, q[mask].min(), q[mask].max()
+                )
 
     def plot_fit(self, q_fit: np.ndarray, I_model: np.ndarray):
-        """Overlay the model fit line on the main plot."""
-        if self._fit_item is not None:
-            self.main_plot.removeItem(self._fit_item)
+        """Overlay the model fit / forward-model curve on the main I(Q) plot.
 
-        mask = np.isfinite(q_fit) & np.isfinite(I_model) & (q_fit > 0) & (I_model > 0)
-        if mask.sum() < 2:
-            return
-        pen = pg.mkPen(color=(200, 30, 30), width=2)
-        fit_line = pg.PlotDataItem(
-            x=np.log10(q_fit[mask]), y=np.log10(I_model[mask]),
-            pen=pen,
+        Data must be in **physical (linear) units**.
+        """
+        if self._fit_item is not None:
+            try:
+                self.main_plot.removeItem(self._fit_item)
+            except Exception:
+                pass
+            self._fit_item = None
+
+        item = plot_iq_model(self.main_plot, q_fit, I_model)
+        self._fit_item = item
+
+    def clear_fit(self):
+        """Remove the model curve and residuals (called on model/param change)."""
+        if self._fit_item is not None:
+            try:
+                self.main_plot.removeItem(self._fit_item)
+            except Exception:
+                pass
+            self._fit_item = None
+        # Clear residuals plot back to just the zero line
+        self.residuals_plot.clear()
+        zero = pg.InfiniteLine(
+            pos=0, angle=0,
+            pen=pg.mkPen('k', width=1, style=Qt.PenStyle.DashLine),
         )
-        self.main_plot.addItem(fit_line)
-        self._fit_item = fit_line
+        self.residuals_plot.addItem(zero)
+        self._resid_zero = zero
+        self._resid_item = None
+        # Clear linearization
+        self.lin_plot.clear()
+        self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
 
     def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
-        """Plot (I−model)/err residuals."""
+        """Plot (I−model)/err residuals.  *q* in linear units; *residuals* linear."""
         self.residuals_plot.clear()
-        zero = pg.InfiniteLine(pos=0, angle=0,
-                               pen=pg.mkPen('k', width=1,
-                                            style=Qt.PenStyle.DashLine))
+        zero = pg.InfiniteLine(
+            pos=0, angle=0,
+            pen=pg.mkPen('k', width=1, style=Qt.PenStyle.DashLine),
+        )
         self.residuals_plot.addItem(zero)
         self._resid_item = None
 
@@ -185,8 +237,10 @@ class SimpleFitsGraphWindow(QWidget):
         if mask.sum() < 1:
             return
         scatter = pg.ScatterPlotItem(
-            x=np.log10(q[mask]), y=residuals[mask],
-            pen=None, brush=pg.mkBrush(80, 80, 80, 180), size=4,
+            x=q[mask], y=residuals[mask],
+            pen=None,
+            brush=SASPlotStyle.RESID_BRUSH,
+            size=SASPlotStyle.RESID_SIZE,
         )
         self.residuals_plot.addItem(scatter)
         self._resid_item = scatter
@@ -219,7 +273,7 @@ class SimpleFitsGraphWindow(QWidget):
         mask = np.isfinite(X) & np.isfinite(Y)
         data_item = pg.ScatterPlotItem(
             x=X[mask], y=Y[mask],
-            pen=None, brush=pg.mkBrush(80, 80, 80, 180), size=5,
+            pen=None, brush=SASPlotStyle.DATA_BRUSH, size=5,
         )
         self.lin_plot.addItem(data_item)
         self._lin_data_item = data_item
@@ -227,74 +281,37 @@ class SimpleFitsGraphWindow(QWidget):
         mask2 = np.isfinite(X_fit) & np.isfinite(Y_fit)
         fit_item = pg.PlotDataItem(
             x=X_fit[mask2], y=Y_fit[mask2],
-            pen=pg.mkPen(color=(200, 30, 30), width=2),
+            pen=SASPlotStyle.FIT_PEN,
         )
         self.lin_plot.addItem(fit_item)
         self._lin_fit_item = fit_item
 
     # ── Cursors ───────────────────────────────────────────────────────────────
 
-    def _ensure_cursors(self, log_min: float, log_max: float):
-        """Create cursors on the first call and place them within the data range.
-
-        On subsequent calls the user's dragged positions are preserved; the
-        cursors have already been re-added to the plot by plot_data().
-        """
-        if self._cursor_a is not None:
-            return   # Already exist; positions kept as user left them
-
-        span = log_max - log_min
-        pos_a = log_min + 0.1 * span
-        pos_b = log_max - 0.1 * span
-
-        self._cursor_a = pg.InfiniteLine(
-            pos=pos_a, angle=90, movable=True,
-            pen=pg.mkPen(color=(200, 50, 50), width=2),
-            label='A', labelOpts={'position': 0.05, 'color': (200, 50, 50)},
-        )
-        self.main_plot.addItem(self._cursor_a)
-
-        self._cursor_b = pg.InfiniteLine(
-            pos=pos_b, angle=90, movable=True,
-            pen=pg.mkPen(color=(50, 100, 200), width=2),
-            label='B', labelOpts={'position': 0.10, 'color': (50, 100, 200)},
-        )
-        self.main_plot.addItem(self._cursor_b)
-
     def get_cursor_range(self):
-        """Return (q_min, q_max) in linear space from cursor positions."""
-        if self._cursor_a is None or self._cursor_b is None:
-            return None, None
-        a = 10.0 ** self._cursor_a.getPos()[0]
-        b = 10.0 ** self._cursor_b.getPos()[0]
-        return (min(a, b), max(a, b))
+        """Return (q_min, q_max) in linear units from cursor positions."""
+        return get_cursor_q_range(self._cursor_a, self._cursor_b)
 
     def set_cursor_range(self, q_min: float, q_max: float):
-        """Position cursors at the given Q values (linear space)."""
-        if q_min is not None and q_max is not None and q_min > 0 and q_max > 0:
-            self._ensure_cursors(np.log10(q_min), np.log10(q_max))
-            self._cursor_a.setPos(np.log10(q_min))
-            self._cursor_b.setPos(np.log10(q_max))
+        """Position cursors at the given Q values (linear units)."""
+        self._cursor_a, self._cursor_b = set_cursor_q_range(
+            self.main_plot, self._cursor_a, self._cursor_b, q_min, q_max
+        )
 
     # ── Result annotations ────────────────────────────────────────────────────
 
     def clear_result_annotations(self):
         """Remove all fit-result text annotations from the main plot."""
-        for item in list(getattr(self, '_annotation_items', [])):
-            self.main_plot.removeItem(item)
+        for item in list(self._annotation_items):
+            try:
+                self.main_plot.removeItem(item)
+            except Exception:
+                pass
         self._annotation_items = []
 
     def add_result_annotation(self, text: str):
-        """Add a text annotation with fitted parameter values to the main plot."""
-        if not hasattr(self, '_annotation_items'):
-            self._annotation_items = []
-        item = pg.TextItem(text=text, color=(40, 40, 40), anchor=(0, 1))
-        # Place in the upper-left corner of the current view
-        vr = self.main_plot.viewRange()
-        x = vr[0][0] + 0.02 * (vr[0][1] - vr[0][0])
-        y = vr[1][1] - 0.02 * (vr[1][1] - vr[1][0])
-        item.setPos(x, y)
-        self.main_plot.addItem(item)
+        """Add a fit-result annotation in the lower-left of the main I(Q) plot."""
+        item = add_plot_annotation(self.main_plot, text, corner='lower_left')
         self._annotation_items.append(item)
 
 
@@ -344,7 +361,7 @@ class SimpleFitsPanel(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._create_control_panel())
-        self.graph_window = SimpleFitsGraphWindow()
+        self.graph_window = SimpleFitsGraphWindow(parent=self)
         splitter.addWidget(self.graph_window)
         splitter.setSizes([420, 780])
         splitter.setStretchFactor(0, 0)
@@ -725,6 +742,9 @@ class SimpleFitsPanel(QWidget):
         self.fit_result = None
         self.chi2_label.setText('—')
         self.rchi2_label.setText('—')
+        # Clear stale model curve and annotations from previous model
+        self.graph_window.clear_fit()
+        self.graph_window.clear_result_annotations()
 
     def _on_complex_bg_changed(self, state):
         """Toggle complex background and rebuild param widgets."""
@@ -736,6 +756,8 @@ class SimpleFitsPanel(QWidget):
                 self.model.params.setdefault(name, default)
                 self.model.limits.setdefault(name, (lo, hi))
         self._build_param_widgets()
+        self.graph_window.clear_fit()
+        self.graph_window.clear_result_annotations()
 
     def _on_no_limits_changed(self, state):
         """Show/hide the lo/hi bound columns when 'No limits?' is toggled."""
@@ -762,6 +784,8 @@ class SimpleFitsPanel(QWidget):
     def _auto_graph_model(self):
         """Sync parameter values and auto-redisplay model curve after edit."""
         self._on_param_edited()
+        # Stale annotations are now wrong — clear them before re-graphing
+        self.graph_window.clear_result_annotations()
         if self.data is not None:
             self._graph_model()
 
