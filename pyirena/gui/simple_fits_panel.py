@@ -251,8 +251,19 @@ class SimpleFitsGraphWindow(QWidget):
         )
         self._resid_item = item
 
-    def plot_linearization(self, lin_result):
-        """Plot linearized data + fit.  lin_result is from SimpleFitModel.linearize()."""
+    def plot_linearization(self, lin_result, q_min=None, q_max=None):
+        """Plot linearized data + fit.  lin_result is from SimpleFitModel.linearize().
+
+        Parameters
+        ----------
+        lin_result : dict or None
+            Output of ``SimpleFitModel.linearize()``.
+        q_min, q_max : float or None
+            Q-range boundaries (linear units) from the cursor positions.
+            Points whose original Q lies within [q_min, q_max] are plotted
+            in the standard dark colour; points outside that range are plotted
+            in light grey so the fitting region is immediately visible.
+        """
         self.lin_plot.clear()
         self._lin_data_item = None
         self._lin_fit_item  = None
@@ -262,10 +273,11 @@ class SimpleFitsGraphWindow(QWidget):
                                    color='#888888', size='9pt')
             return
 
-        X = lin_result['X']
-        Y = lin_result['Y']
+        X     = lin_result['X']
+        Y     = lin_result['Y']
         X_fit = lin_result['X_fit']
         Y_fit = lin_result['Y_fit']
+        q_raw = lin_result.get('q')   # original Q values from linearize()
 
         self.lin_plot.setTitle(
             f"{lin_result['y_label']} vs {lin_result['x_label']}   "
@@ -276,14 +288,40 @@ class SimpleFitsGraphWindow(QWidget):
         self.lin_plot.setLabel('left',   lin_result['y_label'])
         self.lin_plot.setLabel('bottom', lin_result['x_label'])
 
-        mask = np.isfinite(X) & np.isfinite(Y)
-        data_item = pg.ScatterPlotItem(
-            x=X[mask], y=Y[mask],
-            pen=None, brush=SASPlotStyle.DATA_BRUSH, size=5,
-        )
-        self.lin_plot.addItem(data_item)
-        self._lin_data_item = data_item
+        good = np.isfinite(X) & np.isfinite(Y)
 
+        # Determine which data points lie inside the fitted Q range
+        if q_raw is not None and (q_min is not None or q_max is not None):
+            in_range = np.ones(len(q_raw), dtype=bool)
+            if q_min is not None:
+                in_range &= (q_raw >= q_min)
+            if q_max is not None:
+                in_range &= (q_raw <= q_max)
+        else:
+            in_range = np.ones(len(X), dtype=bool)
+
+        # ── Out-of-range points: light grey, smaller ──────────────────────────
+        out_mask = good & ~in_range
+        if out_mask.any():
+            out_item = pg.ScatterPlotItem(
+                x=X[out_mask], y=Y[out_mask],
+                pen=None,
+                brush=pg.mkBrush(180, 180, 180, 140),
+                size=4,
+            )
+            self.lin_plot.addItem(out_item)
+
+        # ── In-range points: dark, standard size ──────────────────────────────
+        in_mask = good & in_range
+        if in_mask.any():
+            data_item = pg.ScatterPlotItem(
+                x=X[in_mask], y=Y[in_mask],
+                pen=None, brush=SASPlotStyle.DATA_BRUSH, size=5,
+            )
+            self.lin_plot.addItem(data_item)
+            self._lin_data_item = data_item
+
+        # ── Model line ────────────────────────────────────────────────────────
         mask2 = np.isfinite(X_fit) & np.isfinite(Y_fit)
         fit_item = pg.PlotDataItem(
             x=X_fit[mask2], y=Y_fit[mask2],
@@ -1093,15 +1131,17 @@ class SimpleFitsPanel(QWidget):
         if q_fit is not None and residuals is not None:
             self.graph_window.plot_residuals(q_fit, residuals)
 
-        # Linearization (use full data range, not just fit range)
+        # Linearization (use full data range, not just fit range, so out-of-range
+        # points are visible in grey alongside the dark in-range points)
         q_all  = self.data['Q'] if self.data else q_fit
         I_all  = self.data['Intensity'] if self.data else I_model
         dI_all = self.data.get('Error') if self.data else None
+        q_min, q_max = self.graph_window.get_cursor_range()
         if q_all is not None and I_all is not None:
             lin = self.model.linearize(q_all, I_all, dI_all)
         else:
             lin = None
-        self.graph_window.plot_linearization(lin)
+        self.graph_window.plot_linearization(lin, q_min=q_min, q_max=q_max)
 
     # ── Helper ────────────────────────────────────────────────────────────────
 

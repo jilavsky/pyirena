@@ -917,6 +917,7 @@ class SimpleFitModel:
         return {
             'x_label':   x_label,
             'y_label':   y_label,
+            'q':         q,         # original Q values (for Q-range highlighting)
             'X':         X,
             'Y':         Y,
             'dY':        dY,
