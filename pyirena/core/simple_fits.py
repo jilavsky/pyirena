@@ -800,6 +800,8 @@ class SimpleFitModel:
         q: np.ndarray,
         intensity: np.ndarray,
         error: Optional[np.ndarray] = None,
+        q_min: Optional[float] = None,
+        q_max: Optional[float] = None,
     ) -> Optional[dict]:
         """
         Return linearized (X, Y, dY) arrays and a model line for the current
@@ -817,7 +819,11 @@ class SimpleFitModel:
 
         slope/intercept are derived analytically from the model params and
         displayed in the panel title; R² is computed by comparing the
-        (background-subtracted) data points to the analytic model line.
+        (background-subtracted) **in-range** data points to the analytic model
+        line.  Out-of-range points (outside [q_min, q_max]) are included in the
+        returned X/Y arrays for display (plotted grey in the panel) but are
+        excluded from the R² calculation so that curvature outside the Guinier
+        regime does not corrupt the goodness-of-fit metric.
 
         Returns
         -------
@@ -906,13 +912,30 @@ class SimpleFitModel:
         # ── Analytic model line ───────────────────────────────────────────────
         Y_fit = slope * X + intercept
 
-        # ── R² of data vs analytic model ──────────────────────────────────────
-        w = 1.0 / np.maximum(dY, 1e-30)**2
-        sw   = np.sum(w)
-        Y_mean_w = np.sum(w * Y) / sw
-        ss_res = np.sum(w * (Y - Y_fit)**2)
-        ss_tot = np.sum(w * (Y - Y_mean_w)**2)
-        r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
+        # ── R² of in-range data vs analytic model ─────────────────────────────
+        # R² is computed ONLY for points inside [q_min, q_max] (the fitting
+        # range).  Including out-of-range points would give a misleadingly bad
+        # (even negative) R² because the Guinier/Porod approximation naturally
+        # breaks down outside that region.
+        in_range = np.ones(len(q), dtype=bool)
+        if q_min is not None:
+            in_range &= (q >= q_min)
+        if q_max is not None:
+            in_range &= (q <= q_max)
+
+        Y_r  = Y[in_range]
+        Yf_r = Y_fit[in_range]
+        dY_r = dY[in_range]
+
+        if len(Y_r) < 2:
+            r_sq = float('nan')
+        else:
+            w = 1.0 / np.maximum(dY_r, 1e-30)**2
+            sw   = np.sum(w)
+            Y_mean_w = np.sum(w * Y_r) / sw
+            ss_res = np.sum(w * (Y_r - Yf_r)**2)
+            ss_tot = np.sum(w * (Y_r - Y_mean_w)**2)
+            r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
 
         return {
             'x_label':   x_label,

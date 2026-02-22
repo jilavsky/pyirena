@@ -1138,7 +1138,8 @@ class SimpleFitsPanel(QWidget):
         dI_all = self.data.get('Error') if self.data else None
         q_min, q_max = self.graph_window.get_cursor_range()
         if q_all is not None and I_all is not None:
-            lin = self.model.linearize(q_all, I_all, dI_all)
+            lin = self.model.linearize(q_all, I_all, dI_all,
+                                       q_min=q_min, q_max=q_max)
         else:
             lin = None
         self.graph_window.plot_linearization(lin, q_min=q_min, q_max=q_max)
