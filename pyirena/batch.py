@@ -887,9 +887,10 @@ def fit_pyirena(
         Runs :func:`fit_unified`.
     ``sizes``
         Runs :func:`fit_sizes`.
+    ``simple_fits``
+        Runs :func:`fit_simple_from_config`.
 
-    Additional tool sections will be dispatched automatically as they are added
-    to pyIrena.  Unknown sections in the config file are silently skipped.
+    Unknown sections in the config file are silently skipped.
 
     Parameters
     ----------
@@ -933,6 +934,9 @@ def fit_pyirena(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
         'sizes': lambda: fit_sizes(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
+        'simple_fits': lambda: fit_simple_from_config(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
     }
@@ -1123,5 +1127,91 @@ def fit_simple(
                 print(f"[pyirena.batch] Results saved to '{data_file.name}'")
         except Exception as exc:
             print(f"[pyirena.batch.fit_simple] Could not save results: {exc}")
+
+    return result
+
+
+def fit_simple_from_config(
+    data_file: Union[str, Path],
+    config_file: Union[str, Path],
+    save_to_nexus: bool = True,
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 10,
+) -> Optional[Dict]:
+    """Fit a Simple Fits model using parameters from a pyIrena config file.
+
+    Thin wrapper around :func:`fit_simple` that reads the ``simple_fits``
+    section from a JSON config file and delegates to :func:`fit_simple`.
+    This allows the same ``(data_file, config_file, save_to_nexus)`` calling
+    convention used by :func:`fit_unified` and :func:`fit_sizes`.
+
+    Parameters
+    ----------
+    data_file : str or Path
+        Path to SAS data file (.h5/.hdf5 NXcanSAS, or .dat/.txt text).
+    config_file : str or Path
+        Path to a pyIrena JSON configuration file containing a
+        ``'simple_fits'`` section (created by "Export Parameters" in the
+        Simple Fits GUI panel).
+    save_to_nexus : bool, optional
+        If True (default), save fit results into the HDF5 file.
+        Only HDF5 files are written; text-file results are not saved.
+    with_uncertainty : bool, optional
+        If True, run Monte Carlo uncertainty estimation.  Default False.
+    n_mc_runs : int, optional
+        Number of MC runs (used only when *with_uncertainty* is True).
+
+    Returns
+    -------
+    dict or None
+        Fit result dict (same structure as :meth:`SimpleFitModel.fit`) with
+        ``'success'`` and ``'message'`` keys guaranteed.
+        Returns None if the config cannot be read.
+    """
+    config_file = Path(config_file)
+    config = _load_config(config_file)
+    if config is None:
+        print(f"[pyirena.batch.fit_simple_from_config] Cannot load config: {config_file}")
+        return None
+
+    sf_cfg = config.get('simple_fits')
+    if sf_cfg is None:
+        print(f"[pyirena.batch.fit_simple_from_config] No 'simple_fits' section in "
+              f"'{config_file.name}'")
+        return {'success': False, 'message': "No 'simple_fits' section in config file"}
+
+    # Work on a shallow copy so we don't mutate the caller's config dict
+    sf_cfg = dict(sf_cfg)
+
+    # Extract optional Q range from config (stored by the GUI panel)
+    q_min = sf_cfg.pop('q_min', None)
+    q_max = sf_cfg.pop('q_max', None)
+
+    # The GUI state uses 'param_limits'; SimpleFitModel.from_dict() expects 'limits'
+    if 'param_limits' in sf_cfg and 'limits' not in sf_cfg:
+        sf_cfg['limits'] = sf_cfg.pop('param_limits')
+    else:
+        sf_cfg.pop('param_limits', None)
+
+    # Remove state-only keys that have no meaning for from_dict()
+    for _k in ('schema_version', 'no_limits', 'param_fixed'):
+        sf_cfg.pop(_k, None)
+
+    result = fit_simple(
+        data_file=data_file,
+        config=sf_cfg,
+        with_uncertainty=with_uncertainty,
+        n_mc_runs=n_mc_runs,
+        q_min=q_min,
+        q_max=q_max,
+        verbose=True,
+    )
+
+    if result is None:
+        return {'success': False, 'message': 'fit_simple returned None (data load failure?)'}
+
+    # Normalise error key so BatchWorker can always call result.get('message')
+    if not result.get('success'):
+        result.setdefault('message', result.get('error', 'fit failed'))
 
     return result

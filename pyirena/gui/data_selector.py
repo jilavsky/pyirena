@@ -207,7 +207,7 @@ from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
-from pyirena.batch import fit_unified, fit_sizes
+from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config
 
 
 def _build_report(file_path: str,
@@ -1333,14 +1333,13 @@ class SimpleFitResultsWindow(QWidget):
                                           pen=pg.mkPen(color, width=1),
                                           connect='finite')
 
-            # ── model line ─────────────────────────────────────────────────
-            fit_color = pg.mkColor(color)
-            fit_color.setAlpha(210)
+            # ── model line — darker shade for clear contrast with data symbols
+            fit_color = color.darker(280)   # ~36% brightness of the data colour
             chi2_str = f'{chi2:.3f}' if (chi2 == chi2) else 'N/A'
             fit_name = f'{label}  {model}  χ²={chi2_str}' if in_legend else None
             self.ax_main.plot(
                 Q, I_model,
-                pen=pg.mkPen(fit_color, width=2.5),
+                pen=pg.mkPen(fit_color, width=3.0),
                 name=fit_name,
             )
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
@@ -1466,14 +1465,19 @@ class BatchWorker(QThread):
 
     def __init__(self, tool: str, file_paths: list, config_file: str, parent=None):
         super().__init__(parent)
-        self.tool = tool                # 'unified' or 'sizes'
+        self.tool = tool                # 'unified', 'sizes', or 'simple_fits'
         self.file_paths = file_paths
         self.config_file = config_file
 
     def run(self):
         n_ok, n_fail = 0, 0
         messages = []
-        fit_fn = fit_unified if self.tool == 'unified' else fit_sizes
+        if self.tool == 'unified':
+            fit_fn = fit_unified
+        elif self.tool == 'simple_fits':
+            fit_fn = fit_simple_from_config
+        else:
+            fit_fn = fit_sizes
         total = len(self.file_paths)
 
         for i, fp in enumerate(self.file_paths):
@@ -2801,7 +2805,9 @@ class DataSelectorPanel(QWidget):
             os.path.join(self.current_folder, item.text())
             for item in selected_items
         ]
-        tool_name = "Unified Fit" if tool == 'unified' else "Size Distribution"
+        _tool_display = {'unified': "Unified Fit", 'sizes': "Size Distribution",
+                         'simple_fits': "Simple Fits"}
+        tool_name = _tool_display.get(tool, tool)
         self._set_batch_status(
             f"⏳  Starting {tool_name} batch on {len(file_paths)} file(s)…", 'working'
         )
