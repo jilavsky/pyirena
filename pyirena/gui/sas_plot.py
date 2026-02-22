@@ -282,7 +282,42 @@ def plot_iq_data(
             dI_ = np.zeros_like(q_)
         error_item = _draw_error_bars(plot, q_, I_, dI_)
 
+    # Override auto-range with percentile-based bounds from the data only.
+    # Without this, error bar segments are included in pyqtgraph's bounds
+    # computation and, under log mode, the y-axis scales to the full
+    # double-precision range (~1e-300 … 1e300).
+    set_robust_y_range(plot, I_)
+
     return scatter, error_item
+
+
+def set_robust_y_range(plot: pg.PlotItem, I: np.ndarray) -> None:
+    """Set the Y axis range from percentile-based bounds of the actual data.
+
+    CRITICAL — call this after adding error bars.  Without it, pyqtgraph's
+    auto-range algorithm includes the error bar line segments in the bounds
+    calculation.  When ``setLogMode(y=True)`` is active this can cause the
+    axis to scale to the full double-precision range (~1e-300 … 1e300).
+
+    The fix mirrors ``sizes_panel._set_robust_y_range()``: compute log10
+    percentile bounds from the *intensity* array only, then call
+    ``setYRange(lo, hi, padding=0)``.  In pyqtgraph log mode the ViewBox
+    coordinate system is log10 space, so log10 values are passed directly.
+
+    Parameters
+    ----------
+    plot : pg.PlotItem
+        Target plot with ``setLogMode(y=True)`` active.
+    I : array
+        Linear intensity values (only finite, positive values are used).
+    """
+    valid = (np.asarray(I) > 0) & np.isfinite(I)
+    if np.sum(valid) < 3:
+        return
+    log_i = np.log10(np.asarray(I)[valid])
+    lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade
+    hi = np.percentile(log_i, 100) + 0.5  # max plus half-decade
+    plot.setYRange(lo, hi, padding=0)
 
 
 def _draw_error_bars(
@@ -300,6 +335,11 @@ def _draw_error_bars(
 
     Negative lower bounds are clipped to 0.1 % of I to remain positive for
     log-y plots.
+
+    IMPORTANT: Python lists (not numpy arrays) are passed to ``plot.plot()``.
+    This matches the pattern from sizes_panel.py and avoids triggering an
+    edge case in pyqtgraph's bounds computation with NaN-containing arrays
+    under log mode.
     """
     cap = SASPlotStyle.ERROR_CAP_FRAC
     x_lines: list[float] = []
@@ -325,8 +365,9 @@ def _draw_error_bars(
     if not x_lines:
         return None
 
+    # Pass Python lists — NOT np.array() — to match sizes_panel pattern.
     return plot.plot(
-        np.array(x_lines), np.array(y_lines),
+        x_lines, y_lines,
         pen=SASPlotStyle.ERROR_PEN,
         connect='finite',
     )
