@@ -420,11 +420,15 @@ class SizesFitGraphWindow(QWidget):
             name=label,
         )
         self._ensure_cursors(q_)
-        self._set_robust_y_range(I_)
+        self._set_robust_y_range(I_, q_)
 
-    def _set_robust_y_range(self, intensity):
-        """Set Y range of main plot to a percentile-based range so that
-        isolated bad low-intensity points don't compress the whole view."""
+    def _set_robust_y_range(self, intensity, q=None):
+        """Set Y range (and optionally x range) of main plot to percentile-based bounds.
+
+        Excludes extreme outlier data points from the initial view and sets hard
+        ViewBox limits so the user cannot accidentally zoom to astronomically large
+        or small values (e.g. from cosmic rays, uncalibrated detectors, Bragg peaks).
+        """
         valid = (np.asarray(intensity) > 0) & np.isfinite(intensity)
         if np.sum(valid) < 3:
             return
@@ -434,9 +438,17 @@ class SizesFitGraphWindow(QWidget):
         # In pyqtgraph log mode the ViewBox coordinate space is log10(data),
         # so we pass log10 values directly to setYRange.
         self.main_plot.setYRange(lo, hi, padding=0)
-        # Prevent zooming to extreme y values (e.g. from cosmic rays or uncalibrated data).
-        # Allow 3 extra decades of zoom room beyond the data range before hitting a hard limit.
-        self.main_plot.getViewBox().setLimits(yMin=lo - 3, yMax=hi + 3)
+        # Hard y limits: 3 extra decades of zoom room beyond the percentile range.
+        limits = dict(yMin=lo - 3, yMax=hi + 3)
+        # Hard x limits: nearest full decade beyond data Q range, plus 1 decade slack.
+        # e.g. data 0.003–0.8 → hard limits 0.0001–10 (log10 coords: -4 to 1).
+        if q is not None:
+            valid_q = np.asarray(q)
+            valid_q = valid_q[(valid_q > 0) & np.isfinite(valid_q)]
+            if len(valid_q) >= 2:
+                limits['xMin'] = int(np.floor(np.log10(float(valid_q.min())))) - 1
+                limits['xMax'] = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+        self.main_plot.getViewBox().setLimits(**limits)
 
     def update_error_bars(self, q, intensity, error):
         """Redraw only the error bars without touching data or fit lines.

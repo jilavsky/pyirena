@@ -715,7 +715,13 @@ class UnifiedFitGraphWindow(QWidget):
             lo = float(np.percentile(log_i, 2)) - 0.5
             hi = float(np.percentile(log_i, 99)) + 0.5
             self.main_plot.setYRange(lo, hi, padding=0)
-            self.main_plot.getViewBox().setLimits(yMin=lo - 3, yMax=hi + 3)
+            # Hard limits: 3 extra decades y zoom room + nearest-decade x bounds.
+            limits = dict(yMin=lo - 3, yMax=hi + 3)
+            valid_q = q[(q > 0) & np.isfinite(q)]
+            if len(valid_q) >= 2:
+                limits['xMin'] = int(np.floor(np.log10(float(valid_q.min())))) - 1
+                limits['xMax'] = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+            self.main_plot.getViewBox().setLimits(**limits)
         else:
             self.main_plot.enableAutoRange()
 

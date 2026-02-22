@@ -297,6 +297,14 @@ def plot_iq_data(
     # double-precision range (~1e-300 … 1e300).
     set_robust_y_range(plot, I_)
 
+    # Constrain x zoom to nearest full decade beyond the data Q range, plus 1 decade slack.
+    # e.g. data 0.003–0.8 → hard limits 0.0001–10 (log10 space: -4 to 1).
+    valid_q = q_[q_ > 0]
+    if len(valid_q) >= 2:
+        q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
+        q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+        plot.getViewBox().setLimits(xMin=q_lo, xMax=q_hi)
+
     return scatter, error_item
 
 
