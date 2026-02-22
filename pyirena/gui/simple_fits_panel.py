@@ -134,6 +134,12 @@ class SimpleFitsGraphWindow(QWidget):
         self.main_plot.clear()
         self._fit_item = None
 
+        # Restore cursors removed by clear() — always re-add if they exist
+        if self._cursor_a is not None:
+            self.main_plot.addItem(self._cursor_a)
+        if self._cursor_b is not None:
+            self.main_plot.addItem(self._cursor_b)
+
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
         q, I = q[mask], I[mask]
 
@@ -147,6 +153,7 @@ class SimpleFitsGraphWindow(QWidget):
         )
         self.main_plot.addItem(scatter)
         self._data_item = scatter
+        # Only create cursors on the first data load; afterwards keep user positions
         self._ensure_cursors(np.log10(q.min()), np.log10(q.max()))
 
     def plot_fit(self, q_fit: np.ndarray, I_model: np.ndarray):
@@ -228,30 +235,31 @@ class SimpleFitsGraphWindow(QWidget):
     # ── Cursors ───────────────────────────────────────────────────────────────
 
     def _ensure_cursors(self, log_min: float, log_max: float):
-        """Create or reposition the two InfiniteLine cursors."""
+        """Create cursors on the first call and place them within the data range.
+
+        On subsequent calls the user's dragged positions are preserved; the
+        cursors have already been re-added to the plot by plot_data().
+        """
+        if self._cursor_a is not None:
+            return   # Already exist; positions kept as user left them
+
         span = log_max - log_min
         pos_a = log_min + 0.1 * span
         pos_b = log_max - 0.1 * span
 
-        if self._cursor_a is None:
-            self._cursor_a = pg.InfiniteLine(
-                pos=pos_a, angle=90, movable=True,
-                pen=pg.mkPen(color=(200, 50, 50), width=2),
-                label='A', labelOpts={'position': 0.05, 'color': (200, 50, 50)},
-            )
-            self.main_plot.addItem(self._cursor_a)
-        else:
-            self._cursor_a.setPos(pos_a)
+        self._cursor_a = pg.InfiniteLine(
+            pos=pos_a, angle=90, movable=True,
+            pen=pg.mkPen(color=(200, 50, 50), width=2),
+            label='A', labelOpts={'position': 0.05, 'color': (200, 50, 50)},
+        )
+        self.main_plot.addItem(self._cursor_a)
 
-        if self._cursor_b is None:
-            self._cursor_b = pg.InfiniteLine(
-                pos=pos_b, angle=90, movable=True,
-                pen=pg.mkPen(color=(50, 100, 200), width=2),
-                label='B', labelOpts={'position': 0.10, 'color': (50, 100, 200)},
-            )
-            self.main_plot.addItem(self._cursor_b)
-        else:
-            self._cursor_b.setPos(pos_b)
+        self._cursor_b = pg.InfiniteLine(
+            pos=pos_b, angle=90, movable=True,
+            pen=pg.mkPen(color=(50, 100, 200), width=2),
+            label='B', labelOpts={'position': 0.10, 'color': (50, 100, 200)},
+        )
+        self.main_plot.addItem(self._cursor_b)
 
     def get_cursor_range(self):
         """Return (q_min, q_max) in linear space from cursor positions."""
