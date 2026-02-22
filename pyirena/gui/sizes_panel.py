@@ -430,10 +430,13 @@ class SizesFitGraphWindow(QWidget):
             return
         log_i = np.log10(np.asarray(intensity)[valid])
         lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade
-        hi = np.percentile(log_i, 100) + 0.5  # max plus half-decade
+        hi = np.percentile(log_i, 99) + 0.5   # 99th percentile (excludes extreme outliers)
         # In pyqtgraph log mode the ViewBox coordinate space is log10(data),
         # so we pass log10 values directly to setYRange.
         self.main_plot.setYRange(lo, hi, padding=0)
+        # Prevent zooming to extreme y values (e.g. from cosmic rays or uncalibrated data).
+        # Allow 3 extra decades of zoom room beyond the data range before hitting a hard limit.
+        self.main_plot.getViewBox().setLimits(yMin=lo - 3, yMax=hi + 3)
 
     def update_error_bars(self, q, intensity, error):
         """Redraw only the error bars without touching data or fit lines.
