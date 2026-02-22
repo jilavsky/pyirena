@@ -45,6 +45,17 @@ class StateManager:
             "last_folder": "",
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
         },
+        "simple_fits": {
+            # schema_version 1: initial release
+            "schema_version": 1,
+            "model": "Guinier",
+            "q_min": None,
+            "q_max": None,
+            "use_complex_bg": False,
+            "params": {},        # {param_name: current_value, …}
+            "param_limits": {},  # {param_name: [lo, hi], …}  (None entries = ±∞)
+            "n_mc_runs": 50,
+        },
         "sizes": {
             # schema_version is bumped whenever a default value changes so that
             # old saved states can be migrated automatically on load.

@@ -969,3 +969,159 @@ def fit_pyirena(
         'tools_run': tools_to_run,
         'results': all_results,
     }
+
+
+# ---------------------------------------------------------------------------
+# fit_simple — headless Simple Fits API
+# ---------------------------------------------------------------------------
+
+def fit_simple(
+    data_file: Union[str, Path],
+    config: Union[Dict, 'SimpleFitModel'],
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 50,
+    q_min: Optional[float] = None,
+    q_max: Optional[float] = None,
+    verbose: bool = True,
+) -> Optional[Dict]:
+    """
+    Fit a single analytical model to one SAS file and save the result.
+
+    Parameters
+    ----------
+    data_file : str or Path
+        Path to a text (.dat/.txt) or NXcanSAS HDF5 (.h5/.hdf5) file.
+    config : dict or SimpleFitModel
+        Model configuration.  If a dict, must have key ``'model'`` (model
+        name string) and optionally ``'params'``, ``'limits'``,
+        ``'use_complex_bg'``.  Example::
+
+            {'model': 'Guinier', 'params': {'I0': 5.0, 'Rg': 80.0}}
+
+        Alternatively pass a ``SimpleFitModel`` instance directly.
+    with_uncertainty : bool
+        If True, run a Monte Carlo uncertainty analysis after the initial
+        fit.  Perturbs the data ``n_mc_runs`` times by one-sigma Gaussian
+        noise and fits each perturbed dataset; the standard deviation of
+        the resulting parameter distributions updates ``params_std`` in
+        the returned result.
+    n_mc_runs : int
+        Number of Monte Carlo perturbation runs (used only when
+        ``with_uncertainty=True``).
+    q_min, q_max : float or None
+        Q range [Å⁻¹] to use for fitting.  Data outside this range is
+        excluded.  None means use all data.
+    verbose : bool
+        If True, print progress messages to stdout.
+
+    Returns
+    -------
+    dict or None
+        Fit result dict (same structure as ``SimpleFitModel.fit()``), with
+        the result also saved to the HDF5 file.  Returns None on failure.
+    """
+    from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY
+    from pyirena.io.nxcansas_simple_fits import save_simple_fit_results
+
+    data_file = Path(data_file)
+
+    # ── Build model object ───────────────────────────────────────────────────
+    if isinstance(config, SimpleFitModel):
+        model = config
+        if n_mc_runs != 50:
+            model.n_mc_runs = n_mc_runs
+    elif isinstance(config, dict):
+        model = SimpleFitModel.from_dict(config)
+        model.n_mc_runs = n_mc_runs
+    else:
+        print(f"[pyirena.batch.fit_simple] config must be a dict or SimpleFitModel, "
+              f"got {type(config).__name__}")
+        return None
+
+    # ── Load data ────────────────────────────────────────────────────────────
+    data = _load_data(data_file)
+    if data is None:
+        return None
+
+    q = np.asarray(data.get('Q', data.get('q', [])), dtype=float)
+    I = np.asarray(data.get('Intensity', data.get('intensity', [])), dtype=float)
+    dI = data.get('Error', data.get('error', None))
+    dI = np.asarray(dI, dtype=float) if dI is not None else None
+
+    # ── Apply Q range mask ───────────────────────────────────────────────────
+    mask = np.ones(len(q), dtype=bool)
+    if q_min is not None:
+        mask &= (q >= q_min)
+    if q_max is not None:
+        mask &= (q <= q_max)
+    mask &= np.isfinite(q) & np.isfinite(I) & (q > 0)
+    if dI is not None:
+        mask &= np.isfinite(dI) & (dI > 0)
+
+    if mask.sum() < 2:
+        print(f"[pyirena.batch.fit_simple] Too few data points after Q masking "
+              f"({mask.sum()} points, need ≥ 2).")
+        return None
+
+    qf = q[mask]
+    If = I[mask]
+    dIf = dI[mask] if dI is not None else None
+
+    # ── Initial fit ──────────────────────────────────────────────────────────
+    if verbose:
+        print(f"[pyirena.batch] Fitting {model.model} to '{data_file.name}' ...")
+
+    result = model.fit(qf, If, dIf)
+
+    if not result.get('success'):
+        msg = result.get('error', 'Unknown error')
+        print(f"[pyirena.batch.fit_simple] Fit failed: {msg}")
+        return result
+
+    if verbose:
+        rchi2 = result.get('reduced_chi2')
+        print(f"[pyirena.batch] Fit succeeded.  Reduced χ² = {rchi2:.4g}")
+
+    # ── Monte Carlo uncertainty ──────────────────────────────────────────────
+    if with_uncertainty:
+        if verbose:
+            print(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")
+
+        dIf_safe = (dIf if dIf is not None
+                    else np.maximum(If * 0.05, 1e-30))
+        mc_params: Dict[str, list] = {k: [] for k in result['params']}
+
+        for _ in range(n_mc_runs):
+            I_perturbed = If + dIf_safe * np.random.randn(len(If))
+            mc_res = model.fit(qf, I_perturbed, dIf)
+            if mc_res.get('success'):
+                for k in mc_params:
+                    mc_params[k].append(mc_res['params'].get(k, float('nan')))
+
+        if any(len(v) > 1 for v in mc_params.values()):
+            result['params_std'] = {
+                k: float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')
+                for k, v in mc_params.items()
+            }
+            if verbose:
+                print(f"[pyirena.batch] MC uncertainty done "
+                      f"({sum(len(v) for v in mc_params.values()) // max(len(mc_params), 1)} "
+                      f"successful runs).")
+
+    # ── Save to HDF5 (only for NXcanSAS files) ───────────────────────────────
+    ext = data_file.suffix.lower()
+    if ext in ('.h5', '.hdf5', '.hdf', '.nx'):
+        try:
+            save_simple_fit_results(
+                filepath=data_file,
+                result=result,
+                model_obj=model,
+                intensity_data=I[mask] if mask is not None else I,
+                intensity_error=dI[mask] if (dI is not None and mask is not None) else dI,
+            )
+            if verbose:
+                print(f"[pyirena.batch] Results saved to '{data_file.name}'")
+        except Exception as exc:
+            print(f"[pyirena.batch.fit_simple] Could not save results: {exc}")
+
+    return result

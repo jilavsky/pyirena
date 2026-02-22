@@ -1287,6 +1287,7 @@ class DataSelectorPanel(QWidget):
         self.tabulate_results_window = None    # Tabulated results window
         self.unified_fit_window = None  # Unified fit panel
         self.sizes_fit_window = None   # Size distribution panel
+        self.simple_fits_window = None  # Simple Fits panel
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -1634,6 +1635,50 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.unified_script_button,  3, 1)
         btn_grid.addWidget(self.sizes_fit_button,       4, 0)
         btn_grid.addWidget(self.sizes_script_button,    4, 1)
+
+        # ── Simple Fits: GUI button + Script batch button ─────────────────
+        _sf_gui_style = """
+            QPushButton {
+                background-color: #27ae60; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #1e8449; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        _sf_script_style = """
+            QPushButton {
+                background-color: #1e8449; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #196f3d; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.simple_fits_button = QPushButton("Simple Fits (GUI)")
+        self.simple_fits_button.setMinimumHeight(38)
+        self.simple_fits_button.setStyleSheet(_sf_gui_style)
+        self.simple_fits_button.setToolTip(
+            "Open Simple Fits panel for the first selected file."
+        )
+        self.simple_fits_button.clicked.connect(self.launch_simple_fits)
+        self.simple_fits_button.setEnabled(False)
+
+        self.simple_fits_script_button = QPushButton("Simple Fits (script)")
+        self.simple_fits_script_button.setMinimumHeight(38)
+        self.simple_fits_script_button.setStyleSheet(_sf_script_style)
+        self.simple_fits_script_button.setToolTip(
+            "Batch-fit all selected files with Simple Fits using pyirena_config.json.\n"
+            "Results are saved into each file's NXcanSAS record."
+        )
+        self.simple_fits_script_button.clicked.connect(self.run_simple_fits_script)
+        self.simple_fits_script_button.setEnabled(False)
+
+        btn_grid.addWidget(self.simple_fits_button,        5, 0)
+        btn_grid.addWidget(self.simple_fits_script_button, 5, 1)
+
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
@@ -1686,6 +1731,12 @@ class DataSelectorPanel(QWidget):
         sizes_fit_action.setStatusTip("Open Size Distribution fitting panel")
         sizes_fit_action.triggered.connect(self.launch_sizes_fit)
         models_menu.addAction(sizes_fit_action)
+
+        # Simple Fits action
+        simple_fits_action = QAction("Simple &Fits", self)
+        simple_fits_action.setStatusTip("Open Simple Fits panel")
+        simple_fits_action.triggered.connect(self.launch_simple_fits)
+        models_menu.addAction(simple_fits_action)
 
         # Add separator and future models placeholder
         models_menu.addSeparator()
@@ -1826,6 +1877,8 @@ class DataSelectorPanel(QWidget):
         self.unified_script_button.setEnabled(has_selection)
         self.sizes_fit_button.setEnabled(has_selection)
         self.sizes_script_button.setEnabled(has_selection)
+        self.simple_fits_button.setEnabled(has_selection)
+        self.simple_fits_script_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files according to the Data / Unified Fit checkboxes."""
@@ -2327,6 +2380,68 @@ class DataSelectorPanel(QWidget):
     def run_sizes_script(self):
         """Batch-fit all selected files with Size Distribution."""
         self._run_batch_fit('sizes')
+
+    def launch_simple_fits(self):
+        """Launch the Simple Fits panel with the first selected file."""
+        from pyirena.gui.simple_fits_panel import SimpleFitsPanel
+        selected_items = self.file_list.selectedItems()
+
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select a file to open in Simple Fits.",
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        try:
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename, error_fraction=error_fraction)
+                is_nxcansas = False
+            else:
+                data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True
+
+            if data is None:
+                QMessageBox.critical(
+                    self, "Error",
+                    f"Could not read data from file: {filename}",
+                )
+                return
+
+            if self.simple_fits_window is None:
+                self.simple_fits_window = SimpleFitsPanel()
+
+            self.simple_fits_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                filename,
+                filepath=file_path,
+                is_nxcansas=is_nxcansas,
+            )
+
+            self.simple_fits_window.show()
+            self.simple_fits_window.raise_()
+            self.simple_fits_window.activateWindow()
+
+            self.status_label.setText(f"Opened Simple Fits for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error",
+                f"Error loading data for Simple Fits:\n{str(e)}",
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+    def run_simple_fits_script(self):
+        """Batch-fit all selected files with Simple Fits."""
+        self._run_batch_fit('simple_fits')
 
     def _find_config_file(self) -> Optional[str]:
         """
