@@ -1531,11 +1531,12 @@ class DataSelectorPanel(QWidget):
 
         self.init_ui()
 
-        # Restore saved sort selection (blockSignals to avoid premature sort_file_list call)
+        # Restore saved sort selection and re-sort the already-populated list
         saved_sort = int(self.state_manager.get('data_selector', 'sort_index', 0) or 0)
         self.sort_combo.blockSignals(True)
         self.sort_combo.setCurrentIndex(saved_sort)
         self.sort_combo.blockSignals(False)
+        self.sort_file_list()   # apply restored sort order to the initial file list
 
     def init_ui(self):
         """Initialize the user interface."""
