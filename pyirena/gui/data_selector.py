@@ -207,24 +207,27 @@ from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
-from pyirena.batch import fit_unified, fit_sizes
+from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config
 
 
 def _build_report(file_path: str,
                   data_info: Optional[dict] = None,
                   fit_results: Optional[dict] = None,
-                  sizes_results: Optional[dict] = None) -> str:
+                  sizes_results: Optional[dict] = None,
+                  simple_fit_results: Optional[dict] = None) -> str:
     """
     Build a Markdown report string.
 
     Args:
-        file_path:     Absolute path to the source file.
-        data_info:     Dict with keys 'Q', 'I', 'I_error' (optional array).
-                       Pass None to omit the data section.
-        fit_results:   Dict from load_unified_fit_results().
-                       Pass None to omit the unified fit section.
-        sizes_results: Dict from load_sizes_results().
-                       Pass None to omit the size distribution section.
+        file_path:          Absolute path to the source file.
+        data_info:          Dict with keys 'Q', 'I', 'I_error' (optional array).
+                            Pass None to omit the data section.
+        fit_results:        Dict from load_unified_fit_results().
+                            Pass None to omit the unified fit section.
+        sizes_results:      Dict from load_sizes_results().
+                            Pass None to omit the size distribution section.
+        simple_fit_results: Dict from load_simple_fit_results().
+                            Pass None to omit the simple fits section.
 
     Returns:
         Multi-line Markdown string ready to be written to a .md file.
@@ -252,6 +255,10 @@ def _build_report(file_path: str,
     if sizes_results is not None:
         L += [
             f"| **Size Dist. timestamp** | {sizes_results.get('timestamp', 'unknown')} |",
+        ]
+    if simple_fit_results is not None:
+        L += [
+            f"| **Simple Fits timestamp** | {simple_fit_results.get('timestamp', 'unknown')} |",
         ]
     L.append("")
 
@@ -499,6 +506,74 @@ def _build_report(file_path: str,
                 f"| Max iterations | {max_iter} |",
                 "",
             ]
+
+    # ── Simple Fits results ───────────────────────────────────────────────────
+    if simple_fit_results is not None:
+        sf_model    = simple_fit_results.get('model', 'unknown')
+        sf_chi2     = simple_fit_results.get('chi_squared')
+        sf_rchi2    = simple_fit_results.get('reduced_chi_squared')
+        sf_dof      = simple_fit_results.get('dof')
+        sf_q_min    = simple_fit_results.get('q_min')
+        sf_q_max    = simple_fit_results.get('q_max')
+        sf_complex  = simple_fit_results.get('use_complex_bg', False)
+        sf_params   = simple_fit_results.get('params', {})
+        sf_std      = simple_fit_results.get('params_std', {})
+        sf_derived  = simple_fit_results.get('derived', {})
+
+        def _sf_fmt(v, spec='.4g', suffix=''):
+            if v is None:
+                return 'N/A'
+            try:
+                if np.isnan(float(v)):
+                    return 'N/A'
+            except (TypeError, ValueError):
+                pass
+            try:
+                return f"{v:{spec}}{suffix}"
+            except (TypeError, ValueError):
+                return str(v)
+
+        L += [
+            "## Simple Fits",
+            "",
+            "| Parameter | Value |",
+            "|-----------|-------|",
+            f"| Model | {sf_model} |",
+            f"| Chi-squared (χ²) | {_sf_fmt(sf_chi2)} |",
+            f"| Reduced chi² | {_sf_fmt(sf_rchi2)} |",
+            f"| DOF | {sf_dof if sf_dof is not None else 'N/A'} |",
+            f"| Q range (fit) | {_sf_fmt(sf_q_min)} – {_sf_fmt(sf_q_max)} Å⁻¹ |",
+            f"| Complex background | {sf_complex} |",
+            "",
+        ]
+
+        if sf_params:
+            has_std = bool(sf_std)
+            if has_std:
+                L += ["**Parameters:**", "",
+                      "| Parameter | Value | Uncertainty (1σ) |",
+                      "|-----------|-------|------------------|"]
+            else:
+                L += ["**Parameters:**", "",
+                      "| Parameter | Value |",
+                      "|-----------|-------|"]
+            for name, val in sf_params.items():
+                val_str = _sf_fmt(val, '.6g')
+                if has_std:
+                    err = sf_std.get(name)
+                    err_str = f"± {_sf_fmt(err, '.3g')}" if err is not None else "—"
+                    L.append(f"| {name} | {val_str} | {err_str} |")
+                else:
+                    L.append(f"| {name} | {val_str} |")
+            L.append("")
+
+        if sf_derived:
+            L += ["**Derived quantities:**", "",
+                  "| Quantity | Value |",
+                  "|----------|-------|"]
+            for name, val in sf_derived.items():
+                L.append(f"| {name} | {_sf_fmt(val, '.6g')} |")
+            L.append("")
 
     L += ["---", "*Generated by pyIrena*", ""]
     return "\n".join(L)
@@ -1138,6 +1213,158 @@ class SizeDistResultsWindow(QWidget):
         self.show()
 
 
+class SimpleFitResultsWindow(QWidget):
+    """
+    Separate window for displaying Simple Fits results stored in HDF5 files.
+
+    Two pyqtgraph panels (x-axes linked):
+      top    — I(Q) data + model fit (log-log)
+      bottom — normalised residuals vs Q (log x)
+    Files that contain no simple_fit_results group are silently skipped.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - Simple Fits Results")
+        self.setGeometry(140, 140, 900, 700)
+
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
+
+        # ── Top: I(Q) data + model ─────────────────────────────────────────
+        self.ax_main = self.gl.addPlot(
+            row=0, col=0,
+            axisItems={
+                'left':   _LogDecadeAxis(orientation='left'),
+                'bottom': _LogDecadeAxis(orientation='bottom'),
+            }
+        )
+        self.ax_main.setLogMode(True, True)
+        self.ax_main.setLabel('left', 'Intensity (cm⁻¹)')
+        self.ax_main.setTitle('Simple Fits Results', size='13pt')
+        self.ax_main.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        _style_plot(self.ax_main)
+
+        # ── Bottom: residuals ──────────────────────────────────────────────
+        self.ax_resid = self.gl.addPlot(
+            row=1, col=0,
+            axisItems={'bottom': _LogDecadeAxis(orientation='bottom')},
+        )
+        self.ax_resid.setLogMode(True, False)
+        self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
+        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
+        _style_plot(self.ax_resid)
+        self.ax_resid.setXLink(self.ax_main)
+
+        self.gl.ci.layout.setRowStretchFactor(0, 3)
+        self.gl.ci.layout.setRowStretchFactor(1, 1)
+        _add_jpeg_export(self, self.ax_main, self.ax_resid)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.gl)
+        self.setLayout(layout)
+
+    def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
+        """
+        Load and plot Simple Fits results from the given file paths.
+
+        Only HDF5 files are considered.  Files without a simple_fit_results
+        group are skipped silently.
+        """
+        from pyirena.io.nxcansas_simple_fits import load_simple_fit_results
+
+        self.ax_main.clear()
+        self.ax_resid.clear()
+        for ax in (self.ax_main, self.ax_resid):
+            if ax.legend is not None:
+                ax.legend.clear()
+
+        self.ax_resid.addLine(y=0, pen=pg.mkPen('k', width=1))
+
+        found_any = False
+        colors = _gen_colors(len(file_paths))
+        legend_idx = _legend_indices(len(file_paths), max_legend_items)
+
+        for idx, file_path in enumerate(file_paths):
+            _, ext = os.path.splitext(file_path)
+            if ext.lower() not in ('.h5', '.hdf5', '.hdf'):
+                continue
+
+            try:
+                results = load_simple_fit_results(Path(file_path))
+            except Exception:
+                continue
+
+            color     = colors[idx]
+            label     = os.path.basename(file_path)
+            in_legend = idx in legend_idx
+
+            Q         = results.get('Q')
+            I_data    = results.get('intensity_data')
+            I_model   = results.get('I_model')
+            I_error   = results.get('intensity_error')
+            residuals = results.get('residuals')
+            chi2      = results.get('chi_squared', float('nan'))
+            model     = results.get('model', '')
+
+            if Q is None or I_model is None:
+                continue
+
+            # ── data points ────────────────────────────────────────────────
+            if I_data is not None:
+                data_name = f'{label}  data' if in_legend else None
+                self.ax_main.plot(
+                    Q, I_data,
+                    pen=None, symbol='o', symbolSize=4,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                    name=data_name,
+                )
+                if data_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
+                    self.ax_main.legend.items[-1][1].setAttr('color', color.name())
+
+                # ── error bars ─────────────────────────────────────────────
+                if I_error is not None:
+                    xb, yb = _iq_error_bars(Q, I_data, I_error)
+                    if len(xb):
+                        self.ax_main.plot(xb, yb,
+                                          pen=pg.mkPen(color, width=1),
+                                          connect='finite')
+
+            # ── model line — darker shade for clear contrast with data symbols
+            fit_color = color.darker(280)   # ~36% brightness of the data colour
+            chi2_str = f'{chi2:.3f}' if (chi2 == chi2) else 'N/A'
+            fit_name = f'{label}  {model}  χ²={chi2_str}' if in_legend else None
+            self.ax_main.plot(
+                Q, I_model,
+                pen=pg.mkPen(fit_color, width=3.0),
+                name=fit_name,
+            )
+            if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
+                self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
+
+            # ── residuals ──────────────────────────────────────────────────
+            if residuals is not None:
+                self.ax_resid.plot(
+                    Q, residuals,
+                    pen=None, symbol='o', symbolSize=3,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                )
+
+            found_any = True
+
+        if not found_any:
+            self.ax_main.setTitle(
+                'No Simple Fits results found in selected files',
+                size='12pt', color='#7f8c8d',
+            )
+
+        self.show()
+
+
 class TabulateResultsWindow(QWidget):
     """
     Separate window that shows fit results for selected files in a spreadsheet-like
@@ -1238,14 +1465,19 @@ class BatchWorker(QThread):
 
     def __init__(self, tool: str, file_paths: list, config_file: str, parent=None):
         super().__init__(parent)
-        self.tool = tool                # 'unified' or 'sizes'
+        self.tool = tool                # 'unified', 'sizes', or 'simple_fits'
         self.file_paths = file_paths
         self.config_file = config_file
 
     def run(self):
         n_ok, n_fail = 0, 0
         messages = []
-        fit_fn = fit_unified if self.tool == 'unified' else fit_sizes
+        if self.tool == 'unified':
+            fit_fn = fit_unified
+        elif self.tool == 'simple_fits':
+            fit_fn = fit_simple_from_config
+        else:
+            fit_fn = fit_sizes
         total = len(self.file_paths)
 
         for i, fp in enumerate(self.file_paths):
@@ -1287,6 +1519,8 @@ class DataSelectorPanel(QWidget):
         self.tabulate_results_window = None    # Tabulated results window
         self.unified_fit_window = None  # Unified fit panel
         self.sizes_fit_window = None   # Size distribution panel
+        self.simple_fits_window = None         # Simple Fits panel
+        self.simple_fits_results_window = None # Graph of stored simple fit results
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -1297,11 +1531,12 @@ class DataSelectorPanel(QWidget):
 
         self.init_ui()
 
-        # Restore saved sort selection (blockSignals to avoid premature sort_file_list call)
+        # Restore saved sort selection and re-sort the already-populated list
         saved_sort = int(self.state_manager.get('data_selector', 'sort_index', 0) or 0)
         self.sort_combo.blockSignals(True)
         self.sort_combo.setCurrentIndex(saved_sort)
         self.sort_combo.blockSignals(False)
+        self.sort_file_list()   # apply restored sort order to the initial file list
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -1475,6 +1710,14 @@ class DataSelectorPanel(QWidget):
             "Only HDF5 files with stored sizes results are used for reports."
         )
         cb_row.addWidget(self.size_dist_checkbox)
+
+        self.simple_fits_checkbox = QCheckBox("Simple Fits")
+        self.simple_fits_checkbox.setChecked(False)
+        self.simple_fits_checkbox.setToolTip(
+            "Plot stored Simple Fits results (data + model + residuals).\n"
+            "Only HDF5 files with stored simple fit results are used."
+        )
+        cb_row.addWidget(self.simple_fits_checkbox)
         cb_row.addStretch()
         right_layout.addLayout(cb_row)
 
@@ -1634,6 +1877,50 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.unified_script_button,  3, 1)
         btn_grid.addWidget(self.sizes_fit_button,       4, 0)
         btn_grid.addWidget(self.sizes_script_button,    4, 1)
+
+        # ── Simple Fits: GUI button + Script batch button ─────────────────
+        _sf_gui_style = """
+            QPushButton {
+                background-color: #27ae60; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #1e8449; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        _sf_script_style = """
+            QPushButton {
+                background-color: #1e8449; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #196f3d; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.simple_fits_button = QPushButton("Simple Fits (GUI)")
+        self.simple_fits_button.setMinimumHeight(38)
+        self.simple_fits_button.setStyleSheet(_sf_gui_style)
+        self.simple_fits_button.setToolTip(
+            "Open Simple Fits panel for the first selected file."
+        )
+        self.simple_fits_button.clicked.connect(self.launch_simple_fits)
+        self.simple_fits_button.setEnabled(False)
+
+        self.simple_fits_script_button = QPushButton("Simple Fits (script)")
+        self.simple_fits_script_button.setMinimumHeight(38)
+        self.simple_fits_script_button.setStyleSheet(_sf_script_style)
+        self.simple_fits_script_button.setToolTip(
+            "Batch-fit all selected files with Simple Fits using pyirena_config.json.\n"
+            "Results are saved into each file's NXcanSAS record."
+        )
+        self.simple_fits_script_button.clicked.connect(self.run_simple_fits_script)
+        self.simple_fits_script_button.setEnabled(False)
+
+        btn_grid.addWidget(self.simple_fits_button,        5, 0)
+        btn_grid.addWidget(self.simple_fits_script_button, 5, 1)
+
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
@@ -1686,6 +1973,12 @@ class DataSelectorPanel(QWidget):
         sizes_fit_action.setStatusTip("Open Size Distribution fitting panel")
         sizes_fit_action.triggered.connect(self.launch_sizes_fit)
         models_menu.addAction(sizes_fit_action)
+
+        # Simple Fits action
+        simple_fits_action = QAction("Simple &Fits", self)
+        simple_fits_action.setStatusTip("Open Simple Fits panel")
+        simple_fits_action.triggered.connect(self.launch_simple_fits)
+        models_menu.addAction(simple_fits_action)
 
         # Add separator and future models placeholder
         models_menu.addSeparator()
@@ -1826,6 +2119,8 @@ class DataSelectorPanel(QWidget):
         self.unified_script_button.setEnabled(has_selection)
         self.sizes_fit_button.setEnabled(has_selection)
         self.sizes_script_button.setEnabled(has_selection)
+        self.simple_fits_button.setEnabled(has_selection)
+        self.simple_fits_script_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files according to the Data / Unified Fit checkboxes."""
@@ -1894,13 +2189,28 @@ class DataSelectorPanel(QWidget):
                     self, "Plot Error", f"Error creating Size Distribution plot:\n{str(e)}"
                 )
 
+        # ── Simple Fits results ────────────────────────────────────────────
+        if self.simple_fits_checkbox.isChecked():
+            if self.simple_fits_results_window is None:
+                self.simple_fits_results_window = SimpleFitResultsWindow()
+            try:
+                self.simple_fits_results_window.plot_results(
+                    file_paths,
+                    max_legend_items=max_legend_items,
+                )
+                plotted.append("Simple Fits results")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Plot Error", f"Error creating Simple Fits plot:\n{str(e)}"
+                )
+
         if plotted:
             self.status_label.setText(
                 f"Plotted {len(file_paths)} file(s): {', '.join(plotted)}"
             )
         else:
             self.status_label.setText(
-                "Nothing to plot — check 'Data', 'Unified Fit', or 'Size Dist.' checkbox"
+                "Nothing to plot — check 'Data', 'Unified Fit', 'Size Dist.' or 'Simple Fits' checkbox"
             )
 
     def create_report(self):
@@ -1918,13 +2228,14 @@ class DataSelectorPanel(QWidget):
             QMessageBox.warning(self, "No Selection", "Please select files to report.")
             return
 
-        show_data  = self.data_checkbox.isChecked()
-        show_fit   = self.unified_fit_result_checkbox.isChecked()
-        show_sizes = self.size_dist_checkbox.isChecked()
+        show_data         = self.data_checkbox.isChecked()
+        show_fit          = self.unified_fit_result_checkbox.isChecked()
+        show_sizes        = self.size_dist_checkbox.isChecked()
+        show_simple_fits  = self.simple_fits_checkbox.isChecked()
 
-        if not show_data and not show_fit and not show_sizes:
+        if not show_data and not show_fit and not show_sizes and not show_simple_fits:
             self.status_label.setText(
-                "Nothing to report — check 'Data', 'Unified Fit', or 'Size Dist.' checkbox"
+                "Nothing to report — check 'Data', 'Unified Fit', 'Size Dist.' or 'Simple Fits' checkbox"
             )
             return
 
@@ -1940,9 +2251,10 @@ class DataSelectorPanel(QWidget):
             _, ext = os.path.splitext(file_path)
             is_hdf = ext.lower() in ['.h5', '.hdf5', '.hdf']
 
-            data_info    = None
-            fit_results  = None
-            sizes_results = None
+            data_info          = None
+            fit_results        = None
+            sizes_results      = None
+            simple_fit_results = None
 
             # ── Load raw data ──────────────────────────────────────────────
             if show_data:
@@ -1977,8 +2289,16 @@ class DataSelectorPanel(QWidget):
                 except Exception:
                     pass   # no sizes group or unreadable — section omitted silently
 
+            # ── Load Simple Fits results (HDF5 only) ───────────────────────
+            if show_simple_fits and is_hdf:
+                try:
+                    from pyirena.io.nxcansas_simple_fits import load_simple_fit_results
+                    simple_fit_results = load_simple_fit_results(Path(file_path))
+                except Exception:
+                    pass   # no simple_fit_results group — section omitted silently
+
             # Nothing to write for this file?
-            if data_info is None and fit_results is None and sizes_results is None:
+            if data_info is None and fit_results is None and sizes_results is None and simple_fit_results is None:
                 skipped.append(os.path.basename(file_path))
                 continue
 
@@ -1987,6 +2307,7 @@ class DataSelectorPanel(QWidget):
                 data_info=data_info,
                 fit_results=fit_results,
                 sizes_results=sizes_results,
+                simple_fit_results=simple_fit_results,
             )
             out_path = Path(file_path).parent / (Path(file_path).stem + '_report.md')
             out_path.write_text(md, encoding='utf-8')
@@ -2029,12 +2350,13 @@ class DataSelectorPanel(QWidget):
             QMessageBox.warning(self, "No Selection", "Please select files to tabulate.")
             return
 
-        show_unified = self.unified_fit_result_checkbox.isChecked()
-        show_sizes   = self.size_dist_checkbox.isChecked()
+        show_unified     = self.unified_fit_result_checkbox.isChecked()
+        show_sizes       = self.size_dist_checkbox.isChecked()
+        show_simple_fits = self.simple_fits_checkbox.isChecked()
 
-        if not show_unified and not show_sizes:
+        if not show_unified and not show_sizes and not show_simple_fits:
             self.status_label.setText(
-                "Nothing to tabulate — check 'Unified Fit' or 'Size Dist.' checkbox"
+                "Nothing to tabulate — check 'Unified Fit', 'Size Dist.' or 'Simple Fits' checkbox"
             )
             return
 
@@ -2047,8 +2369,11 @@ class DataSelectorPanel(QWidget):
         from pyirena.io.nxcansas_sizes import load_sizes_results
 
         # ── First pass: load all data, determine max unified-fit levels ──────
-        loaded = []   # list of (fname, uf_dict_or_None, sz_dict_or_None)
+        loaded = []   # list of (fname, uf_dict_or_None, sz_dict_or_None, sf_dict_or_None)
         max_levels = 0
+        # Collect all SF param names seen across files (order preserved via dict)
+        sf_param_names_seen: dict = {}
+        sf_derived_names_seen: dict = {}
 
         for fp in file_paths:
             _, ext = os.path.splitext(fp)
@@ -2057,6 +2382,7 @@ class DataSelectorPanel(QWidget):
 
             uf = None
             sz = None
+            sf = None
 
             if is_hdf:
                 if show_unified:
@@ -2070,8 +2396,18 @@ class DataSelectorPanel(QWidget):
                         sz = load_sizes_results(Path(fp))
                     except Exception:
                         pass
+                if show_simple_fits:
+                    try:
+                        from pyirena.io.nxcansas_simple_fits import load_simple_fit_results
+                        sf = load_simple_fit_results(Path(fp))
+                        for pname in sf.get('params', {}):
+                            sf_param_names_seen[pname] = None
+                        for dname in sf.get('derived', {}):
+                            sf_derived_names_seen[dname] = None
+                    except Exception:
+                        pass
 
-            loaded.append((fname, uf, sz))
+            loaded.append((fname, uf, sz, sf))
 
         # ── Build column headers ──────────────────────────────────────────────
         headers = ['filename']
@@ -2098,6 +2434,17 @@ class DataSelectorPanel(QWidget):
                 'SD_cursor_q_min', 'SD_cursor_q_max',
             ]
 
+        _sf_param_names   = list(sf_param_names_seen.keys())
+        _sf_derived_names = list(sf_derived_names_seen.keys())
+        if show_simple_fits:
+            headers += ['SF_model', 'SF_chi2', 'SF_reduced_chi2', 'SF_dof',
+                        'SF_q_min', 'SF_q_max', 'SF_use_complex_bg']
+            for pname in _sf_param_names:
+                headers.append(f'SF_{pname}')
+                headers.append(f'SF_{pname}_std')
+            for dname in _sf_derived_names:
+                headers.append(f'SF_derived_{dname}')
+
         # ── Build rows ────────────────────────────────────────────────────────
         def _fmt(v):
             """Format a value for CSV/table: round floats to 6 sig-figs."""
@@ -2111,7 +2458,7 @@ class DataSelectorPanel(QWidget):
             return v
 
         rows = []
-        for fname, uf, sz in loaded:
+        for fname, uf, sz, sf in loaded:
             row = [fname]
 
             if show_unified:
@@ -2171,6 +2518,29 @@ class DataSelectorPanel(QWidget):
                     ]
                 else:
                     row += [None] * 19
+
+            if show_simple_fits:
+                if sf is not None:
+                    sf_params_d  = sf.get('params', {})
+                    sf_std_d     = sf.get('params_std', {})
+                    sf_derived_d = sf.get('derived', {})
+                    row += [
+                        sf.get('model'),
+                        _fmt(sf.get('chi_squared')),
+                        _fmt(sf.get('reduced_chi_squared')),
+                        sf.get('dof'),
+                        _fmt(sf.get('q_min')),
+                        _fmt(sf.get('q_max')),
+                        sf.get('use_complex_bg'),
+                    ]
+                    for pname in _sf_param_names:
+                        row.append(_fmt(sf_params_d.get(pname)))
+                        row.append(_fmt(sf_std_d.get(pname)))
+                    for dname in _sf_derived_names:
+                        row.append(_fmt(sf_derived_d.get(dname)))
+                else:
+                    n_sf_cols = 7 + 2 * len(_sf_param_names) + len(_sf_derived_names)
+                    row += [None] * n_sf_cols
 
             rows.append(row)
 
@@ -2328,6 +2698,68 @@ class DataSelectorPanel(QWidget):
         """Batch-fit all selected files with Size Distribution."""
         self._run_batch_fit('sizes')
 
+    def launch_simple_fits(self):
+        """Launch the Simple Fits panel with the first selected file."""
+        from pyirena.gui.simple_fits_panel import SimpleFitsPanel
+        selected_items = self.file_list.selectedItems()
+
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select a file to open in Simple Fits.",
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        try:
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename, error_fraction=error_fraction)
+                is_nxcansas = False
+            else:
+                data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True
+
+            if data is None:
+                QMessageBox.critical(
+                    self, "Error",
+                    f"Could not read data from file: {filename}",
+                )
+                return
+
+            if self.simple_fits_window is None:
+                self.simple_fits_window = SimpleFitsPanel()
+
+            self.simple_fits_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                filename,
+                filepath=file_path,
+                is_nxcansas=is_nxcansas,
+            )
+
+            self.simple_fits_window.show()
+            self.simple_fits_window.raise_()
+            self.simple_fits_window.activateWindow()
+
+            self.status_label.setText(f"Opened Simple Fits for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error",
+                f"Error loading data for Simple Fits:\n{str(e)}",
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+    def run_simple_fits_script(self):
+        """Batch-fit all selected files with Simple Fits."""
+        self._run_batch_fit('simple_fits')
+
     def _find_config_file(self) -> Optional[str]:
         """
         Return the path to pyirena_config.json.
@@ -2374,7 +2806,9 @@ class DataSelectorPanel(QWidget):
             os.path.join(self.current_folder, item.text())
             for item in selected_items
         ]
-        tool_name = "Unified Fit" if tool == 'unified' else "Size Distribution"
+        _tool_display = {'unified': "Unified Fit", 'sizes': "Size Distribution",
+                         'simple_fits': "Simple Fits"}
+        tool_name = _tool_display.get(tool, tool)
         self._set_batch_status(
             f"⏳  Starting {tool_name} batch on {len(file_paths)} file(s)…", 'working'
         )

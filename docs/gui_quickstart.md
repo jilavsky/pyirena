@@ -156,31 +156,21 @@ python create_test_data.py
 
 ### Current Features ✅
 
-- [x] Folder browsing
-- [x] File type filtering (HDF5/Text/All)
-- [x] File list with scroll
-- [x] Text-based filtering (grep-like)
-- [x] Multiple file selection
-- [x] Double-click to plot
-- [x] Graph in separate window
-- [x] Log-log plotting
-- [x] Multiple datasets overlay
-- [x] NXcanSAS HDF5 support
-- [x] Simple HDF5 support (fallback)
-- [x] Text file support (.txt, .dat)
-- [x] Folder refresh button
-- [x] Remember last folder
-
-### Planned Features 🚧
-
-- [ ] Save/export graphs (PNG, PDF)
-- [ ] Zoom and pan tools
-- [ ] Data table view
-- [x] Unified fit parameter panel ⭐ **NEW!**
-- [ ] Interactive fitting (in progress for Unified Fit)
-- [x] Residuals plot (in Unified Fit)
-- [ ] Batch processing
-- [ ] Copy data to clipboard
+- [x] Folder browsing with persistent last-folder memory
+- [x] File type filtering (HDF5 / Text / All)
+- [x] File list with scroll, sort (A→Z, Z→A, newest, oldest), and text filter
+- [x] Multiple file selection (Ctrl/Shift-click, double-click to plot)
+- [x] Graph window: log-log I(Q) vs Q, multiple datasets, colour-coded legend
+- [x] NXcanSAS HDF5 support; text file support (.txt, .dat)
+- [x] Zoom/pan with hard ViewBox limits (x: nearest decade ±1; y: P99 range ±3 decades)
+- [x] **Unified Fit** — Beaucage hierarchical model, 1–5 levels, correlation function
+- [x] **Size Distribution** — four inversion methods, complex background, MC uncertainty
+- [x] **Simple Fits** — 13 analytical models, linearization, MC uncertainty, HDF5 save
+- [x] Create Report — Markdown summary per file (data, Unified Fit, Sizes, Simple Fits)
+- [x] Tabulate Results — spreadsheet of all stored fit parameters, saveable as CSV
+- [x] Batch fitting via "… (script)" buttons (reads `pyirena_config.json`)
+- [x] Export/Import Parameters for all three fit tools (shared JSON config format)
+- [x] All fit results stored in NXcanSAS HDF5 alongside raw data
 
 ## Using the Unified Fit Model
 
@@ -226,6 +216,64 @@ Size Distribution panel.  Four inversion methods are available:
 
 For a full explanation of each method and its parameters, see
 [sizes_methods.md](sizes_methods.md).
+
+## Using the Simple Fits Tool
+
+Simple Fits provides direct analytical model fitting for common SAS scattering
+functions.  It is most useful when the scattering is well described by a single
+model (e.g., a Guinier regime, a Porod tail, monodisperse spheres).
+
+### Launching Simple Fits
+
+In the Data Selector, click **"Simple Fits (GUI)"** to open the panel with the
+currently selected file loaded.
+
+### Panel layout
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Left panel (controls)          │  Right: three plots        │
+│                                │                            │
+│  Model: [Guinier          ▼]   │  ┌── I(Q) log-log ──────┐ │
+│  Q range: [0.003] to [0.08]    │  │  data + model + BG   │ │
+│  [Set Q from cursors]          │  └──────────────────────┘ │
+│                                │  ┌── Residuals ─────────┐ │
+│  □ Complex background          │  │  (I−model)/σ vs Q    │ │
+│  □ No limits                   │  └──────────────────────┘ │
+│                                │  ┌── Linearization ─────┐ │
+│  ── Parameters ──              │  │  (Guinier/Porod only)│ │
+│  I0   [1.0]  lo [0] hi [—]  ✓ │  └──────────────────────┘ │
+│  Rg   [50.0] lo [0.01] hi [500]│                            │
+│                                │                            │
+│  [Fit]  [Calc Uncertainty]     │                            │
+│  [Store in File]               │                            │
+│  [Export params] [Import params]                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Workflow
+
+1. **Select a model** from the dropdown (13 models available).
+2. **Set Q range** by typing values or clicking "Set Q from cursors" (drag the
+   cursor lines on the I(Q) plot to the desired range).
+3. **Adjust initial parameters** — enter starting values and optional lower/upper bounds.
+   Check "Fit?" for each parameter to include it in the optimisation.
+4. **Click Fit** — results appear as ± labels next to each parameter field.
+5. *(Optional)* **Click "Calculate Uncertainty"** to run a Monte Carlo error analysis
+   (N Gaussian-perturbed fits; configurable via the N-runs spinbox).
+6. **Click "Store in File"** to save results to the HDF5 file.  Text files cannot
+   store results; use "Export Parameters" instead.
+7. **Export Parameters** — writes the model config to `pyirena_config.json` for
+   batch processing with `fit_simple` or `fit_pyirena`.
+
+### Models and linearization
+
+The Guinier, Guinier Rod, and Guinier Sheet models show a linearized plot (ln(I)
+or ln(QI) vs Q²) so you can visually confirm the fit quality in the linear
+representation.  The Porod model shows IQ⁴ vs Q⁴.  All other models show
+"No linearization available."
+
+For the full model list with formulas, see [simple_fits_gui.md](simple_fits_gui.md).
 
 ## Keyboard Shortcuts
 

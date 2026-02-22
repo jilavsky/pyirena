@@ -639,20 +639,29 @@ class UnifiedFitGraphWindow(QWidget):
 
         # Add error bars if available - batch all segments for fast rendering
         if error is not None and len(error) > 0:
-            # Pre-allocate arrays for all line segments (vertical bars + caps)
-            # Each error bar has 3 segments: vertical, top cap, bottom cap
-            # Each segment needs 2 points + 1 NaN to disconnect
             n_points = len(q)
 
-            # Create arrays with NaN separators for disconnected line segments
+            # Global cap: prevent error bar tops from exceeding 3 decades above the 99th
+            # percentile of the intensity data. Prevents extreme outlier data points
+            # (Bragg peaks, cosmic rays, uncalibrated detectors) from driving caps to
+            # astronomically large values visible on extreme zoom-out.
+            valid_I = intensity[(intensity > 0) & np.isfinite(intensity)]
+            if len(valid_I) >= 5:
+                y_global_max = 10.0 ** (float(np.percentile(np.log10(valid_I), 99)) + 3)
+            else:
+                y_global_max = None
+
             x_lines = []
             y_lines = []
-
             cap_width_log = 0.05  # 5% in log space for cap width
 
             for i in range(n_points):
-                # Calculate error bar limits, ensuring we stay positive for log scale
-                y_top = intensity[i] + error[i]
+                if q[i] <= 0 or intensity[i] <= 0 or error[i] <= 0:
+                    continue
+                # Clip y_top to 3 decades above local I and global 99th-percentile cap
+                y_top = min(intensity[i] + error[i], intensity[i] * 1000)
+                if y_global_max is not None:
+                    y_top = min(y_top, y_global_max)
                 y_bottom = max(intensity[i] - error[i], intensity[i] * 0.001)
 
                 # Vertical bar
@@ -671,26 +680,22 @@ class UnifiedFitGraphWindow(QWidget):
                 x_lines.extend([x_left, x_right, np.nan])
                 y_lines.extend([y_bottom, y_bottom, np.nan])
 
-            # Draw all error bars as a single plot item for speed
-            error_pen = pg.mkPen((100, 100, 255, 120), width=1)
-            self.main_plot.plot(
-                x_lines, y_lines,
-                pen=error_pen,
-                connect='finite'  # Connect all non-NaN points, NaN breaks segments
-            )
+            if x_lines:
+                error_pen = pg.mkPen((100, 100, 255, 120), width=1)
+                self.main_plot.plot(
+                    x_lines, y_lines,
+                    pen=error_pen,
+                    connect='finite'
+                )
 
         # Initialize or validate cursor positions
-        # This preserves user's cursor selections during fitting, but ensures they're in range
         if len(q) > 0:
             q_min, q_max = q.min(), q.max()
 
-            # Initialize if cursors don't exist (first data load)
             if self.cursor_left is None:
                 self.cursor_left = q_min * (q_max / q_min) ** 0.2
                 self.cursor_right = q_min * (q_max / q_min) ** 0.8
             else:
-                # Validate existing cursors are within current data range
-                # (May be out of range if saved from different dataset)
                 if (self.cursor_left < q_min or self.cursor_left > q_max or
                     self.cursor_right < q_min or self.cursor_right > q_max):
                     print(f"Cursor positions ({self.cursor_left:.3e}, {self.cursor_right:.3e}) "
@@ -698,13 +703,27 @@ class UnifiedFitGraphWindow(QWidget):
                     self.cursor_left = q_min * (q_max / q_min) ** 0.2
                     self.cursor_right = q_min * (q_max / q_min) ** 0.8
 
-        # Always add cursors if positions exist
         if self.cursor_left is not None and self.cursor_right is not None:
             self.add_cursors()
 
-        # Force autoscale to data range only
-        self.main_plot.enableAutoRange()
-        self.main_plot.setMouseEnabled(x=True, y=True)  # Ensure both axes are zoomable
+        # Set robust y range based on data percentiles (replaces enableAutoRange which
+        # would include extreme error bar values in the range computation).
+        self.main_plot.setMouseEnabled(x=True, y=True)
+        valid_I = intensity[(intensity > 0) & np.isfinite(intensity)]
+        if len(valid_I) >= 3:
+            log_i = np.log10(valid_I)
+            lo = float(np.percentile(log_i, 2)) - 0.5
+            hi = float(np.percentile(log_i, 99)) + 0.5
+            self.main_plot.setYRange(lo, hi, padding=0)
+            # Hard limits: 3 extra decades y zoom room + nearest-decade x bounds.
+            limits = dict(yMin=lo - 3, yMax=hi + 3)
+            valid_q = q[(q > 0) & np.isfinite(q)]
+            if len(valid_q) >= 2:
+                limits['xMin'] = int(np.floor(np.log10(float(valid_q.min())))) - 1
+                limits['xMax'] = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+            self.main_plot.getViewBox().setLimits(**limits)
+        else:
+            self.main_plot.enableAutoRange()
 
     def plot_fit(self, q, fit, label='Unified Fit'):
         """Plot fit curve."""
@@ -2042,11 +2061,22 @@ class UnifiedFitPanel(QWidget):
 
         layout.addLayout(results_buttons2)
 
-        # Results buttons row 3
+        # Results buttons row 3: Passes spinbox + Calc. Uncertainty (MC)
         results_buttons3 = QHBoxLayout()
-        self.analyze_results_button = QPushButton("Calculate uncertainties")
-        self.analyze_results_button.setMinimumHeight(30)
-        self.analyze_results_button.setStyleSheet("background-color: lightblue;")
+        results_buttons3.addWidget(QLabel("Passes:"))
+        self.n_runs_spin = QSpinBox()
+        self.n_runs_spin.setMinimum(1)
+        self.n_runs_spin.setMaximum(500)
+        self.n_runs_spin.setValue(10)
+        self.n_runs_spin.setMaximumWidth(55)
+        self.n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
+        results_buttons3.addWidget(self.n_runs_spin)
+        self.analyze_results_button = QPushButton("Calc. Uncertainty (MC)")
+        self.analyze_results_button.setMinimumHeight(28)
+        self.analyze_results_button.setStyleSheet("""
+            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1abc9c; }
+        """)
         self.analyze_results_button.clicked.connect(self.analyze_results)
         results_buttons3.addWidget(self.analyze_results_button)
 
@@ -3128,7 +3158,7 @@ class UnifiedFitPanel(QWidget):
             self.status_label.setText("Reset to defaults")
 
     def analyze_results(self):
-        """Monte Carlo uncertainty analysis: 10 fits on Gaussian-randomised data."""
+        """Monte Carlo uncertainty analysis on Gaussian-randomised data."""
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return
@@ -3143,7 +3173,7 @@ class UnifiedFitPanel(QWidget):
             )
             return
 
-        N_RUNS = 10
+        N_RUNS = self.n_runs_spin.value()
         num_levels = self.num_levels_spin.value()
         no_limits = self.no_limits_check.isChecked()
         fit_background = self.fit_background_check.isChecked()
