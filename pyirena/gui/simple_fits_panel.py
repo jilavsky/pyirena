@@ -79,7 +79,6 @@ class SimpleFitsGraphWindow(QWidget):
                 'bottom': LogDecadeAxis(orientation='bottom'),
             },
         )
-        self.main_plot.setLogMode(x=True, y=True)
         self.main_plot.setLabel('left',   'I')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -91,7 +90,6 @@ class SimpleFitsGraphWindow(QWidget):
             row=1, col=0,
             axisItems={'bottom': LogDecadeAxis(orientation='bottom')},
         )
-        self.residuals_plot.setLogMode(x=True, y=False)
         self.residuals_plot.setLabel('left',   '(I−fit)/err')
         self.residuals_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.residuals_plot.showGrid(x=True, y=True, alpha=0.3)
