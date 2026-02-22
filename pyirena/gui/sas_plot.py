@@ -348,8 +348,8 @@ def _draw_error_bars(
     for qi, Ii, dIi in zip(q, I, dI):
         if not (np.isfinite(dIi) and dIi > 0):
             continue
-        y_top = Ii + dIi
-        y_bot = max(Ii - dIi, Ii * 0.001)    # stay positive for log scale
+        y_top = min(Ii + dIi, Ii * 1000)    # clip to 3 decades above I (symmetric with y_bot)
+        y_bot = max(Ii - dIi, Ii * 0.001)   # stay positive for log scale
 
         # Vertical bar
         x_lines.extend([qi, qi, np.nan])
