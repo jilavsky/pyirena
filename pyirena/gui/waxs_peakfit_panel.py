@@ -1,0 +1,1269 @@
+"""
+WAXS Peak-Fitting GUI panel for pyIrena.
+
+Classes
+-------
+WAXSPeakFitGraphWindow  — standalone graph window (2 linear/linear panels)
+WAXSPeakFitPanel        — full GUI: left controls + right graph window
+PeakRowWidget           — collapsible widget for one peak's parameters
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import numpy as np
+import pyqtgraph as pg
+
+try:
+    from PySide6.QtWidgets import (
+        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
+        QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
+        QDoubleSpinBox, QScrollArea, QGroupBox, QFileDialog,
+        QMessageBox, QFrame, QSizePolicy, QSpacerItem,
+    )
+    from PySide6.QtCore import Qt, Signal
+    from PySide6.QtGui import QFont, QDoubleValidator
+except ImportError:
+    from PyQt6.QtWidgets import (
+        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
+        QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
+        QDoubleSpinBox, QScrollArea, QGroupBox, QFileDialog,
+        QMessageBox, QFrame, QSizePolicy, QSpacerItem,
+    )
+    from PyQt6.QtCore import Qt, pyqtSignal as Signal
+    from PyQt6.QtGui import QFont, QDoubleValidator
+
+from pyirena.core.waxs_peakfit import (
+    PEAK_SHAPES, BG_SHAPES,
+    _PEAK_PARAM_NAMES, _BG_NCOEFFS, _PARAM_DEFAULTS,
+    bg_param_names, default_bg_params, default_peak_params,
+    eval_background, eval_peak, eval_model,
+    find_peaks_in_data, WAXSPeakFitModel,
+)
+
+
+# ── colour palette for peaks ──────────────────────────────────────────────
+_PEAK_COLORS = [
+    '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
+    '#1abc9c', '#e67e22', '#34495e', '#d35400', '#27ae60',
+    '#2980b9', '#8e44ad', '#16a085', '#c0392b', '#7f8c8d',
+]
+
+
+def _peak_color(i: int) -> str:
+    return _PEAK_COLORS[i % len(_PEAK_COLORS)]
+
+
+# ── shared field styles ───────────────────────────────────────────────────
+_FIELD_STYLE = "QLineEdit { max-width: 90px; }"
+_SPIN_STYLE  = "QDoubleSpinBox { max-width: 90px; }"
+
+_BTN_GRAPH   = "QPushButton { background:#52c77a;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_FIT     = "QPushButton { background:#27ae60;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_REVERT  = "QPushButton { background:#e67e22;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_FIND    = "QPushButton { background:#3498db;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_RESET   = "QPushButton { background:#e67e22;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_SAVE    = "QPushButton { background:#3498db;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_STORE   = "QPushButton { background:#52c77a;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_RGRAPH  = "QPushButton { background:#81c784;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_EXPORT  = "QPushButton { background:#a9d18e;color:black; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_ADD     = "QPushButton { background:#95a5a6;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_REMOVE  = "QPushButton { background:#e74c3c;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+
+
+def _label(text: str, bold: bool = False, size: int = 0) -> QLabel:
+    lbl = QLabel(text)
+    if bold or size:
+        f = lbl.font()
+        if bold:
+            f.setBold(True)
+        if size:
+            f.setPointSize(size)
+        lbl.setFont(f)
+    return lbl
+
+
+def _hline() -> QFrame:
+    line = QFrame()
+    line.setFrameShape(QFrame.Shape.HLine)
+    line.setFrameShadow(QFrame.Shadow.Sunken)
+    return line
+
+
+class _ValidatedField(QLineEdit):
+    """QLineEdit that only accepts float input."""
+    def __init__(self, value: float = 0.0, parent=None):
+        super().__init__(parent)
+        self.setValidator(QDoubleValidator())
+        self.setText(str(value))
+        self.setFixedWidth(90)
+
+    def float_value(self) -> float:
+        try:
+            return float(self.text())
+        except ValueError:
+            return 0.0
+
+    def set_float(self, v: float):
+        self.setText(f"{v:g}")
+
+
+# ===========================================================================
+# PeakRowWidget — one peak's UI row
+# ===========================================================================
+
+class PeakRowWidget(QWidget):
+    """Widget displaying controls for a single peak (shape + parameters).
+
+    Emits ``changed`` whenever a value is edited.
+    Emits ``remove_requested`` with its own index when the Remove button is clicked.
+    """
+    changed         = Signal()
+    remove_requested = Signal(object)  # self
+
+    # Column indices in the grid
+    _COL_NAME  = 0
+    _COL_VAL   = 1
+    _COL_FIT   = 2
+    _COL_LO    = 3
+    _COL_HI    = 4
+
+    def __init__(self, index: int, peak_dict: Dict, parent=None):
+        super().__init__(parent)
+        self._index = index
+        self._limit_widgets: List[QWidget] = []  # Lo/Hi fields + header labels
+        self._param_rows: Dict[str, dict] = {}   # pname → {val, fit, lo, hi widgets}
+        self._setup_ui(peak_dict)
+
+    # ── UI construction ──────────────────────────────────────────────────
+
+    def _setup_ui(self, peak_dict: Dict):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(2, 2, 2, 2)
+        outer.setSpacing(2)
+
+        # ── Header row: "Peak N" + shape combo + Remove button ────────────
+        hdr = QHBoxLayout()
+        hdr.setSpacing(4)
+        color = _peak_color(self._index)
+        lbl = QLabel(f"Peak {self._index + 1}")
+        lbl.setStyleSheet(f"color:{color}; font-weight:bold;")
+        hdr.addWidget(lbl)
+
+        self._shape_combo = QComboBox()
+        self._shape_combo.addItems(PEAK_SHAPES)
+        shape = peak_dict.get("shape", "Gauss")
+        self._shape_combo.setCurrentText(shape)
+        self._shape_combo.currentTextChanged.connect(self._on_shape_changed)
+        hdr.addWidget(self._shape_combo)
+
+        hdr.addStretch()
+        remove_btn = QPushButton("Remove")
+        remove_btn.setStyleSheet(_BTN_REMOVE)
+        remove_btn.setFixedHeight(20)
+        remove_btn.setMaximumWidth(65)
+        remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
+        hdr.addWidget(remove_btn)
+        outer.addLayout(hdr)
+
+        # ── Parameter grid ────────────────────────────────────────────────
+        self._grid = QGridLayout()
+        self._grid.setHorizontalSpacing(4)
+        self._grid.setVerticalSpacing(2)
+        self._grid.setColumnMinimumWidth(self._COL_LO, 90)
+        self._grid.setColumnMinimumWidth(self._COL_HI, 90)
+
+        # Column headers
+        for col, txt in [(self._COL_NAME, "Param"),
+                         (self._COL_VAL,  "Value"),
+                         (self._COL_FIT,  "Fit?"),
+                         (self._COL_LO,   "Lo limit"),
+                         (self._COL_HI,   "Hi limit")]:
+            h = _label(txt, bold=True)
+            self._grid.addWidget(h, 0, col)
+            if col in (self._COL_LO, self._COL_HI):
+                self._limit_widgets.append(h)
+
+        outer.addLayout(self._grid)
+        outer.addWidget(_hline())
+
+        # Build rows for current shape
+        self._build_param_rows(peak_dict)
+
+    def _build_param_rows(self, peak_dict: Dict):
+        """Create parameter rows from scratch for the current shape."""
+        shape  = self._shape_combo.currentText()
+        pnames = _PEAK_PARAM_NAMES.get(shape, [])
+
+        # Clear old rows (keep header at row 0)
+        for row_widgets in self._param_rows.values():
+            for w in row_widgets.values():
+                if hasattr(w, "setParent"):
+                    w.setParent(None)
+        self._limit_widgets = [w for w in self._limit_widgets if w.text() in ("Lo limit", "Hi limit", "Param", "Value", "Fit?")]
+        self._param_rows = {}
+
+        for row_i, pname in enumerate(pnames, start=1):
+            pd = peak_dict.get(pname, {})
+            if isinstance(pd, dict):
+                val  = float(pd.get("value", _PARAM_DEFAULTS.get(pname, {}).get("value", 0.0)))
+                fit  = bool(pd.get("fit", True))
+                lo   = pd.get("lo")
+                hi   = pd.get("hi")
+            else:
+                val, fit, lo, hi = float(pd), True, None, None
+
+            name_lbl = _label(pname)
+            val_fld  = _ValidatedField(val)
+            fit_chk  = QCheckBox()
+            fit_chk.setChecked(fit)
+            lo_fld   = _ValidatedField(lo if lo is not None else _PARAM_DEFAULTS.get(pname, {}).get("lo", 0.0) or 0.0)
+            hi_fld   = _ValidatedField(hi if hi is not None else _PARAM_DEFAULTS.get(pname, {}).get("hi", 1.0) or 1.0)
+
+            # Connect change signals
+            val_fld.editingFinished.connect(self.changed)
+            fit_chk.stateChanged.connect(self.changed)
+            lo_fld.editingFinished.connect(self.changed)
+            hi_fld.editingFinished.connect(self.changed)
+
+            self._grid.addWidget(name_lbl, row_i, self._COL_NAME)
+            self._grid.addWidget(val_fld,  row_i, self._COL_VAL)
+            self._grid.addWidget(fit_chk,  row_i, self._COL_FIT)
+            self._grid.addWidget(lo_fld,   row_i, self._COL_LO)
+            self._grid.addWidget(hi_fld,   row_i, self._COL_HI)
+
+            self._limit_widgets.extend([lo_fld, hi_fld])
+            self._param_rows[pname] = {
+                "val": val_fld, "fit": fit_chk, "lo": lo_fld, "hi": hi_fld,
+            }
+
+    def _on_shape_changed(self, shape: str):
+        """Rebuild parameter rows when shape changes; preserve A, Q0, FWHM."""
+        old_dict = self.get_params()
+        old_dict["shape"] = shape
+        # Keep existing A/Q0/FWHM values
+        self._build_param_rows(old_dict)
+        self.changed.emit()
+
+    # ── Public API ────────────────────────────────────────────────────────
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    def set_index(self, i: int):
+        self._index = i
+        # Update header label color
+        for child in self.children():
+            if isinstance(child, QHBoxLayout):
+                for j in range(child.count()):
+                    w = child.itemAt(j).widget()
+                    if isinstance(w, QLabel) and w.text().startswith("Peak "):
+                        w.setText(f"Peak {i + 1}")
+                        w.setStyleSheet(f"color:{_peak_color(i)};font-weight:bold;")
+                        break
+                break
+
+    def get_params(self) -> Dict:
+        shape  = self._shape_combo.currentText()
+        pnames = _PEAK_PARAM_NAMES.get(shape, [])
+        d: Dict = {"shape": shape}
+        for pname in pnames:
+            if pname not in self._param_rows:
+                continue
+            row = self._param_rows[pname]
+            lo_v = row["lo"].float_value()
+            hi_v = row["hi"].float_value()
+            d[pname] = {
+                "value": row["val"].float_value(),
+                "fit":   row["fit"].isChecked(),
+                "lo":    lo_v,
+                "hi":    hi_v,
+            }
+        return d
+
+    def set_params(self, peak_dict: Dict):
+        shape = peak_dict.get("shape", self._shape_combo.currentText())
+        self._shape_combo.blockSignals(True)
+        self._shape_combo.setCurrentText(shape)
+        self._shape_combo.blockSignals(False)
+        self._build_param_rows(peak_dict)
+
+    def toggle_limits(self, show: bool):
+        """Show/hide Lo and Hi columns."""
+        for w in self._limit_widgets:
+            w.setVisible(show)
+
+
+# ===========================================================================
+# WAXSPeakFitGraphWindow
+# ===========================================================================
+
+class WAXSPeakFitGraphWindow(QWidget):
+    """Two-panel LINEAR/LINEAR graph for WAXS peak fitting.
+
+    Top panel: data scatter/line + total model (red) + per-peak overlays
+               (coloured) + background (dashed grey).
+    Bottom panel: normalised residuals with zero line.
+
+    The ``add_peak_requested`` signal is emitted (with Q position) when the
+    user selects "Add Peak at Q = …" from the right-click menu.
+    """
+
+    add_peak_requested = Signal(float)  # Q position in Å⁻¹
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena – WAXS Peak Fit")
+        self.setGeometry(120, 120, 900, 700)
+
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
+
+        # ── Top plot: data + model ────────────────────────────────────────
+        self.main_plot = self.gl.addPlot(row=0, col=0)
+        self.main_plot.setLogMode(False, False)
+        self.main_plot.setLabel('left',   'Intensity')
+        self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.main_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.main_plot.addLegend(offset=(-10, 10), labelTextSize='10pt')
+        self._style_axes(self.main_plot)
+
+        # ── Bottom plot: residuals ────────────────────────────────────────
+        self.resid_plot = self.gl.addPlot(row=1, col=0)
+        self.resid_plot.setLogMode(False, False)
+        self.resid_plot.setLabel('left',   '(I−fit)/σ')
+        self.resid_plot.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.resid_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.resid_plot.setXLink(self.main_plot)
+        self._style_axes(self.resid_plot)
+        self._zero_line = pg.InfiniteLine(
+            pos=0, angle=0,
+            pen=pg.mkPen('k', width=1, style=Qt.PenStyle.DashLine),
+        )
+        self.resid_plot.addItem(self._zero_line)
+
+        # Height ratios 4:1
+        ci = self.gl.ci
+        ci.layout.setRowStretchFactor(0, 4)
+        ci.layout.setRowStretchFactor(1, 1)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.gl)
+
+        # ── Right-click: JPEG export + add-peak ───────────────────────────
+        self._add_jpeg_export(self.main_plot, "waxs_peakfit_main")
+        self._add_jpeg_export(self.resid_plot, "waxs_peakfit_resid")
+        self._last_right_click_q: Optional[float] = None
+        self._setup_right_click_add_peak()
+
+        # ── Tracked plot items ────────────────────────────────────────────
+        self._data_item:   Optional[pg.PlotDataItem] = None
+        self._model_item:  Optional[pg.PlotDataItem] = None
+        self._bg_item:     Optional[pg.PlotDataItem] = None
+        self._peak_items:  List[pg.PlotDataItem] = []
+        self._resid_item:  Optional[pg.PlotDataItem] = None
+
+    # ── Internal helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _style_axes(plot: pg.PlotItem):
+        for side in ('left', 'bottom'):
+            ax = plot.getAxis(side)
+            ax.setPen(pg.mkPen('k'))
+            ax.setTextPen(pg.mkPen('k'))
+            ax.enableAutoSIPrefix(False)
+
+    def _add_jpeg_export(self, plot: pg.PlotItem, stem: str):
+        """Add 'Save as JPEG…' to the ViewBox right-click menu."""
+        vb = plot.getViewBox()
+        vb.menu.addSeparator()
+        act = vb.menu.addAction("Save as JPEG…")
+        act.triggered.connect(
+            lambda checked=False, p=plot, s=stem: self._save_jpeg(p, s)
+        )
+
+    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
+        from pyqtgraph.exporters import ImageExporter
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save as JPEG",
+            str(Path.home() / f"{stem}.jpg"),
+            "JPEG Images (*.jpg *.jpeg);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            exp = ImageExporter(plot)
+            exp.parameters()['width'] = 1600
+            exp.export(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+
+    def _setup_right_click_add_peak(self):
+        """Connect to scene mouse-click to detect right-click Q position."""
+        self._add_peak_action = None
+
+        def _on_click(ev):
+            if ev.button() != Qt.MouseButton.RightButton:
+                return
+            vb  = self.main_plot.getViewBox()
+            pos = vb.mapSceneToView(ev.scenePos())
+            q   = float(pos.x())
+            if q <= 0:
+                return
+            # Dynamically update (or create) "Add Peak at Q=…" action
+            menu = vb.menu
+            if self._add_peak_action is not None:
+                menu.removeAction(self._add_peak_action)
+            self._add_peak_action = menu.addAction(f"Add Peak at Q = {q:.4f} Å⁻¹")
+            self._add_peak_action.triggered.connect(
+                lambda checked=False, _q=q: self.add_peak_requested.emit(_q)
+            )
+
+        self.main_plot.scene().sigMouseClicked.connect(_on_click)
+
+    # ── Plot API ─────────────────────────────────────────────────────────
+
+    def _remove_overlay_items(self):
+        for item in self._peak_items:
+            self.main_plot.removeItem(item)
+        self._peak_items = []
+        for item in (self._model_item, self._bg_item, self._resid_item):
+            if item is not None:
+                try:
+                    item.getViewBox().removeItem(item)
+                except Exception:
+                    pass
+        self._model_item = self._bg_item = self._resid_item = None
+
+    def plot_data(self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None,
+                  label: str = "Data"):
+        """Plot raw data (scatter). Call once when data is loaded."""
+        if self._data_item is not None:
+            self.main_plot.removeItem(self._data_item)
+        q_, I_ = np.asarray(q, float), np.asarray(I, float)
+        mask = np.isfinite(q_) & np.isfinite(I_)
+        self._data_item = self.main_plot.plot(
+            q_[mask], I_[mask],
+            pen=None, symbol='o', symbolSize=4,
+            symbolPen=pg.mkPen('#2c3e50', width=1),
+            symbolBrush=pg.mkBrush('#2c3e50'),
+            name=label,
+        )
+        # Set x-range to data range
+        qv = q_[mask & (q_ > 0)]
+        if len(qv) >= 2:
+            self.main_plot.setXRange(float(qv.min()), float(qv.max()), padding=0.02)
+
+    def plot_model(
+        self,
+        q: np.ndarray,
+        I_model: np.ndarray,
+        I_bg: Optional[np.ndarray],
+        peak_curves: List[Dict],
+    ):
+        """Overlay model, background, and per-peak curves."""
+        self._remove_overlay_items()
+        q_ = np.asarray(q, float)
+        mask = np.isfinite(q_)
+
+        # Total model (red)
+        if I_model is not None:
+            Im = np.asarray(I_model, float)
+            self._model_item = self.main_plot.plot(
+                q_[mask], Im[mask],
+                pen=pg.mkPen('#e74c3c', width=2),
+                name="Model",
+            )
+
+        # Background (dashed grey)
+        if I_bg is not None:
+            Ib = np.asarray(I_bg, float)
+            self._bg_item = self.main_plot.plot(
+                q_[mask], Ib[mask],
+                pen=pg.mkPen('#7f8c8d', width=1.5,
+                             style=Qt.PenStyle.DashLine),
+                name="Background",
+            )
+
+        # Per-peak curves
+        for i, pc in enumerate(peak_curves):
+            qp = pc.get("q")
+            Ip = pc.get("I")
+            if qp is None or Ip is None:
+                continue
+            qp_, Ip_ = np.asarray(qp, float), np.asarray(Ip, float)
+            pm = np.isfinite(qp_) & np.isfinite(Ip_)
+            col = _peak_color(i)
+            item = self.main_plot.plot(
+                qp_[pm], Ip_[pm],
+                pen=pg.mkPen(col, width=1.5),
+                name=f"Peak {i+1}",
+            )
+            self._peak_items.append(item)
+
+    def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
+        """Plot normalised residuals in the bottom panel."""
+        if self._resid_item is not None:
+            self.resid_plot.removeItem(self._resid_item)
+        q_  = np.asarray(q, float)
+        res = np.asarray(residuals, float)
+        mask = np.isfinite(q_) & np.isfinite(res)
+        self._resid_item = self.resid_plot.plot(
+            q_[mask], res[mask],
+            pen=None, symbol='o', symbolSize=3,
+            symbolPen=pg.mkPen('#7f8c8d', width=1),
+            symbolBrush=pg.mkBrush('#7f8c8d'),
+        )
+        # Re-add zero line (removed if resid_plot was cleared)
+        if self._zero_line not in self.resid_plot.items:
+            self.resid_plot.addItem(self._zero_line)
+
+    def clear_all(self):
+        self.main_plot.clear()
+        self.resid_plot.clear()
+        self.resid_plot.addItem(self._zero_line)
+        self._data_item = self._model_item = self._bg_item = self._resid_item = None
+        self._peak_items = []
+
+
+# ===========================================================================
+# WAXSPeakFitPanel — main panel
+# ===========================================================================
+
+class WAXSPeakFitPanel(QWidget):
+    """Main WAXS Peak-Fitting GUI: left controls + right graph."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena – WAXS Peak Fit")
+        self.setMinimumSize(1000, 750)
+        self.resize(1200, 900)
+
+        # ── Application state ─────────────────────────────────────────────
+        from pyirena.state.state_manager import StateManager
+        self._state_mgr = StateManager()
+
+        # ── Working data ──────────────────────────────────────────────────
+        self._q:   Optional[np.ndarray] = None
+        self._I:   Optional[np.ndarray] = None
+        self._dI:  Optional[np.ndarray] = None
+        self._filepath: Optional[Path]  = None
+        self._is_nxcansas: bool         = False
+
+        self._pre_fit_bg_params: Optional[Dict] = None   # for Revert
+        self._pre_fit_peaks:     Optional[List] = None
+
+        # ── Graph window (embedded on right side) ─────────────────────────
+        self._graph = WAXSPeakFitGraphWindow()
+        self._graph.add_peak_requested.connect(self._add_peak_at_q)
+
+        # ── Build layout ──────────────────────────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setChildrenCollapsible(False)
+
+        left_container = QWidget()
+        left_container.setFixedWidth(440)
+        left_container.setMaximumWidth(440)
+        self._left_layout = QVBoxLayout(left_container)
+        self._left_layout.setContentsMargins(4, 4, 4, 4)
+        self._left_layout.setSpacing(4)
+        self._build_left_panel()
+
+        splitter.addWidget(left_container)
+        splitter.addWidget(self._graph)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(4, 4, 4, 4)
+        root.addWidget(splitter)
+
+        # ── Apply saved state ─────────────────────────────────────────────
+        self._apply_state(self._state_mgr.get("waxs_peakfit", default={}))
+
+    # ===========================================================================
+    # Left panel construction
+    # ===========================================================================
+
+    def _build_left_panel(self):
+        ll = self._left_layout
+
+        # ── Title + No limits ─────────────────────────────────────────────
+        title_row = QHBoxLayout()
+        title_lbl = _label("WAXS Peak Fit", bold=True, size=12)
+        title_lbl.setStyleSheet(
+            "background:#2c3e50;color:white;padding:4px 6px;border-radius:3px;"
+        )
+        title_row.addWidget(title_lbl)
+        title_row.addStretch()
+        self._no_limits_chk = QCheckBox("No limits?")
+        self._no_limits_chk.stateChanged.connect(self._on_no_limits_toggled)
+        title_row.addWidget(self._no_limits_chk)
+        ll.addLayout(title_row)
+
+        # ── Background section ────────────────────────────────────────────
+        bg_box = QGroupBox("Background")
+        bg_layout = QVBoxLayout(bg_box)
+        bg_layout.setSpacing(2)
+
+        bg_shape_row = QHBoxLayout()
+        bg_shape_row.addWidget(_label("Shape:"))
+        self._bg_combo = QComboBox()
+        self._bg_combo.addItems(BG_SHAPES)
+        self._bg_combo.currentTextChanged.connect(self._on_bg_shape_changed)
+        bg_shape_row.addWidget(self._bg_combo)
+        bg_shape_row.addStretch()
+        bg_layout.addLayout(bg_shape_row)
+
+        self._bg_grid = QGridLayout()
+        self._bg_grid.setHorizontalSpacing(4)
+        self._bg_grid.setVerticalSpacing(2)
+        bg_layout.addLayout(self._bg_grid)
+        self._bg_param_rows: Dict[str, dict] = {}
+        self._bg_limit_widgets: List[QWidget] = []
+        ll.addWidget(bg_box)
+
+        # ── Peak finding section ──────────────────────────────────────────
+        pf_box = QGroupBox("Peak Finding")
+        pf_layout = QGridLayout(pf_box)
+        pf_layout.setHorizontalSpacing(6)
+        pf_layout.setVerticalSpacing(2)
+
+        def _dspin(val, lo, hi, dec=4, step=0.001):
+            s = QDoubleSpinBox()
+            s.setRange(lo, hi)
+            s.setDecimals(dec)
+            s.setSingleStep(step)
+            s.setValue(val)
+            s.setFixedWidth(90)
+            return s
+
+        self._pf_prom  = _dspin(0.05,  0.0,  1.0, dec=3, step=0.01)
+        self._pf_minfwhm = _dspin(0.001, 0.0, 10.0, dec=4, step=0.0005)
+        self._pf_maxfwhm = _dspin(0.5,  0.001,100.0,dec=3, step=0.05)
+        self._pf_mindist = _dspin(0.005, 0.0, 10.0, dec=4, step=0.001)
+        self._pf_sgwin  = _dspin(15.0,  1.0, 80.0, dec=1, step=1.0)
+
+        rows = [
+            ("Min. Prominence (frac.)", self._pf_prom),
+            ("Min. FWHM (Å⁻¹)",        self._pf_minfwhm),
+            ("Max. FWHM (Å⁻¹)",        self._pf_maxfwhm),
+            ("Min. Distance (Å⁻¹)",     self._pf_mindist),
+            ("BG smooth window (%)",    self._pf_sgwin),
+        ]
+        for i, (lbl_txt, widget) in enumerate(rows):
+            pf_layout.addWidget(_label(lbl_txt), i, 0)
+            pf_layout.addWidget(widget, i, 1)
+
+        self._find_btn = QPushButton("Find Peaks")
+        self._find_btn.setStyleSheet(_BTN_FIND)
+        self._find_btn.setMinimumHeight(28)
+        self._find_btn.clicked.connect(self._find_peaks)
+        pf_layout.addWidget(self._find_btn, len(rows), 0, 1, 2)
+        ll.addWidget(pf_box)
+
+        # ── Peaks scroll area ─────────────────────────────────────────────
+        peaks_outer = QGroupBox("Peaks")
+        peaks_outer_layout = QVBoxLayout(peaks_outer)
+        peaks_outer_layout.setSpacing(2)
+
+        self._peaks_scroll = QScrollArea()
+        self._peaks_scroll.setWidgetResizable(True)
+        self._peaks_scroll.setMinimumHeight(180)
+        self._peaks_container = QWidget()
+        self._peaks_vbox = QVBoxLayout(self._peaks_container)
+        self._peaks_vbox.setSpacing(4)
+        self._peaks_vbox.setContentsMargins(2, 2, 2, 2)
+        self._peaks_vbox.addStretch()
+        self._peaks_scroll.setWidget(self._peaks_container)
+        peaks_outer_layout.addWidget(self._peaks_scroll)
+
+        add_btn = QPushButton("Add Peak Manually")
+        add_btn.setStyleSheet(_BTN_ADD)
+        add_btn.setMinimumHeight(26)
+        add_btn.clicked.connect(lambda: self._add_peak_at_q(None))
+        peaks_outer_layout.addWidget(add_btn)
+        ll.addWidget(peaks_outer)
+
+        # ── Fit controls ──────────────────────────────────────────────────
+        fit_row = QHBoxLayout()
+        self._graph_btn = QPushButton("Graph Model")
+        self._graph_btn.setStyleSheet(_BTN_GRAPH)
+        self._graph_btn.setMinimumHeight(28)
+        self._graph_btn.setMaximumWidth(120)
+        self._graph_btn.clicked.connect(self._graph_model)
+        fit_row.addWidget(self._graph_btn)
+        fit_row.addStretch()
+
+        self._fit_btn = QPushButton("Fit")
+        self._fit_btn.setStyleSheet(_BTN_FIT)
+        self._fit_btn.setMinimumHeight(28)
+        self._fit_btn.setMaximumWidth(90)
+        self._fit_btn.clicked.connect(self._run_fit)
+        fit_row.addWidget(self._fit_btn)
+
+        self._revert_btn = QPushButton("Revert")
+        self._revert_btn.setStyleSheet(_BTN_REVERT)
+        self._revert_btn.setMinimumHeight(28)
+        self._revert_btn.setMaximumWidth(90)
+        self._revert_btn.setEnabled(False)
+        self._revert_btn.clicked.connect(self._revert)
+        fit_row.addWidget(self._revert_btn)
+        ll.addLayout(fit_row)
+
+        # ── Reset to defaults ─────────────────────────────────────────────
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setStyleSheet(_BTN_RESET)
+        reset_btn.setMinimumHeight(26)
+        reset_btn.clicked.connect(self._reset_defaults)
+        ll.addWidget(reset_btn)
+
+        # ── Results section ───────────────────────────────────────────────
+        res_lbl = _label("Results", bold=True)
+        res_lbl.setStyleSheet("color:#3498db;margin-top:4px;")
+        ll.addWidget(res_lbl)
+
+        row1 = QHBoxLayout()
+        for txt, style, slot in [
+            ("Save State",        _BTN_SAVE,   self._save_state),
+            ("Store in File",     _BTN_STORE,  self._store_in_file),
+            ("Results to graphs", _BTN_RGRAPH, self._results_to_graphs),
+        ]:
+            b = QPushButton(txt)
+            b.setStyleSheet(style)
+            b.setMinimumHeight(26)
+            b.clicked.connect(slot)
+            row1.addWidget(b)
+        ll.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        for txt, style, slot in [
+            ("Export Parameters", _BTN_EXPORT, self._export_params),
+            ("Import Parameters", _BTN_EXPORT, self._import_params),
+        ]:
+            b = QPushButton(txt)
+            b.setStyleSheet(style)
+            b.setMinimumHeight(26)
+            b.clicked.connect(slot)
+            row2.addWidget(b)
+        ll.addLayout(row2)
+
+        # ── Status label ──────────────────────────────────────────────────
+        self._status = QLabel("")
+        self._status.setStyleSheet(
+            "font-size:10pt;color:#555;border-top:1px solid #ccc;padding-top:2px;"
+        )
+        self._status.setWordWrap(True)
+        self._status.setMaximumHeight(60)
+        ll.addWidget(self._status)
+        ll.addStretch()
+
+        # ── Populate background parameter grid ────────────────────────────
+        self._rebuild_bg_grid("Constant")
+
+    # ===========================================================================
+    # Background parameter grid
+    # ===========================================================================
+
+    def _rebuild_bg_grid(self, bg_shape: str, saved_params: Optional[Dict] = None):
+        """Rebuild the background parameter grid for a new shape."""
+        # Clear old widgets
+        for row_d in self._bg_param_rows.values():
+            for w in row_d.values():
+                if hasattr(w, "setParent"):
+                    w.setParent(None)
+        self._bg_param_rows = {}
+        self._bg_limit_widgets = []
+
+        # Clear grid
+        while self._bg_grid.count():
+            item = self._bg_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Column headers
+        for col, txt in [(0, "Param"), (1, "Value"), (2, "Fit?"),
+                         (3, "Lo limit"), (4, "Hi limit")]:
+            h = _label(txt, bold=True)
+            self._bg_grid.addWidget(h, 0, col)
+            if col in (3, 4):
+                self._bg_limit_widgets.append(h)
+
+        names = bg_param_names(bg_shape)
+        defaults = default_bg_params(bg_shape)
+
+        for row_i, name in enumerate(names, start=1):
+            pd = (saved_params or {}).get(name, defaults[name])
+            val = float(pd.get("value", 0.0))
+            fit = bool(pd.get("fit", True))
+            lo  = pd.get("lo")
+            hi  = pd.get("hi")
+
+            name_lbl = _label(name)
+            val_fld  = _ValidatedField(val)
+            fit_chk  = QCheckBox()
+            fit_chk.setChecked(fit)
+            lo_fld  = _ValidatedField(lo if lo is not None else 0.0)
+            hi_fld  = _ValidatedField(hi if hi is not None else 0.0)
+
+            self._bg_grid.addWidget(name_lbl, row_i, 0)
+            self._bg_grid.addWidget(val_fld,  row_i, 1)
+            self._bg_grid.addWidget(fit_chk,  row_i, 2)
+            self._bg_grid.addWidget(lo_fld,   row_i, 3)
+            self._bg_grid.addWidget(hi_fld,   row_i, 4)
+
+            self._bg_limit_widgets.extend([lo_fld, hi_fld])
+            self._bg_param_rows[name] = {
+                "val": val_fld, "fit": fit_chk, "lo": lo_fld, "hi": hi_fld,
+            }
+
+        # Apply current no-limits toggle
+        show = not self._no_limits_chk.isChecked()
+        for w in self._bg_limit_widgets:
+            w.setVisible(show)
+
+    # ===========================================================================
+    # Peaks list management
+    # ===========================================================================
+
+    @property
+    def _peak_rows(self) -> List[PeakRowWidget]:
+        rows = []
+        layout = self._peaks_vbox
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item and isinstance(item.widget(), PeakRowWidget):
+                rows.append(item.widget())
+        return rows
+
+    def _add_peak_row(self, peak_dict: Dict):
+        idx    = len(self._peak_rows)
+        row    = PeakRowWidget(idx, peak_dict)
+        row.changed.connect(lambda: None)   # future: auto-update graph
+        row.remove_requested.connect(self._remove_peak_row)
+
+        # Apply no-limits state
+        row.toggle_limits(not self._no_limits_chk.isChecked())
+
+        # Insert before the trailing stretch
+        layout = self._peaks_vbox
+        stretch_idx = layout.count() - 1
+        layout.insertWidget(stretch_idx, row)
+
+    def _remove_peak_row(self, row: PeakRowWidget):
+        self._peaks_vbox.removeWidget(row)
+        row.setParent(None)
+        row.deleteLater()
+        # Re-number remaining rows
+        for i, r in enumerate(self._peak_rows):
+            r.set_index(i)
+
+    def _clear_peaks(self):
+        for row in list(self._peak_rows):
+            self._peaks_vbox.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
+
+    # ===========================================================================
+    # Slots: background shape change + no-limits
+    # ===========================================================================
+
+    def _on_bg_shape_changed(self, shape: str):
+        # Preserve existing values for coefficients that still exist
+        old_params = self._get_bg_params()
+        self._rebuild_bg_grid(shape, old_params)
+
+    def _on_no_limits_toggled(self, state):
+        show = (state == Qt.CheckState.Unchecked.value or state == 0)
+        for w in self._bg_limit_widgets:
+            w.setVisible(show)
+        for row in self._peak_rows:
+            row.toggle_limits(show)
+
+    # ===========================================================================
+    # Parameter collection helpers
+    # ===========================================================================
+
+    def _get_bg_params(self) -> Dict:
+        shape = self._bg_combo.currentText()
+        result = {}
+        for name in bg_param_names(shape):
+            if name not in self._bg_param_rows:
+                continue
+            row = self._bg_param_rows[name]
+            result[name] = {
+                "value": row["val"].float_value(),
+                "fit":   row["fit"].isChecked(),
+                "lo":    row["lo"].float_value(),
+                "hi":    row["hi"].float_value(),
+            }
+        return result
+
+    def _get_peaks(self) -> List[Dict]:
+        return [r.get_params() for r in self._peak_rows]
+
+    # ===========================================================================
+    # Slots: find / add peaks
+    # ===========================================================================
+
+    def _find_peaks(self):
+        if self._q is None or self._I is None:
+            self._set_status("No data loaded.", error=True)
+            return
+        self._set_status("Finding peaks…")
+        peaks = find_peaks_in_data(
+            self._q, self._I,
+            prominence_frac=self._pf_prom.value(),
+            min_fwhm=self._pf_minfwhm.value(),
+            max_fwhm=self._pf_maxfwhm.value(),
+            min_distance=self._pf_mindist.value(),
+            sg_window_frac=self._pf_sgwin.value() / 100.0,
+        )
+        self._clear_peaks()
+        for p in peaks:
+            self._add_peak_row(p)
+        self._set_status(f"Found {len(peaks)} peak(s).")
+        self._graph_model()
+
+    def _add_peak_at_q(self, q0: Optional[float]):
+        """Add a new peak row (optionally centred at q0)."""
+        if q0 is None:
+            q0 = float(np.median(self._q)) if self._q is not None else 0.1
+        fwhm = 0.01
+        A    = 1.0
+        if self._q is not None and self._I is not None:
+            idx = int(np.argmin(np.abs(self._q - q0)))
+            A   = max(float(self._I[idx]), 1e-30)
+        pd = default_peak_params("Gauss", Q0=q0, A=A, FWHM=fwhm)
+        self._add_peak_row(pd)
+
+    # ===========================================================================
+    # Slots: Graph / Fit / Revert / Reset
+    # ===========================================================================
+
+    def _compute_model(self):
+        """Evaluate model from current GUI state. Returns (I_model, I_bg, peak_curves)."""
+        if self._q is None:
+            return None, None, []
+        q         = self._q
+        bg_shape  = self._bg_combo.currentText()
+        bg_params = self._get_bg_params()
+        peaks     = self._get_peaks()
+
+        bg_names = bg_param_names(bg_shape)
+        coeffs   = [float(bg_params[n]["value"]) for n in bg_names if n in bg_params]
+        I_bg     = eval_background(q, bg_shape, coeffs)
+
+        I_model = I_bg.copy()
+        peak_curves = []
+        for peak in peaks:
+            shape  = peak["shape"]
+            pnames = _PEAK_PARAM_NAMES.get(shape, [])
+            pvals  = {pn: float(peak[pn]["value"]) for pn in pnames if pn in peak}
+            I_pk   = eval_peak(q, shape, pvals)
+            I_model += I_pk
+            peak_curves.append({"q": q, "I": I_pk})
+
+        return I_model, I_bg, peak_curves
+
+    def _graph_model(self):
+        I_model, I_bg, peak_curves = self._compute_model()
+        if I_model is None:
+            self._set_status("No data loaded.", error=True)
+            return
+        self._graph.plot_model(self._q, I_model, I_bg, peak_curves)
+        # Residuals (if dI available)
+        if self._dI is not None and np.any(self._dI > 0):
+            s  = np.where(self._dI > 0, self._dI, 1.0)
+            r  = (self._I - I_model) / s
+            self._graph.plot_residuals(self._q, r)
+
+    def _run_fit(self):
+        if self._q is None:
+            self._set_status("No data loaded.", error=True)
+            return
+
+        # Save state for revert
+        self._pre_fit_bg_params = copy.deepcopy(self._get_bg_params())
+        self._pre_fit_peaks     = copy.deepcopy(self._get_peaks())
+
+        bg_shape  = self._bg_combo.currentText()
+        no_limits = self._no_limits_chk.isChecked()
+        engine    = WAXSPeakFitModel(bg_shape=bg_shape, peaks=[], no_limits=no_limits)
+
+        self._set_status("Fitting…")
+        try:
+            result = engine.fit(
+                self._q, self._I, self._dI,
+                bg_params=self._get_bg_params(),
+                peaks=self._get_peaks(),
+            )
+        except Exception as exc:
+            self._set_status(f"Fit error: {exc}", error=True)
+            return
+
+        if not result.get("success", False):
+            self._set_status(f"Fit failed: {result.get('message', '')}", error=True)
+        else:
+            chi2 = result.get("reduced_chi2", float("nan"))
+            self._set_status(
+                f"Fit converged.  Reduced χ² = {chi2:.4g}  "
+                f"(DOF = {result.get('dof', 0)})"
+            )
+
+        # Apply fitted parameters back to GUI
+        self._apply_fit_result(result)
+        self._revert_btn.setEnabled(True)
+
+        # Re-graph
+        self._graph_model()
+
+    def _apply_fit_result(self, result: Dict):
+        """Write fitted param values back into the GUI fields."""
+        bg_params_new = result.get("bg_params", {})
+        for name, row in self._bg_param_rows.items():
+            if name in bg_params_new:
+                row["val"].set_float(float(bg_params_new[name].get("value", 0.0)))
+
+        peaks_new = result.get("peaks", [])
+        for i, row_widget in enumerate(self._peak_rows):
+            if i < len(peaks_new):
+                row_widget.set_params(peaks_new[i])
+
+    def _revert(self):
+        if self._pre_fit_bg_params is not None:
+            for name, row in self._bg_param_rows.items():
+                if name in self._pre_fit_bg_params:
+                    row["val"].set_float(
+                        float(self._pre_fit_bg_params[name].get("value", 0.0))
+                    )
+        if self._pre_fit_peaks is not None:
+            for i, row_widget in enumerate(self._peak_rows):
+                if i < len(self._pre_fit_peaks):
+                    row_widget.set_params(self._pre_fit_peaks[i])
+        self._revert_btn.setEnabled(False)
+        self._graph_model()
+
+    def _reset_defaults(self):
+        self._bg_combo.setCurrentText("Constant")
+        self._rebuild_bg_grid("Constant")
+        self._clear_peaks()
+        self._graph.clear_all()
+        if self._q is not None and self._I is not None:
+            self._graph.plot_data(self._q, self._I, self._dI)
+        self._set_status("Reset to defaults.")
+
+    # ===========================================================================
+    # Slots: Results buttons
+    # ===========================================================================
+
+    def _save_state(self):
+        state = self._get_current_state()
+        self._state_mgr.update("waxs_peakfit", state)
+        if self._state_mgr.save():
+            self._set_status("State saved.")
+        else:
+            self._set_status("Failed to save state.", error=True)
+
+    def _store_in_file(self):
+        if self._filepath is None:
+            QMessageBox.warning(self, "No file", "No data file is open.")
+            return
+        # Need a fit result to store; run model evaluation first
+        I_model, I_bg, _ = self._compute_model()
+        if I_model is None:
+            self._set_status("Compute model first.", error=True)
+            return
+        bg_shape  = self._bg_combo.currentText()
+        bg_params = self._get_bg_params()
+        peaks     = self._get_peaks()
+
+        dI = self._dI
+        s  = dI if dI is not None else np.ones_like(self._I)
+        s  = np.where(s > 0, s, 1.0)
+        residuals = (self._I - I_model) / s
+
+        result = {
+            "bg_shape":    bg_shape,
+            "bg_params":   bg_params,
+            "bg_params_std": {},
+            "peaks":       peaks,
+            "peaks_std":   [{} for _ in peaks],
+            "I_model":     I_model,
+            "I_bg":        I_bg,
+            "residuals":   residuals,
+            "chi2":        float(np.sum((residuals[np.isfinite(residuals)]) ** 2)),
+            "dof":         max(1, np.sum(np.isfinite(self._I)) - len(peaks) * 3),
+            "reduced_chi2": float(np.nanmean(residuals ** 2)),
+        }
+        try:
+            from pyirena.io.nxcansas_waxs_peakfit import save_waxs_peakfit_results
+            save_waxs_peakfit_results(
+                self._filepath, result, self._q,
+                intensity_data=self._I,
+                intensity_error=self._dI,
+                q_min=float(self._q.min()) if self._q is not None else None,
+                q_max=float(self._q.max()) if self._q is not None else None,
+            )
+            self._set_status(f"Saved to {self._filepath.name}.")
+        except Exception as exc:
+            self._set_status(f"Save error: {exc}", error=True)
+
+    def _results_to_graphs(self):
+        """Add annotation with key fit results to the graph."""
+        bg_shape  = self._bg_combo.currentText()
+        bg_params = self._get_bg_params()
+        peaks     = self._get_peaks()
+
+        lines = [f"Background: {bg_shape}"]
+        for name, pd in bg_params.items():
+            lines.append(f"  {name} = {pd['value']:.4g}")
+        lines.append(f"Peaks: {len(peaks)}")
+        for i, pk in enumerate(peaks):
+            q0   = pk.get("Q0",   {}).get("value", 0.0)
+            fwhm = pk.get("FWHM", {}).get("value", 0.0)
+            A    = pk.get("A",    {}).get("value", 0.0)
+            lines.append(f"  P{i+1}: Q0={q0:.4g}  FWHM={fwhm:.4g}  A={A:.4g}")
+
+        text = "\n".join(lines)
+        vr = self._graph.main_plot.viewRange()
+        dx = vr[0][1] - vr[0][0]
+        dy = vr[1][1] - vr[1][0]
+        ann = pg.TextItem(text=text, color=(40, 40, 40), anchor=(0, 1))
+        ann.setPos(vr[0][0] + 0.02 * dx, vr[1][0] + 0.05 * dy)
+        self._graph.main_plot.addItem(ann)
+
+    def _export_params(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Parameters", str(Path.home() / "waxs_peakfit_params.json"),
+            "JSON (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            state = self._get_current_state()
+            Path(path).write_text(json.dumps(state, indent=2))
+            self._set_status(f"Exported to {Path(path).name}.")
+        except Exception as exc:
+            self._set_status(f"Export error: {exc}", error=True)
+
+    def _import_params(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Parameters", str(Path.home()),
+            "JSON (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            state = json.loads(Path(path).read_text())
+            self._apply_state(state)
+            self._set_status(f"Imported from {Path(path).name}.")
+        except Exception as exc:
+            self._set_status(f"Import error: {exc}", error=True)
+
+    # ===========================================================================
+    # State helpers
+    # ===========================================================================
+
+    def _get_current_state(self) -> Dict:
+        return {
+            "bg_shape":  self._bg_combo.currentText(),
+            "bg_params": self._get_bg_params(),
+            "peaks":     self._get_peaks(),
+            "no_limits": self._no_limits_chk.isChecked(),
+            "peak_find": {
+                "prominence":    self._pf_prom.value(),
+                "min_fwhm":      self._pf_minfwhm.value(),
+                "max_fwhm":      self._pf_maxfwhm.value(),
+                "min_distance":  self._pf_mindist.value(),
+                "sg_window_frac": self._pf_sgwin.value() / 100.0,
+            },
+        }
+
+    def _apply_state(self, state: Dict):
+        if not state:
+            return
+
+        # No limits
+        self._no_limits_chk.setChecked(bool(state.get("no_limits", False)))
+
+        # Background
+        bg_shape = state.get("bg_shape", "Constant")
+        self._bg_combo.blockSignals(True)
+        self._bg_combo.setCurrentText(bg_shape)
+        self._bg_combo.blockSignals(False)
+        self._rebuild_bg_grid(bg_shape, state.get("bg_params", {}))
+
+        # Peaks
+        self._clear_peaks()
+        for pk in state.get("peaks", []):
+            self._add_peak_row(pk)
+
+        # Peak-find params
+        pf = state.get("peak_find", {})
+        if "prominence"    in pf: self._pf_prom.setValue(pf["prominence"])
+        if "min_fwhm"      in pf: self._pf_minfwhm.setValue(pf["min_fwhm"])
+        if "max_fwhm"      in pf: self._pf_maxfwhm.setValue(pf["max_fwhm"])
+        if "min_distance"  in pf: self._pf_mindist.setValue(pf["min_distance"])
+        if "sg_window_frac" in pf: self._pf_sgwin.setValue(pf["sg_window_frac"] * 100.0)
+
+    # ===========================================================================
+    # Public data API
+    # ===========================================================================
+
+    def set_data(
+        self,
+        q: np.ndarray,
+        I: np.ndarray,
+        dI: Optional[np.ndarray] = None,
+        label: str = "Data",
+        filepath: Optional[Path] = None,
+        is_nxcansas: bool = False,
+    ):
+        """Load data into the panel and display it."""
+        self._q  = np.asarray(q,  float)
+        self._I  = np.asarray(I,  float)
+        self._dI = np.asarray(dI, float) if dI is not None else None
+        self._filepath   = Path(filepath) if filepath else None
+        self._is_nxcansas = is_nxcansas
+
+        self._graph.plot_data(self._q, self._I, self._dI, label=label)
+
+        # Load stored results if the file has them
+        if is_nxcansas and filepath is not None:
+            self._try_load_stored_results(Path(filepath))
+
+    def _try_load_stored_results(self, filepath: Path):
+        try:
+            from pyirena.io.nxcansas_waxs_peakfit import load_waxs_peakfit_results
+            res = load_waxs_peakfit_results(filepath)
+            state = {
+                "bg_shape":  res.get("bg_shape", "Constant"),
+                "bg_params": res.get("bg_params", {}),
+                "peaks":     res.get("peaks", []),
+                "no_limits": False,
+            }
+            self._apply_state(state)
+            self._graph_model()
+            self._set_status(f"Loaded stored results from {filepath.name}.")
+        except KeyError:
+            pass   # no stored results — silently ignore
+        except Exception as exc:
+            self._set_status(f"Could not load stored results: {exc}", error=True)
+
+    # ===========================================================================
+    # Status
+    # ===========================================================================
+
+    def _set_status(self, msg: str, error: bool = False):
+        color = "#c0392b" if error else "#555"
+        self._status.setStyleSheet(
+            f"font-size:10pt;color:{color};border-top:1px solid #ccc;padding-top:2px;"
+        )
+        self._status.setText(msg)

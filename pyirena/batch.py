@@ -1215,3 +1215,143 @@ def fit_simple_from_config(
         result.setdefault('message', result.get('error', 'fit failed'))
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# fit_waxs_peaks — headless WAXS peak fitting
+# ---------------------------------------------------------------------------
+
+def fit_waxs_peaks(
+    data_file: Union[str, Path],
+    config: Dict,
+    q_min: Optional[float] = None,
+    q_max: Optional[float] = None,
+    save_to_nexus: bool = True,
+    verbose: bool = True,
+) -> Optional[Dict]:
+    """Fit WAXS diffraction peaks to one data file and (optionally) save.
+
+    Parameters
+    ----------
+    data_file : str or Path
+        Path to a text (.dat/.txt) or NXcanSAS HDF5 (.h5/.hdf5) file.
+    config : dict
+        waxs_peakfit state dict.  Must contain at least ``'bg_shape'`` and
+        ``'peaks'`` (list of peak param dicts from
+        ``pyirena.core.waxs_peakfit.default_peak_params()``).
+        Optionally: ``'no_limits'``, ``'peak_find'`` (used only when
+        ``peaks`` is empty and auto-finding is requested).
+    q_min, q_max : float or None
+        Restrict fitting to this Q range (Å⁻¹).  None = use all data.
+    save_to_nexus : bool
+        When True and *data_file* is an HDF5 file, save results back into
+        ``entry/waxs_peakfit_results``.
+    verbose : bool
+        Print progress messages.
+
+    Returns
+    -------
+    dict or None
+        Result dict from ``WAXSPeakFitModel.fit()``, or None on failure.
+    """
+    from pyirena.core.waxs_peakfit import (
+        WAXSPeakFitModel, find_peaks_in_data, default_bg_params,
+    )
+    from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+
+    data_file = Path(data_file)
+    if verbose:
+        print(f"[pyirena.batch.fit_waxs_peaks] {data_file.name}")
+
+    # ── Load data ────────────────────────────────────────────────────────────
+    try:
+        ext = data_file.suffix.lower()
+        if ext in ('.txt', '.dat'):
+            data = readTextFile(str(data_file.parent), data_file.name)
+        else:
+            data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
+        if data is None:
+            if verbose:
+                print(f"  [fit_waxs_peaks] Could not load data from {data_file.name}")
+            return None
+    except Exception as exc:
+        if verbose:
+            print(f"  [fit_waxs_peaks] Load error: {exc}")
+        return None
+
+    q   = np.asarray(data['Q'],        float)
+    I   = np.asarray(data['Intensity'], float)
+    dI  = np.asarray(data.get('Error', np.ones_like(I) * np.nan), float)
+
+    # ── Q range crop ─────────────────────────────────────────────────────────
+    mask = np.isfinite(q) & np.isfinite(I) & (q > 0)
+    if q_min is not None:
+        mask &= q >= q_min
+    if q_max is not None:
+        mask &= q <= q_max
+    q_, I_ = q[mask], I[mask]
+    dI_    = dI[mask] if dI is not None else None
+
+    if len(q_) < 5:
+        if verbose:
+            print(f"  [fit_waxs_peaks] Too few data points in Q range.")
+        return None
+
+    # ── Build model config ────────────────────────────────────────────────────
+    bg_shape  = config.get('bg_shape', 'Constant')
+    no_limits = config.get('no_limits', False)
+    bg_params = config.get('bg_params', default_bg_params(bg_shape))
+    peaks     = config.get('peaks', [])
+
+    # Auto-find peaks if none provided and peak_find config given
+    if not peaks and 'peak_find' in config:
+        pf = config['peak_find']
+        peaks = find_peaks_in_data(
+            q_, I_,
+            prominence_frac=pf.get('prominence',    0.05),
+            min_fwhm=       pf.get('min_fwhm',      0.001),
+            max_fwhm=       pf.get('max_fwhm',      0.5),
+            min_distance=   pf.get('min_distance',  0.005),
+            sg_window_frac= pf.get('sg_window_frac', 0.15),
+        )
+        if verbose:
+            print(f"  [fit_waxs_peaks] Auto-found {len(peaks)} peak(s).")
+
+    if not peaks:
+        if verbose:
+            print(f"  [fit_waxs_peaks] No peaks defined; fitting background only.")
+        peaks = []
+
+    # ── Fit ───────────────────────────────────────────────────────────────────
+    engine = WAXSPeakFitModel(bg_shape=bg_shape, peaks=peaks, no_limits=no_limits)
+    try:
+        result = engine.fit(q_, I_, dI_ if (dI_ is not None and np.any(np.isfinite(dI_))) else None,
+                            bg_params=bg_params, peaks=peaks)
+    except Exception as exc:
+        if verbose:
+            print(f"  [fit_waxs_peaks] Fit error: {exc}")
+        return None
+
+    if verbose:
+        status = "OK" if result.get('success') else "FAILED"
+        print(f"  [fit_waxs_peaks] {status}  "
+              f"reduced-χ² = {result.get('reduced_chi2', float('nan')):.4g}")
+
+    # ── Save to HDF5 ──────────────────────────────────────────────────────────
+    if save_to_nexus and data_file.suffix.lower() in ('.h5', '.hdf5', '.hdf'):
+        try:
+            from pyirena.io.nxcansas_waxs_peakfit import save_waxs_peakfit_results
+            save_waxs_peakfit_results(
+                data_file, result, q_,
+                intensity_data=I_,
+                intensity_error=dI_ if dI_ is not None else None,
+                q_min=float(q_.min()),
+                q_max=float(q_.max()),
+            )
+            if verbose:
+                print(f"  [fit_waxs_peaks] Saved to {data_file.name}.")
+        except Exception as exc:
+            if verbose:
+                print(f"  [fit_waxs_peaks] Save error: {exc}")
+
+    return result

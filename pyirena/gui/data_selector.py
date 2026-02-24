@@ -1449,6 +1449,130 @@ class SimpleFitResultsWindow(QWidget):
         self.show()
 
 
+class WAXSPeakFitResultsWindow(QWidget):
+    """
+    Separate window for displaying WAXS Peak Fit results stored in HDF5 files.
+
+    Two pyqtgraph panels (x-axes linked), both LINEAR/LINEAR:
+      top    — I(Q) data + model fit
+      bottom — normalised residuals vs Q
+    Files that contain no waxs_peakfit_results group are silently skipped.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - WAXS Peak Fit Results")
+        self.setGeometry(145, 145, 900, 700)
+
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
+
+        # ── Top: data + model ──────────────────────────────────────────────
+        self.ax_main = self.gl.addPlot(row=0, col=0)
+        self.ax_main.setLogMode(False, False)     # linear / linear
+        self.ax_main.setLabel('left', 'Intensity')
+        self.ax_main.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.ax_main.setTitle('WAXS Peak Fit Results', size='13pt')
+        self.ax_main.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='10pt')
+        _style_plot(self.ax_main)
+
+        # ── Bottom: residuals ──────────────────────────────────────────────
+        self.ax_resid = self.gl.addPlot(row=1, col=0)
+        self.ax_resid.setLogMode(False, False)
+        self.ax_resid.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_resid.setXLink(self.ax_main)
+        _style_plot(self.ax_resid)
+
+        self.gl.ci.layout.setRowStretchFactor(0, 3)
+        self.gl.ci.layout.setRowStretchFactor(1, 1)
+        _add_jpeg_export(self, self.ax_main, self.ax_resid)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.gl)
+        self.setLayout(layout)
+
+    def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
+        """Load and plot WAXS peak-fit results from the given file paths."""
+        from pyirena.io.nxcansas_waxs_peakfit import load_waxs_peakfit_results
+
+        self.ax_main.clear()
+        self.ax_resid.clear()
+        for ax in (self.ax_main, self.ax_resid):
+            if ax.legend is not None:
+                ax.legend.clear()
+
+        self.ax_resid.addLine(y=0, pen=pg.mkPen('k', width=1))
+
+        found_any = False
+        colors = _gen_colors(len(file_paths))
+        legend_idx = _legend_indices(len(file_paths), max_legend_items)
+
+        for idx, file_path in enumerate(file_paths):
+            _, ext = os.path.splitext(file_path)
+            if ext.lower() not in ('.h5', '.hdf5', '.hdf'):
+                continue
+
+            try:
+                results = load_waxs_peakfit_results(Path(file_path))
+            except Exception:
+                continue
+
+            color     = colors[idx]
+            label     = os.path.basename(file_path)
+            in_legend = idx in legend_idx
+            Q         = results.get('Q')
+            I_data    = results.get('intensity_data')
+            I_fit     = results.get('I_fit')
+            residuals = results.get('residuals')
+
+            if Q is None or I_fit is None:
+                continue
+
+            name = label if in_legend else None
+
+            # Data scatter
+            if I_data is not None:
+                mask = np.isfinite(Q) & np.isfinite(I_data)
+                self.ax_main.plot(
+                    Q[mask], I_data[mask],
+                    pen=None, symbol='o', symbolSize=3,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                    name=name,
+                )
+
+            # Model line (darker shade)
+            mask_f = np.isfinite(Q) & np.isfinite(I_fit)
+            self.ax_main.plot(
+                Q[mask_f], I_fit[mask_f],
+                pen=pg.mkPen(color, width=1.5),
+                name=(f"{label} fit") if in_legend else None,
+            )
+
+            # Residuals
+            if residuals is not None:
+                mask_r = np.isfinite(Q) & np.isfinite(residuals)
+                self.ax_resid.plot(
+                    Q[mask_r], residuals[mask_r],
+                    pen=None, symbol='o', symbolSize=3,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                )
+
+            found_any = True
+
+        if not found_any:
+            self.ax_main.setTitle(
+                'No WAXS Peak Fit results found in selected files',
+                size='12pt', color='#7f8c8d',
+            )
+
+        self.show()
+
+
 class TabulateResultsWindow(QWidget):
     """
     Separate window that shows fit results for selected files in a spreadsheet-like
@@ -1605,6 +1729,8 @@ class DataSelectorPanel(QWidget):
         self.sizes_fit_window = None   # Size distribution panel
         self.simple_fits_window = None         # Simple Fits panel
         self.simple_fits_results_window = None # Graph of stored simple fit results
+        self.waxs_peakfit_window = None        # WAXS Peak Fit panel
+        self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -1802,6 +1928,14 @@ class DataSelectorPanel(QWidget):
             "Only HDF5 files with stored simple fit results are used."
         )
         cb_row.addWidget(self.simple_fits_checkbox)
+
+        self.waxs_peakfit_checkbox = QCheckBox("WAXS Peaks")
+        self.waxs_peakfit_checkbox.setChecked(False)
+        self.waxs_peakfit_checkbox.setToolTip(
+            "Plot stored WAXS peak-fit results (data + model + residuals).\n"
+            "Only HDF5 files with stored WAXS peak-fit results are used."
+        )
+        cb_row.addWidget(self.waxs_peakfit_checkbox)
         cb_row.addStretch()
         right_layout.addLayout(cb_row)
 
@@ -2005,6 +2139,49 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.simple_fits_button,        5, 0)
         btn_grid.addWidget(self.simple_fits_script_button, 5, 1)
 
+        # ── WAXS Peak Fit: GUI button + Script batch button ───────────────
+        _waxs_gui_style = """
+            QPushButton {
+                background-color: #2980b9; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #1f618d; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        _waxs_script_style = """
+            QPushButton {
+                background-color: #1f618d; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #1a5276; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.waxs_peakfit_button = QPushButton("WAXS Peaks (GUI)")
+        self.waxs_peakfit_button.setMinimumHeight(38)
+        self.waxs_peakfit_button.setStyleSheet(_waxs_gui_style)
+        self.waxs_peakfit_button.setToolTip(
+            "Open WAXS Peak Fit panel for the first selected file."
+        )
+        self.waxs_peakfit_button.clicked.connect(self.launch_waxs_peakfit)
+        self.waxs_peakfit_button.setEnabled(False)
+
+        self.waxs_peakfit_script_button = QPushButton("WAXS Peaks (script)")
+        self.waxs_peakfit_script_button.setMinimumHeight(38)
+        self.waxs_peakfit_script_button.setStyleSheet(_waxs_script_style)
+        self.waxs_peakfit_script_button.setToolTip(
+            "Batch-fit all selected files with WAXS Peak Fit using pyirena_config.json.\n"
+            "Results are saved into each file's NXcanSAS record."
+        )
+        self.waxs_peakfit_script_button.clicked.connect(self.run_waxs_peakfit_script)
+        self.waxs_peakfit_script_button.setEnabled(False)
+
+        btn_grid.addWidget(self.waxs_peakfit_button,        6, 0)
+        btn_grid.addWidget(self.waxs_peakfit_script_button, 6, 1)
+
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
@@ -2205,6 +2382,8 @@ class DataSelectorPanel(QWidget):
         self.sizes_script_button.setEnabled(has_selection)
         self.simple_fits_button.setEnabled(has_selection)
         self.simple_fits_script_button.setEnabled(has_selection)
+        self.waxs_peakfit_button.setEnabled(has_selection)
+        self.waxs_peakfit_script_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files according to the Data / Unified Fit checkboxes."""
@@ -2288,13 +2467,28 @@ class DataSelectorPanel(QWidget):
                     self, "Plot Error", f"Error creating Simple Fits plot:\n{str(e)}"
                 )
 
+        # ── WAXS Peak Fit results ──────────────────────────────────────────
+        if self.waxs_peakfit_checkbox.isChecked():
+            if self.waxs_peakfit_results_window is None:
+                self.waxs_peakfit_results_window = WAXSPeakFitResultsWindow()
+            try:
+                self.waxs_peakfit_results_window.plot_results(
+                    file_paths,
+                    max_legend_items=max_legend_items,
+                )
+                plotted.append("WAXS Peak Fit results")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Plot Error", f"Error creating WAXS Peak Fit plot:\n{str(e)}"
+                )
+
         if plotted:
             self.status_label.setText(
                 f"Plotted {len(file_paths)} file(s): {', '.join(plotted)}"
             )
         else:
             self.status_label.setText(
-                "Nothing to plot — check 'Data', 'Unified Fit', 'Size Dist.' or 'Simple Fits' checkbox"
+                "Nothing to plot — check 'Data', 'Unified Fit', 'Size Dist.', 'Simple Fits' or 'WAXS Peaks' checkbox"
             )
 
     def create_report(self):
@@ -2843,6 +3037,68 @@ class DataSelectorPanel(QWidget):
     def run_simple_fits_script(self):
         """Batch-fit all selected files with Simple Fits."""
         self._run_batch_fit('simple_fits')
+
+    def launch_waxs_peakfit(self):
+        """Open the WAXS Peak Fit panel with the first selected file."""
+        from pyirena.gui.waxs_peakfit_panel import WAXSPeakFitPanel
+
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select a file to open in WAXS Peak Fit.",
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        try:
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename, error_fraction=error_fraction)
+                is_nxcansas = False
+            else:
+                data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True
+
+            if data is None:
+                QMessageBox.critical(
+                    self, "Error",
+                    f"Could not read data from file: {filename}",
+                )
+                return
+
+            if self.waxs_peakfit_window is None:
+                self.waxs_peakfit_window = WAXSPeakFitPanel()
+
+            self.waxs_peakfit_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                label=filename,
+                filepath=file_path,
+                is_nxcansas=is_nxcansas,
+            )
+
+            self.waxs_peakfit_window.show()
+            self.waxs_peakfit_window.raise_()
+            self.waxs_peakfit_window.activateWindow()
+
+            self.status_label.setText(f"Opened WAXS Peak Fit for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error",
+                f"Error loading data for WAXS Peak Fit:\n{str(e)}",
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+    def run_waxs_peakfit_script(self):
+        """Batch-fit all selected files with WAXS Peak Fit."""
+        self._run_batch_fit('waxs_peakfit')
 
     def _find_config_file(self) -> Optional[str]:
         """
