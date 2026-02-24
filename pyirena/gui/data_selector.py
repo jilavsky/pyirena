@@ -123,7 +123,7 @@ def _style_plot(plot_item):
         ax.enableAutoSIPrefix(False)
 
 
-def _iq_error_bars(q, I, err, cap_frac=0.05):
+def _iq_error_bars(q, I, err, cap_frac=0.02):
     """
     Build NaN-separated (x, y) arrays for I(Q) error bars on a log-log plot.
     Caps are ±cap_frac in multiplicative (log) space.
@@ -789,6 +789,20 @@ class GraphWindow(QWidget):
         _style_plot(self.plot)
         _add_jpeg_export(self, self.plot)
 
+        # ── Per-session state for right-click toggles ──────────────────────
+        self._plot_cache: list = []          # list of dicts, one per file
+        self._data_items: list = []          # scatter / line PlotDataItems
+        self._error_bar_items: list = []     # error bar PlotDataItems
+        self._show_errorbars: bool = True
+        self._line_mode: bool = False
+
+        vb = self.plot.getViewBox()
+        vb.menu.addSeparator()
+        self._errbar_action = vb.menu.addAction("Hide Error Bars")
+        self._errbar_action.triggered.connect(self._toggle_errorbars)
+        self._linemode_action = vb.menu.addAction("Switch to Line Mode")
+        self._linemode_action.triggered.connect(self._toggle_linemode)
+
         layout = QVBoxLayout()
         layout.addWidget(self.gl)
         self.setLayout(layout)
@@ -810,12 +824,10 @@ class GraphWindow(QWidget):
                               When there are more files, only first, last, and
                               evenly-spaced intermediate files are labelled.
         """
-        self.plot.clear()
-        if self.plot.legend is not None:
-            self.plot.legend.clear()
-
+        self._plot_cache = []
         legend_idx = _legend_indices(len(file_paths), max_legend_items)
         colors = _gen_colors(len(file_paths))
+
         for idx, file_path in enumerate(file_paths):
             color = colors[idx]
             try:
@@ -830,35 +842,107 @@ class GraphWindow(QWidget):
                 if data is None:
                     continue
 
-                q   = np.asarray(data['Q'],         dtype=float)
-                I   = np.asarray(data['Intensity'],  dtype=float)
+                q   = np.asarray(data['Q'],        dtype=float)
+                I   = np.asarray(data['Intensity'], dtype=float)
                 err = data.get('Error')
+                if err is not None:
+                    err = np.asarray(err, dtype=float)
 
-                label = os.path.basename(file_path)
-                name  = label if idx in legend_idx else None
+                name = os.path.basename(file_path) if idx in legend_idx else None
+                self._plot_cache.append({
+                    'q': q, 'I': I, 'err': err, 'color': color, 'name': name,
+                })
 
-                self.plot.plot(
-                    q, I,
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
+
+        self._redraw_items()
+
+        # Set x-axis to the actual Q range of all loaded data so data from
+        # instruments with very different Q ranges is always in view.
+        all_q = []
+        for entry in self._plot_cache:
+            q = entry['q']
+            mask = np.isfinite(q) & (q > 0)
+            if mask.any():
+                all_q.append(q[mask])
+        if all_q:
+            q_all = np.concatenate(all_q)
+            if len(q_all) >= 2:
+                self.plot.setXRange(
+                    np.log10(float(q_all.min())),
+                    np.log10(float(q_all.max())),
+                    padding=0.05,
+                )
+
+        self.show()
+
+    def _redraw_items(self):
+        """Rebuild scatter/line and error-bar items from the cached data.
+
+        Called on initial load and whenever a toggle (error bars / line mode)
+        changes the display style.  Clears only the managed data items so that
+        the axes, grid, legend widget, and JPEG action are preserved.
+        """
+        for item in self._data_items + self._error_bar_items:
+            self.plot.removeItem(item)
+        self._data_items = []
+        self._error_bar_items = []
+        if self.plot.legend is not None:
+            self.plot.legend.clear()
+
+        for entry in self._plot_cache:
+            q, I, err, color, name = (
+                entry['q'], entry['I'], entry['err'],
+                entry['color'], entry['name'],
+            )
+            mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+            q_, I_ = q[mask], I[mask]
+            if len(q_) == 0:
+                continue
+
+            if self._line_mode:
+                item = self.plot.plot(
+                    q_, I_, pen=pg.mkPen(color, width=1.5), name=name,
+                )
+            else:
+                item = self.plot.plot(
+                    q_, I_,
                     pen=None, symbol='o', symbolSize=4,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
                     name=name,
                 )
-                if name is not None and self.plot.legend is not None and self.plot.legend.items:
-                    self.plot.legend.items[-1][1].setAttr('color', color.name())
+            self._data_items.append(item)
 
-                if err is not None:
-                    err = np.asarray(err, dtype=float)
-                    xb, yb = _iq_error_bars(q, I, err)
-                    if len(xb):
-                        self.plot.plot(xb, yb,
-                                       pen=pg.mkPen(color, width=1),
-                                       connect='finite')
+            if name is not None and self.plot.legend is not None and self.plot.legend.items:
+                self.plot.legend.items[-1][1].setAttr('color', color.name())
 
-            except Exception as e:
-                print(f"Error loading {file_path}: {e}")
+            if err is not None and self._show_errorbars:
+                xb, yb = _iq_error_bars(q_, I_, err[mask] if err.shape == q.shape else err)
+                if len(xb):
+                    eb = self.plot.plot(
+                        xb, yb,
+                        pen=pg.mkPen(color, width=1),
+                        connect='finite',
+                    )
+                    self._error_bar_items.append(eb)
 
-        self.show()
+    def _toggle_errorbars(self):
+        """Right-click handler: show or hide error bars."""
+        self._show_errorbars = not self._show_errorbars
+        self._errbar_action.setText(
+            "Show Error Bars" if not self._show_errorbars else "Hide Error Bars"
+        )
+        self._redraw_items()
+
+    def _toggle_linemode(self):
+        """Right-click handler: switch between point and line display."""
+        self._line_mode = not self._line_mode
+        self._linemode_action.setText(
+            "Switch to Point Mode" if self._line_mode else "Switch to Line Mode"
+        )
+        self._redraw_items()
 
 
 class UnifiedFitResultsWindow(QWidget):
