@@ -119,18 +119,27 @@ def _hline() -> QFrame:
 
 
 class _ValidatedField(QLineEdit):
-    """QLineEdit that accepts float input with optional bounds and mouse-wheel support."""
+    """QLineEdit that accepts float input with optional bounds and mouse-wheel support.
+
+    Two step modes:
+      fixed_step  — absolute step per notch (e.g. 0.001 Å⁻¹ for Q0/FWHM).
+                    Shift multiplies by 10.  Trackpad sub-notches are scaled
+                    proportionally (angleDelta / 120).
+      wheel_frac  — relative step: frac × |value|  (for amplitude, eta, …).
+    """
 
     def __init__(self, value: float = 0.0,
                  min_val: float = -np.inf, max_val: float = np.inf,
                  wheel_enabled: bool = True,
                  wheel_frac: float = 0.01,
+                 fixed_step: Optional[float] = None,
                  parent=None):
         super().__init__(parent)
         self._min_val = min_val
         self._max_val = max_val
         self._wheel_enabled = wheel_enabled
         self._wheel_frac = wheel_frac
+        self._fixed_step = fixed_step
         self.setValidator(QDoubleValidator())
         self.setText(f"{value:.6g}")
         self.setFixedWidth(90)
@@ -145,20 +154,26 @@ class _ValidatedField(QLineEdit):
         self.setText(f"{v:g}")
 
     def wheelEvent(self, ev):
-        """Shift = 10× step; normal = 1% of |value| (min 1e-6 absolute)."""
+        """Scroll wheel: fixed or relative step, trackpad-smooth, Shift = 10×."""
         if not self._wheel_enabled:
+            ev.ignore()
+            return
+        delta = ev.angleDelta().y()
+        if delta == 0:
             ev.ignore()
             return
         val  = self.float_value()
         mods = ev.modifiers()
-        frac = self._wheel_frac * 10.0 if (mods & Qt.KeyboardModifier.ShiftModifier) else self._wheel_frac
-        step = max(abs(val) * frac, 1e-6)
-        delta = ev.angleDelta().y()
-        if delta > 0:
-            val += step
-        elif delta < 0:
-            val -= step
-        val = float(np.clip(val, self._min_val, self._max_val))
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        # Scale step proportionally to scroll amount so trackpad is smooth
+        # (standard mouse notch = 120 units; trackpad delivers fractions)
+        notch = delta / 120.0
+        if self._fixed_step is not None:
+            base = self._fixed_step * (10.0 if shift else 1.0)
+        else:
+            frac = self._wheel_frac * (10.0 if shift else 1.0)
+            base = max(abs(val) * frac, 1e-6)
+        val = float(np.clip(val + base * notch, self._min_val, self._max_val))
         self.set_float(val)
         self.editingFinished.emit()
         ev.accept()
@@ -270,13 +285,16 @@ class PeakRowWidget(QWidget):
                 val, fit, lo, hi = float(pd), True, None, None
 
             name_lbl = _label(pname)
-            # Q0 gets a 10× finer wheel step (positions need fine control)
-            _wfrac = 0.001 if pname == "Q0" else 0.01
+            # Q0 and FWHM: fixed 0.001 Å⁻¹ step (absolute, Shift×10).
+            # A and eta: 1% relative step.
+            _fixed = 0.001 if pname in ("Q0", "FWHM") else None
+            _frac  = 0.01  if _fixed is None else 0.01
             val_fld  = _ValidatedField(
                 val,
                 min_val=_PEAK_PARAM_VAL_MIN.get(pname, -np.inf),
                 max_val=_PEAK_PARAM_VAL_MAX.get(pname, np.inf),
-                wheel_frac=_wfrac,
+                wheel_frac=_frac,
+                fixed_step=_fixed,
             )
             val_fld.setFixedWidth(104)
             fit_chk  = QCheckBox()
@@ -863,7 +881,7 @@ class WAXSPeakFitPanel(QWidget):
         # ── Debounce timer for auto-recalculation (wheel events) ──────────
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
-        self._debounce_timer.setInterval(100)
+        self._debounce_timer.setInterval(10)
         self._debounce_timer.timeout.connect(self._graph_model)
 
         # ── Build layout ──────────────────────────────────────────────────
