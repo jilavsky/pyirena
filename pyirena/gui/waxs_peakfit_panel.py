@@ -1639,33 +1639,50 @@ class WAXSPeakFitPanel(QWidget):
         vr = self._graph.main_plot.viewRange()
         dx = vr[0][1] - vr[0][0]
         dy = vr[1][1] - vr[1][0]
-        ann = pg.TextItem(text=text, color=(40, 40, 40), anchor=(0, 1))
-        ann.setPos(vr[0][0] + 0.02 * dx, vr[1][0] + 0.05 * dy)
+        # anchor=(1, 0): top-right corner of the TextItem at the set position,
+        # so text is right-aligned and placed below the legend (top-right area)
+        ann = pg.TextItem(text=text, color=(40, 40, 40), anchor=(1, 0))
+        ann.setPos(vr[0][1] - 0.02 * dx, vr[1][1] - 0.12 * dy)
         self._graph.main_plot.addItem(ann)
 
     def _export_params(self):
+        # Default to the folder where the current data file lives
+        default_dir = str(self._filepath.parent) if self._filepath else str(Path.cwd())
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Parameters", str(Path.home() / "waxs_peakfit_params.json"),
+            self, "Export Parameters",
+            str(Path(default_dir) / "pyirena_config.json"),
             "JSON (*.json);;All Files (*)",
         )
         if not path:
             return
         try:
             state = self._get_current_state()
-            Path(path).write_text(json.dumps(state, indent=2))
-            self._set_status(f"Exported to {Path(path).name}.")
+            # Load existing config and merge so other tool sections are preserved
+            config_path = Path(path)
+            config: Dict = {}
+            if config_path.exists():
+                try:
+                    config = json.loads(config_path.read_text(encoding='utf-8'))
+                except Exception:
+                    pass
+            config['waxs_peakfit'] = state
+            config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
+            self._set_status(f"Exported to {config_path.name}.")
         except Exception as exc:
             self._set_status(f"Export error: {exc}", error=True)
 
     def _import_params(self):
+        default_dir = str(self._filepath.parent) if self._filepath else str(Path.cwd())
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import Parameters", str(Path.home()),
+            self, "Import Parameters", default_dir,
             "JSON (*.json);;All Files (*)",
         )
         if not path:
             return
         try:
-            state = json.loads(Path(path).read_text())
+            raw = json.loads(Path(path).read_text(encoding='utf-8'))
+            # Support both wrapped {"waxs_peakfit": {...}} and unwrapped formats
+            state = raw.get('waxs_peakfit', raw)
             self._apply_state(state)
             self._set_status(f"Imported from {Path(path).name}.")
         except Exception as exc:
@@ -1676,7 +1693,10 @@ class WAXSPeakFitPanel(QWidget):
     # ===========================================================================
 
     def _get_current_state(self) -> Dict:
+        qmin, qmax = self._graph.get_q_range()
         return {
+            "q_min":     qmin,
+            "q_max":     qmax,
             "bg_shape":  self._bg_combo.currentText(),
             "bg_params": self._get_bg_params(),
             "peaks":     self._get_peaks(),
@@ -1717,6 +1737,12 @@ class WAXSPeakFitPanel(QWidget):
         if "min_distance"  in pf: self._pf_mindist.setValue(pf["min_distance"])
         if "sg_window_frac" in pf: self._pf_sgwin.setValue(pf["sg_window_frac"] * 100.0)
 
+        # Q range — restore cursor positions when data is already loaded
+        q_min = state.get("q_min")
+        q_max = state.get("q_max")
+        if q_min is not None and q_max is not None and self._q is not None:
+            self._graph.set_q_range(float(q_min), float(q_max))
+
     # ===========================================================================
     # Public data API
     # ===========================================================================
@@ -1752,6 +1778,8 @@ class WAXSPeakFitPanel(QWidget):
                 "bg_params": res.get("bg_params", {}),
                 "peaks":     res.get("peaks", []),
                 "no_limits": False,
+                "q_min":     res.get("q_min"),
+                "q_max":     res.get("q_max"),
             }
             self._apply_state(state)
             self._graph_model()
