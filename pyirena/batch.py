@@ -9,6 +9,12 @@ Single file, one tool:
     if result:
         print(result['parameters']['chi_squared'])
 
+WAXS peak fitting (linear/linear, diffraction peaks):
+    from pyirena.batch import fit_waxs
+    result = fit_waxs("waxs_data.h5", "pyirena_config.json")
+    if result and result['success']:
+        print(result['n_peaks'], "peaks fitted")
+
 Single file, all configured tools:
     from pyirena.batch import fit_pyirena
     results = fit_pyirena("data.h5", "pyirena_config.json")
@@ -889,6 +895,8 @@ def fit_pyirena(
         Runs :func:`fit_sizes`.
     ``simple_fits``
         Runs :func:`fit_simple_from_config`.
+    ``waxs_peakfit``
+        Runs :func:`fit_waxs` (alias for :func:`fit_waxs_peaks_from_config`).
 
     Unknown sections in the config file are silently skipped.
 
@@ -937,6 +945,9 @@ def fit_pyirena(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
         'simple_fits': lambda: fit_simple_from_config(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
+        'waxs_peakfit': lambda: fit_waxs(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
     }
@@ -1221,16 +1232,50 @@ def fit_waxs_peaks_from_config(
     data_file: Union[str, Path],
     config_file: Union[str, Path],
     save_to_nexus: bool = True,
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 10,
 ) -> Optional[Dict]:
-    """Fit WAXS peaks using parameters from a pyIrena config file.
+    """Fit WAXS diffraction peaks using parameters from a pyIrena config file.
 
-    Thin wrapper around :func:`fit_waxs_peaks` that reads the
-    ``'waxs_peakfit'`` section from a JSON config file.  Provides the same
-    ``(data_file, config_file, save_to_nexus)`` calling convention used by
-    all other batch functions so :class:`BatchWorker` can dispatch uniformly.
+    Reads the ``'waxs_peakfit'`` section from a JSON config file and calls
+    :func:`fit_waxs_peaks`.  The ``with_uncertainty`` and ``n_mc_runs``
+    parameters are accepted for API consistency with :func:`fit_unified` and
+    :func:`fit_sizes` but are not yet used (WAXS uncertainty comes from the
+    ``curve_fit`` covariance matrix, not Monte Carlo).
 
-    Returns a dict with ``'success'`` and ``'message'`` keys guaranteed
-    (never None), matching the BatchWorker contract.
+    This function is also exported as :func:`fit_waxs` for convenience.
+
+    Parameters
+    ----------
+    data_file : str or Path
+        Path to a WAXS data file (HDF5/NXcanSAS or text).
+    config_file : str or Path
+        Path to a pyIrena JSON configuration file containing a
+        ``'waxs_peakfit'`` section (written by the GUI's Export Parameters
+        button or by hand).
+    save_to_nexus : bool, optional
+        Write fitted results to ``entry/waxs_peakfit_results`` in the HDF5
+        file (default ``True``).
+    with_uncertainty : bool, optional
+        Accepted for API compatibility; not currently used.
+    n_mc_runs : int, optional
+        Accepted for API compatibility; not currently used.
+
+    Returns
+    -------
+    dict
+        Always returns a dict with ``'success'`` (bool) and ``'message'``
+        (str) keys.  On success also contains ``'n_peaks'``, ``'bg_shape'``,
+        ``'chi2'``, ``'reduced_chi2'``, ``'dof'``, ``'q_min'``, ``'q_max'``,
+        ``'bg_params'``, ``'peaks'``, ``'I_fit'``, ``'I_bg'``, ``'q'``.
+        Returns ``None`` only on a fatal pre-fit error (data unreadable).
+
+    Examples
+    --------
+    >>> result = fit_waxs("waxs_data.h5", "pyirena_config.json")
+    >>> if result and result['success']:
+    ...     for pk in result['peaks']:
+    ...         print(f"Q0={pk['Q0']['value']:.4f}  FWHM={pk['FWHM']['value']:.4f}")
     """
     config_file = Path(config_file)
     config = _load_config(config_file)
@@ -1264,6 +1309,12 @@ def fit_waxs_peaks_from_config(
         result.setdefault('message', result.get('error', 'fit failed'))
 
     return result
+
+
+#: Short alias for :func:`fit_waxs_peaks_from_config`.
+#: Follows the same ``(data_file, config_file, save_to_nexus)`` convention
+#: as ``fit_unified``, ``fit_sizes``, and ``fit_simple_from_config``.
+fit_waxs = fit_waxs_peaks_from_config
 
 
 # ---------------------------------------------------------------------------

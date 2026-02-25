@@ -14,18 +14,19 @@ is no need to write configuration code by hand.
 3. [API reference — `fit_unified`](#fit_unified)
 4. [API reference — `fit_sizes`](#fit_sizes)
 5. [API reference — `fit_simple`](#fit_simple)
-6. [API reference — `fit_pyirena`](#fit_pyirena)
-7. [Return structures](#return-structures)
-8. [Error handling](#error-handling)
-9. [Batch processing patterns](#batch-processing-patterns)
-10. [Extending with new tools](#extending-with-new-tools)
+6. [API reference — `fit_waxs`](#fit_waxs)
+7. [API reference — `fit_pyirena`](#fit_pyirena)
+8. [Return structures](#return-structures)
+9. [Error handling](#error-handling)
+10. [Batch processing patterns](#batch-processing-patterns)
+11. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
 ## Quick start
 
 ```python
-from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_pyirena
+from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_pyirena
 
 # Fit one file with Unified Fit, save results to NXcanSAS
 result = fit_unified("sample.h5", "pyirena_config.json")
@@ -44,6 +45,12 @@ result = fit_simple("sample.h5",
                     config={'model': 'Guinier', 'params': {'I0': 1.0, 'Rg': 50.0}})
 if result and result['success']:
     print(f"Rg = {result['params']['Rg']:.2f} ± {result['params_std']['Rg']:.2f} Å")
+
+# Fit WAXS diffraction peaks (reads 'waxs_peakfit' section from config)
+result = fit_waxs("waxs_data.h5", "pyirena_config.json")
+if result and result['success']:
+    for pk in result['peaks']:
+        print(f"Q0={pk['Q0']['value']:.4f}  FWHM={pk['FWHM']['value']:.4f}")
 
 # Run ALL configured tools on one file (one function call)
 results = fit_pyirena("sample.h5", "pyirena_config.json")
@@ -325,6 +332,118 @@ and `error` message.  Returns `None` only if the data file cannot be loaded.
 
 ---
 
+## `fit_waxs`
+
+```python
+from pyirena.batch import fit_waxs
+
+result = fit_waxs(
+    data_file,          # str or Path — input WAXS data file (HDF5 or text)
+    config_file,        # str or Path — pyIrena JSON config with 'waxs_peakfit' section
+    save_to_nexus=True, # bool — write results to entry/waxs_peakfit_results in HDF5
+)
+```
+
+`fit_waxs` is a short alias for `fit_waxs_peaks_from_config`.  It reads the
+`waxs_peakfit` section from a `pyirena_config.json` produced by the **WAXS Peak
+Fit** GUI panel's **Export Parameters** button, fits all configured peaks plus
+background, and (if `save_to_nexus=True`) writes results back to the HDF5 file.
+
+### What it does, step by step
+
+1. **Loads the config file** — reads `'waxs_peakfit'` section; validates the
+   `_pyirena_config` header.
+2. **Loads data** — same format detection as `fit_unified` (`.h5`/`.hdf5` via
+   NXcanSAS, `.dat`/`.txt` via text reader).
+3. **Applies Q range** — masks data to `[q_min, q_max]` stored in the config
+   (set by the GUI cursors at Export time).
+4. **Auto-finds peaks** *(if config has `peak_find` section and no explicit
+   peaks)*  — Savitzky-Golay background subtraction + `scipy.signal.find_peaks`.
+5. **Fits peaks + background** — `scipy.optimize.curve_fit` with the peak
+   shapes and background polynomial specified in the config; bounds are applied
+   unless `no_limits=true`.
+6. **Saves results** *(if `save_to_nexus=True`)* — writes
+   `entry/waxs_peakfit_results` (NXprocess group) to the HDF5 file, including
+   per-peak parameter arrays, fit curve, background curve, and residuals.
+7. **Returns** a result dict (see below).
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_file` | `str` or `Path` | required | Path to WAXS data file |
+| `config_file` | `str` or `Path` | required | Path to pyIrena JSON config |
+| `save_to_nexus` | `bool` | `True` | Save fit results to NXcanSAS HDF5 |
+
+### Returns
+
+`dict` with keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `success` | bool | True if `curve_fit` converged |
+| `message` | str | Human-readable status |
+| `n_peaks` | int | Number of peaks fitted |
+| `bg_shape` | str | Background shape used (e.g. `"Cubic"`) |
+| `chi2` | float | χ² (sum of squared weighted residuals) |
+| `reduced_chi2` | float | χ² / degrees of freedom |
+| `dof` | int | Degrees of freedom |
+| `q_min` | float | Lower Q bound used (Å⁻¹) |
+| `q_max` | float | Upper Q bound used (Å⁻¹) |
+| `q` | ndarray | Q array in fit range (Å⁻¹) |
+| `I_fit` | ndarray | Total model intensity over `q` |
+| `I_bg` | ndarray | Background-only curve over `q` |
+| `residuals` | ndarray | Normalized residuals `(I − fit) / σ` |
+| `bg_params` | dict | Fitted background coefficients with uncertainties |
+| `peaks` | list | Per-peak dicts: `shape`, `Q0`, `A`, `FWHM`, (`eta`) each with `value` and `std` |
+
+Returns `None` only on fatal pre-fit errors (file not found, data unreadable).
+
+### Peak profile shapes
+
+| Shape | Parameters | Notes |
+|-------|-----------|-------|
+| `Gauss` | A, Q0, FWHM | Symmetric Gaussian; A = peak height |
+| `Lorentz` | A, Q0, FWHM | Symmetric Lorentzian; A = peak height |
+| `Pseudo-Voigt` | A, Q0, FWHM, eta | η·Lorentz + (1−η)·Gauss; eta ∈ [0, 1] |
+| `LogNormal` | A, Q0, FWHM | Asymmetric; mode at Q0, width from FWHM |
+
+### Background shapes
+
+| Shape | Parameters |
+|-------|-----------|
+| `Constant` | bg0 |
+| `Linear` | bg0, bg1 |
+| `Cubic` | bg0, bg1, bg2, bg3 |
+| `5th Polynomial` | bg0 … bg5 |
+
+### Example
+
+```python
+from pyirena.batch import fit_waxs
+
+# Fit one file
+result = fit_waxs("NaHCO3_sample.h5", "pyirena_config.json")
+if result and result['success']:
+    print(f"Fitted {result['n_peaks']} peak(s),  "
+          f"reduced-χ² = {result['reduced_chi2']:.4g}")
+    for i, pk in enumerate(result['peaks']):
+        q0   = pk['Q0']['value']
+        fwhm = pk['FWHM']['value']
+        A    = pk['A']['value']
+        print(f"  Peak {i+1}: Q0={q0:.4f}  FWHM={fwhm:.4f}  A={A:.4g}")
+
+# Batch over many files
+from pathlib import Path
+data_files = sorted(Path("data/").glob("*_waxs.h5"))
+for f in data_files:
+    r = fit_waxs(f, "pyirena_config.json")
+    if r and r['success']:
+        print(f"{f.name}: {r['n_peaks']} peaks, χ²r={r['reduced_chi2']:.3g}")
+```
+
+---
+
 ## `fit_pyirena`
 
 ```python
@@ -349,6 +468,7 @@ to the appropriate fitting function for each.  Recognised tool sections:
 | `unified_fit` | `fit_unified()` |
 | `sizes` | `fit_sizes()` |
 | `simple_fits` | `fit_simple_from_config()` |
+| `waxs_peakfit` | `fit_waxs()` |
 
 Unknown sections in the config file are silently skipped.  This means a config
 file created today will still work correctly when new tools are added to pyIrena,
@@ -618,9 +738,10 @@ When a new analysis tool is added to pyIrena, three things happen:
 
 ```python
 _TOOL_REGISTRY = {
-    'unified_fit': lambda: fit_unified(data_file, config_file, save_to_nexus, ...),
-    'sizes':       lambda: fit_sizes(data_file, config_file, save_to_nexus, ...),
-    'simple_fits': lambda: fit_simple_from_config(data_file, config_file, save_to_nexus, ...),
+    'unified_fit':  lambda: fit_unified(data_file, config_file, save_to_nexus, ...),
+    'sizes':        lambda: fit_sizes(data_file, config_file, save_to_nexus, ...),
+    'simple_fits':  lambda: fit_simple_from_config(data_file, config_file, save_to_nexus, ...),
+    'waxs_peakfit': lambda: fit_waxs(data_file, config_file, save_to_nexus, ...),
     # add new tools here
 }
 ```

@@ -204,6 +204,7 @@ class PeakRowWidget(QWidget):
         self._index = index
         self._limit_widgets: List[QWidget] = []  # Lo/Hi fields + header labels
         self._param_rows: Dict[str, dict] = {}   # pname → {val, fit, lo, hi widgets}
+        self._show_limits: bool = True            # current limits-column visibility
         self._setup_ui(peak_dict)
 
     # ── UI construction ──────────────────────────────────────────────────
@@ -326,6 +327,11 @@ class PeakRowWidget(QWidget):
                 "val": val_fld, "fit": fit_chk, "lo": lo_fld, "hi": hi_fld,
             }
 
+        # Re-apply limits visibility to all freshly created widgets so that
+        # rebuilding rows (e.g. after Fit) respects the current No-limits state.
+        for w in self._limit_widgets:
+            w.setVisible(self._show_limits)
+
     def _on_shape_changed(self, shape: str):
         """Rebuild parameter rows when shape changes; preserve A, Q0, FWHM."""
         old_dict = self.get_params()
@@ -379,7 +385,8 @@ class PeakRowWidget(QWidget):
         self._build_param_rows(peak_dict)
 
     def toggle_limits(self, show: bool):
-        """Show/hide Lo and Hi columns."""
+        """Show/hide Lo and Hi columns (state is remembered for row rebuilds)."""
+        self._show_limits = show
         for w in self._limit_widgets:
             w.setVisible(show)
 
