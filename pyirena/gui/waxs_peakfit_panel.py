@@ -26,7 +26,7 @@ try:
         QMessageBox, QFrame, QSizePolicy, QSpacerItem,
         QDialog, QDialogButtonBox,
     )
-    from PySide6.QtCore import Qt, Signal
+    from PySide6.QtCore import Qt, Signal, QTimer
     from PySide6.QtGui import QFont, QDoubleValidator
 except ImportError:
     from PyQt6.QtWidgets import (
@@ -36,7 +36,7 @@ except ImportError:
         QMessageBox, QFrame, QSizePolicy, QSpacerItem,
         QDialog, QDialogButtonBox,
     )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal
+    from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer
     from PyQt6.QtGui import QFont, QDoubleValidator
 
 from pyirena.core.waxs_peakfit import (
@@ -123,10 +123,12 @@ class _ValidatedField(QLineEdit):
 
     def __init__(self, value: float = 0.0,
                  min_val: float = -np.inf, max_val: float = np.inf,
+                 wheel_enabled: bool = True,
                  parent=None):
         super().__init__(parent)
         self._min_val = min_val
         self._max_val = max_val
+        self._wheel_enabled = wheel_enabled
         self.setValidator(QDoubleValidator())
         self.setText(f"{value:.6g}")
         self.setFixedWidth(90)
@@ -142,6 +144,9 @@ class _ValidatedField(QLineEdit):
 
     def wheelEvent(self, ev):
         """Shift = 10× step; normal = 1% of |value| (min 1e-6 absolute)."""
+        if not self._wheel_enabled:
+            ev.ignore()
+            return
         val  = self.float_value()
         mods = ev.modifiers()
         frac = 0.10 if (mods & Qt.KeyboardModifier.ShiftModifier) else 0.01
@@ -173,8 +178,8 @@ class PeakRowWidget(QWidget):
     # Column indices in the grid
     _COL_NAME  = 0
     _COL_VAL   = 1
-    _COL_FIT   = 2
-    _COL_LO    = 3
+    _COL_LO    = 2
+    _COL_FIT   = 3
     _COL_HI    = 4
 
     def __init__(self, index: int, peak_dict: Dict, parent=None):
@@ -219,14 +224,14 @@ class PeakRowWidget(QWidget):
         self._grid = QGridLayout()
         self._grid.setHorizontalSpacing(4)
         self._grid.setVerticalSpacing(2)
-        self._grid.setColumnMinimumWidth(self._COL_LO, 90)
-        self._grid.setColumnMinimumWidth(self._COL_HI, 90)
+        self._grid.setColumnMinimumWidth(self._COL_LO, 81)
+        self._grid.setColumnMinimumWidth(self._COL_HI, 81)
 
-        # Column headers
+        # Column headers (order: Name | Value | Lo limit | Fit? | Hi limit)
         for col, txt in [(self._COL_NAME, "Param"),
                          (self._COL_VAL,  "Value"),
-                         (self._COL_FIT,  "Fit?"),
                          (self._COL_LO,   "Lo limit"),
+                         (self._COL_FIT,  "Fit?"),
                          (self._COL_HI,   "Hi limit")]:
             h = _label(txt, bold=True)
             self._grid.addWidget(h, 0, col)
@@ -268,10 +273,15 @@ class PeakRowWidget(QWidget):
                 min_val=_PEAK_PARAM_VAL_MIN.get(pname, -np.inf),
                 max_val=_PEAK_PARAM_VAL_MAX.get(pname, np.inf),
             )
+            val_fld.setFixedWidth(104)
             fit_chk  = QCheckBox()
             fit_chk.setChecked(fit)
-            lo_fld   = _ValidatedField(lo if lo is not None else _PEAK_PARAM_LO_DEFAULTS.get(pname, -1e6))
-            hi_fld   = _ValidatedField(hi if hi is not None else _PEAK_PARAM_HI_DEFAULTS.get(pname, 1e6))
+            lo_fld   = _ValidatedField(lo if lo is not None else _PEAK_PARAM_LO_DEFAULTS.get(pname, -1e6),
+                                       wheel_enabled=False)
+            lo_fld.setFixedWidth(81)
+            hi_fld   = _ValidatedField(hi if hi is not None else _PEAK_PARAM_HI_DEFAULTS.get(pname, 1e6),
+                                       wheel_enabled=False)
+            hi_fld.setFixedWidth(81)
 
             # Auto-expand limits when value is typed outside range
             _connect_limit_check(val_fld, lo_fld, hi_fld)
@@ -619,7 +629,7 @@ class WAXSPeakFitGraphWindow(QWidget):
                 lbl = pg.TextItem(text=str(i + 1), color=col, anchor=(0.5, 1.2))
                 f = QFont()
                 f.setBold(True)
-                f.setPointSize(10)
+                f.setPointSize(20)
                 lbl.setFont(f)
                 lbl.setPos(q_top, I_top)
                 self.main_plot.addItem(lbl)
@@ -741,6 +751,12 @@ class WAXSPeakFitPanel(QWidget):
         self._graph.remove_nearest_peak_requested.connect(self._remove_nearest_peak)
         self._graph.q_range_changed.connect(self._on_q_range_changed)
 
+        # ── Debounce timer for auto-recalculation (wheel events) ──────────
+        self._debounce_timer = QTimer(self)
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(300)
+        self._debounce_timer.timeout.connect(self._graph_model)
+
         # ── Build layout ──────────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.setChildrenCollapsible(False)
@@ -789,9 +805,9 @@ class WAXSPeakFitPanel(QWidget):
         qr_row = QHBoxLayout()
         qr_row.addWidget(_label("Fit Q range:"))
         self._qmin_label = QLabel("–")
-        self._qmin_label.setStyleSheet("font-family:monospace;color:#3498db;")
+        self._qmin_label.setStyleSheet("color:#3498db;")
         self._qmax_label = QLabel("–")
-        self._qmax_label.setStyleSheet("font-family:monospace;color:#e74c3c;")
+        self._qmax_label.setStyleSheet("color:#e74c3c;")
         qr_row.addWidget(self._qmin_label)
         qr_row.addWidget(_label("–"))
         qr_row.addWidget(self._qmax_label)
@@ -995,12 +1011,12 @@ class WAXSPeakFitPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Column headers
-        for col, txt in [(0, "Param"), (1, "Value"), (2, "Fit?"),
-                         (3, "Lo limit"), (4, "Hi limit")]:
+        # Column headers (order: Param | Value | Lo limit | Fit? | Hi limit)
+        for col, txt in [(0, "Param"), (1, "Value"), (2, "Lo limit"),
+                         (3, "Fit?"), (4, "Hi limit")]:
             h = _label(txt, bold=True)
             self._bg_grid.addWidget(h, 0, col)
-            if col in (3, 4):
+            if col in (2, 4):
                 self._bg_limit_widgets.append(h)
 
         names = bg_param_names(bg_shape)
@@ -1015,20 +1031,23 @@ class WAXSPeakFitPanel(QWidget):
 
             name_lbl = _label(name)
             val_fld  = _ValidatedField(val)
+            val_fld.setFixedWidth(104)
             fit_chk  = QCheckBox()
             fit_chk.setChecked(fit)
-            lo_fld  = _ValidatedField(lo if lo is not None else -1e6)
-            hi_fld  = _ValidatedField(hi if hi is not None else 1e6)
+            lo_fld  = _ValidatedField(lo if lo is not None else -1e6, wheel_enabled=False)
+            lo_fld.setFixedWidth(81)
+            hi_fld  = _ValidatedField(hi if hi is not None else 1e6, wheel_enabled=False)
+            hi_fld.setFixedWidth(81)
 
             # Auto-expand limits and trigger model redraw on value change
             _connect_limit_check(val_fld, lo_fld, hi_fld)
-            val_fld.editingFinished.connect(self._graph_model)
-            fit_chk.stateChanged.connect(self._graph_model)
+            val_fld.editingFinished.connect(self._request_model_update)
+            fit_chk.stateChanged.connect(self._request_model_update)
 
             self._bg_grid.addWidget(name_lbl, row_i, 0)
             self._bg_grid.addWidget(val_fld,  row_i, 1)
-            self._bg_grid.addWidget(fit_chk,  row_i, 2)
-            self._bg_grid.addWidget(lo_fld,   row_i, 3)
+            self._bg_grid.addWidget(lo_fld,   row_i, 2)
+            self._bg_grid.addWidget(fit_chk,  row_i, 3)
             self._bg_grid.addWidget(hi_fld,   row_i, 4)
 
             self._bg_limit_widgets.extend([lo_fld, hi_fld])
@@ -1058,7 +1077,7 @@ class WAXSPeakFitPanel(QWidget):
     def _add_peak_row(self, peak_dict: Dict):
         idx    = len(self._peak_rows)
         row    = PeakRowWidget(idx, peak_dict)
-        row.changed.connect(self._graph_model)
+        row.changed.connect(self._request_model_update)
         row.remove_requested.connect(self._remove_peak_row)
 
         # Apply no-limits state
@@ -1069,13 +1088,18 @@ class WAXSPeakFitPanel(QWidget):
         stretch_idx = layout.count() - 1
         layout.insertWidget(stretch_idx, row)
 
-    def _remove_peak_row(self, row: PeakRowWidget):
+    def _remove_peak_row_silent(self, row: PeakRowWidget):
+        """Remove a peak row without triggering a model redraw."""
         self._peaks_vbox.removeWidget(row)
         row.setParent(None)
         row.deleteLater()
         # Re-number remaining rows
         for i, r in enumerate(self._peak_rows):
             r.set_index(i)
+
+    def _remove_peak_row(self, row: PeakRowWidget):
+        self._remove_peak_row_silent(row)
+        self._graph_model()
 
     def _clear_peaks(self):
         for row in list(self._peak_rows):
@@ -1189,6 +1213,7 @@ class WAXSPeakFitPanel(QWidget):
 
         pd = default_peak_params("Gauss", Q0=q0, A=A, FWHM=fwhm)
         self._add_peak_row(pd)
+        self._graph_model()
 
     # ===========================================================================
     # Slots: Graph / Fit / Revert / Reset
@@ -1219,7 +1244,34 @@ class WAXSPeakFitPanel(QWidget):
 
         return I_model, I_bg, peak_curves
 
+    def _prune_peaks_to_range(self) -> int:
+        """Remove peaks whose Q0 falls outside the cursor Q range. Returns count removed."""
+        if self._q is None:
+            return 0
+        qmin, qmax = self._graph.get_q_range()
+        to_remove = []
+        for row in self._peak_rows:
+            p = row.get_params()
+            v = p.get("Q0", {})
+            q0 = float(v.get("value", 0) if isinstance(v, dict) else v)
+            if q0 < qmin or q0 > qmax:
+                to_remove.append(row)
+        for row in to_remove:
+            self._remove_peak_row_silent(row)
+        if to_remove:
+            self._set_status(
+                f"Removed {len(to_remove)} peak(s) outside Q range "
+                f"[{qmin:.4g}, {qmax:.4g}] Å⁻¹."
+            )
+        return len(to_remove)
+
+    def _request_model_update(self):
+        """Debounced model update — used by auto-recalculation on value changes."""
+        self._debounce_timer.start()  # restarts the timer if already running
+
     def _graph_model(self):
+        self._debounce_timer.stop()  # cancel any pending debounce
+        self._prune_peaks_to_range()
         I_model, I_bg, peak_curves = self._compute_model()
         if I_model is None:
             return  # No data — silently do nothing
@@ -1247,6 +1299,9 @@ class WAXSPeakFitPanel(QWidget):
         q_fit  = self._q[mask]
         I_fit  = self._I[mask]
         dI_fit = self._dI[mask] if self._dI is not None else None
+
+        # Remove peaks outside Q range before fitting
+        self._prune_peaks_to_range()
 
         # Save state for revert
         self._pre_fit_bg_params = copy.deepcopy(self._get_bg_params())
