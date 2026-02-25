@@ -81,6 +81,23 @@ _BTN_FIXLIM  = "QPushButton { background:#8e44ad;color:white; } QPushButton:disa
 _PEAK_PARAM_HI_DEFAULTS = {"A": 1e9, "Q0": 100.0, "FWHM": 10.0, "eta": 1.0}
 _PEAK_PARAM_LO_DEFAULTS = {"A": 0.0,  "Q0": 0.0,   "FWHM": 1e-6, "eta": 0.0}
 
+# Wheel-spin min/max for peak param value fields (prevents negative)
+_PEAK_PARAM_VAL_MIN = {"A": 0.0, "Q0": 0.0, "FWHM": 0.0, "eta": 0.0}
+_PEAK_PARAM_VAL_MAX = {"A": np.inf, "Q0": np.inf, "FWHM": np.inf, "eta": 1.0}
+
+
+def _connect_limit_check(val_fld, lo_fld, hi_fld):
+    """Connect val_fld so that typing outside [lo, hi] auto-expands the limit."""
+    def _check():
+        v  = val_fld.float_value()
+        lo = lo_fld.float_value()
+        hi = hi_fld.float_value()
+        if v < lo:
+            lo_fld.set_float(v)
+        elif v > hi:
+            hi_fld.set_float(v)
+    val_fld.editingFinished.connect(_check)
+
 
 def _label(text: str, bold: bool = False, size: int = 0) -> QLabel:
     lbl = QLabel(text)
@@ -102,9 +119,14 @@ def _hline() -> QFrame:
 
 
 class _ValidatedField(QLineEdit):
-    """QLineEdit that only accepts float input."""
-    def __init__(self, value: float = 0.0, parent=None):
+    """QLineEdit that accepts float input with optional bounds and mouse-wheel support."""
+
+    def __init__(self, value: float = 0.0,
+                 min_val: float = -np.inf, max_val: float = np.inf,
+                 parent=None):
         super().__init__(parent)
+        self._min_val = min_val
+        self._max_val = max_val
         self.setValidator(QDoubleValidator())
         self.setText(f"{value:.6g}")
         self.setFixedWidth(90)
@@ -117,6 +139,22 @@ class _ValidatedField(QLineEdit):
 
     def set_float(self, v: float):
         self.setText(f"{v:g}")
+
+    def wheelEvent(self, ev):
+        """Shift = 10× step; normal = 1% of |value| (min 1e-6 absolute)."""
+        val  = self.float_value()
+        mods = ev.modifiers()
+        frac = 0.10 if (mods & Qt.KeyboardModifier.ShiftModifier) else 0.01
+        step = max(abs(val) * frac, 1e-6)
+        delta = ev.angleDelta().y()
+        if delta > 0:
+            val += step
+        elif delta < 0:
+            val -= step
+        val = float(np.clip(val, self._min_val, self._max_val))
+        self.set_float(val)
+        self.editingFinished.emit()
+        ev.accept()
 
 
 # ===========================================================================
@@ -225,11 +263,18 @@ class PeakRowWidget(QWidget):
                 val, fit, lo, hi = float(pd), True, None, None
 
             name_lbl = _label(pname)
-            val_fld  = _ValidatedField(val)
+            val_fld  = _ValidatedField(
+                val,
+                min_val=_PEAK_PARAM_VAL_MIN.get(pname, -np.inf),
+                max_val=_PEAK_PARAM_VAL_MAX.get(pname, np.inf),
+            )
             fit_chk  = QCheckBox()
             fit_chk.setChecked(fit)
             lo_fld   = _ValidatedField(lo if lo is not None else _PEAK_PARAM_LO_DEFAULTS.get(pname, -1e6))
             hi_fld   = _ValidatedField(hi if hi is not None else _PEAK_PARAM_HI_DEFAULTS.get(pname, 1e6))
+
+            # Auto-expand limits when value is typed outside range
+            _connect_limit_check(val_fld, lo_fld, hi_fld)
 
             # Connect change signals
             val_fld.editingFinished.connect(self.changed)
@@ -321,8 +366,9 @@ class WAXSPeakFitGraphWindow(QWidget):
     user selects "Add Peak at Q = …" from the right-click menu.
     """
 
-    add_peak_requested = Signal(float, float)  # Q position, I amplitude (Å⁻¹, arb)
-    q_range_changed    = Signal(float, float)  # qmin, qmax from cursors
+    add_peak_requested           = Signal(float, float)  # Q position, I amplitude
+    remove_nearest_peak_requested = Signal(float)        # Q position
+    q_range_changed              = Signal(float, float)  # qmin, qmax from cursors
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -450,28 +496,37 @@ class WAXSPeakFitGraphWindow(QWidget):
         self._cursor_qmax.setValue(max(qmin, qmax))
 
     def _setup_right_click_add_peak(self):
-        """Connect to scene mouse-click to detect right-click Q position."""
-        self._add_peak_action = None
+        """Add peak-management entries to the ViewBox right-click menu.
 
-        def _on_click(ev):
-            if ev.button() != Qt.MouseButton.RightButton:
-                return
-            vb  = self.main_plot.getViewBox()
-            pos = vb.mapSceneToView(ev.scenePos())
+        Intercepts ``raiseContextMenu`` (called just before the menu is
+        shown) to capture the exact click position and update action labels.
+        """
+        vb = self.main_plot.getViewBox()
+        vb.menu.addSeparator()
+        self._add_peak_action    = vb.menu.addAction("Add Peak at Q = ?")
+        self._rm_peak_action     = vb.menu.addAction("Remove Nearest Peak")
+        self._last_click_pos     = (0.1, 1.0)   # (Q, I) updated on each right-click
+
+        # Triggered: read stored position (set by the patched raiseContextMenu)
+        self._add_peak_action.triggered.connect(
+            lambda: self.add_peak_requested.emit(*self._last_click_pos)
+        )
+        self._rm_peak_action.triggered.connect(
+            lambda: self.remove_nearest_peak_requested.emit(self._last_click_pos[0])
+        )
+
+        # Patch raiseContextMenu so we capture position BEFORE the menu is shown
+        _orig_raise = vb.raiseContextMenu
+
+        def _patched_raise(ev):
+            pos = vb.mapToView(ev.pos())
             q   = float(pos.x())
             I   = float(pos.y())
-            if q <= 0:
-                return
-            # Dynamically update (or create) "Add Peak at Q=…" action
-            menu = vb.menu
-            if self._add_peak_action is not None:
-                menu.removeAction(self._add_peak_action)
-            self._add_peak_action = menu.addAction(f"Add Peak at Q = {q:.4f} Å⁻¹")
-            self._add_peak_action.triggered.connect(
-                lambda checked=False, _q=q, _I=I: self.add_peak_requested.emit(_q, _I)
-            )
+            self._last_click_pos = (q, I)
+            self._add_peak_action.setText(f"Add Peak at Q = {q:.4f} Å⁻¹")
+            _orig_raise(ev)
 
-        self.main_plot.scene().sigMouseClicked.connect(_on_click)
+        vb.raiseContextMenu = _patched_raise
 
     # ── Plot API ─────────────────────────────────────────────────────────
 
@@ -683,6 +738,7 @@ class WAXSPeakFitPanel(QWidget):
         # ── Graph window (embedded on right side) ─────────────────────────
         self._graph = WAXSPeakFitGraphWindow()
         self._graph.add_peak_requested.connect(self._add_peak_at_q)
+        self._graph.remove_nearest_peak_requested.connect(self._remove_nearest_peak)
         self._graph.q_range_changed.connect(self._on_q_range_changed)
 
         # ── Build layout ──────────────────────────────────────────────────
@@ -820,11 +876,19 @@ class WAXSPeakFitPanel(QWidget):
         self._peaks_scroll.setWidget(self._peaks_container)
         peaks_outer_layout.addWidget(self._peaks_scroll)
 
+        peak_btn_row = QHBoxLayout()
         add_btn = QPushButton("Add Peak Manually")
         add_btn.setStyleSheet(_BTN_ADD)
         add_btn.setMinimumHeight(26)
         add_btn.clicked.connect(lambda: self._add_peak_at_q(None, None))
-        peaks_outer_layout.addWidget(add_btn)
+        peak_btn_row.addWidget(add_btn)
+
+        sort_btn = QPushButton("Sort by Q")
+        sort_btn.setStyleSheet(_BTN_SAVE)
+        sort_btn.setMinimumHeight(26)
+        sort_btn.clicked.connect(self._sort_peaks_by_q)
+        peak_btn_row.addWidget(sort_btn)
+        peaks_outer_layout.addLayout(peak_btn_row)
         ll.addWidget(peaks_outer)
 
         # ── Fit controls ──────────────────────────────────────────────────
@@ -853,19 +917,20 @@ class WAXSPeakFitPanel(QWidget):
         fit_row.addWidget(self._revert_btn)
         ll.addLayout(fit_row)
 
-        # ── Fix Limits button ─────────────────────────────────────────────
+        # ── Fix Limits + Reset (same row) ─────────────────────────────────
+        extra_row = QHBoxLayout()
         fix_limits_btn = QPushButton("Fix Limits")
         fix_limits_btn.setStyleSheet(_BTN_FIXLIM)
-        fix_limits_btn.setMinimumHeight(26)
+        fix_limits_btn.setMinimumHeight(28)
         fix_limits_btn.clicked.connect(self._fix_limits)
-        ll.addWidget(fix_limits_btn)
+        extra_row.addWidget(fix_limits_btn)
 
-        # ── Reset to defaults ─────────────────────────────────────────────
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.setStyleSheet(_BTN_RESET)
-        reset_btn.setMinimumHeight(26)
+        reset_btn.setMinimumHeight(28)
         reset_btn.clicked.connect(self._reset_defaults)
-        ll.addWidget(reset_btn)
+        extra_row.addWidget(reset_btn)
+        ll.addLayout(extra_row)
 
         # ── Results section ───────────────────────────────────────────────
         res_lbl = _label("Results", bold=True)
@@ -955,6 +1020,11 @@ class WAXSPeakFitPanel(QWidget):
             lo_fld  = _ValidatedField(lo if lo is not None else -1e6)
             hi_fld  = _ValidatedField(hi if hi is not None else 1e6)
 
+            # Auto-expand limits and trigger model redraw on value change
+            _connect_limit_check(val_fld, lo_fld, hi_fld)
+            val_fld.editingFinished.connect(self._graph_model)
+            fit_chk.stateChanged.connect(self._graph_model)
+
             self._bg_grid.addWidget(name_lbl, row_i, 0)
             self._bg_grid.addWidget(val_fld,  row_i, 1)
             self._bg_grid.addWidget(fit_chk,  row_i, 2)
@@ -988,7 +1058,7 @@ class WAXSPeakFitPanel(QWidget):
     def _add_peak_row(self, peak_dict: Dict):
         idx    = len(self._peak_rows)
         row    = PeakRowWidget(idx, peak_dict)
-        row.changed.connect(lambda: None)   # future: auto-update graph
+        row.changed.connect(self._graph_model)
         row.remove_requested.connect(self._remove_peak_row)
 
         # Apply no-limits state
@@ -1059,9 +1129,19 @@ class WAXSPeakFitPanel(QWidget):
         if self._q is None or self._I is None:
             self._set_status("No data loaded.", error=True)
             return
+        # Restrict search to cursor Q range
+        qmin, qmax = self._graph.get_q_range()
+        mask = (self._q >= qmin) & (self._q <= qmax) & np.isfinite(self._I)
+        q_search = self._q[mask]
+        I_search = self._I[mask]
+        if len(q_search) < 10:
+            self._set_status(
+                f"Too few points in Q range [{qmin:.4g}, {qmax:.4g}].", error=True
+            )
+            return
         self._set_status("Finding peaks…")
         peaks = find_peaks_in_data(
-            self._q, self._I,
+            q_search, I_search,
             prominence_frac=self._pf_prom.value(),
             min_fwhm=self._pf_minfwhm.value(),
             max_fwhm=self._pf_maxfwhm.value(),
@@ -1071,7 +1151,7 @@ class WAXSPeakFitPanel(QWidget):
         self._clear_peaks()
         for p in peaks:
             self._add_peak_row(p)
-        self._set_status(f"Found {len(peaks)} peak(s).")
+        self._set_status(f"Found {len(peaks)} peak(s) in Q=[{qmin:.4g}, {qmax:.4g}].")
         self._graph_model()
 
     def _add_peak_at_q(self, q0: Optional[float], amplitude: Optional[float] = None):
@@ -1142,8 +1222,7 @@ class WAXSPeakFitPanel(QWidget):
     def _graph_model(self):
         I_model, I_bg, peak_curves = self._compute_model()
         if I_model is None:
-            self._set_status("No data loaded.", error=True)
-            return
+            return  # No data — silently do nothing
         self._graph.plot_model(self._q, I_model, I_bg, peak_curves)
         # Residuals (if dI available)
         if self._dI is not None and np.any(self._dI > 0):
@@ -1251,22 +1330,66 @@ class WAXSPeakFitPanel(QWidget):
             return
         fracs = dlg.get_fracs()
 
+        # Determine a data-scale reference for zero-valued params
+        if self._I is not None and len(self._I) > 0:
+            _data_ref = max(float(np.nanmax(np.abs(self._I))), 1.0)
+        else:
+            _data_ref = 1.0
+
+        def _apply_limits(val, frac, row_dict):
+            if abs(val) < 1e-10:
+                # val ≈ 0: use fraction of data range as absolute half-range
+                half = _data_ref * frac
+                row_dict["lo"].set_float(-half)
+                row_dict["hi"].set_float(half)
+            else:
+                row_dict["lo"].set_float(val * (1.0 - frac))
+                row_dict["hi"].set_float(val * (1.0 + frac))
+
         # Apply to background params
         for name, row in self._bg_param_rows.items():
-            val  = row["val"].float_value()
-            frac = fracs.get("other", 0.30)
-            row["lo"].set_float(val * (1.0 - frac))
-            row["hi"].set_float(val * (1.0 + frac))
+            _apply_limits(row["val"].float_value(), fracs.get("other", 0.30), row)
 
         # Apply to peak params
         for peak_row in self._peak_rows:
             for pname, row in peak_row._param_rows.items():
-                val  = row["val"].float_value()
                 frac = fracs.get(pname, fracs.get("other", 0.30))
-                row["lo"].set_float(val * (1.0 - frac))
-                row["hi"].set_float(val * (1.0 + frac))
+                _apply_limits(row["val"].float_value(), frac, row)
 
         self._set_status("Limits set to ±fraction of current values.")
+
+    def _sort_peaks_by_q(self):
+        """Re-order peak rows by ascending Q0 value."""
+        rows = self._peak_rows
+        if len(rows) <= 1:
+            return
+        params_list = [r.get_params() for r in rows]
+
+        def _q0(p):
+            v = p.get("Q0", {})
+            return float(v.get("value", 0) if isinstance(v, dict) else v)
+
+        sorted_params = sorted(params_list, key=_q0)
+        self._clear_peaks()
+        for p in sorted_params:
+            self._add_peak_row(p)
+        self._graph_model()
+        self._set_status("Peaks sorted by Q position.")
+
+    def _remove_nearest_peak(self, q: float):
+        """Remove the peak whose Q0 is closest to q."""
+        rows = self._peak_rows
+        if not rows:
+            return
+
+        def _q0(r):
+            p = r.get_params()
+            v = p.get("Q0", {})
+            return float(v.get("value", 0) if isinstance(v, dict) else v)
+
+        nearest = min(rows, key=lambda r: abs(_q0(r) - q))
+        self._remove_peak_row(nearest)
+        self._graph_model()
 
     # ===========================================================================
     # Slots: Results buttons
