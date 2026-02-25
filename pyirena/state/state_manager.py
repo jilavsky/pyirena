@@ -197,6 +197,24 @@ class StateManager:
             "no_limits": False,
             "skip_fit_check": False,
             "store_local": False
+        },
+        "waxs_peakfit": {
+            "schema_version": 1,
+            "q_min": None,
+            "q_max": None,
+            "no_limits": False,
+            "bg_shape": "Constant",
+            "bg_params": {
+                "bg0": {"value": 0.0, "fit": True, "lo": None, "hi": None}
+            },
+            "peaks": [],   # list of default_peak_params() dicts
+            "peak_find": {
+                "prominence": 0.05,
+                "min_fwhm": 0.001,
+                "max_fwhm": 0.5,
+                "min_distance": 0.005,
+                "sg_window_frac": 0.15,
+            },
         }
     }
 
