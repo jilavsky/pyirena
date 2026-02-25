@@ -449,13 +449,31 @@ class WAXSPeakFitGraphWindow(QWidget):
         self._cursor_qmin.sigPositionChanged.connect(self._on_cursor_moved)
         self._cursor_qmax.sigPositionChanged.connect(self._on_cursor_moved)
 
-        # ── Tracked plot items ────────────────────────────────────────────
-        self._data_item:       Optional[pg.PlotDataItem] = None
-        self._model_item:      Optional[pg.PlotDataItem] = None
-        self._bg_item:         Optional[pg.PlotDataItem] = None
-        self._peak_items:      List[pg.PlotDataItem] = []
-        self._peak_label_items: List[pg.TextItem] = []
-        self._resid_item:      Optional[pg.PlotDataItem] = None
+        # ── Data item (added/removed when data is loaded) ─────────────────
+        self._data_item: Optional[pg.PlotDataItem] = None
+
+        # ── Persistent overlay items — created once, updated via setData() ─
+        # Keeping items permanently in the scene and calling setData() is
+        # significantly faster than removing and re-adding PlotDataItems on
+        # every model redraw, because it avoids scene-graph layout passes.
+        _ex: np.ndarray = np.array([], dtype=float)
+        _ey: np.ndarray = np.array([], dtype=float)
+        self._model_item: pg.PlotDataItem = self.main_plot.plot(
+            _ex, _ey, pen=pg.mkPen('#e74c3c', width=2),
+        )
+        self._bg_item: pg.PlotDataItem = self.main_plot.plot(
+            _ex, _ey,
+            pen=pg.mkPen('#7f8c8d', width=1.5, style=Qt.PenStyle.DashLine),
+        )
+        self._resid_item: pg.PlotDataItem = self.resid_plot.plot(
+            _ex, _ey,
+            pen=None, symbol='o', symbolSize=3,
+            symbolPen=pg.mkPen('#7f8c8d', width=1),
+            symbolBrush=pg.mkBrush('#7f8c8d'),
+        )
+        # Peak item pool — grows on demand; excess slots hidden via setData([])
+        self._peak_items:       List[pg.PlotDataItem] = []
+        self._peak_label_items: List[pg.TextItem]     = []
 
     # ── Internal helpers ─────────────────────────────────────────────────
 
@@ -545,18 +563,16 @@ class WAXSPeakFitGraphWindow(QWidget):
 
     # ── Plot API ─────────────────────────────────────────────────────────
 
-    def _remove_overlay_items(self):
-        for item in self._peak_items + self._peak_label_items:
-            self.main_plot.removeItem(item)
-        self._peak_items = []
-        self._peak_label_items = []
-        for item in (self._model_item, self._bg_item, self._resid_item):
-            if item is not None:
-                try:
-                    item.getViewBox().removeItem(item)
-                except Exception:
-                    pass
-        self._model_item = self._bg_item = self._resid_item = None
+    def _clear_overlay_data(self):
+        """Clear all overlay curves without removing items from the scene graph."""
+        _ex: np.ndarray = np.array([], dtype=float)
+        _ey: np.ndarray = np.array([], dtype=float)
+        self._model_item.setData(_ex, _ey)
+        self._bg_item.setData(_ex, _ey)
+        for item in self._peak_items:
+            item.setData(_ex, _ey)
+        for lbl in self._peak_label_items:
+            lbl.setVisible(False)
 
     def plot_data(self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None,
                   label: str = "Data"):
@@ -597,84 +613,86 @@ class WAXSPeakFitGraphWindow(QWidget):
         I_bg: Optional[np.ndarray],
         peak_curves: List[Dict],
     ):
-        """Overlay model, background, and per-peak curves."""
-        self._remove_overlay_items()
+        """Overlay model, background, and per-peak curves via setData() (no add/remove)."""
+        _ex: np.ndarray = np.array([], dtype=float)
+        _ey: np.ndarray = np.array([], dtype=float)
         q_ = np.asarray(q, float)
         mask = np.isfinite(q_)
 
-        # Total model (red) — no legend entry
+        # Total model (red)
         if I_model is not None:
             Im = np.asarray(I_model, float)
-            self._model_item = self.main_plot.plot(
-                q_[mask], Im[mask],
-                pen=pg.mkPen('#e74c3c', width=2),
-            )
+            self._model_item.setData(q_[mask], Im[mask])
+        else:
+            self._model_item.setData(_ex, _ey)
 
-        # Background (dashed grey) — no legend entry
+        # Background (dashed grey)
         if I_bg is not None:
             Ib = np.asarray(I_bg, float)
-            self._bg_item = self.main_plot.plot(
-                q_[mask], Ib[mask],
-                pen=pg.mkPen('#7f8c8d', width=1.5,
-                             style=Qt.PenStyle.DashLine),
-            )
+            self._bg_item.setData(q_[mask], Ib[mask])
+        else:
+            self._bg_item.setData(_ex, _ey)
 
-        # Per-peak curves + number labels
+        # Per-peak curves + number labels — grow pool on demand
+        n_peaks = len(peak_curves)
+        while len(self._peak_items) < n_peaks:
+            idx = len(self._peak_items)
+            col = _peak_color(idx)
+            item = self.main_plot.plot(_ex, _ey, pen=pg.mkPen(col, width=1.5))
+            lbl = pg.TextItem(text='', color=col, anchor=(0.5, 1.2))
+            f = QFont()
+            f.setBold(True)
+            f.setPointSize(20)
+            lbl.setFont(f)
+            self.main_plot.addItem(lbl)
+            self._peak_items.append(item)
+            self._peak_label_items.append(lbl)
+
         for i, pc in enumerate(peak_curves):
+            item = self._peak_items[i]
+            lbl  = self._peak_label_items[i]
+            col  = _peak_color(i)
+            item.setPen(pg.mkPen(col, width=1.5))  # colour may shift if peaks reordered
             qp = pc.get("q")
             Ip = pc.get("I")
             if qp is None or Ip is None:
+                item.setData(_ex, _ey)
+                lbl.setVisible(False)
                 continue
             qp_, Ip_ = np.asarray(qp, float), np.asarray(Ip, float)
             pm = np.isfinite(qp_) & np.isfinite(Ip_)
-            col = _peak_color(i)
-            item = self.main_plot.plot(
-                qp_[pm], Ip_[pm],
-                pen=pg.mkPen(col, width=1.5),
-            )
-            self._peak_items.append(item)
-
-            # Number label at peak top
+            item.setData(qp_[pm], Ip_[pm])
             if pm.any():
                 top_idx = int(np.argmax(Ip_[pm]))
-                q_top = float(qp_[pm][top_idx])
-                I_top = float(Ip_[pm][top_idx])
-                lbl = pg.TextItem(text=str(i + 1), color=col, anchor=(0.5, 1.2))
-                f = QFont()
-                f.setBold(True)
-                f.setPointSize(20)
-                lbl.setFont(f)
-                lbl.setPos(q_top, I_top)
-                self.main_plot.addItem(lbl)
-                self._peak_label_items.append(lbl)
+                lbl.setText(str(i + 1))
+                lbl.setColor(col)
+                lbl.setPos(float(qp_[pm][top_idx]), float(Ip_[pm][top_idx]))
+                lbl.setVisible(True)
+            else:
+                lbl.setVisible(False)
+
+        # Hide excess pool slots
+        for i in range(n_peaks, len(self._peak_items)):
+            self._peak_items[i].setData(_ex, _ey)
+            self._peak_label_items[i].setVisible(False)
 
     def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
         """Plot normalised residuals in the bottom panel."""
-        if self._resid_item is not None:
-            self.resid_plot.removeItem(self._resid_item)
         q_  = np.asarray(q, float)
         res = np.asarray(residuals, float)
         mask = np.isfinite(q_) & np.isfinite(res)
-        self._resid_item = self.resid_plot.plot(
-            q_[mask], res[mask],
-            pen=None, symbol='o', symbolSize=3,
-            symbolPen=pg.mkPen('#7f8c8d', width=1),
-            symbolBrush=pg.mkBrush('#7f8c8d'),
-        )
-        # Re-add zero line (removed if resid_plot was cleared)
-        if self._zero_line not in self.resid_plot.items:
-            self.resid_plot.addItem(self._zero_line)
+        self._resid_item.setData(q_[mask], res[mask])
 
     def clear_all(self):
-        self.main_plot.clear()
-        self.resid_plot.clear()
-        # Re-add items that clear() removes
-        self.resid_plot.addItem(self._zero_line)
-        self.main_plot.addItem(self._cursor_qmin)
-        self.main_plot.addItem(self._cursor_qmax)
-        self._data_item = self._model_item = self._bg_item = self._resid_item = None
-        self._peak_items = []
-        self._peak_label_items = []
+        """Reset graph without calling plot.clear() — preserves persistent items."""
+        if self._data_item is not None:
+            self.main_plot.removeItem(self._data_item)
+            self._data_item = None
+        self._legend.clear()
+        self._clear_overlay_data()
+        _ex: np.ndarray = np.array([], dtype=float)
+        _ey: np.ndarray = np.array([], dtype=float)
+        self._resid_item.setData(_ex, _ey)
 
 
 # ===========================================================================
@@ -767,7 +785,7 @@ class WAXSPeakFitPanel(QWidget):
         # ── Debounce timer for auto-recalculation (wheel events) ──────────
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
-        self._debounce_timer.setInterval(300)
+        self._debounce_timer.setInterval(100)
         self._debounce_timer.timeout.connect(self._graph_model)
 
         # ── Build layout ──────────────────────────────────────────────────
