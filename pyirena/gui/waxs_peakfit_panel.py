@@ -1656,6 +1656,11 @@ class WAXSPeakFitPanel(QWidget):
         if not path:
             return
         try:
+            import datetime
+            try:
+                from pyirena import __version__ as _version
+            except Exception:
+                _version = 'unknown'
             state = self._get_current_state()
             # Load existing config and merge so other tool sections are preserved
             config_path = Path(path)
@@ -1665,6 +1670,15 @@ class WAXSPeakFitPanel(QWidget):
                     config = json.loads(config_path.read_text(encoding='utf-8'))
                 except Exception:
                     pass
+            now = datetime.datetime.now().isoformat(timespec='seconds')
+            if '_pyirena_config' not in config:
+                config['_pyirena_config'] = {
+                    'file_type': 'pyIrena Configuration File',
+                    'version': _version,
+                    'created': now,
+                }
+            config['_pyirena_config']['modified'] = now
+            config['_pyirena_config']['written_by'] = f'pyIrena {_version}'
             config['waxs_peakfit'] = state
             config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
             self._set_status(f"Exported to {config_path.name}.")
