@@ -1217,6 +1217,55 @@ def fit_simple_from_config(
     return result
 
 
+def fit_waxs_peaks_from_config(
+    data_file: Union[str, Path],
+    config_file: Union[str, Path],
+    save_to_nexus: bool = True,
+) -> Optional[Dict]:
+    """Fit WAXS peaks using parameters from a pyIrena config file.
+
+    Thin wrapper around :func:`fit_waxs_peaks` that reads the
+    ``'waxs_peakfit'`` section from a JSON config file.  Provides the same
+    ``(data_file, config_file, save_to_nexus)`` calling convention used by
+    all other batch functions so :class:`BatchWorker` can dispatch uniformly.
+
+    Returns a dict with ``'success'`` and ``'message'`` keys guaranteed
+    (never None), matching the BatchWorker contract.
+    """
+    config_file = Path(config_file)
+    config = _load_config(config_file)
+    if config is None:
+        msg = f"Cannot load config: {config_file}"
+        print(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
+        return {'success': False, 'message': msg}
+
+    wp_cfg = config.get('waxs_peakfit')
+    if wp_cfg is None:
+        msg = f"No 'waxs_peakfit' section in '{config_file.name}'"
+        print(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
+        return {'success': False, 'message': msg}
+
+    q_min = wp_cfg.get('q_min')
+    q_max = wp_cfg.get('q_max')
+
+    result = fit_waxs_peaks(
+        data_file=data_file,
+        config=wp_cfg,
+        q_min=q_min,
+        q_max=q_max,
+        save_to_nexus=save_to_nexus,
+        verbose=True,
+    )
+
+    if result is None:
+        return {'success': False, 'message': 'Data load or fit failure (fit_waxs_peaks returned None)'}
+
+    if not result.get('success'):
+        result.setdefault('message', result.get('error', 'fit failed'))
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # fit_waxs_peaks — headless WAXS peak fitting
 # ---------------------------------------------------------------------------

@@ -425,11 +425,12 @@ class WAXSPeakFitGraphWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.gl)
 
-        # ── Right-click: JPEG export + add-peak ───────────────────────────
+        # ── Right-click: JPEG export + add-peak + display toggles ─────────
         self._add_jpeg_export(self.main_plot, "waxs_peakfit_main")
         self._add_jpeg_export(self.resid_plot, "waxs_peakfit_resid")
         self._last_right_click_q: Optional[float] = None
         self._setup_right_click_add_peak()
+        self._setup_display_toggles()
 
         # ── Q-range cursors ───────────────────────────────────────────────
         _cursor_pen_lo = pg.mkPen('#3498db', width=2, style=Qt.PenStyle.DashLine)
@@ -449,8 +450,14 @@ class WAXSPeakFitGraphWindow(QWidget):
         self._cursor_qmin.sigPositionChanged.connect(self._on_cursor_moved)
         self._cursor_qmax.sigPositionChanged.connect(self._on_cursor_moved)
 
+        # ── Data display state ────────────────────────────────────────────
+        self._data_as_lines: bool = False
+        self._show_error_bars: bool = True
+        self._dI_stored: Optional[np.ndarray] = None  # saved for error bar rebuild
+
         # ── Data item (added/removed when data is loaded) ─────────────────
-        self._data_item: Optional[pg.PlotDataItem] = None
+        self._data_item:  Optional[pg.PlotDataItem] = None
+        self._err_item:   Optional[pg.PlotDataItem] = None
 
         # ── Persistent overlay items — created once, updated via setData() ─
         # Keeping items permanently in the scene and calling setData() is
@@ -561,6 +568,42 @@ class WAXSPeakFitGraphWindow(QWidget):
 
         vb.raiseContextMenu = _patched_raise
 
+    def _setup_display_toggles(self):
+        """Add data-display toggle actions to the main plot right-click menu."""
+        vb = self.main_plot.getViewBox()
+        vb.menu.addSeparator()
+        self._data_mode_action = vb.menu.addAction("Show data as line")
+        self._errbar_action    = vb.menu.addAction("Hide error bars")
+        self._data_mode_action.triggered.connect(self._toggle_data_mode)
+        self._errbar_action.triggered.connect(self._toggle_error_bars)
+
+    def _toggle_data_mode(self):
+        """Switch data display between scatter points and connected line."""
+        self._data_as_lines = not self._data_as_lines
+        if self._data_item is not None:
+            if self._data_as_lines:
+                self._data_item.setData(
+                    pen=pg.mkPen('#2c3e50', width=1.5),
+                    symbol=None,
+                )
+                self._data_mode_action.setText("Show data as points")
+            else:
+                self._data_item.setData(
+                    pen=None, symbol='o', symbolSize=4,
+                    symbolPen=pg.mkPen('#2c3e50', width=1),
+                    symbolBrush=pg.mkBrush('#2c3e50'),
+                )
+                self._data_mode_action.setText("Show data as line")
+
+    def _toggle_error_bars(self):
+        """Show or hide error bar lines."""
+        self._show_error_bars = not self._show_error_bars
+        if self._err_item is not None:
+            self._err_item.setVisible(self._show_error_bars)
+        self._errbar_action.setText(
+            "Hide error bars" if self._show_error_bars else "Show error bars"
+        )
+
     # ── Plot API ─────────────────────────────────────────────────────────
 
     def _clear_overlay_data(self):
@@ -574,11 +617,29 @@ class WAXSPeakFitGraphWindow(QWidget):
         for lbl in self._peak_label_items:
             lbl.setVisible(False)
 
+    @staticmethod
+    def _make_errbar_data(q: np.ndarray, I: np.ndarray,
+                          dI: np.ndarray) -> tuple:
+        """Build NaN-segmented vertical error bar arrays for linear/linear scale."""
+        n = len(q)
+        xs = np.empty(3 * n)
+        ys = np.empty(3 * n)
+        xs[0::3] = q
+        xs[1::3] = q
+        xs[2::3] = np.nan
+        ys[0::3] = I - dI
+        ys[1::3] = I + dI
+        ys[2::3] = np.nan
+        return xs, ys
+
     def plot_data(self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None,
                   label: str = "Data"):
-        """Plot raw data (scatter). Call once when data is loaded."""
+        """Plot raw data (scatter) and optional error bars."""
         if self._data_item is not None:
             self.main_plot.removeItem(self._data_item)
+        if self._err_item is not None:
+            self.main_plot.removeItem(self._err_item)
+            self._err_item = None
         q_, I_ = np.asarray(q, float), np.asarray(I, float)
         mask = np.isfinite(q_) & np.isfinite(I_)
         self._data_item = self.main_plot.plot(
@@ -588,6 +649,19 @@ class WAXSPeakFitGraphWindow(QWidget):
             symbolBrush=pg.mkBrush('#2c3e50'),
             name=label,
         )
+        # Error bars (thin gray vertical segments, NaN-separated)
+        if dI is not None:
+            dI_ = np.asarray(dI, float)
+            em = mask & np.isfinite(dI_) & (dI_ > 0)
+            if em.any():
+                self._dI_stored = dI_
+                ex, ey = self._make_errbar_data(q_[em], I_[em], dI_[em])
+                self._err_item = self.main_plot.plot(
+                    ex, ey,
+                    pen=pg.mkPen('#7f8c8d', width=0.8),
+                    connect='finite',
+                )
+                self._err_item.setVisible(self._show_error_bars)
         # Style the legend entry: bold, larger, dark
         try:
             for _, lbl_item in self._legend.items:
@@ -688,6 +762,10 @@ class WAXSPeakFitGraphWindow(QWidget):
         if self._data_item is not None:
             self.main_plot.removeItem(self._data_item)
             self._data_item = None
+        if self._err_item is not None:
+            self.main_plot.removeItem(self._err_item)
+            self._err_item = None
+        self._dI_stored = None
         self._legend.clear()
         self._clear_overlay_data()
         _ex: np.ndarray = np.array([], dtype=float)
@@ -1307,10 +1385,13 @@ class WAXSPeakFitPanel(QWidget):
         if I_model is None:
             return  # No data — silently do nothing
         self._graph.plot_model(self._q, I_model, I_bg, peak_curves)
-        # Residuals (if dI available)
+        # Residuals (if dI available) — NaN outside cursor Q range so they don't blow up
         if self._dI is not None and np.any(self._dI > 0):
-            s  = np.where(self._dI > 0, self._dI, 1.0)
-            r  = (self._I - I_model) / s
+            s = np.where(self._dI > 0, self._dI, 1.0)
+            r = (self._I - I_model) / s
+            qmin, qmax = self._graph.get_q_range()
+            r = r.copy()
+            r[(self._q < qmin) | (self._q > qmax)] = np.nan
             self._graph.plot_residuals(self._q, r)
 
     def _run_fit(self):
