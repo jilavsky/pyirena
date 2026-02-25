@@ -371,8 +371,14 @@ class WAXSPeakFitModel:
         for tag, val, fit, lo, hi in all_params:
             if fit:
                 p0.append(val)
-                lb.append(-np.inf if (self.no_limits or lo is None) else lo)
-                ub.append( np.inf if (self.no_limits or hi is None) else hi)
+                lo_v = -np.inf if (self.no_limits or lo is None) else float(lo)
+                hi_v =  np.inf if (self.no_limits or hi is None) else float(hi)
+                # Guard: swap if limits are accidentally inverted (e.g. negative
+                # background coefficients where lo*frac > hi*frac after sign flip).
+                if lo_v > hi_v:
+                    lo_v, hi_v = hi_v, lo_v
+                lb.append(lo_v)
+                ub.append(hi_v)
                 free_tags.append(tag)
             else:
                 fixed_vals[tag] = val

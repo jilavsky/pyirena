@@ -1539,8 +1539,14 @@ class WAXSPeakFitPanel(QWidget):
                 row_dict["lo"].set_float(-half)
                 row_dict["hi"].set_float(half)
             else:
-                row_dict["lo"].set_float(val * (1.0 - frac))
-                row_dict["hi"].set_float(val * (1.0 + frac))
+                lo = val * (1.0 - frac)
+                hi = val * (1.0 + frac)
+                # Negative val flips the ordering (e.g. val=-1, frac=0.3 →
+                # lo=-0.7, hi=-1.3).  Swap so that lo ≤ hi is always correct.
+                if lo > hi:
+                    lo, hi = hi, lo
+                row_dict["lo"].set_float(lo)
+                row_dict["hi"].set_float(hi)
 
         # Apply to background params
         for name, row in self._bg_param_rows.items():
