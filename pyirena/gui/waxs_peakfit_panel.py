@@ -124,11 +124,13 @@ class _ValidatedField(QLineEdit):
     def __init__(self, value: float = 0.0,
                  min_val: float = -np.inf, max_val: float = np.inf,
                  wheel_enabled: bool = True,
+                 wheel_frac: float = 0.01,
                  parent=None):
         super().__init__(parent)
         self._min_val = min_val
         self._max_val = max_val
         self._wheel_enabled = wheel_enabled
+        self._wheel_frac = wheel_frac
         self.setValidator(QDoubleValidator())
         self.setText(f"{value:.6g}")
         self.setFixedWidth(90)
@@ -149,7 +151,7 @@ class _ValidatedField(QLineEdit):
             return
         val  = self.float_value()
         mods = ev.modifiers()
-        frac = 0.10 if (mods & Qt.KeyboardModifier.ShiftModifier) else 0.01
+        frac = self._wheel_frac * 10.0 if (mods & Qt.KeyboardModifier.ShiftModifier) else self._wheel_frac
         step = max(abs(val) * frac, 1e-6)
         delta = ev.angleDelta().y()
         if delta > 0:
@@ -178,8 +180,8 @@ class PeakRowWidget(QWidget):
     # Column indices in the grid
     _COL_NAME  = 0
     _COL_VAL   = 1
-    _COL_LO    = 2
-    _COL_FIT   = 3
+    _COL_FIT   = 2
+    _COL_LO    = 3
     _COL_HI    = 4
 
     def __init__(self, index: int, peak_dict: Dict, parent=None):
@@ -227,11 +229,11 @@ class PeakRowWidget(QWidget):
         self._grid.setColumnMinimumWidth(self._COL_LO, 81)
         self._grid.setColumnMinimumWidth(self._COL_HI, 81)
 
-        # Column headers (order: Name | Value | Lo limit | Fit? | Hi limit)
+        # Column headers (order: Name | Value | Fit? | Lo limit | Hi limit)
         for col, txt in [(self._COL_NAME, "Param"),
                          (self._COL_VAL,  "Value"),
-                         (self._COL_LO,   "Lo limit"),
                          (self._COL_FIT,  "Fit?"),
+                         (self._COL_LO,   "Lo limit"),
                          (self._COL_HI,   "Hi limit")]:
             h = _label(txt, bold=True)
             self._grid.addWidget(h, 0, col)
@@ -268,10 +270,13 @@ class PeakRowWidget(QWidget):
                 val, fit, lo, hi = float(pd), True, None, None
 
             name_lbl = _label(pname)
+            # Q0 gets a 10× finer wheel step (positions need fine control)
+            _wfrac = 0.001 if pname == "Q0" else 0.01
             val_fld  = _ValidatedField(
                 val,
                 min_val=_PEAK_PARAM_VAL_MIN.get(pname, -np.inf),
                 max_val=_PEAK_PARAM_VAL_MAX.get(pname, np.inf),
+                wheel_frac=_wfrac,
             )
             val_fld.setFixedWidth(104)
             fit_chk  = QCheckBox()
@@ -394,7 +399,7 @@ class WAXSPeakFitGraphWindow(QWidget):
         self.main_plot.setLabel('left',   'Intensity')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.main_plot.addLegend(offset=(-10, 10), labelTextSize='10pt')
+        self._legend = self.main_plot.addLegend(offset=(-10, 10), labelTextSize='13pt')
         self._style_axes(self.main_plot)
 
         # ── Bottom plot: residuals ────────────────────────────────────────
@@ -567,6 +572,17 @@ class WAXSPeakFitGraphWindow(QWidget):
             symbolBrush=pg.mkBrush('#2c3e50'),
             name=label,
         )
+        # Style the legend entry: bold, larger, dark
+        try:
+            for _, lbl_item in self._legend.items:
+                f = QFont()
+                f.setPointSize(13)
+                f.setBold(True)
+                f.setWeight(QFont.Weight.Black)
+                lbl_item.item.setFont(f)
+                lbl_item.item.setDefaultTextColor(pg.mkColor('#1a1a2e'))
+        except Exception:
+            pass
         # Set x-range and cursor positions to data range
         qv = q_[mask & (q_ > 0)]
         if len(qv) >= 2:
@@ -586,23 +602,21 @@ class WAXSPeakFitGraphWindow(QWidget):
         q_ = np.asarray(q, float)
         mask = np.isfinite(q_)
 
-        # Total model (red)
+        # Total model (red) — no legend entry
         if I_model is not None:
             Im = np.asarray(I_model, float)
             self._model_item = self.main_plot.plot(
                 q_[mask], Im[mask],
                 pen=pg.mkPen('#e74c3c', width=2),
-                name="Model",
             )
 
-        # Background (dashed grey)
+        # Background (dashed grey) — no legend entry
         if I_bg is not None:
             Ib = np.asarray(I_bg, float)
             self._bg_item = self.main_plot.plot(
                 q_[mask], Ib[mask],
                 pen=pg.mkPen('#7f8c8d', width=1.5,
                              style=Qt.PenStyle.DashLine),
-                name="Background",
             )
 
         # Per-peak curves + number labels
@@ -617,7 +631,6 @@ class WAXSPeakFitGraphWindow(QWidget):
             item = self.main_plot.plot(
                 qp_[pm], Ip_[pm],
                 pen=pg.mkPen(col, width=1.5),
-                name=f"Peak {i+1}",
             )
             self._peak_items.append(item)
 
@@ -1011,12 +1024,12 @@ class WAXSPeakFitPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Column headers (order: Param | Value | Lo limit | Fit? | Hi limit)
-        for col, txt in [(0, "Param"), (1, "Value"), (2, "Lo limit"),
-                         (3, "Fit?"), (4, "Hi limit")]:
+        # Column headers (order: Param | Value | Fit? | Lo limit | Hi limit)
+        for col, txt in [(0, "Param"), (1, "Value"), (2, "Fit?"),
+                         (3, "Lo limit"), (4, "Hi limit")]:
             h = _label(txt, bold=True)
             self._bg_grid.addWidget(h, 0, col)
-            if col in (2, 4):
+            if col in (3, 4):
                 self._bg_limit_widgets.append(h)
 
         names = bg_param_names(bg_shape)
@@ -1046,8 +1059,8 @@ class WAXSPeakFitPanel(QWidget):
 
             self._bg_grid.addWidget(name_lbl, row_i, 0)
             self._bg_grid.addWidget(val_fld,  row_i, 1)
-            self._bg_grid.addWidget(lo_fld,   row_i, 2)
-            self._bg_grid.addWidget(fit_chk,  row_i, 3)
+            self._bg_grid.addWidget(fit_chk,  row_i, 2)
+            self._bg_grid.addWidget(lo_fld,   row_i, 3)
             self._bg_grid.addWidget(hi_fld,   row_i, 4)
 
             self._bg_limit_widgets.extend([lo_fld, hi_fld])
@@ -1311,7 +1324,10 @@ class WAXSPeakFitPanel(QWidget):
         no_limits = self._no_limits_chk.isChecked()
         engine    = WAXSPeakFitModel(bg_shape=bg_shape, peaks=[], no_limits=no_limits)
 
-        self._set_status("Fitting…")
+        # Show orange "Fitting…" and force Qt to repaint before the blocking call
+        self._set_status("Fitting…", progress=True)
+        pg.QtWidgets.QApplication.processEvents()
+
         try:
             result = engine.fit(
                 q_fit, I_fit, dI_fit,
@@ -1328,7 +1344,8 @@ class WAXSPeakFitPanel(QWidget):
             chi2 = result.get("reduced_chi2", float("nan"))
             self._set_status(
                 f"Fit converged.  Reduced χ² = {chi2:.4g}  "
-                f"(DOF = {result.get('dof', 0)})"
+                f"(DOF = {result.get('dof', 0)})",
+                success=True,
             )
 
         # Apply fitted parameters back to GUI
@@ -1649,8 +1666,16 @@ class WAXSPeakFitPanel(QWidget):
     # Status
     # ===========================================================================
 
-    def _set_status(self, msg: str, error: bool = False):
-        color = "#c0392b" if error else "#555"
+    def _set_status(self, msg: str, error: bool = False,
+                    progress: bool = False, success: bool = False):
+        if error:
+            color = "#c0392b"   # red
+        elif progress:
+            color = "#e67e22"   # orange
+        elif success:
+            color = "#27ae60"   # green
+        else:
+            color = "#555"
         self._status.setStyleSheet(
             f"font-size:10pt;color:{color};border-top:1px solid #ccc;padding-top:2px;"
         )
