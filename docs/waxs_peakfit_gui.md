@@ -56,7 +56,10 @@ are remembered and restored when the checkbox is unchecked again.
 
 ### Background
 
-Choose a background shape from the combo box:
+Choose a background shape from the combo box.
+
+**Polynomial shapes** — optimised simultaneously with the peaks by
+`scipy.optimize.curve_fit`:
 
 | Shape | Parameters |
 |-------|-----------|
@@ -67,6 +70,22 @@ Choose a background shape from the combo box:
 
 Each row has **Value**, **Fit?** checkbox, and (when limits are shown) **Lo
 limit** / **Hi limit** fields.
+
+**Adaptive (data-driven) shapes** — estimated directly from the data before
+fitting so the background is guaranteed to stay at or below the measured
+intensities.  These are particularly effective for XRD / powder-diffraction
+spectra with many overlapping peaks.  Only one numeric parameter is shown
+(fraction of the data length):
+
+| Shape | Parameter | Description |
+|-------|-----------|-------------|
+| SNIP | Half-width (fraction) | Iterative peak-clipping (Statistics-sensitive Non-linear Iterative Peak-clipping); standard for XRD |
+| Rolling Quantile Spline | Window + Quantile | Rolling percentile filter + CubicSpline; `quantile=0` gives a rolling minimum |
+| Rolling Ball | Radius (fraction) | Morphological grey-erosion + grey-dilation; equivalent to rolling a ball under the spectrum |
+
+> **Tip:** Try **SNIP** first for XRD data.  If the background is very steep
+> or irregular, **Rolling Quantile Spline** with a small quantile (0.05–0.15)
+> often gives a cleaner result.
 
 ---
 
@@ -114,6 +133,14 @@ the current Q view.  Alternatively, **right-click on the graph** and choose
 | Fit | dark green | Run `scipy.optimize.curve_fit`; update fields with fitted values |
 | Revert | orange | Restore parameters to their pre-Fit values |
 
+**Weighting** combo (below the buttons):
+
+| Mode | σ used in fit | When to use |
+|------|--------------|-------------|
+| 1/σ² (standard) | measured *dI* (or 1 if unavailable) | Default; uses actual measurement uncertainties |
+| Equal (σ = 1) | 1 for all points | Prevents background points from dominating when background has many more points than peaks |
+| Relative (σ = dI/I) | *dI/I* (relative error) | Emphasises narrow peaks; useful when peak-to-background ratio is large |
+
 ---
 
 ### Additional / Results
@@ -135,17 +162,21 @@ the current Q view.  Alternatively, **right-click on the graph** and choose
 
 1. Open **WAXS Peaks (GUI)** from the Data Selector.
 2. Drag the Q cursors to bracket the diffraction peaks of interest.
-3. Choose a **Background** shape (start with Cubic or Linear).
+3. Choose a **Background** shape.
+   - For XRD / powder data try **SNIP** first.
+   - For data with a gently-varying background, start with **Cubic** or **Linear**.
 4. Click **Find Peaks** — the tool detects peaks automatically.
 5. Inspect the overlay: use mouse-wheel on **Q0** and **FWHM** to fine-tune
    initial positions.  Right-click → **Add Peak** for any missed peaks; use
    **Remove** for false detections.
-6. Click **Graph Model** to preview the current parameter set without fitting.
-7. Click **Fit** — fitted values replace the initial guesses.
-8. If the fit diverged, click **Revert**, adjust limits or initial values, and
+6. Select a **Weighting** mode.  If peaks have few points compared to the
+   background, try **Equal** or **Relative**.
+7. Click **Graph Model** to preview the current parameter set without fitting.
+8. Click **Fit** — fitted values replace the initial guesses.
+9. If the fit diverged, click **Revert**, adjust limits or initial values, and
    refit.
-9. Click **Store in File** to save results.
-10. Click **Export Parameters** to write `pyirena_config.json` for batch use.
+10. Click **Store in File** to save results.
+11. Click **Export Parameters** to write `pyirena_config.json` for batch use.
 
 ### Batch fitting after interactive setup
 

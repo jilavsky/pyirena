@@ -40,10 +40,11 @@ except ImportError:
     from PyQt6.QtGui import QFont, QDoubleValidator
 
 from pyirena.core.waxs_peakfit import (
-    PEAK_SHAPES, BG_SHAPES,
+    PEAK_SHAPES, BG_SHAPES, BG_ADAPTIVE, _BG_ADAPTIVE_PARAMS,
     _PEAK_PARAM_NAMES, _BG_NCOEFFS, _PARAM_DEFAULTS,
     bg_param_names, default_bg_params, default_peak_params,
     eval_background, eval_peak, eval_model,
+    compute_adaptive_background,
     find_peaks_in_data, WAXSPeakFitModel,
 )
 
@@ -1067,6 +1068,23 @@ class WAXSPeakFitPanel(QWidget):
         fit_row.addWidget(self._revert_btn)
         ll.addLayout(fit_row)
 
+        # ── Weighting mode ────────────────────────────────────────────────
+        wt_row = QHBoxLayout()
+        wt_row.addWidget(_label("Weighting:"))
+        self._weight_combo = QComboBox()
+        self._weight_combo.addItems([
+            "1/σ²  (standard)",
+            "Equal  (σ = 1)",
+            "Relative  (σ = dI/I)",
+        ])
+        self._weight_combo.setToolTip(
+            "standard — use measured uncertainties (σ)\n"
+            "equal    — all points weighted equally\n"
+            "relative — weight by dI/I (emphasises peaks)"
+        )
+        wt_row.addWidget(self._weight_combo)
+        ll.addLayout(wt_row)
+
         # ── Fix Limits + Reset (same row) ─────────────────────────────────
         extra_row = QHBoxLayout()
         fix_limits_btn = QPushButton("Fix Limits")
@@ -1130,7 +1148,13 @@ class WAXSPeakFitPanel(QWidget):
     # ===========================================================================
 
     def _rebuild_bg_grid(self, bg_shape: str, saved_params: Optional[Dict] = None):
-        """Rebuild the background parameter grid for a new shape."""
+        """Rebuild the background parameter grid for a new shape.
+
+        For polynomial shapes the full grid is shown (Param, Value, Fit?,
+        Lo limit, Hi limit).  For adaptive shapes only a compact spinbox
+        row is shown (Param, Value) — no Fit?/lo/hi columns, since adaptive
+        backgrounds are pre-computed rather than optimised by curve_fit.
+        """
         # Clear old widgets
         for row_d in self._bg_param_rows.values():
             for w in row_d.values():
@@ -1145,54 +1169,79 @@ class WAXSPeakFitPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Column headers (order: Param | Value | Fit? | Lo limit | Hi limit)
-        for col, txt in [(0, "Param"), (1, "Value"), (2, "Fit?"),
-                         (3, "Lo limit"), (4, "Hi limit")]:
-            h = _label(txt, bold=True)
-            self._bg_grid.addWidget(h, 0, col)
-            if col in (3, 4):
-                self._bg_limit_widgets.append(h)
-
-        names = bg_param_names(bg_shape)
+        is_adaptive = bg_shape in BG_ADAPTIVE
+        names    = bg_param_names(bg_shape)
         defaults = default_bg_params(bg_shape)
 
-        for row_i, name in enumerate(names, start=1):
-            pd = (saved_params or {}).get(name, defaults[name])
-            val = float(pd.get("value", 0.0))
-            fit = bool(pd.get("fit", True))
-            lo  = pd.get("lo")
-            hi  = pd.get("hi")
+        if is_adaptive:
+            # Compact layout: Param | Value  (no Fit?/Lo/Hi)
+            for col, txt in [(0, "Parameter"), (1, "Value")]:
+                h = _label(txt, bold=True)
+                self._bg_grid.addWidget(h, 0, col)
 
-            name_lbl = _label(name)
-            val_fld  = _ValidatedField(val)
-            val_fld.setFixedWidth(104)
-            fit_chk  = QCheckBox()
-            fit_chk.setChecked(fit)
-            lo_fld  = _ValidatedField(lo if lo is not None else -1e6, wheel_enabled=False)
-            lo_fld.setFixedWidth(81)
-            hi_fld  = _ValidatedField(hi if hi is not None else 1e6, wheel_enabled=False)
-            hi_fld.setFixedWidth(81)
+            param_info = _BG_ADAPTIVE_PARAMS[bg_shape]
+            for row_i, name in enumerate(names, start=1):
+                info = param_info[name]
+                saved_val = (saved_params or {}).get(name, {})
+                val = float(saved_val.get("value", info["value"]))
 
-            # Auto-expand limits and trigger model redraw on value change
-            _connect_limit_check(val_fld, lo_fld, hi_fld)
-            val_fld.editingFinished.connect(self._request_model_update)
-            fit_chk.stateChanged.connect(self._request_model_update)
+                name_lbl = _label(info["label"])
+                spin = QDoubleSpinBox()
+                spin.setDecimals(3)
+                spin.setSingleStep(0.01)
+                spin.setRange(float(info["lo"]), float(info["hi"]))
+                spin.setValue(val)
+                spin.setFixedWidth(90)
+                spin.valueChanged.connect(self._request_model_update)
 
-            self._bg_grid.addWidget(name_lbl, row_i, 0)
-            self._bg_grid.addWidget(val_fld,  row_i, 1)
-            self._bg_grid.addWidget(fit_chk,  row_i, 2)
-            self._bg_grid.addWidget(lo_fld,   row_i, 3)
-            self._bg_grid.addWidget(hi_fld,   row_i, 4)
+                self._bg_grid.addWidget(name_lbl, row_i, 0)
+                self._bg_grid.addWidget(spin,     row_i, 1)
+                self._bg_param_rows[name] = {"spin": spin}
+        else:
+            # Full polynomial layout: Param | Value | Fit? | Lo limit | Hi limit
+            for col, txt in [(0, "Param"), (1, "Value"), (2, "Fit?"),
+                             (3, "Lo limit"), (4, "Hi limit")]:
+                h = _label(txt, bold=True)
+                self._bg_grid.addWidget(h, 0, col)
+                if col in (3, 4):
+                    self._bg_limit_widgets.append(h)
 
-            self._bg_limit_widgets.extend([lo_fld, hi_fld])
-            self._bg_param_rows[name] = {
-                "val": val_fld, "fit": fit_chk, "lo": lo_fld, "hi": hi_fld,
-            }
+            for row_i, name in enumerate(names, start=1):
+                pd  = (saved_params or {}).get(name, defaults[name])
+                val = float(pd.get("value", 0.0))
+                fit = bool(pd.get("fit", True))
+                lo  = pd.get("lo")
+                hi  = pd.get("hi")
 
-        # Apply current no-limits toggle
-        show = not self._no_limits_chk.isChecked()
-        for w in self._bg_limit_widgets:
-            w.setVisible(show)
+                name_lbl = _label(name)
+                val_fld  = _ValidatedField(val)
+                val_fld.setFixedWidth(104)
+                fit_chk  = QCheckBox()
+                fit_chk.setChecked(fit)
+                lo_fld  = _ValidatedField(lo if lo is not None else -1e6, wheel_enabled=False)
+                lo_fld.setFixedWidth(81)
+                hi_fld  = _ValidatedField(hi if hi is not None else 1e6, wheel_enabled=False)
+                hi_fld.setFixedWidth(81)
+
+                _connect_limit_check(val_fld, lo_fld, hi_fld)
+                val_fld.editingFinished.connect(self._request_model_update)
+                fit_chk.stateChanged.connect(self._request_model_update)
+
+                self._bg_grid.addWidget(name_lbl, row_i, 0)
+                self._bg_grid.addWidget(val_fld,  row_i, 1)
+                self._bg_grid.addWidget(fit_chk,  row_i, 2)
+                self._bg_grid.addWidget(lo_fld,   row_i, 3)
+                self._bg_grid.addWidget(hi_fld,   row_i, 4)
+
+                self._bg_limit_widgets.extend([lo_fld, hi_fld])
+                self._bg_param_rows[name] = {
+                    "val": val_fld, "fit": fit_chk, "lo": lo_fld, "hi": hi_fld,
+                }
+
+            # Apply current no-limits toggle
+            show = not self._no_limits_chk.isChecked()
+            for w in self._bg_limit_widgets:
+                w.setVisible(show)
 
     # ===========================================================================
     # Peaks list management
@@ -1268,12 +1317,16 @@ class WAXSPeakFitPanel(QWidget):
             if name not in self._bg_param_rows:
                 continue
             row = self._bg_param_rows[name]
-            result[name] = {
-                "value": row["val"].float_value(),
-                "fit":   row["fit"].isChecked(),
-                "lo":    row["lo"].float_value(),
-                "hi":    row["hi"].float_value(),
-            }
+            if shape in BG_ADAPTIVE:
+                # Adaptive shapes: only "value" from QDoubleSpinBox
+                result[name] = {"value": row["spin"].value()}
+            else:
+                result[name] = {
+                    "value": row["val"].float_value(),
+                    "fit":   row["fit"].isChecked(),
+                    "lo":    row["lo"].float_value(),
+                    "hi":    row["hi"].float_value(),
+                }
         return result
 
     def _get_peaks(self) -> List[Dict]:
@@ -1362,9 +1415,15 @@ class WAXSPeakFitPanel(QWidget):
         bg_params = self._get_bg_params()
         peaks     = self._get_peaks()
 
-        bg_names = bg_param_names(bg_shape)
-        coeffs   = [float(bg_params[n]["value"]) for n in bg_names if n in bg_params]
-        I_bg     = eval_background(q, bg_shape, coeffs)
+        # Background — adaptive shapes pre-compute from data
+        if bg_shape in BG_ADAPTIVE:
+            if self._I is None:
+                return None, None, []
+            I_bg = compute_adaptive_background(q, self._I, bg_shape, bg_params)
+        else:
+            bg_names = bg_param_names(bg_shape)
+            coeffs   = [float(bg_params[n]["value"]) for n in bg_names if n in bg_params]
+            I_bg     = eval_background(q, bg_shape, coeffs)
 
         I_model = I_bg.copy()
         peak_curves = []
@@ -1452,11 +1511,16 @@ class WAXSPeakFitPanel(QWidget):
         self._set_status("Fitting…", progress=True)
         pg.QtWidgets.QApplication.processEvents()
 
+        # Map combo index to weight_mode string
+        _WEIGHT_MAP = {0: "standard", 1: "equal", 2: "relative"}
+        weight_mode = _WEIGHT_MAP.get(self._weight_combo.currentIndex(), "standard")
+
         try:
             result = engine.fit(
                 q_fit, I_fit, dI_fit,
                 bg_params=self._get_bg_params(),
                 peaks=self._get_peaks(),
+                weight_mode=weight_mode,
             )
         except Exception as exc:
             self._set_status(f"Fit error: {exc}", error=True)
@@ -1739,13 +1803,15 @@ class WAXSPeakFitPanel(QWidget):
 
     def _get_current_state(self) -> Dict:
         qmin, qmax = self._graph.get_q_range()
+        _WEIGHT_MAP = {0: "standard", 1: "equal", 2: "relative"}
         return {
-            "q_min":     qmin,
-            "q_max":     qmax,
-            "bg_shape":  self._bg_combo.currentText(),
-            "bg_params": self._get_bg_params(),
-            "peaks":     self._get_peaks(),
-            "no_limits": self._no_limits_chk.isChecked(),
+            "q_min":       qmin,
+            "q_max":       qmax,
+            "bg_shape":    self._bg_combo.currentText(),
+            "bg_params":   self._get_bg_params(),
+            "peaks":       self._get_peaks(),
+            "no_limits":   self._no_limits_chk.isChecked(),
+            "weight_mode": _WEIGHT_MAP.get(self._weight_combo.currentIndex(), "standard"),
             "peak_find": {
                 "prominence":    self._pf_prom.value(),
                 "min_fwhm":      self._pf_minfwhm.value(),
@@ -1773,6 +1839,11 @@ class WAXSPeakFitPanel(QWidget):
         self._clear_peaks()
         for pk in state.get("peaks", []):
             self._add_peak_row(pk)
+
+        # Weighting mode
+        _WEIGHT_IDX = {"standard": 0, "equal": 1, "relative": 2}
+        wm = state.get("weight_mode", "standard")
+        self._weight_combo.setCurrentIndex(_WEIGHT_IDX.get(wm, 0))
 
         # Peak-find params
         pf = state.get("peak_find", {})

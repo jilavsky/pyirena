@@ -208,6 +208,7 @@ class StateManager:
                 "bg0": {"value": 0.0, "fit": True, "lo": None, "hi": None}
             },
             "peaks": [],   # list of default_peak_params() dicts
+            "weight_mode": "standard",  # "standard" | "equal" | "relative"
             "peak_find": {
                 "prominence": 0.05,
                 "min_fwhm": 0.001,

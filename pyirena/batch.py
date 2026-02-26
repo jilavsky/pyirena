@@ -1423,10 +1423,11 @@ def fit_waxs_peaks(
         peaks = []
 
     # ── Fit ───────────────────────────────────────────────────────────────────
+    weight_mode = config.get('weight_mode', 'standard')
     engine = WAXSPeakFitModel(bg_shape=bg_shape, peaks=peaks, no_limits=no_limits)
     try:
         result = engine.fit(q_, I_, dI_ if (dI_ is not None and np.any(np.isfinite(dI_))) else None,
-                            bg_params=bg_params, peaks=peaks)
+                            bg_params=bg_params, peaks=peaks, weight_mode=weight_mode)
     except Exception as exc:
         if verbose:
             print(f"  [fit_waxs_peaks] Fit error: {exc}")

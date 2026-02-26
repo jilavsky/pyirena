@@ -14,10 +14,16 @@ Supported peak shapes
 
 Supported background shapes
 ---------------------------
+Polynomial (optimised by curve_fit simultaneously with peaks):
 * Constant   (1 parameter:  bg0)
 * Linear     (2 parameters: bg0, bg1)
 * Cubic      (4 parameters: bg0…bg3)
 * 5th Poly   (6 parameters: bg0…bg5)
+
+Adaptive / data-driven (pre-computed from data, not optimised):
+* SNIP                  — iterative peak-clipping (standard for XRD/powder)
+* Rolling Quantile Spline — percentile filter + cubic spline (Watier method)
+* Rolling Ball          — morphological erosion + dilation
 
 Peak finding
 ------------
@@ -39,7 +45,13 @@ from scipy import optimize, signal
 # ===========================================================================
 
 PEAK_SHAPES  = ("Gauss", "Lorentz", "Pseudo-Voigt", "LogNormal")
-BG_SHAPES    = ("Constant", "Linear", "Cubic", "5th Polynomial")
+BG_SHAPES    = (
+    "Constant", "Linear", "Cubic", "5th Polynomial",
+    "SNIP", "Rolling Quantile Spline", "Rolling Ball",
+)
+
+# Adaptive background shapes: pre-computed from data, NOT fitted by curve_fit
+BG_ADAPTIVE: frozenset = frozenset({"SNIP", "Rolling Quantile Spline", "Rolling Ball"})
 
 # Number of polynomial background coefficients per shape
 _BG_NCOEFFS: Dict[str, int] = {
@@ -47,6 +59,32 @@ _BG_NCOEFFS: Dict[str, int] = {
     "Linear":        2,
     "Cubic":         4,
     "5th Polynomial": 6,
+}
+
+# Parameters for adaptive background shapes (value, bounds, display label)
+_BG_ADAPTIVE_PARAMS: Dict[str, Dict[str, Dict]] = {
+    "SNIP": {
+        "half_width": {
+            "value": 0.10, "lo": 0.02, "hi": 0.60,
+            "label": "Half-width (fraction of data)",
+        },
+    },
+    "Rolling Quantile Spline": {
+        "window": {
+            "value": 0.12, "lo": 0.02, "hi": 0.60,
+            "label": "Window (fraction of data)",
+        },
+        "quantile": {
+            "value": 0.10, "lo": 0.00, "hi": 0.49,
+            "label": "Quantile  (0 = min)",
+        },
+    },
+    "Rolling Ball": {
+        "radius": {
+            "value": 0.10, "lo": 0.02, "hi": 0.60,
+            "label": "Radius (fraction of data)",
+        },
+    },
 }
 
 # Parameter names for each peak shape (A, Q0, then shape-specific widths)
@@ -160,8 +198,148 @@ def eval_background(q: np.ndarray, bg_shape: str, coeffs: List[float]) -> np.nda
 
 
 def bg_param_names(bg_shape: str) -> List[str]:
-    """Return the coefficient names for the given background shape."""
+    """Return the parameter names for the given background shape."""
+    if bg_shape in BG_ADAPTIVE:
+        return list(_BG_ADAPTIVE_PARAMS[bg_shape].keys())
     return [f"bg{i}" for i in range(_BG_NCOEFFS[bg_shape])]
+
+
+# ===========================================================================
+# Adaptive (data-driven) background functions
+# ===========================================================================
+
+def snip_background(I: np.ndarray, half_width_frac: float) -> np.ndarray:
+    """SNIP background estimation via iterative peak-clipping.
+
+    The Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP)
+    algorithm iteratively replaces each point with the average of its
+    neighbours at increasing separation, clipping from above so that
+    peaks are progressively removed while the underlying background is
+    retained.  It is the standard background estimator for XRD/powder
+    diffraction and is particularly robust for data with many narrow
+    peaks sitting on a slowly-varying continuum.
+
+    Parameters
+    ----------
+    I : array_like
+        Intensity values (1-D, linear scale).
+    half_width_frac : float
+        Maximum clip half-width expressed as a fraction of the data
+        length.  For *n* data points the algorithm iterates p from 1 to
+        ``max(2, int(half_width_frac * n))``.
+    """
+    I = np.asarray(I, float)
+    n = len(I)
+    hw = max(2, int(half_width_frac * n))
+    bg = I.copy()
+    for p in range(1, hw + 1):
+        left           = np.empty_like(bg)
+        right          = np.empty_like(bg)
+        left[:p]       = bg[:p]
+        left[p:]       = bg[:-p]
+        right[:-p]     = bg[p:]
+        right[-p:]     = bg[-p:]
+        avg            = 0.5 * (left + right)
+        bg             = np.minimum(bg, avg)
+    return bg
+
+
+def rolling_quantile_background(
+    q: np.ndarray,
+    I: np.ndarray,
+    window_frac: float,
+    quantile: float,
+) -> np.ndarray:
+    """Estimate background as a rolling low-quantile spline (Watier method).
+
+    1. Apply ``scipy.ndimage.percentile_filter`` with a window of
+       ``window_frac × n`` points and the given *quantile* (0 = minimum).
+    2. Fit a ``CubicSpline`` through the resulting anchor points.
+
+    Parameters
+    ----------
+    q, I : array_like
+        Scattering vector and intensity (1-D).
+    window_frac : float
+        Rolling window width as a fraction of the data length.
+    quantile : float
+        Quantile fraction in [0, 0.5).  0 = rolling minimum.
+    """
+    from scipy.ndimage import percentile_filter
+    from scipy.interpolate import CubicSpline
+
+    q = np.asarray(q, float)
+    I = np.asarray(I, float)
+    n = len(I)
+    window_pts = max(3, int(window_frac * n))
+    if window_pts % 2 == 0:
+        window_pts += 1          # percentile_filter works best with odd size
+    pct = float(np.clip(quantile * 100.0, 0.0, 100.0))
+    anchors = percentile_filter(I, pct, size=window_pts)
+    # Prevent the spline from exceeding the actual data
+    anchors = np.clip(anchors, I.min(), I.max())
+    return CubicSpline(q, anchors)(q)
+
+
+def rolling_ball_background(I: np.ndarray, radius_frac: float) -> np.ndarray:
+    """Estimate background via morphological rolling-ball (erosion + dilation).
+
+    Equivalent to rolling a ball of given radius along the underside of the
+    spectrum.  Implemented as a grey erosion followed by grey dilation with a
+    flat structuring element of size ``2*r+1`` where *r* = ``radius_frac × n``.
+
+    Parameters
+    ----------
+    I : array_like
+        Intensity values (1-D, linear scale).
+    radius_frac : float
+        Ball radius as a fraction of the data length.
+    """
+    from scipy.ndimage import grey_erosion, grey_dilation
+
+    I = np.asarray(I, float)
+    r = max(1, int(radius_frac * len(I)))
+    size = 2 * r + 1
+    eroded = grey_erosion(I,  size=size)
+    return   grey_dilation(eroded, size=size)
+
+
+def compute_adaptive_background(
+    q: np.ndarray,
+    I: np.ndarray,
+    bg_shape: str,
+    bg_params: Dict,
+) -> np.ndarray:
+    """Dispatch to the requested adaptive background algorithm.
+
+    Parameters
+    ----------
+    q, I : array_like
+        Scattering vector and intensity within the fit range.
+    bg_shape : str
+        One of the names in ``BG_ADAPTIVE``.
+    bg_params : dict
+        Parameter dict as returned by ``default_bg_params()`` or the GUI,
+        e.g. ``{"half_width": {"value": 0.10}}``.
+
+    Returns
+    -------
+    np.ndarray
+        Background curve on the same grid as *q*.
+    """
+    q = np.asarray(q, float)
+    I = np.asarray(I, float)
+    if bg_shape == "SNIP":
+        hw = float(bg_params.get("half_width", {}).get("value", 0.10))
+        return snip_background(I, hw)
+    if bg_shape == "Rolling Quantile Spline":
+        win = float(bg_params.get("window",   {}).get("value", 0.12))
+        qu  = float(bg_params.get("quantile", {}).get("value", 0.10))
+        return rolling_quantile_background(q, I, win, qu)
+    if bg_shape == "Rolling Ball":
+        rad = float(bg_params.get("radius", {}).get("value", 0.10))
+        return rolling_ball_background(I, rad)
+    raise ValueError(f"Not an adaptive background: {bg_shape!r}")
 
 
 # ===========================================================================
@@ -169,7 +347,21 @@ def bg_param_names(bg_shape: str) -> List[str]:
 # ===========================================================================
 
 def default_bg_params(bg_shape: str) -> Dict:
-    """Return a fresh background params dict for bg_shape."""
+    """Return a fresh background params dict for bg_shape.
+
+    For polynomial shapes the dict follows the standard GUI format::
+
+        {name: {"value": float, "fit": bool, "lo": float|None, "hi": float|None}}
+
+    For adaptive shapes only ``"value"`` is stored (no Fit?/lo/hi)::
+
+        {name: {"value": float}}
+    """
+    if bg_shape in BG_ADAPTIVE:
+        return {
+            name: {"value": info["value"]}
+            for name, info in _BG_ADAPTIVE_PARAMS[bg_shape].items()
+        }
     names = bg_param_names(bg_shape)
     return {
         name: {
@@ -294,16 +486,29 @@ def eval_model(
     bg_shape: str,
     bg_params: Dict,
     peaks: List[Dict],
+    I: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Evaluate the full model (background + all peaks) on q.
 
     Parameters are provided as nested dicts (GUI representation) with
     ``{'value': float, 'fit': bool, 'lo': ..., 'hi': ...}`` sub-dicts.
+
+    For adaptive background shapes (*bg_shape* in ``BG_ADAPTIVE``) the raw
+    intensity array *I* must be supplied so that the background can be
+    computed from the data.
     """
     q = np.asarray(q, dtype=float)
     # Background
-    coeffs = [float(bg_params[n]["value"]) for n in bg_param_names(bg_shape)]
-    result = eval_background(q, bg_shape, coeffs)
+    if bg_shape in BG_ADAPTIVE:
+        if I is None:
+            raise ValueError(
+                f"eval_model: I (intensity) must be provided for adaptive "
+                f"background '{bg_shape}'."
+            )
+        result = compute_adaptive_background(q, np.asarray(I, float), bg_shape, bg_params)
+    else:
+        coeffs = [float(bg_params[n]["value"]) for n in bg_param_names(bg_shape)]
+        result = eval_background(q, bg_shape, coeffs)
     # Peaks
     for peak in peaks:
         shape = peak["shape"]
@@ -343,13 +548,19 @@ class WAXSPeakFitModel:
     # ── Parameter vector helpers ──────────────────────────────────────────
 
     def _build_param_list(self) -> List[Tuple[str, float, bool, Optional[float], Optional[float]]]:
-        """Return list of (name_tag, value, fit, lo, hi) for every free/fixed param."""
+        """Return list of (name_tag, value, fit, lo, hi) for every free/fixed param.
+
+        For adaptive background shapes the background parameters are NOT
+        included — the background is pre-computed and captured in the model
+        function closure, so curve_fit only optimises the peak parameters.
+        """
         items = []
-        # Background
-        for name in bg_param_names(self.bg_shape):
-            pd = self.bg_params[name]
-            items.append((f"bg:{name}", float(pd["value"]), bool(pd["fit"]),
-                          pd.get("lo"), pd.get("hi")))
+        # Background — polynomial shapes only (adaptive bg is fixed in closure)
+        if self.bg_shape not in BG_ADAPTIVE:
+            for name in bg_param_names(self.bg_shape):
+                pd = self.bg_params[name]
+                items.append((f"bg:{name}", float(pd["value"]), bool(pd["fit"]),
+                              pd.get("lo"), pd.get("hi")))
         # Peaks
         for i, peak in enumerate(self.peaks):
             shape = peak["shape"]
@@ -385,11 +596,20 @@ class WAXSPeakFitModel:
 
         return np.array(p0), np.array(lb), np.array(ub), free_tags, fixed_vals
 
-    def _make_model_func(self, free_tags, fixed_vals):
-        """Return a callable f(q, *free_params) → I_model."""
-        bg_names   = bg_param_names(self.bg_shape)
-        n_bg       = len(bg_names)
-        n_peaks    = len(self.peaks)
+    def _make_model_func(self, free_tags, fixed_vals, adaptive_bg=None):
+        """Return a callable f(q, *free_params) → I_model.
+
+        Parameters
+        ----------
+        adaptive_bg : np.ndarray or None
+            Pre-computed background array (same length as the q passed to
+            curve_fit).  When provided (*bg_shape* in BG_ADAPTIVE) the
+            background is constant inside curve_fit — only peak parameters
+            are optimised.
+        """
+        bg_shape    = self.bg_shape
+        bg_names    = bg_param_names(bg_shape) if bg_shape not in BG_ADAPTIVE else []
+        n_peaks     = len(self.peaks)
         peak_shapes = [p["shape"] for p in self.peaks]
         peak_pnames = [_PEAK_PARAM_NAMES[s] for s in peak_shapes]
 
@@ -400,8 +620,11 @@ class WAXSPeakFitModel:
                 full[tag] = float(v)
 
             # Background
-            coeffs = [full[f"bg:{n}"] for n in bg_names]
-            result = eval_background(q, self.bg_shape, coeffs)
+            if adaptive_bg is not None:
+                result = np.array(adaptive_bg, dtype=float)
+            else:
+                coeffs = [full[f"bg:{n}"] for n in bg_names]
+                result = eval_background(q, bg_shape, coeffs)
 
             # Peaks
             for i in range(n_peaks):
@@ -419,22 +642,37 @@ class WAXSPeakFitModel:
         self.bg_params = bg_params
         self.peaks     = peaks
 
-    def predict(self, q: np.ndarray, bg_params: Dict, peaks: List[Dict]) -> np.ndarray:
-        """Evaluate model at q without fitting."""
+    def predict(
+        self,
+        q: np.ndarray,
+        bg_params: Dict,
+        peaks: List[Dict],
+        I: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Evaluate model at q without fitting.
+
+        Parameters
+        ----------
+        I : array_like or None
+            Raw intensity data at *q*, required when *bg_shape* is an
+            adaptive shape (in ``BG_ADAPTIVE``).
+        """
         self.set_state(bg_params, peaks)
         p0, lb, ub, free_tags, fixed_vals = self._pack()
-        f = self._make_model_func(free_tags, fixed_vals)
-        full_vals: Dict[str, float] = dict(fixed_vals)
-        for tag, v in zip(free_tags, p0):
-            full_vals[tag] = v
-        bg_names   = bg_param_names(self.bg_shape)
-        coeffs     = [full_vals[f"bg:{n}"] for n in bg_names]
-        result     = eval_background(np.asarray(q, float), self.bg_shape, coeffs)
-        for i, peak in enumerate(peaks):
-            shape = peak["shape"]
-            p     = {pn: full_vals[f"p{i}:{pn}"] for pn in _PEAK_PARAM_NAMES[shape]}
-            result += eval_peak(np.asarray(q, float), shape, p)
-        return result
+
+        # Precompute adaptive background if needed
+        adaptive_bg = None
+        if self.bg_shape in BG_ADAPTIVE:
+            if I is None:
+                raise ValueError(
+                    f"predict(): I (intensity) required for adaptive background '{self.bg_shape}'."
+                )
+            adaptive_bg = compute_adaptive_background(
+                np.asarray(q, float), np.asarray(I, float), self.bg_shape, bg_params
+            )
+
+        f = self._make_model_func(free_tags, fixed_vals, adaptive_bg=adaptive_bg)
+        return f(np.asarray(q, float), *p0)
 
     def fit(
         self,
@@ -443,8 +681,22 @@ class WAXSPeakFitModel:
         dI: Optional[np.ndarray],
         bg_params: Dict,
         peaks: List[Dict],
+        weight_mode: str = "standard",
     ) -> Dict:
         """Fit the model to data.
+
+        Parameters
+        ----------
+        weight_mode : str
+            How to weight the least-squares residuals:
+
+            * ``"standard"`` — standard ``1/σ²`` weighting (default).
+              Uses the measured uncertainties *dI* when available,
+              otherwise uniform weights.
+            * ``"equal"``    — all points weighted equally (σ_eff = 1).
+              Prevents background points with small σ from dominating.
+            * ``"relative"`` — relative weighting ``σ_eff = dI / I``.
+              Emphasises peaks relative to the smooth background.
 
         Returns
         -------
@@ -459,30 +711,52 @@ class WAXSPeakFitModel:
         I  = np.asarray(I, float)
         dI = np.asarray(dI, float) if dI is not None else None
 
-        # Filter to finite, positive-q data
+        # Filter to finite, positive-q, positive-I data
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0)
         if dI is not None:
             mask &= np.isfinite(dI) & (dI > 0)
         q_, I_ = q[mask], I[mask]
-        sigma_ = dI[mask] if dI is not None else np.ones_like(I_)
+        dI_    = dI[mask] if dI is not None else None
 
         if len(q_) < 3:
             return {"success": False, "message": "Too few valid data points."}
 
+        # ── Weight selection ─────────────────────────────────────────────
+        if weight_mode == "equal":
+            sigma_ = np.ones_like(I_)
+        elif weight_mode == "relative":
+            if dI_ is not None and np.all(I_ > 0):
+                sigma_ = dI_ / np.clip(I_, 1e-30, None)
+            else:
+                sigma_ = 1.0 / np.clip(I_, 1e-30, None)
+        else:  # "standard"
+            sigma_ = dI_ if dI_ is not None else np.ones_like(I_)
+
+        # ── Adaptive background pre-computation ──────────────────────────
+        adaptive_bg_fit = None   # subset for curve_fit
+        adaptive_bg_full = None  # full-array version for _package_result
+        if self.bg_shape in BG_ADAPTIVE:
+            adaptive_bg_full_arr = compute_adaptive_background(
+                q, I, self.bg_shape, bg_params
+            )
+            adaptive_bg_fit  = adaptive_bg_full_arr[mask]
+            adaptive_bg_full = adaptive_bg_full_arr
+
         p0, lb, ub, free_tags, fixed_vals = self._pack()
         if len(p0) == 0:
             # All parameters fixed — just evaluate
-            f = self._make_model_func(free_tags, fixed_vals)
-            I_model = f(q_, )
+            f = self._make_model_func(free_tags, fixed_vals, adaptive_bg=adaptive_bg_fit)
+            I_model = f(q_)
             resid   = (I_ - I_model) / sigma_
             chi2    = float(np.sum(resid ** 2))
             return self._package_result(
                 q, I, dI, mask, free_tags, fixed_vals, p0,
                 np.zeros((0, 0)), chi2, len(q_), True,
                 "All parameters fixed — no fitting performed.",
+                adaptive_bg_full=adaptive_bg_full,
             )
 
-        f = self._make_model_func(free_tags, fixed_vals)
+        f = self._make_model_func(free_tags, fixed_vals, adaptive_bg=adaptive_bg_fit)
 
         # Clamp p0 inside bounds
         p0 = np.clip(p0, lb, ub)
@@ -517,13 +791,22 @@ class WAXSPeakFitModel:
         return self._package_result(
             q, I, dI, mask, free_tags, fixed_vals, popt, pcov,
             chi2, dof, success, message,
+            adaptive_bg_full=adaptive_bg_full,
         )
 
     def _package_result(
         self, q, I, dI, mask, free_tags, fixed_vals, popt, pcov,
-        chi2, dof, success, message,
+        chi2, dof, success, message, adaptive_bg_full=None,
     ) -> Dict:
-        """Unpack fit result into updated param dicts."""
+        """Unpack fit result into updated param dicts.
+
+        Parameters
+        ----------
+        adaptive_bg_full : np.ndarray or None
+            Pre-computed adaptive background on the full *q* grid.  When
+            provided it is used directly for I_bg instead of calling
+            ``eval_background()``.
+        """
         import copy
 
         # Std deviations from covariance diagonal
@@ -538,12 +821,16 @@ class WAXSPeakFitModel:
             full_vals[tag] = float(v)
             full_stds[tag] = float(s)
 
-        # Rebuild bg_params dict with fitted values
+        # Rebuild bg_params dict with fitted values (adaptive params unchanged)
         bg_params_out = copy.deepcopy(self.bg_params)
-        for n in bg_param_names(self.bg_shape):
-            tag = f"bg:{n}"
-            bg_params_out[n]["value"] = full_vals.get(tag, float(self.bg_params[n]["value"]))
-        bg_params_std = {n: full_stds.get(f"bg:{n}", 0.0) for n in bg_param_names(self.bg_shape)}
+        bg_params_std: Dict[str, float] = {}
+        if self.bg_shape not in BG_ADAPTIVE:
+            for n in bg_param_names(self.bg_shape):
+                tag = f"bg:{n}"
+                bg_params_out[n]["value"] = full_vals.get(tag, float(self.bg_params[n]["value"]))
+            bg_params_std = {n: full_stds.get(f"bg:{n}", 0.0)
+                             for n in bg_param_names(self.bg_shape)}
+        # For adaptive shapes: bg_params_std is empty (no fitted bg params)
 
         # Rebuild peaks list with fitted values
         peaks_out = copy.deepcopy(self.peaks)
@@ -560,16 +847,31 @@ class WAXSPeakFitModel:
             peaks_std.append(p_std)
 
         # Full-array model and residuals
-        f_full  = self._make_model_func(free_tags, full_vals)
         q_arr   = np.asarray(q, float)
         I_model = np.full_like(q_arr, np.nan)
         I_bg    = np.full_like(q_arr, np.nan)
         resids  = np.full_like(q_arr, np.nan)
-        bg_names = bg_param_names(self.bg_shape)
-        coeffs   = [full_vals.get(f"bg:{n}", float(self.bg_params[n]["value"])) for n in bg_names]
-        valid    = np.isfinite(q_arr) & (q_arr > 0)
-        I_model[valid] = f_full(q_arr[valid], )
-        I_bg[valid]    = eval_background(q_arr[valid], self.bg_shape, coeffs)
+        valid   = np.isfinite(q_arr) & (q_arr > 0)
+
+        # Reconstruct adaptive or polynomial background on valid points
+        if self.bg_shape in BG_ADAPTIVE:
+            if adaptive_bg_full is not None:
+                I_bg[valid] = np.asarray(adaptive_bg_full, float)[valid]
+            adaptive_bg_valid = I_bg[valid]  # may be NaN if not provided
+        else:
+            bg_names = bg_param_names(self.bg_shape)
+            coeffs   = [full_vals.get(f"bg:{n}", float(self.bg_params[n]["value"]))
+                        for n in bg_names]
+            I_bg[valid] = eval_background(q_arr[valid], self.bg_shape, coeffs)
+            adaptive_bg_valid = None
+
+        # Full model = bg + peaks on valid points
+        f_full = self._make_model_func(
+            free_tags, full_vals,
+            adaptive_bg=adaptive_bg_valid if self.bg_shape in BG_ADAPTIVE else None,
+        )
+        I_model[valid] = f_full(q_arr[valid])
+
         if dI is not None:
             dI_arr = np.asarray(dI, float)
             s_arr  = np.where((dI_arr > 0) & np.isfinite(dI_arr), dI_arr, 1.0)
