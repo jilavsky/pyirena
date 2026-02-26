@@ -519,6 +519,150 @@ def eval_model(
 
 
 # ===========================================================================
+# Q0 pre-search helpers
+# ===========================================================================
+
+def cross_corr_q_shift(
+    q: np.ndarray,
+    I_data: np.ndarray,
+    I_model: np.ndarray,
+    max_shift: float = 0.05,
+) -> float:
+    """Estimate a global Q-shift between data peaks and the current model.
+
+    The data and model are interpolated onto a uniform Q grid, mean-centred,
+    and cross-correlated via FFT.  The lag at the cross-correlation maximum
+    (within ±*max_shift* Å⁻¹) is returned as the estimated shift.
+
+    Parameters
+    ----------
+    q : ndarray
+        Q values (Å⁻¹) — may be non-uniform.
+    I_data : ndarray
+        Measured intensities on *q*.
+    I_model : ndarray
+        Current model intensities on *q*.
+    max_shift : float
+        Maximum shift to search (Å⁻¹).  Lags outside this range are ignored.
+
+    Returns
+    -------
+    float
+        Estimated shift in Å⁻¹.  Adding this value to all Q0 starting
+        parameters aligns the model peaks with the data peaks.
+        Returns 0.0 if the shift cannot be determined reliably.
+    """
+    q       = np.asarray(q,       float)
+    I_data  = np.asarray(I_data,  float)
+    I_model = np.asarray(I_model, float)
+    n = len(q)
+    if n < 8:
+        return 0.0
+
+    # Re-grid onto a uniform Q axis so FFT lag → physical Q shift
+    q_uniform = np.linspace(q[0], q[-1], n)
+    dq        = float(q_uniform[1] - q_uniform[0])
+    if dq <= 0:
+        return 0.0
+
+    d = np.interp(q_uniform, q, I_data)
+    m = np.interp(q_uniform, q, I_model)
+
+    # Mean-centre (removes DC offset that can dominate correlation)
+    d = d - d.mean()
+    m = m - m.mean()
+
+    # FFT cross-correlation: cc[k] = Σ d[i] · m[i−k]
+    cc = np.real(np.fft.irfft(np.fft.rfft(d) * np.conj(np.fft.rfft(m)), n=n))
+
+    # Lag axis: element k corresponds to shift = k*dq for k in [0, n/2),
+    # and shift = (k-n)*dq for k in [n/2, n).  np.fft.fftfreq gives this.
+    lags = np.fft.fftfreq(n) * (n * dq)  # Å⁻¹
+
+    mask = np.abs(lags) <= max_shift
+    if not mask.any():
+        return 0.0
+
+    best_shift = float(lags[mask][np.argmax(cc[mask])])
+    return best_shift
+
+
+def presearch_q0_per_peak(
+    q: np.ndarray,
+    I: np.ndarray,
+    bg_shape: str,
+    bg_params: Dict,
+    peaks: List[Dict],
+    search_window: float = 0.05,
+    n_steps: int = 50,
+) -> List[Dict]:
+    """Refine Q0 starting values by an independent brute-force grid scan.
+
+    For each peak *i*, Q0 is scanned over
+    ``[Q0_i − search_window, Q0_i + search_window]`` in *n_steps* steps while
+    all other peaks and the background are held fixed.  The trial Q0 that
+    minimises the total sum-of-squares residual against *I* is adopted as the
+    new Q0 starting value.
+
+    Parameters
+    ----------
+    q, I : ndarray
+        Q values and intensities in the fit range.
+    bg_shape : str
+        Background shape name (polynomial or adaptive).
+    bg_params : dict
+        Background parameter dict (GUI-format, from ``_get_bg_params()``).
+    peaks : list of dict
+        Peak parameter dicts in GUI format (from ``_get_peaks()``).
+    search_window : float
+        Half-width of the scan range in Å⁻¹.
+    n_steps : int
+        Number of trial Q0 values per peak.
+
+    Returns
+    -------
+    list of dict
+        Deep-copied peak dicts with updated Q0 ``'value'`` fields.
+        The input ``peaks`` list is never modified.
+    """
+    import copy as _copy
+
+    q = np.asarray(q, float)
+    I = np.asarray(I, float)
+
+    # Deep copy so we never mutate the caller's list
+    updated = _copy.deepcopy(peaks)
+
+    for i in range(len(updated)):
+        q0_center = float(updated[i]["Q0"]["value"])
+        q0_trials = np.linspace(
+            q0_center - search_window,
+            q0_center + search_window,
+            max(int(n_steps), 2),
+        )
+        q0_trials = q0_trials[q0_trials > 0]
+        if len(q0_trials) == 0:
+            continue
+
+        best_ss = np.inf
+        best_q0 = q0_center
+
+        for q0_trial in q0_trials:
+            # Modify Q0 of peak i in-place in the working copy; all others unchanged
+            updated[i]["Q0"]["value"] = float(q0_trial)
+            I_model = eval_model(q, bg_shape, bg_params, updated, I=I)
+            ss = float(np.sum((I - I_model) ** 2))
+            if ss < best_ss:
+                best_ss = ss
+                best_q0 = q0_trial
+
+        # Lock in the best Q0 for this peak before moving to the next
+        updated[i]["Q0"]["value"] = float(best_q0)
+
+    return updated
+
+
+# ===========================================================================
 # Fit engine
 # ===========================================================================
 

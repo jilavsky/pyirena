@@ -216,6 +216,12 @@ class StateManager:
                 "min_distance": 0.005,
                 "sg_window_frac": 0.15,
             },
+            "presearch": {
+                "cross_corr":    False,   # global Q-shift via FFT cross-correlation
+                "per_peak_scan": False,   # independent Q0 grid scan per peak
+                "search_window": 0.050,   # Å⁻¹, half-width for both methods
+                "n_steps":       50,      # grid steps for per-peak scan
+            },
         }
     }
 
