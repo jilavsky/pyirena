@@ -1077,6 +1077,7 @@ class WAXSPeakFitPanel(QWidget):
             "Equal  (σ = 1)",
             "Relative  (σ = dI/I)",
         ])
+        self._weight_combo.setCurrentIndex(1)  # default: Equal
         self._weight_combo.setToolTip(
             "standard — use measured uncertainties (σ)\n"
             "equal    — all points weighted equally\n"
@@ -1141,7 +1142,10 @@ class WAXSPeakFitPanel(QWidget):
         ll.addStretch()
 
         # ── Populate background parameter grid ────────────────────────────
-        self._rebuild_bg_grid("Constant")
+        self._bg_combo.blockSignals(True)
+        self._bg_combo.setCurrentText("SNIP")
+        self._bg_combo.blockSignals(False)
+        self._rebuild_bg_grid("SNIP")
 
     # ===========================================================================
     # Background parameter grid
@@ -1588,11 +1592,18 @@ class WAXSPeakFitPanel(QWidget):
 
     def _revert(self):
         if self._pre_fit_bg_params is not None:
+            bg_shape = self._bg_combo.currentText()
             for name, row in self._bg_param_rows.items():
-                if name in self._pre_fit_bg_params:
-                    row["val"].set_float(
-                        float(self._pre_fit_bg_params[name].get("value", 0.0))
-                    )
+                if name not in self._pre_fit_bg_params:
+                    continue
+                val = float(self._pre_fit_bg_params[name].get("value", 0.0))
+                if bg_shape in BG_ADAPTIVE:
+                    if "spin" in row:
+                        row["spin"].blockSignals(True)
+                        row["spin"].setValue(val)
+                        row["spin"].blockSignals(False)
+                else:
+                    row["val"].set_float(val)
         if self._pre_fit_peaks is not None:
             for i, row_widget in enumerate(self._peak_rows):
                 if i < len(self._pre_fit_peaks):
@@ -1601,8 +1612,11 @@ class WAXSPeakFitPanel(QWidget):
         self._graph_model()
 
     def _reset_defaults(self):
-        self._bg_combo.setCurrentText("Constant")
-        self._rebuild_bg_grid("Constant")
+        self._bg_combo.blockSignals(True)
+        self._bg_combo.setCurrentText("SNIP")
+        self._bg_combo.blockSignals(False)
+        self._rebuild_bg_grid("SNIP")
+        self._weight_combo.setCurrentIndex(1)  # Equal
         self._clear_peaks()
         self._graph.clear_all()
         if self._q is not None and self._I is not None:
@@ -1643,9 +1657,11 @@ class WAXSPeakFitPanel(QWidget):
                 row_dict["lo"].set_float(lo)
                 row_dict["hi"].set_float(hi)
 
-        # Apply to background params
-        for name, row in self._bg_param_rows.items():
-            _apply_limits(row["val"].float_value(), fracs.get("other", 0.30), row)
+        # Apply to background params (skip adaptive shapes — no lo/hi fields)
+        bg_shape = self._bg_combo.currentText()
+        if bg_shape not in BG_ADAPTIVE:
+            for name, row in self._bg_param_rows.items():
+                _apply_limits(row["val"].float_value(), fracs.get("other", 0.30), row)
 
         # Apply to peak params
         for peak_row in self._peak_rows:
