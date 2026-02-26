@@ -385,6 +385,12 @@ class PeakRowWidget(QWidget):
         self._shape_combo.blockSignals(False)
         self._build_param_rows(peak_dict)
 
+    def set_q0(self, value: float):
+        """Set the Q0 value field directly (used after pre-search)."""
+        row = self._param_rows.get("Q0")
+        if row:
+            row["val"].set_float(float(value))
+
     def toggle_limits(self, show: bool):
         """Show/hide Lo and Hi columns (state is remembered for row rebuilds)."""
         self._show_limits = show
@@ -1086,6 +1092,70 @@ class WAXSPeakFitPanel(QWidget):
         wt_row.addWidget(self._weight_combo)
         ll.addLayout(wt_row)
 
+        # ── Q0 pre-search ─────────────────────────────────────────────────
+        ps_box = QGroupBox("Q₀ pre-search")
+        ps_box.setToolTip(
+            "Run before the main Fit to find better Q0 starting values.\n"
+            "Useful for narrow peaks whose centres have drifted from the\n"
+            "initial guess (e.g. lattice expansion/contraction with conditions)."
+        )
+        ps_box.setStyleSheet("QGroupBox { font-weight: bold; margin-top: 6px; } "
+                             "QGroupBox::title { subcontrol-position: top left; padding: 0 4px; }")
+        ps_layout = QVBoxLayout(ps_box)
+        ps_layout.setContentsMargins(6, 8, 6, 6)
+        ps_layout.setSpacing(3)
+
+        # Checkboxes
+        self._ps_crosscorr_cb = QCheckBox("Cross-corr. (global shift)")
+        self._ps_crosscorr_cb.setChecked(False)
+        self._ps_crosscorr_cb.setToolTip(
+            "FFT cross-correlation between model and data.\n"
+            "Detects a single rigid Q-shift and applies it to all Q0 values.\n"
+            "Best when all peaks shift together (e.g. lattice expansion)."
+        )
+        ps_layout.addWidget(self._ps_crosscorr_cb)
+
+        self._ps_scan_cb = QCheckBox("Per-peak Q₀ scan")
+        self._ps_scan_cb.setChecked(False)
+        self._ps_scan_cb.setToolTip(
+            "Scans Q0 independently for each peak over the search window\n"
+            "and picks the position with the lowest residual.\n"
+            "Best for narrow peaks that may have shifted by different amounts."
+        )
+        ps_layout.addWidget(self._ps_scan_cb)
+
+        # Search window + steps
+        ps_params = QGridLayout()
+        ps_params.setHorizontalSpacing(4)
+        ps_params.setVerticalSpacing(3)
+        ps_params.addWidget(_label("Search window (Å⁻¹):"), 0, 0)
+        self._ps_window_spin = QDoubleSpinBox()
+        self._ps_window_spin.setRange(0.001, 5.0)
+        self._ps_window_spin.setSingleStep(0.005)
+        self._ps_window_spin.setDecimals(3)
+        self._ps_window_spin.setValue(0.050)
+        self._ps_window_spin.setFixedWidth(90)
+        self._ps_window_spin.setToolTip(
+            "Half-width of the Q0 search range (Å⁻¹).\n"
+            "Used by both cross-correlation (max allowed shift)\n"
+            "and per-peak scan (scan range = ±window)."
+        )
+        ps_params.addWidget(self._ps_window_spin, 0, 1)
+
+        ps_params.addWidget(_label("Grid steps:"), 1, 0)
+        self._ps_steps_spin = QSpinBox()
+        self._ps_steps_spin.setRange(5, 500)
+        self._ps_steps_spin.setValue(50)
+        self._ps_steps_spin.setFixedWidth(90)
+        self._ps_steps_spin.setToolTip(
+            "Number of trial Q0 positions per peak in the per-peak scan.\n"
+            "More steps → finer grid but slower (50 is usually sufficient)."
+        )
+        ps_params.addWidget(self._ps_steps_spin, 1, 1)
+        ps_layout.addLayout(ps_params)
+
+        ll.addWidget(ps_box)
+
         # ── Fix Limits + Reset (same row) ─────────────────────────────────
         extra_row = QHBoxLayout()
         fix_limits_btn = QPushButton("Fix Limits")
@@ -1484,6 +1554,43 @@ class WAXSPeakFitPanel(QWidget):
             r[(self._q < qmin) | (self._q > qmax)] = np.nan
             self._graph.plot_residuals(self._q, r)
 
+    def _run_presearch(
+        self, q, I, bg_shape, bg_params, peaks,
+        run_cc: bool = True, run_scan: bool = True,
+    ):
+        """Run Q0 pre-search steps and return an updated peaks list.
+
+        Steps (applied in order when enabled):
+        1. Cross-correlation global shift — adds the same offset to all Q0s.
+        2. Per-peak Q0 scan — optimises each Q0 independently by grid search.
+
+        Returns a deep-copied peaks list; the input is not modified.
+        """
+        from pyirena.core.waxs_peakfit import (
+            eval_model, cross_corr_q_shift, presearch_q0_per_peak,
+        )
+
+        window  = self._ps_window_spin.value()
+        n_steps = int(self._ps_steps_spin.value())
+        updated = copy.deepcopy(peaks)
+
+        # ── Step 1: Cross-correlation global Q-shift ──────────────────────
+        if run_cc and updated:
+            I_model = eval_model(q, bg_shape, bg_params, updated, I=I)
+            shift   = cross_corr_q_shift(q, I, I_model, max_shift=window)
+            if abs(shift) > 1e-6:
+                for pk in updated:
+                    pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
+
+        # ── Step 2: Per-peak Q0 brute-force scan ──────────────────────────
+        if run_scan and updated:
+            updated = presearch_q0_per_peak(
+                q, I, bg_shape, bg_params, updated,
+                search_window=window, n_steps=n_steps,
+            )
+
+        return updated
+
     def _run_fit(self):
         if self._q is None:
             self._set_status("No data loaded.", error=True)
@@ -1521,8 +1628,25 @@ class WAXSPeakFitPanel(QWidget):
         _WEIGHT_MAP = {0: "standard", 1: "equal", 2: "relative"}
         weight_mode = _WEIGHT_MAP.get(self._weight_combo.currentIndex(), "standard")
 
-        peaks_now  = self._get_peaks()
+        peaks_now     = self._get_peaks()
         bg_params_now = self._get_bg_params()
+
+        # ── Q0 pre-search ─────────────────────────────────────────────────
+        run_cc   = self._ps_crosscorr_cb.isChecked()
+        run_scan = self._ps_scan_cb.isChecked()
+        if (run_cc or run_scan) and peaks_now:
+            self._set_status("Pre-searching Q₀…", progress=True)
+            pg.QtWidgets.QApplication.processEvents()
+            peaks_now = self._run_presearch(
+                q_fit, I_fit, bg_shape, bg_params_now, peaks_now,
+                run_cc=run_cc, run_scan=run_scan,
+            )
+            # Update Q0 spinboxes in the GUI so the user sees the new start values
+            for row_w, pk in zip(self._peak_rows, peaks_now):
+                row_w.set_q0(float(pk["Q0"]["value"]))
+            self._set_status("Fitting…", progress=True)
+            pg.QtWidgets.QApplication.processEvents()
+
         try:
             result = engine.fit(
                 q_fit, I_fit, dI_fit,
@@ -1606,6 +1730,10 @@ class WAXSPeakFitPanel(QWidget):
         self._bg_combo.blockSignals(False)
         self._rebuild_bg_grid("SNIP")
         self._weight_combo.setCurrentIndex(1)  # Equal
+        self._ps_crosscorr_cb.setChecked(False)
+        self._ps_scan_cb.setChecked(False)
+        self._ps_window_spin.setValue(0.050)
+        self._ps_steps_spin.setValue(50)
         self._clear_peaks()
         self._graph.clear_all()
         if self._q is not None and self._I is not None:
@@ -1855,6 +1983,12 @@ class WAXSPeakFitPanel(QWidget):
                 "min_distance":  self._pf_mindist.value(),
                 "sg_window_frac": self._pf_sgwin.value() / 100.0,
             },
+            "presearch": {
+                "cross_corr":    self._ps_crosscorr_cb.isChecked(),
+                "per_peak_scan": self._ps_scan_cb.isChecked(),
+                "search_window": self._ps_window_spin.value(),
+                "n_steps":       self._ps_steps_spin.value(),
+            },
         }
 
     def _apply_state(self, state: Dict):
@@ -1888,6 +2022,13 @@ class WAXSPeakFitPanel(QWidget):
         if "max_fwhm"      in pf: self._pf_maxfwhm.setValue(pf["max_fwhm"])
         if "min_distance"  in pf: self._pf_mindist.setValue(pf["min_distance"])
         if "sg_window_frac" in pf: self._pf_sgwin.setValue(pf["sg_window_frac"] * 100.0)
+
+        # Pre-search
+        ps = state.get("presearch", {})
+        if "cross_corr"    in ps: self._ps_crosscorr_cb.setChecked(bool(ps["cross_corr"]))
+        if "per_peak_scan" in ps: self._ps_scan_cb.setChecked(bool(ps["per_peak_scan"]))
+        if "search_window" in ps: self._ps_window_spin.setValue(float(ps["search_window"]))
+        if "n_steps"       in ps: self._ps_steps_spin.setValue(int(ps["n_steps"]))
 
         # Q range — restore cursor positions when data is already loaded
         q_min = state.get("q_min")

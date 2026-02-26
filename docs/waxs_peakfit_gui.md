@@ -143,6 +143,54 @@ the current Q view.  Alternatively, **right-click on the graph** and choose
 
 ---
 
+### Q₀ pre-search
+
+Least-squares fitting of sharp peaks is very sensitive to the initial Q0
+estimate: if the starting position is more than ~1–2 peak widths from the
+true centre, the optimizer sees a near-zero gradient and fails to converge.
+The **Q₀ pre-search** group runs one or both pre-steps *before* the main
+`curve_fit` call to find better Q0 starting values automatically.
+
+#### Cross-corr. (global shift)
+
+Uses FFT cross-correlation between the current model and the measured data to
+detect a single rigid Q-shift common to all peaks.  The detected shift (clipped
+to ±**Search window**) is added to every Q0 before fitting.
+
+**When to use:** peaks shift together due to a lattice parameter change with
+temperature, pressure, or composition (e.g. all peaks move by the same ΔQ).
+Very fast (one FFT).
+
+#### Per-peak Q₀ scan
+
+For each peak independently, Q0 is scanned over
+`[Q0 − search_window, Q0 + search_window]` in **Grid steps** trial positions.
+At each trial position the total model (all peaks + background) is evaluated and
+compared with the data; the position with the lowest sum-of-squares residual
+becomes the new Q0 starting value.  All other peaks remain at their current Q0
+during the scan of each peak.
+
+**When to use:** individual peaks may have shifted by different amounts (e.g.
+two phases with different thermal expansion), or when the cross-correlation
+shift is insufficient for very narrow peaks.
+
+| Control | Default | Description |
+|---------|---------|-------------|
+| Cross-corr. (global shift) | off | Enable FFT cross-correlation pre-step |
+| Per-peak Q₀ scan | off | Enable independent grid scan per peak |
+| Search window (Å⁻¹) | 0.050 | Half-width used by both methods |
+| Grid steps | 50 | Trial positions per peak in the scan |
+
+> **Tip:** Enable **both** steps for maximum robustness: cross-correlation
+> handles a large global shift quickly, then the per-peak scan fine-tunes
+> individual positions within the remaining window.
+
+The pre-search settings are saved with **Save State**, exported to
+`pyirena_config.json` via **Export Parameters**, and honoured by the batch
+API (`fit_waxs_peaks` / `fit_waxs`).
+
+---
+
 ### Additional / Results
 
 | Button | Action |
@@ -171,16 +219,24 @@ the current Q view.  Alternatively, **right-click on the graph** and choose
    **Remove** for false detections.
 6. Select a **Weighting** mode.  If peaks have few points compared to the
    background, try **Equal** or **Relative**.
-7. Click **Graph Model** to preview the current parameter set without fitting.
-8. Click **Fit** — fitted values replace the initial guesses.
-9. If the fit diverged, click **Revert**, adjust limits or initial values, and
-   refit.
-10. Click **Store in File** to save results.
-11. Click **Export Parameters** to write `pyirena_config.json` for batch use.
+7. If peaks are narrow or their positions may have drifted, enable one or both
+   **Q₀ pre-search** options.  For a data series where peaks shift coherently,
+   tick **Cross-corr.** and set the **Search window** to the expected maximum
+   drift.  For very narrow peaks that may have shifted independently, also tick
+   **Per-peak Q₀ scan**.
+8. Click **Graph Model** to preview the current parameter set without fitting.
+9. Click **Fit** — pre-search (if enabled) runs first, then `curve_fit`.
+   Fitted values replace the initial guesses.
+10. If the fit diverged, click **Revert**, adjust limits or initial values, and
+    refit.
+11. Click **Store in File** to save results.
+12. Click **Export Parameters** to write `pyirena_config.json` for batch use
+    (pre-search settings are included).
 
 ### Batch fitting after interactive setup
 
-Once `pyirena_config.json` exists in the data directory:
+Once `pyirena_config.json` exists in the data directory (created by
+**Export Parameters**, which includes the pre-search settings):
 
 ```python
 from pyirena.batch import fit_waxs
@@ -192,6 +248,28 @@ for f in data_files:
     if result and result['success']:
         print(f"{f.name}: {result['n_peaks']} peaks, "
               f"reduced-χ²={result['reduced_chi2']:.4g}")
+```
+
+Pre-search can also be activated or overridden from the config dict directly:
+
+```python
+from pyirena.batch import fit_waxs_peaks
+import json, numpy as np
+
+config = json.loads(Path("data/pyirena_config.json").read_text())["waxs_peakfit"]
+
+# Enable both pre-search methods with a ±0.03 Å⁻¹ window
+config["presearch"] = {
+    "cross_corr":    True,
+    "per_peak_scan": True,
+    "search_window": 0.030,
+    "n_steps":       60,
+}
+
+for f in sorted(Path("data/").glob("*_waxs.h5")):
+    result = fit_waxs_peaks(f, config=config)
+    if result and result['success']:
+        print(f"{f.name}: reduced-χ²={result['reduced_chi2']:.4g}")
 ```
 
 Or, from the Data Selector, select all files and click **WAXS Peaks

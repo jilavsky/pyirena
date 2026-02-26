@@ -1356,6 +1356,7 @@ def fit_waxs_peaks(
     """
     from pyirena.core.waxs_peakfit import (
         WAXSPeakFitModel, find_peaks_in_data, default_bg_params,
+        cross_corr_q_shift, presearch_q0_per_peak, eval_model,
     )
     from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
 
@@ -1421,6 +1422,32 @@ def fit_waxs_peaks(
         if verbose:
             print(f"  [fit_waxs_peaks] No peaks defined; fitting background only.")
         peaks = []
+
+    # ── Q0 pre-search ─────────────────────────────────────────────────────────
+    ps = config.get('presearch', {})
+    run_cc   = bool(ps.get('cross_corr',    False))
+    run_scan = bool(ps.get('per_peak_scan', False))
+    if peaks and (run_cc or run_scan):
+        ps_window = float(ps.get('search_window', 0.05))
+        ps_steps  = int(  ps.get('n_steps',       50))
+        if run_cc:
+            I_model = eval_model(q_, bg_shape, bg_params, peaks, I=I_)
+            shift   = cross_corr_q_shift(q_, I_, I_model, max_shift=ps_window)
+            if abs(shift) > 1e-6:
+                import copy as _cp
+                peaks = _cp.deepcopy(peaks)
+                for pk in peaks:
+                    pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
+                if verbose:
+                    print(f"  [fit_waxs_peaks] Cross-corr. shift applied: {shift:+.4f} Å⁻¹")
+        if run_scan:
+            peaks = presearch_q0_per_peak(
+                q_, I_, bg_shape, bg_params, peaks,
+                search_window=ps_window, n_steps=ps_steps,
+            )
+            if verbose:
+                print(f"  [fit_waxs_peaks] Per-peak Q0 scan done "
+                      f"(window=±{ps_window:.3f} Å⁻¹, steps={ps_steps}).")
 
     # ── Fit ───────────────────────────────────────────────────────────────────
     weight_mode = config.get('weight_mode', 'standard')
