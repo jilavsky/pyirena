@@ -2057,20 +2057,23 @@ class WAXSPeakFitPanel(QWidget):
         if not state:
             return
 
-        # No limits
-        self._no_limits_chk.setChecked(bool(state.get("no_limits", False)))
+        # No limits — only update if explicitly in state
+        if "no_limits" in state:
+            self._no_limits_chk.setChecked(bool(state["no_limits"]))
 
-        # Background
-        bg_shape = state.get("bg_shape", "Constant")
-        self._bg_combo.blockSignals(True)
-        self._bg_combo.setCurrentText(bg_shape)
-        self._bg_combo.blockSignals(False)
-        self._rebuild_bg_grid(bg_shape, state.get("bg_params", {}))
+        # Background — only update if explicitly in state (user preference)
+        if "bg_shape" in state:
+            bg_shape = state["bg_shape"]
+            self._bg_combo.blockSignals(True)
+            self._bg_combo.setCurrentText(bg_shape)
+            self._bg_combo.blockSignals(False)
+            self._rebuild_bg_grid(bg_shape, state.get("bg_params", {}))
 
         # Peaks
-        self._clear_peaks()
-        for pk in state.get("peaks", []):
-            self._add_peak_row(pk)
+        if "peaks" in state:
+            self._clear_peaks()
+            for pk in state["peaks"]:
+                self._add_peak_row(pk)
 
         # Weighting mode — only update if explicitly in state (user preference, not a fit result)
         if "weight_mode" in state:
@@ -2131,16 +2134,13 @@ class WAXSPeakFitPanel(QWidget):
         try:
             from pyirena.io.nxcansas_waxs_peakfit import load_waxs_peakfit_results
             res = load_waxs_peakfit_results(filepath)
-            # Use stored bg_shape if available; otherwise keep the user's current setting
-            bg_shape = res.get("bg_shape") or self._bg_combo.currentText()
+            # Restore only peaks and Q range from the stored result.
+            # bg_shape, bg_params, and weight_mode are user preferences — they come
+            # from state.json (applied at startup) and must not be overridden here.
             state = {
-                "bg_shape":  bg_shape,
-                "bg_params": res.get("bg_params", {}),
-                "peaks":     res.get("peaks", []),
-                "no_limits": False,
-                "q_min":     res.get("q_min"),
-                "q_max":     res.get("q_max"),
-                # weight_mode intentionally omitted: it is a user preference, not a fit result
+                "peaks": res.get("peaks", []),
+                "q_min": res.get("q_min"),
+                "q_max": res.get("q_max"),
             }
             self._apply_state(state)
             self._graph_model()
