@@ -203,11 +203,12 @@ class StateManager:
             "q_min": None,
             "q_max": None,
             "no_limits": False,
-            "bg_shape": "Constant",
+            "bg_shape": "SNIP",
             "bg_params": {
-                "bg0": {"value": 0.0, "fit": True, "lo": None, "hi": None}
+                "half_width": {"value": 0.10}
             },
             "peaks": [],   # list of default_peak_params() dicts
+            "weight_mode": "equal",  # "standard" | "equal" | "relative"
             "peak_find": {
                 "prominence": 0.05,
                 "min_fwhm": 0.001,
