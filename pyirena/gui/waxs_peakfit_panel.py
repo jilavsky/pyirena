@@ -664,6 +664,42 @@ class WAXSPeakFitGraphWindow(QWidget):
         ys[2::3] = np.nan
         return xs, ys
 
+    def _set_range_limits(self, q: np.ndarray, I: np.ndarray) -> None:
+        """Set hard zoom/pan limits rounded to the nearest power of 10.
+
+        For LINEAR/LINEAR axes the limits are physical values (Å⁻¹ and counts),
+        not log10.  Called once from plot_data() when new data is loaded.
+
+        X: decade below q_min to decade above q_max.
+        Y main: 0 (or decade-rounded negative minimum) to decade above I_max.
+        Y residuals: ±10 initially; updated to ±decade(r_max) after each fit.
+        """
+        q_ = np.asarray(q, float)
+        I_ = np.asarray(I, float)
+
+        # ── X limits ──────────────────────────────────────────────────────
+        valid_q = q_[(q_ > 0) & np.isfinite(q_)]
+        if len(valid_q) >= 2:
+            x_min_lim = 10.0 ** np.floor(np.log10(float(valid_q.min())))
+            x_max_lim = 10.0 ** np.ceil( np.log10(float(valid_q.max())))
+            self.main_plot.getViewBox().setLimits(xMin=x_min_lim, xMax=x_max_lim)
+
+        # ── Y limits (main plot) ───────────────────────────────────────────
+        valid_I = I_[np.isfinite(I_)]
+        if len(valid_I) >= 2:
+            I_max = float(valid_I.max())
+            I_min = float(valid_I.min())
+            y_max_lim = (10.0 ** np.ceil(np.log10(I_max))
+                         if I_max > 0 else 1.0)
+            y_min_lim = (-(10.0 ** np.ceil(np.log10(abs(I_min))))
+                         if I_min < 0 else 0.0)
+            self.main_plot.getViewBox().setLimits(yMin=y_min_lim, yMax=y_max_lim)
+            # Initial visible range: data fills the plot vertically
+            self.main_plot.setYRange(y_min_lim, I_max * 1.05, padding=0)
+
+        # ── Y limits (residuals) — fixed ±10 until first fit ──────────────
+        self.resid_plot.getViewBox().setLimits(yMin=-10.0, yMax=10.0)
+
     def plot_data(self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None,
                   label: str = "Data"):
         """Plot raw data (scatter) and optional error bars."""
@@ -711,6 +747,8 @@ class WAXSPeakFitGraphWindow(QWidget):
             self.main_plot.setXRange(float(qv.min()), float(qv.max()), padding=0.02)
             self.set_q_range(float(qv.min()), float(qv.max()))
             self.q_range_changed.emit(float(qv.min()), float(qv.max()))
+        # Set decade-rounded hard limits so zoom/pan cannot stray far from data
+        self._set_range_limits(q_, I_)
 
     def plot_model(
         self,
@@ -783,11 +821,19 @@ class WAXSPeakFitGraphWindow(QWidget):
             self._peak_label_items[i].setVisible(False)
 
     def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
-        """Plot normalised residuals in the bottom panel."""
+        """Plot normalised residuals and update y-axis zoom limits."""
         q_  = np.asarray(q, float)
         res = np.asarray(residuals, float)
         mask = np.isfinite(q_) & np.isfinite(res)
         self._resid_item.setData(q_[mask], res[mask])
+        # Update y limits and initial view from actual residual spread
+        valid_r = res[mask]
+        if len(valid_r) >= 3:
+            r_max = float(np.percentile(np.abs(valid_r), 99))
+            r_lim = (10.0 ** np.ceil(np.log10(r_max))) if r_max > 0 else 1.0
+            self.resid_plot.getViewBox().setLimits(yMin=-r_lim, yMax=r_lim)
+            view_r = max(r_max * 1.5, 0.5)
+            self.resid_plot.setYRange(-view_r, view_r, padding=0)
 
     def clear_all(self):
         """Reset graph without calling plot.clear() — preserves persistent items."""
