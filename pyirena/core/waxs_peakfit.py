@@ -711,14 +711,18 @@ class WAXSPeakFitModel:
         I  = np.asarray(I, float)
         dI = np.asarray(dI, float) if dI is not None else None
 
-        # Filter to finite, positive-q, positive-I data
+        # Filter to finite, positive-q data
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0)
         if dI is not None:
             mask &= np.isfinite(dI) & (dI > 0)
         q_, I_ = q[mask], I[mask]
         dI_    = dI[mask] if dI is not None else None
 
+        print(f"[WAXSModel.fit] bg={self.bg_shape!r}, n_in={len(q)}, "
+              f"n_valid={mask.sum()}, has_dI={dI is not None}, weight={weight_mode!r}")
+
         if len(q_) < 3:
+            print("[WAXSModel.fit] Too few valid points — returning failure")
             return {"success": False, "message": "Too few valid data points."}
 
         # ── Weight selection ─────────────────────────────────────────────
@@ -736,15 +740,19 @@ class WAXSPeakFitModel:
         adaptive_bg_fit = None   # subset for curve_fit
         adaptive_bg_full = None  # full-array version for _package_result
         if self.bg_shape in BG_ADAPTIVE:
+            print(f"[WAXSModel.fit] computing adaptive background ({self.bg_shape}) …")
             adaptive_bg_full_arr = compute_adaptive_background(
                 q, I, self.bg_shape, bg_params
             )
             adaptive_bg_fit  = adaptive_bg_full_arr[mask]
             adaptive_bg_full = adaptive_bg_full_arr
+            print("[WAXSModel.fit] adaptive background done")
 
         p0, lb, ub, free_tags, fixed_vals = self._pack()
+        print(f"[WAXSModel.fit] n_free={len(p0)}, free_tags={free_tags}")
         if len(p0) == 0:
             # All parameters fixed — just evaluate
+            print("[WAXSModel.fit] all params fixed — evaluating model only")
             f = self._make_model_func(free_tags, fixed_vals, adaptive_bg=adaptive_bg_fit)
             I_model = f(q_)
             resid   = (I_ - I_model) / sigma_
@@ -760,6 +768,8 @@ class WAXSPeakFitModel:
 
         # Clamp p0 inside bounds
         p0 = np.clip(p0, lb, ub)
+        print(f"[WAXSModel.fit] calling curve_fit, p0={p0}, sigma range "
+              f"[{float(sigma_.min()):.3g}, {float(sigma_.max()):.3g}]")
 
         try:
             with warnings.catch_warnings():
@@ -768,25 +778,30 @@ class WAXSPeakFitModel:
                     f, q_, I_, p0=p0,
                     sigma=sigma_, absolute_sigma=True,
                     bounds=(lb, ub),
-                    maxfev=50_000,
+                    maxfev=10_000,
                 )
             success = True
             message = "Fit converged."
+            print(f"[WAXSModel.fit] curve_fit converged, popt={popt}")
         except optimize.OptimizeWarning as exc:
             popt    = p0
             pcov    = np.full((len(p0), len(p0)), np.inf)
             success = False
             message = f"OptimizeWarning: {exc}"
+            print(f"[WAXSModel.fit] OptimizeWarning: {exc}")
         except RuntimeError as exc:
             popt    = p0
             pcov    = np.full((len(p0), len(p0)), np.inf)
             success = False
             message = f"Fit did not converge: {exc}"
+            print(f"[WAXSModel.fit] RuntimeError (did not converge): {exc}")
 
+        print(f"[WAXSModel.fit] packaging result …")
         I_model = f(q_, *popt)
         resid   = (I_ - I_model) / sigma_
         chi2    = float(np.sum(resid ** 2))
         dof     = max(1, len(q_) - len(popt))
+        print(f"[WAXSModel.fit] chi2={chi2:.4g}, dof={dof}, success={success}")
 
         return self._package_result(
             q, I, dI, mask, free_tags, fixed_vals, popt, pcov,
