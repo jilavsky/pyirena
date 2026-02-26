@@ -1298,6 +1298,8 @@ class WAXSPeakFitPanel(QWidget):
         # Preserve existing values for coefficients that still exist
         old_params = self._get_bg_params()
         self._rebuild_bg_grid(shape, old_params)
+        # Redraw the model so the background curve updates immediately
+        self._request_model_update()
 
     def _on_no_limits_toggled(self, state):
         show = (state == Qt.CheckState.Unchecked.value or state == 0)
@@ -1545,10 +1547,20 @@ class WAXSPeakFitPanel(QWidget):
 
     def _apply_fit_result(self, result: Dict):
         """Write fitted param values back into the GUI fields."""
+        bg_shape = self._bg_combo.currentText()
         bg_params_new = result.get("bg_params", {})
         for name, row in self._bg_param_rows.items():
-            if name in bg_params_new:
-                row["val"].set_float(float(bg_params_new[name].get("value", 0.0)))
+            if name not in bg_params_new:
+                continue
+            val = float(bg_params_new[name].get("value", 0.0))
+            if bg_shape in BG_ADAPTIVE:
+                # Adaptive rows use a QDoubleSpinBox (key "spin")
+                if "spin" in row:
+                    row["spin"].blockSignals(True)
+                    row["spin"].setValue(val)
+                    row["spin"].blockSignals(False)
+            else:
+                row["val"].set_float(val)
 
         peaks_new = result.get("peaks", [])
         for i, row_widget in enumerate(self._peak_rows):
