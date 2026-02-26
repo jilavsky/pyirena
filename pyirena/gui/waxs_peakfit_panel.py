@@ -692,7 +692,7 @@ class WAXSPeakFitGraphWindow(QWidget):
             y_max_lim = (10.0 ** np.ceil(np.log10(I_max))
                          if I_max > 0 else 1.0)
             y_min_lim = (-(10.0 ** np.ceil(np.log10(abs(I_min))))
-                         if I_min < 0 else 0.0)
+                         if I_min < 0 else -0.01 * I_max)
             self.main_plot.getViewBox().setLimits(yMin=y_min_lim, yMax=y_max_lim)
             # Initial visible range: data fills the plot vertically
             self.main_plot.setYRange(y_min_lim, I_max * 1.05, padding=0)
@@ -1147,11 +1147,12 @@ class WAXSPeakFitPanel(QWidget):
         )
         ps_box.setStyleSheet("QGroupBox { font-weight: bold; margin-top: 6px; } "
                              "QGroupBox::title { subcontrol-position: top left; padding: 0 4px; }")
-        ps_layout = QVBoxLayout(ps_box)
-        ps_layout.setContentsMargins(6, 8, 6, 6)
-        ps_layout.setSpacing(3)
+        ps_layout = QGridLayout(ps_box)
+        ps_layout.setContentsMargins(6, 14, 6, 6)
+        ps_layout.setHorizontalSpacing(6)
+        ps_layout.setVerticalSpacing(5)
 
-        # Checkboxes
+        # Row 0: cross-corr checkbox | window label | window spin
         self._ps_crosscorr_cb = QCheckBox("Cross-corr. (global shift)")
         self._ps_crosscorr_cb.setChecked(False)
         self._ps_crosscorr_cb.setToolTip(
@@ -1159,8 +1160,25 @@ class WAXSPeakFitPanel(QWidget):
             "Detects a single rigid Q-shift and applies it to all Q0 values.\n"
             "Best when all peaks shift together (e.g. lattice expansion)."
         )
-        ps_layout.addWidget(self._ps_crosscorr_cb)
+        ps_layout.addWidget(self._ps_crosscorr_cb, 0, 0)
 
+        self._ps_window_lbl = _label("Window (Å⁻¹):")
+        ps_layout.addWidget(self._ps_window_lbl, 0, 1)
+
+        self._ps_window_spin = QDoubleSpinBox()
+        self._ps_window_spin.setRange(0.001, 5.0)
+        self._ps_window_spin.setSingleStep(0.005)
+        self._ps_window_spin.setDecimals(3)
+        self._ps_window_spin.setValue(0.050)
+        self._ps_window_spin.setFixedWidth(80)
+        self._ps_window_spin.setToolTip(
+            "Half-width of the Q0 search range (Å⁻¹).\n"
+            "Used by both cross-correlation (max allowed shift)\n"
+            "and per-peak scan (scan range = ±window)."
+        )
+        ps_layout.addWidget(self._ps_window_spin, 0, 2)
+
+        # Row 1: per-peak scan checkbox | steps label | steps spin
         self._ps_scan_cb = QCheckBox("Per-peak Q₀ scan")
         self._ps_scan_cb.setChecked(False)
         self._ps_scan_cb.setToolTip(
@@ -1168,37 +1186,25 @@ class WAXSPeakFitPanel(QWidget):
             "and picks the position with the lowest residual.\n"
             "Best for narrow peaks that may have shifted by different amounts."
         )
-        ps_layout.addWidget(self._ps_scan_cb)
+        ps_layout.addWidget(self._ps_scan_cb, 1, 0)
 
-        # Search window + steps
-        ps_params = QGridLayout()
-        ps_params.setHorizontalSpacing(4)
-        ps_params.setVerticalSpacing(3)
-        ps_params.addWidget(_label("Search window (Å⁻¹):"), 0, 0)
-        self._ps_window_spin = QDoubleSpinBox()
-        self._ps_window_spin.setRange(0.001, 5.0)
-        self._ps_window_spin.setSingleStep(0.005)
-        self._ps_window_spin.setDecimals(3)
-        self._ps_window_spin.setValue(0.050)
-        self._ps_window_spin.setFixedWidth(90)
-        self._ps_window_spin.setToolTip(
-            "Half-width of the Q0 search range (Å⁻¹).\n"
-            "Used by both cross-correlation (max allowed shift)\n"
-            "and per-peak scan (scan range = ±window)."
-        )
-        ps_params.addWidget(self._ps_window_spin, 0, 1)
+        self._ps_steps_lbl = _label("Grid steps:")
+        ps_layout.addWidget(self._ps_steps_lbl, 1, 1)
 
-        ps_params.addWidget(_label("Grid steps:"), 1, 0)
         self._ps_steps_spin = QSpinBox()
         self._ps_steps_spin.setRange(5, 500)
         self._ps_steps_spin.setValue(50)
-        self._ps_steps_spin.setFixedWidth(90)
+        self._ps_steps_spin.setFixedWidth(80)
         self._ps_steps_spin.setToolTip(
             "Number of trial Q0 positions per peak in the per-peak scan.\n"
             "More steps → finer grid but slower (50 is usually sufficient)."
         )
-        ps_params.addWidget(self._ps_steps_spin, 1, 1)
-        ps_layout.addLayout(ps_params)
+        ps_layout.addWidget(self._ps_steps_spin, 1, 2)
+
+        # Connect visibility updates and initialise
+        self._ps_crosscorr_cb.stateChanged.connect(self._update_ps_visibility)
+        self._ps_scan_cb.stateChanged.connect(self._update_ps_visibility)
+        self._update_ps_visibility()
 
         ll.addWidget(ps_box)
 
@@ -1770,6 +1776,15 @@ class WAXSPeakFitPanel(QWidget):
         self._revert_btn.setEnabled(False)
         self._graph_model()
 
+    def _update_ps_visibility(self):
+        """Show/hide pre-search parameter fields based on checkbox state."""
+        cc = self._ps_crosscorr_cb.isChecked()
+        sc = self._ps_scan_cb.isChecked()
+        self._ps_window_lbl.setVisible(cc or sc)
+        self._ps_window_spin.setVisible(cc or sc)
+        self._ps_steps_lbl.setVisible(sc)
+        self._ps_steps_spin.setVisible(sc)
+
     def _reset_defaults(self):
         self._bg_combo.blockSignals(True)
         self._bg_combo.setCurrentText("SNIP")
@@ -1780,6 +1795,7 @@ class WAXSPeakFitPanel(QWidget):
         self._ps_scan_cb.setChecked(False)
         self._ps_window_spin.setValue(0.050)
         self._ps_steps_spin.setValue(50)
+        self._update_ps_visibility()
         self._clear_peaks()
         self._graph.clear_all()
         if self._q is not None and self._I is not None:
@@ -2075,6 +2091,7 @@ class WAXSPeakFitPanel(QWidget):
         if "per_peak_scan" in ps: self._ps_scan_cb.setChecked(bool(ps["per_peak_scan"]))
         if "search_window" in ps: self._ps_window_spin.setValue(float(ps["search_window"]))
         if "n_steps"       in ps: self._ps_steps_spin.setValue(int(ps["n_steps"]))
+        self._update_ps_visibility()
 
         # Q range — restore cursor positions when data is already loaded
         q_min = state.get("q_min")
