@@ -768,33 +768,51 @@ class WAXSPeakFitModel:
 
         # Clamp p0 inside bounds
         p0 = np.clip(p0, lb, ub)
-        print(f"[WAXSModel.fit] calling curve_fit, p0={p0}, sigma range "
-              f"[{float(sigma_.min()):.3g}, {float(sigma_.max()):.3g}]")
+
+        sigma_min = float(sigma_.min())
+        sigma_max = float(sigma_.max())
+        sigma_ratio = sigma_max / max(sigma_min, 1e-30)
+        print(f"[WAXSModel.fit] calling curve_fit: n_free={len(p0)}, "
+              f"sigma=[{sigma_min:.3g}, {sigma_max:.3g}] ratio={sigma_ratio:.0f}x")
+        if sigma_ratio > 200:
+            print(f"[WAXSModel.fit] WARNING: sigma range ratio {sigma_ratio:.0f}x — "
+                  f"extreme weights may slow convergence. "
+                  f"Consider 'Equal' or 'Relative' weighting for faster fits.")
+
+        # Wrap f to count calls
+        _ncalls = [0]
+        def _f_counted(q_, *args):
+            _ncalls[0] += 1
+            return f(q_, *args)
 
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 popt, pcov = optimize.curve_fit(
-                    f, q_, I_, p0=p0,
+                    _f_counted, q_, I_, p0=p0,
                     sigma=sigma_, absolute_sigma=True,
                     bounds=(lb, ub),
                     maxfev=10_000,
+                    # Relaxed convergence: scipy default ~1.5e-8 (machine precision)
+                    # causes thousands of Jacobian iterations for large datasets.
+                    # 1e-5 is more than adequate for WAXS peak positions/widths.
+                    ftol=1e-5, xtol=1e-5, gtol=1e-5,
                 )
             success = True
             message = "Fit converged."
-            print(f"[WAXSModel.fit] curve_fit converged, popt={popt}")
+            print(f"[WAXSModel.fit] curve_fit converged in {_ncalls[0]} calls")
         except optimize.OptimizeWarning as exc:
             popt    = p0
             pcov    = np.full((len(p0), len(p0)), np.inf)
             success = False
             message = f"OptimizeWarning: {exc}"
-            print(f"[WAXSModel.fit] OptimizeWarning: {exc}")
+            print(f"[WAXSModel.fit] OptimizeWarning after {_ncalls[0]} calls: {exc}")
         except RuntimeError as exc:
             popt    = p0
             pcov    = np.full((len(p0), len(p0)), np.inf)
             success = False
             message = f"Fit did not converge: {exc}"
-            print(f"[WAXSModel.fit] RuntimeError (did not converge): {exc}")
+            print(f"[WAXSModel.fit] did not converge after {_ncalls[0]} calls: {exc}")
 
         print(f"[WAXSModel.fit] packaging result …")
         I_model = f(q_, *popt)
