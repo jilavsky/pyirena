@@ -2072,10 +2072,12 @@ class WAXSPeakFitPanel(QWidget):
         for pk in state.get("peaks", []):
             self._add_peak_row(pk)
 
-        # Weighting mode
-        _WEIGHT_IDX = {"standard": 0, "equal": 1, "relative": 2}
-        wm = state.get("weight_mode", "standard")
-        self._weight_combo.setCurrentIndex(_WEIGHT_IDX.get(wm, 0))
+        # Weighting mode — only update if explicitly in state (user preference, not a fit result)
+        if "weight_mode" in state:
+            _WEIGHT_IDX = {"standard": 0, "equal": 1, "relative": 2}
+            self._weight_combo.setCurrentIndex(
+                _WEIGHT_IDX.get(state["weight_mode"], 0)
+            )
 
         # Peak-find params
         pf = state.get("peak_find", {})
@@ -2129,13 +2131,16 @@ class WAXSPeakFitPanel(QWidget):
         try:
             from pyirena.io.nxcansas_waxs_peakfit import load_waxs_peakfit_results
             res = load_waxs_peakfit_results(filepath)
+            # Use stored bg_shape if available; otherwise keep the user's current setting
+            bg_shape = res.get("bg_shape") or self._bg_combo.currentText()
             state = {
-                "bg_shape":  res.get("bg_shape", "Constant"),
+                "bg_shape":  bg_shape,
                 "bg_params": res.get("bg_params", {}),
                 "peaks":     res.get("peaks", []),
                 "no_limits": False,
                 "q_min":     res.get("q_min"),
                 "q_max":     res.get("q_max"),
+                # weight_mode intentionally omitted: it is a user preference, not a fit result
             }
             self._apply_state(state)
             self._graph_model()
