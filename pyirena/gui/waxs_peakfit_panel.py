@@ -22,7 +22,7 @@ try:
     from PySide6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
         QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
-        QDoubleSpinBox, QScrollArea, QGroupBox, QFileDialog,
+        QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
         QMessageBox, QFrame, QSizePolicy, QSpacerItem,
         QDialog, QDialogButtonBox,
     )
@@ -32,7 +32,7 @@ except ImportError:
     from PyQt6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
         QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
-        QDoubleSpinBox, QScrollArea, QGroupBox, QFileDialog,
+        QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
         QMessageBox, QFrame, QSizePolicy, QSpacerItem,
         QDialog, QDialogButtonBox,
     )
