@@ -1523,9 +1523,6 @@ class WAXSPeakFitPanel(QWidget):
 
         peaks_now  = self._get_peaks()
         bg_params_now = self._get_bg_params()
-        print(f"[WAXS._run_fit] bg={bg_shape!r}, n_pts={len(q_fit)}, "
-              f"n_peaks={len(peaks_now)}, weight={weight_mode!r}, "
-              f"no_limits={no_limits}")
         try:
             result = engine.fit(
                 q_fit, I_fit, dI_fit,
@@ -1535,13 +1532,9 @@ class WAXSPeakFitPanel(QWidget):
             )
         except Exception as exc:
             import traceback
-            print(f"[WAXS._run_fit] EXCEPTION in engine.fit: {exc}")
             traceback.print_exc()
             self._set_status(f"Fit error: {exc}", error=True)
             return
-
-        print(f"[WAXS._run_fit] engine.fit returned: success={result.get('success')}, "
-              f"msg={result.get('message','')[:60]!r}")
 
         if not result.get("success", False):
             self._set_status(f"Fit failed: {result.get('message', '')}", error=True)
@@ -1554,19 +1547,15 @@ class WAXSPeakFitPanel(QWidget):
             )
 
         # Apply fitted parameters back to GUI
-        print("[WAXS._run_fit] calling _apply_fit_result …")
         try:
             self._apply_fit_result(result)
         except Exception as exc:
             import traceback
-            print(f"[WAXS._run_fit] EXCEPTION in _apply_fit_result: {exc}")
             traceback.print_exc()
         self._revert_btn.setEnabled(True)
 
         # Re-graph
-        print("[WAXS._run_fit] calling _graph_model …")
         self._graph_model()
-        print("[WAXS._run_fit] done")
 
     def _apply_fit_result(self, result: Dict):
         """Write fitted param values back into the GUI fields."""

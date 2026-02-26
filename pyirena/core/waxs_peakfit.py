@@ -718,11 +718,7 @@ class WAXSPeakFitModel:
         q_, I_ = q[mask], I[mask]
         dI_    = dI[mask] if dI is not None else None
 
-        print(f"[WAXSModel.fit] bg={self.bg_shape!r}, n_in={len(q)}, "
-              f"n_valid={mask.sum()}, has_dI={dI is not None}, weight={weight_mode!r}")
-
         if len(q_) < 3:
-            print("[WAXSModel.fit] Too few valid points — returning failure")
             return {"success": False, "message": "Too few valid data points."}
 
         # ── Weight selection ─────────────────────────────────────────────
@@ -740,19 +736,15 @@ class WAXSPeakFitModel:
         adaptive_bg_fit = None   # subset for curve_fit
         adaptive_bg_full = None  # full-array version for _package_result
         if self.bg_shape in BG_ADAPTIVE:
-            print(f"[WAXSModel.fit] computing adaptive background ({self.bg_shape}) …")
             adaptive_bg_full_arr = compute_adaptive_background(
                 q, I, self.bg_shape, bg_params
             )
             adaptive_bg_fit  = adaptive_bg_full_arr[mask]
             adaptive_bg_full = adaptive_bg_full_arr
-            print("[WAXSModel.fit] adaptive background done")
 
         p0, lb, ub, free_tags, fixed_vals = self._pack()
-        print(f"[WAXSModel.fit] n_free={len(p0)}, free_tags={free_tags}")
         if len(p0) == 0:
             # All parameters fixed — just evaluate
-            print("[WAXSModel.fit] all params fixed — evaluating model only")
             f = self._make_model_func(free_tags, fixed_vals, adaptive_bg=adaptive_bg_fit)
             I_model = f(q_)
             resid   = (I_ - I_model) / sigma_
@@ -769,27 +761,11 @@ class WAXSPeakFitModel:
         # Clamp p0 inside bounds
         p0 = np.clip(p0, lb, ub)
 
-        sigma_min = float(sigma_.min())
-        sigma_max = float(sigma_.max())
-        sigma_ratio = sigma_max / max(sigma_min, 1e-30)
-        print(f"[WAXSModel.fit] calling curve_fit: n_free={len(p0)}, "
-              f"sigma=[{sigma_min:.3g}, {sigma_max:.3g}] ratio={sigma_ratio:.0f}x")
-        if sigma_ratio > 200:
-            print(f"[WAXSModel.fit] WARNING: sigma range ratio {sigma_ratio:.0f}x — "
-                  f"extreme weights may slow convergence. "
-                  f"Consider 'Equal' or 'Relative' weighting for faster fits.")
-
-        # Wrap f to count calls
-        _ncalls = [0]
-        def _f_counted(q_, *args):
-            _ncalls[0] += 1
-            return f(q_, *args)
-
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 popt, pcov = optimize.curve_fit(
-                    _f_counted, q_, I_, p0=p0,
+                    f, q_, I_, p0=p0,
                     sigma=sigma_, absolute_sigma=True,
                     bounds=(lb, ub),
                     maxfev=10_000,
@@ -800,26 +776,21 @@ class WAXSPeakFitModel:
                 )
             success = True
             message = "Fit converged."
-            print(f"[WAXSModel.fit] curve_fit converged in {_ncalls[0]} calls")
         except optimize.OptimizeWarning as exc:
             popt    = p0
             pcov    = np.full((len(p0), len(p0)), np.inf)
             success = False
             message = f"OptimizeWarning: {exc}"
-            print(f"[WAXSModel.fit] OptimizeWarning after {_ncalls[0]} calls: {exc}")
         except RuntimeError as exc:
             popt    = p0
             pcov    = np.full((len(p0), len(p0)), np.inf)
             success = False
             message = f"Fit did not converge: {exc}"
-            print(f"[WAXSModel.fit] did not converge after {_ncalls[0]} calls: {exc}")
 
-        print(f"[WAXSModel.fit] packaging result …")
         I_model = f(q_, *popt)
         resid   = (I_ - I_model) / sigma_
         chi2    = float(np.sum(resid ** 2))
         dof     = max(1, len(q_) - len(popt))
-        print(f"[WAXSModel.fit] chi2={chi2:.4g}, dof={dof}, success={success}")
 
         return self._package_result(
             q, I, dI, mask, free_tags, fixed_vals, popt, pcov,

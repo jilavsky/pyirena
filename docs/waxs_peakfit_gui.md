@@ -137,8 +137,8 @@ the current Q view.  Alternatively, **right-click on the graph** and choose
 
 | Mode | σ used in fit | When to use |
 |------|--------------|-------------|
-| 1/σ² (standard) | measured *dI* (or 1 if unavailable) | Default; uses actual measurement uncertainties |
-| Equal (σ = 1) | 1 for all points | Prevents background points from dominating when background has many more points than peaks |
+| 1/σ² (standard) | measured *dI* (or 1 if unavailable) | Uses actual measurement uncertainties; can be slow when σ range is large |
+| Equal (σ = 1) | 1 for all points | **Default.** Prevents background points from dominating; robust when σ range is large |
 | Relative (σ = dI/I) | *dI/I* (relative error) | Emphasises narrow peaks; useful when peak-to-background ratio is large |
 
 ---
@@ -147,7 +147,7 @@ the current Q view.  Alternatively, **right-click on the graph** and choose
 
 | Button | Action |
 |--------|--------|
-| Reset to Defaults | Clear all peaks; reset background to Constant |
+| Reset to Defaults | Clear all peaks; reset background to SNIP, weighting to Equal |
 | Save State | Persist GUI state to pyIrena state file |
 | Store in File | Save fit results to `entry/waxs_peakfit_results` in the HDF5 file |
 | Results to graphs | Overlay a text annotation with fitted values on the main plot |
