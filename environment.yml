@@ -1,0 +1,28 @@
+name: pyirena
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python>=3.10
+
+  # Core scientific stack
+  - numpy>=1.20
+  - scipy>=1.7
+  - h5py>=3.0
+  - matplotlib>=3.3
+
+  # GUI
+  - pyside6>=6.4
+  - pyqtgraph>=0.13
+
+  # Development / testing (optional — remove if not needed)
+  - pytest>=7.0
+  - pytest-cov
+
+  # pyirena itself — installed in editable mode from local source
+  - pip
+  - pip:
+      - -e .

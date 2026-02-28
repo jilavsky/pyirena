@@ -2,220 +2,169 @@
 
 ## Requirements
 
-- Python 3.8 or higher
-- pip or conda package manager
+- Python 3.10 or higher
+- conda (Anaconda or Miniconda) **or** pip
 
-## Installation Methods
+## Recommended: Conda Environment (one command)
 
-### 1. Install from PyPI (Recommended)
-
-Once published, the easiest way to install pyIrena:
-
-```bash
-pip install pyirena
-```
-
-### 2. Install from Source
-
-For the latest development version:
+The repository includes `environment.yml` which creates a complete conda
+environment with all dependencies — including the GUI stack — in one step:
 
 ```bash
 # Clone the repository
 git clone https://github.com/jilavsky/pyirena.git
 cd pyirena
 
-# Install in development mode
+# Create the environment and install pyirena in editable mode
+conda env create -f environment.yml
+
+# Activate
+conda activate pyirena
+```
+
+That's it. The environment file installs Python, all scientific packages,
+PySide6, pyqtgraph, and pyirena itself (editable/development mode).
+
+### Updating an existing environment
+
+If the repository has been updated and new dependencies were added:
+
+```bash
+conda env update -f environment.yml --prune
+```
+
+### Removing the environment
+
+```bash
+conda env remove -n pyirena
+```
+
+---
+
+## Alternative: pip install (no conda)
+
+### From source (development mode)
+
+```bash
+git clone https://github.com/jilavsky/pyirena.git
+cd pyirena
+
+# GUI install (includes PySide6 + pyqtgraph)
+pip install -e ".[gui]"
+```
+
+### Core only (no GUI)
+
+```bash
 pip install -e .
 ```
 
-### 3. Install with Conda
-
-Once published on conda-forge:
-
-```bash
-conda install -c conda-forge pyirena
-```
-
-## Optional Dependencies
-
-### Plotting Support
-
-For plotting capabilities with matplotlib:
-
-```bash
-pip install pyirena[plotting]
-```
-
-### Development Tools
-
-For development and testing:
-
-```bash
-pip install pyirena[dev]
-```
-
-This includes:
-- pytest for testing
-- black for code formatting
-- flake8 for linting
-- mypy for type checking
-
-### All Optional Dependencies
-
-To install everything:
-
-```bash
-pip install pyirena[all]
-```
-
-## Verifying Installation
-
-Test your installation:
-
-```python
-import pyirena
-from pyirena.core.unified import UnifiedFitModel
-
-print(f"pyIrena version: {pyirena.__version__}")
-
-# Create a simple model
-model = UnifiedFitModel(num_levels=1)
-print("Installation successful!")
-```
+---
 
 ## Dependencies
 
-### Core Dependencies (automatically installed)
+### Core (always required)
 
-- **numpy** (>=1.20.0): Numerical computing
-- **scipy** (>=1.7.0): Optimization and scientific functions
-- **h5py** (>=3.0.0): HDF5 file support
+| Package | Version | Purpose |
+|---------|---------|---------|
+| numpy | ≥ 1.20 | Numerical arrays |
+| scipy | ≥ 1.7 | Optimization, fitting |
+| h5py | ≥ 3.0 | HDF5 / NXcanSAS file I/O |
 
-### Optional Dependencies
+### GUI (required to run the interactive GUI)
 
-- **matplotlib** (>=3.3.0): Plotting and visualization
-- **six** (>=1.15.0): Python 2/3 compatibility utilities
+| Package | Version | Purpose |
+|---------|---------|---------|
+| PySide6 | ≥ 6.4 | Qt6 Python bindings |
+| pyqtgraph | ≥ 0.13 | Fast scientific plotting |
+| matplotlib | ≥ 3.3 | Additional plot export |
+
+### Development / testing (optional)
+
+| Package | Purpose |
+|---------|---------|
+| pytest ≥ 7.0 | Test runner |
+| pytest-cov | Coverage reports |
+
+---
+
+## Verifying the Installation
+
+```bash
+# Check the package is importable
+python -c "import pyirena; print('pyirena', pyirena.__version__)"
+
+# Launch the GUI
+pyirena-gui
+```
+
+---
 
 ## Troubleshooting
 
-### Common Issues
+### HDF5 / h5py build errors
 
-#### HDF5 Installation Issues
+`conda env create` installs pre-built binaries and avoids this entirely.
+If using pip on Linux:
 
-If you encounter problems installing h5py:
+```bash
+sudo apt-get install libhdf5-dev   # Debian/Ubuntu
+pip install h5py
+```
 
-**On macOS:**
+On macOS:
 ```bash
 brew install hdf5
 pip install h5py
 ```
 
-**On Linux (Ubuntu/Debian):**
-```bash
-sudo apt-get install libhdf5-dev
-pip install h5py
-```
+### PySide6 / GUI not found
 
-**On Windows:**
-Use Anaconda/Miniconda which includes pre-built binaries:
-```bash
-conda install h5py
-```
-
-#### ImportError after installation
-
-Make sure you're not in the source directory when importing:
+Make sure you installed with `[gui]` extras or that the conda environment
+was created from `environment.yml`:
 
 ```bash
-cd ~
-python -c "import pyirena; print(pyirena.__version__)"
-```
-
-#### Version conflicts
-
-Create a fresh virtual environment:
-
-```bash
-python -m venv pyirena_env
-source pyirena_env/bin/activate  # On Windows: pyirena_env\Scripts\activate
-pip install pyirena
-```
-
-## Virtual Environments
-
-### Using venv (Standard Library)
-
-```bash
-# Create environment
-python -m venv myenv
-
-# Activate (Linux/macOS)
-source myenv/bin/activate
-
-# Activate (Windows)
-myenv\Scripts\activate
-
-# Install pyirena
-pip install pyirena
-```
-
-### Using conda
-
-```bash
-# Create environment
-conda create -n pyirena_env python=3.10
-
-# Activate
-conda activate pyirena_env
-
-# Install
-pip install pyirena
+pip install -e ".[gui]"        # pip route
 # or
-conda install -c conda-forge pyirena
+conda env create -f environment.yml   # conda route
 ```
 
-## Updating
+### ImportError after installation
 
-### Update from PyPI
+Make sure the `pyirena` conda environment is active:
 
 ```bash
-pip install --upgrade pyirena
+conda activate pyirena
+python -c "import pyirena"
 ```
 
-### Update from source
+---
 
-```bash
-cd pyirena
-git pull
-pip install -e . --upgrade
-```
-
-## Uninstalling
-
-```bash
-pip uninstall pyirena
-```
-
-## Platform-Specific Notes
+## Platform Notes
 
 ### Windows
 
-- Recommend using Anaconda/Miniconda for easier dependency management
-- Visual Studio Build Tools may be required for some dependencies
+Conda is strongly recommended — it provides pre-built PySide6 and h5py
+binaries that avoid compiler requirements.
 
 ### macOS
 
-- Xcode Command Line Tools recommended: `xcode-select --install`
-- Use Homebrew for system dependencies: `brew install hdf5`
+- Intel and Apple Silicon both supported via conda-forge packages.
+- If building from source with pip, Xcode Command Line Tools are required:
+  `xcode-select --install`
 
 ### Linux
 
-- Install development headers for HDF5 and other libraries
-- May need to install gcc/g++ compilers: `sudo apt-get install build-essential`
+- Conda is the easiest path; all packages are available on conda-forge.
+- With pip, install system HDF5 headers first (see Troubleshooting above).
+
+---
 
 ## Next Steps
 
-After installation, check out:
-- [Quick Start Guide](../README.md#quick-start)
-- [Usage Guide](../USAGE_GUIDE.md)
-- [Examples](../pyirena/examples/)
+After installation, see:
+
+- [Quick Start GUI guide](gui_quickstart.md) — open the GUI and load data
+- [Unified Fit guide](unified_fit_gui.md)
+- [WAXS Peak Fit guide](waxs_peakfit_gui.md)
+- [Batch scripting API](batch_api.md)

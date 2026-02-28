@@ -32,13 +32,24 @@ Python tools for small-angle scattering data analysis, centered on the **Unified
 
 ## Installation
 
+**With conda (recommended):**
+
+```bash
+git clone https://github.com/jilavsky/pyirena.git
+cd pyirena
+conda env create -f environment.yml
+conda activate pyirena
+```
+
+**With pip:**
+
 ```bash
 git clone https://github.com/jilavsky/pyirena.git
 cd pyirena
 pip install -e ".[gui]"
 ```
 
-This installs pyirena with GUI support (PySide6 + pyqtgraph).
+See [docs/installation.md](docs/installation.md) for full details, troubleshooting, and platform notes.
 
 ---
 
