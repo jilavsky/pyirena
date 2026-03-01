@@ -336,10 +336,16 @@ class FileTreeWidget(QWidget):
             child = parent.child(i)
             path = child.data(0, _PATH_ROLE)
             if path is None:
-                # Folder node — recurse; show if any descendant is visible
-                child_visible = self._filter_node(child, flt)
-                child.setHidden(not child_visible)
-                any_visible |= child_visible
+                # Folder node
+                loaded = child.data(0, Qt.ItemDataRole.UserRole + 2)
+                if not loaded:
+                    # Not expanded yet — assume it has content, keep visible
+                    child.setHidden(False)
+                    any_visible = True
+                else:
+                    child_visible = self._filter_node(child, flt)
+                    child.setHidden(not child_visible)
+                    any_visible |= child_visible
             else:
                 # File item
                 name = child.text(0).lower()

@@ -375,12 +375,12 @@ class HDF5ViewerWindow(QMainWindow):
 
             rows.append({
                 "file": stem,
-                "x": x_val if x_val is not None else float(i + 1),
-                "y": y_val,
-                "yerr": y_err,
+                "x_value": x_val if x_val is not None else float(i + 1),
+                "y_value": y_val,
+                "y_error": y_err,
             })
 
-        if not any(r["y"] is not None for r in rows):
+        if not any(r["y_value"] is not None for r in rows):
             self._status_bar.showMessage("No values could be collected.")
             return
 
@@ -395,7 +395,7 @@ class HDF5ViewerWindow(QMainWindow):
         cw.destroyed.connect(lambda obj=None, w=cw: self._on_collect_closed(w))
         cw.show()
         self._status_bar.showMessage(
-            f"Collected {sum(r['y'] is not None for r in rows)}/{len(rows)} values."
+            f"Collected {sum(r['y_value'] is not None for r in rows)}/{len(rows)} values."
         )
 
     def _on_collect_closed(self, cw: CollectWindow) -> None:

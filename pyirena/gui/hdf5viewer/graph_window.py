@@ -159,6 +159,7 @@ class GraphWindow(QWidget):
 
         # pyqtgraph plot
         self._glw = pg.GraphicsLayoutWidget()
+        self._glw.setBackground("w")
         self._plot: pg.PlotItem = self._glw.addPlot()
         self._plot.showGrid(x=True, y=True, alpha=0.3)
         self._plot.setLabel("left", self._y_label)

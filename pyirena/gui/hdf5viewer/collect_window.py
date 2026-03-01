@@ -104,6 +104,7 @@ class CollectWindow(QWidget):
 
         # Plot
         glw = pg.GraphicsLayoutWidget()
+        glw.setBackground("w")
         self._plot: pg.PlotItem = glw.addPlot()
         self._plot.setLabel("left",   self._y_label)
         self._plot.setLabel("bottom", self._x_label)
