@@ -103,10 +103,11 @@ def read_unified_fit(filepath: str | Path) -> dict | None:
         res = load_unified_fit_results(Path(filepath))
         if not res:
             return None
+        _id = res.get("intensity_data")
         return {
             "Q":       np.asarray(res["Q"],              float),
             "I_model": np.asarray(res["intensity_model"], float),
-            "I_data":  np.asarray(res.get("intensity_data") or [], float) or None,
+            "I_data":  np.asarray(_id, float) if _id is not None and len(_id) > 0 else None,
             "levels":  res.get("levels", []),
             "chi2":    res.get("chi_squared"),
             "background": res.get("background"),
