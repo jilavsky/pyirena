@@ -28,19 +28,19 @@ try:
         QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
         QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
         QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QAction, QSizePolicy,
+        QMessageBox, QSizePolicy,
     )
     from PySide6.QtCore import Qt, Signal, QEvent
-    from PySide6.QtGui import QColor, QIcon
+    from PySide6.QtGui import QColor, QIcon, QAction
 except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
         QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
         QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
         QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QAction, QSizePolicy,
+        QMessageBox, QSizePolicy,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal, QEvent  # type: ignore[no-redef]
-    from PyQt6.QtGui import QColor, QIcon                       # type: ignore[no-redef]
+    from PyQt6.QtGui import QColor, QIcon, QAction              # type: ignore[no-redef]
 
 from . import export as _export
 
