@@ -82,6 +82,7 @@ class HDF5BrowserWidget(QWidget):
     add_dataset_requested   = Signal(str, str)
     plot_known_type_requested = Signal(str, str)
     collect_value_requested = Signal(str)
+    set_x_axis_path_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -301,6 +302,12 @@ class HDF5BrowserWidget(QWidget):
             lambda checked=False, p=h5_path: self.collect_value_requested.emit(p)
         )
         menu.addAction(act)
+
+        act_xpath = QAction("Set as X-axis metadata path", menu)
+        act_xpath.triggered.connect(
+            lambda checked=False, p=h5_path: self.set_x_axis_path_requested.emit(p)
+        )
+        menu.addAction(act_xpath)
 
     def _build_group_menu(self, menu: QMenu, item: QTreeWidgetItem, h5_path: str) -> None:
         if self._h5file is None:

@@ -267,18 +267,27 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
     return None
 
 
+def _read_scalar_value(node, key: str) -> float | None:
+    """Read a scalar from an HDF5 node: dataset first (new format), attr fallback (old)."""
+    try:
+        if key in node and isinstance(node[key], h5py.Dataset):
+            return float(node[key][()])
+        val = node.attrs.get(key)
+        return float(val) if val is not None else None
+    except Exception:
+        return None
+
+
 def _collect_unified(filepath, item: str, level: int) -> float | None:
-    _level_params = {"Rg", "G", "B", "P", "ETA", "PACK",
-                     "Rg_err", "G_err", "B_err", "P_err"}
     try:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/unified_fit_results"]
             if item == "chi2":
-                return float(grp.attrs["chi_squared"])
+                return _read_scalar_value(grp, "chi_squared")
             if item == "background":
-                return float(grp.attrs["background"])
+                return _read_scalar_value(grp, "background")
             level_grp = grp[f"level_{level}"]
-            return float(level_grp.attrs[item])
+            return _read_scalar_value(level_grp, item)
     except Exception:
         return None
 
@@ -287,7 +296,7 @@ def _collect_sizes(filepath, item: str) -> float | None:
     try:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/sizes_results"]
-            return float(grp.attrs[item])
+            return _read_scalar_value(grp, item)
     except Exception:
         return None
 
@@ -297,7 +306,7 @@ def _collect_waxs(filepath, item: str, peak: int) -> float | None:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/waxs_peakfit_results"]
             if item == "chi2":
-                return float(grp.attrs["chi_squared"])
+                return _read_scalar_value(grp, "chi_squared")
             peak_name = f"peak_{peak+1:02d}"
             params_grp = grp[peak_name]["params"]
             return float(params_grp[item][()])
@@ -310,7 +319,7 @@ def _collect_simple_fit(filepath, item: str, param_name: str) -> float | None:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/simple_fit_results"]
             if item == "chi2":
-                return float(grp.attrs["chi_squared"])
+                return _read_scalar_value(grp, "chi_squared")
             if item == "param" and param_name:
                 return float(grp["params"][param_name][()])
     except Exception:

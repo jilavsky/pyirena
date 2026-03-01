@@ -154,7 +154,7 @@ def save_hdf5(gw: "GraphWindow", filepath: str | None = None) -> bool:
 # ── ITX (Igor Pro text format) ─────────────────────────────────────────────
 
 def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
-    """Export curves as Igor Pro Text (.itx) file."""
+    """Export curves as Igor Pro Text (.itx) file with full formatting."""
     curves = gw.get_curves()
     if not curves:
         QMessageBox.warning(gw, "No data", "No curves to export.")
@@ -178,17 +178,30 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
             name = "w_" + name
         return name[:31] or "wave"
 
+    def _hex_to_igor(hex_color: str) -> tuple[int, int, int]:
+        """Convert #rrggbb hex to Igor Pro 0-65535 RGB tuple."""
+        h = hex_color.lstrip("#")
+        if len(h) == 6:
+            r = int(h[0:2], 16)
+            g = int(h[2:4], 16)
+            b = int(h[4:6], 16)
+        else:
+            r = g = b = 0
+        return r * 257, g * 257, b * 257
+
     lines = ["IGOR"]
-    wave_names = []   # (x_name, y_name) tuples for the Display line
+    # (x_name, y_name, label, color) tuples for formatting commands
+    wave_names = []
 
     for i, curve in enumerate(curves):
-        lbl   = curve["label"]
-        x_arr = np.asarray(curve["x"], float)
-        y_arr = np.asarray(curve["y"], float)
+        lbl    = curve["label"]
+        x_arr  = np.asarray(curve["x"], float)
+        y_arr  = np.asarray(curve["y"], float)
+        color  = curve.get("style", {}).get("color", "#000000")
         suffix = f"_{i+1:02d}" if len(curves) > 1 else ""
         x_name = _safe_name(f"X_{lbl}{suffix}")
         y_name = _safe_name(f"Y_{lbl}{suffix}")
-        wave_names.append((x_name, y_name, lbl))
+        wave_names.append((x_name, y_name, lbl, color))
 
         # X wave
         lines.append(f"WAVES/D  {x_name}")
@@ -213,13 +226,45 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
                 lines.append(f"  {v:.10g}")
             lines.append("END")
 
-    # Display / graph commands
+    # ── Display / graph commands ───────────────────────────────────────────
     lines.append("")
-    for j, (xn, yn, lbl) in enumerate(wave_names):
+    for j, (xn, yn, lbl, _color) in enumerate(wave_names):
         if j == 0:
-            lines.append(f"X Display {yn} vs {xn} as \"{lbl}\"")
+            lines.append(f'X Display {yn} vs {xn} as "{lbl}"')
         else:
             lines.append(f"X AppendToGraph {yn} vs {xn}")
+
+    # ── Log / linear axes ─────────────────────────────────────────────────
+    if gw.is_log_x():
+        lines.append("X ModifyGraph log(bottom)=1")
+    if gw.is_log_y():
+        lines.append("X ModifyGraph log(left)=1")
+
+    # ── Curve colors ──────────────────────────────────────────────────────
+    for _xn, yn, _lbl, color in wave_names:
+        r, g, b = _hex_to_igor(color)
+        lines.append(f"X ModifyGraph rgb({yn})=({r},{g},{b})")
+
+    # ── Axis labels ───────────────────────────────────────────────────────
+    x_label = gw.get_x_label()
+    y_label = gw.get_y_label()
+    if x_label:
+        lines.append(f'X Label bottom "{x_label}"')
+    if y_label:
+        lines.append(f'X Label left "{y_label}"')
+
+    # ── Window title ──────────────────────────────────────────────────────
+    title = gw.get_title()
+    if title:
+        lines.append(f'X TextBox/C/N=title0/A=MC/X=0/Y=5 "{title}"')
+
+    # ── Legend ────────────────────────────────────────────────────────────
+    legend_parts = []
+    for _xn, yn, lbl, _color in wave_names:
+        legend_parts.append(f"\\\\s({yn}) {lbl}")
+    if legend_parts:
+        legend_text = "\\r".join(legend_parts)
+        lines.append(f'X Legend/C/N=text0 "{legend_text}"')
 
     try:
         with open(filepath, "w", encoding="utf-8") as f:

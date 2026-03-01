@@ -218,12 +218,14 @@ class PlotControlsPanel(QWidget):
         self._collect_type.currentIndexChanged.connect(self._update_collect_ui)
         wg.addWidget(self._collect_type, 0, 1, 1, 2)
 
-        wg.addWidget(_label("Item:"), 1, 0)
+        self._collect_item_lbl = _label("Item:")
+        wg.addWidget(self._collect_item_lbl, 1, 0)
         self._collect_item = QComboBox()
         self._collect_item.setMinimumWidth(160)
         wg.addWidget(self._collect_item, 1, 1)
 
-        wg.addWidget(_label("Level/Peak:"), 2, 0)
+        self._collect_index_lbl = _label("Level/Peak:")
+        wg.addWidget(self._collect_index_lbl, 2, 0)
         self._collect_index = QSpinBox()
         self._collect_index.setRange(1, 20)
         self._collect_index.setValue(1)
@@ -234,6 +236,10 @@ class PlotControlsPanel(QWidget):
         self._collect_path = QLineEdit()
         self._collect_path.setPlaceholderText("/entry/...  or @attr")
         wg.addWidget(self._collect_path, 3, 1, 1, 2)
+
+        self._collect_hint = QLabel("← right-click a dataset in HDF5 browser")
+        self._collect_hint.setStyleSheet("font-size:8pt; color:#888; font-style:italic;")
+        wg.addWidget(self._collect_hint, 4, 0, 1, 3)
 
         vl.addWidget(what_box)
 
@@ -315,6 +321,13 @@ class PlotControlsPanel(QWidget):
         self._collect_type.setCurrentText("Custom HDF5 path")
         self._collect_path.setText(hdf5_path)
         self._update_collect_ui(4)
+
+    def set_x_axis_path(self, hdf5_path: str) -> None:
+        """Called when the HDF5 browser emits set_x_axis_path_requested."""
+        self._tabs.setCurrentIndex(1)
+        self._xrb_path.setChecked(True)
+        self._x_meta_path.setText(hdf5_path)
+        self._x_meta_path.setEnabled(True)
 
     # ── Slot management ────────────────────────────────────────────────────
 
@@ -548,8 +561,16 @@ class PlotControlsPanel(QWidget):
         type_text = self._collect_type.currentText()
 
         is_custom = (type_text == "Custom HDF5 path")
+
+        # Custom path row visibility
         self._collect_path.setVisible(is_custom)
-        self._collect_index.setEnabled(not is_custom)
+        self._collect_hint.setVisible(is_custom)
+
+        # Item and Level/Peak controls only shown for non-custom types
+        self._collect_item_lbl.setVisible(not is_custom)
+        self._collect_item.setVisible(not is_custom)
+        self._collect_index_lbl.setVisible(not is_custom)
+        self._collect_index.setVisible(not is_custom)
 
         if type_text == "Unified Fit":
             items = ["Rg", "G", "B", "P", "ETA", "PACK",
@@ -558,6 +579,7 @@ class PlotControlsPanel(QWidget):
             self._collect_item.addItems(items)
             self._collect_index.setPrefix("Level ")
             self._collect_index.setRange(1, 5)
+            self._collect_index.setEnabled(True)
 
         elif type_text == "Size Distribution":
             items = ["chi_squared", "volume_fraction", "rg"]
@@ -569,11 +591,10 @@ class PlotControlsPanel(QWidget):
             self._collect_item.addItems(items)
             self._collect_index.setPrefix("Peak ")
             self._collect_index.setRange(1, 20)
+            self._collect_index.setEnabled(True)
 
         elif type_text == "Simple Fits":
             self._collect_item.addItems(["Rg", "I0", "Rg_err", "I0_err", "chi2"])
             self._collect_index.setEnabled(False)
 
-        else:  # Custom
-            self._collect_item.addItems(["(path below)"])
-            self._collect_index.setEnabled(False)
+        # Custom: item/index are hidden so no need to configure them

@@ -109,6 +109,8 @@ class CollectWindow(QWidget):
         self._plot.setLabel("left",   self._y_label)
         self._plot.setLabel("bottom", self._x_label)
         self._plot.showGrid(x=True, y=True, alpha=0.3)
+        self._plot.getAxis('bottom').enableAutoSIPrefix(False)
+        self._plot.getAxis('left').enableAutoSIPrefix(False)
         splitter.addWidget(glw)
 
         splitter.setSizes([180, 280])

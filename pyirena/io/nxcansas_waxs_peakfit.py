@@ -111,11 +111,12 @@ def save_waxs_peakfit_results(
         grp.attrs["timestamp"]         = datetime.now().isoformat()
         grp.attrs["n_peaks"]           = len(peaks)
         grp.attrs["bg_shape"]          = bg_shape
-        grp.attrs["chi_squared"]       = float(result.get("chi2", np.nan))
-        grp.attrs["reduced_chi_squared"] = float(result.get("reduced_chi2", np.nan))
         grp.attrs["dof"]               = int(result.get("dof", 0))
         grp.attrs["q_min"]             = float(q_min) if q_min is not None else np.nan
         grp.attrs["q_max"]             = float(q_max) if q_max is not None else np.nan
+        # Fit quality stored as scalar datasets (browseable/collectable in HDF5 viewer)
+        grp.create_dataset("chi_squared",         data=float(result.get("chi2", np.nan)))
+        grp.create_dataset("reduced_chi_squared",  data=float(result.get("reduced_chi2", np.nan)))
 
         # ── Main arrays ───────────────────────────────────────────────────
         q_arr = np.asarray(q, dtype=float)
@@ -241,11 +242,20 @@ def load_waxs_peakfit_results(filepath: Path) -> Dict:
         def _arr(key):
             return np.array(grp[key], dtype=float) if key in grp else None
 
+        def _scalar(key, default=np.nan):
+            """Try dataset first (new format), fall back to attribute (old format)."""
+            if key in grp and isinstance(grp[key], h5py.Dataset):
+                try:
+                    return float(grp[key][()])
+                except Exception:
+                    pass
+            return float(attrs.get(key, default))
+
         result: Dict = {
             "n_peaks":           n_peaks,
             "bg_shape":          bg_shape,
-            "chi_squared":       float(attrs.get("chi_squared",         np.nan)),
-            "reduced_chi_squared": float(attrs.get("reduced_chi_squared", np.nan)),
+            "chi_squared":       _scalar("chi_squared"),
+            "reduced_chi_squared": _scalar("reduced_chi_squared"),
             "dof":               int(attrs.get("dof",   0)),
             "q_min":             float(attrs.get("q_min", np.nan)),
             "q_max":             float(attrs.get("q_max", np.nan)),

@@ -153,6 +153,9 @@ class HDF5ViewerWindow(QMainWindow):
         self._hdf5_browser.collect_value_requested.connect(
             self._plot_controls.set_collect_custom_path
         )
+        self._hdf5_browser.set_x_axis_path_requested.connect(
+            self._plot_controls.set_x_axis_path
+        )
 
         # Plot controls → main window
         self._plot_controls.new_graph_requested.connect(self._open_new_graph)

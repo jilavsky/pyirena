@@ -94,13 +94,13 @@ def save_simple_fit_results(
         grp.attrs['timestamp']        = timestamp
         grp.attrs['model']            = str(result.get('model', ''))
         grp.attrs['success']          = bool(result.get('success', False))
-
-        if result.get('chi2') is not None:
-            grp.attrs['chi_squared'] = float(result['chi2'])
-        if result.get('reduced_chi2') is not None:
-            grp.attrs['reduced_chi_squared'] = float(result['reduced_chi2'])
         if result.get('dof') is not None:
             grp.attrs['dof'] = int(result['dof'])
+        # Fit quality stored as scalar datasets (browseable/collectable in HDF5 viewer)
+        if result.get('chi2') is not None:
+            grp.create_dataset('chi_squared', data=float(result['chi2']))
+        if result.get('reduced_chi2') is not None:
+            grp.create_dataset('reduced_chi_squared', data=float(result['reduced_chi2']))
 
         if model_obj is not None:
             grp.attrs['use_complex_bg'] = bool(model_obj.use_complex_bg)
@@ -209,11 +209,19 @@ def load_simple_fit_results(filepath: Path) -> dict:
 
         # ── Scalar metadata ────────────────────────────────────────────────────
         for k in (
-            'model', 'success', 'chi_squared', 'reduced_chi_squared', 'dof',
-            'q_min', 'q_max', 'use_complex_bg', 'n_mc_runs',
-            'timestamp', 'program',
+            'model', 'success', 'dof', 'q_min', 'q_max',
+            'use_complex_bg', 'n_mc_runs', 'timestamp', 'program',
         ):
             result[k] = grp.attrs.get(k)
+        # chi_squared / reduced_chi_squared: try dataset (new) then attr (old)
+        for k in ('chi_squared', 'reduced_chi_squared'):
+            if k in grp and isinstance(grp[k], h5py.Dataset):
+                try:
+                    result[k] = float(grp[k][()])
+                except Exception:
+                    result[k] = grp.attrs.get(k)
+            else:
+                result[k] = grp.attrs.get(k)
 
         # ── Arrays ────────────────────────────────────────────────────────────
         result['Q']       = grp['Q'][:]       if 'Q'       in grp else None

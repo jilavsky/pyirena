@@ -149,12 +149,13 @@ def save_unified_fit_results(filepath: Path,
         unified_group.attrs['program'] = 'pyirena'
         unified_group.attrs['timestamp'] = timestamp
         unified_group.attrs['num_levels'] = num_levels
-        unified_group.attrs['background'] = background
-        unified_group.attrs['chi_squared'] = chi_squared
+        # Store fit results as scalar datasets (browseable/collectable in HDF5 viewer)
+        unified_group.create_dataset('background', data=float(background))
+        unified_group.create_dataset('chi_squared', data=float(chi_squared))
         if uncertainties is not None:
             bg_err = uncertainties.get('background', 0.0)
             if bg_err > 0.0:
-                unified_group.attrs['background_err'] = bg_err
+                unified_group.create_dataset('background_err', data=float(bg_err))
 
         # Store Q vector
         ds_q = unified_group.create_dataset('Q', data=q)
@@ -187,18 +188,20 @@ def save_unified_fit_results(filepath: Path,
             level_group.attrs['level_number'] = level_num
 
             for param_name, param_value in level_params.items():
-                if isinstance(param_value, (int, float, bool)):
-                    level_group.attrs[param_name] = param_value
+                if isinstance(param_value, (int, float)) and not isinstance(param_value, bool):
+                    # Numeric params as scalar datasets (browseable/collectable)
+                    level_group.create_dataset(param_name, data=float(param_value))
                 elif isinstance(param_value, str):
+                    # String params stay as attributes
                     level_group.attrs[param_name] = param_value
 
-            # Store MC uncertainties as <param>_err attributes (non-zero only)
+            # Store MC uncertainties as <param>_err scalar datasets (non-zero only)
             if uncertainties is not None and i < len(uncertainties.get('levels', [])):
                 ud = uncertainties['levels'][i]
                 for param_key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
                     err_val = ud.get(param_key, 0.0)
                     if err_val > 0.0:
-                        level_group.attrs[f'{param_key}_err'] = err_val
+                        level_group.create_dataset(f'{param_key}_err', data=float(err_val))
 
         print(f"Saved Unified Fit results to {filepath}")
 
@@ -233,10 +236,17 @@ def load_unified_fit_results(filepath: Path) -> Dict:
 
         # Load global attributes
         results['num_levels'] = unified.attrs['num_levels']
-        results['background'] = unified.attrs['background']
-        results['chi_squared'] = unified.attrs['chi_squared']
         results['timestamp'] = unified.attrs['timestamp']
         results['program'] = unified.attrs.get('program', 'unknown')
+        # background and chi_squared: try dataset (new format) then attr (old format)
+        results['background'] = (
+            float(unified['background'][()]) if 'background' in unified
+            else unified.attrs.get('background', 0.0)
+        )
+        results['chi_squared'] = (
+            float(unified['chi_squared'][()]) if 'chi_squared' in unified
+            else unified.attrs.get('chi_squared', np.nan)
+        )
 
         # Load arrays
         results['Q'] = unified['Q'][:]
@@ -259,9 +269,18 @@ def load_unified_fit_results(filepath: Path) -> Dict:
                 level_group = unified[level_path]
                 level_params = {}
 
-                # Get all attributes
+                # New format: numeric params stored as scalar datasets
+                for key, item in level_group.items():
+                    if isinstance(item, h5py.Dataset) and item.shape == ():
+                        try:
+                            level_params[key] = float(item[()])
+                        except (TypeError, ValueError):
+                            level_params[key] = item[()]
+
+                # Backward compat: also read attrs not yet covered as datasets
                 for key in level_group.attrs.keys():
-                    level_params[key] = level_group.attrs[key]
+                    if key not in level_params:
+                        level_params[key] = level_group.attrs[key]
 
                 results['levels'].append(level_params)
 
