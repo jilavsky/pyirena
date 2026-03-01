@@ -402,7 +402,7 @@ class PlotControlsPanel(QWidget):
                 else:
                     errors.append(f"No Size Dist. in {stem}")
 
-            # Size Distribution P(r)
+            # Size Distribution P(r) — goes to a separate graph (different axes)
             if self._cb_sizes_pr.isChecked():
                 result = _readers.read_sizes(filepath)
                 if result:
@@ -413,6 +413,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": yerr, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
+                        "separate_graph": True,   # P(r) vs r lives on its own axes
                     })
                 else:
                     errors.append(f"No Size Dist. in {stem}")
@@ -484,15 +485,33 @@ class PlotControlsPanel(QWidget):
 
     # ── Button handlers ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _split_curves(curves: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Split curves into (regular, separate_graph) groups."""
+        regular = [c for c in curves if not c.get("separate_graph")]
+        separate = [c for c in curves if c.get("separate_graph")]
+        return regular, separate
+
     def _on_new_graph(self) -> None:
         curves = self._build_curves()
-        if curves:
-            self.new_graph_requested.emit(curves)
+        if not curves:
+            return
+        regular, separate = self._split_curves(curves)
+        if regular:
+            self.new_graph_requested.emit(regular)
+        if separate:
+            self.new_graph_requested.emit(separate)
 
     def _on_add_to_active(self) -> None:
         curves = self._build_curves()
-        if curves:
-            self.add_to_active_graph_requested.emit(curves)
+        if not curves:
+            return
+        regular, separate = self._split_curves(curves)
+        if regular:
+            self.add_to_active_graph_requested.emit(regular)
+        if separate:
+            # P(r) always opens its own window — different axes
+            self.new_graph_requested.emit(separate)
 
     def _on_collect(self) -> None:
         if not self._selected_files:
@@ -561,16 +580,17 @@ class PlotControlsPanel(QWidget):
         type_text = self._collect_type.currentText()
 
         is_custom = (type_text == "Custom HDF5 path")
+        needs_index = type_text in ("Unified Fit", "WAXS Peak Fit")
 
         # Custom path row visibility
         self._collect_path.setVisible(is_custom)
         self._collect_hint.setVisible(is_custom)
 
-        # Item and Level/Peak controls only shown for non-custom types
+        # Item shown for all non-custom types; Level/Peak only for indexed types
         self._collect_item_lbl.setVisible(not is_custom)
         self._collect_item.setVisible(not is_custom)
-        self._collect_index_lbl.setVisible(not is_custom)
-        self._collect_index.setVisible(not is_custom)
+        self._collect_index_lbl.setVisible(needs_index)
+        self._collect_index.setVisible(needs_index)
 
         if type_text == "Unified Fit":
             items = ["Rg", "G", "B", "P", "ETA", "PACK",

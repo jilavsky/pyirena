@@ -687,6 +687,34 @@ class DataSelectorConfigDialog(QDialog):
             'max':     200,
             'decimals': 0,
         },
+        {
+            'group':   'Batch Script Options',
+            'key':     'batch_mc_uncertainty',
+            'label':   'Run with MC uncertainty',
+            'tooltip': (
+                'When enabled, batch scripts for Unified Fit, Size Distribution\n'
+                'and Simple Fits will calculate parameter uncertainties via Monte\n'
+                'Carlo after each fit.  This significantly increases run time.\n'
+                '(WAXS Peak Fit uses least-squares uncertainties — not affected.)\n'
+                'Default: off'
+            ),
+            'type':    'bool',
+            'default': False,
+        },
+        {
+            'group':   'Batch Script Options',
+            'key':     'batch_mc_n_runs',
+            'label':   'MC passes',
+            'tooltip': (
+                'Number of noise-perturbed fits used for MC uncertainty estimation.\n'
+                'Default: 10'
+            ),
+            'type':    'int',
+            'default': 10,
+            'min':     1,
+            'max':     500,
+            'decimals': 0,
+        },
         # -----------------------------------------------------------------------
         # Future settings — just append a dict here, no other code changes needed
         # -----------------------------------------------------------------------
@@ -1755,11 +1783,14 @@ class BatchWorker(QThread):
     progress = Signal(str)              # emitted before each file: "Working: N/M — name"
     finished = Signal(int, int, list)   # n_ok, n_fail, per-file messages
 
-    def __init__(self, tool: str, file_paths: list, config_file: str, parent=None):
+    def __init__(self, tool: str, file_paths: list, config_file: str,
+                 with_uncertainty: bool = False, n_mc_runs: int = 10, parent=None):
         super().__init__(parent)
         self.tool = tool                # 'unified', 'sizes', or 'simple_fits'
         self.file_paths = file_paths
         self.config_file = config_file
+        self.with_uncertainty = with_uncertainty
+        self.n_mc_runs = n_mc_runs
 
     def run(self):
         n_ok, n_fail = 0, 0
@@ -1774,11 +1805,16 @@ class BatchWorker(QThread):
             fit_fn = fit_sizes
         total = len(self.file_paths)
 
+        # MC uncertainty is supported by unified/sizes/simple_fits, not waxs
+        mc_kwargs = {}
+        if self.with_uncertainty and self.tool != 'waxs_peakfit':
+            mc_kwargs = {'with_uncertainty': True, 'n_mc_runs': self.n_mc_runs}
+
         for i, fp in enumerate(self.file_paths):
             fname = os.path.basename(fp)
             self.progress.emit(f"Working: {i + 1}/{total} — {fname}")
             try:
-                result = fit_fn(fp, self.config_file, save_to_nexus=True)
+                result = fit_fn(fp, self.config_file, save_to_nexus=True, **mc_kwargs)
                 if result is None:
                     result = {'success': False, 'message': 'fit returned None'}
                 if result.get('success', False):
@@ -3350,7 +3386,13 @@ class DataSelectorPanel(QWidget):
             f"⏳  Starting {tool_name} batch on {len(file_paths)} file(s)…", 'working'
         )
 
-        self._batch_worker = BatchWorker(tool, file_paths, config_file, parent=self)
+        with_unc = bool(self.state_manager.get('data_selector', 'batch_mc_uncertainty', False))
+        n_runs   = int(self.state_manager.get('data_selector', 'batch_mc_n_runs', 10))
+        self._batch_worker = BatchWorker(
+            tool, file_paths, config_file,
+            with_uncertainty=with_unc, n_mc_runs=n_runs,
+            parent=self,
+        )
         self._batch_worker.progress.connect(self._on_batch_progress)
         self._batch_worker.finished.connect(self._on_batch_finished)
         self._batch_worker.start()
