@@ -3388,14 +3388,47 @@ class DataSelectorPanel(QWidget):
         self._set_batch_status(summary, state)
         self.status_label.setText(f"Batch complete — {summary.lstrip('✓✗⚠ ')}")
 
-        # Show detail list if there were any failures
+        # Show scrollable detail list if there were any failures
         if n_fail > 0:
-            detail = "\n".join(messages)
-            QMessageBox.information(
-                self,
-                "Batch Fit — Details",
-                f"{summary}\n\n{detail}",
-            )
+            self._show_batch_results_dialog("Batch Fit — Details", summary, messages)
+
+    def _show_batch_results_dialog(
+        self, title: str, summary: str, messages: list
+    ) -> None:
+        """Show batch results in a scrollable dialog constrained to the screen height."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(500)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 8)
+        layout.setSpacing(8)
+
+        # Summary line at top
+        lbl = QLabel(summary)
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        # Scrollable per-file results list
+        list_w = QListWidget()
+        list_w.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        for msg in messages:
+            list_w.addItem(msg)
+        layout.addWidget(list_w, 1)
+
+        # OK button always visible at bottom
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btn_box.accepted.connect(dlg.accept)
+        layout.addWidget(btn_box)
+
+        # Constrain dialog height to 80% of the available screen to keep OK visible
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            available_h = screen.availableGeometry().height()
+            dlg.setMaximumHeight(int(available_h * 0.80))
+
+        dlg.resize(540, min(500, dlg.maximumHeight()))
+        dlg.exec()
 
     def open_configure_dialog(self):
         """Open the extensible configuration dialog for data loading options."""
