@@ -18,14 +18,14 @@ from typing import Optional
 try:
     from PySide6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-        QLabel, QMenu, QSizePolicy, QAbstractItemView,
+        QLabel, QLineEdit, QMenu, QSizePolicy, QAbstractItemView,
     )
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtGui import QFont, QAction
 except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
         QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-        QLabel, QMenu, QSizePolicy, QAbstractItemView,
+        QLabel, QLineEdit, QMenu, QSizePolicy, QAbstractItemView,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
     from PyQt6.QtGui import QFont, QAction             # type: ignore[no-redef]
@@ -97,9 +97,22 @@ class HDF5BrowserWidget(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(3)
 
+        # Panel subtitle
+        subtitle = QLabel("Data Select")
+        subtitle.setStyleSheet(
+            "font-size:10pt; font-weight:bold; color:#2c3e50;"
+            "padding:3px 4px; background:#dfe6e9; border-bottom:1px solid #b2bec3;"
+        )
+        layout.addWidget(subtitle)
+
+        # Prominent filename
         self._file_label = QLabel("(no file selected)")
-        self._file_label.setWordWrap(False)
-        self._file_label.setStyleSheet("font-size:9pt; color:#555;")
+        self._file_label.setWordWrap(True)
+        self._file_label.setStyleSheet(
+            "font-size:11pt; font-weight:bold; color:#1a1a1a;"
+            "padding:3px 4px;"
+        )
+        self._file_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(self._file_label)
 
         self._tree = QTreeWidget()
@@ -110,7 +123,15 @@ class HDF5BrowserWidget(QWidget):
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemExpanded.connect(self._on_item_expanded)
+        self._tree.currentItemChanged.connect(self._on_current_item_changed)
         layout.addWidget(self._tree, 1)
+
+        # Scalar value display
+        self._value_edit = QLineEdit()
+        self._value_edit.setReadOnly(True)
+        self._value_edit.setPlaceholderText("Select a scalar dataset or attribute to see its value")
+        self._value_edit.setStyleSheet("font-size:9pt; color:#333;")
+        layout.addWidget(self._value_edit)
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -119,6 +140,7 @@ class HDF5BrowserWidget(QWidget):
         self._close_h5()
         self._tree.clear()
         self._filepath = filepath
+        self._value_edit.clear()
 
         if not filepath or not os.path.isfile(filepath):
             self._file_label.setText("(no file selected)")
@@ -144,6 +166,7 @@ class HDF5BrowserWidget(QWidget):
         self._close_h5()
         self._tree.clear()
         self._file_label.setText("(no file selected)")
+        self._value_edit.clear()
 
     # ── Tree population ────────────────────────────────────────────────────
 
@@ -259,6 +282,24 @@ class HDF5BrowserWidget(QWidget):
             return
 
         self._populate_group(item, h5_node, h5_path)
+
+    def _on_current_item_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
+        """Show scalar value of the selected item in the value display field."""
+        if current is None:
+            self._value_edit.clear()
+            return
+        info = current.text(1)   # "Info" column
+        if " = " in info:
+            # Scalar dataset: info looks like "scalar  [float64] = 1.23"
+            value_str = info.split(" = ", 1)[1]
+            name = current.text(0)
+            self._value_edit.setText(f"{name} = {value_str}")
+        elif current.text(0).startswith("@"):
+            # Attribute item: info column is the value
+            name = current.text(0)
+            self._value_edit.setText(f"{name} = {info}")
+        else:
+            self._value_edit.clear()
 
     # ── Context menu ───────────────────────────────────────────────────────
 

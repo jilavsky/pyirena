@@ -118,6 +118,14 @@ class FileTreeWidget(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(3)
 
+        # Panel subtitle
+        subtitle = QLabel("File Select")
+        subtitle.setStyleSheet(
+            "font-size:10pt; font-weight:bold; color:#2c3e50;"
+            "padding:3px 4px; background:#dfe6e9; border-bottom:1px solid #b2bec3;"
+        )
+        layout.addWidget(subtitle)
+
         # Folder selection row
         folder_row = QHBoxLayout()
         self._folder_btn = QPushButton("Select Folder")
@@ -132,19 +140,25 @@ class FileTreeWidget(QWidget):
         folder_row.addWidget(self._folder_label, 1)
         layout.addLayout(folder_row)
 
-        # Sort + filter row
-        ctrl_row = QHBoxLayout()
+        # Sort row
         self._sort_combo = QComboBox()
         self._sort_combo.addItems(_SORT_LABELS)
         self._sort_combo.setCurrentIndex(self._sort_index)
-        self._sort_combo.setMaximumWidth(140)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        layout.addWidget(self._sort_combo)
+
+        # Filter row (below sort)
         self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Filter…")
+        self._filter_edit.setPlaceholderText("Filter… (regex OK, e.g. 60C|0[12]min)")
+        self._filter_edit.setToolTip(
+            "Filter filenames.  Regular expressions are supported:\n"
+            "  60C        — files containing '60C'\n"
+            "  0[12]min   — files with '01min' or '02min'\n"
+            "  ^sample    — files starting with 'sample'\n"
+            "Plain text fragments also work."
+        )
         self._filter_edit.textChanged.connect(self._on_filter_changed)
-        ctrl_row.addWidget(self._sort_combo)
-        ctrl_row.addWidget(self._filter_edit, 1)
-        layout.addLayout(ctrl_row)
+        layout.addWidget(self._filter_edit)
 
         # Count label
         self._count_label = QLabel("")
@@ -319,7 +333,7 @@ class FileTreeWidget(QWidget):
         self._refresh_tree()
 
     def _on_filter_changed(self, text: str) -> None:
-        self._filter_text = text.strip().lower()
+        self._filter_text = text.strip()
         self._apply_filter()
         self._update_count()
 
@@ -348,8 +362,14 @@ class FileTreeWidget(QWidget):
                     any_visible |= child_visible
             else:
                 # File item
-                name = child.text(0).lower()
-                visible = (not flt) or (flt in name)
+                name = child.text(0)
+                if not flt:
+                    visible = True
+                else:
+                    try:
+                        visible = bool(re.search(flt, name, re.IGNORECASE))
+                    except re.error:
+                        visible = flt.lower() in name.lower()
                 child.setHidden(not visible)
                 any_visible |= visible
         return any_visible

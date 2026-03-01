@@ -17,12 +17,14 @@ from pathlib import Path
 try:
     from PySide6.QtWidgets import (
         QMainWindow, QWidget, QSplitter, QStatusBar, QHBoxLayout,
+        QVBoxLayout, QLabel,
     )
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QAction, QCloseEvent
 except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
         QMainWindow, QWidget, QSplitter, QStatusBar, QHBoxLayout,
+        QVBoxLayout, QLabel,
     )
     from PyQt6.QtCore import Qt  # type: ignore[no-redef]
     from PyQt6.QtGui import QAction, QCloseEvent  # type: ignore[no-redef]
@@ -87,7 +89,20 @@ class HDF5ViewerWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, central)
+        vl = QVBoxLayout(central)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.setSpacing(0)
+
+        # Application title
+        title_lbl = QLabel("pyIrena HDF5 Viewer / Data Extractor")
+        title_lbl.setStyleSheet(
+            "font-size:13pt; font-weight:bold; color:#2c3e50;"
+            "padding:6px 10px 5px 10px; background:#ecf0f1;"
+            "border-bottom:1px solid #bdc3c7;"
+        )
+        vl.addWidget(title_lbl)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left panel — file tree
         self._file_tree = FileTreeWidget()
@@ -110,9 +125,7 @@ class HDF5ViewerWindow(QMainWindow):
         splitter.setStretchFactor(1, 0)
         splitter.setStretchFactor(2, 1)
 
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(splitter)
+        vl.addWidget(splitter, 1)
 
         # Status bar
         self._status_bar = QStatusBar()
