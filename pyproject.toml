@@ -68,9 +68,10 @@ Repository = "https://github.com/jilavsky/pyirena"
 
 [project.scripts]
 pyirena-gui = "pyirena.gui.launch:main"
+pyirena-viewer = "pyirena.gui.hdf5viewer:main"
 
 [tool.setuptools]
-packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting", "pyirena.gui"]
+packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting", "pyirena.gui", "pyirena.gui.hdf5viewer"]
 
 [tool.setuptools.package-data]
 pyirena = ["py.typed"]

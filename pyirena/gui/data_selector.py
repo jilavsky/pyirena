@@ -1819,6 +1819,7 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_results_window = None # Graph of stored simple fit results
         self.waxs_peakfit_window = None        # WAXS Peak Fit panel
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
+        self.hdf5_viewer_window = None         # HDF5 Viewer / Data Extractor
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -2270,6 +2271,21 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.waxs_peakfit_button,        6, 0)
         btn_grid.addWidget(self.waxs_peakfit_script_button, 6, 1)
 
+        _hdf5v_style = (
+            "QPushButton { background: #16a085; color: white; "
+            "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
+            "QPushButton:hover { background: #1abc9c; }"
+            "QPushButton:disabled { background: #95a5a6; }"
+        )
+        self.hdf5_viewer_button = QPushButton("HDF5 Viewer")
+        self.hdf5_viewer_button.setMinimumHeight(38)
+        self.hdf5_viewer_button.setStyleSheet(_hdf5v_style)
+        self.hdf5_viewer_button.setToolTip(
+            "Open the HDF5 Viewer / Data Extractor for the current folder."
+        )
+        self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
+        btn_grid.addWidget(self.hdf5_viewer_button, 7, 0, 1, 2)
+
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
@@ -2336,6 +2352,14 @@ class DataSelectorPanel(QWidget):
         models_menu.addAction(placeholder_action)
 
         menu_bar.addMenu(models_menu)
+
+        # Tools menu
+        tools_menu = QMenu("&Tools", self)
+        hdf5_viewer_action = QAction("&HDF5 Viewer", self)
+        hdf5_viewer_action.setStatusTip("Open HDF5 Viewer / Data Extractor")
+        hdf5_viewer_action.triggered.connect(self.launch_hdf5_viewer)
+        tools_menu.addAction(hdf5_viewer_action)
+        menu_bar.addMenu(tools_menu)
 
         # Help menu
         help_menu = QMenu("&Help", self)
@@ -3257,6 +3281,21 @@ class DataSelectorPanel(QWidget):
     def run_waxs_peakfit_script(self):
         """Batch-fit all selected files with WAXS Peak Fit."""
         self._run_batch_fit('waxs_peakfit')
+
+    def launch_hdf5_viewer(self):
+        """Open the HDF5 Viewer / Data Extractor for the current folder."""
+        from pyirena.gui.hdf5viewer import HDF5ViewerWindow
+
+        if self.hdf5_viewer_window is None:
+            self.hdf5_viewer_window = HDF5ViewerWindow(
+                initial_folder=self.current_folder or None,
+                state_manager=self.state_manager,
+            )
+
+        self.hdf5_viewer_window.show()
+        self.hdf5_viewer_window.raise_()
+        self.hdf5_viewer_window.activateWindow()
+        self.status_label.setText("HDF5 Viewer opened.")
 
     def _find_config_file(self) -> Optional[str]:
         """

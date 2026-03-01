@@ -45,6 +45,11 @@ class StateManager:
             "last_folder": "",
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
         },
+        "hdf5_viewer": {
+            "last_folder": "",
+            "sort_index": 6,      # Order number ↑ (same default as data_selector)
+            "filter_text": "",
+        },
         "simple_fits": {
             # schema_version 1: initial release
             "schema_version": 1,
