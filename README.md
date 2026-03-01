@@ -20,6 +20,7 @@ Python tools for small-angle scattering data analysis, centered on the **Unified
 | Unified Fit features & parameters | [docs/unified_fit_features.md](docs/unified_fit_features.md) |
 | Simple Fits GUI guide | [docs/simple_fits_gui.md](docs/simple_fits_gui.md) |
 | WAXS Peak Fit GUI guide | [docs/waxs_peakfit_gui.md](docs/waxs_peakfit_gui.md) |
+| HDF5 Viewer / Data Extractor guide | [docs/hdf5_viewer_gui.md](docs/hdf5_viewer_gui.md) |
 | NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
 | Batch fitting API (scripting & automation) | [docs/batch_api.md](docs/batch_api.md) |
 | Usage guide (scripting) | [docs/usage_guide.md](docs/usage_guide.md) |

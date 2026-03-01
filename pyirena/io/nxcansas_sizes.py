@@ -114,27 +114,31 @@ def save_sizes_results(
         grp.attrs['program']   = _PROGRAM
         grp.attrs['timestamp'] = timestamp
 
-        # Store scalar metadata as attributes
-        _scalar_keys = (
-            # Fit results
-            'chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power',
-            # Model / grid setup
+        # Key fit results stored as scalar datasets (browseable/collectable in HDF5 viewer)
+        _dataset_keys = ('chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power')
+        for k in _dataset_keys:
+            if k in params and params[k] is not None:
+                try:
+                    grp.create_dataset(k, data=float(params[k]))
+                except (TypeError, ValueError):
+                    grp.attrs[k] = params[k]
+
+        # Model / grid setup stored as attributes (too many to be individual datasets)
+        _attr_keys = (
             'shape', 'contrast', 'aspect_ratio',
             'r_min', 'r_max', 'n_bins', 'log_spacing',
             'background', 'power_law_B', 'power_law_P',
             'method', 'error_scale',
-            # Method-specific parameters
             'maxent_sky_background', 'maxent_stability', 'maxent_max_iter',
             'regularization_evalue', 'regularization_min_ratio',
             'tnnls_approach_param', 'tnnls_max_iter',
             'montecarlo_n_repetitions',
             'montecarlo_convergence', 'montecarlo_max_iter',
-            # Q ranges used during fitting
             'power_law_q_min', 'power_law_q_max',
             'background_q_min', 'background_q_max',
             'cursor_q_min', 'cursor_q_max',
         )
-        for k in _scalar_keys:
+        for k in _attr_keys:
             if k in params and params[k] is not None:
                 grp.attrs[k] = params[k]
 
@@ -220,10 +224,19 @@ def load_sizes_results(filepath: Path) -> dict:
         else:
             result['distribution_std'] = None
 
-        # Scalar metadata from attributes
+        # Scalar metadata: fit results may be datasets (new format) or attrs (old format)
+        _dataset_keys = ('chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power')
+        for k in _dataset_keys:
+            if k in grp and isinstance(grp[k], h5py.Dataset):
+                try:
+                    result[k] = float(grp[k][()])
+                except Exception:
+                    result[k] = grp.attrs.get(k)
+            else:
+                result[k] = grp.attrs.get(k)
+
+        # Remaining metadata from attributes only
         for k in (
-            # Fit results
-            'chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power',
             # Model / grid setup
             'shape', 'contrast', 'aspect_ratio',
             'r_min', 'r_max', 'n_bins', 'log_spacing',

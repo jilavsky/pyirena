@@ -687,6 +687,34 @@ class DataSelectorConfigDialog(QDialog):
             'max':     200,
             'decimals': 0,
         },
+        {
+            'group':   'Batch Script Options',
+            'key':     'batch_mc_uncertainty',
+            'label':   'Run with MC uncertainty',
+            'tooltip': (
+                'When enabled, batch scripts for Unified Fit, Size Distribution\n'
+                'and Simple Fits will calculate parameter uncertainties via Monte\n'
+                'Carlo after each fit.  This significantly increases run time.\n'
+                '(WAXS Peak Fit uses least-squares uncertainties — not affected.)\n'
+                'Default: off'
+            ),
+            'type':    'bool',
+            'default': False,
+        },
+        {
+            'group':   'Batch Script Options',
+            'key':     'batch_mc_n_runs',
+            'label':   'MC passes',
+            'tooltip': (
+                'Number of noise-perturbed fits used for MC uncertainty estimation.\n'
+                'Default: 10'
+            ),
+            'type':    'int',
+            'default': 10,
+            'min':     1,
+            'max':     500,
+            'decimals': 0,
+        },
         # -----------------------------------------------------------------------
         # Future settings — just append a dict here, no other code changes needed
         # -----------------------------------------------------------------------
@@ -1755,11 +1783,14 @@ class BatchWorker(QThread):
     progress = Signal(str)              # emitted before each file: "Working: N/M — name"
     finished = Signal(int, int, list)   # n_ok, n_fail, per-file messages
 
-    def __init__(self, tool: str, file_paths: list, config_file: str, parent=None):
+    def __init__(self, tool: str, file_paths: list, config_file: str,
+                 with_uncertainty: bool = False, n_mc_runs: int = 10, parent=None):
         super().__init__(parent)
         self.tool = tool                # 'unified', 'sizes', or 'simple_fits'
         self.file_paths = file_paths
         self.config_file = config_file
+        self.with_uncertainty = with_uncertainty
+        self.n_mc_runs = n_mc_runs
 
     def run(self):
         n_ok, n_fail = 0, 0
@@ -1774,11 +1805,16 @@ class BatchWorker(QThread):
             fit_fn = fit_sizes
         total = len(self.file_paths)
 
+        # MC uncertainty is supported by unified/sizes/simple_fits, not waxs
+        mc_kwargs = {}
+        if self.with_uncertainty and self.tool != 'waxs_peakfit':
+            mc_kwargs = {'with_uncertainty': True, 'n_mc_runs': self.n_mc_runs}
+
         for i, fp in enumerate(self.file_paths):
             fname = os.path.basename(fp)
             self.progress.emit(f"Working: {i + 1}/{total} — {fname}")
             try:
-                result = fit_fn(fp, self.config_file, save_to_nexus=True)
+                result = fit_fn(fp, self.config_file, save_to_nexus=True, **mc_kwargs)
                 if result is None:
                     result = {'success': False, 'message': 'fit returned None'}
                 if result.get('success', False):
@@ -1819,6 +1855,7 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_results_window = None # Graph of stored simple fit results
         self.waxs_peakfit_window = None        # WAXS Peak Fit panel
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
+        self.hdf5_viewer_window = None         # HDF5 Viewer / Data Extractor
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -2270,6 +2307,21 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.waxs_peakfit_button,        6, 0)
         btn_grid.addWidget(self.waxs_peakfit_script_button, 6, 1)
 
+        _hdf5v_style = (
+            "QPushButton { background: #16a085; color: white; "
+            "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
+            "QPushButton:hover { background: #1abc9c; }"
+            "QPushButton:disabled { background: #95a5a6; }"
+        )
+        self.hdf5_viewer_button = QPushButton("HDF5 Viewer")
+        self.hdf5_viewer_button.setMinimumHeight(38)
+        self.hdf5_viewer_button.setStyleSheet(_hdf5v_style)
+        self.hdf5_viewer_button.setToolTip(
+            "Open the HDF5 Viewer / Data Extractor for the current folder."
+        )
+        self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
+        btn_grid.addWidget(self.hdf5_viewer_button, 7, 0, 1, 2)
+
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
@@ -2336,6 +2388,14 @@ class DataSelectorPanel(QWidget):
         models_menu.addAction(placeholder_action)
 
         menu_bar.addMenu(models_menu)
+
+        # Tools menu
+        tools_menu = QMenu("&Tools", self)
+        hdf5_viewer_action = QAction("&HDF5 Viewer", self)
+        hdf5_viewer_action.setStatusTip("Open HDF5 Viewer / Data Extractor")
+        hdf5_viewer_action.triggered.connect(self.launch_hdf5_viewer)
+        tools_menu.addAction(hdf5_viewer_action)
+        menu_bar.addMenu(tools_menu)
 
         # Help menu
         help_menu = QMenu("&Help", self)
@@ -3258,6 +3318,21 @@ class DataSelectorPanel(QWidget):
         """Batch-fit all selected files with WAXS Peak Fit."""
         self._run_batch_fit('waxs_peakfit')
 
+    def launch_hdf5_viewer(self):
+        """Open the HDF5 Viewer / Data Extractor for the current folder."""
+        from pyirena.gui.hdf5viewer import HDF5ViewerWindow
+
+        if self.hdf5_viewer_window is None:
+            self.hdf5_viewer_window = HDF5ViewerWindow(
+                initial_folder=self.current_folder or None,
+                state_manager=self.state_manager,
+            )
+
+        self.hdf5_viewer_window.show()
+        self.hdf5_viewer_window.raise_()
+        self.hdf5_viewer_window.activateWindow()
+        self.status_label.setText("HDF5 Viewer opened.")
+
     def _find_config_file(self) -> Optional[str]:
         """
         Return the path to pyirena_config.json.
@@ -3311,7 +3386,13 @@ class DataSelectorPanel(QWidget):
             f"⏳  Starting {tool_name} batch on {len(file_paths)} file(s)…", 'working'
         )
 
-        self._batch_worker = BatchWorker(tool, file_paths, config_file, parent=self)
+        with_unc = bool(self.state_manager.get('data_selector', 'batch_mc_uncertainty', False))
+        n_runs   = int(self.state_manager.get('data_selector', 'batch_mc_n_runs', 10))
+        self._batch_worker = BatchWorker(
+            tool, file_paths, config_file,
+            with_uncertainty=with_unc, n_mc_runs=n_runs,
+            parent=self,
+        )
         self._batch_worker.progress.connect(self._on_batch_progress)
         self._batch_worker.finished.connect(self._on_batch_finished)
         self._batch_worker.start()
@@ -3349,14 +3430,44 @@ class DataSelectorPanel(QWidget):
         self._set_batch_status(summary, state)
         self.status_label.setText(f"Batch complete — {summary.lstrip('✓✗⚠ ')}")
 
-        # Show detail list if there were any failures
-        if n_fail > 0:
-            detail = "\n".join(messages)
-            QMessageBox.information(
-                self,
-                "Batch Fit — Details",
-                f"{summary}\n\n{detail}",
-            )
+        # Always show a scrollable results dialog
+        self._show_batch_results_dialog("Batch Fit — Results", summary, messages)
+
+    def _show_batch_results_dialog(
+        self, title: str, summary: str, messages: list
+    ) -> None:
+        """Show batch results in a scrollable, non-blocking floating window."""
+        dlg = QDialog(self, Qt.WindowType.Window)
+        dlg.setWindowTitle(title)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 8)
+        layout.setSpacing(8)
+
+        # Summary line at top
+        lbl = QLabel(summary)
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        # Scrollable per-file results list
+        list_w = QListWidget()
+        list_w.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        for msg in messages:
+            list_w.addItem(msg)
+        layout.addWidget(list_w, 1)
+
+        # OK / Close button always visible at bottom
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btn_box.accepted.connect(dlg.close)
+        layout.addWidget(btn_box)
+
+        # Fixed reasonable size — list widget scrolls automatically
+        dlg.resize(540, 460)
+
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def open_configure_dialog(self):
         """Open the extensible configuration dialog for data loading options."""
