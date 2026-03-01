@@ -101,7 +101,7 @@ def read_unified_fit(filepath: str | Path) -> dict | None:
     try:
         from pyirena.io.nxcansas_unified import load_unified_fit_results
         res = load_unified_fit_results(Path(filepath))
-        if not res or not res.get("found"):
+        if not res:
             return None
         return {
             "Q":       np.asarray(res["Q"],              float),
@@ -130,7 +130,7 @@ def read_sizes(filepath: str | Path) -> dict | None:
     try:
         from pyirena.io.nxcansas_sizes import load_sizes_results
         res = load_sizes_results(Path(filepath))
-        if not res or not res.get("found"):
+        if not res:
             return None
         dist_std = res.get("distribution_std")
         return {
