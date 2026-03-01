@@ -5,6 +5,7 @@ HDF5 files as both a table and a pyqtgraph scatter plot.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +59,7 @@ class CollectWindow(QWidget):
         self._rows = rows
         self._x_label = x_label
         self._y_label = y_label
+        self._window_title = title
 
         self._build_ui()
         self._populate()
@@ -192,9 +194,13 @@ class CollectWindow(QWidget):
 
     # ── Export ─────────────────────────────────────────────────────────────
 
+    def _default_path(self, ext: str) -> str:
+        safe = re.sub(r"[^\w\s-]", "", self._window_title).strip().replace(" ", "_")
+        return str(Path.cwd() / ((safe or "collected_values") + ext))
+
     def _save_csv(self) -> None:
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save CSV", str(Path.home()),
+            self, "Save CSV", self._default_path(".csv"),
             "CSV files (*.csv);;All files (*)",
         )
         if not filepath:
@@ -218,7 +224,7 @@ class CollectWindow(QWidget):
 
     def _save_jpeg(self) -> None:
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save as JPEG", str(Path.home()),
+            self, "Save as JPEG", self._default_path(".jpg"),
             "JPEG images (*.jpg);;All files (*)",
         )
         if not filepath:

@@ -279,16 +279,28 @@ def _read_scalar_value(node, key: str) -> float | None:
         return None
 
 
-def _collect_unified(filepath, item: str, level: int) -> float | None:
+def _collect_unified(filepath, item: str, level: int) -> float | tuple | None:
     try:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/unified_fit_results"]
             if item == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
             if item == "background":
-                return _read_scalar_value(grp, "background")
+                val = _read_scalar_value(grp, "background")
+                err = _read_scalar_value(grp, "background_err")
+                if val is not None and err is not None and np.isfinite(err):
+                    return (val, err)
+                return val
             level_grp = grp[f"level_{level}"]
-            return _read_scalar_value(level_grp, item)
+            val = _read_scalar_value(level_grp, item)
+            if val is None:
+                return None
+            # For primary params, also try to find a paired _err dataset
+            if not item.endswith("_err"):
+                err = _read_scalar_value(level_grp, f"{item}_err")
+                if err is not None and np.isfinite(err):
+                    return (val, err)
+            return val
     except Exception:
         return None
 
@@ -302,27 +314,55 @@ def _collect_sizes(filepath, item: str) -> float | None:
         return None
 
 
-def _collect_waxs(filepath, item: str, peak: int) -> float | None:
+def _collect_waxs(filepath, item: str, peak: int) -> float | tuple | None:
     try:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/waxs_peakfit_results"]
             if item == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
             peak_name = f"peak_{peak+1:02d}"
-            params_grp = grp[peak_name]["params"]
-            return float(params_grp[item][()])
+            pk_grp = grp[peak_name]
+            # Explicit std request (e.g. "Q0_err")
+            if item.endswith("_err"):
+                base = item[:-4]
+                if "params_std" in pk_grp and base in pk_grp["params_std"]:
+                    return float(pk_grp["params_std"][base][()])
+                return None
+            # Primary param — also fetch paired std
+            params_grp = pk_grp["params"]
+            val = float(params_grp[item][()])
+            if "params_std" in pk_grp and item in pk_grp["params_std"]:
+                std = float(pk_grp["params_std"][item][()])
+                if np.isfinite(std):
+                    return (val, std)
+            return val
     except Exception:
         return None
 
 
-def _collect_simple_fit(filepath, item: str, param_name: str) -> float | None:
+def _collect_simple_fit(filepath, item: str, param_name: str) -> float | tuple | None:
     try:
         with h5py.File(str(filepath), "r") as f:
             grp = f["entry/simple_fit_results"]
             if item == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
             if item == "param" and param_name:
-                return float(grp["params"][param_name][()])
+                # chi2 passed as param_name (from UI combo)
+                if param_name == "chi2":
+                    return _read_scalar_value(grp, "chi_squared")
+                # Explicit std request (e.g. "Rg_err")
+                if param_name.endswith("_err"):
+                    base = param_name[:-4]
+                    if "params_std" in grp and base in grp["params_std"]:
+                        return float(grp["params_std"][base][()])
+                    return None
+                # Primary param — also fetch paired std
+                val = float(grp["params"][param_name][()])
+                if "params_std" in grp and param_name in grp["params_std"]:
+                    std = float(grp["params_std"][param_name][()])
+                    if np.isfinite(std):
+                        return (val, std)
+                return val
     except Exception:
         return None
 

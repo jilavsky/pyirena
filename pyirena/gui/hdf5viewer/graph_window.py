@@ -194,6 +194,10 @@ class GraphWindow(QWidget):
         act_styles.triggered.connect(self._edit_curve_styles)
         vb.menu.addAction(act_styles)
 
+        act_rm_err = QAction("Remove error bars", self)
+        act_rm_err.triggered.connect(self._remove_error_bars)
+        vb.menu.addAction(act_rm_err)
+
         vb.menu.addSeparator()
 
         act_png = QAction("Save PNG…", self)
@@ -411,6 +415,23 @@ class GraphWindow(QWidget):
         dlg = _CurveStylesDialog(self._curves, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._redraw_all()
+
+    def _remove_error_bars(self) -> None:
+        """Remove all error bar overlays from the plot (does not affect exported data)."""
+        changed = False
+        for curve in self._curves:
+            if curve.get("err_ref") is not None:
+                try:
+                    self._plot.removeItem(curve["err_ref"])
+                except Exception:
+                    pass
+                curve["err_ref"] = None
+                curve["yerr"] = None
+                changed = True
+        if changed:
+            self._status.setText(
+                f"{len(self._curves)} curve(s)  [error bars removed]"
+            )
 
     # ── Focus / lifecycle ──────────────────────────────────────────────────
 

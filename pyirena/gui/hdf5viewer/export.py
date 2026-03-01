@@ -7,6 +7,7 @@ Provides: JPEG, PNG, CSV, HDF5, ITX (Igor Pro text format), matplotlib figure.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,12 +22,18 @@ if TYPE_CHECKING:
     from .graph_window import GraphWindow
 
 
+def _default_save_path(title: str, ext: str) -> str:
+    """Return CWD / sanitised_title + ext as the default save path."""
+    safe = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "_")
+    return str(Path.cwd() / ((safe or "graph") + ext))
+
+
 # ── JPEG / PNG ─────────────────────────────────────────────────────────────
 
 def save_jpeg(gw: "GraphWindow", filepath: str | None = None) -> bool:
     if filepath is None:
         filepath, _ = QFileDialog.getSaveFileName(
-            gw, "Save as JPEG", str(Path.home()),
+            gw, "Save as JPEG", _default_save_path(gw.get_title(), ".jpg"),
             "JPEG images (*.jpg *.jpeg);;All files (*)",
         )
     if not filepath:
@@ -40,7 +47,7 @@ def save_jpeg(gw: "GraphWindow", filepath: str | None = None) -> bool:
 def save_png(gw: "GraphWindow", filepath: str | None = None) -> bool:
     if filepath is None:
         filepath, _ = QFileDialog.getSaveFileName(
-            gw, "Save as PNG", str(Path.home()),
+            gw, "Save as PNG", _default_save_path(gw.get_title(), ".png"),
             "PNG images (*.png);;All files (*)",
         )
     if not filepath:
@@ -61,7 +68,7 @@ def save_csv(gw: "GraphWindow", filepath: str | None = None) -> bool:
 
     if filepath is None:
         filepath, _ = QFileDialog.getSaveFileName(
-            gw, "Save as CSV", str(Path.home()),
+            gw, "Save as CSV", _default_save_path(gw.get_title(), ".csv"),
             "CSV files (*.csv);;All files (*)",
         )
     if not filepath:
@@ -121,7 +128,7 @@ def save_hdf5(gw: "GraphWindow", filepath: str | None = None) -> bool:
 
     if filepath is None:
         filepath, _ = QFileDialog.getSaveFileName(
-            gw, "Save as HDF5", str(Path.home()),
+            gw, "Save as HDF5", _default_save_path(gw.get_title(), ".h5"),
             "HDF5 files (*.h5 *.hdf5);;All files (*)",
         )
     if not filepath:
@@ -162,7 +169,7 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
 
     if filepath is None:
         filepath, _ = QFileDialog.getSaveFileName(
-            gw, "Save as Igor Pro ITX", str(Path.home()),
+            gw, "Save as Igor Pro ITX", _default_save_path(gw.get_title(), ".itx"),
             "Igor Pro Text (*.itx);;All files (*)",
         )
     if not filepath:
