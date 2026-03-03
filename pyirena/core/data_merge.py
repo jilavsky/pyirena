@@ -38,15 +38,19 @@ class MergeConfig:
         allows manual scaling without optimization.  Default 1.0 (no scaling).
     fit_qshift : bool
         Whether to optimize an additive Q shift.
+    fixed_qshift_value : float
+        Q shift (Å⁻¹) applied when *fit_qshift* is False.  Allows the user to
+        apply a known Q offset without running optimization.  Default 0.0.
     qshift_dataset : int
         0 = no shift, 1 = shift DS1, 2 = shift DS2.
     method : str
         Key into DataMerge.METHODS.  Currently only 'interpolation'.
     split_at_left_cursor : bool
         If True, final merged array takes DS1 only for Q < q_overlap_min and
-        DS2 for Q >= q_overlap_min (no overlap region in output).
-        Default False: all data from both datasets is included (interleaved in
-        the overlap region).
+        DS2 for Q >= q_overlap_min (hard split at left cursor, no overlap in output).
+        If False (default), DS1 is trimmed at the right cursor and DS2 at the left
+        cursor; the overlap region [q_overlap_min, q_overlap_max] contains
+        interleaved points from both datasets.
     """
     q_overlap_min: float
     q_overlap_max: float
@@ -54,6 +58,7 @@ class MergeConfig:
     scale_dataset: int = 2
     fixed_scale_value: float = 1.0
     fit_qshift: bool = False
+    fixed_qshift_value: float = 0.0
     qshift_dataset: int = 0
     method: str = 'interpolation'
     split_at_left_cursor: bool = False
@@ -203,7 +208,7 @@ class DataMerge:
         # --- build free-parameter vector and bounds ---
         # Always 3 slots: [background, scale, q_shift]
         # Unused slots are fixed at their initial values via a closure.
-        p0 = [bg_init, scale_init, 0.0]
+        p0 = [bg_init, scale_init, 0.0 if config.fit_qshift else config.fixed_qshift_value]
 
         # Background bound: allow up to the full max of DS1 in overlap.
         # Using 50% of max (the old value) prevents finding backgrounds that
@@ -337,13 +342,14 @@ class DataMerge:
             dI2_adj = dI2 * result.scale
 
         if config.split_at_left_cursor:
-            # DS1 only below overlap start, DS2 from overlap start onward
+            # Hard split at left cursor: DS1 only below, DS2 from left cursor onward
             mask1 = q1_adj < config.q_overlap_min
             mask2 = q2_adj >= config.q_overlap_min
         else:
-            # Include all data from both (interleaved in overlap region)
-            mask1 = np.ones(len(q1_adj), dtype=bool)
-            mask2 = np.ones(len(q2_adj), dtype=bool)
+            # DS1 trimmed at right cursor, DS2 trimmed at left cursor.
+            # The overlap region [left, right] is covered by both (interleaved).
+            mask1 = q1_adj <= config.q_overlap_max
+            mask2 = q2_adj >= config.q_overlap_min
 
         q_out = np.concatenate([q1_adj[mask1], q2_adj[mask2]])
         I_out = np.concatenate([I1_adj[mask1], I2_adj[mask2]])
@@ -493,10 +499,10 @@ class DataMerge:
         else:
             I2 = I2 * scale
 
-        # Q shift applied to the chosen dataset
-        if config.fit_qshift and config.qshift_dataset == 1:
+        # Q shift applied to the chosen dataset (whether fitted or user-specified)
+        if config.qshift_dataset == 1:
             q1 = q1 + q_shift
-        elif config.fit_qshift and config.qshift_dataset == 2:
+        elif config.qshift_dataset == 2:
             q2 = q2 + q_shift
 
         return q1, I1_adj, q2, I2

@@ -158,10 +158,11 @@ class _DatasetSelectorWidget(QWidget):
         filt_row.addWidget(self.filter_edit, stretch=1)
         layout.addLayout(filt_row)
 
-        # File list
+        # File list — ExtendedSelection allows Ctrl/Shift multi-select.
+        # Selected pairs (first DS1 with first DS2, etc.) are used for batch run.
         self.file_list = QListWidget()
         self.file_list.setMinimumWidth(180)
-        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.file_list, stretch=1)
 
         self.setMinimumWidth(200)
@@ -184,6 +185,15 @@ class _DatasetSelectorWidget(QWidget):
     def get_selected_filename(self) -> Optional[str]:
         items = self.file_list.selectedItems()
         return items[0].text() if items else None
+
+    def get_selected_filenames(self) -> List[str]:
+        """Return all selected filenames in list order."""
+        selected = {id(item): item for item in self.file_list.selectedItems()}
+        return [
+            self.file_list.item(i).text()
+            for i in range(self.file_list.count())
+            if id(self.file_list.item(i)) in selected
+        ]
 
     def set_displayed_files(self, names: List[str]) -> None:
         """Replace the list contents (used by match mode)."""
@@ -617,6 +627,9 @@ class DataMergePanel(QWidget):
         self._ds2 = _DatasetSelectorWidget(2)
         self._ds1.file_list.itemDoubleClicked.connect(self._on_ds1_double_clicked)
         self._ds2.file_list.itemDoubleClicked.connect(self._on_ds2_double_clicked)
+        # Re-check Batch button enable state whenever selection changes
+        self._ds1.file_list.itemSelectionChanged.connect(self._check_enable_batch_btn)
+        self._ds2.file_list.itemSelectionChanged.connect(self._check_enable_batch_btn)
         # When the user picks a new folder via the folder button: clear output folder
         # (DS1 only) and uncheck "Match files" (both datasets).
         self._ds1.folder_changed_callback = self._on_ds1_folder_changed
@@ -702,13 +715,16 @@ class DataMergePanel(QWidget):
         self._fit_qshift_chk = QCheckBox("Fit")
         self._fit_qshift_chk.setChecked(False)
         self._fit_qshift_chk.setToolTip("Fit Q-shift during optimisation")
+        self._fit_qshift_chk.toggled.connect(self._on_fit_qshift_toggled)
         row1.addWidget(self._fit_qshift_chk)
 
         self._qshift_result = QLineEdit("0.000000")
-        self._qshift_result.setReadOnly(True)
+        self._qshift_result.setReadOnly(False)   # editable by default (Fit unchecked)
         self._qshift_result.setFixedWidth(80)
-        self._qshift_result.setStyleSheet(_RDONLY_STYLE)
-        self._qshift_result.setToolTip("Optimised Q shift (Å⁻¹)")
+        self._qshift_result.setToolTip(
+            "Optimised Q shift (Å⁻¹).\n"
+            "Editable when Fit is unchecked — enter a known Q offset (e.g. 0)."
+        )
         row1.addWidget(self._qshift_result)
 
         row1.addWidget(_vline())
@@ -902,6 +918,11 @@ class DataMergePanel(QWidget):
         self._scale_result.setReadOnly(checked)
         self._scale_result.setStyleSheet(_RDONLY_STYLE if checked else "")
 
+    def _on_fit_qshift_toggled(self, checked: bool) -> None:
+        """When 'Fit Q-shift' is unchecked, let the user type a fixed Q shift."""
+        self._qshift_result.setReadOnly(checked)
+        self._qshift_result.setStyleSheet(_RDONLY_STYLE if checked else "")
+
     def _on_mode_changed(self, _idx: int) -> None:
         saxs = self._mode_combo.currentIndex() == 0
         self._graph.set_mode(saxs)
@@ -963,6 +984,10 @@ class DataMergePanel(QWidget):
             fixed_scale = float(self._scale_result.text())
         except ValueError:
             fixed_scale = 1.0
+        try:
+            fixed_qshift = float(self._qshift_result.text())
+        except ValueError:
+            fixed_qshift = 0.0
         config = MergeConfig(
             q_overlap_min=q_min,
             q_overlap_max=q_max,
@@ -970,6 +995,7 @@ class DataMergePanel(QWidget):
             scale_dataset=self._scale_ds_combo.currentIndex() + 1,   # 0→1, 1→2
             fixed_scale_value=fixed_scale,
             fit_qshift=self._fit_qshift_chk.isChecked(),
+            fixed_qshift_value=fixed_qshift,
             qshift_dataset=qshift_map[self._qshift_combo.currentText()],
             method=self._method_combo.currentData() or 'interpolation',
             split_at_left_cursor=self._split_chk.isChecked(),
@@ -1047,11 +1073,22 @@ class DataMergePanel(QWidget):
             self._status.setText(f"Save error: {exc}")
 
     def _batch_merge(self) -> None:
-        """Process all matched file pairs sequentially."""
-        pairs = self._get_matched_pairs()
+        """Process file pairs sequentially.
+
+        Pair source priority:
+        1. Selected files — if both lists have selections, zip them in order
+           (first selected DS1 with first selected DS2, etc.).
+        2. Matched pairs — fall back to the 'Match files' auto-match.
+        """
+        sel1 = self._ds1.get_selected_filenames()
+        sel2 = self._ds2.get_selected_filenames()
+        if sel1 and sel2:
+            pairs = list(zip(sel1, sel2))
+        else:
+            pairs = self._get_matched_pairs()
         if not pairs:
             QMessageBox.warning(self, "No Pairs",
-                                "Enable 'Match files' and load folders to get matched pairs.")
+                                "Select files in both lists, or enable 'Match files'.")
             return
         if not self._out_folder:
             QMessageBox.warning(self, "No Output Folder", "Select an output folder first.")
@@ -1089,12 +1126,17 @@ class DataMergePanel(QWidget):
                 fixed_scale = float(self._scale_result.text())
             except ValueError:
                 fixed_scale = 1.0
+            try:
+                fixed_qshift = float(self._qshift_result.text())
+            except ValueError:
+                fixed_qshift = 0.0
             config = MergeConfig(
                 q_overlap_min=q_min, q_overlap_max=q_max,
                 fit_scale=self._fit_scale_chk.isChecked(),
                 scale_dataset=self._scale_ds_combo.currentIndex() + 1,
                 fixed_scale_value=fixed_scale,
                 fit_qshift=self._fit_qshift_chk.isChecked(),
+                fixed_qshift_value=fixed_qshift,
                 qshift_dataset=qshift_map[self._qshift_combo.currentText()],
                 method=self._method_combo.currentData() or 'interpolation',
                 split_at_left_cursor=self._split_chk.isChecked(),
@@ -1399,7 +1441,12 @@ class DataMergePanel(QWidget):
             self._ds1.current_folder is not None
             and self._ds2.current_folder is not None
         )
-        self._batch_btn.setEnabled(has_folders and self._match_chk.isChecked())
+        has_match = self._match_chk.isChecked()
+        has_selection = (
+            len(self._ds1.file_list.selectedItems()) > 0
+            and len(self._ds2.file_list.selectedItems()) > 0
+        )
+        self._batch_btn.setEnabled(has_folders and (has_match or has_selection))
 
     def _build_provenance_dict(self) -> dict:
         r = self._last_result
