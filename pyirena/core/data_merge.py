@@ -243,7 +243,21 @@ class DataMerge:
                 return 1e30
             if params[2] < bounds[2][0] or params[2] > bounds[2][1]:
                 return 1e30
-            return self._objective(params, q1, I1, dI1, q2, I2, dI2, config)
+            chi2 = self._objective(params, q1, I1, dI1, q2, I2, dI2, config)
+            # BG regularisation to break the scale–BG valley degeneracy.
+            #
+            # For scale_dataset=2 the chi-squared is exactly zero along the
+            # line (BG = I1_interp − I2*scale), so BOTH (BG≈0, scale≈1) and
+            # (BG≈I1, scale≈0) are valid chi-squared minima.  Nelder-Mead finds
+            # whichever it hits first, often the wrong one.
+            #
+            # Adding (BG / med1)² costs ~0 at BG=0 and ~1 chi²-unit at BG=I1_median.
+            # This breaks the tie in favour of smaller background without
+            # preventing the optimizer from finding genuinely large backgrounds
+            # (where the data chi² improvement >> 1 chi²-unit).
+            if med1 > 0:
+                chi2 += (params[0] / med1) ** 2
+            return chi2
 
         # Build initial guess and bounds for the free subset
         free_p0 = []
