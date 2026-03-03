@@ -1538,8 +1538,10 @@ def merge_data(
     if data1 is None or data2 is None:
         return None
 
-    q1 = data1['Q'];  I1 = data1['Intensity'];  dI1 = data1.get('Error') or I1 * 0.05
-    q2 = data2['Q'];  I2 = data2['Intensity'];  dI2 = data2.get('Error') or I2 * 0.05
+    q1 = data1['Q'];  I1 = data1['Intensity']
+    _e1 = data1.get('Error');  dI1 = _e1 if _e1 is not None else I1 * 0.05
+    q2 = data2['Q'];  I2 = data2['Intensity']
+    _e2 = data2.get('Error');  dI2 = _e2 if _e2 is not None else I2 * 0.05
     dQ1 = data1.get('dQ')
     dQ2 = data2.get('dQ')
 

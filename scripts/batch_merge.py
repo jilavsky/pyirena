@@ -6,6 +6,10 @@ higher-Q), then merges each pair using the pyirena Data Merge engine.
 A JSON config file sets the overlap Q range and optimisation options; if
 omitted, the overlap is auto-detected and all default settings are used.
 
+Supported file extensions (accepted transparently, no --ext needed):
+  HDF5  : .h5  .hdf5  .hdf
+  ASCII : .dat  .txt
+
 Usage
 -----
 Run from any directory::
@@ -20,16 +24,17 @@ Arguments
                 Produced by the GUI's "Save JSON Config" button.  Optional.
 --output DIR    Output folder for merged files.  Default: <folder1>_merged/
                 next to folder1.
---ext1 EXT      File extension filter for folder1 (default: .h5).
---ext2 EXT      File extension filter for folder2 (default: same as --ext1).
+--ext1 EXT      Restrict folder1 to a single extension (e.g. .hdf).
+                By default all HDF5 and text extensions are collected.
+--ext2 EXT      Restrict folder2 to a single extension.
+                Default: same rule as --ext1.
 --match         Match files by shared prefix + trailing number (default).
                 Pass --no-match to process files in alphabetical order instead.
---verbose       Print per-file optimisation results (default: on).
---quiet         Suppress per-file output; only print the final summary.
+--quiet         Suppress per-file optimisation output; only print summary.
 
 Examples
 --------
-Merge matched file pairs, auto-detect overlap::
+Merge matched file pairs, auto-detect all supported extensions::
 
     python batch_merge.py --folder1 saxs/ --folder2 waxs/
 
@@ -39,6 +44,12 @@ Use a saved config file and a specific output folder::
         --folder1 saxs/ --folder2 waxs/ \\
         --config merge_config.json \\
         --output merged/
+
+Process only .hdf files (explicit extension filter)::
+
+    python batch_merge.py \\
+        --folder1 usaxs/ --folder2 saxs/ \\
+        --ext1 .hdf
 
 Process .dat text files in alphabetical order (no name-based matching)::
 
@@ -54,16 +65,29 @@ import sys
 from pathlib import Path
 
 
+# Supported extensions (same as the Data Selector GUI)
+_HDF5_EXTS = ['.h5', '.hdf5', '.hdf']
+_TEXT_EXTS  = ['.dat', '.txt']
+_ALL_EXTS   = _HDF5_EXTS + _TEXT_EXTS
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _collect_files(folder: Path, ext: str) -> list[Path]:
-    """Return sorted list of files with the given extension in *folder*."""
-    files = sorted(folder.glob(f"*{ext}"))
-    if not files:
-        # Try case-insensitive upper extension too (.H5, .DAT, …)
-        files = sorted(folder.glob(f"*{ext.upper()}"))
+def _normalise_ext(ext: str) -> str:
+    """Ensure *ext* starts with a dot and is lower-case."""
+    ext = ext.strip().lower()
+    return ext if ext.startswith('.') else '.' + ext
+
+
+def _collect_files(folder: Path, exts: list[str]) -> list[Path]:
+    """Return sorted list of files whose extension (case-insensitive) is in *exts*."""
+    exts_lower = {e.lower() for e in exts}
+    files = sorted(
+        f for f in folder.iterdir()
+        if f.is_file() and f.suffix.lower() in exts_lower
+    )
     return files
 
 
@@ -179,10 +203,12 @@ def main() -> None:
                         help='JSON merge config file (optional)')
     parser.add_argument('--output', default=None,
                         help='Output folder (default: <folder1>_merged/)')
-    parser.add_argument('--ext1', default='.h5',
-                        help='File extension for folder1 (default: .h5)')
+    parser.add_argument('--ext1', default=None,
+                        help='Restrict folder1 to one extension, e.g. .hdf  '
+                             '(default: collect all HDF5 and text files)')
     parser.add_argument('--ext2', default=None,
-                        help='File extension for folder2 (default: same as --ext1)')
+                        help='Restrict folder2 to one extension  '
+                             '(default: same rule as --ext1)')
     parser.add_argument('--match', dest='match', action='store_true', default=True,
                         help='Match files by name (default)')
     parser.add_argument('--no-match', dest='match', action='store_false',
@@ -201,20 +227,24 @@ def main() -> None:
             print(f"Error: {label} '{folder}' is not a directory.", file=sys.stderr)
             sys.exit(1)
 
-    ext1 = args.ext1 if args.ext1.startswith('.') else '.' + args.ext1
-    ext2 = (args.ext2 if args.ext2 else args.ext1)
-    if not ext2.startswith('.'):
-        ext2 = '.' + ext2
+    # Build extension lists
+    exts1 = [_normalise_ext(args.ext1)] if args.ext1 else _ALL_EXTS
+    exts2 = [_normalise_ext(args.ext2)] if args.ext2 else (
+        [_normalise_ext(args.ext1)] if args.ext1 else _ALL_EXTS
+    )
 
     # Collect files
-    files1 = _collect_files(folder1, ext1)
-    files2 = _collect_files(folder2, ext2)
+    files1 = _collect_files(folder1, exts1)
+    files2 = _collect_files(folder2, exts2)
+
+    ext1_desc = '/'.join(exts1) if len(exts1) > 1 else exts1[0]
+    ext2_desc = '/'.join(exts2) if len(exts2) > 1 else exts2[0]
 
     if not files1:
-        print(f"Error: no *{ext1} files found in {folder1}", file=sys.stderr)
+        print(f"Error: no {ext1_desc} files found in {folder1}", file=sys.stderr)
         sys.exit(1)
     if not files2:
-        print(f"Error: no *{ext2} files found in {folder2}", file=sys.stderr)
+        print(f"Error: no {ext2_desc} files found in {folder2}", file=sys.stderr)
         sys.exit(1)
 
     # Build pairs

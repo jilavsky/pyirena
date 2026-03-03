@@ -19,8 +19,8 @@ try:
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
         QTableWidget, QTableWidgetItem,
     )
-    from PySide6.QtCore import Qt, QDir, QThread, Signal
-    from PySide6.QtGui import QAction, QDoubleValidator
+    from PySide6.QtCore import Qt, QDir, QThread, Signal, QUrl
+    from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -30,8 +30,8 @@ except ImportError:
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
             QTableWidget, QTableWidgetItem,
         )
-        from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal
-        from PyQt6.QtGui import QAction, QDoubleValidator
+        from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal, QUrl
+        from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices
     except ImportError:
         raise ImportError(
             "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
@@ -1892,7 +1892,14 @@ class DataSelectorPanel(QWidget):
         content_layout.setContentsMargins(20, 20, 20, 20)
         content_layout.setSpacing(15)
 
-        # Title
+        # Title row — centred title with Help button at top-right
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(0)
+        # Invisible left spacer balances the help button so the title stays centred
+        _title_spacer = QWidget()
+        _title_spacer.setFixedWidth(70)
+        title_row.addWidget(_title_spacer)
         title_label = QLabel("pyIrena")
         title_label.setStyleSheet("""
             QLabel {
@@ -1903,7 +1910,22 @@ class DataSelectorPanel(QWidget):
             }
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        content_layout.addWidget(title_label)
+        title_row.addWidget(title_label, 1)
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/GUI_README.md"
+            ))
+        )
+        title_row.addWidget(_help_btn)
+        title_row.addSpacing(5)
+        content_layout.addLayout(title_row)
 
         # Folder selection section
         folder_layout = QHBoxLayout()
