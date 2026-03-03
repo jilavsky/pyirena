@@ -297,6 +297,9 @@ class DataMergeGraphWindow(QWidget):
         """
         if saxs == self._log_mode:
             return
+        # Save cursor Q positions (physical units) before destroying them
+        q_cur_min, q_cur_max = self.get_overlap_range()
+
         self._log_mode = saxs
         # Rebuild the PlotItem with the new mode
         self._gl.clear()
@@ -324,6 +327,10 @@ class DataMergeGraphWindow(QWidget):
         if self._q2 is not None:
             self.plot_ds2(self._q2, self._I2, self._dI2)
 
+        # Restore cursors at their previous physical Q positions
+        if q_cur_min is not None and q_cur_max is not None:
+            self.init_cursors(q_cur_min, q_cur_max)
+
     def plot_ds1(
         self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None
     ) -> None:
@@ -331,8 +338,12 @@ class DataMergeGraphWindow(QWidget):
         self._q1, self._I1, self._dI1 = q, I, dI
         self._remove_ds1()
 
+        # Filter before scatter: in log mode pyqtgraph takes log10 of coords;
+        # non-positive or non-finite values become -inf/NaN and the scatter
+        # item either vanishes or plots at the wrong position.
+        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
         scatter = pg.ScatterPlotItem(
-            x=q, y=I,
+            x=q[mask], y=I[mask],
             brush=_DS1_BRUSH, pen=pg.mkPen(None), size=SASPlotStyle.DATA_SIZE,
         )
         self._plot.addItem(scatter)
@@ -354,8 +365,9 @@ class DataMergeGraphWindow(QWidget):
         self._q2, self._I2, self._dI2 = q, I, dI
         self._remove_ds2()
 
+        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
         scatter = pg.ScatterPlotItem(
-            x=q, y=I,
+            x=q[mask], y=I[mask],
             brush=_DS2_BRUSH, pen=pg.mkPen(None), size=SASPlotStyle.DATA_SIZE,
         )
         self._plot.addItem(scatter)
@@ -922,8 +934,10 @@ class DataMergePanel(QWidget):
             split_at_left_cursor=self._split_chk.isChecked(),
         )
 
-        dI1 = self._data1.get('Error') or I1 * 0.05
-        dI2 = self._data2.get('Error') or I2 * 0.05
+        _dI1 = self._data1.get('Error')
+        dI1 = _dI1 if _dI1 is not None else I1 * 0.05
+        _dI2 = self._data2.get('Error')
+        dI2 = _dI2 if _dI2 is not None else I2 * 0.05
 
         self._status.setText("Optimising… please wait.")
         QApplication.processEvents()
@@ -1025,8 +1039,10 @@ class DataMergePanel(QWidget):
 
             q1, I1 = d1['Q'], d1['Intensity']
             q2, I2 = d2['Q'], d2['Intensity']
-            dI1 = d1.get('Error') or I1 * 0.05
-            dI2 = d2.get('Error') or I2 * 0.05
+            _dI1 = d1.get('Error')
+            dI1 = _dI1 if _dI1 is not None else I1 * 0.05
+            _dI2 = d2.get('Error')
+            dI2 = _dI2 if _dI2 is not None else I2 * 0.05
 
             config = MergeConfig(
                 q_overlap_min=q_min, q_overlap_max=q_max,
