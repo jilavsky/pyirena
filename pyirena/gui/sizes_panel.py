@@ -13,8 +13,8 @@ try:
         QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame, QTextEdit,
         QTabWidget, QFileDialog,
     )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor
+    from PySide6.QtCore import Qt, Signal, QUrl
+    from PySide6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor, QDesktopServices
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -23,8 +23,8 @@ except ImportError:
             QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame, QTextEdit,
             QTabWidget, QFileDialog,
         )
-        from PyQt6.QtCore import Qt, Signal
-        from PyQt6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor
+        from PyQt6.QtCore import Qt, Signal, QUrl
+        from PyQt6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor, QDesktopServices
     except ImportError:
         raise ImportError("Neither PySide6 nor PyQt6 found. Install with: pip install PySide6")
 
@@ -800,7 +800,7 @@ class SizesFitPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        # ── Title ────────────────────────────────────────────────────────────
+        # ── Title + Help button ──────────────────────────────────────────────
         title = QLabel("Sizes Distribution Input")
         title.setStyleSheet("""
             QLabel {
@@ -811,7 +811,24 @@ class SizesFitPanel(QWidget):
                 border: 1px solid #bdc3c7;
             }
         """)
-        layout.addWidget(title)
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/sizes_methods.md"
+            ))
+        )
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(4)
+        title_row.addWidget(title, 1)
+        title_row.addWidget(_help_btn)
+        layout.addLayout(title_row)
 
         # ── Tab widget ───────────────────────────────────────────────────────
         tabs = QTabWidget()

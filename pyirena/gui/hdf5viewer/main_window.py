@@ -17,17 +17,17 @@ from pathlib import Path
 try:
     from PySide6.QtWidgets import (
         QMainWindow, QWidget, QSplitter, QStatusBar, QHBoxLayout,
-        QVBoxLayout, QLabel,
+        QVBoxLayout, QLabel, QPushButton,
     )
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QAction, QCloseEvent
+    from PySide6.QtCore import Qt, QUrl
+    from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
         QMainWindow, QWidget, QSplitter, QStatusBar, QHBoxLayout,
-        QVBoxLayout, QLabel,
+        QVBoxLayout, QLabel, QPushButton,
     )
-    from PyQt6.QtCore import Qt  # type: ignore[no-redef]
-    from PyQt6.QtGui import QAction, QCloseEvent  # type: ignore[no-redef]
+    from PyQt6.QtCore import Qt, QUrl  # type: ignore[no-redef]
+    from PyQt6.QtGui import QAction, QCloseEvent, QDesktopServices  # type: ignore[no-redef]
 
 from .file_tree import FileTreeWidget
 from .hdf5_browser import HDF5BrowserWidget
@@ -93,14 +93,32 @@ class HDF5ViewerWindow(QMainWindow):
         vl.setContentsMargins(0, 0, 0, 0)
         vl.setSpacing(0)
 
-        # Application title
+        # Application title + Help button
+        title_w = QWidget()
+        title_w.setStyleSheet("background:#ecf0f1; border-bottom:1px solid #bdc3c7;")
+        title_row = QHBoxLayout(title_w)
+        title_row.setContentsMargins(0, 0, 6, 0)
+        title_row.setSpacing(6)
         title_lbl = QLabel("pyIrena HDF5 Viewer / Data Extractor")
         title_lbl.setStyleSheet(
             "font-size:13pt; font-weight:bold; color:#2c3e50;"
-            "padding:6px 10px 5px 10px; background:#ecf0f1;"
-            "border-bottom:1px solid #bdc3c7;"
+            "padding:6px 10px 5px 10px; background:transparent; border:none;"
         )
-        vl.addWidget(title_lbl)
+        title_row.addWidget(title_lbl, 1)
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/hdf5_viewer_gui.md"
+            ))
+        )
+        title_row.addWidget(_help_btn)
+        vl.addWidget(title_w)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 

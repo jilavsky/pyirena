@@ -26,8 +26,8 @@ try:
         QMessageBox, QFrame, QSizePolicy, QSpacerItem,
         QDialog, QDialogButtonBox,
     )
-    from PySide6.QtCore import Qt, Signal, QTimer
-    from PySide6.QtGui import QFont, QDoubleValidator
+    from PySide6.QtCore import Qt, Signal, QTimer, QUrl
+    from PySide6.QtGui import QFont, QDoubleValidator, QDesktopServices
 except ImportError:
     from PyQt6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
@@ -36,8 +36,8 @@ except ImportError:
         QMessageBox, QFrame, QSizePolicy, QSpacerItem,
         QDialog, QDialogButtonBox,
     )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer
-    from PyQt6.QtGui import QFont, QDoubleValidator
+    from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
+    from PyQt6.QtGui import QFont, QDoubleValidator, QDesktopServices
 
 from pyirena.core.waxs_peakfit import (
     PEAK_SHAPES, BG_SHAPES, BG_ADAPTIVE, _BG_ADAPTIVE_PARAMS,
@@ -986,6 +986,19 @@ class WAXSPeakFitPanel(QWidget):
         self._no_limits_chk = QCheckBox("No limits?")
         self._no_limits_chk.stateChanged.connect(self._on_no_limits_toggled)
         title_row.addWidget(self._no_limits_chk)
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/waxs_peakfit_gui.md"
+            ))
+        )
+        title_row.addWidget(_help_btn)
         ll.addLayout(title_row)
 
         # ── Q fit range (cursor positions, read-only display) ─────────────

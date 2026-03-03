@@ -13,8 +13,8 @@ try:
         QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
         QFileDialog,
     )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QDoubleValidator
+    from PySide6.QtCore import Qt, Signal, QUrl
+    from PySide6.QtGui import QDoubleValidator, QDesktopServices
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -23,8 +23,8 @@ except ImportError:
             QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
             QFileDialog,
         )
-        from PyQt6.QtCore import Qt, Signal
-        from PyQt6.QtGui import QDoubleValidator
+        from PyQt6.QtCore import Qt, Signal, QUrl
+        from PyQt6.QtGui import QDoubleValidator, QDesktopServices
     except ImportError:
         raise ImportError("Neither PySide6 nor PyQt6 found.  Install with: pip install PySide6")
 
@@ -434,6 +434,19 @@ class SimpleFitsPanel(QWidget):
         self.model_combo.setCurrentText(self.model.model)
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         model_row.addWidget(self.model_combo, 1)
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/simple_fits_gui.md"
+            ))
+        )
+        model_row.addWidget(_help_btn)
         layout.addLayout(model_row)
 
         # ── Q range (cursor-driven, read-only display) ────────────────────────

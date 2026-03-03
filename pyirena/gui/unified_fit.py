@@ -12,8 +12,8 @@ try:
         QGridLayout, QMessageBox, QSplitter, QFileDialog,
         QDialog, QComboBox, QRadioButton
     )
-    from PySide6.QtCore import Qt, Signal, QTimer
-    from PySide6.QtGui import QFont, QDoubleValidator
+    from PySide6.QtCore import Qt, Signal, QTimer, QUrl
+    from PySide6.QtGui import QFont, QDoubleValidator, QDesktopServices
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -22,8 +22,8 @@ except ImportError:
             QGridLayout, QMessageBox, QSplitter, QFileDialog,
             QDialog, QComboBox, QRadioButton
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer
-        from PyQt6.QtGui import QFont, QDoubleValidator
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
+        from PyQt6.QtGui import QFont, QDoubleValidator, QDesktopServices
     except ImportError:
         try:
             from PyQt5.QtWidgets import (
@@ -32,8 +32,8 @@ except ImportError:
                 QGridLayout, QMessageBox, QSplitter, QFileDialog,
                 QDialog, QComboBox, QRadioButton
             )
-            from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer
-            from PyQt5.QtGui import QFont, QDoubleValidator
+            from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
+            from PyQt5.QtGui import QFont, QDoubleValidator, QDesktopServices
         except ImportError:
             raise ImportError(
                 "No Qt found. Install with: pip install PySide6 or PyQt6 or PyQt5"
@@ -1838,6 +1838,19 @@ class UnifiedFitPanel(QWidget):
         self.no_limits_check.stateChanged.connect(self.on_no_limits_changed)
         top_controls.addWidget(self.no_limits_check)
         top_controls.addStretch()
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/unified_fit_gui.md"
+            ))
+        )
+        top_controls.addWidget(_help_btn)
         layout.addLayout(top_controls)
 
         # Level tabs

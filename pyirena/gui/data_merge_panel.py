@@ -27,7 +27,8 @@ try:
         QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
         QAbstractItemView, QSizePolicy, QListWidgetItem,
     )
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QUrl
+    from PySide6.QtGui import QDesktopServices
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -36,7 +37,8 @@ except ImportError:
             QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
             QAbstractItemView, QSizePolicy, QListWidgetItem,
         )
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import Qt, QUrl
+        from PyQt6.QtGui import QDesktopServices
     except ImportError:
         raise ImportError(
             "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
@@ -739,6 +741,19 @@ class DataMergePanel(QWidget):
         row1.addWidget(self._bg_result)
 
         row1.addStretch()
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/data_merge_gui.md"
+            ))
+        )
+        row1.addWidget(_help_btn)
         vbox.addLayout(row1)
 
         # ── Row 2: Split option / Optimize button / Method ───────────────
