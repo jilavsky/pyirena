@@ -1582,7 +1582,9 @@ def merge_data(
         q_overlap_max=float(q_overlap_max),
         fit_scale=bool(cfg_dict.get('fit_scale', True)),
         scale_dataset=int(cfg_dict.get('scale_dataset', 2)),
+        fixed_scale_value=float(cfg_dict.get('fixed_scale_value', 1.0)),
         fit_qshift=bool(cfg_dict.get('fit_qshift', False)),
+        fixed_qshift_value=float(cfg_dict.get('fixed_qshift_value', 0.0)),
         qshift_dataset=int(cfg_dict.get('qshift_dataset', 0)),
         split_at_left_cursor=bool(cfg_dict.get('split_at_left_cursor', False)),
     )
