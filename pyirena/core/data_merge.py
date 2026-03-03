@@ -469,10 +469,19 @@ class DataMerge:
         except Exception:
             return 1e30
 
-        # Use DS2 uncertainty for weighting; fall back to 5% fractional if zero/missing
+        # Use DS2 uncertainty for weighting, but enforce a minimum relative weight
+        # of 5% of I2_adj.  Without this floor, the objective has a degenerate
+        # minimum at (BG ≈ I1, scale ≈ 0): dI2 is fixed (not scaled with I2_adj),
+        # so residuals (I1_interp - 0) / dI2 are bounded while scale → lower-limit.
+        # The relative floor ensures scale=0 is penalised (weights → 0 → division
+        # by zero → inf), steering the optimizer away from the trivial solution.
         dI2_ov = dI2[mask2]
-        weights = np.where(dI2_ov > 0, dI2_ov, I2_adj[mask2] * 0.05)
-        weights = np.where(np.isfinite(weights) & (weights > 0), weights, I2_adj[mask2] * 0.05)
+        rel_floor = I2_adj[mask2] * 0.05
+        abs_weights = np.where(
+            (dI2_ov > 0) & np.isfinite(dI2_ov), dI2_ov, rel_floor
+        )
+        weights = np.maximum(abs_weights, rel_floor)
+        weights = np.where(np.isfinite(weights) & (weights > 0), weights, rel_floor)
 
         residuals = (I1_interp - I2_adj[mask2]) / weights
         return float(np.sum(residuals ** 2))

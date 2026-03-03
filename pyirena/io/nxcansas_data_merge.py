@@ -222,8 +222,15 @@ def _append_merge_provenance(
         grp.attrs['program'] = 'pyirena'
         grp.attrs['version'] = '1.0'
         grp.attrs['timestamp'] = datetime.now().isoformat()
-        grp.attrs['ds1_path'] = str(ds1_path)
-        grp.attrs['ds2_path'] = str(ds2_path) if ds2_path else ''
+
+        # Store source filenames as string datasets (visible in HDF5 viewer)
+        # and as group attributes (for quick programmatic access).
+        ds1_str = str(ds1_path)
+        ds2_str = str(ds2_path) if ds2_path else ''
+        grp.create_dataset('ds1_file', data=ds1_str)
+        grp.create_dataset('ds2_file', data=ds2_str)
+        grp.attrs['ds1_path'] = ds1_str   # keep attr for backwards compatibility
+        grp.attrs['ds2_path'] = ds2_str
 
         # Store merge parameters as scalar datasets (visible in HDF5 viewer)
         for key, value in merge_result_dict.items():
