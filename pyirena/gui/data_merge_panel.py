@@ -102,6 +102,9 @@ class _DatasetSelectorWidget(QWidget):
         self.dataset_number = dataset_number
         self.current_folder: Optional[str] = None
         self._all_files: List[str] = []
+        # Optional callback invoked when the user clicks "Select Folder" and a new
+        # folder is chosen.  Set by DataMergePanel after construction.
+        self.folder_changed_callback = None
 
         self._build_ui()
 
@@ -201,8 +204,10 @@ class _DatasetSelectorWidget(QWidget):
         folder = QFileDialog.getExistingDirectory(
             self, f"Select Dataset {self.dataset_number} Folder", start
         )
-        if folder:
+        if folder and folder != self.current_folder:
             self.set_folder(folder)
+            if self.folder_changed_callback is not None:
+                self.folder_changed_callback(folder)
 
     def _refresh_file_list(self) -> None:
         if not self.current_folder or not os.path.isdir(self.current_folder):
@@ -514,8 +519,13 @@ class DataMergeGraphWindow(QWidget):
         if self._log_mode:
             q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
             q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+            # Use setLimits only — do NOT call setXRange() in log mode.
+            # setXRange() treats its arguments as linear Q values; passing log10
+            # integers (e.g. -4, -1) would try to show Q from -4 to -1 Å⁻¹
+            # (outside the data range), making scatter items invisible.
+            # setLimits() constrains pan/zoom in ViewBox (log10) coordinates;
+            # pyqtgraph auto-ranges the initial view correctly from scatter bounds.
             self._plot.getViewBox().setLimits(xMin=q_lo, xMax=q_hi)
-            self._plot.setXRange(q_lo + 1, q_hi - 1, padding=0)
         else:
             lo = float(valid_q.min())
             hi = float(valid_q.max())
@@ -603,6 +613,10 @@ class DataMergePanel(QWidget):
         self._ds2 = _DatasetSelectorWidget(2)
         self._ds1.file_list.itemDoubleClicked.connect(self._on_ds1_double_clicked)
         self._ds2.file_list.itemDoubleClicked.connect(self._on_ds2_double_clicked)
+        # When the user picks a new folder via the folder button: clear output folder
+        # (DS1 only) and uncheck "Match files" (both datasets).
+        self._ds1.folder_changed_callback = self._on_ds1_folder_changed
+        self._ds2.folder_changed_callback = self._on_ds2_folder_changed
 
         top_row.addWidget(self._ds1)
         top_row.addWidget(self._ds2)
@@ -778,11 +792,22 @@ class DataMergePanel(QWidget):
         self._out_folder_label.setStyleSheet("color: #2c3e50; font-size: 11px;")
         layout.addWidget(self._out_folder_label)
 
-        browse_btn = QPushButton("Browse Output Folder…")
-        browse_btn.setMinimumHeight(28)
-        browse_btn.setStyleSheet(_BTN_GREY)
-        browse_btn.clicked.connect(self._browse_output_folder)
-        layout.addWidget(browse_btn)
+        create_folder_btn = QPushButton("Create Default Folder")
+        create_folder_btn.setMinimumHeight(28)
+        create_folder_btn.setStyleSheet(_BTN_GREY)
+        create_folder_btn.setToolTip(
+            "Create a new folder named '<DS1 folder>_merged' next to the DS1 folder "
+            "and use it as the output folder."
+        )
+        create_folder_btn.clicked.connect(self._create_default_output_folder)
+        layout.addWidget(create_folder_btn)
+
+        select_folder_btn = QPushButton("Select Existing Folder…")
+        select_folder_btn.setMinimumHeight(28)
+        select_folder_btn.setStyleSheet(_BTN_GREY)
+        select_folder_btn.setToolTip("Choose an existing folder for saving merged files.")
+        select_folder_btn.clicked.connect(self._select_existing_output_folder)
+        layout.addWidget(select_folder_btn)
 
         layout.addWidget(_hline())
 
@@ -827,7 +852,6 @@ class DataMergePanel(QWidget):
         """Pre-populate a dataset folder (e.g. from the Data Selector hub)."""
         if dataset == 1:
             self._ds1.set_folder(path)
-            self._try_set_default_output_folder(path)
         else:
             self._ds2.set_folder(path)
 
@@ -847,7 +871,6 @@ class DataMergePanel(QWidget):
         self._graph.plot_ds1(data['Q'], data['Intensity'], data.get('Error'))
         self._init_cursors_from_data()
         self._update_cursor_display()
-        self._try_set_default_output_folder(folder)
         self._check_enable_buttons()
         self._status.setText(f"DS1 loaded: {fname}")
 
@@ -1287,25 +1310,60 @@ class DataMergePanel(QWidget):
             self._q_min_edit.setText(f"{q_min:.5g}")
             self._q_max_edit.setText(f"{q_max:.5g}")
 
-    def _try_set_default_output_folder(self, folder1: str) -> None:
-        """Set a default output folder one level above folder1."""
-        if self._out_folder:
-            return   # already set by user or state
+    def _on_ds1_folder_changed(self, _folder: str) -> None:
+        """Called when the user selects a new DS1 folder via the button."""
+        # Clear output folder — the old path is no longer relevant for the new dataset.
+        self._out_folder = None
+        self._out_folder_label.setText("(not set)")
+        self._out_folder_label.setToolTip("")
+        # Uncheck Match — existing pairs are invalid after a folder change.
+        if self._match_chk.isChecked():
+            self._match_chk.setChecked(False)
+
+    def _on_ds2_folder_changed(self, _folder: str) -> None:
+        """Called when the user selects a new DS2 folder via the button."""
+        # Uncheck Match — existing pairs are invalid after a folder change.
+        if self._match_chk.isChecked():
+            self._match_chk.setChecked(False)
+
+    def _create_default_output_folder(self) -> None:
+        """Create '<DS1 folder name>_merged' next to the DS1 folder and set it."""
+        folder1 = self._ds1.current_folder
+        if not folder1:
+            QMessageBox.warning(self, "No DS1 Folder",
+                                "Select a DS1 folder first.")
+            return
         p = Path(folder1)
         default = p.parent / f"{p.name}_merged"
+        try:
+            default.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            QMessageBox.critical(self, "Create Folder Error",
+                                 f"Could not create {default}:\n{exc}")
+            return
         self._out_folder = str(default)
         self._out_folder_label.setText(default.name)
         self._out_folder_label.setToolTip(str(default))
+        self._save_btn.setEnabled(self._last_q_merged is not None)
+        self._status.setText(f"Output folder: {default.name}")
+        self.save_state()
 
-    def _browse_output_folder(self) -> None:
-        start = self._out_folder or str(Path.home())
+    def _select_existing_output_folder(self) -> None:
+        """Open a folder-selection dialog to choose an existing output folder."""
+        if self._out_folder:
+            start = self._out_folder
+        elif self._ds1.current_folder:
+            start = str(Path(self._ds1.current_folder).parent)
+        else:
+            start = str(Path.home())
         folder = QFileDialog.getExistingDirectory(
-            self, "Select or Create Output Folder", start
+            self, "Select Output Folder", start
         )
         if folder:
             self._out_folder = folder
             self._out_folder_label.setText(os.path.basename(folder))
             self._out_folder_label.setToolTip(folder)
+            self._save_btn.setEnabled(self._last_q_merged is not None)
             self.save_state()
 
     def _check_enable_buttons(self) -> None:
