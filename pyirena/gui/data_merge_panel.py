@@ -343,20 +343,21 @@ class DataMergeGraphWindow(QWidget):
         self._q1, self._I1, self._dI1 = q, I, dI
         self._remove_ds1()
 
-        # Filter before scatter: in log mode pyqtgraph takes log10 of coords;
-        # non-positive or non-finite values become -inf/NaN and the scatter
-        # item either vanishes or plots at the wrong position.
+        # Use plot.plot(symbol='o') — PlotDataItem — rather than ScatterPlotItem.
+        # PlotDataItem explicitly applies log10 to data when setLogMode is active,
+        # giving a correct bounding rect for auto-range in log-log mode.
+        # Standalone ScatterPlotItem does not pre-transform data; pyqtgraph's
+        # auto-range then uses linear Q values as ViewBox (log10-space) coordinates,
+        # pushing the actual scatter points entirely out of the visible window.
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-        scatter = pg.ScatterPlotItem(
-            x=q[mask], y=I[mask],
-            brush=_DS1_BRUSH, pen=pg.mkPen(None), size=SASPlotStyle.DATA_SIZE,
+        self._ds1_scatter = self._plot.plot(
+            q[mask], I[mask],
+            pen=None,
+            symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
+            symbolBrush=_DS1_BRUSH, symbolPen=pg.mkPen(None),
         )
-        self._plot.addItem(scatter)
-        self._ds1_scatter = scatter
 
         if dI is not None:
-            # _make_error_bars calls self._plot.plot() which already adds the item —
-            # do NOT call self._plot.addItem() again or the item is rendered twice.
             err = self._make_error_bars(q, I, dI)
             err.setVisible(self._show_errorbars)
             self._ds1_err = err
@@ -371,12 +372,12 @@ class DataMergeGraphWindow(QWidget):
         self._remove_ds2()
 
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-        scatter = pg.ScatterPlotItem(
-            x=q[mask], y=I[mask],
-            brush=_DS2_BRUSH, pen=pg.mkPen(None), size=SASPlotStyle.DATA_SIZE,
+        self._ds2_scatter = self._plot.plot(
+            q[mask], I[mask],
+            pen=None,
+            symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
+            symbolBrush=_DS2_BRUSH, symbolPen=pg.mkPen(None),
         )
-        self._plot.addItem(scatter)
-        self._ds2_scatter = scatter
 
         if dI is not None:
             err = self._make_error_bars(q, I, dI)
@@ -519,13 +520,16 @@ class DataMergeGraphWindow(QWidget):
         if self._log_mode:
             q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
             q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
-            # Use setLimits only — do NOT call setXRange() in log mode.
-            # setXRange() treats its arguments as linear Q values; passing log10
-            # integers (e.g. -4, -1) would try to show Q from -4 to -1 Å⁻¹
-            # (outside the data range), making scatter items invisible.
-            # setLimits() constrains pan/zoom in ViewBox (log10) coordinates;
-            # pyqtgraph auto-ranges the initial view correctly from scatter bounds.
+            # setLimits constrains pan/zoom in ViewBox (log10) coordinates.
             self._plot.getViewBox().setLimits(xMin=q_lo, xMax=q_hi)
+            # Explicitly set the visible x range to the actual data Q span.
+            # Pass log10(physical Q) — these are ViewBox coordinates in log mode.
+            # This matches the pattern used in GraphWindow (data_selector.py).
+            self._plot.setXRange(
+                np.log10(float(valid_q.min())),
+                np.log10(float(valid_q.max())),
+                padding=0.05,
+            )
         else:
             lo = float(valid_q.min())
             hi = float(valid_q.max())
