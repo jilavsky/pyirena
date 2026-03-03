@@ -241,6 +241,7 @@ class DataMergeGraphWindow(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._log_mode: bool = True   # True = log-log (SAXS), False = lin-lin (WAXS)
+        self._show_errorbars: bool = True
 
         # Plot items (None = not yet plotted)
         self._ds1_scatter = None
@@ -282,6 +283,8 @@ class DataMergeGraphWindow(QWidget):
             parent_widget=self,
             jpeg_default_name='data_merge',
         )
+        self._eb_action = self._plot.getViewBox().menu.addAction("Hide Error Bars")
+        self._eb_action.triggered.connect(self._toggle_error_bars)
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -311,6 +314,9 @@ class DataMergeGraphWindow(QWidget):
             parent_widget=self,
             jpeg_default_name='data_merge',
         )
+        eb_label = "Hide Error Bars" if self._show_errorbars else "Show Error Bars"
+        self._eb_action = self._plot.getViewBox().menu.addAction(eb_label)
+        self._eb_action.triggered.connect(self._toggle_error_bars)
 
         # Re-plot loaded datasets
         if self._q1 is not None:
@@ -333,8 +339,10 @@ class DataMergeGraphWindow(QWidget):
         self._ds1_scatter = scatter
 
         if dI is not None:
+            # _make_error_bars calls self._plot.plot() which already adds the item —
+            # do NOT call self._plot.addItem() again or the item is rendered twice.
             err = self._make_error_bars(q, I, dI)
-            self._plot.addItem(err)
+            err.setVisible(self._show_errorbars)
             self._ds1_err = err
 
         self._update_y_range()
@@ -355,7 +363,7 @@ class DataMergeGraphWindow(QWidget):
 
         if dI is not None:
             err = self._make_error_bars(q, I, dI)
-            self._plot.addItem(err)
+            err.setVisible(self._show_errorbars)
             self._ds2_err = err
 
         self._update_y_range()
@@ -456,7 +464,7 @@ class DataMergeGraphWindow(QWidget):
         return item
 
     def _update_y_range(self) -> None:
-        """Combine I from all loaded datasets and call set_robust_y_range."""
+        """Combine I from all loaded datasets and set robust Y (and X) range."""
         parts = []
         if self._I1 is not None:
             parts.append(self._I1)
@@ -475,6 +483,41 @@ class DataMergeGraphWindow(QWidget):
                 hi = float(np.percentile(I_all[valid], 99))
                 pad = (hi - lo) * 0.1
                 self._plot.setYRange(lo - pad, hi + pad, padding=0)
+
+        # Constrain x-axis so auto-range does not snap to linear Q values.
+        # Without this, NaN-separated error bar segments cause pyqtgraph to
+        # auto-range x to the full linear Q span (e.g. 0–20 Å⁻¹) instead of
+        # the correct log10 range, hiding the low-Q data.
+        q_parts = []
+        if self._q1 is not None:
+            q_parts.append(self._q1)
+        if self._q2 is not None:
+            q_parts.append(self._q2)
+        if not q_parts:
+            return
+        q_all = np.concatenate(q_parts)
+        valid_q = q_all[(q_all > 0) & np.isfinite(q_all)]
+        if len(valid_q) < 2:
+            return
+        if self._log_mode:
+            q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
+            q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+            self._plot.getViewBox().setLimits(xMin=q_lo, xMax=q_hi)
+            self._plot.setXRange(q_lo + 1, q_hi - 1, padding=0)
+        else:
+            lo = float(valid_q.min())
+            hi = float(valid_q.max())
+            pad = (hi - lo) * 0.05
+            self._plot.setXRange(lo, hi + pad, padding=0)
+
+    def _toggle_error_bars(self) -> None:
+        """Show/hide error bar items (callable from right-click menu)."""
+        self._show_errorbars = not self._show_errorbars
+        label = "Show Error Bars" if not self._show_errorbars else "Hide Error Bars"
+        self._eb_action.setText(label)
+        for item in (self._ds1_err, self._ds2_err):
+            if item is not None:
+                item.setVisible(self._show_errorbars)
 
     def _remove_ds1(self) -> None:
         for item in (self._ds1_scatter, self._ds1_err):
@@ -579,70 +622,79 @@ class DataMergePanel(QWidget):
         self._status.setStyleSheet("color: #7f8c8d; padding: 2px;")
         main_layout.addWidget(self._status)
 
-    def _build_controls(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(8)
+    def _build_controls(self) -> QVBoxLayout:
+        vbox = QVBoxLayout()
+        vbox.setSpacing(4)
 
-        # ── Mode ─────────────────────────────────────────────────────────
-        row.addWidget(QLabel("Mode:"))
+        # ── Row 1: Mode / Scale / Q-shift / Background ───────────────────
+        row1 = QHBoxLayout()
+        row1.setSpacing(8)
+
+        row1.addWidget(QLabel("Mode:"))
         self._mode_combo = QComboBox()
         self._mode_combo.addItems(["SAXS (log-log)", "WAXS / diffraction (lin-lin)"])
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        row.addWidget(self._mode_combo)
+        row1.addWidget(self._mode_combo)
 
-        row.addWidget(_vline())
+        row1.addWidget(_vline())
 
         # ── Scale ────────────────────────────────────────────────────────
-        row.addWidget(QLabel("Scale:"))
+        row1.addWidget(QLabel("Scale:"))
         self._scale_ds_combo = QComboBox()
         self._scale_ds_combo.addItems(["DS1", "DS2"])
         self._scale_ds_combo.setCurrentIndex(1)   # default: scale DS2
-        row.addWidget(self._scale_ds_combo)
+        row1.addWidget(self._scale_ds_combo)
 
-        self._fit_scale_chk = QCheckBox("Fit scale")
+        self._fit_scale_chk = QCheckBox("Fit")
         self._fit_scale_chk.setChecked(True)
-        row.addWidget(self._fit_scale_chk)
+        self._fit_scale_chk.setToolTip("Fit scale factor during optimisation")
+        row1.addWidget(self._fit_scale_chk)
 
         self._scale_result = QLineEdit("1.0000")
         self._scale_result.setReadOnly(True)
-        self._scale_result.setFixedWidth(80)
+        self._scale_result.setFixedWidth(75)
         self._scale_result.setStyleSheet(_RDONLY_STYLE)
-        self._scale_result.setToolTip("Optimised scale factor (updated after Optimize Merge)")
-        row.addWidget(self._scale_result)
+        self._scale_result.setToolTip("Optimised scale factor")
+        row1.addWidget(self._scale_result)
 
-        row.addWidget(_vline())
+        row1.addWidget(_vline())
 
         # ── Q shift ──────────────────────────────────────────────────────
-        row.addWidget(QLabel("Q shift:"))
+        row1.addWidget(QLabel("Q shift:"))
         self._qshift_combo = QComboBox()
         self._qshift_combo.addItems(["None", "DS1", "DS2"])
-        row.addWidget(self._qshift_combo)
+        row1.addWidget(self._qshift_combo)
 
-        self._fit_qshift_chk = QCheckBox("Fit Q-shift")
+        self._fit_qshift_chk = QCheckBox("Fit")
         self._fit_qshift_chk.setChecked(False)
-        row.addWidget(self._fit_qshift_chk)
+        self._fit_qshift_chk.setToolTip("Fit Q-shift during optimisation")
+        row1.addWidget(self._fit_qshift_chk)
 
         self._qshift_result = QLineEdit("0.000000")
         self._qshift_result.setReadOnly(True)
-        self._qshift_result.setFixedWidth(90)
+        self._qshift_result.setFixedWidth(80)
         self._qshift_result.setStyleSheet(_RDONLY_STYLE)
-        self._qshift_result.setToolTip("Optimised Q shift in Å⁻¹")
-        row.addWidget(self._qshift_result)
+        self._qshift_result.setToolTip("Optimised Q shift (Å⁻¹)")
+        row1.addWidget(self._qshift_result)
 
-        row.addWidget(_vline())
+        row1.addWidget(_vline())
 
-        # ── Background (always fit for DS1) ──────────────────────────────
-        row.addWidget(QLabel("BG (DS1):"))
+        # ── Background ────────────────────────────────────────────────────
+        row1.addWidget(QLabel("BG (DS1):"))
         self._bg_result = QLineEdit("0.000000")
         self._bg_result.setReadOnly(True)
-        self._bg_result.setFixedWidth(90)
+        self._bg_result.setFixedWidth(80)
         self._bg_result.setStyleSheet(_RDONLY_STYLE)
         self._bg_result.setToolTip("Optimised constant background subtracted from DS1")
-        row.addWidget(self._bg_result)
+        row1.addWidget(self._bg_result)
 
-        row.addWidget(_vline())
+        row1.addStretch()
+        vbox.addLayout(row1)
 
-        # ── Split mode ────────────────────────────────────────────────────
+        # ── Row 2: Split option / Optimize button / Method ───────────────
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+
         self._split_chk = QCheckBox("Split at left cursor")
         self._split_chk.setChecked(False)
         self._split_chk.setToolTip(
@@ -650,27 +702,28 @@ class DataMergePanel(QWidget):
             "and DS2 from the left cursor onward.  Default (unchecked): include all data "
             "from both datasets (interleaved in the overlap region)."
         )
-        row.addWidget(self._split_chk)
+        row2.addWidget(self._split_chk)
 
-        row.addWidget(_vline())
+        row2.addWidget(_vline())
 
-        # ── Optimize button ───────────────────────────────────────────────
         self._optimize_btn = QPushButton("Optimize Merge")
-        self._optimize_btn.setMinimumHeight(34)
+        self._optimize_btn.setMinimumHeight(30)
         self._optimize_btn.setStyleSheet(_BTN_GREEN)
         self._optimize_btn.setEnabled(False)
         self._optimize_btn.clicked.connect(self._optimize_merge)
-        row.addWidget(self._optimize_btn)
+        row2.addWidget(self._optimize_btn)
 
         # Method combo (for future extensibility)
         self._method_combo = QComboBox()
         for key, label in DataMerge.METHODS.items():
             self._method_combo.addItem(label, key)
         self._method_combo.setToolTip("Optimisation method")
-        row.addWidget(self._method_combo)
+        row2.addWidget(self._method_combo)
 
-        row.addStretch()
-        return row
+        row2.addStretch()
+        vbox.addLayout(row2)
+
+        return vbox
 
     def _build_q_range_box(self) -> QGroupBox:
         box = QGroupBox("Overlap Q range")
