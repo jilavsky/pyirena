@@ -15,11 +15,12 @@ is no need to write configuration code by hand.
 4. [API reference — `fit_sizes`](#fit_sizes)
 5. [API reference — `fit_simple`](#fit_simple)
 6. [API reference — `fit_waxs`](#fit_waxs)
-7. [API reference — `fit_pyirena`](#fit_pyirena)
-8. [Return structures](#return-structures)
-9. [Error handling](#error-handling)
-10. [Batch processing patterns](#batch-processing-patterns)
-11. [Extending with new tools](#extending-with-new-tools)
+7. [API reference — `merge_data`](#merge_data)
+8. [API reference — `fit_pyirena`](#fit_pyirena)
+9. [Return structures](#return-structures)
+10. [Error handling](#error-handling)
+11. [Batch processing patterns](#batch-processing-patterns)
+12. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
@@ -441,6 +442,133 @@ for f in data_files:
     if r and r['success']:
         print(f"{f.name}: {r['n_peaks']} peaks, χ²r={r['reduced_chi2']:.3g}")
 ```
+
+---
+
+## `merge_data`
+
+```python
+from pyirena.batch import merge_data
+
+result = merge_data(
+    file1,                  # str or Path — DS1 file (lower-Q, absolute scale)
+    file2,                  # str or Path — DS2 file (higher-Q)
+    config_file=None,       # str or Path or None — JSON merge config file
+    save_to_nexus=True,     # bool — write merged file to disk
+    output_folder=None,     # str or Path or None — where to write the file
+    verbose=True,           # bool — print progress to stdout
+)
+```
+
+Unlike the fitting functions, `merge_data` uses its own **merge config file**
+(produced by the GUI's **Save JSON Config** button) rather than the shared
+`pyirena_config.json` format.  See the [Data Merge tool documentation](data_merge_gui.md)
+for the full config file reference.
+
+### What it does, step by step
+
+1. **Loads data** from both files — detects format by extension:
+   - `.h5` / `.hdf5` / `.hdf` → NXcanSAS or generic HDF5
+   - `.dat` / `.txt` → column-delimited text (Q, I, dI)
+2. **Reads the merge config** *(if provided)* — sets Q overlap range and
+   optimisation options (scale, Q shift, split mode, etc.).
+   If no config is given, the overlap is auto-detected as the central 80 % of
+   the Q intersection and all default options are used.
+3. **Optimises** — Nelder-Mead minimisation of weighted χ² in the overlap
+   region to find the best scale factor, constant background, and optional
+   Q shift.
+4. **Merges** — assembles the combined Q/I/dI/dQ arrays, trimming DS1 at the
+   right cursor and DS2 at the left cursor (or splitting hard at the left
+   cursor when `split_at_left_cursor=True`).
+5. **Saves** *(if `save_to_nexus=True`)* — copies DS1 (if NXcanSAS) to the
+   output folder, replaces the Q/I/Idev/Qdev arrays with the merged data, and
+   appends an `entry/data_merge_results` provenance group.  For non-NXcanSAS
+   DS1 files a fresh NXcanSAS file is created.
+6. **Returns** a result dict (see below).
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `file1` | `str` or `Path` | required | DS1 file (lower-Q, absolute intensity scale cm⁻¹) |
+| `file2` | `str` or `Path` | required | DS2 file (higher-Q, any scale) |
+| `config_file` | `str`, `Path`, or `None` | `None` | Merge JSON config (see [Config file format](data_merge_gui.md#config-file-format)).  All keys optional; missing keys use defaults |
+| `save_to_nexus` | `bool` | `True` | Write merged data to a NXcanSAS HDF5 file |
+| `output_folder` | `str`, `Path`, or `None` | `None` | Output directory.  If `None`, a folder `{DS1_folder}_merged/` is created next to DS1's parent |
+| `verbose` | `bool` | `True` | Print scale / BG / χ² results to stdout |
+
+### Returns
+
+`dict` on success, `None` on fatal error (file not found, no Q overlap, etc.).
+A non-converged optimisation still returns a dict with `success=False`.
+
+```python
+{
+    'q':           np.ndarray,        # merged Q array (Å⁻¹), sorted ascending
+    'I':           np.ndarray,        # merged intensity (cm⁻¹)
+    'dI':          np.ndarray,        # merged uncertainty (cm⁻¹)
+    'dQ':          np.ndarray | None, # merged Q-resolution, or None
+    'scale':       float,             # optimised (or fixed) scale factor
+    'q_shift':     float,             # optimised (or fixed) Q shift (Å⁻¹)
+    'background':  float,             # optimised background subtracted from DS1 (cm⁻¹)
+    'chi_squared': float,             # weighted χ² in the overlap region
+    'success':     bool,              # True if the optimiser converged
+    'output_path': str | None,        # full path to the written file, or None
+}
+```
+
+### Examples
+
+```python
+from pyirena.batch import merge_data
+
+# Merge two files — auto-detect overlap, save to default folder
+result = merge_data("saxs/sample_001.h5", "waxs/sample_001.h5")
+if result and result['success']:
+    print(f"scale={result['scale']:.4g}  BG={result['background']:.4g}")
+    print(f"Saved to: {result['output_path']}")
+
+# Use a saved config file
+result = merge_data(
+    "saxs/sample_001.h5",
+    "waxs/sample_001.h5",
+    config_file="merge_config.json",
+    output_folder="merged/",
+)
+
+# In-memory only — no file written
+result = merge_data(
+    "saxs/sample_001.h5",
+    "waxs/sample_001.h5",
+    config_file="merge_config.json",
+    save_to_nexus=False,
+)
+q, I, dI = result['q'], result['I'], result['dI']
+
+# Batch over matched pairs
+from pathlib import Path
+saxs_files = sorted(Path("saxs/").glob("*.h5"))
+waxs_files = sorted(Path("waxs/").glob("*.h5"))
+
+for f1, f2 in zip(saxs_files, waxs_files):
+    r = merge_data(f1, f2, config_file="merge_config.json", output_folder="merged/")
+    status = "OK" if r and r['success'] else "FAIL"
+    print(f"{status}  {f1.name} + {f2.name}")
+```
+
+### Command-line script
+
+For folder-level batch processing from the shell, use the included helper script:
+
+```bash
+python scripts/batch_merge.py \
+    --folder1 saxs/ \
+    --folder2 waxs/ \
+    --config merge_config.json \
+    --output merged/
+```
+
+Run `python scripts/batch_merge.py --help` for full option reference.
 
 ---
 

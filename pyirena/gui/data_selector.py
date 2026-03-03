@@ -15,7 +15,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-        QAbstractItemView, QMessageBox, QMenuBar, QMenu,
+        QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame,
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
         QTableWidget, QTableWidgetItem,
     )
@@ -26,7 +26,7 @@ except ImportError:
         from PyQt6.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-            QAbstractItemView, QMessageBox, QMenuBar, QMenu,
+            QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame,
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
             QTableWidget, QTableWidgetItem,
         )
@@ -1856,6 +1856,7 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_window = None        # WAXS Peak Fit panel
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
         self.hdf5_viewer_window = None         # HDF5 Viewer / Data Extractor
+        self.data_merge_window = None          # Data Merge panel
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -2307,7 +2308,7 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.waxs_peakfit_button,        6, 0)
         btn_grid.addWidget(self.waxs_peakfit_script_button, 6, 1)
 
-        _hdf5v_style = (
+        _utility_style = (
             "QPushButton { background: #16a085; color: white; "
             "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
             "QPushButton:hover { background: #1abc9c; }"
@@ -2315,16 +2316,33 @@ class DataSelectorPanel(QWidget):
         )
         self.hdf5_viewer_button = QPushButton("HDF5 Viewer")
         self.hdf5_viewer_button.setMinimumHeight(38)
-        self.hdf5_viewer_button.setStyleSheet(_hdf5v_style)
+        self.hdf5_viewer_button.setStyleSheet(_utility_style)
         self.hdf5_viewer_button.setToolTip(
             "Open the HDF5 Viewer / Data Extractor for the current folder."
         )
         self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
-        btn_grid.addWidget(self.hdf5_viewer_button, 7, 0, 1, 2)
+
+        self.data_merge_button = QPushButton("Data Merge")
+        self.data_merge_button.setMinimumHeight(38)
+        self.data_merge_button.setStyleSheet(_utility_style)
+        self.data_merge_button.setToolTip(
+            "Open the Data Merge tool to combine USAXS and SAXS/WAXS datasets."
+        )
+        self.data_merge_button.clicked.connect(self.launch_data_merge)
 
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
+
+        # Visual separator between analysis-tool buttons and utility buttons
+        _util_sep = QFrame()
+        _util_sep.setFrameShape(QFrame.Shape.HLine)
+        _util_sep.setFrameShadow(QFrame.Shadow.Sunken)
+        _util_sep.setStyleSheet("color: #bdc3c7;")
+        right_layout.addWidget(_util_sep)
+
+        right_layout.addWidget(self.data_merge_button)
+        right_layout.addWidget(self.hdf5_viewer_button)
         file_area_layout.addLayout(right_layout, stretch=1)
 
         content_layout.addLayout(file_area_layout)
@@ -2391,6 +2409,11 @@ class DataSelectorPanel(QWidget):
 
         # Tools menu
         tools_menu = QMenu("&Tools", self)
+        data_merge_action = QAction("&Data Merge", self)
+        data_merge_action.setStatusTip("Open Data Merge tool for USAXS+SAXS/WAXS merging")
+        data_merge_action.triggered.connect(self.launch_data_merge)
+        tools_menu.addAction(data_merge_action)
+        tools_menu.addSeparator()
         hdf5_viewer_action = QAction("&HDF5 Viewer", self)
         hdf5_viewer_action.setStatusTip("Open HDF5 Viewer / Data Extractor")
         hdf5_viewer_action.triggered.connect(self.launch_hdf5_viewer)
@@ -3317,6 +3340,24 @@ class DataSelectorPanel(QWidget):
     def run_waxs_peakfit_script(self):
         """Batch-fit all selected files with WAXS Peak Fit."""
         self._run_batch_fit('waxs_peakfit')
+
+    def launch_data_merge(self):
+        """Open the Data Merge tool, pre-populated with the current folder as DS1."""
+        from pyirena.gui.data_merge_panel import DataMergePanel
+
+        if self.data_merge_window is None:
+            self.data_merge_window = DataMergePanel(
+                state_manager=self.state_manager,
+            )
+
+        # Pre-populate DS1 folder with the currently selected folder
+        if self.current_folder:
+            self.data_merge_window.set_folder(1, self.current_folder)
+
+        self.data_merge_window.show()
+        self.data_merge_window.raise_()
+        self.data_merge_window.activateWindow()
+        self.status_label.setText("Data Merge tool opened.")
 
     def launch_hdf5_viewer(self):
         """Open the HDF5 Viewer / Data Extractor for the current folder."""

@@ -262,14 +262,19 @@ def plot_iq_data(
     mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
     q_, I_ = q[mask], I[mask]
 
-    scatter = pg.ScatterPlotItem(
-        x=q_, y=I_,
+    # Use plot.plot(symbol='o') — PlotDataItem — rather than ScatterPlotItem.
+    # PlotDataItem pre-transforms data to log10 when setLogMode is active, giving
+    # a correct bounding rect for auto-range.  Standalone ScatterPlotItem does NOT
+    # pre-transform data; pyqtgraph's auto-range then uses raw linear Q values as
+    # ViewBox (log10-space) coordinates, placing scatter entirely outside the visible
+    # window and making it invisible.
+    scatter = plot.plot(
+        q_, I_,
         pen=None,
-        brush=SASPlotStyle.DATA_BRUSH,
-        size=SASPlotStyle.DATA_SIZE,
+        symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
+        symbolBrush=SASPlotStyle.DATA_BRUSH, symbolPen=pg.mkPen(None),
         name=label,
     )
-    plot.addItem(scatter)
 
     error_item = None
     if dI is not None:
@@ -299,11 +304,18 @@ def plot_iq_data(
 
     # Constrain x zoom to nearest full decade beyond the data Q range, plus 1 decade slack.
     # e.g. data 0.003–0.8 → hard limits 0.0001–10 (log10 space: -4 to 1).
+    # Also explicitly set the visible x range to the data Q span (log10 values = ViewBox
+    # coordinates in log mode), matching the pattern used in GraphWindow (data_selector.py).
     valid_q = q_[q_ > 0]
     if len(valid_q) >= 2:
         q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
         q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
         plot.getViewBox().setLimits(xMin=q_lo, xMax=q_hi)
+        plot.setXRange(
+            np.log10(float(valid_q.min())),
+            np.log10(float(valid_q.max())),
+            padding=0.05,
+        )
 
     return scatter, error_item
 

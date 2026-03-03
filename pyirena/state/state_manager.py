@@ -227,7 +227,27 @@ class StateManager:
                 "search_window": 0.050,   # Å⁻¹, half-width for both methods
                 "n_steps":       50,      # grid steps for per-peak scan
             },
-        }
+        },
+        "data_merge": {
+            # schema_version 1: initial release
+            "schema_version": 1,
+            "folder1": None,
+            "folder2": None,
+            "file_type1": "HDF5 Nexus",
+            "file_type2": "HDF5 Nexus",
+            "filter1": "",
+            "filter2": "",
+            "output_folder": None,
+            "q_overlap_min": None,
+            "q_overlap_max": None,
+            "scale_dataset": 2,            # 1 or 2 — which dataset to scale
+            "fit_scale": True,
+            "qshift_dataset": 0,           # 0=none, 1=DS1, 2=DS2
+            "fit_qshift": False,
+            "split_at_left_cursor": False,
+            "plot_mode": "saxs",           # "saxs" (log-log) or "waxs" (lin-lin)
+            "match_files": False,
+        },
     }
 
     def __init__(self, state_file: Optional[Path] = None):
