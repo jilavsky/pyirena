@@ -155,55 +155,30 @@ class DataMerge:
                 ),
             )
 
-        # --- linear-regression initial estimate for background and scale ---
-        # Simple median ratio ignores background, leading to a poor starting point
-        # when background is a significant fraction of DS1.  Instead, interpolate
-        # DS1 onto DS2's overlap Q grid and fit: I1_interp = bg + scale * I2
-        # (for scale_dataset=2) or I2_interp = scale * I1 (for scale_dataset=1).
-        # This gives a simultaneous estimate of both parameters before the
-        # numerical optimiser runs.
-        bg_init = 0.0
+        # --- initial guess for scale and background ---
         med1 = float(np.median(I1[mask1_init]))
         med2 = float(np.median(I2[mask2_init]))
 
+        # Scale initial guess: simple median ratio.
+        # The log-log-interpolation regression used previously was UNRELIABLE
+        # when a Q-shift exists: interpolating DS1 at DS2's Q positions without
+        # shift correction misaligns diffraction peaks, causing the regression to
+        # return the wrong slope (matching the degenerate BG≈I1, scale≈0 solution).
+        # The median ratio is not sensitive to peak positions and always gives a
+        # reasonable starting point.
         if config.fit_scale:
-            q2_ov = q2[mask2_init]
-            q1_ov = q1[mask1_init]
-            I2_ov = I2[mask2_init]
-            try:
-                I1_interp_init = self._interp_loglog(q2_ov, q1_ov, I1[mask1_init])
-                valid_lr = (
-                    np.isfinite(I1_interp_init) & (I1_interp_init > 0) & (I2_ov > 0)
-                )
-                if valid_lr.sum() >= 3 and config.scale_dataset == 2:
-                    # Regress: I1_interp = scale * I2 + bg
-                    A = np.vstack([I2_ov[valid_lr], np.ones(valid_lr.sum())]).T
-                    res = np.linalg.lstsq(A, I1_interp_init[valid_lr], rcond=None)
-                    slope, intercept = float(res[0][0]), float(res[0][1])
-                    if slope > 0.01:
-                        scale_init = slope
-                        bg_init = intercept
-                    else:
-                        scale_init = med1 / med2 if med2 > 0 else 1.0
-                elif valid_lr.sum() >= 3 and config.scale_dataset == 1:
-                    # Regress: I2 = scale * I1_interp + bg  (bg ignored for DS1 scaling)
-                    A = np.vstack([I1_interp_init[valid_lr], np.ones(valid_lr.sum())]).T
-                    res = np.linalg.lstsq(A, I2_ov[valid_lr], rcond=None)
-                    slope = float(res[0][0])
-                    scale_init = slope if slope > 0.01 else (med2 / med1 if med1 > 0 else 1.0)
-                else:
-                    scale_init = (med1 / med2) if config.scale_dataset == 2 and med2 > 0 else (
-                        med2 / med1 if med1 > 0 else 1.0
-                    )
-            except Exception:
-                scale_init = (med1 / med2) if config.scale_dataset == 2 and med2 > 0 else 1.0
+            if config.scale_dataset == 2 and med2 > 0:
+                scale_init = float(np.clip(med1 / med2, 0.01, 100.0))
+            elif config.scale_dataset == 1 and med1 > 0:
+                scale_init = float(np.clip(med2 / med1, 0.01, 100.0))
+            else:
+                scale_init = 1.0
         else:
-            # Scale is fixed by the user — use config.fixed_scale_value
             scale_init = config.fixed_scale_value
 
-        # Clamp scale_init to a sane range to avoid a terrible starting point
-        scale_init = float(np.clip(scale_init, 0.01, 100.0))
-        bg_init = float(np.clip(bg_init, -med1, med1))
+        # Background always starts at 0 — the BG regularisation in
+        # _objective_wrapper keeps it small and avoids the scale–BG valley.
+        bg_init = 0.0
 
         # --- build free-parameter vector and bounds ---
         # Always 3 slots: [background, scale, q_shift]
