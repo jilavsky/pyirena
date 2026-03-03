@@ -678,13 +678,17 @@ class DataMergePanel(QWidget):
         self._fit_scale_chk = QCheckBox("Fit")
         self._fit_scale_chk.setChecked(True)
         self._fit_scale_chk.setToolTip("Fit scale factor during optimisation")
+        self._fit_scale_chk.toggled.connect(self._on_fit_scale_toggled)
         row1.addWidget(self._fit_scale_chk)
 
         self._scale_result = QLineEdit("1.0000")
         self._scale_result.setReadOnly(True)
         self._scale_result.setFixedWidth(75)
         self._scale_result.setStyleSheet(_RDONLY_STYLE)
-        self._scale_result.setToolTip("Optimised scale factor")
+        self._scale_result.setToolTip(
+            "Optimised scale factor (read-only when Fit is checked).\n"
+            "Uncheck Fit to enter a fixed scale value manually."
+        )
         row1.addWidget(self._scale_result)
 
         row1.addWidget(_vline())
@@ -893,6 +897,11 @@ class DataMergePanel(QWidget):
         self._check_enable_buttons()
         self._status.setText(f"DS2 loaded: {fname}")
 
+    def _on_fit_scale_toggled(self, checked: bool) -> None:
+        """When 'Fit scale' is unchecked, let the user type a fixed scale value."""
+        self._scale_result.setReadOnly(checked)
+        self._scale_result.setStyleSheet(_RDONLY_STYLE if checked else "")
+
     def _on_mode_changed(self, _idx: int) -> None:
         saxs = self._mode_combo.currentIndex() == 0
         self._graph.set_mode(saxs)
@@ -950,11 +959,16 @@ class DataMergePanel(QWidget):
 
         # Build MergeConfig from UI
         qshift_map = {"None": 0, "DS1": 1, "DS2": 2}
+        try:
+            fixed_scale = float(self._scale_result.text())
+        except ValueError:
+            fixed_scale = 1.0
         config = MergeConfig(
             q_overlap_min=q_min,
             q_overlap_max=q_max,
             fit_scale=self._fit_scale_chk.isChecked(),
             scale_dataset=self._scale_ds_combo.currentIndex() + 1,   # 0→1, 1→2
+            fixed_scale_value=fixed_scale,
             fit_qshift=self._fit_qshift_chk.isChecked(),
             qshift_dataset=qshift_map[self._qshift_combo.currentText()],
             method=self._method_combo.currentData() or 'interpolation',
@@ -1071,10 +1085,15 @@ class DataMergePanel(QWidget):
             _dI2 = d2.get('Error')
             dI2 = _dI2 if _dI2 is not None else I2 * 0.05
 
+            try:
+                fixed_scale = float(self._scale_result.text())
+            except ValueError:
+                fixed_scale = 1.0
             config = MergeConfig(
                 q_overlap_min=q_min, q_overlap_max=q_max,
                 fit_scale=self._fit_scale_chk.isChecked(),
                 scale_dataset=self._scale_ds_combo.currentIndex() + 1,
+                fixed_scale_value=fixed_scale,
                 fit_qshift=self._fit_qshift_chk.isChecked(),
                 qshift_dataset=qshift_map[self._qshift_combo.currentText()],
                 method=self._method_combo.currentData() or 'interpolation',

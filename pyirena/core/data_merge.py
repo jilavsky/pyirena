@@ -33,6 +33,9 @@ class MergeConfig:
     scale_dataset : int
         1 = scale DS1, 2 = scale DS2.  DS1 is assumed absolute-scale, so
         default is 2 (scale DS2 to match DS1).
+    fixed_scale_value : float
+        Scale factor applied when *fit_scale* is False.  Set by the user;
+        allows manual scaling without optimization.  Default 1.0 (no scaling).
     fit_qshift : bool
         Whether to optimize an additive Q shift.
     qshift_dataset : int
@@ -49,6 +52,7 @@ class MergeConfig:
     q_overlap_max: float
     fit_scale: bool = True
     scale_dataset: int = 2
+    fixed_scale_value: float = 1.0
     fit_qshift: bool = False
     qshift_dataset: int = 0
     method: str = 'interpolation'
@@ -146,19 +150,66 @@ class DataMerge:
                 ),
             )
 
+        # --- linear-regression initial estimate for background and scale ---
+        # Simple median ratio ignores background, leading to a poor starting point
+        # when background is a significant fraction of DS1.  Instead, interpolate
+        # DS1 onto DS2's overlap Q grid and fit: I1_interp = bg + scale * I2
+        # (for scale_dataset=2) or I2_interp = scale * I1 (for scale_dataset=1).
+        # This gives a simultaneous estimate of both parameters before the
+        # numerical optimiser runs.
+        bg_init = 0.0
         med1 = float(np.median(I1[mask1_init]))
         med2 = float(np.median(I2[mask2_init]))
-        if config.fit_scale and med2 > 0:
-            scale_init = (med1 / med2) if config.scale_dataset == 2 else (med2 / med1)
+
+        if config.fit_scale:
+            q2_ov = q2[mask2_init]
+            q1_ov = q1[mask1_init]
+            I2_ov = I2[mask2_init]
+            try:
+                I1_interp_init = self._interp_loglog(q2_ov, q1_ov, I1[mask1_init])
+                valid_lr = (
+                    np.isfinite(I1_interp_init) & (I1_interp_init > 0) & (I2_ov > 0)
+                )
+                if valid_lr.sum() >= 3 and config.scale_dataset == 2:
+                    # Regress: I1_interp = scale * I2 + bg
+                    A = np.vstack([I2_ov[valid_lr], np.ones(valid_lr.sum())]).T
+                    res = np.linalg.lstsq(A, I1_interp_init[valid_lr], rcond=None)
+                    slope, intercept = float(res[0][0]), float(res[0][1])
+                    if slope > 0.01:
+                        scale_init = slope
+                        bg_init = intercept
+                    else:
+                        scale_init = med1 / med2 if med2 > 0 else 1.0
+                elif valid_lr.sum() >= 3 and config.scale_dataset == 1:
+                    # Regress: I2 = scale * I1_interp + bg  (bg ignored for DS1 scaling)
+                    A = np.vstack([I1_interp_init[valid_lr], np.ones(valid_lr.sum())]).T
+                    res = np.linalg.lstsq(A, I2_ov[valid_lr], rcond=None)
+                    slope = float(res[0][0])
+                    scale_init = slope if slope > 0.01 else (med2 / med1 if med1 > 0 else 1.0)
+                else:
+                    scale_init = (med1 / med2) if config.scale_dataset == 2 and med2 > 0 else (
+                        med2 / med1 if med1 > 0 else 1.0
+                    )
+            except Exception:
+                scale_init = (med1 / med2) if config.scale_dataset == 2 and med2 > 0 else 1.0
         else:
-            scale_init = 1.0
+            # Scale is fixed by the user — use config.fixed_scale_value
+            scale_init = config.fixed_scale_value
+
+        # Clamp scale_init to a sane range to avoid a terrible starting point
+        scale_init = float(np.clip(scale_init, 0.01, 100.0))
+        bg_init = float(np.clip(bg_init, -med1, med1))
 
         # --- build free-parameter vector and bounds ---
         # Always 3 slots: [background, scale, q_shift]
         # Unused slots are fixed at their initial values via a closure.
-        p0 = [0.0, scale_init, 0.0]
+        p0 = [bg_init, scale_init, 0.0]
 
-        max_bg = float(np.max(np.abs(I1[mask1_init]))) * 0.5
+        # Background bound: allow up to the full max of DS1 in overlap.
+        # Using 50% of max (the old value) prevents finding backgrounds that
+        # exceed half the DS1 signal — a common situation (e.g. instrument
+        # background ≈ 80% of DS1 in the tail).
+        max_bg = float(np.max(I1[mask1_init]))
         bounds = [
             (-max_bg, max_bg),  # background
             (0.01, 100.0),      # scale
@@ -179,6 +230,14 @@ class DataMerge:
                 params[1] = free_params[idx]; idx += 1
             if not fixed_qshift:
                 params[2] = free_params[idx]; idx += 1
+            # Hard-clip to bounds — Nelder-Mead does not enforce bounds reliably;
+            # returning 1e30 for out-of-range values acts as a hard wall.
+            if params[0] < bounds[0][0] or params[0] > bounds[0][1]:
+                return 1e30
+            if params[1] < bounds[1][0] or params[1] > bounds[1][1]:
+                return 1e30
+            if params[2] < bounds[2][0] or params[2] > bounds[2][1]:
+                return 1e30
             return self._objective(params, q1, I1, dI1, q2, I2, dI2, config)
 
         # Build initial guess and bounds for the free subset
@@ -268,12 +327,13 @@ class DataMerge:
             config=config,
         )
 
-        # Propagate dI for the scaled dataset
+        # Propagate dI for the scaled dataset (scale always applied, whether
+        # fitted or user-specified via fixed_scale_value)
         dI1_adj = dI1.copy()
         dI2_adj = dI2.copy()
-        if config.fit_scale and config.scale_dataset == 1:
+        if config.scale_dataset == 1:
             dI1_adj = dI1 * result.scale
-        elif config.fit_scale and config.scale_dataset == 2:
+        else:
             dI2_adj = dI2 * result.scale
 
         if config.split_at_left_cursor:
@@ -424,12 +484,14 @@ class DataMerge:
         # Background always subtracted from DS1
         I1_adj = I1 - background
 
-        # Scale applied to the chosen dataset
-        if config.fit_scale:
-            if config.scale_dataset == 1:
-                I1_adj = I1_adj * scale
-            else:
-                I2 = I2 * scale
+        # Scale always applied to the chosen dataset, whether the scale was
+        # fitted (fit_scale=True) or fixed by the user (fit_scale=False).
+        # When fit_scale=False the optimizer passes fixed_scale_value as the
+        # scale argument, so the result is the same code path.
+        if config.scale_dataset == 1:
+            I1_adj = I1_adj * scale
+        else:
+            I2 = I2 * scale
 
         # Q shift applied to the chosen dataset
         if config.fit_qshift and config.qshift_dataset == 1:
