@@ -190,6 +190,18 @@ class DataMerge:
         # exceed half the DS1 signal — a common situation (e.g. instrument
         # background ≈ 80% of DS1 in the tail).
         max_bg = float(np.max(I1[mask1_init]))
+
+        # For scale_dataset=2, use the analytical WLS path which is far more
+        # reliable than Nelder-Mead when DS2 has few overlap points (e.g. 8-10):
+        # DS2 is interpolated onto DS1's dense Q grid (50+ points), giving a
+        # well-conditioned least-squares system and no need for BG regularisation.
+        if config.scale_dataset == 2:
+            return self._optimize_analytical_scale_ds2(
+                q1, I1, dI1, q2, I2, dI2, config,
+                scale_init=scale_init, max_bg=max_bg,
+                n_pts_init=int(mask2_init.sum()),
+            )
+
         bounds = [
             (-max_bg, max_bg),  # background
             (0.01, 100.0),      # scale
@@ -412,6 +424,232 @@ class DataMerge:
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
+
+    def _overlap_data_ds1_grid(
+        self,
+        q1: np.ndarray, I1: np.ndarray, dI1: np.ndarray,
+        q2: np.ndarray, I2: np.ndarray,
+        config: MergeConfig,
+        q_shift: float = 0.0,
+    ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """Interpolate DS2 onto DS1's overlap Q grid for analytical WLS.
+
+        Applies any Q shift, clips DS1 overlap points to DS2's actual Q range to
+        avoid extrapolation, and interpolates DS2 onto DS1's Q positions.
+
+        Returns
+        -------
+        (I1_ov, I2_interp, sigma) or None if fewer than 2 usable points.
+        sigma is derived from dI1 with a 5 % relative floor.
+        """
+        # Apply Q shift to the appropriate dataset
+        q1_adj = q1 + q_shift if config.qshift_dataset == 1 else q1.copy()
+        q2_adj = q2 + q_shift if config.qshift_dataset == 2 else q2.copy()
+
+        # DS1 overlap mask
+        mask1 = (
+            (q1_adj >= config.q_overlap_min) & (q1_adj <= config.q_overlap_max)
+            & (I1 > 0) & np.isfinite(I1) & np.isfinite(q1_adj)
+        )
+        if mask1.sum() < 2:
+            return None
+
+        # DS2: all positive finite points available for interpolation
+        mask2_all = (I2 > 0) & np.isfinite(I2) & np.isfinite(q2_adj)
+        if mask2_all.sum() < 1:
+            return None
+
+        q2_valid = q2_adj[mask2_all]
+        I2_valid = I2[mask2_all]
+        q2_min = float(q2_valid.min())
+        q2_max = float(q2_valid.max())
+
+        # Clip DS1 overlap points to DS2's actual Q range (no extrapolation)
+        mask1_clipped = mask1 & (q1_adj >= q2_min) & (q1_adj <= q2_max)
+        if mask1_clipped.sum() < 2:
+            return None
+
+        q1_ov  = q1_adj[mask1_clipped]
+        I1_ov  = I1[mask1_clipped]
+        dI1_ov = dI1[mask1_clipped]
+
+        # Interpolate DS2 onto DS1's Q positions (log-log)
+        try:
+            I2_interp = self._interp_loglog(q1_ov, q2_valid, I2_valid)
+        except Exception:
+            return None
+
+        # Discard any NaN results (should not occur after range clipping, but be safe)
+        good = np.isfinite(I2_interp) & (I2_interp > 0)
+        if good.sum() < 2:
+            return None
+
+        I1_ov     = I1_ov[good]
+        dI1_ov    = dI1_ov[good]
+        I2_interp = I2_interp[good]
+
+        # Sigma from DS1 uncertainty with a 5 % relative floor
+        rel_floor = I1_ov * 0.05
+        sigma = np.where((dI1_ov > 0) & np.isfinite(dI1_ov), dI1_ov, rel_floor)
+        sigma = np.maximum(sigma, rel_floor)
+        sigma = np.where(np.isfinite(sigma) & (sigma > 0), sigma, rel_floor)
+
+        return I1_ov, I2_interp, sigma
+
+    @staticmethod
+    def _wls_bg_scale2(
+        I1_ov: np.ndarray,
+        I2_interp: np.ndarray,
+        sigma: np.ndarray,
+        bounds_bg: Tuple[float, float],
+        bounds_scale: Tuple[float, float],
+    ) -> Tuple[Optional[float], Optional[float], float]:
+        """Weighted least-squares solution for (BG, scale) when scaling DS2.
+
+        Minimises  Σᵢ [(I1_ov_i − BG − I2_interp_i × scale)² / σᵢ²]
+        analytically via the 2×2 normal equations (Cramer's rule).
+
+        Returns
+        -------
+        (bg, scale, chi2)  or  (None, None, 1e30) when the system is
+        degenerate (DS2 nearly constant in the overlap: Var_w(I2) ≈ 0).
+        """
+        w   = 1.0 / sigma ** 2
+        Sw  = float(np.sum(w))
+        Sx  = float(np.sum(w * I2_interp))
+        Sy  = float(np.sum(w * I1_ov))
+        Sxx = float(np.sum(w * I2_interp ** 2))
+        Sxy = float(np.sum(w * I1_ov * I2_interp))
+
+        D   = Sw * Sxx - Sx ** 2
+        ref = Sw * Sxx if Sw * Sxx > 0 else 1.0
+        if abs(D) < 1e-10 * ref:   # Var_w(I2) / mean_w(I2²) < 1e-10
+            return None, None, 1e30
+
+        bg    = float(np.clip((Sy * Sxx - Sx * Sxy) / D, bounds_bg[0],    bounds_bg[1]))
+        scale = float(np.clip((Sw * Sxy - Sx * Sy)  / D, bounds_scale[0], bounds_scale[1]))
+
+        residuals = (I1_ov - bg - I2_interp * scale) / sigma
+        chi2 = float(np.sum(residuals ** 2))
+        return bg, scale, chi2
+
+    def _optimize_analytical_scale_ds2(
+        self,
+        q1: np.ndarray, I1: np.ndarray, dI1: np.ndarray,
+        q2: np.ndarray, I2: np.ndarray, dI2: np.ndarray,
+        config: MergeConfig,
+        scale_init: float,
+        max_bg: float,
+        n_pts_init: int,
+    ) -> MergeResult:
+        """Analytical WLS optimizer for scale_dataset=2.
+
+        For fit_qshift=False: pure closed-form solution — no iteration at all.
+        For fit_qshift=True:  1-D Nelder-Mead over q_shift only; (BG, scale)
+            are solved analytically for each trial q_shift.
+
+        This is far more reliable than 3-D Nelder-Mead when DS2 has few
+        overlap points (e.g. 8-10) and DS1 has many (50+): DS2 is interpolated
+        onto DS1's dense Q grid, giving 50+ chi-squared terms instead of 8-10,
+        and the linear sub-problem (BG, scale) is solved exactly with no
+        regularisation penalty needed.
+        """
+        bounds_bg     = (-max_bg, max_bg)
+        bounds_scale  = (0.01, 100.0)
+        bounds_qshift = (-0.1, 0.1)
+
+        def _solve_at_qshift(q_shift: float) -> Tuple[float, float, float, int]:
+            """Return (bg, scale, chi2, n_pts) for the given q_shift."""
+            ov = self._overlap_data_ds1_grid(
+                q1, I1, dI1, q2, I2, config, q_shift=q_shift
+            )
+            if ov is None:
+                return 0.0, scale_init, 1e30, 0
+            I1_ov, I2_interp, sigma = ov
+            n = int(len(I1_ov))
+
+            if config.fit_scale:
+                bg, scale, chi2 = self._wls_bg_scale2(
+                    I1_ov, I2_interp, sigma, bounds_bg, bounds_scale
+                )
+                if bg is None:
+                    # Degenerate: DS2 nearly constant — fall back to medians
+                    scale = float(np.clip(
+                        np.median(I1_ov) / np.median(I2_interp), 0.01, 100.0
+                    ))
+                    w  = 1.0 / sigma ** 2
+                    bg = float(np.clip(
+                        np.sum(w * (I1_ov - I2_interp * scale)) / np.sum(w),
+                        bounds_bg[0], bounds_bg[1],
+                    ))
+                    residuals = (I1_ov - bg - I2_interp * scale) / sigma
+                    chi2 = float(np.sum(residuals ** 2))
+            else:
+                # Scale fixed — solve for BG only (1-variable linear)
+                scale = config.fixed_scale_value
+                w   = 1.0 / sigma ** 2
+                Sw  = float(np.sum(w))
+                bg  = float(np.clip(
+                    np.sum(w * (I1_ov - I2_interp * scale)) / Sw if Sw > 0 else 0.0,
+                    bounds_bg[0], bounds_bg[1],
+                ))
+                residuals = (I1_ov - bg - I2_interp * scale) / sigma
+                chi2 = float(np.sum(residuals ** 2))
+
+            return bg, scale, chi2, n
+
+        if not config.fit_qshift:
+            # --- pure analytical, no Nelder-Mead ---
+            q_shift = config.fixed_qshift_value
+            bg, scale, chi2, n_pts = _solve_at_qshift(q_shift)
+            return MergeResult(
+                scale=scale, q_shift=q_shift, background=bg,
+                success=(chi2 < 1e29),
+                chi_squared=chi2,
+                n_overlap_points=n_pts if n_pts > 0 else n_pts_init,
+                message="Analytical WLS (scale_dataset=2, no Q-shift optimisation).",
+            )
+
+        # --- 1-D Nelder-Mead over q_shift; (BG, scale) solved analytically ---
+        _best: dict = {
+            'q_shift': config.fixed_qshift_value,
+            'bg': 0.0, 'scale': scale_init, 'chi2': 1e30, 'n_pts': n_pts_init,
+        }
+
+        def _qshift_obj(params: np.ndarray) -> float:
+            qs = float(params[0])
+            if qs < bounds_qshift[0] or qs > bounds_qshift[1]:
+                return 1e30
+            bg, scale, chi2, n = _solve_at_qshift(qs)
+            if chi2 < _best['chi2']:
+                _best.update({'q_shift': qs, 'bg': bg, 'scale': scale,
+                              'chi2': chi2, 'n_pts': n})
+            return chi2
+
+        opt = minimize(
+            _qshift_obj,
+            x0=np.array([config.fixed_qshift_value]),
+            method='Nelder-Mead',
+            options={'xatol': 1e-6, 'fatol': 1e-8, 'maxiter': 2000},
+        )
+
+        # Use the globally best solution seen during optimisation
+        # (Nelder-Mead may wander at termination)
+        if _best['chi2'] < 1e29:
+            bg_f    = _best['bg'];    scale_f  = _best['scale']
+            qs_f    = _best['q_shift']; chi2_f = _best['chi2']
+            n_pts_f = _best['n_pts']
+        else:
+            qs_f = float(np.clip(opt.x[0], bounds_qshift[0], bounds_qshift[1]))
+            bg_f, scale_f, chi2_f, n_pts_f = _solve_at_qshift(qs_f)
+
+        return MergeResult(
+            scale=scale_f, q_shift=qs_f, background=bg_f,
+            success=(opt.success or chi2_f < 1e10),
+            chi_squared=chi2_f,
+            n_overlap_points=n_pts_f if n_pts_f > 0 else n_pts_init,
+            message=opt.message,
+        )
 
     def _objective(
         self,
