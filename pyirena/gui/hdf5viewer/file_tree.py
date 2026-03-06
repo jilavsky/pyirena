@@ -49,7 +49,8 @@ def _sort_key_time(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_order(name: str) -> float:
-    m = re.search(r'_(\d+)(?:\.[^.]+)?$', name)
+    # _merged suffix is skipped transparently so merged files sort beside their originals
+    m = re.search(r'_(\d+)(?:_merged)?(?:\.[^.]+)?$', name)
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_pressure(name: str) -> float:

@@ -156,8 +156,8 @@ def _sort_key_time(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_order(name: str) -> float:
-    # last _NNN before the file extension
-    m = re.search(r'_(\d+)(?:\.[^.]+)?$', name)
+    # last _NNN before the file extension; _merged suffix is skipped transparently
+    m = re.search(r'_(\d+)(?:_merged)?(?:\.[^.]+)?$', name)
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_pressure(name: str) -> float:
