@@ -5,6 +5,13 @@ pyirena (and compatible software), plot 1D data such as I(Q) curves and fit
 models, and collect scalar parameters (e.g., Rg, peak Q₀, χ²) across a series
 of files into a table and scatter plot.
 
+The viewer supports results from all pyirena analysis tools: **Unified Fit**
+(including Guinier analysis, Porod's law exponents, and fractal/agglomerate
+models), **Size Distribution** (volume-weighted P(R) and I(Q) models),
+**WAXS Peak Fit** (diffraction peak fitting), **Simple Fits** (Guinier, Porod,
+Debye-Bueche, Treubner-Strey, and other models), and **Data Merge**
+(merged SAXS/USAXS datasets).
+
 ---
 
 ## Opening the tool
@@ -132,6 +139,7 @@ Array datasets do not show a value (use Plot Controls to plot them).
 | Add as Y error | Sets as Y error in Tab 1 Custom |
 | Add as X error | Sets as X error in Tab 1 Custom |
 | Collect value across selected files | Pre-fills the Collect Values tab with this HDF5 path |
+| Add to Multi-Collect list | Appends this HDF5 path to the item list in Tab 3 (Multi-Collect) |
 | Set as X-axis metadata path | Pre-fills the X-axis metadata path in Tab 2 |
 
 ### Right-click on a group
@@ -199,10 +207,10 @@ Choose a **Type** and **Item** from the combo boxes:
 
 | Type | Item examples |
 |------|--------------|
-| Unified Fit | Rg, G, B, P, ETA, PACK (per level); background; chi2 |
-| WAXS Peak Fit | Q0, A, FWHM (per peak); chi2 |
-| Size Distribution | chi2, volume_fraction |
-| Simple Fits | any fitted parameter by name; chi2 |
+| Unified Fit | Rg, G, B, P, ETA, PACK (per level); background; chi2. Covers Guinier knee parameters and Porod law exponents. |
+| WAXS Peak Fit | Q0, A, FWHM (per peak); chi2. Suitable for diffraction peak fitting results. |
+| Size Distribution | chi2, volume_fraction. Covers volume-weighted size distribution models. |
+| Simple Fits | any fitted parameter by name; chi2. Covers Guinier, Porod, Debye-Bueche, Treubner-Strey, and other models. |
 | Custom HDF5 path | any dataset or `path@attribute` in the file |
 
 When MC uncertainty has been calculated, the standard deviation is collected
@@ -223,6 +231,54 @@ spin box to select which level or peak to read from.
 
 Click **Collect from all selected files** to open a **Collect Window** showing
 the table and scatter plot.
+
+---
+
+### Tab 3 — Multi-Collect
+
+Collects **multiple HDF5 items simultaneously** from each selected file and
+assembles them into a single wide table.  Unlike Tab 2 (one scalar per file),
+Multi-Collect lets you extract 8 or more items per file in one pass — useful
+for ion-chamber readings, detector counts, or any set of related quantities.
+
+#### Item list
+
+Each row in the item list specifies one quantity to collect:
+
+| Column | Description |
+|--------|-------------|
+| Path | HDF5 path inside the file (e.g., `entry/monitor/counts`) |
+| Label | Column header in the output table |
+| Reduction | How to reduce an array to a scalar: **sum**, **mean**, **min**, or **max** |
+
+**Adding items:**
+
+- Type a path and label in the text fields below the list and click **Add item**,
+  OR
+- Right-click any dataset in the centre panel and choose **Add to Multi-Collect
+  list** — the path is inserted automatically and the viewer switches to this tab.
+
+Use **Remove selected** to delete highlighted rows; **Clear all** removes the
+entire list.
+
+Both scalars and arrays are supported.  String datasets are read as-is.
+Arrays are reduced to a single number using the chosen Reduction function
+(`sum` is the default and is appropriate for raw detector counts).
+
+#### X axis
+
+The same X-axis options as Tab 2 are available:
+
+| Option | X value |
+|--------|---------|
+| File order (1, 2, 3…) | Sequential integer position |
+| Filename sort key | Numeric value extracted from filename |
+| HDF5 metadata path | Scalar read from that HDF5 path in each file |
+
+#### Multi-Collect button
+
+Click **Multi-Collect from all selected files** to open a **Multi-Collect
+Window** showing the wide table (one column per item).
 
 ---
 
@@ -280,6 +336,27 @@ Opened by the **Collect** button in Tab 2.  Shows:
 
 ---
 
+## Multi-Collect Window
+
+Opened by the **Multi-Collect** button in Tab 3.  Shows a wide table with one
+row per file and one column per collected item:
+
+```
+File | X value | Item 1 | Item 2 | … | Item N
+```
+
+The status bar reports how many files yielded at least one non-empty value and
+how many items were collected.
+
+### Toolbar
+
+| Button | Action |
+|--------|--------|
+| Save CSV | Save table as a comma-separated file (default: window title + `.csv` in CWD) |
+| Save JPEG | Save the full window as a JPEG image |
+
+---
+
 ## State persistence
 
 The viewer saves and restores these settings automatically across sessions:
@@ -302,3 +379,18 @@ The viewer saves and restores these settings automatically across sessions:
 The viewer can browse **any** HDF5 file.  Pyirena-specific plot actions
 (NXcanSAS, Unified Fit, etc.) require the pyirena result groups to be present
 in the file.
+
+---
+
+## Supported analysis types
+
+The following analysis methods are supported for result viewing and parameter
+collection via the HDF5 Viewer:
+
+| Analysis | Keyword / technique |
+|----------|-------------------|
+| Unified Fit | Guinier analysis, Porod's law (power-law exponent), fractal dimension, Beaucage model |
+| Size Distribution | size distribution, P(R) distribution, volume-weighted particle size |
+| WAXS Peak Fit | diffraction peak fitting, d-spacing, FWHM |
+| Simple Fits | Guinier, Porod, Debye-Bueche (two-phase model), Treubner-Strey (microemulsion / lamellar), power law, Lorentzian, Gaussian |
+| Data Merge | SAXS/USAXS merge, scale matching, background subtraction |
