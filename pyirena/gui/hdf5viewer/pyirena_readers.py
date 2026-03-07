@@ -392,6 +392,74 @@ def read_metadata_value(filepath: str | Path, hdf5_path: str) -> float | None:
         return None
 
 
+# ── Multi-item collection ──────────────────────────────────────────────────
+
+def read_hdf5_item(
+    filepath: str | Path,
+    hdf5_path: str,
+    reduction: str = 'sum',
+) -> tuple[object, str]:
+    """
+    Read an HDF5 dataset or attribute and reduce arrays to a scalar.
+
+    Parameters
+    ----------
+    filepath : str or Path
+    hdf5_path : str
+        HDF5 internal path, optionally with ``@attr_name`` suffix.
+    reduction : {'sum', 'mean', 'min', 'max'}
+        How to collapse arrays to a single number.  Ignored for scalars
+        and strings.
+
+    Returns
+    -------
+    (value, kind) where *kind* is one of:
+        ``'scalar'`` — value is float
+        ``'string'`` — value is str
+        ``'array'``  — value is float (after reduction)
+        ``'error'``  — value is None (read failure)
+    """
+    if not hdf5_path:
+        return None, 'error'
+    try:
+        with h5py.File(str(filepath), 'r') as f:
+            if '@' in hdf5_path:
+                path, attr = hdf5_path.rsplit('@', 1)
+                path = path.rstrip('/') or '/'
+                raw = f[path].attrs[attr]
+            else:
+                raw = f[hdf5_path][()]
+    except Exception:
+        return None, 'error'
+
+    # String types
+    if isinstance(raw, (bytes, np.bytes_)):
+        return raw.decode('utf-8', errors='replace'), 'string'
+    if isinstance(raw, str):
+        return raw, 'string'
+    if isinstance(raw, np.ndarray) and raw.dtype.kind in ('S', 'U'):
+        return ', '.join(str(v) for v in raw.flat), 'string'
+
+    # Numeric
+    try:
+        arr = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return str(raw), 'string'
+
+    if arr.ndim == 0 or arr.size == 1:
+        return float(arr.flat[0]), 'scalar'
+
+    # Array — apply reduction
+    ops = {
+        'sum':  np.nansum,
+        'mean': np.nanmean,
+        'min':  np.nanmin,
+        'max':  np.nanmax,
+    }
+    fn = ops.get(reduction.lower(), np.nansum)
+    return float(fn(arr)), 'array'
+
+
 # ── X-axis helpers for Collect Values ─────────────────────────────────────
 
 def extract_sort_key_value(filepath: str | Path, sort_index: int) -> float | None:

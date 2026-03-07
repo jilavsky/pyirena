@@ -26,6 +26,7 @@ try:
         QCheckBox, QLabel, QLineEdit, QPushButton, QRadioButton,
         QButtonGroup, QComboBox, QSpinBox, QGridLayout, QFrame,
         QMessageBox, QSizePolicy,
+        QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     )
     from PySide6.QtCore import Qt, Signal
 except ImportError:
@@ -34,6 +35,7 @@ except ImportError:
         QCheckBox, QLabel, QLineEdit, QPushButton, QRadioButton,
         QButtonGroup, QComboBox, QSpinBox, QGridLayout, QFrame,
         QMessageBox, QSizePolicy,
+        QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
 
@@ -66,14 +68,21 @@ class PlotControlsPanel(QWidget):
         x_spec: dict describing the X axis
         label_spec: dict with y_label, x_label, title
 
+    multi_collect_requested(items_spec, x_spec, label_spec)
+        Collect multiple items from all selected files.
+        items_spec: list of dicts with "path", "label", "reduction"
+        x_spec: dict describing the X axis
+        label_spec: dict with x_label, title
+
     status_message(str)
         A status message for the main window status bar.
     """
 
-    new_graph_requested        = Signal(list)
+    new_graph_requested           = Signal(list)
     add_to_active_graph_requested = Signal(list)
-    collect_requested          = Signal(dict, dict, dict)
-    status_message             = Signal(str)
+    collect_requested             = Signal(dict, dict, dict)
+    multi_collect_requested       = Signal(list, dict, dict)
+    status_message                = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -99,6 +108,7 @@ class PlotControlsPanel(QWidget):
 
         self._tabs.addTab(self._build_graph_tab(), "1D Graph")
         self._tabs.addTab(self._build_collect_tab(), "Collect Values")
+        self._tabs.addTab(self._build_multi_collect_tab(), "Multi-Collect")
 
     def _build_graph_tab(self) -> QWidget:
         w = QWidget()
@@ -293,6 +303,126 @@ class PlotControlsPanel(QWidget):
         self._update_collect_ui(0)
         return w
 
+    def _build_multi_collect_tab(self) -> QWidget:
+        w = QWidget()
+        vl = QVBoxLayout(w)
+        vl.setContentsMargins(4, 4, 4, 4)
+        vl.setSpacing(6)
+
+        # ── Item list ─────────────────────────────────────────────────────
+        item_box = QGroupBox("Items to collect")
+        ig = QVBoxLayout(item_box)
+        ig.setSpacing(4)
+
+        # Embedded table: HDF5 Path | Label | Reduction
+        self._mc_table = QTableWidget(0, 3)
+        self._mc_table.setHorizontalHeaderLabels(["HDF5 Path", "Label", "Reduce"])
+        self._mc_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._mc_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._mc_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._mc_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._mc_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._mc_table.setFixedHeight(115)
+        ig.addWidget(self._mc_table)
+
+        # Path field (right-click in HDF5 browser fills this)
+        path_row = QHBoxLayout()
+        path_row.addWidget(_label("Path:"))
+        self._mc_path = QLineEdit()
+        self._mc_path.setPlaceholderText("/entry/...  or @attr")
+        self._mc_path.setToolTip(
+            "HDF5 path of the item to add.\n"
+            "Right-click a dataset in the HDF5 browser → "
+            "\"Add to Multi-Collect list\" to fill this automatically."
+        )
+        path_row.addWidget(self._mc_path, 1)
+        ig.addLayout(path_row)
+
+        # Label + Reduction combo
+        lr_row = QHBoxLayout()
+        lr_row.addWidget(_label("Label:"))
+        self._mc_label_edit = QLineEdit()
+        self._mc_label_edit.setPlaceholderText("auto")
+        lr_row.addWidget(self._mc_label_edit, 1)
+        self._mc_reduction = QComboBox()
+        self._mc_reduction.addItems(["Sum", "Mean", "Min", "Max"])
+        self._mc_reduction.setFixedWidth(60)
+        self._mc_reduction.setToolTip("How to reduce array datasets to a single number")
+        lr_row.addWidget(self._mc_reduction)
+        ig.addLayout(lr_row)
+
+        # Add / Remove / Clear buttons
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("+ Add")
+        add_btn.setFixedWidth(55)
+        add_btn.clicked.connect(self._mc_add_item)
+        btn_row.addWidget(add_btn)
+        rem_btn = QPushButton("Remove sel.")
+        rem_btn.clicked.connect(self._mc_remove_selected)
+        btn_row.addWidget(rem_btn)
+        clr_btn = QPushButton("Clear all")
+        clr_btn.setFixedWidth(65)
+        clr_btn.clicked.connect(self._mc_clear)
+        btn_row.addWidget(clr_btn)
+        ig.addLayout(btn_row)
+
+        vl.addWidget(item_box)
+
+        # ── X axis (identical options to Collect Values tab) ──────────────
+        x_box = QGroupBox("X axis")
+        xg = QVBoxLayout(x_box)
+        xg.setSpacing(3)
+
+        self._mc_xrb_order   = QRadioButton("File order  (1, 2, 3…)")
+        self._mc_xrb_sortkey = QRadioButton("Filename sort key:")
+        self._mc_xrb_path    = QRadioButton("HDF5 metadata path:")
+        self._mc_xrb_order.setChecked(True)
+
+        self._mc_x_sortkey_combo = QComboBox()
+        self._mc_x_sortkey_combo.addItems([
+            "Temperature (°C)", "Time (min)", "Order number", "Pressure (PSI)",
+        ])
+        self._mc_x_sortkey_combo.setEnabled(False)
+
+        self._mc_x_meta_path = QLineEdit()
+        self._mc_x_meta_path.setPlaceholderText("/entry/...  or @attr")
+        self._mc_x_meta_path.setEnabled(False)
+
+        self._mc_xrb_sortkey.toggled.connect(self._mc_x_sortkey_combo.setEnabled)
+        self._mc_xrb_path.toggled.connect(self._mc_x_meta_path.setEnabled)
+
+        xrow1 = QHBoxLayout()
+        xrow1.addWidget(self._mc_xrb_sortkey)
+        xrow1.addWidget(self._mc_x_sortkey_combo)
+
+        xrow2 = QHBoxLayout()
+        xrow2.addWidget(self._mc_xrb_path)
+        xrow2.addWidget(self._mc_x_meta_path, 1)
+
+        xg.addWidget(self._mc_xrb_order)
+        xg.addLayout(xrow1)
+        xg.addLayout(xrow2)
+        vl.addWidget(x_box)
+
+        # ── Collect button ─────────────────────────────────────────────────
+        mc_btn = QPushButton("Collect from all selected files")
+        mc_btn.setStyleSheet(
+            "background:#16a085; color:white; font-weight:bold;"
+        )
+        mc_btn.setMinimumHeight(30)
+        mc_btn.clicked.connect(self._on_multi_collect)
+        vl.addWidget(mc_btn)
+        vl.addStretch(1)
+        return w
+
     # ── Public API ─────────────────────────────────────────────────────────
 
     def set_selected_files(self, paths: list[str]) -> None:
@@ -328,6 +458,13 @@ class PlotControlsPanel(QWidget):
         self._xrb_path.setChecked(True)
         self._x_meta_path.setText(hdf5_path)
         self._x_meta_path.setEnabled(True)
+
+    def set_multi_collect_path(self, hdf5_path: str) -> None:
+        """Called when the HDF5 browser emits multi_collect_item_requested."""
+        self._tabs.setCurrentIndex(2)
+        self._mc_path.setText(hdf5_path)
+        # Auto-fill label from the path's leaf name
+        self._mc_label_edit.setText(hdf5_path.split("/")[-1])
 
     # ── Slot management ────────────────────────────────────────────────────
 
@@ -571,6 +708,96 @@ class PlotControlsPanel(QWidget):
         }
 
         self.collect_requested.emit(spec, x_spec, label_spec)
+
+    # ── Multi-Collect item management ──────────────────────────────────────
+
+    def _mc_add_item(self) -> None:
+        path = self._mc_path.text().strip()
+        if not path:
+            return
+        label = self._mc_label_edit.text().strip() or path.split("/")[-1]
+        reduction = self._mc_reduction.currentText().lower()
+
+        row = self._mc_table.rowCount()
+        self._mc_table.insertRow(row)
+
+        path_item = QTableWidgetItem(path)
+        path_item.setToolTip(path)
+        label_item = QTableWidgetItem(label)
+        red_item = QTableWidgetItem(reduction)
+        red_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._mc_table.setItem(row, 0, path_item)
+        self._mc_table.setItem(row, 1, label_item)
+        self._mc_table.setItem(row, 2, red_item)
+
+        self._mc_path.clear()
+        self._mc_label_edit.clear()
+
+    def _mc_remove_selected(self) -> None:
+        rows = sorted(
+            {idx.row() for idx in self._mc_table.selectedIndexes()},
+            reverse=True,
+        )
+        for r in rows:
+            self._mc_table.removeRow(r)
+
+    def _mc_clear(self) -> None:
+        self._mc_table.setRowCount(0)
+
+    def _on_multi_collect(self) -> None:
+        if not self._selected_files:
+            QMessageBox.warning(self, "No files", "Select files in the file tree first.")
+            return
+
+        # Build items spec from the table
+        items_spec = []
+        for row in range(self._mc_table.rowCount()):
+            path_it  = self._mc_table.item(row, 0)
+            label_it = self._mc_table.item(row, 1)
+            red_it   = self._mc_table.item(row, 2)
+            if path_it and path_it.text().strip():
+                items_spec.append({
+                    "path":      path_it.text().strip(),
+                    "label":     label_it.text().strip() if label_it else "",
+                    "reduction": red_it.text().strip().lower() if red_it else "sum",
+                })
+
+        if not items_spec:
+            QMessageBox.warning(self, "No items",
+                                "Add at least one HDF5 path to collect.")
+            return
+
+        # Build X spec (same logic as Collect Values tab)
+        if self._mc_xrb_order.isChecked():
+            x_spec = {"type": "order"}
+        elif self._mc_xrb_sortkey.isChecked():
+            sortkey_map = {
+                "Temperature (°C)": 2,
+                "Time (min)":       4,
+                "Order number":     6,
+                "Pressure (PSI)":   8,
+            }
+            x_spec = {
+                "type": "sortkey",
+                "sort_index": sortkey_map.get(
+                    self._mc_x_sortkey_combo.currentText(), 6
+                ),
+            }
+        else:
+            x_spec = {"type": "path", "path": self._mc_x_meta_path.text().strip()}
+
+        label_spec = {
+            "x_label": (
+                self._mc_x_sortkey_combo.currentText()
+                if self._mc_xrb_sortkey.isChecked()
+                else ("File order" if self._mc_xrb_order.isChecked() else "Metadata")
+            ),
+            "title": "Multi-Collect",
+        }
+
+        self.multi_collect_requested.emit(items_spec, x_spec, label_spec)
 
     # ── Collect tab dynamic UI ─────────────────────────────────────────────
 

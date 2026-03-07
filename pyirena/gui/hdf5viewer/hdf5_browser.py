@@ -77,12 +77,16 @@ class HDF5BrowserWidget(QWidget):
 
     collect_value_requested(str hdf5_path)
         User chose "Collect value across selected files".
+
+    multi_collect_item_requested(str hdf5_path)
+        User chose "Add to Multi-Collect list".
     """
 
-    add_dataset_requested   = Signal(str, str)
-    plot_known_type_requested = Signal(str, str)
-    collect_value_requested = Signal(str)
-    set_x_axis_path_requested = Signal(str)
+    add_dataset_requested        = Signal(str, str)
+    plot_known_type_requested    = Signal(str, str)
+    collect_value_requested      = Signal(str)
+    multi_collect_item_requested = Signal(str)
+    set_x_axis_path_requested    = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -343,6 +347,12 @@ class HDF5BrowserWidget(QWidget):
             lambda checked=False, p=h5_path: self.collect_value_requested.emit(p)
         )
         menu.addAction(act)
+
+        act_multi = QAction("Add to Multi-Collect list", menu)
+        act_multi.triggered.connect(
+            lambda checked=False, p=h5_path: self.multi_collect_item_requested.emit(p)
+        )
+        menu.addAction(act_multi)
 
         act_xpath = QAction("Set as X-axis metadata path", menu)
         act_xpath.triggered.connect(

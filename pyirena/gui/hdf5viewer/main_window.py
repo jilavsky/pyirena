@@ -34,6 +34,7 @@ from .hdf5_browser import HDF5BrowserWidget
 from .plot_controls import PlotControlsPanel
 from .graph_window import GraphWindow
 from .collect_window import CollectWindow
+from .multi_collect_window import MultiCollectWindow
 from . import pyirena_readers as _readers
 
 
@@ -75,6 +76,7 @@ class HDF5ViewerWindow(QMainWindow):
         # Keep references to all open windows so they aren't GC'd
         self._graph_windows: list[GraphWindow] = []
         self._collect_windows: list[CollectWindow] = []
+        self._multi_collect_windows: list[MultiCollectWindow] = []
 
         self._build_ui()
         self._wire_signals()
@@ -184,6 +186,9 @@ class HDF5ViewerWindow(QMainWindow):
         self._hdf5_browser.collect_value_requested.connect(
             self._plot_controls.set_collect_custom_path
         )
+        self._hdf5_browser.multi_collect_item_requested.connect(
+            self._plot_controls.set_multi_collect_path
+        )
         self._hdf5_browser.set_x_axis_path_requested.connect(
             self._plot_controls.set_x_axis_path
         )
@@ -194,6 +199,9 @@ class HDF5ViewerWindow(QMainWindow):
             self._add_to_active_graph
         )
         self._plot_controls.collect_requested.connect(self._open_collect_window)
+        self._plot_controls.multi_collect_requested.connect(
+            self._open_multi_collect_window
+        )
         self._plot_controls.status_message.connect(self._status_bar.showMessage)
 
     # ── File selection ─────────────────────────────────────────────────────
@@ -435,6 +443,86 @@ class HDF5ViewerWindow(QMainWindow):
     def _on_collect_closed(self, cw: CollectWindow) -> None:
         if cw in self._collect_windows:
             self._collect_windows.remove(cw)
+
+    # ── Multi-Collect window ────────────────────────────────────────────────
+
+    def _open_multi_collect_window(
+        self, items_spec: list, x_spec: dict, label_spec: dict
+    ) -> None:
+        """Collect multiple HDF5 items from all selected files and open a MultiCollectWindow."""
+        selected = self._file_tree.get_selected_paths()
+        if not selected:
+            self._status_bar.showMessage("No files selected.")
+            return
+
+        item_labels = [
+            it.get("label") or it.get("path", "").split("/")[-1]
+            for it in items_spec
+        ]
+
+        rows = []
+        for i, filepath in enumerate(selected):
+            stem = Path(filepath).stem
+
+            # X value (same logic as _open_collect_window)
+            x_val: float | None = None
+            try:
+                if x_spec.get("type") == "order":
+                    x_val = float(i + 1)
+                elif x_spec.get("type") == "sortkey":
+                    x_val = _readers.extract_sort_key_value(
+                        filepath, x_spec.get("sort_index", 6)
+                    )
+                    if x_val is None:
+                        x_val = float(i + 1)
+                elif x_spec.get("type") == "path":
+                    x_val = _readers.read_metadata_value(
+                        filepath, x_spec.get("path", "")
+                    )
+                    if x_val is None:
+                        x_val = float(i + 1)
+            except Exception:
+                x_val = float(i + 1)
+
+            # Collect each item
+            values = []
+            for item_spec in items_spec:
+                try:
+                    val, _kind = _readers.read_hdf5_item(
+                        filepath,
+                        item_spec.get("path", ""),
+                        item_spec.get("reduction", "sum"),
+                    )
+                except Exception:
+                    val = None
+                values.append(val)
+
+            rows.append({
+                "file":    stem,
+                "x_value": x_val if x_val is not None else float(i + 1),
+                "values":  values,
+            })
+
+        mw = MultiCollectWindow(
+            rows=rows,
+            x_label=label_spec.get("x_label", "X"),
+            item_labels=item_labels,
+            title=label_spec.get("title", "Multi-Collect"),
+            parent=None,
+        )
+        self._multi_collect_windows.append(mw)
+        mw.destroyed.connect(
+            lambda obj=None, w=mw: self._on_multi_collect_closed(w)
+        )
+        mw.show()
+        n_ok = sum(any(v is not None for v in r["values"]) for r in rows)
+        self._status_bar.showMessage(
+            f"Multi-Collect: {n_ok}/{len(rows)} file(s), {len(items_spec)} item(s)."
+        )
+
+    def _on_multi_collect_closed(self, mw: MultiCollectWindow) -> None:
+        if mw in self._multi_collect_windows:
+            self._multi_collect_windows.remove(mw)
 
     # ── State save / restore ───────────────────────────────────────────────
 
