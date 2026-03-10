@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyirena"
 version = "0.2.0"
-description = "Python tools for small-angle scattering data analysis, including Unified Fit model (Beaucage method)"
+description = "Python tools for small-angle scattering data analysis. Includes Unified Fit, Size Distribution, Simple fits, Diffraction peak fitting and more. "
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Materials Science",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
 

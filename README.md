@@ -1,9 +1,9 @@
 # pyIrena
 
-> **Development version — not ready for production use.**
-> Coded by Claude from SAXS_IgorCode Irena.
+> **Version 0.2.0 is useful beta version. Please, remeber to submit any suggestions and bugs to us using e-mail or make issue**
+> Coded by Claude from SAXS_IgorCode Irena. Planned, defined, debugged and validated by Jan Ilavsky.  
 
-Python tools for small-angle scattering data analysis, centered on the **Unified Fit model** (Beaucage method) with an interactive GUI.
+Python tools for small-angle scattering data analysis, includes **Unified Fit model** (Beaucage method), **Size distribution** (MaxEnt, Regularization, TNNLS, and Monte-Carlo), **Simple fits** (Guininer, Porod, Debye=-Buechec, etc.) and **Powder Diffraction (WAXS)** (peak fitting) tools with an interactive GUI. Included graphing and data extractions tools. 
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
