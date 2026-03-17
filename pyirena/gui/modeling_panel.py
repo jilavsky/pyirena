@@ -300,6 +300,28 @@ class PopulationTab(QWidget):
         phys_lay.addWidget(self.vf_label, 2, 1)
 
         c.addWidget(phys_group)
+
+        # ── Derived results (read-only, filled after fit) ───────────────────
+        self._derived_group = QGroupBox('Derived Results')
+        self._derived_group.setVisible(False)   # hidden until first fit
+        dg_lay = QGridLayout(self._derived_group)
+        dg_lay.setSpacing(3)
+        _dr_style = 'color: #555; background: #f5f5f5; padding: 1px 4px; border-radius: 2px;'
+        self._dr_labels: dict[str, QLabel] = {}
+        for row_i, (key, display) in enumerate([
+            ('vol_mean_r',      'Vol-mean radius (Å)'),
+            ('num_mean_r',      'Num-mean radius (Å)'),
+            ('Rg',              'Rg (Å)'),
+            ('volume_fraction', 'Volume fraction'),
+            ('specific_surface','Specific surface (Å⁻¹)'),
+        ]):
+            dg_lay.addWidget(QLabel(display + ':'), row_i, 0)
+            lbl = QLabel('—')
+            lbl.setStyleSheet(_dr_style)
+            dg_lay.addWidget(lbl, row_i, 1)
+            self._dr_labels[key] = lbl
+        c.addWidget(self._derived_group)
+
         c.addStretch()
 
         outer.addWidget(self._content)
@@ -486,6 +508,20 @@ class PopulationTab(QWidget):
     def _emit_changed(self, *_):
         if not self._building:
             self.changed.emit()
+
+    def set_derived(self, derived: dict):
+        """Populate the Derived Results panel with post-fit computed quantities."""
+        if not derived:
+            self._derived_group.setVisible(False)
+            return
+        for key, lbl in self._dr_labels.items():
+            val = derived.get(key)
+            lbl.setText(f'{val:.5g}' if val is not None else '—')
+        self._derived_group.setVisible(True)
+
+    def clear_derived(self):
+        """Hide the Derived Results panel (e.g. after Revert)."""
+        self._derived_group.setVisible(False)
 
     # ── No-limits mode ───────────────────────────────────────────────────────
 
@@ -959,6 +995,7 @@ class ModelingPanel(QWidget):
         self._state = StateManager()
         self._fit_worker: Optional[_FitWorker] = None
         self._mc_worker: Optional[_MCWorker] = None
+        self._pre_fit_state: Optional[dict] = None   # snapshot for Revert
 
         self._build_ui()
         self._load_state()
@@ -1089,8 +1126,21 @@ class ModelingPanel(QWidget):
         self.btn_fit.clicked.connect(self.run_fit)
         self.btn_fit.setEnabled(False)
 
+        self.btn_revert = QPushButton('Revert')
+        self.btn_revert.setMinimumHeight(34)
+        self.btn_revert.setStyleSheet(
+            'QPushButton {background: #e67e22; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #ca6f1e;}'
+            'QPushButton:disabled {background: #bdc3c7;}'
+        )
+        self.btn_revert.setToolTip('Restore parameters to their values before the last fit.')
+        self.btn_revert.clicked.connect(self.revert_to_pre_fit)
+        self.btn_revert.setEnabled(False)
+
         btn_row1.addWidget(self.btn_graph)
         btn_row1.addWidget(self.btn_fit)
+        btn_row1.addWidget(self.btn_revert)
         lay.addLayout(btn_row1)
 
         btn_row2 = QHBoxLayout()
@@ -1408,10 +1458,18 @@ class ModelingPanel(QWidget):
                                     'Enable at least one population tab.')
             return
 
+        # Snapshot current parameters so user can revert if fit is poor
+        self._pre_fit_state = {
+            'bg': self.bg_edit.text(),
+            'bg_fit': self.bg_fit_cb.isChecked(),
+            'populations': [_pop_to_dict(pw.to_population()) for pw in self._pop_widgets],
+        }
+
         self._engine.clear_cache()
         self.btn_fit.setEnabled(False)
         self.btn_graph.setEnabled(False)
         self.btn_mc.setEnabled(False)
+        self.btn_revert.setEnabled(False)
         self.graph.set_status('Fitting … please wait.', 'working')
 
         self._fit_worker = _FitWorker(
@@ -1456,11 +1514,17 @@ class ModelingPanel(QWidget):
             resid = (self._data_I[mask] - result.model_I) / np.maximum(dI_fit, 1e-30)
         self.graph.plot_residuals(q_fit, resid)
 
+        # Populate derived results on each active population tab
+        for k, pi in enumerate(result.pop_indices):
+            if pi < len(self._pop_widgets) and k < len(result.derived):
+                self._pop_widgets[pi].set_derived(result.derived[k])
+
         self.btn_fit.setEnabled(True)
         self.btn_graph.setEnabled(True)
         self.btn_mc.setEnabled(True)
         self.btn_save.setEnabled(True)
         self.btn_export.setEnabled(True)
+        self.btn_revert.setEnabled(self._pre_fit_state is not None)
 
         msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
                f'χ²/dof = {result.reduced_chi_squared:.4f},  '
@@ -1472,6 +1536,21 @@ class ModelingPanel(QWidget):
         self.graph.set_status(f'Fit error: {msg}', 'error')
         self.btn_fit.setEnabled(True)
         self.btn_graph.setEnabled(True)
+        self.btn_revert.setEnabled(self._pre_fit_state is not None)
+
+    def revert_to_pre_fit(self):
+        """Restore all parameters to the snapshot taken just before the last fit."""
+        if self._pre_fit_state is None:
+            QMessageBox.information(self, 'No snapshot', 'Run a fit first to create a snapshot.')
+            return
+        s = self._pre_fit_state
+        self.bg_edit.setText(s['bg'])
+        self.bg_fit_cb.setChecked(s['bg_fit'])
+        for i, pw in enumerate(self._pop_widgets):
+            if i < len(s['populations']):
+                pw.from_population(_pop_from_dict(s['populations'][i]))
+        self.graph.set_status('Reverted to pre-fit parameters.', 'info')
+        self._update_tab_labels()
 
     # ── MC uncertainty ────────────────────────────────────────────────────────
 
@@ -1543,21 +1622,36 @@ class ModelingPanel(QWidget):
         except Exception as e:
             QMessageBox.critical(self, 'Save error', str(e))
 
+    def _get_data_folder(self) -> str:
+        """Return folder of the currently loaded file, or home dir."""
+        if self._file_path is not None:
+            return str(self._file_path.parent)
+        return str(Path.home())
+
     def export_json(self):
         """Export current population parameters as a JSON config file."""
         import json
+        default_path = str(Path(self._get_data_folder()) / 'pyirena_config.json')
         path, _ = QFileDialog.getSaveFileName(
-            self, 'Export Parameters', '', 'JSON (*.json);;All (*)',
+            self, 'Export Modeling Parameters', default_path,
+            'pyIrena Config (*.json);;All Files (*)',
         )
         if not path:
             return
+        if not path.lower().endswith('.json'):
+            path += '.json'
         config = self._build_config()
         data = {
-            'tool': 'modeling',
-            'background': config.background,
-            'fit_background': config.fit_background,
-            'no_limits': config.no_limits,
-            'populations': [_pop_to_dict(p) for p in config.populations],
+            '_pyirena_config': {'tool': 'modeling'},
+            'modeling': {
+                'background':     config.background,
+                'fit_background': config.fit_background,
+                'no_limits':      config.no_limits,
+                'n_mc_runs':      config.n_mc_runs,
+                'q_min':          config.q_min,
+                'q_max':          config.q_max,
+                'populations':    [_pop_to_dict(p) for p in config.populations],
+            },
         }
         try:
             with open(path, 'w') as f:
