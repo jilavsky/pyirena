@@ -207,7 +207,7 @@ from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
-from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config, fit_waxs_peaks_from_config
+from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config, fit_waxs_peaks_from_config, fit_modeling
 
 
 def _build_report(file_path: str,
@@ -1797,6 +1797,8 @@ class BatchWorker(QThread):
         messages = []
         if self.tool == 'unified':
             fit_fn = fit_unified
+        elif self.tool == 'modeling':
+            fit_fn = fit_modeling
         elif self.tool == 'simple_fits':
             fit_fn = fit_simple_from_config
         elif self.tool == 'waxs_peakfit':
@@ -1805,7 +1807,7 @@ class BatchWorker(QThread):
             fit_fn = fit_sizes
         total = len(self.file_paths)
 
-        # MC uncertainty is supported by unified/sizes/simple_fits, not waxs
+        # MC uncertainty is supported by unified/modeling/sizes/simple_fits, not waxs
         mc_kwargs = {}
         if self.with_uncertainty and self.tool != 'waxs_peakfit':
             mc_kwargs = {'with_uncertainty': True, 'n_mc_runs': self.n_mc_runs}
@@ -1850,6 +1852,7 @@ class DataSelectorPanel(QWidget):
         self.size_dist_results_window = None   # Graph of stored size dist results
         self.tabulate_results_window = None    # Tabulated results window
         self.unified_fit_window = None  # Unified fit panel
+        self.modeling_window = None    # Modeling panel
         self.sizes_fit_window = None   # Size distribution panel
         self.simple_fits_window = None         # Simple Fits panel
         self.simple_fits_results_window = None # Graph of stored simple fit results
@@ -2224,12 +2227,55 @@ class DataSelectorPanel(QWidget):
         self.sizes_script_button.clicked.connect(self.run_sizes_script)
         self.sizes_script_button.setEnabled(False)
 
+        # ── Modeling: GUI button + Script batch button ────────────────────
+        _mod_gui_style = """
+            QPushButton {
+                background-color: #e67e22; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #ca6f1e; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        _mod_script_style = """
+            QPushButton {
+                background-color: #d35400; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #ba4a00; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.modeling_button = QPushButton("Modeling (GUI)")
+        self.modeling_button.setMinimumHeight(38)
+        self.modeling_button.setStyleSheet(_mod_gui_style)
+        self.modeling_button.setToolTip(
+            "Open Modeling panel for the first selected file."
+        )
+        self.modeling_button.clicked.connect(self.launch_modeling)
+        self.modeling_button.setEnabled(False)
+
+        self.modeling_script_button = QPushButton("Modeling (script)")
+        self.modeling_script_button.setMinimumHeight(38)
+        self.modeling_script_button.setStyleSheet(_mod_script_style)
+        self.modeling_script_button.setToolTip(
+            "Batch-fit all selected files with Modeling using pyirena_config.json.\n"
+            "Results are saved into each file's NXcanSAS record."
+        )
+        self.modeling_script_button.clicked.connect(self.run_modeling_script)
+        self.modeling_script_button.setEnabled(False)
+
         # ── Single grid so all buttons share equal column widths ───────────
         # Row 0: Create Graph | Create Report
         # Row 1: Tabulate Results (spans both columns)
         # Row 2: spacer
         # Row 3: Unified Fit (GUI) | Unified Fit (script)
-        # Row 4: Size Distribution (GUI) | Size Distribution (script)
+        # Row 4: Modeling (GUI) | Modeling (script)
+        # Row 5: Size Distribution (GUI) | Size Distribution (script)
+        # Row 6: Simple Fits (GUI) | Simple Fits (script)
+        # Row 7: WAXS Peaks (GUI) | WAXS Peaks (script)
         btn_grid = QGridLayout()
         btn_grid.setHorizontalSpacing(4)
         btn_grid.setVerticalSpacing(4)
@@ -2241,8 +2287,10 @@ class DataSelectorPanel(QWidget):
         btn_grid.setRowMinimumHeight(2, 10)                          # visual separator
         btn_grid.addWidget(self.unified_fit_button,     3, 0)
         btn_grid.addWidget(self.unified_script_button,  3, 1)
-        btn_grid.addWidget(self.sizes_fit_button,       4, 0)
-        btn_grid.addWidget(self.sizes_script_button,    4, 1)
+        btn_grid.addWidget(self.modeling_button,        4, 0)
+        btn_grid.addWidget(self.modeling_script_button, 4, 1)
+        btn_grid.addWidget(self.sizes_fit_button,       5, 0)
+        btn_grid.addWidget(self.sizes_script_button,    5, 1)
 
         # ── Simple Fits: GUI button + Script batch button ─────────────────
         _sf_gui_style = """
@@ -2284,8 +2332,8 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_script_button.clicked.connect(self.run_simple_fits_script)
         self.simple_fits_script_button.setEnabled(False)
 
-        btn_grid.addWidget(self.simple_fits_button,        5, 0)
-        btn_grid.addWidget(self.simple_fits_script_button, 5, 1)
+        btn_grid.addWidget(self.simple_fits_button,        6, 0)
+        btn_grid.addWidget(self.simple_fits_script_button, 6, 1)
 
         # ── WAXS Peak Fit: GUI button + Script batch button ───────────────
         _waxs_gui_style = """
@@ -2327,8 +2375,8 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_script_button.clicked.connect(self.run_waxs_peakfit_script)
         self.waxs_peakfit_script_button.setEnabled(False)
 
-        btn_grid.addWidget(self.waxs_peakfit_button,        6, 0)
-        btn_grid.addWidget(self.waxs_peakfit_script_button, 6, 1)
+        btn_grid.addWidget(self.waxs_peakfit_button,        7, 0)
+        btn_grid.addWidget(self.waxs_peakfit_script_button, 7, 1)
 
         _utility_style = (
             "QPushButton { background: #16a085; color: white; "
@@ -2571,6 +2619,8 @@ class DataSelectorPanel(QWidget):
         self.tabulate_button.setEnabled(has_selection)
         self.unified_fit_button.setEnabled(has_selection)
         self.unified_script_button.setEnabled(has_selection)
+        self.modeling_button.setEnabled(has_selection)
+        self.modeling_script_button.setEnabled(has_selection)
         self.sizes_fit_button.setEnabled(has_selection)
         self.sizes_script_button.setEnabled(has_selection)
         self.simple_fits_button.setEnabled(has_selection)
@@ -3229,6 +3279,65 @@ class DataSelectorPanel(QWidget):
             )
             self.status_label.setText(f"Error: {str(e)}")
 
+    def launch_modeling(self):
+        """Launch the Modeling panel with the first selected file."""
+        from pyirena.gui.modeling_panel import ModelingPanel
+        selected_items = self.file_list.selectedItems()
+
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select a file to open in Modeling.",
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        try:
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename, error_fraction=error_fraction)
+                is_nxcansas = False
+            else:
+                data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True
+
+            if data is None:
+                QMessageBox.critical(
+                    self,
+                    "Load Error",
+                    f"Could not load data from {filename}"
+                )
+                return
+
+            if self.modeling_window is None:
+                self.modeling_window = ModelingPanel()
+
+            self.modeling_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                filename,
+                filepath=file_path,
+                is_nxcansas=is_nxcansas,
+            )
+
+            self.modeling_window.show()
+            self.modeling_window.raise_()
+            self.modeling_window.activateWindow()
+
+            self.status_label.setText(f"Opened Modeling for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error",
+                f"Error loading data for Modeling:\n{str(e)}",
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
     # ── Batch script fitting ───────────────────────────────────────────────
 
     def run_unified_script(self):
@@ -3238,6 +3347,10 @@ class DataSelectorPanel(QWidget):
     def run_sizes_script(self):
         """Batch-fit all selected files with Size Distribution."""
         self._run_batch_fit('sizes')
+
+    def run_modeling_script(self):
+        """Batch-fit all selected files with Modeling."""
+        self._run_batch_fit('modeling')
 
     def launch_simple_fits(self):
         """Launch the Simple Fits panel with the first selected file."""
@@ -3442,7 +3555,8 @@ class DataSelectorPanel(QWidget):
             os.path.join(self.current_folder, item.text())
             for item in selected_items
         ]
-        _tool_display = {'unified': "Unified Fit", 'sizes': "Size Distribution",
+        _tool_display = {'unified': "Unified Fit", 'modeling': "Modeling",
+                         'sizes': "Size Distribution",
                          'simple_fits': "Simple Fits", 'waxs_peakfit': "WAXS Peak Fit"}
         tool_name = _tool_display.get(tool, tool)
         self._set_batch_status(
