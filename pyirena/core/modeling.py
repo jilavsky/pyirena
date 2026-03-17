@@ -692,11 +692,15 @@ class ModelingEngine:
         I: np.ndarray,
         dI: np.ndarray,
         n_runs: int = 10,
+        progress_cb=None,
     ) -> dict[str, float]:
         """Estimate parameter uncertainty by repeated fitting on perturbed data.
 
         Data is perturbed as I_perturbed = I + dI * N(0,1) for each run.
         Returns a dict of std-dev for each fittable parameter.
+
+        Args:
+            progress_cb: optional callable(run_index, n_runs) called before each run.
         """
         rng = np.random.default_rng()
 
@@ -708,7 +712,9 @@ class ModelingEngine:
         all_vals: list[list[float]] = [[] for _ in keys]
         good_runs = 0
 
-        for _ in range(n_runs):
+        for run_i in range(n_runs):
+            if progress_cb is not None:
+                progress_cb(run_i + 1, n_runs)
             I_pert = I + dI * rng.standard_normal(len(I))
             cfg_run = deepcopy(config)
             try:

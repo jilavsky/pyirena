@@ -184,7 +184,7 @@ class PopulationTab(QWidget):
         c.setContentsMargins(0, 0, 0, 0)
         c.setSpacing(4)
 
-        # ── Distribution type ──────────────────────────────────────────────
+        # ── Distribution type + # Bins on same row ─────────────────────────
         row = QHBoxLayout()
         row.addWidget(QLabel('Distribution:'))
         self.dist_combo = QComboBox()
@@ -193,6 +193,13 @@ class PopulationTab(QWidget):
         self.dist_combo.currentIndexChanged.connect(self._on_dist_changed)
         row.addWidget(self.dist_combo)
         row.addStretch()
+        row.addWidget(QLabel('# Bins:'))
+        self.nbins_spin = QSpinBox()
+        self.nbins_spin.setRange(20, 2000)
+        self.nbins_spin.setValue(200)
+        self.nbins_spin.setFixedWidth(65)
+        self.nbins_spin.valueChanged.connect(self._emit_changed)
+        row.addWidget(self.nbins_spin)
         c.addLayout(row)
 
         # ── Parameter table ────────────────────────────────────────────────
@@ -202,30 +209,18 @@ class PopulationTab(QWidget):
         self._build_param_header(self._param_grid, 0)
         c.addWidget(self._param_group)
 
-        # ── Distribution type: Volume / Number ─────────────────────────────
+        # ── Volume / Number distribution (mutually exclusive) ───────────────
         dist_type_row = QHBoxLayout()
-        self.vol_dist_rb = QCheckBox('Volume distribution (default)')
+        self.vol_dist_rb = QCheckBox('Volume dist.')
         self.vol_dist_rb.setChecked(True)
-        self.vol_dist_rb.stateChanged.connect(self._emit_changed)
+        self.vol_dist_rb.stateChanged.connect(self._on_vol_dist_changed)
         dist_type_row.addWidget(self.vol_dist_rb)
-        self.num_dist_rb = QCheckBox('Number distribution')
+        self.num_dist_rb = QCheckBox('Number dist.')
         self.num_dist_rb.setChecked(False)
         self.num_dist_rb.stateChanged.connect(self._on_num_dist_changed)
         dist_type_row.addWidget(self.num_dist_rb)
         dist_type_row.addStretch()
         c.addLayout(dist_type_row)
-
-        # ── N bins ─────────────────────────────────────────────────────────
-        nbins_row = QHBoxLayout()
-        nbins_row.addWidget(QLabel('# Bins:'))
-        self.nbins_spin = QSpinBox()
-        self.nbins_spin.setRange(20, 2000)
-        self.nbins_spin.setValue(200)
-        self.nbins_spin.setFixedWidth(70)
-        self.nbins_spin.valueChanged.connect(self._emit_changed)
-        nbins_row.addWidget(self.nbins_spin)
-        nbins_row.addStretch()
-        c.addLayout(nbins_row)
 
         c.addWidget(_sep())
 
@@ -447,15 +442,35 @@ class PopulationTab(QWidget):
         self._rebuild_sf_params()
         self._emit_changed()
 
-    def _on_num_dist_changed(self, state):
-        """Num-dist and vol-dist are mutually exclusive checkboxes."""
+    def _on_vol_dist_changed(self, state):
+        """Vol-dist and num-dist are mutually exclusive; always one must be on."""
         if self._building:
             return
         checked = (state == Qt.CheckState.Checked.value
                    if hasattr(Qt.CheckState, 'Checked')
                    else state == 2)
         self._building = True
-        self.vol_dist_rb.setChecked(not checked)
+        if checked:
+            self.num_dist_rb.setChecked(False)
+        else:
+            # Unchecking vol → auto-check num so one is always on
+            self.num_dist_rb.setChecked(True)
+        self._building = False
+        self._emit_changed()
+
+    def _on_num_dist_changed(self, state):
+        """Num-dist and vol-dist are mutually exclusive; always one must be on."""
+        if self._building:
+            return
+        checked = (state == Qt.CheckState.Checked.value
+                   if hasattr(Qt.CheckState, 'Checked')
+                   else state == 2)
+        self._building = True
+        if checked:
+            self.vol_dist_rb.setChecked(False)
+        else:
+            # Unchecking num → auto-check vol so one is always on
+            self.vol_dist_rb.setChecked(True)
         self._building = False
         self._emit_changed()
 
@@ -826,6 +841,7 @@ class ModelingGraphWindow(QWidget):
     def set_status(self, msg: str, style: str = 'info'):
         colours = {
             'info':    ('', '#333333'),
+            'working': ('#fff3cd', '#856404'),
             'success': ('#d4edda', '#155724'),
             'error':   ('#f8d7da', '#721c24'),
         }
@@ -863,6 +879,65 @@ class ModelingGraphWindow(QWidget):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Background worker threads
+# ──────────────────────────────────────────────────────────────────────────────
+
+try:
+    from PySide6.QtCore import QThread
+except ImportError:
+    try:
+        from PyQt6.QtCore import QThread
+    except ImportError:
+        from PyQt5.QtCore import QThread
+
+
+class _FitWorker(QThread):
+    """Runs ModelingEngine.fit() off the GUI thread."""
+    finished = Signal(object)   # ModelingResult
+    error    = Signal(str)
+
+    def __init__(self, engine, config, q, I, dI, parent=None):
+        super().__init__(parent)
+        self._engine = engine
+        self._config = config
+        self._q, self._I, self._dI = q, I, dI
+
+    def run(self):
+        try:
+            result = self._engine.fit(self._config, self._q, self._I, self._dI)
+            self.finished.emit(result)
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            self.error.emit(str(exc))
+
+
+class _MCWorker(QThread):
+    """Runs ModelingEngine.calculate_uncertainty_mc() off the GUI thread."""
+    progress = Signal(int, int)  # (current_run, total_runs)
+    finished = Signal(dict)      # stds dict
+    error    = Signal(str)
+
+    def __init__(self, engine, config, q, I, dI, n_runs, parent=None):
+        super().__init__(parent)
+        self._engine = engine
+        self._config = config
+        self._q, self._I, self._dI = q, I, dI
+        self._n_runs = n_runs
+
+    def run(self):
+        try:
+            stds = self._engine.calculate_uncertainty_mc(
+                self._config, self._q, self._I, self._dI,
+                n_runs=self._n_runs,
+                progress_cb=lambda i, n: self.progress.emit(i, n),
+            )
+            self.finished.emit(stds)
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            self.error.emit(str(exc))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main panel
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -882,7 +957,8 @@ class ModelingPanel(QWidget):
 
         self._engine = ModelingEngine()
         self._state = StateManager()
-        self._mc_worker = None   # future: QThread for MC
+        self._fit_worker: Optional[_FitWorker] = None
+        self._mc_worker: Optional[_MCWorker] = None
 
         self._build_ui()
         self._load_state()
@@ -906,11 +982,10 @@ class ModelingPanel(QWidget):
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setFixedWidth(440)
+        panel.setMinimumWidth(380)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         inner = QWidget()
         lay = QVBoxLayout(inner)
@@ -975,16 +1050,19 @@ class ModelingPanel(QWidget):
         for i in range(N_POPULATIONS):
             pw = PopulationTab(i)
             pw.changed.connect(self._on_pop_changed)
+            pw.use_cb.stateChanged.connect(self._update_tab_labels)
 
             scroll_i = QScrollArea()
             scroll_i.setWidgetResizable(True)
-            scroll_i.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             scroll_i.setWidget(pw)
 
             self.pop_tabs.addTab(scroll_i, f'P{i+1}')
             self._pop_widgets.append(pw)
 
-        lay.addWidget(self.pop_tabs)
+        self.pop_tabs.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        lay.addWidget(self.pop_tabs, stretch=1)
         lay.addWidget(_sep())
 
         # ── Action buttons ───────────────────────────────────────────────
@@ -1077,13 +1155,15 @@ class ModelingPanel(QWidget):
         out_row.addWidget(self.btn_save)
         out_row.addWidget(self.btn_export)
         lay.addLayout(out_row)
-        lay.addStretch()
 
         scroll.setWidget(inner)
 
         panel_lay = QVBoxLayout(panel)
         panel_lay.setContentsMargins(0, 0, 0, 0)
         panel_lay.addWidget(scroll)
+
+        # Set initial tab label styles (after all tabs exist)
+        QTimer.singleShot(0, self._update_tab_labels)
         return panel
 
     # ── State (load/save) ────────────────────────────────────────────────────
@@ -1134,6 +1214,27 @@ class ModelingPanel(QWidget):
         q_lo, q_hi = self.graph.get_q_range()
         self.qmin_lbl.setText(f'{q_lo:.4g}')
         self.qmax_lbl.setText(f'{q_hi:.4g}')
+
+    def _update_tab_labels(self, *_):
+        """Bold + color the tab text for active populations."""
+        try:
+            from PySide6.QtGui import QColor
+        except ImportError:
+            try:
+                from PyQt6.QtGui import QColor
+            except ImportError:
+                from PyQt5.QtGui import QColor
+
+        bar = self.pop_tabs.tabBar()
+        bold_font = QFont()
+        bold_font.setBold(True)
+        normal_font = QFont()
+
+        for i, pw in enumerate(self._pop_widgets):
+            active = pw.use_cb.isChecked()
+            color = POP_COLORS[i % len(POP_COLORS)]
+            bar.setTabTextColor(i, QColor(color) if active else QColor('#888888'))
+            bar.setTabFont(i, bold_font if active else normal_font)
 
     # ── File I/O ─────────────────────────────────────────────────────────────
 
@@ -1297,116 +1398,137 @@ class ModelingPanel(QWidget):
     # ── Fit ──────────────────────────────────────────────────────────────────
 
     def run_fit(self):
-        """Run the fitting routine and update GUI with results."""
+        """Start a background fit and update GUI when done."""
         if self._data_q is None:
             QMessageBox.information(self, 'No data', 'Please open an HDF5 file first.')
             return
 
-        try:
-            config = self._build_config()
-            active = [p for p in config.populations if p.enabled]
-            if not active:
-                QMessageBox.information(self, 'No populations',
-                                        'Enable at least one population tab.')
-                return
+        if self._fit_worker is not None and self._fit_worker.isRunning():
+            return   # already fitting
 
-            self.btn_fit.setEnabled(False)
-            self.btn_graph.setEnabled(False)
-            self.graph.set_status('Fitting … please wait.', 'info')
-            QApplication.processEvents()
+        config = self._build_config()
+        active = [p for p in config.populations if p.enabled]
+        if not active:
+            QMessageBox.information(self, 'No populations',
+                                    'Enable at least one population tab.')
+            return
 
-            self._engine.clear_cache()
-            result = self._engine.fit(
-                config, self._data_q, self._data_I, self._data_dI
-            )
-            self._last_result = result
+        self._engine.clear_cache()
+        self.btn_fit.setEnabled(False)
+        self.btn_graph.setEnabled(False)
+        self.btn_mc.setEnabled(False)
+        self.graph.set_status('Fitting … please wait.', 'working')
 
-            # Update GUI with best-fit parameters
-            self._write_config_back(result.config)
-            self.bg_edit.setText(_fmt(result.config.background))
+        self._fit_worker = _FitWorker(
+            self._engine, config, self._data_q, self._data_I, self._data_dI,
+            parent=self,
+        )
+        self._fit_worker.finished.connect(self._on_fit_done)
+        self._fit_worker.error.connect(self._on_fit_error)
+        self._fit_worker.start()
 
-            # Chi² display
-            self.chi2_lbl.setText(f'{result.chi_squared:.4f}')
-            self.rchi2_lbl.setText(f'{result.reduced_chi_squared:.4f}')
-            self.dof_lbl.setText(str(result.dof))
+    def _on_fit_done(self, result):
+        self._last_result = result
 
-            # Plot
-            self.graph.iq_plot.clear()
-            self.graph._pop_items.clear()
-            self.graph._total_item = None
-            if self.graph._cursor_left_line is not None:
-                self.graph.iq_plot.addItem(self.graph._cursor_left_line)
-                self.graph.iq_plot.addItem(self.graph._cursor_right_line)
+        # Update GUI with best-fit parameters
+        self._write_config_back(result.config)
+        self.bg_edit.setText(_fmt(result.config.background))
 
-            plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
-                         self._data_dI, label='Data')
-            set_robust_y_range(self.graph.iq_plot, self._data_I)
-            self.graph.plot_model(result)
+        # Chi² display
+        self.chi2_lbl.setText(f'{result.chi_squared:.4f}')
+        self.rchi2_lbl.setText(f'{result.reduced_chi_squared:.4f}')
+        self.dof_lbl.setText(str(result.dof))
 
-            # Residuals: only over fitted Q range
-            mask = ((self._data_q >= result.config.q_min) &
-                    (self._data_q <= result.config.q_max))
-            q_fit = self._data_q[mask]
-            I_fit = self._data_I[mask]
-            dI_fit = self._data_dI[mask]
-            with np.errstate(invalid='ignore', divide='ignore'):
-                resid = (I_fit - result.model_I) / np.maximum(dI_fit, 1e-30)
-            self.graph.plot_residuals(q_fit, resid)
+        # Replot
+        self.graph.iq_plot.clear()
+        self.graph._pop_items.clear()
+        self.graph._total_item = None
+        if self.graph._cursor_left_line is not None:
+            self.graph.iq_plot.addItem(self.graph._cursor_left_line)
+            self.graph.iq_plot.addItem(self.graph._cursor_right_line)
 
-            self.btn_mc.setEnabled(True)
-            self.btn_save.setEnabled(True)
-            self.btn_export.setEnabled(True)
+        plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
+                     self._data_dI, label='Data')
+        set_robust_y_range(self.graph.iq_plot, self._data_I)
+        self.graph.plot_model(result)
 
-            msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
-                   f'χ²/dof = {result.reduced_chi_squared:.4f},  '
-                   f'DOF = {result.dof}')
-            self.graph.set_status(msg, 'success')
+        # Residuals over fitted Q range
+        mask = ((self._data_q >= result.config.q_min) &
+                (self._data_q <= result.config.q_max))
+        q_fit  = self._data_q[mask]
+        dI_fit = self._data_dI[mask]
+        with np.errstate(invalid='ignore', divide='ignore'):
+            resid = (self._data_I[mask] - result.model_I) / np.maximum(dI_fit, 1e-30)
+        self.graph.plot_residuals(q_fit, resid)
 
-        except Exception as e:
-            import traceback
-            self.graph.set_status(f'Fit error: {e}', 'error')
-            traceback.print_exc()
-        finally:
-            self.btn_fit.setEnabled(True)
-            self.btn_graph.setEnabled(True)
+        self.btn_fit.setEnabled(True)
+        self.btn_graph.setEnabled(True)
+        self.btn_mc.setEnabled(True)
+        self.btn_save.setEnabled(True)
+        self.btn_export.setEnabled(True)
 
+        msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
+               f'χ²/dof = {result.reduced_chi_squared:.4f},  '
+               f'DOF = {result.dof}')
+        self.graph.set_status(msg, 'success')
         self._save_state()
+
+    def _on_fit_error(self, msg: str):
+        self.graph.set_status(f'Fit error: {msg}', 'error')
+        self.btn_fit.setEnabled(True)
+        self.btn_graph.setEnabled(True)
 
     # ── MC uncertainty ────────────────────────────────────────────────────────
 
     def calc_uncertainty_mc(self):
-        """Run Monte-Carlo uncertainty estimation in the GUI thread."""
+        """Start Monte-Carlo uncertainty estimation in a background thread."""
         if self._last_result is None or self._data_q is None:
             QMessageBox.information(self, 'No result', 'Run a fit first.')
             return
 
+        if self._mc_worker is not None and self._mc_worker.isRunning():
+            return
+
         n = self.n_runs_spin.value()
         self.btn_mc.setEnabled(False)
-        self.graph.set_status(f'Running {n} MC passes … please wait.', 'info')
-        QApplication.processEvents()
+        self.btn_fit.setEnabled(False)
+        self.graph.set_status(f'Starting MC — 0 / {n} passes …', 'working')
 
-        try:
-            config = deepcopy(self._last_result.config)
-            stds = self._engine.calculate_uncertainty_mc(
-                config, self._data_q, self._data_I, self._data_dI, n_runs=n,
-            )
+        self._mc_worker = _MCWorker(
+            self._engine, deepcopy(self._last_result.config),
+            self._data_q, self._data_I, self._data_dI, n_runs=n,
+            parent=self,
+        )
+        self._mc_worker.progress.connect(self._on_mc_progress)
+        self._mc_worker.finished.connect(self._on_mc_done)
+        self._mc_worker.error.connect(self._on_mc_error)
+        self._mc_worker.start()
+
+    def _on_mc_progress(self, current: int, total: int):
+        self.graph.set_status(f'MC uncertainty — pass {current} / {total} …', 'working')
+
+    def _on_mc_done(self, stds: dict):
+        if self._last_result is not None:
             self._last_result.params_std = stds
 
-            # Show results as a simple dialog
-            if stds:
-                lines = [f'  {k}: ± {v:.4g}' for k, v in sorted(stds.items())]
-                QMessageBox.information(
-                    self, 'MC Uncertainties',
-                    'Parameter standard deviations:\n' + '\n'.join(lines),
-                )
-            else:
-                QMessageBox.information(self, 'MC Uncertainties',
-                                        'No fittable parameters or too few successful runs.')
-        except Exception as e:
-            QMessageBox.critical(self, 'MC error', str(e))
-        finally:
-            self.btn_mc.setEnabled(True)
-            self.graph.set_status('MC uncertainty estimation complete.', 'success')
+        self.btn_mc.setEnabled(True)
+        self.btn_fit.setEnabled(True)
+        self.graph.set_status('MC uncertainty estimation complete.', 'success')
+
+        if stds:
+            lines = [f'  {k}: ± {v:.4g}' for k, v in sorted(stds.items())]
+            QMessageBox.information(
+                self, 'MC Uncertainties',
+                'Parameter standard deviations:\n' + '\n'.join(lines),
+            )
+        else:
+            QMessageBox.information(self, 'MC Uncertainties',
+                                    'No fittable parameters or too few successful runs.')
+
+    def _on_mc_error(self, msg: str):
+        self.graph.set_status(f'MC error: {msg}', 'error')
+        self.btn_mc.setEnabled(True)
+        self.btn_fit.setEnabled(True)
 
     # ── Save / Export ─────────────────────────────────────────────────────────
 
