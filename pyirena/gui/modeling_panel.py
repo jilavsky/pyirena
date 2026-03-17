@@ -1216,7 +1216,7 @@ class ModelingPanel(QWidget):
         self.qmax_lbl.setText(f'{q_hi:.4g}')
 
     def _update_tab_labels(self, *_):
-        """Bold + color the tab text for active populations."""
+        """Color tab text for active populations (per-pop color) vs grey inactive."""
         try:
             from PySide6.QtGui import QColor
         except ImportError:
@@ -1226,15 +1226,10 @@ class ModelingPanel(QWidget):
                 from PyQt5.QtGui import QColor
 
         bar = self.pop_tabs.tabBar()
-        bold_font = QFont()
-        bold_font.setBold(True)
-        normal_font = QFont()
-
         for i, pw in enumerate(self._pop_widgets):
             active = pw.use_cb.isChecked()
             color = POP_COLORS[i % len(POP_COLORS)]
-            bar.setTabTextColor(i, QColor(color) if active else QColor('#888888'))
-            bar.setTabFont(i, bold_font if active else normal_font)
+            bar.setTabTextColor(i, QColor(color) if active else QColor('#999999'))
 
     # ── File I/O ─────────────────────────────────────────────────────────────
 
