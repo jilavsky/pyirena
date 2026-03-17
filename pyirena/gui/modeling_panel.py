@@ -747,7 +747,7 @@ class ModelingGraphWindow(QWidget):
     def plot_data(self, q, I, dI=None):
         """Plot experimental SAS data."""
         self.q_data = q
-        plot_iq_data(self.iq_plot, q, I, dI, color='#888888', name='Data')
+        plot_iq_data(self.iq_plot, q, I, dI, label='Data')
 
     def plot_model(self, result: ModelingResult):
         """Plot total model + per-population curves + distributions + residuals."""
@@ -1284,7 +1284,7 @@ class ModelingPanel(QWidget):
                 self.graph.iq_plot.addItem(self.graph._cursor_right_line)
 
             plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
-                         self._data_dI, color='#888888', name='Data')
+                         self._data_dI, label='Data')
             set_robust_y_range(self.graph.iq_plot, self._data_I)
             self.graph.plot_model(mock)
             self.graph.set_status('Model graphed successfully.', 'success')
@@ -1339,7 +1339,7 @@ class ModelingPanel(QWidget):
                 self.graph.iq_plot.addItem(self.graph._cursor_right_line)
 
             plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
-                         self._data_dI, color='#888888', name='Data')
+                         self._data_dI, label='Data')
             set_robust_y_range(self.graph.iq_plot, self._data_I)
             self.graph.plot_model(result)
 
