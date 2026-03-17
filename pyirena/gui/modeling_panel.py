@@ -1089,7 +1089,7 @@ class ModelingPanel(QWidget):
     # ── State (load/save) ────────────────────────────────────────────────────
 
     def _load_state(self):
-        mod_state = self._state.get('modeling', {})
+        mod_state = self._state.get('modeling') or {}
         self.bg_edit.setText(_fmt(mod_state.get('background', 0.0)))
         self.bg_fit_cb.setChecked(mod_state.get('fit_background', True))
         nl = mod_state.get('no_limits', False)
@@ -1116,7 +1116,7 @@ class ModelingPanel(QWidget):
             q_lo, q_hi = self.graph.get_q_range()
             state['q_min'] = float(q_lo)
             state['q_max'] = float(q_hi)
-        self._state.set('modeling', state)
+        self._state.update('modeling', state)
         self._state.save()
 
     # ── Signal handlers ──────────────────────────────────────────────────────
@@ -1138,13 +1138,53 @@ class ModelingPanel(QWidget):
     # ── File I/O ─────────────────────────────────────────────────────────────
 
     def _open_file(self):
-        last = self._state.get('data_selector', {}).get('last_folder', '')
+        last = (self._state.get('data_selector') or {}).get('last_folder', '')
         path, _ = QFileDialog.getOpenFileName(
             self, 'Open HDF5 file', last,
             'HDF5 files (*.hdf5 *.h5 *.nxs);;All files (*)',
         )
         if path:
             self.load_file(Path(path))
+
+    def set_data(
+        self,
+        q: np.ndarray,
+        I: np.ndarray,
+        dI,
+        filename: str,
+        filepath: str = '',
+        is_nxcansas: bool = True,
+    ):
+        """Accept pre-loaded Q/I/dI arrays (called from Data Selector)."""
+        q = np.asarray(q, dtype=float)
+        I = np.asarray(I, dtype=float)
+        dI = np.asarray(dI, dtype=float) if dI is not None else I * 0.05
+
+        self._file_path = Path(filepath) if filepath else None
+        self._data_q = q
+        self._data_I = I
+        self._data_dI = dI
+
+        self.file_edit.setText(filename)
+        if filepath:
+            self.graph.data_folder = str(Path(filepath).parent)
+
+        q_min = float(q.min())
+        q_max = float(q.max())
+        self.graph.plot_data(q, I, dI)
+        set_robust_y_range(self.graph.iq_plot, I)
+        self.graph.add_cursors(np.log10(q_min), np.log10(q_max))
+        self.graph.set_status(
+            f'Loaded {filename}: {len(q)} points, '
+            f'Q ∈ [{q_min:.4g}, {q_max:.4g}] Å⁻¹', 'success',
+        )
+
+        q_lo, q_hi = self.graph.get_q_range()
+        self.qmin_lbl.setText(f'{q_lo:.4g}')
+        self.qmax_lbl.setText(f'{q_hi:.4g}')
+
+        self.btn_graph.setEnabled(True)
+        self.btn_fit.setEnabled(True)
 
     def load_file(self, file_path: Path):
         """Load SAS data from an HDF5 NXcanSAS file."""
@@ -1155,31 +1195,12 @@ class ModelingPanel(QWidget):
             QMessageBox.critical(self, 'Load error', str(e))
             return
 
-        self._file_path = file_path
-        self._data_q = q
-        self._data_I = I
-        self._data_dI = dI if dI is not None else I * 0.05
-
-        self.file_edit.setText(str(file_path.name))
-        self.graph.data_folder = str(file_path.parent)
-
-        # Set Q cursors
-        q_min = float(q.min())
-        q_max = float(q.max())
-        self.graph.plot_data(q, I, self._data_dI)
-        set_robust_y_range(self.graph.iq_plot, I)
-        self.graph.add_cursors(np.log10(q_min), np.log10(q_max))
-        self.graph.set_status(
-            f'Loaded {file_path.name}: {len(q)} points, '
-            f'Q ∈ [{q_min:.4g}, {q_max:.4g}] Å⁻¹', 'success',
+        self.set_data(
+            q, I, dI,
+            filename=str(file_path.name),
+            filepath=str(file_path),
+            is_nxcansas=True,
         )
-
-        q_lo, q_hi = self.graph.get_q_range()
-        self.qmin_lbl.setText(f'{q_lo:.4g}')
-        self.qmax_lbl.setText(f'{q_hi:.4g}')
-
-        self.btn_graph.setEnabled(True)
-        self.btn_fit.setEnabled(True)
 
     # ── Build ModelingConfig from GUI ────────────────────────────────────────
 
