@@ -1460,10 +1460,19 @@ class ModelingPanel(QWidget):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
-        # ── Title ────────────────────────────────────────────────────────
+        # ── Title + Help ─────────────────────────────────────────────────
+        title_row = QHBoxLayout()
         title = QLabel('Modeling Input')
         title.setStyleSheet('font-size: 14px; font-weight: bold;')
-        lay.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        help_btn = QPushButton('? Help')
+        help_btn.setFixedSize(60, 22)
+        help_btn.setStyleSheet(
+            'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
+        help_btn.clicked.connect(self._open_help)
+        title_row.addWidget(help_btn)
+        lay.addLayout(title_row)
 
         # ── Data file ────────────────────────────────────────────────────
         lay.addWidget(_sep())
@@ -1695,6 +1704,17 @@ class ModelingPanel(QWidget):
         q_lo, q_hi = self.graph.get_q_range()
         self.qmin_lbl.setText(f'{q_lo:.4g}')
         self.qmax_lbl.setText(f'{q_hi:.4g}')
+
+    def _open_help(self):
+        try:
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+        except ImportError:
+            from PyQt6.QtGui import QDesktopServices
+            from PyQt6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl(
+            'https://github.com/jilavsky/pyirena/blob/main/docs/modeling_gui.md'
+        ))
 
     def _update_tab_labels(self, *_):
         """Update tab text (with optional label) and color per-population."""

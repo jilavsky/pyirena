@@ -128,6 +128,7 @@ class PlotControlsPanel(QWidget):
         self._cb_sizes_pr    = QCheckBox("Size Dist.  (P(r) vs r)")
         self._cb_waxs        = QCheckBox("WAXS model")
         self._cb_simple      = QCheckBox("Simple Fit model")
+        self._cb_modeling    = QCheckBox("Modeling model")
 
         self._cb_nxcansas.setChecked(True)
         self._cb_unified.setChecked(True)
@@ -138,6 +139,7 @@ class PlotControlsPanel(QWidget):
         pb.addWidget(self._cb_sizes_pr, 1, 1)
         pb.addWidget(self._cb_waxs,     2, 0)
         pb.addWidget(self._cb_simple,   2, 1)
+        pb.addWidget(self._cb_modeling, 3, 0)
         vl.addWidget(presets_box)
 
         # ── Custom data from HDF5 browser ─────────────────────────────────
@@ -223,6 +225,7 @@ class PlotControlsPanel(QWidget):
             "Size Distribution",
             "WAXS Peak Fit",
             "Simple Fits",
+            "Modeling",
             "Custom HDF5 path",
         ])
         self._collect_type.currentIndexChanged.connect(self._update_collect_ui)
@@ -583,6 +586,20 @@ class PlotControlsPanel(QWidget):
                 else:
                     errors.append(f"No Simple Fit in {stem}")
 
+            # Modeling model (total I(Q))
+            if self._cb_modeling.isChecked():
+                result = _readers.read_modeling(filepath)
+                if result:
+                    curves.append({
+                        "label": f"{stem}  Modeling",
+                        "x": result["Q"], "y": result["I_model"],
+                        "yerr": None, "xerr": None,
+                        "suggest_log_x": True,
+                        "suggest_log_y": True,
+                    })
+                else:
+                    errors.append(f"No Modeling results in {stem}")
+
             # Custom X/Y
             if self._slot_y:
                 y_arr = _readers.read_dataset(filepath, self._slot_y)
@@ -665,6 +682,7 @@ class PlotControlsPanel(QWidget):
             "Size Distribution":  "sizes",
             "WAXS Peak Fit":      "waxs",
             "Simple Fits":        "simple_fit",
+            "Modeling":           "modeling",
             "Custom HDF5 path":   "custom",
         }
         type_key = type_map.get(type_text, "custom")
@@ -679,6 +697,8 @@ class PlotControlsPanel(QWidget):
             spec = {"type": "waxs", "item": item_text, "peak": idx - 1}
         elif type_key == "simple_fit":
             spec = {"type": "simple_fit", "item": "param", "param_name": item_text}
+        elif type_key == "modeling":
+            spec = {"type": "modeling", "item": item_text, "population": idx}
         else:
             spec = {"type": "custom", "path": ""}
 
@@ -807,7 +827,7 @@ class PlotControlsPanel(QWidget):
         type_text = self._collect_type.currentText()
 
         is_custom = (type_text == "Custom HDF5 path")
-        needs_index = type_text in ("Unified Fit", "WAXS Peak Fit")
+        needs_index = type_text in ("Unified Fit", "WAXS Peak Fit", "Modeling")
 
         # Custom path row visibility
         self._collect_path.setVisible(is_custom)
@@ -843,5 +863,15 @@ class PlotControlsPanel(QWidget):
         elif type_text == "Simple Fits":
             self._collect_item.addItems(["Rg", "I0", "Rg_err", "I0_err", "chi2"])
             self._collect_index.setEnabled(False)
+
+        elif type_text == "Modeling":
+            items = ["chi2", "background",
+                     "G", "Rg", "B", "P", "RgCO", "ETA", "PACK",
+                     "position", "amplitude", "width",
+                     "vol_fraction", "mean_r"]
+            self._collect_item.addItems(items)
+            self._collect_index.setPrefix("Pop. ")
+            self._collect_index.setRange(1, 10)
+            self._collect_index.setEnabled(True)
 
         # Custom: item/index are hidden so no need to configure them

@@ -22,7 +22,7 @@ def detect_available_data(filepath: str | Path) -> list[str]:
     """
     Return a list of data-type keys available in *filepath*.
 
-    Keys ∈ {"nxcansas", "unified_fit", "sizes", "waxs", "simple_fit"}.
+    Keys ∈ {"nxcansas", "unified_fit", "sizes", "waxs", "simple_fit", "modeling"}.
     """
     available = []
     try:
@@ -37,6 +37,8 @@ def detect_available_data(filepath: str | Path) -> list[str]:
                 available.append("waxs")
             if "entry/simple_fit_results" in f:
                 available.append("simple_fit")
+            if "entry/modeling_results" in f:
+                available.append("modeling")
     except Exception:
         pass
     return available
@@ -203,6 +205,79 @@ def read_simple_fit(filepath: str | Path) -> dict | None:
         return None
 
 
+# ── Modeling ───────────────────────────────────────────────────────────────
+
+def read_modeling(filepath: str | Path) -> dict | None:
+    """
+    Read Modeling tool results.
+
+    Returns {
+        "Q", "I_model",
+        "populations": [{"population_index", "pop_type", "enabled", "label",
+                          "derived", "uf_params", "peak_params", …}],
+        "chi2", "background", "q_min", "q_max", "label"
+    } or None.
+    """
+    try:
+        from pyirena.io.nxcansas_modeling import load_modeling_results
+        res = load_modeling_results(Path(filepath))
+        if not res:
+            return None
+        return {
+            "Q":           np.asarray(res["model_q"],  float),
+            "I_model":     np.asarray(res["model_I"],  float),
+            "populations": res.get("populations", []),
+            "chi2":        res.get("chi_squared"),
+            "background":  res.get("background"),
+            "q_min":       res.get("q_min"),
+            "q_max":       res.get("q_max"),
+            "label":       Path(filepath).stem,
+        }
+    except Exception:
+        return None
+
+
+def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
+    """
+    Extract a single scalar from Modeling results.
+
+    item examples: "chi2", "background", "Rg", "G", "B", "P", "RgCO",
+                   "ETA", "PACK", "position", "amplitude", "width",
+                   "vol_fraction", "mean_r"
+    pop_index: 1-based population index (ignored for global items).
+    """
+    res = read_modeling(filepath)
+    if res is None:
+        return None
+    if item in ("chi2", "chi_squared"):
+        return res.get("chi2")
+    if item == "background":
+        return res.get("background")
+    # Population-level items
+    pops = res.get("populations", [])
+    pop = next((p for p in pops if p.get("population_index") == pop_index), None)
+    if pop is None:
+        return None
+    derived = pop.get("derived", {})
+    # UF level and peak params are stored as flat keys on the pop dict
+    lookup = {
+        "G":            pop.get("G"),
+        "Rg":           pop.get("Rg"),
+        "B":            pop.get("B"),
+        "P":            pop.get("P"),
+        "RgCO":         pop.get("RgCO"),
+        "ETA":          pop.get("ETA"),
+        "PACK":         pop.get("PACK"),
+        "position":     pop.get("position"),
+        "amplitude":    pop.get("amplitude"),
+        "width":        pop.get("width"),
+        "vol_fraction": derived.get("volume_fraction"),
+        "mean_r":       derived.get("vol_mean_r"),
+    }
+    val = lookup.get(item)
+    return float(val) if val is not None else None
+
+
 # ── Arbitrary dataset ──────────────────────────────────────────────────────
 
 def read_dataset(filepath: str | Path, hdf5_path: str) -> np.ndarray | None:
@@ -259,6 +334,9 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
 
         if data_type == "simple_fit":
             return _collect_simple_fit(filepath, item, spec.get("param_name", ""))
+
+        if data_type == "modeling":
+            return _collect_modeling(filepath, item, spec.get("population", 1))
 
         if data_type == "custom":
             return read_metadata_value(filepath, spec.get("path", ""))

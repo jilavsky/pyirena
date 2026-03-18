@@ -44,6 +44,7 @@ _KNOWN_GROUPS = {
     "sizes_results":        "sizes",
     "waxs_peakfit_results": "waxs",
     "simple_fit_results":   "simple_fit",
+    "modeling_results":     "modeling",
 }
 
 
@@ -388,6 +389,7 @@ class HDF5BrowserWidget(QWidget):
                 "sizes":       "Plot Size Distribution model",
                 "waxs":        "Plot WAXS Peak Fit model",
                 "simple_fit":  "Plot Simple Fit model",
+                "modeling":    "Plot Modeling model",
             }
             label = label_map.get(type_key, f"Plot {type_key}")
             act = QAction(label, menu)
