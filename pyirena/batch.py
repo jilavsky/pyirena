@@ -1735,7 +1735,8 @@ def fit_modeling(
 
     q  = np.asarray(data['Q'],         dtype=float)
     I  = np.asarray(data['Intensity'],  dtype=float)
-    dI = np.asarray(data.get('Error') or np.ones_like(q) * 0.05 * I, dtype=float)
+    _err = data.get('Error')
+    dI = np.asarray(_err if _err is not None else np.ones_like(q) * 0.05 * I, dtype=float)
     dI = np.where(dI <= 0, 0.05 * np.abs(I), dI)
 
     # --- Build ModelingConfig from the dict stored by the GUI ---
