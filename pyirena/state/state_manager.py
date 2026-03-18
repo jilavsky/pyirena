@@ -261,6 +261,7 @@ class StateManager:
                 {
                     "pop_type": "size_dist",
                     "enabled": True,
+                    "label": "",
                     "dist_type": "lognormal",
                     "dist_params": {"min_size": 10.0, "mean_size": 100.0, "sdeviation": 0.3},
                     "dist_params_fit": {"min_size": False, "mean_size": True, "sdeviation": True},
@@ -317,6 +318,7 @@ class StateManager:
                     {
                         "pop_type": "size_dist",
                         "enabled": False,
+                        "label": "",
                         "dist_type": "lognormal",
                         "dist_params": {"min_size": 10.0, "mean_size": 100.0, "sdeviation": 0.3},
                         "dist_params_fit": {"min_size": False, "mean_size": True, "sdeviation": True},

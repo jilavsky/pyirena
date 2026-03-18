@@ -143,6 +143,7 @@ _ALL_DERIVED_ROWS = [
     ('position',        'Peak centre Q₀ [Å⁻¹]'),
     ('amplitude',       'Amplitude [cm⁻¹]'),
     ('width',           'Width σ [Å⁻¹]'),
+    ('invariant',       'Invariant [cm⁻⁴]'),
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -199,6 +200,8 @@ class PopulationTab(QWidget):
         self._uf_rows: dict = {}
         self._uf_corr_rows: dict = {}
         self._peak_rows: dict = {}
+        self._dist_param_cache: dict = {}   # {dist_type: {key: (val, fit, lo, hi)}}
+        self._last_dist_type: str = 'lognormal'
 
         self._build_ui()
         self._building = False
@@ -210,12 +213,19 @@ class PopulationTab(QWidget):
         outer.setContentsMargins(6, 6, 6, 6)
         outer.setSpacing(4)
 
-        # ── Enable toggle ──────────────────────────────────────────────────
-        self.use_cb = QCheckBox(f'Use population P{self.pop_index + 1}')
+        # ── Enable toggle + label ──────────────────────────────────────────
+        top_row = QHBoxLayout()
+        self.use_cb = QCheckBox(f'Use P{self.pop_index + 1}')
         self.use_cb.setChecked(self.pop_index == 0)
         self.use_cb.setStyleSheet('font-weight: bold;')
         self.use_cb.stateChanged.connect(self._on_use_changed)
-        outer.addWidget(self.use_cb)
+        top_row.addWidget(self.use_cb)
+        top_row.addWidget(QLabel('Label:'))
+        self.label_edit = QLineEdit()
+        self.label_edit.setPlaceholderText('(optional description)')
+        self.label_edit.textChanged.connect(self._on_label_changed)
+        top_row.addWidget(self.label_edit)
+        outer.addLayout(top_row)
 
         # Container that gets enabled/disabled as a group
         self._content = QWidget()
@@ -534,6 +544,17 @@ class PopulationTab(QWidget):
                 dval, False, lo, hi, self._row_widgets,
             )
 
+        # Restore cached values if available for this dist type
+        if dist_type in self._dist_param_cache:
+            cached = self._dist_param_cache[dist_type]
+            for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._row_widgets.items():
+                if key in cached:
+                    v, fit, lo, hi = cached[key]
+                    val_edit.setText(_fmt(v))
+                    fit_cb.setChecked(fit)
+                    lo_edit.setText(_fmt(lo))
+                    hi_edit.setText(_fmt(hi))
+
     def _default_dist_limits(self, pname: str, val: float) -> tuple:
         default_limits = {
             'mean_size':  (1.0, 1e6),
@@ -614,9 +635,21 @@ class PopulationTab(QWidget):
         self._content.setEnabled(enabled)
         self._emit_changed()
 
+    def _on_label_changed(self, _=None):
+        if not self._building:
+            self.changed.emit()   # parent updates tab text
+
     def _on_dist_changed(self, _=None):
         if self._building:
             return
+        # Save current params before the switch
+        if self._row_widgets:
+            cache = {}
+            for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._row_widgets.items():
+                cache[key] = (_parse(val_edit.text(), 1.0), fit_cb.isChecked(),
+                              _parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10))
+            self._dist_param_cache[self._last_dist_type] = cache
+        self._last_dist_type = self.dist_combo.currentData() or 'lognormal'
         self._rebuild_dist_params()
         self._emit_changed()
 
@@ -759,6 +792,7 @@ class PopulationTab(QWidget):
         pop.fit_scale = self.scale_fit_cb.isChecked()
         pop.use_number_dist = self.num_dist_rb.isChecked()
         pop.n_bins = self.nbins_spin.value()
+        pop.label = self.label_edit.text().strip()
         return pop
 
     def _read_uf_population(self) -> UnifiedLevelPopulation:
@@ -778,6 +812,7 @@ class PopulationTab(QWidget):
             lo = _parse(lo_edit.text(), 0.0)
             hi = _parse(hi_edit.text(), 1e10)
             setattr(pop, f'{key}_limits', (lo, hi))
+        pop.label = self.label_edit.text().strip()
         return pop
 
     def _read_peak_population(self) -> DiffractionPeakPopulation:
@@ -791,6 +826,7 @@ class PopulationTab(QWidget):
             lo = _parse(lo_edit.text(), 0.0)
             hi = _parse(hi_edit.text(), 1e10)
             setattr(pop, f'{key}_limits', (lo, hi))
+        pop.label = self.label_edit.text().strip()
         return pop
 
     def from_population(self, pop):
@@ -825,6 +861,7 @@ class PopulationTab(QWidget):
             if self.dist_combo.itemData(i) == pop.dist_type:
                 self.dist_combo.setCurrentIndex(i)
                 break
+        self._last_dist_type = pop.dist_type
         self._rebuild_dist_params()
 
         for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._row_widgets.items():
@@ -866,6 +903,7 @@ class PopulationTab(QWidget):
         self.num_dist_rb.setChecked(pop.use_number_dist)
         self.nbins_spin.setValue(pop.n_bins)
         self._on_scale_changed()
+        self.label_edit.setText(pop.label)
 
     def _load_uf_population(self, pop: UnifiedLevelPopulation):
         """Load UF Level dataclass into widgets (caller manages _building)."""
@@ -885,6 +923,7 @@ class PopulationTab(QWidget):
             lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
             lo_edit.setText(_fmt(lim[0]))
             hi_edit.setText(_fmt(lim[1]))
+        self.label_edit.setText(pop.label)
 
     def _load_peak_population(self, pop: DiffractionPeakPopulation):
         """Load Diffraction Peak dataclass into widgets (caller manages _building)."""
@@ -901,6 +940,7 @@ class PopulationTab(QWidget):
             lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
             lo_edit.setText(_fmt(lim[0]))
             hi_edit.setText(_fmt(lim[1]))
+        self.label_edit.setText(pop.label)
 
     # ── UF / Peak panel state dicts (for full state preservation) ────────────
 
@@ -995,6 +1035,7 @@ class PopulationTab(QWidget):
             'n_bins': sd.n_bins,
             'uf': self._read_uf_state_dict(),
             'peak': self._read_peak_state_dict(),
+            'label': self.label_edit.text().strip(),
         }
         return d
 
@@ -1025,6 +1066,7 @@ class PopulationTab(QWidget):
                 self._load_uf_state(d['uf'])
             if 'peak' in d:
                 self._load_peak_state(d['peak'])
+            self.label_edit.setText(d.get('label', ''))
         finally:
             self._building = False
 
@@ -1477,6 +1519,7 @@ class ModelingPanel(QWidget):
             pw = PopulationTab(i)
             pw.changed.connect(self._on_pop_changed)
             pw.use_cb.stateChanged.connect(self._update_tab_labels)
+            pw.label_edit.textChanged.connect(self._update_tab_labels)
 
             scroll_i = QScrollArea()
             scroll_i.setWidgetResizable(True)
@@ -1654,7 +1697,7 @@ class ModelingPanel(QWidget):
         self.qmax_lbl.setText(f'{q_hi:.4g}')
 
     def _update_tab_labels(self, *_):
-        """Color tab text for active populations (per-pop color) vs grey inactive."""
+        """Update tab text (with optional label) and color per-population."""
         try:
             from PySide6.QtGui import QColor
         except ImportError:
@@ -1667,6 +1710,9 @@ class ModelingPanel(QWidget):
         for i, pw in enumerate(self._pop_widgets):
             active = pw.use_cb.isChecked()
             color = POP_COLORS[i % len(POP_COLORS)]
+            label = pw.label_edit.text().strip()
+            tab_text = f'P{i+1}: {label[:14]}' if label else f'P{i+1}'
+            self.pop_tabs.setTabText(i, tab_text)
             bar.setTabTextColor(i, QColor(color) if active else QColor('#999999'))
 
     # ── File I/O ─────────────────────────────────────────────────────────────
@@ -2060,6 +2106,7 @@ def _pop_to_dict(pop) -> dict:
         return {
             'pop_type': 'unified_level',
             'enabled': pop.enabled,
+            'label': pop.label,
             'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
             'Rg': pop.Rg, 'fit_Rg': pop.fit_Rg, 'Rg_limits': list(pop.Rg_limits),
             'B': pop.B, 'fit_B': pop.fit_B, 'B_limits': list(pop.B_limits),
@@ -2073,6 +2120,7 @@ def _pop_to_dict(pop) -> dict:
         return {
             'pop_type': 'diffraction_peak',
             'enabled': pop.enabled,
+            'label': pop.label,
             'peak_type': pop.peak_type,
             'position': pop.position, 'fit_position': pop.fit_position,
             'position_limits': list(pop.position_limits),
@@ -2087,6 +2135,7 @@ def _pop_to_dict(pop) -> dict:
     return {
         'pop_type': 'size_dist',
         'enabled':          pop.enabled,
+        'label':            pop.label,
         'dist_type':        pop.dist_type,
         'dist_params':      pop.dist_params,
         'dist_params_fit':  pop.dist_params_fit,
@@ -2116,6 +2165,7 @@ def _pop_from_dict(d: dict):
     if pt == 'unified_level':
         pop = UnifiedLevelPopulation()
         pop.enabled = bool(d.get('enabled', True))
+        pop.label = d.get('label', '')
         for key in ['G', 'Rg', 'B', 'P', 'RgCO']:
             setattr(pop, key, float(d.get(key, getattr(pop, key))))
             setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
@@ -2131,6 +2181,7 @@ def _pop_from_dict(d: dict):
     if pt == 'diffraction_peak':
         pop = DiffractionPeakPopulation()
         pop.enabled = bool(d.get('enabled', True))
+        pop.label = d.get('label', '')
         pop.peak_type = d.get('peak_type', 'gaussian')
         for key in ['position', 'amplitude', 'width', 'eta_voigt']:
             setattr(pop, key, float(d.get(key, getattr(pop, key))))
@@ -2145,6 +2196,7 @@ def _pop_from_dict_size_dist(d: dict) -> SizeDistPopulation:
     """Deserialize a dict → SizeDistPopulation (reads size-dist keys only)."""
     pop = SizeDistPopulation()
     pop.enabled          = d.get('enabled', False)
+    pop.label            = d.get('label', '')
     pop.dist_type        = d.get('dist_type', 'lognormal')
     pop.dist_params      = d.get('dist_params', dict(DIST_DEFAULTS['lognormal']))
     pop.dist_params_fit  = d.get('dist_params_fit', {})

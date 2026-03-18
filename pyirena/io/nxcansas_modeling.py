@@ -102,6 +102,7 @@ def save_modeling_results(
             pg.attrs['population_index'] = pi + 1
             pg.attrs['enabled'] = True
             pg.attrs['pop_type'] = pop_type
+            pg.attrs['label'] = getattr(pop, 'label', '')
 
             if pop_type == 'unified_level':
                 # Unified Fit Level parameters
@@ -265,6 +266,7 @@ def load_modeling_results(
                 'population_index': int(pg.attrs.get('population_index', 0)),
                 'enabled':          bool(pg.attrs.get('enabled', True)),
                 'pop_type':         pop_type,
+                'label':            pg.attrs.get('label', ''),
                 'model_I':          _arr(pg, 'model_I'),
                 'derived':          {},
             }

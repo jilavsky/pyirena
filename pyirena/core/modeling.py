@@ -124,6 +124,7 @@ class SizeDistPopulation:
 
     use_number_dist: bool = False
     n_bins: int = 200
+    label: str = ''
 
 
 @dataclass
@@ -158,6 +159,7 @@ class UnifiedLevelPopulation:
     PACK: float = 0.0
     fit_PACK: bool = False
     PACK_limits: tuple = (0.0, 16.0)
+    label: str = ''
 
 
 @dataclass
@@ -183,6 +185,7 @@ class DiffractionPeakPopulation:
     eta_voigt: float = 0.5           # mixing: 0 = pure Gaussian, 1 = pure Lorentzian
     fit_eta_voigt: bool = False
     eta_voigt_limits: tuple = (0.0, 1.0)
+    label: str = ''
 
 
 @dataclass
@@ -364,17 +367,51 @@ def _volume_sphere(r: np.ndarray) -> np.ndarray:
     return (4.0 / 3.0) * np.pi * r ** 3
 
 
+def _uf_invariant(pop: 'UnifiedLevelPopulation') -> float:
+    """Compute the Porod invariant for a Unified Fit Level.
+
+    Q_inv = ∫₀^∞ I(Q)·Q² dQ
+
+    Numerically integrates from 0 to maxQ = 20π/Rg, then adds the Porod-tail
+    analytical correction  -B·maxQ^(3-P)/(3-P)  when P > 3 and no RgCO cutoff.
+
+    Returns NaN when P ≤ 3 (integral diverges) or the result is negative.
+    Units: cm⁻⁴  (converted from cm⁻¹·Å⁻³ via factor 10²⁴).
+    """
+    import warnings as _w
+    Rg = max(pop.Rg, 1e-10)
+    P  = pop.P
+    B  = pop.B
+    maxQ = 20.0 * np.pi / Rg
+    n = 2000
+    q = np.linspace(0.0, maxQ, n)
+    q[0] = q[1]  # avoid Q=0
+    with _w.catch_warnings():
+        _w.simplefilter('ignore')
+        I = _unified_level_intensity(q, pop)
+    I[0] = I[1]
+    invariant = float(np.trapz(I * q ** 2, q))
+    # Porod tail correction  ∫_maxQ^∞ B·Q^(2-P) dQ = -B·maxQ^(3-P)/(3-P)  for P>3
+    if pop.RgCO < 0.1 and P > 3.0:
+        invariant += -B * maxQ ** (3.0 - P) / (3.0 - P)
+    if invariant < 0.0:
+        return float('nan')
+    return invariant * 1e24   # cm⁻¹·Å⁻³ → cm⁻⁴
+
+
 def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
     """Compute convenient derived quantities from a fitted population.
 
     For size-distribution populations returns: vol_mean_r, num_mean_r,
     volume_fraction, Rg, specific_surface.
-    For Unified-level populations returns: Rg, G, B, P.
+    For Unified-level populations returns: Rg, G, B, P, invariant.
     For diffraction-peak populations returns: position, amplitude, width.
     """
     pop_type = getattr(pop, 'pop_type', 'size_dist')
     if pop_type == 'unified_level':
-        return {'Rg': pop.Rg, 'G': pop.G, 'B': pop.B, 'P': pop.P}
+        inv = _uf_invariant(pop)
+        return {'Rg': pop.Rg, 'G': pop.G, 'B': pop.B, 'P': pop.P,
+                'invariant': inv if not np.isnan(inv) else None}
     if pop_type == 'diffraction_peak':
         return {
             'position': pop.position,
