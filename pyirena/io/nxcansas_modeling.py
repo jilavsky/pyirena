@@ -25,7 +25,10 @@ from typing import Optional
 import h5py
 import numpy as np
 
-from pyirena.core.modeling import ModelingResult, ModelingConfig, SizeDistPopulation
+from pyirena.core.modeling import (
+    ModelingResult, ModelingConfig, SizeDistPopulation,
+    UnifiedLevelPopulation, DiffractionPeakPopulation,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -92,61 +95,89 @@ def save_modeling_results(
         # ── Per-population groups ─────────────────────────────────────────
         cfg = result.config
         for k, pi in enumerate(result.pop_indices):
-            pop: SizeDistPopulation = cfg.populations[pi]
+            pop = cfg.populations[pi]
+            pop_type = getattr(pop, 'pop_type', 'size_dist')
             pname = f'pop_{pi+1:02d}'
             pg = grp.create_group(pname)
             pg.attrs['population_index'] = pi + 1
             pg.attrs['enabled'] = True
-            pg.attrs['dist_type'] = pop.dist_type
-            pg.attrs['form_factor'] = pop.form_factor
-            pg.attrs['structure_factor'] = pop.structure_factor
+            pg.attrs['pop_type'] = pop_type
 
-            # Distribution parameters
-            dg = pg.create_group('dist_params')
-            for pn, pv in pop.dist_params.items():
-                dg.create_dataset(pn, data=float(pv))
-                dg[pn].attrs['fit'] = bool(pop.dist_params_fit.get(pn, False))
-                lim = pop.dist_params_limits.get(pn, (0.0, 1e10))
-                dg[pn].attrs['limit_lo'] = float(lim[0])
-                dg[pn].attrs['limit_hi'] = float(lim[1])
+            if pop_type == 'unified_level':
+                # Unified Fit Level parameters
+                for pn in ['G', 'Rg', 'B', 'P', 'RgCO']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
+                pg.create_dataset('correlations', data=bool(pop.correlations))
+                for pn in ['ETA', 'PACK']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
 
-            # Form-factor parameters
-            fg = pg.create_group('ff_params')
-            for pn, pv in pop.ff_params.items():
-                fg.create_dataset(pn, data=float(pv))
-                fg[pn].attrs['fit'] = bool(pop.ff_params_fit.get(pn, False))
+            elif pop_type == 'diffraction_peak':
+                # Diffraction Peak parameters
+                pg.attrs['peak_type'] = pop.peak_type
+                for pn in ['position', 'amplitude', 'width', 'eta_voigt']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
 
-            # Structure-factor parameters
-            sg = pg.create_group('sf_params')
-            for pn, pv in pop.sf_params.items():
-                sg.create_dataset(pn, data=float(pv))
-                sg[pn].attrs['fit'] = bool(pop.sf_params_fit.get(pn, False))
+            else:
+                # Size Distribution parameters
+                pg.attrs['dist_type'] = pop.dist_type
+                pg.attrs['form_factor'] = pop.form_factor
+                pg.attrs['structure_factor'] = pop.structure_factor
 
-            # Scale / contrast
-            pg.create_dataset('scale', data=float(pop.scale))
-            pg['scale'].attrs['fit'] = bool(pop.fit_scale)
-            pg.create_dataset('contrast', data=float(pop.contrast))
-            pg['contrast'].attrs['fit'] = bool(pop.fit_contrast)
-            pg.create_dataset('use_number_dist', data=bool(pop.use_number_dist))
-            pg.create_dataset('n_bins', data=int(pop.n_bins))
+                dg = pg.create_group('dist_params')
+                for pn, pv in pop.dist_params.items():
+                    dg.create_dataset(pn, data=float(pv))
+                    dg[pn].attrs['fit'] = bool(pop.dist_params_fit.get(pn, False))
+                    lim = pop.dist_params_limits.get(pn, (0.0, 1e10))
+                    dg[pn].attrs['limit_lo'] = float(lim[0])
+                    dg[pn].attrs['limit_hi'] = float(lim[1])
 
-            # MC uncertainties (if present)
+                fg = pg.create_group('ff_params')
+                for pn, pv in pop.ff_params.items():
+                    fg.create_dataset(pn, data=float(pv))
+                    fg[pn].attrs['fit'] = bool(pop.ff_params_fit.get(pn, False))
+
+                sg = pg.create_group('sf_params')
+                for pn, pv in pop.sf_params.items():
+                    sg.create_dataset(pn, data=float(pv))
+                    sg[pn].attrs['fit'] = bool(pop.sf_params_fit.get(pn, False))
+
+                pg.create_dataset('scale', data=float(pop.scale))
+                pg['scale'].attrs['fit'] = bool(pop.fit_scale)
+                pg.create_dataset('contrast', data=float(pop.contrast))
+                pg['contrast'].attrs['fit'] = bool(pop.fit_contrast)
+                pg.create_dataset('use_number_dist', data=bool(pop.use_number_dist))
+                pg.create_dataset('n_bins', data=int(pop.n_bins))
+
+                # Radius grid and distributions (None for non-size-dist pops)
+                if result.radius_grids[k] is not None:
+                    pg.create_dataset('radius_grid', data=result.radius_grids[k])
+                    pg['radius_grid'].attrs['units'] = 'angstrom'
+                    pg.create_dataset('volume_dist', data=result.volume_dists[k])
+                    pg.create_dataset('number_dist', data=result.number_dists[k])
+
+            # MC uncertainties (if present) — common to all types
             stds = result.params_std
             for label, stdval in stds.items():
                 if label.startswith(f'pop{pi+1}_'):
                     pg.create_dataset(label + '_err', data=float(stdval))
 
-            # Model I(Q) for this population
+            # Model I(Q) for this population — common to all types
             ds_pI = pg.create_dataset('model_I', data=result.pop_model_I[k])
             ds_pI.attrs['units'] = '1/cm'
 
-            # Radius grid and distributions
-            pg.create_dataset('radius_grid', data=result.radius_grids[k])
-            pg['radius_grid'].attrs['units'] = 'angstrom'
-            pg.create_dataset('volume_dist', data=result.volume_dists[k])
-            pg.create_dataset('number_dist', data=result.number_dists[k])
-
-            # Derived quantities
+            # Derived quantities — common to all types
             if k < len(result.derived):
                 dv = result.derived[k]
                 dervg = pg.create_group('derived')
@@ -229,25 +260,42 @@ def load_modeling_results(
                     d[pn] = float(subgrp[pn][()])
                 return d
 
+            pop_type = pg.attrs.get('pop_type', 'size_dist')
             pop_dict = {
                 'population_index': int(pg.attrs.get('population_index', 0)),
                 'enabled':          bool(pg.attrs.get('enabled', True)),
-                'dist_type':        pg.attrs.get('dist_type', 'lognormal'),
-                'form_factor':      pg.attrs.get('form_factor', 'sphere'),
-                'structure_factor': pg.attrs.get('structure_factor', 'none'),
-                'dist_params':      _load_param_group(pg.get('dist_params')),
-                'ff_params':        _load_param_group(pg.get('ff_params')),
-                'sf_params':        _load_param_group(pg.get('sf_params')),
-                'scale':            float(pg['scale'][()]) if 'scale' in pg else 0.001,
-                'contrast':         float(pg['contrast'][()]) if 'contrast' in pg else 1.0,
-                'use_number_dist':  bool(pg['use_number_dist'][()]) if 'use_number_dist' in pg else False,
-                'n_bins':           int(pg['n_bins'][()]) if 'n_bins' in pg else 200,
+                'pop_type':         pop_type,
                 'model_I':          _arr(pg, 'model_I'),
-                'radius_grid':      _arr(pg, 'radius_grid'),
-                'volume_dist':      _arr(pg, 'volume_dist'),
-                'number_dist':      _arr(pg, 'number_dist'),
                 'derived':          {},
             }
+
+            if pop_type == 'unified_level':
+                for pn in ['G', 'Rg', 'B', 'P', 'RgCO', 'ETA', 'PACK']:
+                    pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
+                pop_dict['correlations'] = bool(pg['correlations'][()]) if 'correlations' in pg else False
+
+            elif pop_type == 'diffraction_peak':
+                pop_dict['peak_type'] = pg.attrs.get('peak_type', 'gaussian')
+                for pn in ['position', 'amplitude', 'width', 'eta_voigt']:
+                    pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
+
+            else:
+                # size_dist
+                pop_dict.update({
+                    'dist_type':        pg.attrs.get('dist_type', 'lognormal'),
+                    'form_factor':      pg.attrs.get('form_factor', 'sphere'),
+                    'structure_factor': pg.attrs.get('structure_factor', 'none'),
+                    'dist_params':      _load_param_group(pg.get('dist_params')),
+                    'ff_params':        _load_param_group(pg.get('ff_params')),
+                    'sf_params':        _load_param_group(pg.get('sf_params')),
+                    'scale':            float(pg['scale'][()]) if 'scale' in pg else 0.001,
+                    'contrast':         float(pg['contrast'][()]) if 'contrast' in pg else 1.0,
+                    'use_number_dist':  bool(pg['use_number_dist'][()]) if 'use_number_dist' in pg else False,
+                    'n_bins':           int(pg['n_bins'][()]) if 'n_bins' in pg else 200,
+                    'radius_grid':      _arr(pg, 'radius_grid'),
+                    'volume_dist':      _arr(pg, 'volume_dist'),
+                    'number_dist':      _arr(pg, 'number_dist'),
+                })
 
             dervg = pg.get('derived')
             if dervg is not None:

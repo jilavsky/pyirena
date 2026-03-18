@@ -45,6 +45,7 @@ from typing import Any, Optional
 
 import numpy as np
 from scipy.optimize import least_squares, minimize
+from scipy.special import erf as _scipy_erf
 
 from pyirena.core import distributions as D
 from pyirena.core.form_factors import build_g_matrix, bin_widths
@@ -81,6 +82,7 @@ class SizeDistPopulation:
                    distribution; otherwise it is a volume distribution.
     n_bins:        Number of radius bins for the radius grid (default 200).
     """
+    pop_type: str = 'size_dist'
     enabled: bool = True
     dist_type: str = 'lognormal'
     dist_params: dict = field(default_factory=lambda: {
@@ -122,6 +124,65 @@ class SizeDistPopulation:
 
     use_number_dist: bool = False
     n_bins: int = 200
+
+
+@dataclass
+class UnifiedLevelPopulation:
+    """Single Beaucage Unified Fit level as a Modeling population.
+
+    Computes: I(q) = G·exp(-q²Rg²/3) + B·Q*⁻ᴾ·exp(-q²RgCO²/3)
+    where Q* = q / erf(K·q·Rg/√6)³  and  K = 1.0 if P>3 else 1.06.
+    Optional Born-Green correlation factor: divide by 1 + PACK·f(q,ETA).
+    """
+    pop_type: str = 'unified_level'
+    enabled: bool = True
+    G: float = 1.0
+    fit_G: bool = True
+    G_limits: tuple = (1e-10, 1e10)
+    Rg: float = 10.0
+    fit_Rg: bool = True
+    Rg_limits: tuple = (0.1, 1e6)
+    B: float = 1e-4
+    fit_B: bool = True
+    B_limits: tuple = (1e-20, 1e10)
+    P: float = 4.0
+    fit_P: bool = False
+    P_limits: tuple = (0.0, 6.0)
+    RgCO: float = 0.0
+    fit_RgCO: bool = False
+    RgCO_limits: tuple = (0.0, 1e6)
+    correlations: bool = False
+    ETA: float = 10.0
+    fit_ETA: bool = False
+    ETA_limits: tuple = (0.1, 1e6)
+    PACK: float = 0.0
+    fit_PACK: bool = False
+    PACK_limits: tuple = (0.0, 16.0)
+
+
+@dataclass
+class DiffractionPeakPopulation:
+    """Diffraction peak (Gaussian, Lorentzian, or pseudo-Voigt) as a Modeling population.
+
+    Gaussian:    A · exp(-(q-q₀)² / (2σ²))
+    Lorentzian:  A / (1 + ((q-q₀)/σ)²)
+    pseudo-Voigt:  A · (η·Lorentzian + (1-η)·Gaussian)
+    """
+    pop_type: str = 'diffraction_peak'
+    enabled: bool = True
+    peak_type: str = 'gaussian'      # 'gaussian' | 'lorentzian' | 'voigt'
+    position: float = 0.1
+    fit_position: bool = True
+    position_limits: tuple = (0.001, 10.0)
+    amplitude: float = 1.0
+    fit_amplitude: bool = True
+    amplitude_limits: tuple = (0.0, 1e10)
+    width: float = 0.01
+    fit_width: bool = True
+    width_limits: tuple = (1e-6, 10.0)
+    eta_voigt: float = 0.5           # mixing: 0 = pure Gaussian, 1 = pure Lorentzian
+    fit_eta_voigt: bool = False
+    eta_voigt_limits: tuple = (0.0, 1.0)
 
 
 @dataclass
@@ -239,6 +300,42 @@ def _hard_sphere_sf(q: np.ndarray, radius: float,
     return np.where(A < 1e-10, 1.0, S)
 
 
+def _unified_level_intensity(
+    q: np.ndarray, pop: UnifiedLevelPopulation,
+) -> np.ndarray:
+    """Single Beaucage Unified level intensity.  Port of unified.py calculate_level_intensity."""
+    K = 1.0 if pop.P > 3.0 else 1.06
+    Rg = max(pop.Rg, 1e-10)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        erf_term = np.maximum(_scipy_erf(K * q * Rg / np.sqrt(6.0)), 1e-10)
+        Q_star   = q / (erf_term ** 3)
+        guinier  = pop.G * np.exp(-q ** 2 * Rg ** 2 / 3.0)
+        cutoff   = np.exp(-pop.RgCO ** 2 * q ** 2 / 3.0) if pop.RgCO > 0 else 1.0
+        powerlaw = pop.B / np.maximum(Q_star, 1e-100) ** pop.P * cutoff
+    I = guinier + powerlaw
+    if pop.correlations and pop.PACK > 0:
+        I /= (1.0 + pop.PACK * _sphere_amplitude(q, pop.ETA))
+    return I
+
+
+def _diffraction_peak_intensity(
+    q: np.ndarray, pop: DiffractionPeakPopulation,
+) -> np.ndarray:
+    """Gaussian, Lorentzian, or pseudo-Voigt diffraction peak."""
+    dq = q - pop.position
+    w  = max(pop.width, 1e-10)
+    g  = np.exp(-dq ** 2 / (2.0 * w ** 2))
+    l  = 1.0 / (1.0 + (dq / w) ** 2)
+    if pop.peak_type == 'gaussian':
+        return pop.amplitude * g
+    if pop.peak_type == 'lorentzian':
+        return pop.amplitude * l
+    # pseudo-Voigt
+    eta = float(np.clip(pop.eta_voigt, 0.0, 1.0))
+    return pop.amplitude * (eta * l + (1.0 - eta) * g)
+
+
 def apply_structure_factor(
     I_raw: np.ndarray,
     q: np.ndarray,
@@ -267,13 +364,24 @@ def _volume_sphere(r: np.ndarray) -> np.ndarray:
     return (4.0 / 3.0) * np.pi * r ** 3
 
 
-def compute_derived(radius_grid: np.ndarray, vol_dist: np.ndarray,
-                    num_dist: np.ndarray, pop: SizeDistPopulation) -> dict:
-    """Compute convenient derived quantities from the fitted distribution.
+def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
+    """Compute convenient derived quantities from a fitted population.
 
-    Returns a dict with keys: vol_mean_r, num_mean_r, volume_fraction, Rg,
-    specific_surface (sphere only for now).
+    For size-distribution populations returns: vol_mean_r, num_mean_r,
+    volume_fraction, Rg, specific_surface.
+    For Unified-level populations returns: Rg, G, B, P.
+    For diffraction-peak populations returns: position, amplitude, width.
     """
+    pop_type = getattr(pop, 'pop_type', 'size_dist')
+    if pop_type == 'unified_level':
+        return {'Rg': pop.Rg, 'G': pop.G, 'B': pop.B, 'P': pop.P}
+    if pop_type == 'diffraction_peak':
+        return {
+            'position': pop.position,
+            'amplitude': pop.amplitude,
+            'width': pop.width,
+        }
+    # size_dist
     dr = bin_widths(radius_grid)
     vol_tot = np.sum(vol_dist * dr)
     num_tot = np.sum(num_dist * dr)
@@ -458,10 +566,18 @@ class ModelingEngine:
             if not pop.enabled:
                 continue
             try:
-                I_pop, vol_dist, num_dist = self.calculate_pop_intensity(
-                    pop, q, use_cache=use_cache
-                )
-                radius_grid = self.build_radius_grid(pop)
+                pop_type = getattr(pop, 'pop_type', 'size_dist')
+                if pop_type == 'unified_level':
+                    I_pop = _unified_level_intensity(q, pop)
+                    rg, vd, nd = None, None, None
+                elif pop_type == 'diffraction_peak':
+                    I_pop = _diffraction_peak_intensity(q, pop)
+                    rg, vd, nd = None, None, None
+                else:  # size_dist
+                    I_pop, vd, nd = self.calculate_pop_intensity(
+                        pop, q, use_cache=use_cache
+                    )
+                    rg = self.build_radius_grid(pop)
             except Exception as e:
                 warnings.warn(f"Population {i+1} failed: {e}", RuntimeWarning)
                 continue
@@ -469,7 +585,7 @@ class ModelingEngine:
             I_total += I_pop
             pop_indices.append(i)
             pop_I_list.append(I_pop)
-            pop_dist_list.append((radius_grid, vol_dist, num_dist))
+            pop_dist_list.append((rg, vd, nd))
 
         I_total += config.background
         return I_total, pop_indices, pop_I_list, pop_dist_list
@@ -489,7 +605,39 @@ class ModelingEngine:
             if not pop.enabled:
                 continue
 
-            # Distribution params
+            pop_type = getattr(pop, 'pop_type', 'size_dist')
+
+            if pop_type == 'unified_level':
+                for name in ['G', 'Rg', 'B', 'P', 'RgCO']:
+                    if getattr(pop, f'fit_{name}', False):
+                        lim = getattr(pop, f'{name}_limits')
+                        x0.append(getattr(pop, name))
+                        lo.append(lim[0]); hi.append(lim[1])
+                        keys.append(('pop', i, 'uf', name))
+                if pop.correlations:
+                    for name in ['ETA', 'PACK']:
+                        if getattr(pop, f'fit_{name}', False):
+                            lim = getattr(pop, f'{name}_limits')
+                            x0.append(getattr(pop, name))
+                            lo.append(lim[0]); hi.append(lim[1])
+                            keys.append(('pop', i, 'uf', name))
+                continue
+
+            if pop_type == 'diffraction_peak':
+                for name in ['position', 'amplitude', 'width']:
+                    if getattr(pop, f'fit_{name}', False):
+                        lim = getattr(pop, f'{name}_limits')
+                        x0.append(getattr(pop, name))
+                        lo.append(lim[0]); hi.append(lim[1])
+                        keys.append(('pop', i, 'peak', name))
+                if pop.peak_type == 'voigt' and pop.fit_eta_voigt:
+                    lim = pop.eta_voigt_limits
+                    x0.append(pop.eta_voigt)
+                    lo.append(lim[0]); hi.append(lim[1])
+                    keys.append(('pop', i, 'peak', 'eta_voigt'))
+                continue
+
+            # size_dist — Distribution params
             for name in D.DIST_PARAM_NAMES.get(pop.dist_type, []):
                 if pop.dist_params_fit.get(name, False):
                     val = float(pop.dist_params.get(name, 1.0))
@@ -547,7 +695,11 @@ class ModelingEngine:
             else:
                 _, i, group, name = key
                 pop = config.populations[i]
-                if group == 'dist':
+                if group == 'uf':
+                    setattr(pop, name, float(val))
+                elif group == 'peak':
+                    setattr(pop, name, float(val))
+                elif group == 'dist':
                     pop.dist_params[name] = float(val)
                 elif group == 'ff':
                     pop.ff_params[name] = float(val)

@@ -249,7 +249,7 @@ class StateManager:
             "match_files": False,
         },
         "modeling": {
-            "schema_version": 1,
+            "schema_version": 2,
             "q_min": None,
             "q_max": None,
             "background": 0.0,
@@ -259,6 +259,7 @@ class StateManager:
             "populations": [
                 # Population 0 — enabled by default
                 {
+                    "pop_type": "size_dist",
                     "enabled": True,
                     "dist_type": "lognormal",
                     "dist_params": {"min_size": 10.0, "mean_size": 100.0, "sdeviation": 0.3},
@@ -292,11 +293,29 @@ class StateManager:
                     "fit_scale": True,
                     "scale_limits": [1e-8, 1.0],
                     "use_number_dist": False,
-                    "n_bins": 200
+                    "n_bins": 200,
+                    "uf": {
+                        "G": 1.0,    "fit_G": True,    "G_limits": [1e-10, 1e10],
+                        "Rg": 10.0,  "fit_Rg": True,   "Rg_limits": [0.1, 1e6],
+                        "B": 1e-4,   "fit_B": True,    "B_limits": [1e-20, 1e10],
+                        "P": 4.0,    "fit_P": False,   "P_limits": [0.0, 6.0],
+                        "RgCO": 0.0, "fit_RgCO": False,"RgCO_limits": [0.0, 1e6],
+                        "correlations": False,
+                        "ETA": 10.0, "fit_ETA": False,  "ETA_limits": [0.1, 1e6],
+                        "PACK": 0.0, "fit_PACK": False, "PACK_limits": [0.0, 16.0]
+                    },
+                    "peak": {
+                        "peak_type": "gaussian",
+                        "position": 0.1,  "fit_position": True,   "position_limits": [0.001, 10.0],
+                        "amplitude": 1.0, "fit_amplitude": True,  "amplitude_limits": [0.0, 1e10],
+                        "width": 0.01,    "fit_width": True,      "width_limits": [1e-6, 10.0],
+                        "eta_voigt": 0.5, "fit_eta_voigt": False, "eta_voigt_limits": [0.0, 1.0]
+                    }
                 },
                 # Populations 1-9 — disabled by default (same structure, enabled=False)
                 *[
                     {
+                        "pop_type": "size_dist",
                         "enabled": False,
                         "dist_type": "lognormal",
                         "dist_params": {"min_size": 10.0, "mean_size": 100.0, "sdeviation": 0.3},
@@ -330,7 +349,24 @@ class StateManager:
                         "fit_scale": True,
                         "scale_limits": [1e-8, 1.0],
                         "use_number_dist": False,
-                        "n_bins": 200
+                        "n_bins": 200,
+                        "uf": {
+                            "G": 1.0,    "fit_G": True,    "G_limits": [1e-10, 1e10],
+                            "Rg": 10.0,  "fit_Rg": True,   "Rg_limits": [0.1, 1e6],
+                            "B": 1e-4,   "fit_B": True,    "B_limits": [1e-20, 1e10],
+                            "P": 4.0,    "fit_P": False,   "P_limits": [0.0, 6.0],
+                            "RgCO": 0.0, "fit_RgCO": False,"RgCO_limits": [0.0, 1e6],
+                            "correlations": False,
+                            "ETA": 10.0, "fit_ETA": False,  "ETA_limits": [0.1, 1e6],
+                            "PACK": 0.0, "fit_PACK": False, "PACK_limits": [0.0, 16.0]
+                        },
+                        "peak": {
+                            "peak_type": "gaussian",
+                            "position": 0.1,  "fit_position": True,   "position_limits": [0.001, 10.0],
+                            "amplitude": 1.0, "fit_amplitude": True,  "amplitude_limits": [0.0, 1e10],
+                            "width": 0.01,    "fit_width": True,      "width_limits": [1e-6, 10.0],
+                            "eta_voigt": 0.5, "fit_eta_voigt": False, "eta_voigt_limits": [0.0, 1.0]
+                        }
                     }
                     for _ in range(9)
                 ],

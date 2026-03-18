@@ -58,6 +58,7 @@ import pyqtgraph as pg
 from pyirena.core.distributions import DIST_PARAM_NAMES, DIST_LABELS, DIST_DEFAULTS
 from pyirena.core.modeling import (
     ModelingEngine, ModelingConfig, SizeDistPopulation, ModelingResult,
+    UnifiedLevelPopulation, DiffractionPeakPopulation,
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range,
@@ -107,6 +108,42 @@ FF_LABELS = {
 FF_PARAM_LABELS = {
     'aspect_ratio': 'Aspect ratio',
 }
+
+# Unified Fit Level parameter definitions: (key, display_label, default, lo, hi, fit_default)
+UF_PARAMS = [
+    ('G',    'G [cm⁻¹]',        1.0,   1e-10, 1e10,  True),
+    ('Rg',   'Rg [Å]',         10.0,   0.1,   1e6,   True),
+    ('B',    'B [cm⁻¹ Å⁻ᴾ]',  1e-4,  1e-20, 1e10,  True),
+    ('P',    'Power P',          4.0,   0.0,   6.0,   False),
+    ('RgCO', 'RgCO [Å]',        0.0,   0.0,   1e6,   False),
+]
+UF_CORR_PARAMS = [
+    ('ETA',  'ETA [Å]',        10.0,   0.1,   1e6,   False),
+    ('PACK', 'Packing factor',   0.0,   0.0,   16.0,  False),
+]
+
+# Diffraction Peak parameter definitions
+PEAK_PARAMS = [
+    ('position',  'Position Q₀ [Å⁻¹]', 0.1,  0.001, 10.0,  True),
+    ('amplitude', 'Amplitude [cm⁻¹]',  1.0,  0.0,   1e10,  True),
+    ('width',     'Width σ [Å⁻¹]',    0.01, 1e-6,  10.0,  True),
+    ('eta_voigt', 'η (mixing)',         0.5,  0.0,   1.0,   False),
+]
+
+# All possible derived-quantity rows (shown in Derived Results panel)
+_ALL_DERIVED_ROWS = [
+    ('vol_mean_r',      'Vol-mean radius (Å)'),
+    ('num_mean_r',      'Num-mean radius (Å)'),
+    ('volume_fraction', 'Volume fraction'),
+    ('specific_surface','Specific surface (Å⁻¹)'),
+    ('Rg',              'Rg (Å)'),
+    ('G',               'G [cm⁻¹]'),
+    ('B',               'B [cm⁻¹ Å⁻ᴾ]'),
+    ('P',               'Power P'),
+    ('position',        'Peak centre Q₀ [Å⁻¹]'),
+    ('amplitude',       'Amplitude [cm⁻¹]'),
+    ('width',           'Width σ [Å⁻¹]'),
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Small helper widgets
@@ -159,6 +196,9 @@ class PopulationTab(QWidget):
         self._row_widgets: dict = {}  # {key: (label, value, fit_cb, lo, hi)}
         self._sf_rows: dict = {}
         self._ff_rows: dict = {}
+        self._uf_rows: dict = {}
+        self._uf_corr_rows: dict = {}
+        self._peak_rows: dict = {}
 
         self._build_ui()
         self._building = False
@@ -184,7 +224,68 @@ class PopulationTab(QWidget):
         c.setContentsMargins(0, 0, 0, 0)
         c.setSpacing(4)
 
-        # ── Distribution type + # Bins on same row ─────────────────────────
+        # ── Population type selector ───────────────────────────────────────
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel('Population type:'))
+        self.pop_type_combo = QComboBox()
+        for key, label in [('size_dist', 'Size Distribution'),
+                            ('unified_level', 'Unified Fit Level'),
+                            ('diffraction_peak', 'Diffraction Peak')]:
+            self.pop_type_combo.addItem(label, key)
+        self.pop_type_combo.currentIndexChanged.connect(self._on_pop_type_changed)
+        type_row.addWidget(self.pop_type_combo)
+        type_row.addStretch()
+        c.addLayout(type_row)
+        c.addWidget(_sep())
+
+        # ── Size distribution panel (existing content) ─────────────────────
+        self._size_dist_panel = QWidget()
+        self._build_size_dist_panel()
+        c.addWidget(self._size_dist_panel)
+
+        # ── Unified Fit Level panel ────────────────────────────────────────
+        self._uf_panel = QWidget()
+        self._build_uf_panel()
+        self._uf_panel.setVisible(False)
+        c.addWidget(self._uf_panel)
+
+        # ── Diffraction Peak panel ─────────────────────────────────────────
+        self._peak_panel = QWidget()
+        self._build_peak_panel()
+        self._peak_panel.setVisible(False)
+        c.addWidget(self._peak_panel)
+
+        # ── Derived results (read-only, filled after fit) ───────────────────
+        self._derived_group = QGroupBox('Derived Results')
+        self._derived_group.setVisible(False)
+        dg_lay = QGridLayout(self._derived_group)
+        dg_lay.setSpacing(3)
+        _dr_style = 'color: #555; background: #f5f5f5; padding: 1px 4px; border-radius: 2px;'
+        self._dr_labels: dict[str, QLabel] = {}
+        for row_i, (key, display) in enumerate(_ALL_DERIVED_ROWS):
+            dg_lay.addWidget(QLabel(display + ':'), row_i, 0)
+            lbl = QLabel('—')
+            lbl.setStyleSheet(_dr_style)
+            dg_lay.addWidget(lbl, row_i, 1)
+            self._dr_labels[key] = lbl
+        c.addWidget(self._derived_group)
+
+        c.addStretch()
+
+        outer.addWidget(self._content)
+
+        # ── Build initial parameter rows ───────────────────────────────────
+        self._rebuild_dist_params()
+        self._rebuild_ff_params()
+        self._rebuild_sf_params()
+
+    def _build_size_dist_panel(self):
+        """Build size-distribution controls inside self._size_dist_panel."""
+        c = QVBoxLayout(self._size_dist_panel)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(4)
+
+        # Distribution type + # Bins on same row
         row = QHBoxLayout()
         row.addWidget(QLabel('Distribution:'))
         self.dist_combo = QComboBox()
@@ -202,14 +303,14 @@ class PopulationTab(QWidget):
         row.addWidget(self.nbins_spin)
         c.addLayout(row)
 
-        # ── Parameter table ────────────────────────────────────────────────
+        # Parameter table
         self._param_group = QGroupBox('Distribution Parameters')
         self._param_grid = QGridLayout(self._param_group)
         self._param_grid.setSpacing(2)
         self._build_param_header(self._param_grid, 0)
         c.addWidget(self._param_group)
 
-        # ── Volume / Number distribution (mutually exclusive) ───────────────
+        # Volume / Number distribution (mutually exclusive)
         dist_type_row = QHBoxLayout()
         self.vol_dist_rb = QCheckBox('Volume dist.')
         self.vol_dist_rb.setChecked(True)
@@ -224,7 +325,7 @@ class PopulationTab(QWidget):
 
         c.addWidget(_sep())
 
-        # ── Form factor ────────────────────────────────────────────────────
+        # Form factor
         ff_group = QGroupBox('Form Factor')
         ff_layout = QVBoxLayout(ff_group)
         ff_layout.setSpacing(2)
@@ -244,7 +345,7 @@ class PopulationTab(QWidget):
         ff_layout.addLayout(self._ff_grid)
         c.addWidget(ff_group)
 
-        # ── Structure factor ───────────────────────────────────────────────
+        # Structure factor
         sf_group = QGroupBox('Structure Factor')
         sf_layout = QVBoxLayout(sf_group)
         sf_layout.setSpacing(2)
@@ -266,7 +367,7 @@ class PopulationTab(QWidget):
 
         c.addWidget(_sep())
 
-        # ── Contrast / Scale / Volume fraction ─────────────────────────────
+        # Contrast / Scale / Volume fraction
         phys_group = QGroupBox('Physical Parameters')
         phys_lay = QGridLayout(phys_group)
         phys_lay.setSpacing(3)
@@ -301,35 +402,75 @@ class PopulationTab(QWidget):
 
         c.addWidget(phys_group)
 
-        # ── Derived results (read-only, filled after fit) ───────────────────
-        self._derived_group = QGroupBox('Derived Results')
-        self._derived_group.setVisible(False)   # hidden until first fit
-        dg_lay = QGridLayout(self._derived_group)
-        dg_lay.setSpacing(3)
-        _dr_style = 'color: #555; background: #f5f5f5; padding: 1px 4px; border-radius: 2px;'
-        self._dr_labels: dict[str, QLabel] = {}
-        for row_i, (key, display) in enumerate([
-            ('vol_mean_r',      'Vol-mean radius (Å)'),
-            ('num_mean_r',      'Num-mean radius (Å)'),
-            ('Rg',              'Rg (Å)'),
-            ('volume_fraction', 'Volume fraction'),
-            ('specific_surface','Specific surface (Å⁻¹)'),
-        ]):
-            dg_lay.addWidget(QLabel(display + ':'), row_i, 0)
-            lbl = QLabel('—')
-            lbl.setStyleSheet(_dr_style)
-            dg_lay.addWidget(lbl, row_i, 1)
-            self._dr_labels[key] = lbl
-        c.addWidget(self._derived_group)
+    def _build_uf_panel(self):
+        """Build Unified Fit Level controls inside self._uf_panel."""
+        c = QVBoxLayout(self._uf_panel)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(4)
 
+        uf_group = QGroupBox('Unified Fit Level Parameters')
+        uf_lay = QVBoxLayout(uf_group)
+        uf_grid = QGridLayout()
+        uf_grid.setSpacing(2)
+        self._build_param_header(uf_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(UF_PARAMS, start=1):
+            self._add_param_row(uf_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._uf_rows)
+        uf_lay.addLayout(uf_grid)
+        c.addWidget(uf_group)
+
+        corr_row = QHBoxLayout()
+        self.uf_corr_cb = QCheckBox('Correlations (Born-Green)')
+        self.uf_corr_cb.stateChanged.connect(self._on_uf_corr_changed)
+        corr_row.addWidget(self.uf_corr_cb)
+        corr_row.addStretch()
+        c.addLayout(corr_row)
+
+        self._uf_corr_group = QGroupBox('Correlation Parameters')
+        corr_lay = QVBoxLayout(self._uf_corr_group)
+        corr_grid = QGridLayout()
+        corr_grid.setSpacing(2)
+        self._build_param_header(corr_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(UF_CORR_PARAMS, start=1):
+            self._add_param_row(corr_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._uf_corr_rows)
+        corr_lay.addLayout(corr_grid)
+        self._uf_corr_group.setVisible(False)
+        c.addWidget(self._uf_corr_group)
         c.addStretch()
 
-        outer.addWidget(self._content)
+    def _build_peak_panel(self):
+        """Build Diffraction Peak controls inside self._peak_panel."""
+        c = QVBoxLayout(self._peak_panel)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(4)
 
-        # ── Build initial parameter rows ───────────────────────────────────
-        self._rebuild_dist_params()
-        self._rebuild_ff_params()
-        self._rebuild_sf_params()
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel('Peak shape:'))
+        self.peak_type_combo = QComboBox()
+        for key, label in [('gaussian', 'Gaussian'),
+                            ('lorentzian', 'Lorentzian'),
+                            ('voigt', 'pseudo-Voigt')]:
+            self.peak_type_combo.addItem(label, key)
+        self.peak_type_combo.currentIndexChanged.connect(self._on_peak_type_changed)
+        type_row.addWidget(self.peak_type_combo)
+        type_row.addStretch()
+        c.addLayout(type_row)
+
+        peak_group = QGroupBox('Peak Parameters')
+        peak_lay = QVBoxLayout(peak_group)
+        peak_grid = QGridLayout()
+        peak_grid.setSpacing(2)
+        self._build_param_header(peak_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(PEAK_PARAMS, start=1):
+            self._add_param_row(peak_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._peak_rows)
+        peak_lay.addLayout(peak_grid)
+        c.addWidget(peak_group)
+        c.addStretch()
+
+        # eta_voigt is hidden unless pseudo-Voigt
+        self._update_peak_eta_visibility()
 
     def _build_param_header(self, grid: QGridLayout, start_row: int):
         hdr_style = 'font-weight: bold; font-size: 10px;'
@@ -439,6 +580,33 @@ class PopulationTab(QWidget):
 
     # ── Signal handlers ──────────────────────────────────────────────────────
 
+    def _on_pop_type_changed(self, _=None):
+        if self._building:
+            return
+        pt = self.pop_type_combo.currentData() or 'size_dist'
+        self._size_dist_panel.setVisible(pt == 'size_dist')
+        self._uf_panel.setVisible(pt == 'unified_level')
+        self._peak_panel.setVisible(pt == 'diffraction_peak')
+        self._emit_changed()
+
+    def _on_uf_corr_changed(self, _=None):
+        if self._building:
+            return
+        self._uf_corr_group.setVisible(self.uf_corr_cb.isChecked())
+        self._emit_changed()
+
+    def _on_peak_type_changed(self, _=None):
+        if self._building:
+            return
+        self._update_peak_eta_visibility()
+        self._emit_changed()
+
+    def _update_peak_eta_visibility(self):
+        is_voigt = (self.peak_type_combo.currentData() == 'voigt')
+        if 'eta_voigt' in self._peak_rows:
+            for w in self._peak_rows['eta_voigt']:
+                w.setVisible(is_voigt)
+
     def _on_use_changed(self, state):
         enabled = (state == Qt.CheckState.Checked.value
                    if hasattr(Qt.CheckState, 'Checked')
@@ -527,15 +695,25 @@ class PopulationTab(QWidget):
 
     def set_no_limits(self, no_limits: bool):
         """Show/hide min/max columns based on global 'No limits' checkbox."""
-        for store in (self._row_widgets, self._ff_rows, self._sf_rows):
+        for store in (self._row_widgets, self._ff_rows, self._sf_rows,
+                      self._uf_rows, self._uf_corr_rows, self._peak_rows):
             for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in store.items():
                 lo_edit.setVisible(not no_limits)
                 hi_edit.setVisible(not no_limits)
 
     # ── Read/write population state ──────────────────────────────────────────
 
-    def to_population(self) -> SizeDistPopulation:
-        """Convert GUI state to a SizeDistPopulation dataclass."""
+    def to_population(self):
+        """Return the active population dataclass (dispatch on pop_type)."""
+        pt = self.pop_type_combo.currentData() or 'size_dist'
+        if pt == 'unified_level':
+            return self._read_uf_population()
+        if pt == 'diffraction_peak':
+            return self._read_peak_population()
+        return self._read_size_dist_population()
+
+    def _read_size_dist_population(self) -> SizeDistPopulation:
+        """Read size-distribution widgets → SizeDistPopulation dataclass."""
         pop = SizeDistPopulation()
         pop.enabled = self.use_cb.isChecked()
         pop.dist_type = self.dist_combo.currentData() or 'lognormal'
@@ -583,61 +761,270 @@ class PopulationTab(QWidget):
         pop.n_bins = self.nbins_spin.value()
         return pop
 
-    def from_population(self, pop: SizeDistPopulation):
-        """Load a SizeDistPopulation into the GUI widgets."""
+    def _read_uf_population(self) -> UnifiedLevelPopulation:
+        """Read Unified Fit Level widgets → UnifiedLevelPopulation dataclass."""
+        pop = UnifiedLevelPopulation()
+        pop.enabled = self.use_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        pop.correlations = self.uf_corr_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_corr_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        return pop
+
+    def _read_peak_population(self) -> DiffractionPeakPopulation:
+        """Read Diffraction Peak widgets → DiffractionPeakPopulation dataclass."""
+        pop = DiffractionPeakPopulation()
+        pop.enabled = self.use_cb.isChecked()
+        pop.peak_type = self.peak_type_combo.currentData() or 'gaussian'
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._peak_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        return pop
+
+    def from_population(self, pop):
+        """Load a population dataclass into the GUI (dispatches on pop_type)."""
+        pt = getattr(pop, 'pop_type', 'size_dist')
         self._building = True
         try:
-            self.use_cb.setChecked(pop.enabled)
-            self._content.setEnabled(pop.enabled)
-
-            # Distribution type
-            for i in range(self.dist_combo.count()):
-                if self.dist_combo.itemData(i) == pop.dist_type:
-                    self.dist_combo.setCurrentIndex(i)
+            # Switch the type combo
+            for i in range(self.pop_type_combo.count()):
+                if self.pop_type_combo.itemData(i) == pt:
+                    self.pop_type_combo.setCurrentIndex(i)
                     break
-            self._rebuild_dist_params()
+            self._size_dist_panel.setVisible(pt == 'size_dist')
+            self._uf_panel.setVisible(pt == 'unified_level')
+            self._peak_panel.setVisible(pt == 'diffraction_peak')
 
-            for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._row_widgets.items():
-                val_edit.setText(_fmt(pop.dist_params.get(key, 1.0)))
-                fit_cb.setChecked(pop.dist_params_fit.get(key, False))
-                lim = pop.dist_params_limits.get(key, (0.0, 1e10))
-                lo_edit.setText(_fmt(lim[0]))
-                hi_edit.setText(_fmt(lim[1]))
+            if pt == 'unified_level':
+                self._load_uf_population(pop)
+            elif pt == 'diffraction_peak':
+                self._load_peak_population(pop)
+            else:
+                self._load_size_dist_population(pop)
+        finally:
+            self._building = False
 
-            # Form factor
-            for i in range(self.ff_combo.count()):
-                if self.ff_combo.itemData(i) == pop.form_factor:
-                    self.ff_combo.setCurrentIndex(i)
+    def _load_size_dist_population(self, pop: SizeDistPopulation):
+        """Load size-dist dataclass into widgets (caller manages _building)."""
+        self.use_cb.setChecked(pop.enabled)
+        self._content.setEnabled(pop.enabled)
+
+        for i in range(self.dist_combo.count()):
+            if self.dist_combo.itemData(i) == pop.dist_type:
+                self.dist_combo.setCurrentIndex(i)
+                break
+        self._rebuild_dist_params()
+
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._row_widgets.items():
+            val_edit.setText(_fmt(pop.dist_params.get(key, 1.0)))
+            fit_cb.setChecked(pop.dist_params_fit.get(key, False))
+            lim = pop.dist_params_limits.get(key, (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+        for i in range(self.ff_combo.count()):
+            if self.ff_combo.itemData(i) == pop.form_factor:
+                self.ff_combo.setCurrentIndex(i)
+                break
+        self._rebuild_ff_params()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._ff_rows.items():
+            val_edit.setText(_fmt(pop.ff_params.get(key, 1.0)))
+            fit_cb.setChecked(pop.ff_params_fit.get(key, False))
+            lim = pop.ff_params_limits.get(key, (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+        for i in range(self.sf_combo.count()):
+            if self.sf_combo.itemData(i) == pop.structure_factor:
+                self.sf_combo.setCurrentIndex(i)
+                break
+        self._rebuild_sf_params()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf_rows.items():
+            val_edit.setText(_fmt(pop.sf_params.get(key, 1.0)))
+            fit_cb.setChecked(pop.sf_params_fit.get(key, False))
+            lim = pop.sf_params_limits.get(key, (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+        self.contrast_edit.setText(_fmt(pop.contrast))
+        self.contrast_fit_cb.setChecked(pop.fit_contrast)
+        self.scale_edit.setText(_fmt(pop.scale))
+        self.scale_fit_cb.setChecked(pop.fit_scale)
+        self.vol_dist_rb.setChecked(not pop.use_number_dist)
+        self.num_dist_rb.setChecked(pop.use_number_dist)
+        self.nbins_spin.setValue(pop.n_bins)
+        self._on_scale_changed()
+
+    def _load_uf_population(self, pop: UnifiedLevelPopulation):
+        """Load UF Level dataclass into widgets (caller manages _building)."""
+        self.use_cb.setChecked(pop.enabled)
+        self._content.setEnabled(pop.enabled)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', True))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        self.uf_corr_cb.setChecked(pop.correlations)
+        self._uf_corr_group.setVisible(pop.correlations)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_corr_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', False))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    def _load_peak_population(self, pop: DiffractionPeakPopulation):
+        """Load Diffraction Peak dataclass into widgets (caller manages _building)."""
+        self.use_cb.setChecked(pop.enabled)
+        self._content.setEnabled(pop.enabled)
+        for i in range(self.peak_type_combo.count()):
+            if self.peak_type_combo.itemData(i) == pop.peak_type:
+                self.peak_type_combo.setCurrentIndex(i)
+                break
+        self._update_peak_eta_visibility()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._peak_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', True))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    # ── UF / Peak panel state dicts (for full state preservation) ────────────
+
+    def _read_uf_state_dict(self) -> dict:
+        """Read UF panel widgets → plain dict (for to_full_dict)."""
+        _uf0 = UnifiedLevelPopulation()
+        d = {'correlations': self.uf_corr_cb.isChecked()}
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_uf0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_corr_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_uf0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        return d
+
+    def _read_peak_state_dict(self) -> dict:
+        """Read peak panel widgets → plain dict (for to_full_dict)."""
+        _pk0 = DiffractionPeakPopulation()
+        d = {'peak_type': self.peak_type_combo.currentData() or 'gaussian'}
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._peak_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_pk0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        return d
+
+    def _load_uf_state(self, d: dict):
+        """Load UF panel from a dict without switching current pop_type."""
+        _uf0 = UnifiedLevelPopulation()
+        corr = d.get('correlations', False)
+        self.uf_corr_cb.setChecked(corr)
+        self._uf_corr_group.setVisible(corr)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_uf0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_uf0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_uf0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._uf_corr_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_uf0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_uf0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_uf0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    def _load_peak_state(self, d: dict):
+        """Load peak panel from a dict without switching current pop_type."""
+        _pk0 = DiffractionPeakPopulation()
+        peak_type = d.get('peak_type', 'gaussian')
+        for i in range(self.peak_type_combo.count()):
+            if self.peak_type_combo.itemData(i) == peak_type:
+                self.peak_type_combo.setCurrentIndex(i)
+                break
+        self._update_peak_eta_visibility()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._peak_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_pk0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_pk0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_pk0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    # ── Full state (all three panels) for state persistence ──────────────────
+
+    def to_full_dict(self) -> dict:
+        """Serialize all three panels for state persistence (used by _save_state)."""
+        pt = self.pop_type_combo.currentData() or 'size_dist'
+        # Always capture size-dist state for backward compat & type-switching
+        sd = self._read_size_dist_population()
+        d = {
+            'pop_type': pt,
+            'enabled': self.use_cb.isChecked(),
+            'dist_type': sd.dist_type,
+            'dist_params': sd.dist_params,
+            'dist_params_fit': sd.dist_params_fit,
+            'dist_params_limits': {k: list(v) for k, v in sd.dist_params_limits.items()},
+            'form_factor': sd.form_factor,
+            'ff_params': sd.ff_params,
+            'ff_params_fit': sd.ff_params_fit,
+            'ff_params_limits': {k: list(v) for k, v in sd.ff_params_limits.items()},
+            'structure_factor': sd.structure_factor,
+            'sf_params': sd.sf_params,
+            'sf_params_fit': sd.sf_params_fit,
+            'sf_params_limits': {k: list(v) for k, v in sd.sf_params_limits.items()},
+            'contrast': sd.contrast,
+            'fit_contrast': sd.fit_contrast,
+            'contrast_limits': list(sd.contrast_limits),
+            'scale': sd.scale,
+            'fit_scale': sd.fit_scale,
+            'scale_limits': list(sd.scale_limits),
+            'use_number_dist': sd.use_number_dist,
+            'n_bins': sd.n_bins,
+            'uf': self._read_uf_state_dict(),
+            'peak': self._read_peak_state_dict(),
+        }
+        return d
+
+    def from_full_dict(self, d: dict):
+        """Restore all three panels from a state dict (used by _load_state)."""
+        pt = d.get('pop_type', 'size_dist')
+        self._building = True
+        try:
+            enabled = d.get('enabled', self.pop_index == 0)
+            self.use_cb.setChecked(enabled)
+            self._content.setEnabled(enabled)
+
+            # Switch type combo
+            for i in range(self.pop_type_combo.count()):
+                if self.pop_type_combo.itemData(i) == pt:
+                    self.pop_type_combo.setCurrentIndex(i)
                     break
-            self._rebuild_ff_params()
-            for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._ff_rows.items():
-                val_edit.setText(_fmt(pop.ff_params.get(key, 1.0)))
-                fit_cb.setChecked(pop.ff_params_fit.get(key, False))
-                lim = pop.ff_params_limits.get(key, (0.0, 1e10))
-                lo_edit.setText(_fmt(lim[0]))
-                hi_edit.setText(_fmt(lim[1]))
+            self._size_dist_panel.setVisible(pt == 'size_dist')
+            self._uf_panel.setVisible(pt == 'unified_level')
+            self._peak_panel.setVisible(pt == 'diffraction_peak')
 
-            # Structure factor
-            for i in range(self.sf_combo.count()):
-                if self.sf_combo.itemData(i) == pop.structure_factor:
-                    self.sf_combo.setCurrentIndex(i)
-                    break
-            self._rebuild_sf_params()
-            for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf_rows.items():
-                val_edit.setText(_fmt(pop.sf_params.get(key, 1.0)))
-                fit_cb.setChecked(pop.sf_params_fit.get(key, False))
-                lim = pop.sf_params_limits.get(key, (0.0, 1e10))
-                lo_edit.setText(_fmt(lim[0]))
-                hi_edit.setText(_fmt(lim[1]))
+            # Always load size-dist state (for state preservation when switching types)
+            sd_pop = _pop_from_dict_size_dist(d)
+            self._load_size_dist_population(sd_pop)
 
-            self.contrast_edit.setText(_fmt(pop.contrast))
-            self.contrast_fit_cb.setChecked(pop.fit_contrast)
-            self.scale_edit.setText(_fmt(pop.scale))
-            self.scale_fit_cb.setChecked(pop.fit_scale)
-            self.vol_dist_rb.setChecked(not pop.use_number_dist)
-            self.num_dist_rb.setChecked(pop.use_number_dist)
-            self.nbins_spin.setValue(pop.n_bins)
-            self._on_scale_changed()
+            # Load UF and peak states too
+            if 'uf' in d:
+                self._load_uf_state(d['uf'])
+            if 'peak' in d:
+                self._load_peak_state(d['peak'])
         finally:
             self._building = False
 
@@ -837,6 +1224,8 @@ class ModelingGraphWindow(QWidget):
             rg = result.radius_grids[k]
             vd = result.volume_dists[k]
             nd = result.number_dists[k]
+            if rg is None:
+                continue   # Unified Fit Level or Diffraction Peak — no size distribution
             self._dist_items[pi] = self.dist_plot.plot(
                 rg, vd,
                 pen=pg.mkPen(color, width=2),
@@ -1229,8 +1618,7 @@ class ModelingPanel(QWidget):
         pops = mod_state.get('populations', [])
         for i, pw in enumerate(self._pop_widgets):
             if i < len(pops):
-                pop = _pop_from_dict(pops[i])
-                pw.from_population(pop)
+                pw.from_full_dict(pops[i])
 
     def _save_state(self):
         state = {
@@ -1240,7 +1628,7 @@ class ModelingPanel(QWidget):
             'n_mc_runs':     self.n_runs_spin.value(),
             'q_min':         None,
             'q_max':         None,
-            'populations':   [_pop_to_dict(pw.to_population()) for pw in self._pop_widgets],
+            'populations':   [pw.to_full_dict() for pw in self._pop_widgets],
         }
         if self._data_q is not None:
             q_lo, q_hi = self.graph.get_q_range()
@@ -1462,7 +1850,7 @@ class ModelingPanel(QWidget):
         self._pre_fit_state = {
             'bg': self.bg_edit.text(),
             'bg_fit': self.bg_fit_cb.isChecked(),
-            'populations': [_pop_to_dict(pw.to_population()) for pw in self._pop_widgets],
+            'populations': [pw.to_full_dict() for pw in self._pop_widgets],
         }
 
         self._engine.clear_cache()
@@ -1548,7 +1936,7 @@ class ModelingPanel(QWidget):
         self.bg_fit_cb.setChecked(s['bg_fit'])
         for i, pw in enumerate(self._pop_widgets):
             if i < len(s['populations']):
-                pw.from_population(_pop_from_dict(s['populations'][i]))
+                pw.from_full_dict(s['populations'][i])
         self.graph.set_status('Reverted to pre-fit parameters.', 'info')
         self._update_tab_labels()
 
@@ -1665,8 +2053,39 @@ class ModelingPanel(QWidget):
 # Serialisation helpers for populations ↔ state dicts
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _pop_to_dict(pop: SizeDistPopulation) -> dict:
+def _pop_to_dict(pop) -> dict:
+    """Serialize any population dataclass to a dict (for JSON export)."""
+    pt = getattr(pop, 'pop_type', 'size_dist')
+    if pt == 'unified_level':
+        return {
+            'pop_type': 'unified_level',
+            'enabled': pop.enabled,
+            'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
+            'Rg': pop.Rg, 'fit_Rg': pop.fit_Rg, 'Rg_limits': list(pop.Rg_limits),
+            'B': pop.B, 'fit_B': pop.fit_B, 'B_limits': list(pop.B_limits),
+            'P': pop.P, 'fit_P': pop.fit_P, 'P_limits': list(pop.P_limits),
+            'RgCO': pop.RgCO, 'fit_RgCO': pop.fit_RgCO, 'RgCO_limits': list(pop.RgCO_limits),
+            'correlations': pop.correlations,
+            'ETA': pop.ETA, 'fit_ETA': pop.fit_ETA, 'ETA_limits': list(pop.ETA_limits),
+            'PACK': pop.PACK, 'fit_PACK': pop.fit_PACK, 'PACK_limits': list(pop.PACK_limits),
+        }
+    if pt == 'diffraction_peak':
+        return {
+            'pop_type': 'diffraction_peak',
+            'enabled': pop.enabled,
+            'peak_type': pop.peak_type,
+            'position': pop.position, 'fit_position': pop.fit_position,
+            'position_limits': list(pop.position_limits),
+            'amplitude': pop.amplitude, 'fit_amplitude': pop.fit_amplitude,
+            'amplitude_limits': list(pop.amplitude_limits),
+            'width': pop.width, 'fit_width': pop.fit_width,
+            'width_limits': list(pop.width_limits),
+            'eta_voigt': pop.eta_voigt, 'fit_eta_voigt': pop.fit_eta_voigt,
+            'eta_voigt_limits': list(pop.eta_voigt_limits),
+        }
+    # size_dist
     return {
+        'pop_type': 'size_dist',
         'enabled':          pop.enabled,
         'dist_type':        pop.dist_type,
         'dist_params':      pop.dist_params,
@@ -1691,7 +2110,39 @@ def _pop_to_dict(pop: SizeDistPopulation) -> dict:
     }
 
 
-def _pop_from_dict(d: dict) -> SizeDistPopulation:
+def _pop_from_dict(d: dict):
+    """Deserialize a dict to a population dataclass (dispatches on pop_type)."""
+    pt = d.get('pop_type', 'size_dist')
+    if pt == 'unified_level':
+        pop = UnifiedLevelPopulation()
+        pop.enabled = bool(d.get('enabled', True))
+        for key in ['G', 'Rg', 'B', 'P', 'RgCO']:
+            setattr(pop, key, float(d.get(key, getattr(pop, key))))
+            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+            setattr(pop, f'{key}_limits', tuple(lim))
+        pop.correlations = bool(d.get('correlations', False))
+        for key in ['ETA', 'PACK']:
+            setattr(pop, key, float(d.get(key, getattr(pop, key))))
+            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+            setattr(pop, f'{key}_limits', tuple(lim))
+        return pop
+    if pt == 'diffraction_peak':
+        pop = DiffractionPeakPopulation()
+        pop.enabled = bool(d.get('enabled', True))
+        pop.peak_type = d.get('peak_type', 'gaussian')
+        for key in ['position', 'amplitude', 'width', 'eta_voigt']:
+            setattr(pop, key, float(d.get(key, getattr(pop, key))))
+            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+            setattr(pop, f'{key}_limits', tuple(lim))
+        return pop
+    return _pop_from_dict_size_dist(d)
+
+
+def _pop_from_dict_size_dist(d: dict) -> SizeDistPopulation:
+    """Deserialize a dict → SizeDistPopulation (reads size-dist keys only)."""
     pop = SizeDistPopulation()
     pop.enabled          = d.get('enabled', False)
     pop.dist_type        = d.get('dist_type', 'lognormal')
