@@ -241,9 +241,11 @@ def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
     """
     Extract a single scalar from Modeling results.
 
-    item examples: "chi2", "background", "Rg", "G", "B", "P", "RgCO",
-                   "ETA", "PACK", "position", "amplitude", "width",
-                   "vol_fraction", "mean_r"
+    Global items: "chi2", "background"
+    UF params (pop_index selects population): "G", "Rg", "B", "P", "RgCO", "ETA", "PACK"
+    DP params: "position", "amplitude", "width", "eta_voigt"
+    SD derived: "volume_fraction", "vol_mean_r", "num_mean_r", "specific_surface"
+    SD direct: "scale", "contrast"
     pop_index: 1-based population index (ignored for global items).
     """
     res = read_modeling(filepath)
@@ -259,20 +261,28 @@ def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
     if pop is None:
         return None
     derived = pop.get("derived", {})
-    # UF level and peak params are stored as flat keys on the pop dict
     lookup = {
-        "G":            pop.get("G"),
-        "Rg":           pop.get("Rg"),
-        "B":            pop.get("B"),
-        "P":            pop.get("P"),
-        "RgCO":         pop.get("RgCO"),
-        "ETA":          pop.get("ETA"),
-        "PACK":         pop.get("PACK"),
-        "position":     pop.get("position"),
-        "amplitude":    pop.get("amplitude"),
-        "width":        pop.get("width"),
-        "vol_fraction": derived.get("volume_fraction"),
-        "mean_r":       derived.get("vol_mean_r"),
+        # UF Level params (flat keys on pop dict)
+        "G":                pop.get("G"),
+        "Rg":               pop.get("Rg"),
+        "B":                pop.get("B"),
+        "P":                pop.get("P"),
+        "RgCO":             pop.get("RgCO"),
+        "ETA":              pop.get("ETA"),
+        "PACK":             pop.get("PACK"),
+        # Diffraction Peak params
+        "position":         pop.get("position"),
+        "amplitude":        pop.get("amplitude"),
+        "width":            pop.get("width"),
+        "eta_voigt":        pop.get("eta_voigt"),
+        # Size Distribution derived quantities (from 'derived' sub-group)
+        "volume_fraction":  derived.get("volume_fraction"),
+        "vol_mean_r":       derived.get("vol_mean_r"),
+        "num_mean_r":       derived.get("num_mean_r"),
+        "specific_surface": derived.get("specific_surface"),
+        # Size Distribution direct params
+        "scale":            pop.get("scale"),
+        "contrast":         pop.get("contrast"),
     }
     val = lookup.get(item)
     return float(val) if val is not None else None

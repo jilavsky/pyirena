@@ -126,20 +126,24 @@ class PlotControlsPanel(QWidget):
         self._cb_unified     = QCheckBox("Unified Fit model")
         self._cb_sizes_iq    = QCheckBox("Size Dist. model (I vs Q)")
         self._cb_sizes_pr    = QCheckBox("Size Dist.  (P(r) vs r)")
-        self._cb_waxs        = QCheckBox("WAXS model")
-        self._cb_simple      = QCheckBox("Simple Fit model")
-        self._cb_modeling    = QCheckBox("Modeling model")
+        self._cb_waxs              = QCheckBox("WAXS model")
+        self._cb_simple            = QCheckBox("Simple Fit model")
+        self._cb_modeling          = QCheckBox("Modeling model")
+        self._cb_modeling_vol_pr   = QCheckBox("Modeling vol. P(r)")
+        self._cb_modeling_num_pr   = QCheckBox("Modeling num. P(r)")
 
         self._cb_nxcansas.setChecked(True)
         self._cb_unified.setChecked(True)
 
-        pb.addWidget(self._cb_nxcansas, 0, 0)
-        pb.addWidget(self._cb_unified,  0, 1)
-        pb.addWidget(self._cb_sizes_iq, 1, 0)
-        pb.addWidget(self._cb_sizes_pr, 1, 1)
-        pb.addWidget(self._cb_waxs,     2, 0)
-        pb.addWidget(self._cb_simple,   2, 1)
-        pb.addWidget(self._cb_modeling, 3, 0)
+        pb.addWidget(self._cb_nxcansas,         0, 0)
+        pb.addWidget(self._cb_unified,           0, 1)
+        pb.addWidget(self._cb_sizes_iq,          1, 0)
+        pb.addWidget(self._cb_sizes_pr,          1, 1)
+        pb.addWidget(self._cb_waxs,              2, 0)
+        pb.addWidget(self._cb_simple,            2, 1)
+        pb.addWidget(self._cb_modeling,          3, 0)
+        pb.addWidget(self._cb_modeling_vol_pr,   3, 1)
+        pb.addWidget(self._cb_modeling_num_pr,   4, 0)
         vl.addWidget(presets_box)
 
         # ── Custom data from HDF5 browser ─────────────────────────────────
@@ -586,17 +590,68 @@ class PlotControlsPanel(QWidget):
                 else:
                     errors.append(f"No Simple Fit in {stem}")
 
+            # Modeling: load once if any modeling checkbox is checked
+            any_mod = (self._cb_modeling.isChecked() or
+                       self._cb_modeling_vol_pr.isChecked() or
+                       self._cb_modeling_num_pr.isChecked())
+            mod_result = _readers.read_modeling(filepath) if any_mod else None
+
             # Modeling model (total I(Q))
             if self._cb_modeling.isChecked():
-                result = _readers.read_modeling(filepath)
-                if result:
+                if mod_result:
                     curves.append({
                         "label": f"{stem}  Modeling",
-                        "x": result["Q"], "y": result["I_model"],
+                        "x": mod_result["Q"], "y": mod_result["I_model"],
                         "yerr": None, "xerr": None,
                         "suggest_log_x": True,
                         "suggest_log_y": True,
                     })
+                else:
+                    errors.append(f"No Modeling results in {stem}")
+
+            # Modeling volume P(r)
+            if self._cb_modeling_vol_pr.isChecked():
+                if mod_result:
+                    sd_pops = [p for p in mod_result["populations"]
+                               if p.get("pop_type") == "size_dist"
+                               and p.get("radius_grid") is not None
+                               and p.get("volume_dist") is not None]
+                    if sd_pops:
+                        for p in sd_pops:
+                            idx = p.get("population_index", "?")
+                            lbl = p.get("label") or f"P{idx}"
+                            curves.append({
+                                "label": f"{stem}  {lbl} vol.P(r)",
+                                "x": p["radius_grid"], "y": p["volume_dist"],
+                                "yerr": None, "xerr": None,
+                                "suggest_log_x": False, "suggest_log_y": False,
+                                "separate_graph": True,
+                            })
+                    else:
+                        errors.append(f"No SD populations with distributions in {stem}")
+                else:
+                    errors.append(f"No Modeling results in {stem}")
+
+            # Modeling number P(r)
+            if self._cb_modeling_num_pr.isChecked():
+                if mod_result:
+                    sd_pops = [p for p in mod_result["populations"]
+                               if p.get("pop_type") == "size_dist"
+                               and p.get("radius_grid") is not None
+                               and p.get("number_dist") is not None]
+                    if sd_pops:
+                        for p in sd_pops:
+                            idx = p.get("population_index", "?")
+                            lbl = p.get("label") or f"P{idx}"
+                            curves.append({
+                                "label": f"{stem}  {lbl} num.P(r)",
+                                "x": p["radius_grid"], "y": p["number_dist"],
+                                "yerr": None, "xerr": None,
+                                "suggest_log_x": False, "suggest_log_y": False,
+                                "separate_graph": True,
+                            })
+                    else:
+                        errors.append(f"No SD populations with distributions in {stem}")
                 else:
                     errors.append(f"No Modeling results in {stem}")
 
@@ -675,6 +730,8 @@ class PlotControlsPanel(QWidget):
         # Build value spec
         type_text = self._collect_type.currentText()
         item_text = self._collect_item.currentText()
+        # For Modeling, items use addItem(display, key) so currentData() gives the key
+        item_key  = self._collect_item.currentData() or item_text
         idx = self._collect_index.value()
 
         type_map = {
@@ -698,7 +755,7 @@ class PlotControlsPanel(QWidget):
         elif type_key == "simple_fit":
             spec = {"type": "simple_fit", "item": "param", "param_name": item_text}
         elif type_key == "modeling":
-            spec = {"type": "modeling", "item": item_text, "population": idx}
+            spec = {"type": "modeling", "item": item_key, "population": idx}
         else:
             spec = {"type": "custom", "path": ""}
 
@@ -865,11 +922,28 @@ class PlotControlsPanel(QWidget):
             self._collect_index.setEnabled(False)
 
         elif type_text == "Modeling":
-            items = ["chi2", "background",
-                     "G", "Rg", "B", "P", "RgCO", "ETA", "PACK",
-                     "position", "amplitude", "width",
-                     "vol_fraction", "mean_r"]
-            self._collect_item.addItems(items)
+            # addItem(display_text, userData_key) — key is used by _collect_modeling
+            for disp, key in [
+                ("chi2",                    "chi2"),
+                ("background",              "background"),
+                ("G (UF)",                  "G"),
+                ("Rg (UF)",                 "Rg"),
+                ("B (UF)",                  "B"),
+                ("P (UF)",                  "P"),
+                ("RgCO (UF)",               "RgCO"),
+                ("ETA (UF)",                "ETA"),
+                ("PACK (UF)",               "PACK"),
+                ("position (DP)",           "position"),
+                ("amplitude (DP)",          "amplitude"),
+                ("width (DP)",              "width"),
+                ("vol_fraction (SD)",       "volume_fraction"),
+                ("vol_mean_r (SD)",         "vol_mean_r"),
+                ("num_mean_r (SD)",         "num_mean_r"),
+                ("specific_surface (SD)",   "specific_surface"),
+                ("scale (SD)",              "scale"),
+                ("contrast (SD)",           "contrast"),
+            ]:
+                self._collect_item.addItem(disp, key)
             self._collect_index.setPrefix("Pop. ")
             self._collect_index.setRange(1, 10)
             self._collect_index.setEnabled(True)
