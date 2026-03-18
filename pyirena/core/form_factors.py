@@ -24,7 +24,6 @@ where φ_j is the volume fraction of particles in bin j (dimensionless).
 from __future__ import annotations
 
 import numpy as np
-from scipy.special import spherical_jn
 from numpy.polynomial.legendre import leggauss
 
 
@@ -38,15 +37,19 @@ def _sphere_amplitude(qr: np.ndarray) -> np.ndarray:
 
     F(Qr) = 3 [sin(Qr) - Qr·cos(Qr)] / (Qr)³
 
-    Handles the limit Qr → 0 via a Taylor expansion to avoid division by zero.
+    Small-Qr branch uses a Taylor expansion to avoid catastrophic cancellation.
+    Large-Qr branch uses pure NumPy trig (sin/cos), which is AVX-vectorised and
+    much faster than scipy.special.spherical_jn for large arrays.
+    The identity used is:  3·j₁(x)/x = 3·(sin x − x·cos x) / x³.
     """
     out = np.empty_like(qr, dtype=float)
-    small = qr < 1e-3   # Taylor expansion avoids catastrophic cancellation
-    # Taylor: F ≈ 1 - (Qr)²/10 + (Qr)^4/280 + ...
+    small = qr < 1e-3
+    # Taylor: F ≈ 1 - (Qr)²/10 + (Qr)⁴/280 + …
     qr2 = qr[small] ** 2
     out[small] = 1.0 - qr2 / 10.0 + qr2 ** 2 / 280.0
     x = qr[~small]
-    out[~small] = 3.0 * spherical_jn(1, x) / x
+    # 3·(sin x − x·cos x) / x³  —  algebraically identical to 3·j₁(x)/x
+    out[~small] = 3.0 * (np.sin(x) - x * np.cos(x)) / (x ** 3)
     return out
 
 
@@ -131,14 +134,66 @@ def spheroid_ff(q: np.ndarray, r: float, aspect_ratio: float = 1.0) -> np.ndarra
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# G-matrix builder
+# G-matrix builder — fully vectorized (no Python loop over r bins)
 # ──────────────────────────────────────────────────────────────────────────────
 
-#: Registry of supported shapes and their form factor functions.
-#: Each entry maps shape name → callable(q, r, **shape_params) → array [Å^6].
-_FF_REGISTRY: dict[str, callable] = {
-    'sphere':   lambda q, r, **kw: sphere_ff(q, r),
-    'spheroid': lambda q, r, aspect_ratio=1.0, **kw: spheroid_ff(q, r, aspect_ratio),
+def _build_g_sphere(
+    q: np.ndarray,
+    r_grid: np.ndarray,
+    contrast: float,
+) -> np.ndarray:
+    """Vectorized G matrix for sphere form factor.
+
+    Computes the entire (M × N) matrix with a single NumPy broadcast, avoiding
+    the Python loop over radius bins that the old per-column approach required.
+
+    qr[i,j] = q[i] * r[j]   → _sphere_amplitude works on any-shaped array.
+    G[i,j]  = V(r[j]) * F(qr[i,j])² * contrast * 1e-4
+    """
+    qr = q[:, np.newaxis] * r_grid[np.newaxis, :]   # (M, N)
+    V  = (4.0 / 3.0) * np.pi * r_grid ** 3          # (N,)
+    F  = _sphere_amplitude(qr)                        # (M, N)
+    return V[np.newaxis, :] * F ** 2 * (contrast * 1e-4)   # (M, N)
+
+
+def _build_g_spheroid(
+    q: np.ndarray,
+    r_grid: np.ndarray,
+    contrast: float,
+    aspect_ratio: float = 1.0,
+) -> np.ndarray:
+    """G matrix for spheroid form factor, per-r-bin loop over Gauss-Legendre.
+
+    A fully-fused (M × N × K) tensor would be memory-bandwidth-bound at
+    ~16 MB.  Instead we loop over N radius bins so each (M × K) = ~80 KB
+    slice fits in L2 cache.  The per-bin NumPy overhead is small because
+    _sphere_amplitude uses AVX-vectorised sin/cos (no scipy overhead).
+
+    G[i,j] = V(r[j]) * ∫₀¹ F²(Q_i, r_eff(r_j, θ)) d(cosθ)
+    """
+    AR = float(aspect_ratio)
+    cos_t   = 0.5 * (_GL_NODES + 1.0)   # (K,)
+    weights = 0.5 * _GL_WEIGHTS          # (K,)
+
+    M, N = len(q), len(r_grid)
+    G = np.empty((M, N), dtype=float)
+
+    for j, r in enumerate(r_grid):
+        V = (4.0 / 3.0) * np.pi * r ** 3 * AR
+        # r_eff(θ) for this radius bin — shape (K,)
+        r_eff  = r * np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_t ** 2)
+        # qr_eff[i, k] = q[i] * r_eff[k] — shape (M, K)
+        qr_eff = q[:, np.newaxis] * r_eff[np.newaxis, :]
+        F_eff  = _sphere_amplitude(qr_eff)   # (M, K)
+        G[:, j] = V * (F_eff ** 2 @ weights)
+
+    return G * (contrast * 1e-4)
+
+
+#: Vectorized G-matrix builders, keyed by shape name.
+_G_BUILDERS: dict[str, callable] = {
+    'sphere':   _build_g_sphere,
+    'spheroid': _build_g_spheroid,
 }
 
 
@@ -152,49 +207,33 @@ def build_g_matrix(
     """
     Build the instrument/shape-independent G matrix for size distribution fitting.
 
-    G[i, j] = FF²(q[i], r[j]) × contrast × 1e20
+    G[i, j] = FF²(q[i], r[j]) × contrast × 1e-4   [cm^-1 per unit vol-frac]
 
-    Units:  [Å^6] × [10^20 cm^-4] × [1e20] = cm^-1 (per unit volume fraction)
-
-    The contrast should be provided in the same units as (Δρ)², i.e. in
-    10^20 cm^-4.  Multiplying by 1e20 converts to absolute cm^-1 units.
+    Fully vectorised — no Python loop over radius bins.
 
     Args:
         q:           1-D array of Q values [Å^-1], shape (M,)
         r_grid:      1-D array of radius bin centres [Å], shape (N,)
         shape:       Particle shape: 'sphere' or 'spheroid'
         contrast:    (Δρ)² in units of 10^20 cm^-4
-        **shape_params: Extra parameters forwarded to the form factor function.
+        **shape_params: Extra parameters for the form factor.
                         For spheroid: aspect_ratio=<float>
 
     Returns:
         G matrix of shape (M, N)
 
     Raises:
-        ValueError: if shape is not in the registry.
+        ValueError: if shape is not recognised.
     """
-    q = np.asarray(q, dtype=float)
+    q      = np.asarray(q,      dtype=float)
     r_grid = np.asarray(r_grid, dtype=float)
 
-    if shape not in _FF_REGISTRY:
+    if shape not in _G_BUILDERS:
         raise ValueError(
-            f"Unknown shape '{shape}'. Supported: {sorted(_FF_REGISTRY)}"
+            f"Unknown shape '{shape}'. Supported: {sorted(_G_BUILDERS)}"
         )
 
-    ff_func = _FF_REGISTRY[shape]
-    M, N = len(q), len(r_grid)
-    G = np.empty((M, N), dtype=float)
-
-    for j, r in enumerate(r_grid):
-        G[:, j] = ff_func(q, r, **shape_params)
-
-    # Unit conversion:
-    #   ff_func returns [Å³] = V(r) × F_norm²
-    #   contrast in [10^20 cm^-4]
-    #   1 Å³ = 1e-24 cm³,  so contrast × 1e20 × 1e-24 = contrast × 1e-4
-    G *= contrast * 1e-4   # → [cm^-1] per unit volume fraction
-
-    return G
+    return _G_BUILDERS[shape](q, r_grid, contrast, **shape_params)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

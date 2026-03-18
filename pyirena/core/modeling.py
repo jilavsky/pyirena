@@ -468,7 +468,13 @@ class ModelingEngine:
     """Compute and fit multi-population size-distribution models for SAS data."""
 
     def __init__(self) -> None:
+        # "Graph Model" cache — keyed on full param hash, persists across calls
         self._g_cache: dict[str, np.ndarray] = {}
+        # Fit-time smart cache — keyed on (r_grid, form_factor, ff_params, contrast)
+        # only; reused when scale/background/SF params change but G inputs don't.
+        # Cleared at the start of every fit() call.
+        self._fit_g_cache: dict[int, np.ndarray] = {}
+        self._fit_g_keys:  dict[int, str] = {}
 
     # ── Radius grid ──────────────────────────────────────────────────────────
 
@@ -563,23 +569,73 @@ class ModelingEngine:
         """Discard all cached G matrices."""
         self._g_cache.clear()
 
+    @staticmethod
+    def _fit_g_cache_key(r_grid: np.ndarray, pop: SizeDistPopulation) -> str:
+        """Cache key for the fit-time smart G cache.
+
+        Keyed only on what G actually depends on — the radius grid (as a hash
+        of its bytes), form factor name, ff_params, and contrast.  Deliberately
+        excludes scale, background, and sf_params so that optimizer steps that
+        only touch those parameters can reuse the cached G matrix.
+        """
+        data = {
+            'r': hashlib.md5(r_grid.tobytes()).hexdigest(),
+            'ff': pop.form_factor,
+            'ff_p': sorted(pop.ff_params.items()),
+            'c': pop.contrast,
+        }
+        return hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
     # ── Population intensity ─────────────────────────────────────────────────
 
     def calculate_pop_intensity(
         self, pop: SizeDistPopulation, q: np.ndarray,
         use_cache: bool = True,
+        pop_index: Optional[int] = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Calculate I(Q) for a single enabled population.
 
         Returns (I_pop, vol_dist, num_dist).
+
+        Args:
+            use_cache:  True  → "Graph Model" path: full hash cache persists
+                                 across calls (params are fixed).
+                        False → fitting path: use smart fit-time cache that
+                                 reuses G when only scale/bg/SF params changed.
+            pop_index:  Population index (0-based) used to key the fit-time
+                        cache.  Must be supplied when use_cache=False to enable
+                        smart reuse; ignored when use_cache=True.
         """
         radius_grid = self.build_radius_grid(pop)
         vol_dist, num_dist = self.build_distributions(pop, radius_grid)
-        G = self.build_g_matrix(pop, q, radius_grid, use_cache=use_cache)
-        dr = bin_widths(radius_grid)
 
-        # I_raw = G @ (vol_dist * dr)   [cm⁻¹]
-        I_raw = G @ (vol_dist * dr)
+        if use_cache:
+            # "Graph Model": use full-hash cache (params won't change mid-call)
+            G = self.build_g_matrix(pop, q, radius_grid, use_cache=True)
+        elif pop_index is not None:
+            # Fitting: rebuild G only when its inputs (r_grid / FF / contrast)
+            # actually changed; reuse it when only scale/bg/SF params moved.
+            fit_key = self._fit_g_cache_key(radius_grid, pop)
+            if self._fit_g_keys.get(pop_index) == fit_key:
+                G = self._fit_g_cache[pop_index]
+            else:
+                G = build_g_matrix(
+                    q=q, r_grid=radius_grid,
+                    shape=pop.form_factor, contrast=pop.contrast,
+                    **pop.ff_params,
+                )
+                self._fit_g_cache[pop_index] = G
+                self._fit_g_keys[pop_index]  = fit_key
+        else:
+            # Fallback: always build fresh (no caching at all)
+            G = build_g_matrix(
+                q=q, r_grid=radius_grid,
+                shape=pop.form_factor, contrast=pop.contrast,
+                **pop.ff_params,
+            )
+
+        dr = bin_widths(radius_grid)
+        I_raw = G @ (vol_dist * dr)   # [cm⁻¹]
         I_pop = apply_structure_factor(I_raw, q, pop)
         return I_pop, vol_dist, num_dist
 
@@ -612,7 +668,9 @@ class ModelingEngine:
                     rg, vd, nd = None, None, None
                 else:  # size_dist
                     I_pop, vd, nd = self.calculate_pop_intensity(
-                        pop, q, use_cache=use_cache
+                        pop, q,
+                        use_cache=use_cache,
+                        pop_index=(i if not use_cache else None),
                     )
                     rg = self.build_radius_grid(pop)
             except Exception as e:
@@ -789,6 +847,10 @@ class ModelingEngine:
         Returns:
             ModelingResult containing fitted parameters and derived quantities.
         """
+        # Fresh fit — discard any G matrices cached from a previous fit() call
+        self._fit_g_cache.clear()
+        self._fit_g_keys.clear()
+
         # Crop q range
         mask = (q >= config.q_min) & (q <= config.q_max)
         q_fit = q[mask]
