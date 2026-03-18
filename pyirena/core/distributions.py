@@ -33,6 +33,7 @@ from typing import Union
 
 import numpy as np
 from scipy import stats, integrate
+from scipy.integrate import cumulative_trapezoid as _cumtrapz
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -233,87 +234,127 @@ def schulz_zimm_cdf(r: Union[float, np.ndarray], mean_size: float,
 # ──────────────────────────────────────────────────────────────────────────────
 # Ardell  (extended LSW by Ardell 1972)
 # Parameters: location [Å], parameter m  (must satisfy 2 < m < 3)
+#
+# Implements Igor's IR1_ArdellProbability / IR1_ArdellProbNormalized exactly:
+#
+#   F(zp, m) = (zp*(m-1))^(m-1) / [m^m*(zp-1) − zp^m*(m-1)^(m-1)]
+#   P(zp, m) = ∫₀^zp F(t, m) dt          (F < 0 everywhere → P < 0)
+#   f(zp)    = −3 · F(zp) · exp(P(zp))   (unnormalized; > 0)
+#
+# The distribution is defined for 0 < zp < zp_max = m/(m-1):
+#   m=2 → zp_max=2.0,  m=2.5 → zp_max=1.667,  m=3 → zp_max=1.5 (LSW limit)
+#
+# The modal radius is ~1.3–1.4 × location; the hard cutoff is at
+# zp_max × location with a sharp (exponential) drop just below it.
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _ardell_umax(m: float) -> float:
-    """Upper limit u_max in terms of normalised radius u = r/location."""
-    # The distribution is defined for 0 < u < u_max where u_max depends on m.
-    # From Ardell (1972): u_max = 2m / (m + 1)  (≈ 1.5 when m→∞ → LSW limit)
-    # Clamped to avoid numerical issues at boundary.
-    return 2.0 * m / (m + 1.0)
+    """Upper limit of normalised radius: zp_max = m / (m-1).
+
+    Derived from the root of the denominator of Ardell_F.
+    Checked against Igor: m=3 → 1.5 (LSW limit), m=2 → 2.0.
+    """
+    return m / (m - 1.0)
 
 
-def _ardell_pdf_scalar(r: float, location: float, m: float) -> float:
-    """Ardell probability density for a single r value."""
-    if location <= 0:
-        return 0.0
-    m = float(m)
-    if not (2.0 < m < 3.0):
-        m = max(2.001, min(2.999, m))  # clamp silently
-    u = r / location
-    u_max = _ardell_umax(m)
-    if u <= 0 or u >= u_max:
-        return 0.0
-    try:
-        # Ardell distribution (Ardell 1972, Acta Metall.):
-        # g(u) = K * u^2 * (u_max - u)^(-q) * (u_max + u)^(-p) * exp(-B*u/(u_max-u))
-        # Approximate form matching the Igor IR1_ArdellProbNormalized convention:
-        p = (m + 1.0) / (m - 1.0)      # exponent for (u_max + u)
-        q = 2.0 * m / (m - 1.0)        # exponent for (u_max - u)
-        B = m * u_max                   # exponential decay constant
+def _ardell_F_vec(zp: np.ndarray, m: float) -> np.ndarray:
+    """Vectorised Igor Ardell_F(zp, m).
 
-        denom = u_max - u
-        if denom < 1e-12:
-            return 0.0
-        val = u ** 2 / (denom ** q * (u_max + u) ** p) * math.exp(-B / denom)
-        if not math.isfinite(val) or val < 0:
-            return 0.0
-        return val / location           # Jacobian 1/location converts u→r
-    except (OverflowError, ZeroDivisionError, ValueError):
-        return 0.0
+    F(zp, m) = (zp*(m-1))^(m-1) / [m^m*(zp-1) − zp^m*(m-1)^(m-1)]
+
+    F is negative throughout 0 < zp < zp_max; F(0)=0; F→−∞ at zp→zp_max.
+    """
+    mm  = m ** m
+    cm1 = (m - 1.0) ** (m - 1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        num   = (zp * (m - 1.0)) ** (m - 1.0)
+        denom = mm * (zp - 1.0) - zp ** m * cm1
+        F = np.where(np.abs(denom) > 1e-200, num / denom, 0.0)
+    return np.where(np.isfinite(F), F, 0.0)
+
+
+# Module-level cache keyed on rounded m value — avoids recomputing the grid
+# on every PDF/CDF call during fitting and radius-grid generation.
+_ARDELL_GRID_CACHE: dict[float, tuple] = {}
+
+
+def _ardell_build_grid(m: float, n: int = 3000):
+    """Pre-compute normalised Ardell PDF and CDF on a fine zp-grid.
+
+    Returns (zp_grid, pdf_norm, cdf_norm).  Results are cached by m.
+    """
+    m_key = round(m, 5)
+    if m_key in _ARDELL_GRID_CACHE:
+        return _ARDELL_GRID_CACHE[m_key]
+
+    zp_max = _ardell_umax(m)
+    # Fine grid from 0 to just below the singularity at zp_max
+    zp_grid = np.linspace(0.0, zp_max * (1.0 - 1e-6), n)
+
+    F_grid = _ardell_F_vec(zp_grid, m)
+
+    # P(zp) = ∫₀^zp F(t) dt  (cumulative trapezoid, initial value = 0)
+    P_grid = _cumtrapz(F_grid, zp_grid, initial=0.0)
+
+    # Unnormalized PDF: f(zp) = −3·F(zp)·exp(P(zp))
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        f_unnorm = -3.0 * F_grid * np.exp(P_grid)
+    f_unnorm = np.where(np.isfinite(f_unnorm) & (f_unnorm >= 0.0), f_unnorm, 0.0)
+
+    # Normalise so ∫ f(zp) dzp = 1
+    norm = float(np.trapezoid(f_unnorm, zp_grid))
+    pdf_norm = f_unnorm / norm if norm > 0.0 else np.ones_like(zp_grid) / zp_grid[-1]
+
+    # CDF on the same grid
+    cdf_norm = _cumtrapz(pdf_norm, zp_grid, initial=0.0)
+    cdf_norm = np.clip(cdf_norm, 0.0, 1.0)
+
+    result = (zp_grid, pdf_norm, cdf_norm)
+    _ARDELL_GRID_CACHE[m_key] = result
+    return result
 
 
 def ardell_pdf(r: np.ndarray, location: float, parameter: float
                ) -> np.ndarray:
-    """Ardell extended-LSW probability density.
+    """Ardell extended-LSW probability density (port of Igor IR1_ArdellProbNormalized).
+
+    f(r) = −3·F(r/r₀)·exp(P(r/r₀)) / r₀ / normalization
+
+    where F and P are defined in _ardell_F_vec and _ardell_build_grid.
 
     Args:
         r: radius values [Å]
-        location: peak radius [Å]
-        parameter: Ardell m-parameter (must be strictly between 2 and 3)
+        location: scale radius r₀ [Å];  distribution cuts off at r₀·m/(m-1)
+        parameter: Ardell m-parameter (strictly between 2 and 3)
 
     Returns:
         probability density [Å⁻¹], same shape as r
     """
-    r = np.asarray(r, dtype=float)
-    return np.vectorize(_ardell_pdf_scalar)(r, location, parameter)
+    r   = np.asarray(r, dtype=float)
+    loc = max(float(location), 1e-10)
+    m   = max(2.001, min(2.999, float(parameter)))
+
+    zp_grid, pdf_norm, _ = _ardell_build_grid(m)
+
+    # Interpolate; apply Jacobian 1/loc to convert zp-density to r-density
+    zp_r = r / loc
+    return np.interp(zp_r, zp_grid, pdf_norm, left=0.0, right=0.0) / loc
 
 
 def ardell_cdf(r: Union[float, np.ndarray], location: float,
                parameter: float) -> Union[float, np.ndarray]:
-    """Ardell cumulative distribution — numerical integration up to r."""
+    """Ardell cumulative distribution (vectorised, grid-based)."""
     scalar = np.ndim(r) == 0
-    r_arr = np.atleast_1d(np.asarray(r, dtype=float))
-    m = float(parameter)
-    if not (2.0 < m < 3.0):
-        m = max(2.001, min(2.999, m))
-    u_max = _ardell_umax(m)
-    r_max = u_max * location
+    r_arr  = np.atleast_1d(np.asarray(r, dtype=float))
+    loc    = max(float(location), 1e-10)
+    m      = max(2.001, min(2.999, float(parameter)))
 
-    out = np.empty_like(r_arr)
-    for i, ri in enumerate(r_arr):
-        if ri <= 0:
-            out[i] = 0.0
-        elif ri >= r_max:
-            out[i] = 1.0
-        else:
-            val, _ = integrate.quad(
-                _ardell_pdf_scalar, 0.0, ri,
-                args=(location, parameter),
-                limit=200,
-            )
-            out[i] = min(max(val, 0.0), 1.0)
+    zp_grid, _, cdf_norm = _ardell_build_grid(m)
 
+    zp_r = r_arr / loc
+    out  = np.interp(zp_r, zp_grid, cdf_norm, left=0.0, right=1.0)
     return float(out[0]) if scalar else out
 
 
