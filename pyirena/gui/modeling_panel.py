@@ -1754,6 +1754,16 @@ class ModelingPanel(QWidget):
         self.graph.plot_data(q, I, dI)
         set_robust_y_range(self.graph.iq_plot, I)
         self.graph.add_cursors(np.log10(q_min), np.log10(q_max))
+
+        # Restore saved Q range if it falls within the loaded data range
+        mod_state = self._state.get('modeling') or {}
+        saved_q_min = mod_state.get('q_min')
+        saved_q_max = mod_state.get('q_max')
+        if (saved_q_min is not None and saved_q_max is not None
+                and saved_q_min >= q_min and saved_q_max <= q_max
+                and saved_q_min < saved_q_max):
+            self.graph.set_q_range(saved_q_min, saved_q_max)
+
         self.graph.set_status(
             f'Loaded {filename}: {len(q)} points, '
             f'Q ∈ [{q_min:.4g}, {q_max:.4g}] Å⁻¹', 'success',
