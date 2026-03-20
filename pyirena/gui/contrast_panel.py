@@ -25,7 +25,7 @@ try:
         QPushButton, QLabel, QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox,
         QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
         QScrollArea, QMessageBox, QFileDialog, QSplitter,
-        QAbstractItemView, QCheckBox, QInputDialog,
+        QAbstractItemView, QCheckBox, QInputDialog, QMenu,
     )
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QFont, QAction
@@ -36,7 +36,7 @@ except ImportError:
             QPushButton, QLabel, QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox,
             QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
             QScrollArea, QMessageBox, QFileDialog, QSplitter,
-            QAbstractItemView, QCheckBox, QInputDialog,
+            QAbstractItemView, QCheckBox, QInputDialog, QMenu,
         )
         from PyQt6.QtCore import Qt
         from PyQt6.QtGui import QColor, QFont, QAction
@@ -98,6 +98,11 @@ _S_GREEN_SM = (
     "border-radius:3px;padding:2px 6px;}"
     "QPushButton:hover{background:#2ecc71;}"
 )
+_S_FILE_SM = (
+    "QPushButton{background:#2471a3;color:white;font-size:10px;"
+    "border-radius:3px;padding:2px 6px;}"
+    "QPushButton:hover{background:#1a5276;}"
+)
 
 # Composition modes: (display label, internal key)
 _MODES: List[tuple] = [
@@ -107,9 +112,13 @@ _MODES: List[tuple] = [
 ]
 _MODE_KEYS: List[str] = [m[1] for m in _MODES]
 
-# Results table row definitions
-# (row_type, label, units, comp1_key, comp2_key)
-# row_type: 'hdr' | 'cpd' | 'ctr' | 'ano'
+# GroupBox title colours
+_C_COMP1  = "#1a5276"   # dark blue
+_C_COMP2  = "#7b241c"   # dark red
+_C_PARAMS = "#1e8449"   # dark green
+_C_SCAN   = "#6c3483"   # dark purple
+
+# Results table row definitions  (row_type, label, units, comp1_key, comp2_key)
 _T_ROWS: List[tuple] = [
     ("hdr", "── Molecular Properties ──", "", None, None),
     ("cpd", "Molecular weight", "g/mol", "mol_weight", "mol_weight"),
@@ -138,10 +147,9 @@ _T_ROWS: List[tuple] = [
 ]
 
 
-# ─── Module-level helpers ──────────────────────────────────────────────────────
+# ─── Module helpers ────────────────────────────────────────────────────────────
 
 def _fmt(val: Any, sig: int = 4) -> str:
-    """Smart number formatter for the results table."""
     if val is None:
         return "—"
     try:
@@ -158,10 +166,17 @@ def _fmt(val: Any, sig: int = 4) -> str:
         return str(val)
 
 
-def _add_jpeg_action(
-    plot_item: pg.PlotItem, parent: QWidget, default_name: str = "graph"
-) -> None:
-    """Attach 'Save graph as JPEG' to a PlotItem's right-click menu."""
+def _grp_style(color: str) -> str:
+    """Return a QGroupBox stylesheet that colours the title and border."""
+    return (
+        f"QGroupBox{{font-weight:bold;border:2px solid {color};"
+        f"border-radius:5px;margin-top:10px;padding-top:2px;}}"
+        f"QGroupBox::title{{subcontrol-origin:margin;"
+        f"subcontrol-position:top left;padding:0 6px;color:{color};font-weight:bold;}}"
+    )
+
+
+def _add_jpeg_action(plot_item, parent: QWidget, default_name: str = "graph") -> None:
     action = QAction("Save graph as JPEG…", parent)
 
     def _go() -> None:
@@ -200,21 +215,36 @@ def _hdr_item(text: str) -> QTableWidgetItem:
     return item
 
 
+def _configure_white_plot(ax: pg.PlotItem) -> None:
+    """Configure axis pens and labels for a white-background pyqtgraph plot."""
+    dark = pg.mkPen("#2c3e50", width=1)
+    dark_text = pg.mkPen("#2c3e50")
+    for side in ("left", "bottom", "right", "top"):
+        axis = ax.getAxis(side)
+        axis.setPen(dark)
+        axis.setTextPen(dark_text)
+
+
 # ─── Energy Scan Graph Window ─────────────────────────────────────────────────
 
 class ContrastGraphWindow(QWidget):
-    """Floating window with three energy-scan plots."""
+    """Floating window with three energy-scan plots and a crosshair cursor."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle("Scattering Contrast — Energy Scan")
-        self.resize(820, 700)
+        self.resize(820, 720)
+        self._proxies: list = []          # keep SignalProxy refs alive
+        self._vlines: list = []
+        self._hlines: list = []
+        self._scan_data: Optional[Dict] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
         lay.setContentsMargins(6, 6, 6, 6)
 
+        # Toolbar row
         tb = QHBoxLayout()
         self._log_y_cb = QCheckBox("Log Y axis (contrast plot)")
         self._log_y_cb.setChecked(False)
@@ -224,48 +254,110 @@ class ContrastGraphWindow(QWidget):
         lay.addLayout(tb)
 
         self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground("w")        # white background
         lay.addWidget(self.gl)
 
-        # Plot 1 — X-ray contrast (Δρ)²
+        # ── Plot 1: X-ray contrast (Δρ)² ──
         self._ax_ctr = self.gl.addPlot(row=0, col=0)
         self._ax_ctr.setLabel("left", "(Δρ)² X-ray", units="10²⁰ cm⁻⁴")
         self._ax_ctr.setLabel("bottom", "X-ray energy", units="keV")
-        self._ax_ctr.showGrid(x=True, y=True, alpha=0.3)
+        self._ax_ctr.showGrid(x=True, y=True, alpha=0.25)
+        _configure_white_plot(self._ax_ctr)
         _add_jpeg_action(self._ax_ctr, self, "xray_contrast_vs_energy")
 
-        # Plot 2 — Linear absorption coefficient
+        # ── Plot 2: Linear absorption ──
         self._ax_mu = self.gl.addPlot(row=1, col=0)
         self._ax_mu.setLabel("left", "Linear absorption μ", units="cm⁻¹")
         self._ax_mu.setLabel("bottom", "X-ray energy", units="keV")
-        self._ax_mu.showGrid(x=True, y=True, alpha=0.3)
+        self._ax_mu.showGrid(x=True, y=True, alpha=0.25)
+        _configure_white_plot(self._ax_mu)
         _add_jpeg_action(self._ax_mu, self, "absorption_vs_energy")
 
-        # Plot 3 — Transmission
+        # ── Plot 3: Transmission ──
         self._ax_tr = self.gl.addPlot(row=2, col=0)
         self._ax_tr.setLabel("left", "Transmission")
         self._ax_tr.setLabel("bottom", "X-ray energy", units="keV")
-        self._ax_tr.showGrid(x=True, y=True, alpha=0.3)
+        self._ax_tr.showGrid(x=True, y=True, alpha=0.25)
         self._ax_tr.setYRange(0, 1.05, padding=0)
+        _configure_white_plot(self._ax_tr)
         _add_jpeg_action(self._ax_tr, self, "transmission_vs_energy")
 
-        # Link x axes
+        # Link x-axes
         self._ax_mu.setXLink(self._ax_ctr)
         self._ax_tr.setXLink(self._ax_ctr)
 
-        self._status = QLabel("No scan data.")
-        self._status.setStyleSheet("color:#7f8c8d; padding:3px;")
-        lay.addWidget(self._status)
+        # Crosshair cursor lines (one pair per plot)
+        dash = pg.mkPen("#888888", width=1, style=Qt.PenStyle.DashLine)
+        self._axes_list = [self._ax_ctr, self._ax_mu, self._ax_tr]
+        for ax in self._axes_list:
+            vl = pg.InfiniteLine(angle=90, movable=False, pen=dash)
+            hl = pg.InfiniteLine(angle=0, movable=False, pen=dash)
+            hl.setVisible(False)
+            ax.addItem(vl, ignoreBounds=True)
+            ax.addItem(hl, ignoreBounds=True)
+            self._vlines.append(vl)
+            self._hlines.append(hl)
 
+        # Set up mouse-move proxies for each plot
+        for i, ax in enumerate(self._axes_list):
+            proxy = pg.SignalProxy(
+                ax.scene().sigMouseMoved,
+                rateLimit=60,
+                slot=lambda ev, _ax=ax, _i=i: self._mouse_moved(ev, _ax, _i),
+            )
+            self._proxies.append(proxy)
+
+        # Status / cursor readout row
+        bot = QHBoxLayout()
+        self._scan_lbl = QLabel("No scan data.")
+        self._scan_lbl.setStyleSheet("color:#7f8c8d; font-size:11px;")
+        bot.addWidget(self._scan_lbl, stretch=1)
+        self._cursor_lbl = QLabel("")
+        self._cursor_lbl.setStyleSheet(
+            "color:#2c3e50; font-size:11px; font-weight:bold; padding:0 4px;"
+        )
+        bot.addWidget(self._cursor_lbl)
+        lay.addLayout(bot)
+
+    # ------------------------------------------------------------------
+    def _mouse_moved(self, event: tuple, ax: pg.PlotItem, plot_idx: int) -> None:
+        pos = event[0]
+        if not ax.sceneBoundingRect().contains(pos):
+            return
+        mp = ax.getViewBox().mapSceneToView(pos)
+        x, y = mp.x(), mp.y()
+
+        # Move all vertical lines to the same energy
+        for vl in self._vlines:
+            vl.setPos(x)
+
+        # Show horizontal line only in the active plot
+        for i, hl in enumerate(self._hlines):
+            hl.setVisible(i == plot_idx)
+            if i == plot_idx:
+                hl.setPos(y)
+
+        # Update readout label
+        unit_map = {0: "10²⁰ cm⁻⁴", 1: "cm⁻¹", 2: ""}
+        lbl_map  = {0: "(Δρ)²", 1: "μ", 2: "T"}
+        units = unit_map.get(plot_idx, "")
+        lbl   = lbl_map.get(plot_idx, "Y")
+        u_str = f" {units}" if units else ""
+        self._cursor_lbl.setText(f"E: {x:.4f} keV  │  {lbl}: {y:.4g}{u_str}")
+
+    # ------------------------------------------------------------------
     def _toggle_log_y(self, checked: bool) -> None:
         self._ax_ctr.setLogMode(y=checked)
         self._ax_ctr.autoRange()
 
+    # ------------------------------------------------------------------
     def update_scan(
         self,
         scan_data: Dict[str, np.ndarray],
         comp1_name: str,
         comp2_name: str,
     ) -> None:
+        self._scan_data = scan_data
         E = scan_data.get("energy")
         if E is None or len(E) == 0:
             return
@@ -273,19 +365,25 @@ class ContrastGraphWindow(QWidget):
         self._ax_ctr.clear()
         self._ax_mu.clear()
         self._ax_tr.clear()
+        # Re-add crosshair items (clear() removes them)
+        dash = pg.mkPen("#888888", width=1, style=Qt.PenStyle.DashLine)
+        for i, ax in enumerate(self._axes_list):
+            ax.addItem(self._vlines[i], ignoreBounds=True)
+            ax.addItem(self._hlines[i], ignoreBounds=True)
+        for hl in self._hlines:
+            hl.setVisible(False)
 
-        # Re-apply log mode (clear() resets it)
         self._ax_ctr.setLogMode(y=self._log_y_cb.isChecked())
 
         c1 = comp1_name or "Compound 1"
         c2 = comp2_name or "Compound 2"
 
-        # ── Contrast ──
+        # Contrast
         contrast = scan_data.get("xray_contrast_anom", np.zeros(len(E)))
         self._ax_ctr.plot(E, contrast, pen=pg.mkPen("#2980b9", width=2))
         self._ax_ctr.autoRange()
 
-        # ── Absorption ──
+        # Absorption
         for key, label, color in [
             ("mu_1", c1, "#e74c3c"),
             ("mu_2", c2, "#2980b9"),
@@ -293,11 +391,10 @@ class ContrastGraphWindow(QWidget):
             arr = scan_data.get(key)
             if arr is not None:
                 self._ax_mu.plot(E, arr, pen=pg.mkPen(color, width=1.5), name=label)
-        if any(scan_data.get(k) is not None for k in ("mu_1", "mu_2")):
-            self._ax_mu.addLegend(offset=(5, 5))
+        self._ax_mu.addLegend(offset=(5, 5))
         self._ax_mu.autoRange()
 
-        # ── Transmission ──
+        # Transmission
         for key, label, color in [
             ("transmission_1", c1, "#e74c3c"),
             ("transmission_2", c2, "#2980b9"),
@@ -309,9 +406,9 @@ class ContrastGraphWindow(QWidget):
         self._ax_tr.addLegend(offset=(5, 5))
         self._ax_tr.setYRange(0, 1.05, padding=0)
 
-        self._status.setText(
-            f"Energy: {E[0]:.2f}–{E[-1]:.2f} keV, {len(E)} points | "
-            f"{c1} vs {c2}"
+        self._scan_lbl.setText(
+            f"Energy: {E[0]:.2f}–{E[-1]:.2f} keV, {len(E)} points | {c1} vs {c2}"
+            "   (move mouse over plot for cursor readout)"
         )
 
 
@@ -322,8 +419,8 @@ class ContrastPanel(QWidget):
     Scattering Contrast Calculator.
 
     Left panel: two compound editors + calculation parameters.
-    Right panel: results table.
-    Separate ContrastGraphWindow: energy-scan plots (opens on demand).
+    Right panel: results table (with right-click Copy).
+    Separate ContrastGraphWindow: energy-scan plots with crosshair.
     """
 
     def __init__(
@@ -341,8 +438,6 @@ class ContrastPanel(QWidget):
         self._comp2: Optional[CompoundProperties] = None
         self._contrast: Optional[ContrastResult] = None
         self._graph_win: Optional[ContrastGraphWindow] = None
-
-        # Refs dicts for each compound's widgets
         self._c1_refs: Dict[str, Any] = {}
         self._c2_refs: Dict[str, Any] = {}
 
@@ -360,11 +455,11 @@ class ContrastPanel(QWidget):
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(6)
 
-        # ── Left: scrollable control panel ────────────────────────────
+        # ── Left scroll panel ──────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(380)
-        scroll.setMaximumWidth(440)
+        scroll.setMinimumWidth(390)
+        scroll.setMaximumWidth(450)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         left_w = QWidget()
@@ -382,7 +477,7 @@ class ContrastPanel(QWidget):
         scroll.setWidget(left_w)
         root.addWidget(scroll)
 
-        # ── Right: results ─────────────────────────────────────────────
+        # ── Right panel ────────────────────────────────────────────────
         right_w = QWidget()
         rl = QVBoxLayout(right_w)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -400,10 +495,14 @@ class ContrastPanel(QWidget):
 
     # ------------------------------------------------------------------
     def _build_compound_group(
-        self, n: int, title: str, formula: str, density: float, parent_lay: QVBoxLayout
+        self, n: int, title: str, formula: str, density: float,
+        parent_lay: QVBoxLayout,
     ) -> None:
         refs = self._c1_refs if n == 1 else self._c2_refs
+        color = _C_COMP1 if n == 1 else _C_COMP2
+
         grp = QGroupBox(title)
+        grp.setStyleSheet(_grp_style(color))
         lay = QVBoxLayout(grp)
         lay.setSpacing(4)
 
@@ -416,7 +515,7 @@ class ContrastPanel(QWidget):
         row.addWidget(name_le)
         lay.addLayout(row)
 
-        # Formula + Parse button
+        # Formula + Parse
         row = QHBoxLayout()
         row.addWidget(QLabel("Formula:"))
         formula_le = QLineEdit(formula)
@@ -427,7 +526,8 @@ class ContrastPanel(QWidget):
         pb.setStyleSheet(_S_SMALL)
         pb.setFixedWidth(58)
         pb.setToolTip("Parse formula and update the isotope selection table below.")
-        pb.clicked.connect(lambda: self._update_isotope_table(n))
+        # NOTE: use *_ to absorb the 'checked' bool that clicked() emits
+        pb.clicked.connect(lambda *_, _n=n: self._update_isotope_table(_n))
         row.addWidget(pb)
         lay.addLayout(row)
 
@@ -454,11 +554,11 @@ class ContrastPanel(QWidget):
         vac = QPushButton("Set Vacuum")
         vac.setStyleSheet(_S_SMALL)
         vac.setToolTip("Set this compound to vacuum (empty formula, density = 0).")
-        vac.clicked.connect(lambda: self._set_vacuum(n))
+        vac.clicked.connect(lambda *_, _n=n: self._set_vacuum(_n))
         row.addWidget(vac)
         lay.addLayout(row)
 
-        # Isotope table (neutrons)
+        # Isotope table
         iso_grp = QGroupBox("Neutron Isotope Selection")
         iso_grp.setStyleSheet("QGroupBox{font-size:10px;}")
         iso_lay = QVBoxLayout(iso_grp)
@@ -475,11 +575,9 @@ class ContrastPanel(QWidget):
         iso_tbl = QTableWidget(0, 2)
         iso_tbl.setHorizontalHeaderLabels(["Element", "Isotope"])
         iso_tbl.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.ResizeToContents
-        )
+            0, QHeaderView.ResizeMode.ResizeToContents)
         iso_tbl.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
+            1, QHeaderView.ResizeMode.Stretch)
         iso_tbl.verticalHeader().setVisible(False)
         iso_tbl.setMaximumHeight(110)
         iso_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -500,31 +598,57 @@ class ContrastPanel(QWidget):
         lc.setToolTip(f"Library: {DEFAULT_LIBRARY_PATH}")
         refs["lib_combo"] = lc
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(3)
-        btn_row.addWidget(lc, stretch=1)
-
-        for sym, tip, slot, style in [
-            ("↻", "Refresh list", lambda _n=n: self._refresh_library(_n), _S_SMALL),
-            ("Load", "Load into this slot", lambda _n=n: self._load_from_library(_n), _S_SMALL),
-            ("Save", "Save to library", lambda _n=n: self._save_to_library(_n), _S_GREEN_SM),
-            ("Del", "Delete from library", lambda _n=n: self._delete_from_library(_n), _S_DANGER),
+        # Row 1: combo + action buttons
+        row1 = QHBoxLayout()
+        row1.setSpacing(3)
+        row1.addWidget(lc, stretch=1)
+        for sym, tip, meth, style, w in [
+            ("↻",    "Refresh list",        "_refresh_library",       _S_SMALL,    28),
+            ("Load", "Load into this slot", "_load_from_library",     _S_SMALL,    40),
+            ("Save", "Save to library",     "_save_to_library",       _S_GREEN_SM, 40),
+            ("Del",  "Delete from library", "_delete_from_library",   _S_DANGER,   38),
         ]:
             b = QPushButton(sym)
             b.setStyleSheet(style)
-            b.setFixedWidth(28 if sym == "↻" else 40)
+            b.setFixedWidth(w)
             b.setToolTip(tip)
-            b.clicked.connect(slot)
-            btn_row.addWidget(b)
+            # CRITICAL fix: use *_ to absorb the bool 'checked' emitted by clicked()
+            _meth = meth
+            b.clicked.connect(
+                lambda *_, _n=n, _m=_meth: getattr(self, _m)(_n)
+            )
+            row1.addWidget(b)
+        lib_lay.addLayout(row1)
 
-        lib_lay.addLayout(btn_row)
+        # Row 2: file-based export / import
+        row2 = QHBoxLayout()
+        row2.setSpacing(3)
+        exp_f = QPushButton("Export to File…")
+        exp_f.setStyleSheet(_S_FILE_SM)
+        exp_f.setToolTip(
+            "Save this compound definition to a portable HDF5 file\n"
+            "that can be shared with other users / computers."
+        )
+        exp_f.clicked.connect(lambda *_, _n=n: self._export_compound_to_file(_n))
+        row2.addWidget(exp_f, stretch=1)
+
+        imp_f = QPushButton("Import from File…")
+        imp_f.setStyleSheet(_S_FILE_SM)
+        imp_f.setToolTip(
+            "Load a compound from a shared HDF5 file into this slot.\n"
+            "Optionally also adds it to the local library."
+        )
+        imp_f.clicked.connect(lambda *_, _n=n: self._import_compound_from_file(_n))
+        row2.addWidget(imp_f, stretch=1)
+        lib_lay.addLayout(row2)
+
         lay.addWidget(lib_grp)
-
         parent_lay.addWidget(grp)
 
     # ------------------------------------------------------------------
     def _make_params_group(self) -> QGroupBox:
         grp = QGroupBox("Calculation Parameters")
+        grp.setStyleSheet(_grp_style(_C_PARAMS))
         g = QGridLayout(grp)
         g.setColumnStretch(1, 1)
 
@@ -560,6 +684,7 @@ class ContrastPanel(QWidget):
     # ------------------------------------------------------------------
     def _make_scan_range_group(self) -> QGroupBox:
         grp = QGroupBox("Energy Scan Range")
+        grp.setStyleSheet(_grp_style(_C_SCAN))
         g = QGridLayout(grp)
         g.setColumnStretch(1, 1)
 
@@ -624,18 +749,19 @@ class ContrastPanel(QWidget):
         )
         tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         tbl.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
+            1, QHeaderView.ResizeMode.ResizeToContents)
         tbl.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
+            2, QHeaderView.ResizeMode.ResizeToContents)
         tbl.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.ResizeToContents
-        )
+            3, QHeaderView.ResizeMode.ResizeToContents)
         tbl.verticalHeader().setVisible(False)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         tbl.setAlternatingRowColors(True)
+
+        # Right-click Copy context menu
+        tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tbl.customContextMenuRequested.connect(self._table_context_menu)
 
         for row, (rtype, label, units, _k1, _k2) in enumerate(_T_ROWS):
             if rtype == "hdr":
@@ -662,10 +788,18 @@ class ContrastPanel(QWidget):
         lay.setSpacing(5)
 
         for lbl, tip, slot in [
-            ("Export Results CSV", "Save the results table to CSV.", self._export_csv),
-            ("Export Scan CSV", "Save the energy-scan arrays to CSV.", self._export_scan_csv),
-            ("Save Scan HDF5", "Save the energy-scan arrays to HDF5.", self._save_scan_hdf5),
-            ("Show Graphs", "Open the energy-scan graph window.", self._show_graph_window),
+            ("Export Results CSV",
+             "Save the results table to CSV.  Ctrl+C also copies selected cells.",
+             self._export_csv),
+            ("Export Scan CSV",
+             "Save the energy-scan arrays to CSV.",
+             self._export_scan_csv),
+            ("Save Scan HDF5",
+             "Save the energy-scan arrays plus compound definitions to HDF5.",
+             self._save_scan_hdf5),
+            ("Show Graphs",
+             "Open the energy-scan graph window.",
+             self._show_graph_window),
         ]:
             btn = QPushButton(lbl)
             btn.setStyleSheet(_S_TEAL if lbl != "Show Graphs" else _S_PURPLE)
@@ -676,6 +810,32 @@ class ContrastPanel(QWidget):
         return w
 
     # ══════════════════════════════════════════════════════════════════
+    #  Table context menu (right-click Copy)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _table_context_menu(self, pos) -> None:
+        menu = QMenu(self._tbl)
+        copy_act = QAction("Copy", self._tbl)
+        copy_act.setShortcut("Ctrl+C")
+        copy_act.triggered.connect(self._copy_table_selection)
+        menu.addAction(copy_act)
+        menu.exec(self._tbl.viewport().mapToGlobal(pos))
+
+    def _copy_table_selection(self) -> None:
+        items = self._tbl.selectedItems()
+        if not items:
+            return
+        # Collect by row, then column, then join
+        rows: Dict[int, Dict[int, str]] = {}
+        for it in items:
+            rows.setdefault(it.row(), {})[it.column()] = it.text()
+        text = "\n".join(
+            "\t".join(rows[r].get(c, "") for c in sorted(rows[r]))
+            for r in sorted(rows)
+        )
+        QApplication.clipboard().setText(text)
+
+    # ══════════════════════════════════════════════════════════════════
     #  Isotope table
     # ══════════════════════════════════════════════════════════════════
 
@@ -683,12 +843,11 @@ class ContrastPanel(QWidget):
         return self._c1_refs if n == 1 else self._c2_refs
 
     def _update_isotope_table(self, n: int) -> None:
-        """Parse formula for compound n and repopulate the isotope table."""
         refs = self._refs(n)
         formula = refs["formula"].text().strip()
         mode = _MODE_KEYS[refs["mode"].currentIndex()]
 
-        # Retrieve pending overrides (from state restore) or read current table
+        # Pending overrides (from state restore) take priority; otherwise read table
         pending = refs.pop("_pending_iso", None)
         saved = pending if pending is not None else self._read_isotope_overrides(n)
 
@@ -717,7 +876,6 @@ class ContrastPanel(QWidget):
                 if label != "natural":
                     combo.addItem(f"{label}  [b_c = {bc:.3f} fm]")
 
-            # Restore saved/pending selection for this element
             if sym in saved:
                 target = saved[sym]
                 for i in range(combo.count()):
@@ -730,7 +888,6 @@ class ContrastPanel(QWidget):
         iso_tbl.resizeRowsToContents()
 
     def _read_isotope_overrides(self, n: int) -> Dict[str, str]:
-        """Return {element_symbol: isotope_mass_number_string} from table."""
         tbl: QTableWidget = self._refs(n)["iso_table"]
         overrides: Dict[str, str] = {}
         for row in range(tbl.rowCount()):
@@ -770,7 +927,6 @@ class ContrastPanel(QWidget):
         refs["name"].setText("vacuum")
 
     def _compute_one(self, n: int) -> Optional[CompoundProperties]:
-        """Compute CompoundProperties for compound n (or vacuum if empty/density=0)."""
         spec = self._get_compound_spec(n)
         if not spec["formula_str"] or spec["density"] == 0.0:
             return VACUUM
@@ -871,7 +1027,6 @@ class ContrastPanel(QWidget):
         self._comp1 = comp1
         self._comp2 = comp2
 
-        # Also fill the table at the single-energy point
         try:
             contrast = compute_contrast_anomalous(
                 comp1, comp2,
@@ -935,7 +1090,7 @@ class ContrastPanel(QWidget):
         self._tbl.resizeColumnsToContents()
 
     # ══════════════════════════════════════════════════════════════════
-    #  Library operations
+    #  Library operations (local library)
     # ══════════════════════════════════════════════════════════════════
 
     def _refresh_library(self, n: int) -> None:
@@ -981,20 +1136,7 @@ class ContrastPanel(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Load failed", str(exc))
             return
-
-        refs = self._refs(n)
-        refs["name"].setText(d.get("name", name))
-        refs["formula"].setText(d.get("formula_str", ""))
-        mode_key = d.get("composition_mode", "atomic_ratio")
-        refs["mode"].setCurrentIndex(
-            _MODE_KEYS.index(mode_key) if mode_key in _MODE_KEYS else 0
-        )
-        refs["density"].setValue(float(d.get("density", 0.0)))
-
-        # Restore isotope overrides via _pending_iso mechanism
-        refs["_pending_iso"] = d.get("isotope_overrides", {})
-        self._update_isotope_table(n)
-
+        self._apply_compound_dict(n, d)
         self._set_status(f"Loaded '{name}' into Compound {n}.")
 
     def _delete_from_library(self, n: int) -> None:
@@ -1018,7 +1160,93 @@ class ContrastPanel(QWidget):
             QMessageBox.critical(self, "Delete failed", str(exc))
 
     # ══════════════════════════════════════════════════════════════════
-    #  Export
+    #  File-based export / import (portable sharing)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _export_compound_to_file(self, n: int) -> None:
+        spec = self._get_compound_spec(n)
+        if not spec["formula_str"]:
+            QMessageBox.warning(self, "Nothing to export", "Formula is empty.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Compound to File",
+            str(Path.home() / f"{spec['name']}_compounds.h5"),
+            "HDF5 Files (*.h5 *.hdf5);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            saved = save_compound_to_library(
+                spec, library_path=Path(path), name=spec["name"]
+            )
+            self._set_status(f"Exported '{saved}' to {Path(path).name}.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export failed", str(exc))
+
+    def _import_compound_from_file(self, n: int) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Compound from File",
+            str(Path.home()),
+            "HDF5 Files (*.h5 *.hdf5);;All Files (*)",
+        )
+        if not path:
+            return
+
+        names = list_compounds_in_library(Path(path))
+        if not names:
+            QMessageBox.information(
+                self, "No compounds",
+                f"No compounds found in {Path(path).name}."
+            )
+            return
+
+        name, ok = QInputDialog.getItem(
+            self, "Import Compound",
+            f"Select compound from {Path(path).name}:",
+            names, 0, False,
+        )
+        if not ok:
+            return
+
+        try:
+            d = load_compound_from_library(name, library_path=Path(path))
+        except Exception as exc:
+            QMessageBox.critical(self, "Import failed", str(exc))
+            return
+
+        self._apply_compound_dict(n, d)
+        self._set_status(f"Imported '{name}' from {Path(path).name} into Compound {n}.")
+
+        # Offer to also save to local library
+        ans = QMessageBox.question(
+            self, "Add to local library?",
+            f"Also add '{name}' to the local library (~/.pyirena/)?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            try:
+                save_compound_to_library(d, name=name)
+                self._refresh_library(1)
+                self._refresh_library(2)
+            except Exception as exc:
+                QMessageBox.warning(self, "Library save failed", str(exc))
+
+    # ------------------------------------------------------------------
+    def _apply_compound_dict(self, n: int, d: Dict[str, Any]) -> None:
+        """Populate compound n's widgets from a compound dict (from library or file)."""
+        refs = self._refs(n)
+        refs["name"].setText(d.get("name", ""))
+        refs["formula"].setText(d.get("formula_str", ""))
+        mode_key = d.get("composition_mode", "atomic_ratio")
+        refs["mode"].setCurrentIndex(
+            _MODE_KEYS.index(mode_key) if mode_key in _MODE_KEYS else 0
+        )
+        refs["density"].setValue(float(d.get("density", 0.0)))
+        refs["_pending_iso"] = d.get("isotope_overrides", {})
+        self._update_isotope_table(n)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  Export (results CSV, scan CSV/HDF5)
     # ══════════════════════════════════════════════════════════════════
 
     def _export_csv(self) -> None:
@@ -1080,7 +1308,32 @@ class ContrastPanel(QWidget):
                 "vol_frac_comp1": self._vf_spin.value(),
             }
             save_scan_to_hdf5(self._scan_data, Path(path), metadata=meta)
-            self._set_status(f"Scan saved to {Path(path).name}")
+
+            # Write compound definitions and all computed properties
+            import h5py
+            with h5py.File(path, "a") as f:
+                grp = f["contrast_scan"]
+                _prop_fields = [
+                    "mol_weight", "weight_1mol", "n_mol_per_cm3",
+                    "n_electrons_per_mol", "n_electrons_per_cm3", "volume_1mol",
+                    "xray_sld", "xray_sld_per_gram",
+                    "neutron_total_b", "neutron_sld", "neutron_sld_per_gram",
+                ]
+                for label, comp in [("compound_1", self._comp1),
+                                     ("compound_2", self._comp2)]:
+                    if comp is None:
+                        continue
+                    cg = grp.require_group(label)
+                    cg.attrs["name"]             = comp.name
+                    cg.attrs["formula_str"]       = comp.formula_str
+                    cg.attrs["composition_mode"]  = comp.composition_mode
+                    cg.attrs["density_g_cm3"]     = comp.density
+                    for field in _prop_fields:
+                        val = getattr(comp, field, None)
+                        if val is not None:
+                            cg.attrs[field] = float(val)
+
+            self._set_status(f"Scan + compound data saved to {Path(path).name}")
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
 
@@ -1125,7 +1378,6 @@ class ContrastPanel(QWidget):
             _MODE_KEYS.index(mode_key) if mode_key in _MODE_KEYS else 0
         )
         refs["density"].setValue(float(cd.get("density", 0.0)))
-        # Store pending overrides; _update_isotope_table will pick them up
         refs["_pending_iso"] = cd.get("isotope_overrides", {})
         self._update_isotope_table(n)
 
@@ -1151,7 +1403,7 @@ class ContrastPanel(QWidget):
         super().closeEvent(event)
 
     # ══════════════════════════════════════════════════════════════════
-    #  Status bar helper
+    #  Status bar
     # ══════════════════════════════════════════════════════════════════
 
     def _set_status(self, msg: str, error: bool = False) -> None:
