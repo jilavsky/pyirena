@@ -897,6 +897,8 @@ def fit_pyirena(
         Runs :func:`fit_simple_from_config`.
     ``waxs_peakfit``
         Runs :func:`fit_waxs` (alias for :func:`fit_waxs_peaks_from_config`).
+    ``modeling``
+        Runs :func:`fit_modeling`.
 
     Unknown sections in the config file are silently skipped.
 
@@ -948,6 +950,9 @@ def fit_pyirena(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
         'waxs_peakfit': lambda: fit_waxs(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
+        'modeling': lambda: fit_modeling(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
     }
@@ -1705,8 +1710,66 @@ def fit_modeling(
 
         Returns None if data loading or config reading fails fatally.
     """
-    from pyirena.core.modeling import ModelingEngine, ModelingConfig, SizeDistPopulation
+    from pyirena.core.modeling import (
+        ModelingEngine, ModelingConfig,
+        SizeDistPopulation, UnifiedLevelPopulation, DiffractionPeakPopulation,
+    )
     from pyirena.io.nxcansas_modeling import save_modeling_results
+
+    def _build_pop(pd):
+        """Deserialize one population dict → the appropriate population dataclass."""
+        pt = pd.get('pop_type', 'size_dist')
+        if pt == 'unified_level':
+            pop = UnifiedLevelPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['G', 'Rg', 'B', 'P', 'RgCO']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            pop.correlations = bool(pd.get('correlations', False))
+            for key in ['ETA', 'PACK']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'diffraction_peak':
+            pop = DiffractionPeakPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            pop.peak_type = pd.get('peak_type', 'gaussian')
+            for key in ['position', 'amplitude', 'width', 'eta_voigt']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        # default: size_dist
+        return SizeDistPopulation(
+            enabled=pd.get('enabled', False),
+            dist_type=pd.get('dist_type', 'lognormal'),
+            dist_params=dict(pd.get('dist_params', {})),
+            dist_params_fit=dict(pd.get('dist_params_fit', {})),
+            dist_params_limits={k: tuple(v) for k, v in pd.get('dist_params_limits', {}).items()},
+            form_factor=pd.get('form_factor', 'sphere'),
+            ff_params=dict(pd.get('ff_params', {})),
+            ff_params_fit=dict(pd.get('ff_params_fit', {})),
+            ff_params_limits={k: tuple(v) for k, v in pd.get('ff_params_limits', {}).items()},
+            structure_factor=pd.get('structure_factor', 'none'),
+            sf_params=dict(pd.get('sf_params', {})),
+            sf_params_fit=dict(pd.get('sf_params_fit', {})),
+            sf_params_limits={k: tuple(v) for k, v in pd.get('sf_params_limits', {}).items()},
+            contrast=float(pd.get('contrast', 1.0)),
+            fit_contrast=bool(pd.get('fit_contrast', False)),
+            contrast_limits=tuple(pd.get('contrast_limits', [0.0, 1e10])),
+            scale=float(pd.get('scale', 0.001)),
+            fit_scale=bool(pd.get('fit_scale', True)),
+            scale_limits=tuple(pd.get('scale_limits', [0.0, 1.0])),
+            use_number_dist=bool(pd.get('use_number_dist', False)),
+            n_bins=int(pd.get('n_bins', 200)),
+        )
 
     data_file = Path(data_file)
     config_file = Path(config_file)
@@ -1741,32 +1804,7 @@ def fit_modeling(
 
     # --- Build ModelingConfig from the dict stored by the GUI ---
     try:
-        pops = []
-        for pd in mod_cfg.get('populations', []):
-            pop = SizeDistPopulation(
-                enabled=pd.get('enabled', False),
-                dist_type=pd.get('dist_type', 'lognormal'),
-                dist_params=dict(pd.get('dist_params', {})),
-                dist_params_fit=dict(pd.get('dist_params_fit', {})),
-                dist_params_limits={k: tuple(v) for k, v in pd.get('dist_params_limits', {}).items()},
-                form_factor=pd.get('form_factor', 'sphere'),
-                ff_params=dict(pd.get('ff_params', {})),
-                ff_params_fit=dict(pd.get('ff_params_fit', {})),
-                ff_params_limits={k: tuple(v) for k, v in pd.get('ff_params_limits', {}).items()},
-                structure_factor=pd.get('structure_factor', 'none'),
-                sf_params=dict(pd.get('sf_params', {})),
-                sf_params_fit=dict(pd.get('sf_params_fit', {})),
-                sf_params_limits={k: tuple(v) for k, v in pd.get('sf_params_limits', {}).items()},
-                contrast=float(pd.get('contrast', 1.0)),
-                fit_contrast=bool(pd.get('fit_contrast', False)),
-                contrast_limits=tuple(pd.get('contrast_limits', [0.0, 1e10])),
-                scale=float(pd.get('scale', 0.001)),
-                fit_scale=bool(pd.get('fit_scale', True)),
-                scale_limits=tuple(pd.get('scale_limits', [0.0, 1.0])),
-                use_number_dist=bool(pd.get('use_number_dist', False)),
-                n_bins=int(pd.get('n_bins', 200)),
-            )
-            pops.append(pop)
+        pops = [_build_pop(pd) for pd in mod_cfg.get('populations', [])]
 
         modeling_config = ModelingConfig(
             populations=pops,

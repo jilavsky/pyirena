@@ -15,19 +15,20 @@ is no need to write configuration code by hand.
 4. [API reference — `fit_sizes`](#fit_sizes)
 5. [API reference — `fit_simple`](#fit_simple)
 6. [API reference — `fit_waxs`](#fit_waxs)
-7. [API reference — `merge_data`](#merge_data)
-8. [API reference — `fit_pyirena`](#fit_pyirena)
-9. [Return structures](#return-structures)
-10. [Error handling](#error-handling)
-11. [Batch processing patterns](#batch-processing-patterns)
-12. [Extending with new tools](#extending-with-new-tools)
+7. [API reference — `fit_modeling`](#fit_modeling)
+8. [API reference — `merge_data`](#merge_data)
+9. [API reference — `fit_pyirena`](#fit_pyirena)
+10. [Return structures](#return-structures)
+11. [Error handling](#error-handling)
+12. [Batch processing patterns](#batch-processing-patterns)
+13. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
 ## Quick start
 
 ```python
-from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_pyirena
+from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_modeling, fit_pyirena
 
 # Fit one file with Unified Fit, save results to NXcanSAS
 result = fit_unified("sample.h5", "pyirena_config.json")
@@ -52,6 +53,11 @@ result = fit_waxs("waxs_data.h5", "pyirena_config.json")
 if result and result['success']:
     for pk in result['peaks']:
         print(f"Q0={pk['Q0']['value']:.4f}  FWHM={pk['FWHM']['value']:.4f}")
+
+# Fit a parametric size-distribution / modeling model (reads 'modeling' section from config)
+result = fit_modeling("sample.h5", "pyirena_config.json")
+if result and result['success']:
+    print(f"χ²/dof = {result['result'].reduced_chi_squared:.4g}")
 
 # Run ALL configured tools on one file (one function call)
 results = fit_pyirena("sample.h5", "pyirena_config.json")
@@ -445,6 +451,120 @@ for f in data_files:
 
 ---
 
+## `fit_modeling`
+
+```python
+from pyirena.batch import fit_modeling
+
+result = fit_modeling(
+    data_file,              # str or Path — input SAS data file
+    config_file,            # str or Path — pyIrena JSON config with 'modeling' section
+    save_to_nexus=True,     # bool — write results to NXcanSAS HDF5 file
+    with_uncertainty=False, # bool — run MC uncertainty estimation after the main fit
+    n_mc_runs=10,           # int — number of MC runs (used when with_uncertainty=True)
+)
+```
+
+### What it does, step by step
+
+1. **Loads the config file** — validates the `_pyirena_config` header and reads
+   the `modeling` section (written by the **Modeling** GUI panel's **Export Parameters**
+   button).
+2. **Loads data** — same format detection as `fit_unified` (`.h5`/`.hdf5` via
+   NXcanSAS, `.dat`/`.txt` via text reader).
+3. **Builds populations** — deserializes each population dict from the config into
+   the appropriate dataclass (`SizeDistPopulation`, `UnifiedLevelPopulation`, or
+   `DiffractionPeakPopulation`) based on the `pop_type` field.
+4. **Runs the fit** — `ModelingEngine.fit()` using `scipy.optimize.least_squares`
+   (TRF with bounds) or Nelder-Mead when `no_limits=True`.
+5. **MC uncertainty** *(if `with_uncertainty=True`)* — re-fits `n_mc_runs` noise-perturbed
+   copies of the data and accumulates per-parameter standard deviations.
+6. **Saves results** *(if `save_to_nexus=True` and input is HDF5)* — writes
+   `entry/modeling_results` to the HDF5 file.
+7. **Returns** a result dict (see below).
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_file` | `str` or `Path` | required | Path to SAS data file |
+| `config_file` | `str` or `Path` | required | Path to pyIrena JSON config containing a `modeling` section |
+| `save_to_nexus` | `bool` | `True` | Save fit results to NXcanSAS HDF5; ignored for text-file inputs |
+| `with_uncertainty` | `bool` | `False` | Run Monte Carlo uncertainty estimation |
+| `n_mc_runs` | `int` | `10` | Number of MC passes for uncertainty estimation |
+
+### Population types
+
+The Modeling tool supports three population types, each stored in the config with
+a `pop_type` field:
+
+| `pop_type` | Dataclass | Description |
+|------------|-----------|-------------|
+| `size_dist` | `SizeDistPopulation` | Parametric size distribution (Gauss, LogNormal, LSW, Schulz-Zimm, Ardell) convolved with a form factor and optional structure factor |
+| `unified_level` | `UnifiedLevelPopulation` | Beaucage Unified Fit level: G·exp(−q²Rg²/3) + B·Q*⁻ᴾ + optional Born-Green correlations |
+| `diffraction_peak` | `DiffractionPeakPopulation` | Gaussian, Lorentzian, or pseudo-Voigt peak at Q₀ |
+
+Up to 5 populations of any type can be combined in a single fit.
+
+### Returns
+
+```python
+{
+    'success':     bool,            # True if the optimizer converged
+    'message':     str,             # human-readable status line, e.g.
+                                    # "Modeling fit complete — χ²/dof=1.23, 2 active population(s)"
+    'result':      ModelingResult,  # fully populated result object; see below
+    'output_file': Path | None,     # HDF5 file written, or None
+}
+```
+
+`result` is a `ModelingResult` dataclass with fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | bool | Whether the optimizer converged |
+| `message` | str | Status message from the engine |
+| `chi_squared` | float | χ² (weighted sum of squared residuals) |
+| `reduced_chi_squared` | float | χ² / degrees of freedom |
+| `n_active_pops` | int | Number of enabled populations |
+| `pop_indices` | list[int] | 0-based indices of enabled populations |
+| `params_std` | dict | Per-parameter standard deviations (populated after MC uncertainty) |
+| `q` | ndarray | Q array used for fitting (Å⁻¹) |
+| `I_total` | ndarray | Total model intensity over `q` |
+| `I_per_pop` | list[ndarray] | Per-population intensity contributions |
+
+Returns `None` only on fatal pre-fit errors (file not found, config unreadable,
+data load failure).  A non-converging optimizer returns a dict with `success=False`.
+
+### Example
+
+```python
+from pyirena.batch import fit_modeling
+
+# Single file
+result = fit_modeling("sample.h5", "pyirena_config.json")
+if result and result['success']:
+    r = result['result']
+    print(f"χ²/dof = {r.reduced_chi_squared:.4g}")
+    print(f"Active populations: {r.n_active_pops}")
+
+# With MC uncertainty
+result = fit_modeling(
+    "sample.h5", "pyirena_config.json",
+    with_uncertainty=True, n_mc_runs=50,
+)
+
+# Batch over many files
+from pathlib import Path
+for f in sorted(Path("data/").glob("*.h5")):
+    r = fit_modeling(f, "pyirena_config.json")
+    status = "OK" if r and r['success'] else "FAIL"
+    chi2 = f"{r['result'].reduced_chi_squared:.4g}" if r and r['success'] else "—"
+    print(f"{status}  {f.name}  χ²/dof={chi2}")
+```
+
+---
+
 ## `merge_data`
 
 ```python
@@ -597,6 +717,7 @@ to the appropriate fitting function for each.  Recognised tool sections:
 | `sizes` | `fit_sizes()` |
 | `simple_fits` | `fit_simple_from_config()` |
 | `waxs_peakfit` | `fit_waxs()` |
+| `modeling` | `fit_modeling()` |
 
 Unknown sections in the config file are silently skipped.  This means a config
 file created today will still work correctly when new tools are added to pyIrena,
@@ -870,6 +991,7 @@ _TOOL_REGISTRY = {
     'sizes':        lambda: fit_sizes(data_file, config_file, save_to_nexus, ...),
     'simple_fits':  lambda: fit_simple_from_config(data_file, config_file, save_to_nexus, ...),
     'waxs_peakfit': lambda: fit_waxs(data_file, config_file, save_to_nexus, ...),
+    'modeling':     lambda: fit_modeling(data_file, config_file, save_to_nexus, ...),
     # add new tools here
 }
 ```
