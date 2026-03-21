@@ -28,8 +28,8 @@ try:
         QAbstractItemView, QCheckBox, QInputDialog, QMenu,
         QDialog, QListWidget,
     )
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QColor, QFont, QAction
+    from PySide6.QtCore import Qt, QUrl
+    from PySide6.QtGui import QColor, QFont, QAction, QDesktopServices
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -40,8 +40,8 @@ except ImportError:
             QAbstractItemView, QCheckBox, QInputDialog, QMenu,
             QDialog, QListWidget,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QColor, QFont, QAction
+        from PyQt6.QtCore import Qt, QUrl
+        from PyQt6.QtGui import QColor, QFont, QAction, QDesktopServices
     except ImportError:
         raise ImportError(
             "Neither PySide6 nor PyQt6 found.  Install with: pip install PySide6"
@@ -544,9 +544,26 @@ class ContrastPanel(QWidget):
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(4)
 
+        # Status label + Help button on the same row
+        top_row = QHBoxLayout()
         self._status_lbl = QLabel("Enter compound definitions and click Calculate.")
         self._status_lbl.setStyleSheet("color:#7f8c8d; padding:3px; font-style:italic;")
-        rl.addWidget(self._status_lbl)
+        top_row.addWidget(self._status_lbl, stretch=1)
+
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/scattering_contrast_gui.md"
+            ))
+        )
+        top_row.addWidget(_help_btn)
+        rl.addLayout(top_row)
 
         self._tbl = self._make_results_table()
         rl.addWidget(self._tbl, stretch=1)
