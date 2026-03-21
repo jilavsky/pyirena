@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-20
+
+### Added
+
+#### Modeling tool — parametric size-distribution fitting
+New analysis tool for forward-modelling small-angle scattering data using
+parametric size distributions, Unified Fit levels, and diffraction peaks.
+
+- **5 distribution functions**: Gaussian, LogNormal (3-parameter shifted), LSW,
+  Schulz-Zimm (Gamma), Ardell — Igor-style CDF-inversion radius grid.
+- **3 population types** combinable in up to 5 simultaneous populations:
+  - `SizeDistPopulation`: distribution × form factor (sphere, spheroid) × optional
+    structure factor (interferences / hard-sphere Percus-Yevick).
+  - `UnifiedLevelPopulation`: Beaucage Unified level G·exp(−q²Rg²/3) + B·Q*⁻ᴾ
+    with optional Born-Green correlations.
+  - `DiffractionPeakPopulation`: Gaussian, Lorentzian, or pseudo-Voigt peak at Q₀.
+- **Engine** (`pyirena/core/modeling.py`): `ModelingEngine` with G-matrix caching,
+  `scipy.optimize.least_squares` (TRF) or Nelder-Mead fitting, and MC uncertainty.
+- **HDF5 I/O** (`pyirena/io/nxcansas_modeling.py`): save/load for all population types.
+- **GUI panel** (`pyirena/gui/modeling_panel.py`): multi-tab population editor,
+  I(Q) log-log plot with per-population overlays, distribution preview, Export/Import
+  Parameters, and MC uncertainty estimation.
+- **Batch API** (`pyirena/batch.py`): `fit_modeling()` headless fitting function;
+  registered in `fit_pyirena()` under the `modeling` config key.
+- **Data Selector** integration: Modeling (GUI/script) buttons at row 4.
+
+#### Data Merge tool — SAXS/WAXS merging
+New tool for merging two SAS datasets (e.g. SAXS + WAXS) onto a common Q scale.
+
+- **Engine** (`pyirena/core/data_merge.py`): Nelder-Mead optimisation of scale factor,
+  flat background (DS1), and optional Q-shift; log-log linear interpolation in the
+  overlap region.
+- **HDF5 I/O** (`pyirena/io/nxcansas_data_merge.py`): copies DS1 NXcanSAS file and
+  replaces Q/I/Idev/Qdev with merged data; appends `entry/data_merge_results`.
+- **GUI panel** (`pyirena/gui/data_merge_panel.py`): dual dataset loader, SAXS/WAXS
+  plot mode toggle, cursor-driven overlap range, optimisation controls, and batch mode.
+- **Batch API**: `merge_data()` headless merge function.
+- **CLI entry point**: `pyirena-datamerge` console script.
+
+#### Scattering Contrast Calculator
+New tool for computing X-ray and neutron scattering length densities and contrast.
+
+- Compound-level SLD calculation from chemical formula, density, and X-ray energy.
+- Supports neutron SLDs with isotope substitution.
+- Phase-pair contrast (ΔρX)² and (ΔρN)² tables.
+- **GUI panel** (`pyirena/gui/contrast_panel.py`) with compound library, interactive
+  crosshair energy cursor, and JPEG export.
+- **CLI entry point**: `pyirena-contrast` console script.
+
+### Fixed
+
+- **`fit_modeling` batch function**: previously only deserialized `SizeDistPopulation`
+  from config; now correctly rebuilds `UnifiedLevelPopulation` and
+  `DiffractionPeakPopulation` via `pop_type` dispatch.
+- **`fit_pyirena`**: `modeling` config key was missing from `_TOOL_REGISTRY`; added
+  so `fit_pyirena()` automatically runs `fit_modeling()` when a `modeling` section is
+  present in the config file.
+- **`pyirena/__init__.py`**: `__version__` was not updated from 0.1.1; now kept in
+  sync with `pyproject.toml`.
+
 ## [0.1.2] - 2026-02-22
 
 ### Added
