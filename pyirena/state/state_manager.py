@@ -50,6 +50,28 @@ class StateManager:
             "sort_index": 6,      # Order number ↑ (same default as data_selector)
             "filter_text": "",
         },
+        "contrast": {
+            "comp1": {
+                "name": "Water",
+                "formula_str": "H2O",
+                "composition_mode": "atomic_ratio",
+                "density": 1.0,
+                "isotope_overrides": {},
+            },
+            "comp2": {
+                "name": "vacuum",
+                "formula_str": "",
+                "composition_mode": "atomic_ratio",
+                "density": 0.0,
+                "isotope_overrides": {},
+            },
+            "energy_keV": 12.0,
+            "thickness_mm": 1.0,
+            "vol_frac_comp1": 0.01,
+            "e_start_keV": 5.0,
+            "e_end_keV": 25.0,
+            "n_points": 500,
+        },
         "simple_fits": {
             # schema_version 1: initial release
             "schema_version": 1,

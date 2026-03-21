@@ -45,6 +45,8 @@ gui = [
     "matplotlib>=3.3.0",
     "PySide6>=6.4.0",
     "pyqtgraph>=0.13.0",
+    "xraydb>=4.5",
+    "periodictable>=1.7",
 ]
 dev = [
     "pytest>=7.0",
@@ -54,11 +56,8 @@ dev = [
     "mypy",
 ]
 all = [
-    "matplotlib>=3.3.0",
-    "PySide6>=6.4.0",
-    "pyqtgraph>=0.13.0",
-    "pytest>=7.0",
-    "pytest-cov",
+    "pyirena[gui]",
+    "pyirena[dev]",
 ]
 
 [project.urls]
@@ -71,6 +70,7 @@ Repository = "https://github.com/jilavsky/pyirena"
 pyirena-gui = "pyirena.gui.launch:main"
 pyirena-viewer = "pyirena.gui.hdf5viewer:main"
 pyirena-datamerge = "pyirena.gui.data_merge_panel:main"
+pyirena-contrast = "pyirena.gui.contrast_panel:main"
 
 [tool.setuptools]
 packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting", "pyirena.gui", "pyirena.gui.hdf5viewer"]

@@ -1927,6 +1927,7 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
         self.hdf5_viewer_window = None         # HDF5 Viewer / Data Extractor
         self.data_merge_window = None          # Data Merge panel
+        self.contrast_window = None            # Scattering Contrast Calculator
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -2479,12 +2480,43 @@ class DataSelectorPanel(QWidget):
 
         right_layout.addStretch()
 
-        # Visual separator between analysis-tool buttons and utility buttons
+        # Visual separator between analysis-tool buttons and support/utility buttons
         _util_sep = QFrame()
         _util_sep.setFrameShape(QFrame.Shape.HLine)
         _util_sep.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep.setStyleSheet("color: #bdc3c7;")
         right_layout.addWidget(_util_sep)
+
+        # ── Support Tools (experiment planning — no data required) ────
+        _support_sep_lbl = QLabel("Support Tools")
+        _support_sep_lbl.setStyleSheet(
+            "color:#7f8c8d; font-size:10px; font-weight:bold; padding:1px 0px;"
+        )
+        right_layout.addWidget(_support_sep_lbl)
+
+        _contrast_style = (
+            "QPushButton { background: #16a085; color: white; "
+            "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
+            "QPushButton:hover { background: #138d75; }"
+            "QPushButton:disabled { background: #95a5a6; }"
+        )
+        self.contrast_button = QPushButton("Scattering Contrast")
+        self.contrast_button.setMinimumHeight(38)
+        self.contrast_button.setStyleSheet(_contrast_style)
+        self.contrast_button.setToolTip(
+            "Open the Scattering Contrast Calculator.\n"
+            "Computes X-ray and neutron SLDs and contrast for two compounds\n"
+            "(free-electron and anomalous Chantler-corrected X-ray values)."
+        )
+        self.contrast_button.clicked.connect(self.launch_contrast)
+        right_layout.addWidget(self.contrast_button)
+
+        # Visual separator before utility buttons
+        _util_sep2 = QFrame()
+        _util_sep2.setFrameShape(QFrame.Shape.HLine)
+        _util_sep2.setFrameShadow(QFrame.Shadow.Sunken)
+        _util_sep2.setStyleSheet("color: #bdc3c7;")
+        right_layout.addWidget(_util_sep2)
 
         right_layout.addWidget(self.data_merge_button)
         right_layout.addWidget(self.hdf5_viewer_button)
@@ -2563,6 +2595,11 @@ class DataSelectorPanel(QWidget):
         hdf5_viewer_action.setStatusTip("Open HDF5 Viewer / Data Extractor")
         hdf5_viewer_action.triggered.connect(self.launch_hdf5_viewer)
         tools_menu.addAction(hdf5_viewer_action)
+        tools_menu.addSeparator()
+        contrast_action = QAction("&Scattering Contrast", self)
+        contrast_action.setStatusTip("Open Scattering Contrast Calculator")
+        contrast_action.triggered.connect(self.launch_contrast)
+        tools_menu.addAction(contrast_action)
         menu_bar.addMenu(tools_menu)
 
         # Help menu
@@ -3690,6 +3727,20 @@ class DataSelectorPanel(QWidget):
         self.data_merge_window.raise_()
         self.data_merge_window.activateWindow()
         self.status_label.setText("Data Merge tool opened.")
+
+    def launch_contrast(self):
+        """Open the Scattering Contrast Calculator."""
+        from pyirena.gui.contrast_panel import ContrastPanel
+
+        if self.contrast_window is None:
+            self.contrast_window = ContrastPanel(
+                state_manager=self.state_manager,
+            )
+
+        self.contrast_window.show()
+        self.contrast_window.raise_()
+        self.contrast_window.activateWindow()
+        self.status_label.setText("Scattering Contrast Calculator opened.")
 
     def launch_hdf5_viewer(self):
         """Open the HDF5 Viewer / Data Extractor for the current folder."""
