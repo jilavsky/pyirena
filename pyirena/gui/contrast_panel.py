@@ -26,6 +26,7 @@ try:
         QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
         QScrollArea, QMessageBox, QFileDialog, QSplitter,
         QAbstractItemView, QCheckBox, QInputDialog, QMenu,
+        QDialog, QListWidget,
     )
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QFont, QAction
@@ -37,6 +38,7 @@ except ImportError:
             QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
             QScrollArea, QMessageBox, QFileDialog, QSplitter,
             QAbstractItemView, QCheckBox, QInputDialog, QMenu,
+            QDialog, QListWidget,
         )
         from PyQt6.QtCore import Qt
         from PyQt6.QtGui import QColor, QFont, QAction
@@ -412,6 +414,65 @@ class ContrastGraphWindow(QWidget):
         )
 
 
+# ─── Compound-pick dialog (used by import) ────────────────────────────────────
+
+class _CompoundPickDialog(QDialog):
+    """
+    Dialog shown when an HDF5 file contains multiple compounds.
+
+    The user can:
+      * Select one compound and click "Load into slot" — loads it into the caller's
+        compound slot and optionally adds it to the local library.
+      * Click "Add all to local library" — adds every compound in the file to the
+        local library without loading any into a slot.
+    """
+
+    def __init__(self, file_name: str, names: List[str], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Select Compound to Import")
+        self._load_all = False
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(
+            f"'{file_name}' contains {len(names)} compound(s).\n"
+            "Select one to load into the compound slot, or add all to the local library."
+        ))
+
+        self._list = QListWidget()
+        self._list.addItems(names)
+        self._list.setCurrentRow(0)
+        self._list.itemDoubleClicked.connect(self.accept)
+        lay.addWidget(self._list)
+
+        btn_row = QHBoxLayout()
+        load_btn = QPushButton("Load Selected into Slot")
+        load_btn.setStyleSheet(_S_BLUE)
+        load_btn.clicked.connect(self.accept)
+        btn_row.addWidget(load_btn)
+
+        all_btn = QPushButton("Add All to Local Library")
+        all_btn.setStyleSheet(_S_TEAL)
+        all_btn.clicked.connect(self._on_load_all)
+        btn_row.addWidget(all_btn)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(_S_SMALL)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        lay.addLayout(btn_row)
+
+    def selected_name(self) -> Optional[str]:
+        item = self._list.currentItem()
+        return item.text() if item else None
+
+    def load_all_requested(self) -> bool:
+        return self._load_all
+
+    def _on_load_all(self) -> None:
+        self._load_all = True
+        self.accept()
+
+
 # ─── Main contrast panel ───────────────────────────────────────────────────────
 
 class ContrastPanel(QWidget):
@@ -756,7 +817,8 @@ class ContrastPanel(QWidget):
             3, QHeaderView.ResizeMode.ResizeToContents)
         tbl.verticalHeader().setVisible(False)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         tbl.setAlternatingRowColors(True)
 
         # Right-click Copy context menu
@@ -814,8 +876,14 @@ class ContrastPanel(QWidget):
     # ══════════════════════════════════════════════════════════════════
 
     def _table_context_menu(self, pos) -> None:
+        # Select the cell under the cursor if nothing (or only other cells) selected
+        item_at = self._tbl.itemAt(pos)
+        if item_at is not None:
+            sel = self._tbl.selectedItems()
+            if item_at not in sel:
+                self._tbl.setCurrentItem(item_at)
         menu = QMenu(self._tbl)
-        copy_act = QAction("Copy", self._tbl)
+        copy_act = QAction("Copy cell", self._tbl)
         copy_act.setShortcut("Ctrl+C")
         copy_act.triggered.connect(self._copy_table_selection)
         menu.addAction(copy_act)
@@ -1168,18 +1236,50 @@ class ContrastPanel(QWidget):
         if not spec["formula_str"]:
             QMessageBox.warning(self, "Nothing to export", "Formula is empty.")
             return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Compound to File",
-            str(Path.home() / f"{spec['name']}_compounds.h5"),
-            "HDF5 Files (*.h5 *.hdf5);;All Files (*)",
-        )
-        if not path:
+
+        # Use a dialog that does NOT ask "overwrite?" — we handle that ourselves.
+        dlg = QFileDialog(self)
+        dlg.setWindowTitle("Export Compound to HDF5 File")
+        dlg.setFileMode(QFileDialog.FileMode.AnyFile)
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dlg.setNameFilter("HDF5 Files (*.h5 *.hdf5);;All Files (*)")
+        dlg.setOption(QFileDialog.Option.DontConfirmOverwrite, True)
+        dlg.selectFile(str(Path.home() / f"{spec['name']}.h5"))
+        if not dlg.exec():
             return
+        fpath = Path(dlg.selectedFiles()[0])
+
+        # If the file already has compounds ask what to do
+        if fpath.exists():
+            existing = list_compounds_in_library(fpath)
+            if existing:
+                msg_dlg = QMessageBox(self)
+                msg_dlg.setWindowTitle("File already has compounds")
+                msg_dlg.setText(
+                    f"'{fpath.name}' already contains {len(existing)} compound(s):\n"
+                    f"  {', '.join(existing)}\n\n"
+                    "What do you want to do?"
+                )
+                append_btn = msg_dlg.addButton(
+                    "Append compound", QMessageBox.ButtonRole.AcceptRole
+                )
+                replace_btn = msg_dlg.addButton(
+                    "Replace entire file", QMessageBox.ButtonRole.DestructiveRole
+                )
+                msg_dlg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+                msg_dlg.exec()
+                clicked = msg_dlg.clickedButton()
+                if clicked == replace_btn:
+                    fpath.unlink()
+                elif clicked != append_btn:
+                    return  # cancelled
+
         try:
-            saved = save_compound_to_library(
-                spec, library_path=Path(path), name=spec["name"]
+            saved = save_compound_to_library(spec, library_path=fpath, name=spec["name"])
+            total = len(list_compounds_in_library(fpath))
+            self._set_status(
+                f"Exported '{saved}' to {fpath.name}  ({total} compound(s) in file)."
             )
-            self._set_status(f"Exported '{saved}' to {Path(path).name}.")
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))
 
@@ -1192,35 +1292,58 @@ class ContrastPanel(QWidget):
         if not path:
             return
 
-        names = list_compounds_in_library(Path(path))
+        fpath = Path(path)
+        names = list_compounds_in_library(fpath)
         if not names:
             QMessageBox.information(
                 self, "No compounds",
-                f"No compounds found in {Path(path).name}."
+                f"No compounds found in {fpath.name}."
             )
             return
 
-        name, ok = QInputDialog.getItem(
-            self, "Import Compound",
-            f"Select compound from {Path(path).name}:",
-            names, 0, False,
-        )
-        if not ok:
-            return
+        if len(names) == 1:
+            # Single compound — load directly, no selection dialog needed
+            name = names[0]
+            self._import_one_compound(n, name, fpath)
+        else:
+            # Multiple compounds — let the user pick or grab them all
+            pick = _CompoundPickDialog(fpath.name, names, self)
+            if not pick.exec():
+                return
 
+            if pick.load_all_requested():
+                # Add every compound from the file to the local library
+                errors = []
+                for cname in names:
+                    try:
+                        d = load_compound_from_library(cname, library_path=fpath)
+                        save_compound_to_library(d, name=cname)
+                    except Exception as exc:
+                        errors.append(f"{cname}: {exc}")
+                self._refresh_library(1)
+                self._refresh_library(2)
+                msg = f"Added {len(names)} compound(s) from {fpath.name} to local library."
+                if errors:
+                    msg += f"\nErrors: {'; '.join(errors)}"
+                self._set_status(msg)
+            else:
+                name = pick.selected_name()
+                if name:
+                    self._import_one_compound(n, name, fpath)
+
+    def _import_one_compound(self, n: int, name: str, fpath: Path) -> None:
+        """Load a single compound from fpath into slot n, offer to add to library."""
         try:
-            d = load_compound_from_library(name, library_path=Path(path))
+            d = load_compound_from_library(name, library_path=fpath)
         except Exception as exc:
             QMessageBox.critical(self, "Import failed", str(exc))
             return
-
         self._apply_compound_dict(n, d)
-        self._set_status(f"Imported '{name}' from {Path(path).name} into Compound {n}.")
+        self._set_status(f"Imported '{name}' from {fpath.name} into Compound {n}.")
 
-        # Offer to also save to local library
         ans = QMessageBox.question(
             self, "Add to local library?",
-            f"Also add '{name}' to the local library (~/.pyirena/)?",
+            f"Also add '{name}' to the local library?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if ans == QMessageBox.StandardButton.Yes:
