@@ -17,6 +17,8 @@ dependencies:
   # GUI
   - pyside6>=6.4
   - pyqtgraph>=0.13
+  - xraydb>=4.5
+  - periodictable>=1.7
 
   # Development / testing (optional — remove if not needed)
   - pytest>=7.0
