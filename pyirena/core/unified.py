@@ -479,7 +479,7 @@ class UnifiedFitModel:
 
         # Integrate I(q) * q^2
         integrand = intensity * q ** 2
-        invariant = np.trapz(integrand, q)
+        invariant = np.trapezoid(integrand, q)
 
         # Add Porod tail contribution if applicable
         if level.RgCO < 0.1 and abs(level.P - 4.0) < 0.5:

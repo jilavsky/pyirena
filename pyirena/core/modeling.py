@@ -390,7 +390,7 @@ def _uf_invariant(pop: 'UnifiedLevelPopulation') -> float:
         _w.simplefilter('ignore')
         I = _unified_level_intensity(q, pop)
     I[0] = I[1]
-    invariant = float(np.trapz(I * q ** 2, q))
+    invariant = float(np.trapezoid(I * q ** 2, q))
     # Porod tail correction  ∫_maxQ^∞ B·Q^(2-P) dQ = -B·maxQ^(3-P)/(3-P)  for P>3
     if pop.RgCO < 0.1 and P > 3.0:
         invariant += -B * maxQ ** (3.0 - P) / (3.0 - P)
