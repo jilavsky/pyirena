@@ -882,6 +882,7 @@ def fit_pyirena(
     save_to_nexus: bool = True,
     with_uncertainty: bool = False,
     n_mc_runs: int = 10,
+    tools: Optional[List[str]] = None,
 ) -> Optional[Dict]:
     """Run all analysis tools that have a configuration group in the config file.
 
@@ -914,6 +915,12 @@ def fit_pyirena(
         Passed to each individual tool's fitting function (default False).
     n_mc_runs : int, optional
         Passed to each individual tool's fitting function (default 10).
+    tools : list of str or None, optional
+        If given, only the named tools are run (e.g. ``['unified_fit', 'sizes']``).
+        Tools not in the list are skipped even if present in the config file.
+        When None (default), every recognised tool section in the config is run —
+        this is identical to the behaviour before this parameter was added, so
+        existing callers are unaffected.
 
     Returns
     -------
@@ -929,7 +936,13 @@ def fit_pyirena(
 
     Examples
     --------
+    >>> # Run all tools present in the config (original behaviour)
     >>> results = fit_pyirena("sample.h5", "pyirena_config.json")
+
+    >>> # Run only unified_fit, skip everything else in the config
+    >>> results = fit_pyirena("sample.h5", "pyirena_config.json",
+    ...                       tools=["unified_fit"])
+
     >>> if results:
     ...     uf = results['results'].get('unified_fit')
     ...     if uf and uf['success']:
@@ -967,6 +980,8 @@ def fit_pyirena(
         return None
 
     tools_to_run = [key for key in _TOOL_REGISTRY if key in config]
+    if tools is not None:
+        tools_to_run = [t for t in tools_to_run if t in tools]
 
     if not tools_to_run:
         print(f"[pyirena.batch] Config file '{config_file}' contains no recognised "

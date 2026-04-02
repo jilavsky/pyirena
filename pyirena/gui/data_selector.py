@@ -704,6 +704,143 @@ def _build_report(file_path: str,
     return "\n".join(L)
 
 
+class ConfigManagerDialog(QDialog):
+    """Dialog for inspecting and pruning sections from a pyirena_config.json file.
+
+    Shows each tool section as a labelled checkbox.  Unchecking a section and
+    clicking Save removes that section from the file.  No values are exposed for
+    editing, avoiding accidental corruption.
+    """
+
+    # Known tool keys in the order we want to display them
+    _KNOWN_TOOLS = [
+        'unified_fit', 'sizes', 'modeling', 'simple_fits', 'waxs_peakfit', 'data_merge',
+    ]
+
+    def __init__(self, config_path: str, parent=None):
+        super().__init__(parent)
+        self.config_path = config_path
+        self.setWindowTitle("Manage Config Sections")
+        self.setMinimumWidth(420)
+
+        import json
+        try:
+            with open(config_path, 'r') as f:
+                self._config = json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Cannot read config file:\n{e}")
+            self._config = {}
+
+        self._checkboxes: dict = {}  # key → QCheckBox
+
+        layout = QVBoxLayout(self)
+
+        # File path label
+        path_lbl = QLabel(f"<small>{config_path}</small>")
+        path_lbl.setWordWrap(True)
+        layout.addWidget(path_lbl)
+
+        # Written-by / modified info from _pyirena_config header
+        meta = self._config.get('_pyirena_config', {})
+        if meta:
+            modified = meta.get('modified', '')
+            written_by = meta.get('written_by', '')
+            info = []
+            if written_by:
+                info.append(f"Written by: {written_by}")
+            if modified:
+                info.append(f"Last modified: {modified[:19]}")
+            if info:
+                meta_lbl = QLabel("<small>" + " &nbsp;|&nbsp; ".join(info) + "</small>")
+                meta_lbl.setStyleSheet("color: #7f8c8d;")
+                layout.addWidget(meta_lbl)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep)
+
+        # Instruction
+        instr = QLabel(
+            "Uncheck sections you want to remove, then click <b>Save</b>.\n"
+            "Removed sections will no longer be run by fit_pyirena()."
+        )
+        instr.setWordWrap(True)
+        layout.addWidget(instr)
+
+        # One checkbox per tool section found in the file
+        tool_keys_in_file = [k for k in self._KNOWN_TOOLS if k in self._config]
+        # Also show any unknown tool keys (future-proofing)
+        extra_keys = [k for k in self._config
+                      if k not in self._KNOWN_TOOLS and k != '_pyirena_config']
+        all_keys = tool_keys_in_file + extra_keys
+
+        if not all_keys:
+            layout.addWidget(QLabel("No tool sections found in this file."))
+        else:
+            grid = QGridLayout()
+            grid.setColumnStretch(0, 1)
+            for row, key in enumerate(all_keys):
+                cb = QCheckBox(key)
+                cb.setChecked(True)
+                cb.setStyleSheet("font-weight: bold;")
+                self._checkboxes[key] = cb
+                grid.addWidget(cb, row, 0)
+                # Show a timestamp hint if stored per-section (not currently written,
+                # but future-safe) or fall back to file-level modified date
+                ts = ''
+                sec = self._config.get(key, {})
+                if isinstance(sec, dict):
+                    ts = sec.get('_modified', meta.get('modified', ''))
+                if ts:
+                    ts_lbl = QLabel(f"<small>{ts[:19]}</small>")
+                    ts_lbl.setStyleSheet("color: #95a5a6;")
+                    grid.addWidget(ts_lbl, row, 1)
+            layout.addLayout(grid)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep2)
+
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        save_btn.setDefault(True)
+        save_btn.clicked.connect(self._save)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+    def _save(self):
+        import json
+        import datetime
+        to_remove = [key for key, cb in self._checkboxes.items() if not cb.isChecked()]
+        if not to_remove:
+            self.accept()
+            return
+        for key in to_remove:
+            self._config.pop(key, None)
+        # Update modification timestamp
+        if '_pyirena_config' in self._config:
+            self._config['_pyirena_config']['modified'] = (
+                datetime.datetime.now().isoformat(timespec='seconds')
+            )
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump(self._config, f, indent=2)
+            QMessageBox.information(
+                self, "Saved",
+                f"Removed {len(to_remove)} section(s): {', '.join(to_remove)}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not save config:\n{e}")
+            return
+        self.accept()
+
+
 class DataSelectorConfigDialog(QDialog):
     """
     Extensible configuration dialog for the Data Selector.
@@ -2476,6 +2613,15 @@ class DataSelectorPanel(QWidget):
         )
         self.data_merge_button.clicked.connect(self.launch_data_merge)
 
+        self.manage_config_button = QPushButton("Manage Config...")
+        self.manage_config_button.setMinimumHeight(38)
+        self.manage_config_button.setStyleSheet(_utility_style)
+        self.manage_config_button.setToolTip(
+            "Inspect and remove tool sections from pyirena_config.json.\n"
+            "Use this to prevent unwanted tools from running during batch fitting."
+        )
+        self.manage_config_button.clicked.connect(self.open_config_manager)
+
         right_layout.addLayout(btn_grid)
 
         right_layout.addStretch()
@@ -2520,6 +2666,7 @@ class DataSelectorPanel(QWidget):
 
         right_layout.addWidget(self.data_merge_button)
         right_layout.addWidget(self.hdf5_viewer_button)
+        right_layout.addWidget(self.manage_config_button)
         file_area_layout.addLayout(right_layout, stretch=1)
 
         content_layout.addLayout(file_area_layout)
@@ -3758,6 +3905,19 @@ class DataSelectorPanel(QWidget):
         self.hdf5_viewer_window.raise_()
         self.hdf5_viewer_window.activateWindow()
         self.status_label.setText("HDF5 Viewer opened.")
+
+    def open_config_manager(self):
+        """Open the Config Manager dialog for the current folder's pyirena_config.json."""
+        config_file = self._find_config_file()
+        if not config_file:
+            QMessageBox.information(
+                self, "No Config File",
+                "No pyirena_config.json found.\n"
+                "Export parameters from a fit panel first, then try again.",
+            )
+            return
+        dlg = ConfigManagerDialog(config_file, parent=self)
+        dlg.exec()
 
     def _find_config_file(self) -> Optional[str]:
         """
