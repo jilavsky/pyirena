@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.polynomial.legendre import leggauss
+from scipy.special import j1 as _scipy_j1
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -190,10 +191,121 @@ def _build_g_spheroid(
     return G * (contrast * 1e-4)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Cylinder form factor
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _j1_over_x(x: np.ndarray) -> np.ndarray:
+    """J₁(x)/x with Taylor expansion for x < 1e-3 to avoid cancellation.
+
+    As x → 0:  J₁(x)/x → 1/2 − x²/16 + x⁴/384 − …
+    Multiply by 2 to get the normalised cylinder radial amplitude, which → 1.
+    """
+    out = np.empty_like(x, dtype=float)
+    small = x < 1e-3
+    x2 = x[small] ** 2
+    out[small] = 0.5 - x2 / 16.0 + x2 ** 2 / 384.0
+    out[~small] = _scipy_j1(x[~small]) / x[~small]
+    return out
+
+
+def _build_g_cylinder_ar(
+    q: np.ndarray,
+    r_grid: np.ndarray,
+    contrast: float,
+    aspect_ratio: float = 1.0,
+) -> np.ndarray:
+    """G matrix for a finite cylinder with aspect-ratio parameterisation.
+
+    The cylinder has equatorial radius r (from the distribution) and
+    half-length L = AR * r, so total height H = 2·AR·r.
+
+    Volume per bin:  V(r) = π r² · 2L = 2π · AR · r³
+
+    The orientationally-averaged form factor squared is integrated via
+    50-point Gauss-Legendre quadrature over cos(α) ∈ [0, 1]:
+
+        <F²(q)> = ∫₀¹ [2J₁(qr√(1−u²)) / (qr√(1−u²))]² · sinc²(qLu/π) du
+
+    where  sinc(x) = sin(πx)/(πx)  (NumPy convention).
+
+    At AR → 0:  thin disk limit.
+    At AR ≫ 1:  long rod limit.
+    At AR = 1:  cylinder with H = 2R.
+    """
+    AR = float(aspect_ratio)
+    cos_t   = 0.5 * (_GL_NODES + 1.0)   # cos(α) nodes ∈ [0, 1],  shape (K,)
+    weights = 0.5 * _GL_WEIGHTS          # GL weights with Jacobian,  shape (K,)
+    sin_t   = np.sqrt(np.maximum(1.0 - cos_t ** 2, 0.0))   # sin(α)
+
+    M, N = len(q), len(r_grid)
+    G = np.empty((M, N), dtype=float)
+
+    for j, r in enumerate(r_grid):
+        L = AR * r                            # half-length [Å]
+        V = 2.0 * np.pi * AR * r ** 3        # cylinder volume [Å³]
+
+        # Radial (perpendicular) amplitude: 2 J₁(qr sinα) / (qr sinα)
+        qr_perp = q[:, np.newaxis] * (r * sin_t)        # (M, K)
+        F_perp  = 2.0 * _j1_over_x(qr_perp)            # (M, K); → 1 at qr_perp=0
+
+        # Axial (parallel) amplitude: sin(qL cosα) / (qL cosα) = sinc(qLu/π)
+        qL_par = q[:, np.newaxis] * (L * cos_t)         # (M, K)
+        F_par  = np.sinc(qL_par / np.pi)                # (M, K); → 1 at qL_par=0
+
+        G[:, j] = V * ((F_perp * F_par) ** 2 @ weights)
+
+    return G * (contrast * 1e-4)
+
+
+def _build_g_cylinder_length(
+    q: np.ndarray,
+    r_grid: np.ndarray,
+    contrast: float,
+    length: float = 100.0,
+) -> np.ndarray:
+    """G matrix for a finite cylinder with fixed absolute length.
+
+    The cylinder has equatorial radius r (from the distribution) and a
+    fixed total height H = length [Å] (half-length L = length/2), so the
+    volume is V(r) = π r² · length (scales as r², not r³).
+
+    The form factor is identical to cylinder_ar except L is constant:
+
+        <F²(q)> = ∫₀¹ [2J₁(qr√(1−u²)) / (qr√(1−u²))]² · sinc²(qLu/π) du
+
+    Useful for disk-like scatterers (small length) or rod-like (large length)
+    when the physical thickness/length is known independently of the radius.
+    """
+    L = float(length) / 2.0              # half-length [Å]
+    cos_t   = 0.5 * (_GL_NODES + 1.0)
+    weights = 0.5 * _GL_WEIGHTS
+    sin_t   = np.sqrt(np.maximum(1.0 - cos_t ** 2, 0.0))
+
+    M, N = len(q), len(r_grid)
+    G = np.empty((M, N), dtype=float)
+
+    # Axial factor is constant across all r bins (L is fixed)
+    qL_par = q[:, np.newaxis] * (L * cos_t)             # (M, K)
+    F_par  = np.sinc(qL_par / np.pi)                    # (M, K)
+
+    for j, r in enumerate(r_grid):
+        V = np.pi * r ** 2 * float(length)              # cylinder volume [Å³]
+
+        qr_perp = q[:, np.newaxis] * (r * sin_t)        # (M, K)
+        F_perp  = 2.0 * _j1_over_x(qr_perp)            # (M, K)
+
+        G[:, j] = V * ((F_perp * F_par) ** 2 @ weights)
+
+    return G * (contrast * 1e-4)
+
+
 #: Vectorized G-matrix builders, keyed by shape name.
 _G_BUILDERS: dict[str, callable] = {
-    'sphere':   _build_g_sphere,
-    'spheroid': _build_g_spheroid,
+    'sphere':          _build_g_sphere,
+    'spheroid':        _build_g_spheroid,
+    'cylinder_ar':     _build_g_cylinder_ar,
+    'cylinder_length': _build_g_cylinder_length,
 }
 
 
@@ -214,10 +326,13 @@ def build_g_matrix(
     Args:
         q:           1-D array of Q values [Å^-1], shape (M,)
         r_grid:      1-D array of radius bin centres [Å], shape (N,)
-        shape:       Particle shape: 'sphere' or 'spheroid'
+        shape:       Particle shape: 'sphere', 'spheroid', 'cylinder_ar',
+                     or 'cylinder_length'
         contrast:    (Δρ)² in units of 10^20 cm^-4
         **shape_params: Extra parameters for the form factor.
-                        For spheroid: aspect_ratio=<float>
+                        For spheroid:        aspect_ratio=<float>
+                        For cylinder_ar:     aspect_ratio=<float>  (L = AR·r)
+                        For cylinder_length: length=<float> [Å]   (total height)
 
     Returns:
         G matrix of shape (M, N)

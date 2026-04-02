@@ -367,6 +367,22 @@ def _volume_sphere(r: np.ndarray) -> np.ndarray:
     return (4.0 / 3.0) * np.pi * r ** 3
 
 
+def _volume_cylinder(r_grid: np.ndarray, pop) -> np.ndarray:
+    """Cylinder volume per radius bin, based on the FF parameterisation.
+
+    cylinder_ar:     V = π r² · 2L = 2π·AR·r³    (L = AR·r varies with r)
+    cylinder_length: V = π r² · H                 (H = length is constant)
+    """
+    ff = getattr(pop, 'form_factor', 'sphere')
+    if ff == 'cylinder_ar':
+        AR = float(pop.ff_params.get('aspect_ratio', 1.0))
+        return 2.0 * np.pi * AR * r_grid ** 3
+    if ff == 'cylinder_length':
+        length = float(pop.ff_params.get('length', 100.0))
+        return np.pi * r_grid ** 2 * length
+    return _volume_sphere(r_grid)
+
+
 def _uf_invariant(pop: 'UnifiedLevelPopulation') -> float:
     """Compute the Porod invariant for a Unified Fit Level.
 
@@ -435,19 +451,44 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
     else:
         vf = 0.5 * (1.0 - np.sqrt(max(1.0 - 4.0 * scale, 0.0)))
 
-    # Rg² (volume-weighted): ∫ (3/5)*r² * vol_dist dr / vol_tot
+    # Rg² (volume-weighted) — geometry depends on form factor
+    ff = getattr(pop, 'form_factor', 'sphere')
+    if ff == 'cylinder_ar':
+        AR = float(pop.ff_params.get('aspect_ratio', 1.0))
+        # Rg²(r) = r²/2 + L²/3  where L = AR·r
+        rg2_integrand = radius_grid ** 2 * (0.5 + AR ** 2 / 3.0)
+    elif ff == 'cylinder_length':
+        length = float(pop.ff_params.get('length', 100.0))
+        # Rg²(r) = r²/2 + (length/2)²/3 = r²/2 + length²/12
+        rg2_integrand = radius_grid ** 2 / 2.0 + (length / 2.0) ** 2 / 3.0
+    else:
+        # Sphere: Rg²(r) = 3/5 · r²
+        rg2_integrand = (3.0 / 5.0) * radius_grid ** 2
+
     if vol_tot > 0:
-        Rg2 = np.sum((3.0 / 5.0) * radius_grid ** 2 * vol_dist * dr) / vol_tot
+        Rg2 = np.sum(rg2_integrand * vol_dist * dr) / vol_tot
         Rg = np.sqrt(max(Rg2, 0.0))
     else:
         Rg = 0.0
 
-    # Specific surface (sphere): ∫ (3/r) * vol_dist dr / vol_tot  [Å⁻¹]
+    # Specific surface Sv = S/V (volume-averaged)  [Å⁻¹]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         safe_r = np.maximum(radius_grid, 1e-30)
+        if ff == 'cylinder_ar':
+            AR = float(pop.ff_params.get('aspect_ratio', 1.0))
+            # Sv(r) = 2/L + 2/r = 2/(AR·r) + 2/r
+            sv_integrand = 2.0 / (max(AR, 1e-30) * safe_r) + 2.0 / safe_r
+        elif ff == 'cylinder_length':
+            length = float(pop.ff_params.get('length', 100.0))
+            # Sv(r) = 4/H + 2/r  where H = total height = length
+            sv_integrand = 4.0 / max(length, 1e-30) + 2.0 / safe_r
+        else:
+            # Sphere: Sv(r) = 3/r
+            sv_integrand = 3.0 / safe_r
+
         if vol_tot > 0:
-            specific_surface = np.sum((3.0 / safe_r) * vol_dist * dr) / vol_tot
+            specific_surface = np.sum(sv_integrand * vol_dist * dr) / vol_tot
         else:
             specific_surface = 0.0
 
@@ -503,7 +544,10 @@ class ModelingEngine:
         if not np.any(np.isfinite(raw_pdf)) or np.sum(raw_pdf * dr) <= 0:
             raw_pdf = np.ones_like(radius_grid)
 
-        V_r = _volume_sphere(radius_grid)   # particle volume per bin  [Å³]
+        ff = getattr(pop, 'form_factor', 'sphere')
+        V_r = (_volume_cylinder(radius_grid, pop)
+               if ff.startswith('cylinder')
+               else _volume_sphere(radius_grid))   # particle volume per bin  [Å³]
 
         if pop.use_number_dist:
             num_raw = raw_pdf

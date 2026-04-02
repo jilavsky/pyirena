@@ -102,11 +102,14 @@ SF_PARAM_LABELS = {
 
 # Form-factor display labels and their extra params
 FF_LABELS = {
-    'sphere':   ('Sphere', []),
-    'spheroid': ('Spheroid', ['aspect_ratio']),
+    'sphere':          ('Sphere',                    []),
+    'spheroid':        ('Spheroid',                  ['aspect_ratio']),
+    'cylinder_ar':     ('Cylinder (Aspect Ratio)',   ['aspect_ratio']),
+    'cylinder_length': ('Cylinder (Length)',          ['length']),
 }
 FF_PARAM_LABELS = {
-    'aspect_ratio': 'Aspect ratio',
+    'aspect_ratio': 'Aspect ratio (L/R)',
+    'length':       'Length H [Å]',
 }
 
 # Unified Fit Level parameter definitions: (key, display_label, default, lo, hi, fit_default)
@@ -571,11 +574,16 @@ class PopulationTab(QWidget):
         self._ff_rows.clear()
         ff_key = self.ff_combo.currentData() or 'sphere'
         _, extra_keys = FF_LABELS.get(ff_key, ('', []))
+        _ff_defaults = {
+            'aspect_ratio': (1.0,   0.001, 1000.0),
+            'length':       (100.0, 0.1,   1e6),
+        }
         for row_i, pname in enumerate(extra_keys):
             label = FF_PARAM_LABELS.get(pname, pname)
+            val, lo, hi = _ff_defaults.get(pname, (1.0, 0.01, 100.0))
             self._add_param_row(
                 self._ff_grid, row_i, pname, label,
-                1.0, False, 0.01, 100.0, self._ff_rows,
+                val, False, lo, hi, self._ff_rows,
             )
 
     def _rebuild_sf_params(self):

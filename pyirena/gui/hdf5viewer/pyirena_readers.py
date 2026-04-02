@@ -246,6 +246,7 @@ def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
     DP params: "position", "amplitude", "width", "eta_voigt"
     SD derived: "volume_fraction", "vol_mean_r", "num_mean_r", "specific_surface"
     SD direct: "scale", "contrast"
+    SD form-factor: "ff_aspect_ratio", "ff_length"
     pop_index: 1-based population index (ignored for global items).
     """
     res = read_modeling(filepath)
@@ -283,6 +284,9 @@ def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
         # Size Distribution direct params
         "scale":            pop.get("scale"),
         "contrast":         pop.get("contrast"),
+        # Size Distribution form-factor params
+        "ff_aspect_ratio":  pop.get("ff_params", {}).get("aspect_ratio"),
+        "ff_length":        pop.get("ff_params", {}).get("length"),
     }
     val = lookup.get(item)
     return float(val) if val is not None else None

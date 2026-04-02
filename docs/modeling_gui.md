@@ -211,9 +211,40 @@ Ardell (1966) Acta Metall. 14, 1573.
 | Form Factor | Key | Extra parameters | Description |
 |------------|-----|-----------------|-------------|
 | Sphere | `sphere` | — | Solid sphere, F = 3[sin(Qr)−Qr·cos(Qr)]/(Qr)³ |
-| Spheroid | `spheroid` | Aspect ratio (AR) | Oblate (AR<1) or prolate (AR>1) ellipsoid of revolution; orientation-averaged via 50-point Gauss-Legendre quadrature |
+| Spheroid | `spheroid` | Aspect ratio AR (dimensionless) | Oblate (AR<1) or prolate (AR>1) ellipsoid of revolution; orientation-averaged via 50-point Gauss-Legendre quadrature |
+| Cylinder (Aspect Ratio) | `cylinder_ar` | Aspect ratio AR = L/R (dimensionless) | Finite cylinder; "size" R is the radius, half-length L = AR·R. Disk-like for AR≪1, rod-like for AR≫1. Orientation-averaged. |
+| Cylinder (Length) | `cylinder_length` | Length H [Å] (total height) | Finite cylinder; "size" R is the radius, total height H is a fixed (or fitted) parameter independent of R. V = πR²·H scales as R². |
 
 The G-matrix element is `G[i,j] = V(r_j) × F²(Q_i, r_j) × (Δρ)² × 10⁻⁴` in cm⁻¹.
+
+### Cylinder form factor details
+
+Both cylinder entries use the same orientationally-averaged form factor:
+
+```
+⟨F²(Q)⟩ = ∫₀¹ [2J₁(QR√(1−u²)) / (QR√(1−u²))]² · [sin(QL·u) / (QL·u)]² du
+```
+
+where u = cos(α), α is the angle between Q and the cylinder axis, R is the equatorial
+radius, and L is the half-length. The integral is evaluated by 50-point Gauss-Legendre
+quadrature (same as spheroid).
+
+**Derived quantities for cylinder populations:**
+
+| Quantity | Cylinder formula |
+|----------|-----------------|
+| Rg | √(R²/2 + L²/3), volume-weighted over distribution |
+| Specific surface Sv | 2/L + 2/R (= 2(R+L)/(RL)), volume-weighted |
+
+For `cylinder_ar`: L = AR·R (varies with R), so Rg = R·√(1/2 + AR²/3).  
+For `cylinder_length`: L = H/2 is constant, so Rg² = ⟨R²⟩/2 + H²/12.
+
+**Parameterisation guide:**
+
+- **Disk-like particles** (platelets, lamellae): use `cylinder_ar` with AR < 0.5, or `cylinder_length` with H ≪ ⟨R⟩.
+- **Rod-like particles** (fibres, elongated): use `cylinder_ar` with AR > 2, or `cylinder_length` with H ≫ ⟨R⟩.
+- Use `cylinder_ar` when the aspect ratio is physically meaningful and expected to be correlated with particle size.
+- Use `cylinder_length` when the thickness/length is a fixed structural parameter (e.g., bilayer thickness, layer period).
 
 ---
 
