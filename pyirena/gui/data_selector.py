@@ -2646,7 +2646,7 @@ class DataSelectorPanel(QWidget):
             "QPushButton:hover { background: #138d75; }"
             "QPushButton:disabled { background: #95a5a6; }"
         )
-        self.contrast_button = QPushButton("Scattering Contrast")
+        self.contrast_button = QPushButton("Scattering Contrast Calculator")
         self.contrast_button.setMinimumHeight(38)
         self.contrast_button.setStyleSheet(_contrast_style)
         self.contrast_button.setToolTip(
