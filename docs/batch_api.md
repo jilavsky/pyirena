@@ -698,11 +698,12 @@ Run `python scripts/batch_merge.py --help` for full option reference.
 from pyirena.batch import fit_pyirena
 
 results = fit_pyirena(
-    data_file,          # str or Path — input SAS data file
-    config_file,        # str or Path — pyIrena JSON config file
-    save_to_nexus=True, # bool — passed to each tool's fitting function
+    data_file,              # str or Path — input SAS data file
+    config_file,            # str or Path — pyIrena JSON config file
+    save_to_nexus=True,     # bool — passed to each tool's fitting function
     with_uncertainty=False,
     n_mc_runs=10,
+    tools=None,             # list[str] or None — limit which tools run (see below)
 )
 ```
 
@@ -725,7 +726,29 @@ and vice-versa.
 
 ### Parameters
 
-Same as `fit_unified`.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_file` | `str` or `Path` | required | Input SAS data file |
+| `config_file` | `str` or `Path` | required | pyIrena JSON config file |
+| `save_to_nexus` | `bool` | `True` | Passed to each tool's fitting function |
+| `with_uncertainty` | `bool` | `False` | Run MC uncertainty estimation |
+| `n_mc_runs` | `int` | `10` | Number of MC passes (when `with_uncertainty=True`) |
+| `tools` | `list[str]` or `None` | `None` | If given, only the listed tool names are run, even if other sections exist in the config. When `None` (default), every recognised section is executed — identical to behaviour before this parameter was added, so existing callers are unaffected. |
+
+**Tip — limiting tools at the scripting level:**
+
+```python
+# Run only unified_fit and sizes, skip simple_fits / modeling even if present
+results = fit_pyirena("sample.h5", "pyirena_config.json",
+                      tools=["unified_fit", "sizes"])
+```
+
+**Tip — removing stale sections from the config file:**
+
+If you have accumulated tool sections in `pyirena_config.json` that you no longer
+want to run, use the **Manage Config...** button in the Data Selector utility row.
+It opens a dialog that lists all tool sections as checkboxes; uncheck a section and
+click Save to remove it from the file permanently.
 
 ### Returns
 
