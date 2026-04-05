@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyirena"
 version = "0.3.0"
-description = "Python tools for small-angle scattering data analysis. Includes Unified Fit, Size Distribution, Simple fits, Diffraction peak fitting and more. "
+description = "Python tools for small-angle scattering data analysis. Includes Unified Fit, Size Distribution, Modeling, Simple Fits, Diffraction Peak fitting, and more."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Jan Ilavsky", email = "ilavsky@anl.gov"}
@@ -15,34 +15,35 @@ authors = [
 maintainers = [
     {name = "Jan Ilavsky", email = "ilavsky@anl.gov"}
 ]
-keywords = ["SAXS", "SANS", "USAXS", "small-angle scattering", "unified fit", "Beaucage", "X-ray scattering"]
+keywords = [
+    "SAXS", "SANS", "USAXS", "small-angle scattering", "unified fit",
+    "Beaucage", "X-ray scattering", "neutron scattering", "SAS",
+    "size distribution", "core-shell", "form factor",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Scientific/Engineering :: Materials Science",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
 
 dependencies = [
-    "numpy>=1.20.0",
-    "scipy>=1.7.0",
+    "numpy>=1.22.0",
+    "scipy>=1.8.0",
     "h5py>=3.0.0",
 ]
 
 [project.optional-dependencies]
-plotting = [
-    "matplotlib>=3.3.0",
-]
 gui = [
-    "matplotlib>=3.3.0",
+    "matplotlib>=3.5.0",
     "PySide6>=6.4.0",
     "pyqtgraph>=0.13.0",
     "xraydb>=4.5",
@@ -51,9 +52,8 @@ gui = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
-    "black",
-    "flake8",
-    "mypy",
+    "build",
+    "twine",
 ]
 all = [
     "pyirena[gui]",
@@ -62,25 +62,27 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/jilavsky/pyirena"
-Documentation = "https://github.com/jilavsky/pyirena#readme"
+Documentation = "https://github.com/jilavsky/pyirena/tree/main/docs"
 Repository = "https://github.com/jilavsky/pyirena"
+Changelog = "https://github.com/jilavsky/pyirena/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/jilavsky/pyirena/issues"
 
 [project.scripts]
 pyirena-gui = "pyirena.gui.launch:main"
 pyirena-viewer = "pyirena.gui.hdf5viewer:main"
+pyirena-modeling = "pyirena.gui.modeling_panel:main"
 pyirena-datamerge = "pyirena.gui.data_merge_panel:main"
 pyirena-contrast = "pyirena.gui.contrast_panel:main"
 
-[tool.setuptools]
-packages = ["pyirena", "pyirena.core", "pyirena.io", "pyirena.plotting", "pyirena.gui", "pyirena.gui.hdf5viewer"]
+[tool.setuptools.packages.find]
+include = ["pyirena*"]
 
 [tool.setuptools.package-data]
 pyirena = ["py.typed"]
 
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311']
+target-version = ['py39', 'py310', 'py311', 'py312']
 
 [tool.pytest.ini_options]
 testpaths = ["pyirena/tests"]
