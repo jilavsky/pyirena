@@ -132,16 +132,16 @@ class LogDecadeAxis(pg.AxisItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DiameterAxisItem — top axis showing D = 2π/Q in Å
+# RadiusAxisItem — top axis showing R = π/Q in Å
 # ─────────────────────────────────────────────────────────────────────────────
 
-class DiameterAxisItem(pg.AxisItem):
-    """Top axis for the I(Q) log-log plot showing diameter D = 2π/Q in Angstroms.
+class RadiusAxisItem(pg.AxisItem):
+    """Top axis for the I(Q) log-log plot showing radius R = π/Q in Angstroms.
 
     The ViewBox x-coordinates are log10(Q).  This axis selects nice round
-    diameter values (1, 2, 5, 10, 20, 50, 100, … Å), converts them to
+    radius values (1, 2, 5, 10, 20, 50, 100, … Å), converts them to
     log10(Q) positions, and labels them.  The labels decrease from left to
-    right because D ∝ 1/Q.
+    right because R ∝ 1/Q.
     """
 
     _NICE_MULTIPLIERS = (1, 2, 5)
@@ -149,38 +149,38 @@ class DiameterAxisItem(pg.AxisItem):
     def tickValues(self, minVal, maxVal, size):
         """minVal/maxVal are log10(Q) ViewBox coordinates."""
         import math
-        TWO_PI = 2.0 * math.pi
-        # D = 2π/Q — left edge (minVal, small Q) has large D; right edge has small D
-        d_min = TWO_PI / (10.0 ** maxVal)
-        d_max = TWO_PI / (10.0 ** minVal)
-        if d_min <= 0 or d_max <= 0 or d_min >= d_max:
+        PI = math.pi
+        # R = π/Q — left edge (minVal, small Q) has large R; right edge has small R
+        r_min = PI / (10.0 ** maxVal)
+        r_max = PI / (10.0 ** minVal)
+        if r_min <= 0 or r_max <= 0 or r_min >= r_max:
             return []
-        decade_lo = math.floor(math.log10(d_min)) - 1
-        decade_hi = math.ceil(math.log10(d_max)) + 1
+        decade_lo = math.floor(math.log10(r_min)) - 1
+        decade_hi = math.ceil(math.log10(r_max)) + 1
         positions = []
         for exp in range(int(decade_lo), int(decade_hi) + 1):
             for mult in self._NICE_MULTIPLIERS:
-                d = mult * (10.0 ** exp)
-                if d_min <= d <= d_max:
-                    positions.append(math.log10(TWO_PI / d))
+                r = mult * (10.0 ** exp)
+                if r_min <= r <= r_max:
+                    positions.append(math.log10(PI / r))
         if not positions:
             return []
         return [(1.0, positions)]
 
     def tickStrings(self, values, scale, spacing):
         import math
-        TWO_PI = 2.0 * math.pi
+        PI = math.pi
         strings = []
         for v in values:
-            D = TWO_PI / (10.0 ** v)
-            if D >= 100:
-                strings.append(f'{D:.0f}')
-            elif D >= 10:
-                strings.append(f'{D:.0f}')
-            elif D >= 1:
-                strings.append(f'{D:.1f}')
+            R = PI / (10.0 ** v)
+            if R >= 100:
+                strings.append(f'{R:.0f}')
+            elif R >= 10:
+                strings.append(f'{R:.0f}')
+            elif R >= 1:
+                strings.append(f'{R:.1f}')
             else:
-                strings.append(f'{D:.2f}')
+                strings.append(f'{R:.2f}')
         return strings
 
 
@@ -228,7 +228,7 @@ class SizesFitGraphWindow(QWidget):
             axisItems={
                 'left':   LogDecadeAxis(orientation='left'),
                 'bottom': LogDecadeAxis(orientation='bottom'),
-                'top':    DiameterAxisItem(orientation='top'),
+                'top':    RadiusAxisItem(orientation='top'),
             }
         )
         self.residuals_plot = self.graphics_layout.addPlot(
@@ -246,9 +246,9 @@ class SizesFitGraphWindow(QWidget):
 
         # Height ratios  5 : 1 : 4  ≈ 50% : 10% : 40%
         gl = self.graphics_layout.ci.layout
-        gl.setRowStretchFactor(0, 5)
+        gl.setRowStretchFactor(0, 6)
         gl.setRowStretchFactor(1, 1)
-        gl.setRowStretchFactor(2, 4)
+        gl.setRowStretchFactor(2, 3)
 
         # Link residuals X-axis to main plot so zooming/panning stays in sync
         self.residuals_plot.setXLink(self.main_plot)
@@ -259,7 +259,7 @@ class SizesFitGraphWindow(QWidget):
         self.main_plot.setLabel('left',   'I  (cm⁻¹)')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.main_plot.showAxis('top')
-        self.main_plot.setLabel('top', 'Diameter  (Å)')
+        self.main_plot.setLabel('top', 'Radius  (Å)')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self.main_plot.addLegend(offset=(10, 10), labelTextSize='14pt', labelTextColor='k')
         _style_axes(self.main_plot)
@@ -771,7 +771,7 @@ class SizesFitGraphWindow(QWidget):
 
         vb_range = self.distribution_plot.getViewBox().viewRange()
         y_lo_vb, y_hi_vb = vb_range[1]
-        bar_height = (y_hi_vb - y_lo_vb) * 0.07
+        bar_height = (y_hi_vb - y_lo_vb) * 0.035
         bar_bottom = y_hi_vb - bar_height * 1.3
 
         try:
@@ -1051,18 +1051,18 @@ class SizesFitPanel(QWidget):
         q_layout.addLayout(q_row)
 
         d_row = QHBoxLayout()
-        d_row.addWidget(QLabel("D max:"))
-        self.dmax_display = QLineEdit("—")
-        self.dmax_display.setReadOnly(True)
-        self.dmax_display.setMaximumWidth(90)
-        self.dmax_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
-        d_row.addWidget(self.dmax_display)
-        d_row.addWidget(QLabel("  D min:"))
-        self.dmin_display = QLineEdit("—")
-        self.dmin_display.setReadOnly(True)
-        self.dmin_display.setMaximumWidth(90)
-        self.dmin_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
-        d_row.addWidget(self.dmin_display)
+        d_row.addWidget(QLabel("R max:"))
+        self.rmax_display = QLineEdit("—")
+        self.rmax_display.setReadOnly(True)
+        self.rmax_display.setMaximumWidth(90)
+        self.rmax_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        d_row.addWidget(self.rmax_display)
+        d_row.addWidget(QLabel("  R min:"))
+        self.rmin_display = QLineEdit("—")
+        self.rmin_display.setReadOnly(True)
+        self.rmin_display.setMaximumWidth(90)
+        self.rmin_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        d_row.addWidget(self.rmin_display)
         d_row.addWidget(QLabel("Å"))
         d_row.addStretch()
         q_layout.addLayout(d_row)
@@ -1747,8 +1747,8 @@ class SizesFitPanel(QWidget):
             self.qmin_display.setText(f"{q_min:.4e}")
             self.qmax_display.setText(f"{q_max:.4e}")
             # D = 2π/Q: larger Q → smaller D, so D_min comes from Q_max
-            self.dmax_display.setText(f"{2*np.pi/q_min:.1f}")
-            self.dmin_display.setText(f"{2*np.pi/q_max:.1f}")
+            self.rmax_display.setText(f"{np.pi/q_min:.1f}")
+            self.rmin_display.setText(f"{np.pi/q_max:.1f}")
             mask = (q >= q_min) & (q <= q_max)
             q = q[mask]
             intensity = intensity[mask]
