@@ -990,7 +990,7 @@ class ModelingEngine:
                     self._chi2, x0_arr,
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     method='Nelder-Mead',
-                    options={'maxiter': 100_000, 'xatol': 1e-6, 'fatol': 1e-6},
+                    options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-4},
                 )
                 x_best = result.x
             else:
@@ -1001,8 +1001,8 @@ class ModelingEngine:
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     bounds=(lo_arr, hi_arr),
                     method='trf',
-                    max_nfev=50_000,
-                    ftol=1e-8, xtol=1e-8, gtol=1e-8,
+                    max_nfev=300,
+                    ftol=1e-5, xtol=1e-5, gtol=1e-5,
                 )
                 x_best = result.x
 

@@ -1441,6 +1441,10 @@ except ImportError:
         from PyQt5.QtCore import QThread
 
 
+class _FitCancelled(Exception):
+    """Raised when the user cancels a fit in progress."""
+
+
 class _FitWorker(QThread):
     """Runs ModelingEngine.fit() off the GUI thread."""
     finished = Signal(object)   # ModelingResult
@@ -1451,11 +1455,40 @@ class _FitWorker(QThread):
         self._engine = engine
         self._config = config
         self._q, self._I, self._dI = q, I, dI
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation — checked by the callback injected into the solver."""
+        self._cancelled = True
 
     def run(self):
         try:
-            result = self._engine.fit(self._config, self._q, self._I, self._dI)
-            self.finished.emit(result)
+            # Inject a cancellation callback that raises on each function evaluation
+            original_residuals = self._engine._residuals
+            original_chi2 = self._engine._chi2
+            worker = self
+
+            def _checked_residuals(x, *args, **kwargs):
+                if worker._cancelled:
+                    raise _FitCancelled('Fit cancelled by user.')
+                return original_residuals(x, *args, **kwargs)
+
+            def _checked_chi2(x, *args, **kwargs):
+                if worker._cancelled:
+                    raise _FitCancelled('Fit cancelled by user.')
+                return original_chi2(x, *args, **kwargs)
+
+            self._engine._residuals = _checked_residuals
+            self._engine._chi2 = _checked_chi2
+            try:
+                result = self._engine.fit(self._config, self._q, self._I, self._dI)
+                self.finished.emit(result)
+            finally:
+                # Restore original methods
+                self._engine._residuals = original_residuals
+                self._engine._chi2 = original_chi2
+        except _FitCancelled:
+            self.error.emit('Fit cancelled by user.')
         except Exception as exc:
             import traceback; traceback.print_exc()
             self.error.emit(str(exc))
@@ -2021,12 +2054,16 @@ class ModelingPanel(QWidget):
 
     def run_fit(self):
         """Start a background fit and update GUI when done."""
+        # If already fitting, treat click as a cancel request
+        if self._fit_worker is not None and self._fit_worker.isRunning():
+            self._fit_worker.cancel()
+            self.btn_fit.setEnabled(False)
+            self.graph.set_status('Cancelling fit …', 'working')
+            return
+
         if self._data_q is None:
             QMessageBox.information(self, 'No data', 'Please open an HDF5 file first.')
             return
-
-        if self._fit_worker is not None and self._fit_worker.isRunning():
-            return   # already fitting
 
         config = self._build_config()
         active = [p for p in config.populations if p.enabled]
@@ -2043,7 +2080,12 @@ class ModelingPanel(QWidget):
         }
 
         self._engine.clear_cache()
-        self.btn_fit.setEnabled(False)
+        self.btn_fit.setText('Cancel Fit')
+        self.btn_fit.setStyleSheet(
+            'QPushButton {background: #e74c3c; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #c0392b;}'
+        )
         self.btn_graph.setEnabled(False)
         self.btn_mc.setEnabled(False)
         self.btn_revert.setEnabled(False)
@@ -2057,7 +2099,18 @@ class ModelingPanel(QWidget):
         self._fit_worker.error.connect(self._on_fit_error)
         self._fit_worker.start()
 
+    def _restore_fit_button(self):
+        """Restore the Fit button to its normal appearance after fitting/cancel."""
+        self.btn_fit.setText('Fit')
+        self.btn_fit.setStyleSheet(
+            'QPushButton {background: #27ae60; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #229954;}'
+            'QPushButton:disabled {background: #bdc3c7;}'
+        )
+
     def _on_fit_done(self, result):
+        self._restore_fit_button()
         self._last_result = result
 
         # Update GUI with best-fit parameters
@@ -2112,6 +2165,7 @@ class ModelingPanel(QWidget):
         self._save_state()
 
     def _on_fit_error(self, msg: str):
+        self._restore_fit_button()
         self.graph.set_status(f'Fit error: {msg}', 'error')
         self.btn_fit.setEnabled(True)
         self.btn_graph.setEnabled(True)
