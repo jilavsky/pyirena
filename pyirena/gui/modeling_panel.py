@@ -1851,8 +1851,14 @@ class ModelingPanel(QWidget):
     def load_file(self, file_path: Path):
         """Load SAS data from an HDF5 NXcanSAS file."""
         try:
-            from pyirena.io.hdf5 import load_nxcansas
-            q, I, dI = load_nxcansas(file_path)
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            import numpy as _np
+            data = readGenericNXcanSAS(str(file_path.parent), file_path.name)
+            q   = _np.asarray(data['Q'],         dtype=float)
+            I   = _np.asarray(data['Intensity'],  dtype=float)
+            err = data.get('Error')
+            dI  = (_np.asarray(err, dtype=float)
+                   if err is not None else _np.full_like(I, 0.05 * I))
         except Exception as e:
             QMessageBox.critical(self, 'Load error', str(e))
             return
