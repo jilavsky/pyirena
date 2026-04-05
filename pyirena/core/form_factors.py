@@ -363,8 +363,13 @@ def _cs_g_from_pairs(
 ) -> np.ndarray:
     """Build G matrix from pre-computed (R_core, R_total) arrays.
 
-    G[i,j] = F_cs²(q_i, r_c[j], r_t[j]) × 1e-16   [cm⁻¹]
-    The 1e-16 factor = 1e-4 (Å³→cm³) × 1e-12 (SLD in 10⁻⁶Å⁻²)².
+    G[i,j] = F_cs²(q_i, r_c[j], r_t[j]) / V_total(r_t[j]) × 1e-4  [cm⁻¹]
+
+    Unit derivation (SLDs in 10⁻⁶ Å⁻², volumes in Å³):
+      F_cs has implicit units 10⁻⁶ Å⁻² × Å³ = 10⁻⁶ Å
+      Physical amplitude F_A [cm] = F_cs × 10⁻¹⁴
+      Intensity per Vf = |F_A|² / V_total = F_cs² × 10⁻²⁸ / (V_t × 10⁻²⁴)
+                       = F_cs² / V_t × 10⁻⁴  [cm⁻¹]
     """
     d_rho_c = float(sld_core)   - float(sld_shell)    # 10⁻⁶ Å⁻²
     d_rho_s = float(sld_shell)  - float(sld_solvent)  # 10⁻⁶ Å⁻²
@@ -372,9 +377,11 @@ def _cs_g_from_pairs(
     M, N = len(q), len(r_c_arr)
     G = np.empty((M, N), dtype=float)
     for j in range(N):
-        F = _coreshell_f(q, float(r_c_arr[j]), float(r_t_arr[j]), d_rho_c, d_rho_s)
-        G[:, j] = F ** 2
-    return G * 1e-16   # convert to cm⁻¹ per unit vol-frac
+        r_t = float(r_t_arr[j])
+        V_t = (4.0 / 3.0) * np.pi * r_t ** 3          # total sphere volume [Å³]
+        F = _coreshell_f(q, float(r_c_arr[j]), r_t, d_rho_c, d_rho_s)
+        G[:, j] = F ** 2 / V_t
+    return G * 1e-4   # convert to cm⁻¹ per unit vol-frac
 
 
 def _build_g_cs_sphere_by_core(
@@ -470,9 +477,9 @@ def _cs_spheroid_g_from_pairs(
         # Core-shell amplitude at each angle — (M, K)
         F_cs = d_rho_c * V_c * F_c + d_rho_s * V_t * F_t
 
-        G[:, j] = F_cs ** 2 @ weights
+        G[:, j] = (F_cs ** 2 @ weights) / V_t
 
-    return G * 1e-16
+    return G * 1e-4
 
 
 def _build_g_cs_spheroid_by_core(
