@@ -61,7 +61,7 @@ from pyirena.core.modeling import (
     UnifiedLevelPopulation, DiffractionPeakPopulation,
 )
 from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, set_robust_y_range,
+    make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
@@ -1146,6 +1146,7 @@ class ModelingGraphWindow(QWidget):
         self._pop_items: dict = {}     # {pop_index: PlotDataItem} for I(Q)
         self._total_item = None        # total model PlotDataItem
         self._dist_items: dict = {}    # {pop_index: PlotDataItem} for size dist
+        self._annotation_items: list = []  # result annotation TextItems
 
         self._build_ui()
 
@@ -1278,24 +1279,20 @@ class ModelingGraphWindow(QWidget):
     # ── Data plotting ─────────────────────────────────────────────────────────
 
     def plot_data(self, q, I, dI=None):
-        """Plot experimental SAS data, removing any previous data/model curves."""
-        # Remove old data scatter and error bars
-        for item in self._data_items:
-            if item is not None:
-                try:
-                    self.iq_plot.removeItem(item)
-                except Exception:
-                    pass
+        """Plot experimental SAS data, removing ALL previous plot items."""
+        # Nuclear clear — removes everything (data, model, cursors, legend items)
+        # Cursors are re-added by add_cursors() which is called after plot_data()
+        self.iq_plot.clear()
         self._data_items.clear()
+        self._pop_items.clear()
+        self._total_item = None
 
-        # Remove old model curves so stale fit lines don't persist
-        self._clear_model_items()
-
-        # Clear distribution and residual plots
+        # Also clear distribution, residuals, and annotations
         self.dist_plot.clear()
         self._dist_items.clear()
         self.resid_plot.clear()
         self.resid_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
+        self.clear_result_annotations()
 
         self.q_data = q
         scatter, errbar = plot_iq_data(self.iq_plot, q, I, dI, label='Data')
@@ -1376,6 +1373,20 @@ class ModelingGraphWindow(QWidget):
             except Exception:
                 pass
         self._pop_items.clear()
+
+    def clear_result_annotations(self):
+        """Remove all fit-result text annotations from the I(Q) plot."""
+        for item in list(self._annotation_items):
+            try:
+                self.iq_plot.removeItem(item)
+            except Exception:
+                pass
+        self._annotation_items.clear()
+
+    def add_result_annotation(self, text: str):
+        """Add a fit-result annotation in the lower-left of the I(Q) plot."""
+        item = add_plot_annotation(self.iq_plot, text, corner='lower_left')
+        self._annotation_items.append(item)
 
     def set_status(self, msg: str, style: str = 'info'):
         colours = {
@@ -1693,31 +1704,53 @@ class ModelingPanel(QWidget):
         res_lay.addWidget(self.dof_lbl, 1, 1)
         lay.addWidget(res_group)
 
-        # ── Output buttons ───────────────────────────────────────────────
-        out_row = QHBoxLayout()
-        self.btn_save = QPushButton('Save to HDF5')
-        self.btn_save.setMinimumHeight(30)
-        self.btn_save.setStyleSheet(
-            'QPushButton {background: #2980b9; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #2471a3;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
-        self.btn_save.clicked.connect(self.save_results)
-        self.btn_save.setEnabled(False)
+        # ── Output buttons (standard layout matching other tools) ─────────
+        _btn_css = {
+            'green':  ('QPushButton {{background: #81c784; color: white; font-weight: bold; border-radius: 4px;}}'
+                       'QPushButton:hover {{background: #66bb6a;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+            'blue':   ('QPushButton {{background: #3498db; color: white; font-weight: bold; border-radius: 4px;}}'
+                       'QPushButton:hover {{background: #2980b9;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+            'lgreen': ('QPushButton {{background: lightgreen; color: black; font-weight: bold; border-radius: 4px;}}'
+                       'QPushButton:hover {{background: #90ee90;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+            'orange': ('QPushButton {{background: #e67e22; color: white; font-weight: bold; border-radius: 4px;}}'
+                       'QPushButton:hover {{background: #d35400;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+        }
+        def _mkbtn(text, css_key, handler, tooltip=''):
+            b = QPushButton(text)
+            b.setMinimumHeight(26)
+            b.setStyleSheet(_btn_css[css_key].format())
+            b.clicked.connect(handler)
+            if tooltip:
+                b.setToolTip(tooltip)
+            return b
 
-        self.btn_export = QPushButton('Export Parameters (JSON)')
-        self.btn_export.setMinimumHeight(30)
-        self.btn_export.setStyleSheet(
-            'QPushButton {background: #8e44ad; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #7d3c98;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
-        self.btn_export.clicked.connect(self.export_json)
-        out_row.addWidget(self.btn_save)
-        out_row.addWidget(self.btn_export)
-        lay.addLayout(out_row)
+        lay.addWidget(_sep())
+
+        # Row 1: Results to graph + Save State
+        out1 = QHBoxLayout()
+        out1.addWidget(_mkbtn('Results to graph', 'green', self._results_to_graph,
+                              'Annotate the I(Q) plot with fitted parameter values.'))
+        out1.addWidget(_mkbtn('Save State', 'blue', self._save_state_explicit,
+                              'Save current parameters to the state file.'))
+        lay.addLayout(out1)
+
+        # Row 2: Store in File + Reset to Defaults
+        out2 = QHBoxLayout()
+        self.btn_save = _mkbtn('Store in File', 'lgreen', self.save_results,
+                               'Save fit results to the HDF5 (NXcanSAS) file.')
+        self.btn_save.setEnabled(False)
+        out2.addWidget(self.btn_save)
+        out2.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
+                              'Reset all parameters to their default values.'))
+        lay.addLayout(out2)
+
+        # Row 3: Export Parameters + Import Parameters
+        out3 = QHBoxLayout()
+        out3.addWidget(_mkbtn('Export Parameters', 'lgreen', self.export_json,
+                              'Export current parameters to a pyIrena JSON config file.'))
+        out3.addWidget(_mkbtn('Import Parameters', 'lgreen', self._import_parameters,
+                              'Import parameters from a pyIrena JSON config file.'))
+        lay.addLayout(out3)
 
         scroll.setWidget(inner)
 
@@ -1967,12 +2000,14 @@ class ModelingPanel(QWidget):
             self.graph.iq_plot.clear()
             self.graph._pop_items.clear()
             self.graph._total_item = None
+            self.graph.clear_result_annotations()
             if self.graph._cursor_left_line is not None:
                 self.graph.iq_plot.addItem(self.graph._cursor_left_line)
                 self.graph.iq_plot.addItem(self.graph._cursor_right_line)
 
-            plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
-                         self._data_dI, label='Data')
+            s, e = plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
+                                self._data_dI, label='Data')
+            self.graph._data_items = [s, e]
             set_robust_y_range(self.graph.iq_plot, self._data_I)
             self.graph.plot_model(mock)
             self.graph.set_status('Model graphed successfully.', 'success')
@@ -2038,12 +2073,14 @@ class ModelingPanel(QWidget):
         self.graph.iq_plot.clear()
         self.graph._pop_items.clear()
         self.graph._total_item = None
+        self.graph.clear_result_annotations()
         if self.graph._cursor_left_line is not None:
             self.graph.iq_plot.addItem(self.graph._cursor_left_line)
             self.graph.iq_plot.addItem(self.graph._cursor_right_line)
 
-        plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
-                     self._data_dI, label='Data')
+        s, e = plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
+                            self._data_dI, label='Data')
+        self.graph._data_items = [s, e]
         set_robust_y_range(self.graph.iq_plot, self._data_I)
         self.graph.plot_model(result)
 
@@ -2201,6 +2238,91 @@ class ModelingPanel(QWidget):
             self.graph.set_status(f'Parameters exported to {Path(path).name}', 'success')
         except Exception as e:
             QMessageBox.critical(self, 'Export error', str(e))
+
+    def _import_parameters(self):
+        """Import parameters from a pyIrena JSON configuration file."""
+        import json
+        default_path = self._get_data_folder()
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Import Modeling Parameters', default_path,
+            'pyIrena Config (*.json);;All Files (*)',
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r') as f:
+                config = json.load(f)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Import failed', f'Could not read file:\n{exc}')
+            return
+        if '_pyirena_config' not in config:
+            QMessageBox.warning(
+                self, 'Not a pyIrena file',
+                f'The selected file is not a pyIrena configuration file:\n{path}',
+            )
+            return
+        if 'modeling' not in config:
+            QMessageBox.warning(
+                self, 'No Modeling parameters',
+                f'The file does not contain a Modeling parameter section:\n{path}',
+            )
+            return
+        self._state.update('modeling', config['modeling'])
+        self._load_state()
+        self.graph.set_status(f'Parameters imported from {Path(path).name}', 'success')
+
+    def _save_state_explicit(self):
+        """Save current parameters to state file with confirmation dialog."""
+        self._save_state()
+        QMessageBox.information(
+            self, 'State saved',
+            'Modeling parameters have been saved to the state file.',
+        )
+
+    def _results_to_graph(self):
+        """Annotate the I(Q) plot with the current fitted parameter values."""
+        if self._last_result is None:
+            QMessageBox.warning(self, 'No fit results',
+                                'Run a fit first to generate results.')
+            return
+        result = self._last_result
+        lines = [f'χ²/dof = {result.reduced_chi_squared:.4g}']
+        stds = result.params_std or {}
+        for k, d in enumerate(result.derived):
+            pi = result.pop_indices[k]
+            pop = result.config.populations[pi]
+            pop_label = getattr(pop, 'label', '') or f'P{pi+1}'
+            for name, val in d.items():
+                if val is None:
+                    continue
+                std_key = f'pop{pi+1}_derived_{name}'
+                std = stds.get(std_key)
+                if std is not None and np.isfinite(std) and std > 0:
+                    lines.append(f'{pop_label}: {name} = {val:.4g} ± {std:.3g}')
+                else:
+                    lines.append(f'{pop_label}: {name} = {val:.4g}')
+        self.graph.clear_result_annotations()
+        self.graph.add_result_annotation('\n'.join(lines))
+        self.graph.set_status('Results annotated on graph.', 'success')
+
+    def _reset_to_defaults(self):
+        """Reset all modeling parameters to their default values."""
+        reply = QMessageBox.question(
+            self, 'Reset to Defaults',
+            'Reset all modeling parameters to their default values?\n'
+            'This cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._state.reset('modeling')
+        self._load_state()
+        self.graph.set_status('Parameters reset to defaults.', 'success')
+
+    def closeEvent(self, event):
+        """Save state automatically when the window is closed."""
+        self._save_state()
+        super().closeEvent(event)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
