@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-04-05
+## [0.3.0] - 2026-04-05 — First public beta
+
+First beta release published to PyPI. Install with `pip install pyirena[gui]`.
 
 ### Added
 
