@@ -132,6 +132,59 @@ class LogDecadeAxis(pg.AxisItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# DiameterAxisItem — top axis showing D = 2π/Q in Å
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DiameterAxisItem(pg.AxisItem):
+    """Top axis for the I(Q) log-log plot showing diameter D = 2π/Q in Angstroms.
+
+    The ViewBox x-coordinates are log10(Q).  This axis selects nice round
+    diameter values (1, 2, 5, 10, 20, 50, 100, … Å), converts them to
+    log10(Q) positions, and labels them.  The labels decrease from left to
+    right because D ∝ 1/Q.
+    """
+
+    _NICE_MULTIPLIERS = (1, 2, 5)
+
+    def tickValues(self, minVal, maxVal, size):
+        """minVal/maxVal are log10(Q) ViewBox coordinates."""
+        import math
+        TWO_PI = 2.0 * math.pi
+        # D = 2π/Q — left edge (minVal, small Q) has large D; right edge has small D
+        d_min = TWO_PI / (10.0 ** maxVal)
+        d_max = TWO_PI / (10.0 ** minVal)
+        if d_min <= 0 or d_max <= 0 or d_min >= d_max:
+            return []
+        decade_lo = math.floor(math.log10(d_min)) - 1
+        decade_hi = math.ceil(math.log10(d_max)) + 1
+        positions = []
+        for exp in range(int(decade_lo), int(decade_hi) + 1):
+            for mult in self._NICE_MULTIPLIERS:
+                d = mult * (10.0 ** exp)
+                if d_min <= d <= d_max:
+                    positions.append(math.log10(TWO_PI / d))
+        if not positions:
+            return []
+        return [(1.0, positions)]
+
+    def tickStrings(self, values, scale, spacing):
+        import math
+        TWO_PI = 2.0 * math.pi
+        strings = []
+        for v in values:
+            D = TWO_PI / (10.0 ** v)
+            if D >= 100:
+                strings.append(f'{D:.0f}')
+            elif D >= 10:
+                strings.append(f'{D:.0f}')
+            elif D >= 1:
+                strings.append(f'{D:.1f}')
+            else:
+                strings.append(f'{D:.2f}')
+        return strings
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SizesFitGraphWindow
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -155,6 +208,7 @@ class SizesFitGraphWindow(QWidget):
         self._resid_item = None
         self._dist_item = None
         self._dist_unc_item = None     # Distribution uncertainty error bars
+        self._trust_bar_item = None    # Trust-region color bar on distribution plot
         self._cursor_a = None
         self._cursor_b = None
         self.init_ui()
@@ -174,6 +228,7 @@ class SizesFitGraphWindow(QWidget):
             axisItems={
                 'left':   LogDecadeAxis(orientation='left'),
                 'bottom': LogDecadeAxis(orientation='bottom'),
+                'top':    DiameterAxisItem(orientation='top'),
             }
         )
         self.residuals_plot = self.graphics_layout.addPlot(
@@ -203,9 +258,15 @@ class SizesFitGraphWindow(QWidget):
         # Use units IN the label string — avoids pyqtgraph's SI-prefix auto-scaling
         self.main_plot.setLabel('left',   'I  (cm⁻¹)')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.main_plot.showAxis('top')
+        self.main_plot.setLabel('top', 'Diameter  (Å)')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self.main_plot.addLegend(offset=(10, 10), labelTextSize='14pt', labelTextColor='k')
         _style_axes(self.main_plot)
+        top_ax = self.main_plot.getAxis('top')
+        top_ax.setPen(pg.mkPen('k'))
+        top_ax.setTextPen(pg.mkPen('k'))
+        top_ax.enableAutoSIPrefix(False)
         self.main_plot.getAxis('left').setWidth(65)
 
         # ── Residuals plot  (log-x, linear-y) ───────────────────────────────
@@ -365,6 +426,7 @@ class SizesFitGraphWindow(QWidget):
         self._resid_item = None
         self._dist_item = None
         self._dist_unc_item = None
+        self._trust_bar_item = None
 
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot I(Q) data on the main plot with optional error bars.
@@ -638,6 +700,94 @@ class SizesFitGraphWindow(QWidget):
                 connect='finite',
             )
 
+    def update_trust_bar(self, r, q_min, q_max):
+        """Add or update the trust-region color bar on the distribution plot.
+
+        Reproduces Igor's IR1R_AddTrustRanges logic: a thin colored bar at the
+        top of the P(r) plot, green in the trusted radius range with smooth
+        red→green→red transitions at the boundaries.
+
+        Trust boundaries (converted from Igor's diameter formulas to radius):
+          small-r trust start : 0.9 × π / Q_max  (≈ 0.9 × Nyquist radius)
+          large-r trust end   : 0.475 × π / Q_min (≈ 0.475 × Guinier radius)
+        Transition widths follow Igor's WideSmallSizes=0.66 / WideLargeSizes=1.1
+        index-fraction factors and are smoothed with a 1/25-width uniform filter.
+        """
+        # Remove old bar
+        if self._trust_bar_item is not None:
+            try:
+                self.distribution_plot.removeItem(self._trust_bar_item)
+            except Exception:
+                pass
+            self._trust_bar_item = None
+
+        if r is None or len(r) < 2 or q_min is None or q_max is None:
+            return
+        if q_min <= 0 or q_max <= 0:
+            return
+
+        r_arr = np.asarray(r, dtype=float).ravel()
+        n = len(r_arr)
+
+        # ── Trust boundaries in radius space ────────────────────────────────
+        r_trust_small = 0.9  * np.pi / q_max   # inner small-r edge (green starts)
+        r_trust_large = 0.475 * np.pi / q_min  # inner large-r edge (green ends)
+
+        idx_small = int(np.searchsorted(r_arr, r_trust_small))
+        idx_large = int(np.searchsorted(r_arr, r_trust_large))
+
+        # Wide (transition) boundaries — index-fraction, same as Igor
+        idx_small_wide = max(0, int(0.66 * idx_small))
+        idx_large_wide = min(n - 1, int(1.1 * max(idx_large, 0)))
+
+        # Clamp
+        idx_small = min(max(idx_small, 0), n - 1)
+        idx_large = min(max(idx_large, 0), n - 1)
+
+        # ── Trust value array: 0=red, 1=transition, 2=green ─────────────────
+        trust = np.zeros(n)
+        if idx_small < idx_large:
+            trust[idx_small:idx_large + 1] = 2.0
+        trust[idx_small_wide:idx_small] = 1.0
+        if idx_large < n - 1:
+            trust[idx_large:idx_large_wide + 1] = 1.0
+
+        from scipy.ndimage import uniform_filter1d
+        trust = uniform_filter1d(trust, size=max(1, n // 25))
+
+        # ── Map trust [0,2] → RGBA  (0=red, 1=yellow, 2=green) ─────────────
+        t = np.clip(trust, 0.0, 2.0)
+        rgba = np.zeros((n, 1, 4), dtype=np.uint8)
+        rgba[:, 0, 3] = 220
+        # Red: 255 for t≤1, then fades to 0 at t=2
+        rgba[:, 0, 0] = np.clip(255 * np.where(t <= 1, 1.0, 2.0 - t), 0, 255).astype(np.uint8)
+        # Green: rises from 0 to 255 as t goes 0→1, stays 255 for t≥1
+        rgba[:, 0, 1] = np.clip(255 * np.minimum(t, 1.0), 0, 255).astype(np.uint8)
+
+        # ── Position ImageItem in ViewBox (log10-r, linear-y) coords ────────
+        log_r = np.log10(np.maximum(r_arr, 1e-300))
+        x_lo = float(log_r[0])
+        x_hi = float(log_r[-1])
+
+        vb_range = self.distribution_plot.getViewBox().viewRange()
+        y_lo_vb, y_hi_vb = vb_range[1]
+        bar_height = (y_hi_vb - y_lo_vb) * 0.07
+        bar_bottom = y_hi_vb - bar_height * 1.3
+
+        try:
+            from PySide6.QtGui import QTransform
+        except ImportError:
+            from PyQt6.QtGui import QTransform
+
+        img = pg.ImageItem()
+        img.setImage(rgba)
+        tr = QTransform()
+        tr.translate(x_lo, bar_bottom)
+        tr.scale((x_hi - x_lo) / n, bar_height)
+        img.setTransform(tr)
+        self.distribution_plot.addItem(img)
+        self._trust_bar_item = img
+
     def plot_corrected_data(self, q, I_corrected, label='I−bg'):
         """Plot background-corrected data (I − complex background) as blue triangles.
 
@@ -899,6 +1049,23 @@ class SizesFitPanel(QWidget):
         q_row.addWidget(QLabel("Å⁻¹"))
         q_row.addStretch()
         q_layout.addLayout(q_row)
+
+        d_row = QHBoxLayout()
+        d_row.addWidget(QLabel("D max:"))
+        self.dmax_display = QLineEdit("—")
+        self.dmax_display.setReadOnly(True)
+        self.dmax_display.setMaximumWidth(90)
+        self.dmax_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        d_row.addWidget(self.dmax_display)
+        d_row.addWidget(QLabel("  D min:"))
+        self.dmin_display = QLineEdit("—")
+        self.dmin_display.setReadOnly(True)
+        self.dmin_display.setMaximumWidth(90)
+        self.dmin_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        d_row.addWidget(self.dmin_display)
+        d_row.addWidget(QLabel("Å"))
+        d_row.addStretch()
+        q_layout.addLayout(d_row)
 
         hint = QLabel("Drag cursors on I(Q) graph to set Q range")
         hint.setStyleSheet("color: #7f8c8d; font-size: 10px;")
@@ -1579,6 +1746,9 @@ class SizesFitPanel(QWidget):
             # Update Q range display
             self.qmin_display.setText(f"{q_min:.4e}")
             self.qmax_display.setText(f"{q_max:.4e}")
+            # D = 2π/Q: larger Q → smaller D, so D_min comes from Q_max
+            self.dmax_display.setText(f"{2*np.pi/q_min:.1f}")
+            self.dmin_display.setText(f"{2*np.pi/q_max:.1f}")
             mask = (q >= q_min) & (q <= q_max)
             q = q[mask]
             intensity = intensity[mask]
@@ -1659,6 +1829,9 @@ class SizesFitPanel(QWidget):
             if self._last_distribution is not None:
                 r_prev, p_prev = self._last_distribution
                 self.graph_window.plot_distribution(r_prev, p_prev)
+                cr = self.graph_window.get_cursor_range()
+                if cr is not None:
+                    self.graph_window.update_trust_bar(r_prev, *cr)
 
             self.status_label.setText("Model computed (not fitted)")
 
@@ -1775,6 +1948,9 @@ class SizesFitPanel(QWidget):
             dist_std = result.get('distribution_std')
             if dist_std is not None:
                 self.graph_window.plot_distribution_uncertainty(r_grid, distribution, dist_std)
+            cr = self.graph_window.get_cursor_range()
+            if cr is not None:
+                self.graph_window.update_trust_bar(r_grid, *cr)
 
             # ── Status message ────────────────────────────────────────────────
             n_iter = result.get('n_iterations', '?')
@@ -2039,6 +2215,9 @@ class SizesFitPanel(QWidget):
         # Re-plot the mean distribution with uncertainty error bars
         self.graph_window.plot_distribution(r_grid_ref, dist_mean)
         self.graph_window.plot_distribution_uncertainty(r_grid_ref, dist_mean, dist_std)
+        cr = self.graph_window.get_cursor_range()
+        if cr is not None:
+            self.graph_window.update_trust_bar(r_grid_ref, *cr)
 
         msg = (
             f"MC uncertainty ({n_ok}/{N_runs} fits OK) | "
