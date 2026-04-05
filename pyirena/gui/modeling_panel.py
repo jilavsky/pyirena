@@ -1142,6 +1142,7 @@ class ModelingGraphWindow(QWidget):
         self._cursor_right_line: Optional[_SafeInfiniteLine] = None
         self._cursor_updating = False
 
+        self._data_items: list = []    # [scatter_item, error_item] from plot_iq_data
         self._pop_items: dict = {}     # {pop_index: PlotDataItem} for I(Q)
         self._total_item = None        # total model PlotDataItem
         self._dist_items: dict = {}    # {pop_index: PlotDataItem} for size dist
@@ -1277,9 +1278,28 @@ class ModelingGraphWindow(QWidget):
     # ── Data plotting ─────────────────────────────────────────────────────────
 
     def plot_data(self, q, I, dI=None):
-        """Plot experimental SAS data."""
+        """Plot experimental SAS data, removing any previous data/model curves."""
+        # Remove old data scatter and error bars
+        for item in self._data_items:
+            if item is not None:
+                try:
+                    self.iq_plot.removeItem(item)
+                except Exception:
+                    pass
+        self._data_items.clear()
+
+        # Remove old model curves so stale fit lines don't persist
+        self._clear_model_items()
+
+        # Clear distribution and residual plots
+        self.dist_plot.clear()
+        self._dist_items.clear()
+        self.resid_plot.clear()
+        self.resid_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
+
         self.q_data = q
-        plot_iq_data(self.iq_plot, q, I, dI, label='Data')
+        scatter, errbar = plot_iq_data(self.iq_plot, q, I, dI, label='Data')
+        self._data_items = [scatter, errbar]
 
     def plot_model(self, result: ModelingResult):
         """Plot total model + per-population curves + distributions + residuals."""

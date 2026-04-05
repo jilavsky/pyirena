@@ -293,6 +293,17 @@ where `f_sph(x) = 3(sin x − x·cos x)/x³` (normalised sphere amplitude) and V
 | Rg | SLD-contrast-weighted radius of gyration (matches Guinier plot) |
 | specific_surface | Based on outer surface: Sv = 3/R_total (Porod law, outer interface) |
 
+> **Volume convention (important):** The `scale` parameter and `volume_fraction`
+> derived quantity are based on the **total particle volume** V_total = (4/3)π R_total³
+> (core + shell together), **not** the core volume alone.  This means: if a sample
+> contains 1% by volume of core-shell particles, `scale ≈ Vf·(1−Vf) ≈ 0.01`.
+> The same convention applies to the number↔volume distribution conversion
+> when "Number distribution" is selected: the volume used is V_total, not V_core.
+>
+> The G-matrix is normalised as G = |F_cs|²/V_total × 1e-4, so that
+> `I(Q) = G × vol_dist × dr` gives the correct cm⁻¹ intensity when vol_dist
+> integrates to the total-particle volume fraction.
+
 ---
 
 ## Structure Factors

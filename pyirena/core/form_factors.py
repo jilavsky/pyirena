@@ -313,12 +313,19 @@ def _build_g_cylinder_length(
 #   F_cs = Δρ_c · V_core · f_sph(q·R_core)
 #         + Δρ_s · V_total · f_sph(q·R_total)
 #
-# G[i,j] = F_cs²(q_i, R_c[j], R_t[j]) × 1e-4   [cm⁻¹ per unit vol-frac]
-# The factor 1e-4 converts Å⁶ × Å⁻⁴ × 1e-12 × 1e24 = cm⁻¹.
-# (Å³ × Å⁻² = Å, squared → Å²; 1e-6² = 1e-12; 1 Å² = 1e-20 cm²;
-#  1 cm⁻¹ = 1 cm⁻¹. Net: [Å³ · 10⁻⁶Å⁻²]² = 10⁻¹² Å⁶ Å⁻⁴ = 10⁻¹² Å²
-#  → × 1e-20+24 = ×1e4 → need ×1e-4 for Å³→cm³, giving ×1e-16 total
-#  Combined pre-factor: 1e-4 [Å³→cm³] × 1e-12 [SLD²] = 1e-16 cm⁻¹)
+# G[i,j] = F_cs²(q_i, R_c[j], R_t[j]) / V_total(r_t[j]) × 1e-4  [cm⁻¹]
+#
+# Unit derivation:
+#   F_cs = Δρ [10⁻⁶ Å⁻²] × V [Å³]  →  implicit units 10⁻⁶ Å
+#   Physical: F_A [cm] = F_cs × 10¹⁰ [cm⁻²/unit] × 10⁻²⁴ [cm³/ų] = F_cs × 10⁻¹⁴
+#   |F_A|² [cm²] = F_cs² × 10⁻²⁸
+#   I [cm⁻¹] = (φ/V_t) × |F_A|² = φ × F_cs²/(V_t × 10⁻²⁴) × 10⁻²⁸
+#            = φ × F_cs²/V_t × 10⁻⁴
+#   → G = F_cs²/V_t × 1e-4  where V_t in Å³
+#
+# VOLUME CONVENTION: V_total = (4/3)π R_total³ is the volume of the
+# ENTIRE particle (core + shell).  The ``scale`` parameter encodes the
+# total-particle volume fraction Vf, NOT the core-only volume fraction.
 #
 # The `contrast` argument is accepted for API consistency but ignored.
 #
