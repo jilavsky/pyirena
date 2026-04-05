@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyirena"
 version = "0.3.1"
-description = "Python tools for small-angle scattering data analysis. Includes Unified Fit, Size Distribution, Modeling, Simple Fits, Diffraction Peak fitting, and more."
+description = "Python tools for small-angle scattering data analysis."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
