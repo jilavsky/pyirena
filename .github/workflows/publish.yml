@@ -20,6 +20,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Clean
+        run: rm -rf dist build *.egg-info
+
       - name: Install build tools
         run: pip install build
 
