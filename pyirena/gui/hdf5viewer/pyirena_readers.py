@@ -246,7 +246,10 @@ def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
     DP params: "position", "amplitude", "width", "eta_voigt"
     SD derived: "volume_fraction", "vol_mean_r", "num_mean_r", "specific_surface"
     SD direct: "scale", "contrast"
-    SD form-factor: "ff_aspect_ratio", "ff_length"
+    SD form-factor: "ff_aspect_ratio", "ff_length",
+                    "ff_sld_core", "ff_sld_shell", "ff_sld_solvent",
+                    "ff_t_shell", "ff_r_core_fixed"
+    SD core-shell derived: "r_total_mean"
     pop_index: 1-based population index (ignored for global items).
     """
     res = read_modeling(filepath)
@@ -287,6 +290,13 @@ def _collect_modeling(filepath, item: str, pop_index: int = 1) -> float | None:
         # Size Distribution form-factor params
         "ff_aspect_ratio":  pop.get("ff_params", {}).get("aspect_ratio"),
         "ff_length":        pop.get("ff_params", {}).get("length"),
+        "ff_sld_core":      pop.get("ff_params", {}).get("sld_core"),
+        "ff_sld_shell":     pop.get("ff_params", {}).get("sld_shell"),
+        "ff_sld_solvent":   pop.get("ff_params", {}).get("sld_solvent"),
+        "ff_t_shell":       pop.get("ff_params", {}).get("t_shell"),
+        "ff_r_core_fixed":  pop.get("ff_params", {}).get("r_core_fixed"),
+        # Core-shell derived
+        "r_total_mean":     derived.get("r_total_mean"),
     }
     val = lookup.get(item)
     return float(val) if val is not None else None

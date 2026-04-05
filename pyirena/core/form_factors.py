@@ -300,12 +300,240 @@ def _build_g_cylinder_length(
     return G * (contrast * 1e-4)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Core-Shell form factors
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# SLD convention: sld_core, sld_shell, sld_solvent are in units of 10⁻⁶ Å⁻².
+# The contrast embedded in the amplitude is:
+#   Δρ_c = (sld_core − sld_shell)   × 1e-6  [Å⁻²]
+#   Δρ_s = (sld_shell − sld_solvent) × 1e-6  [Å⁻²]
+#
+# The scattering amplitude for a core-shell sphere (real, centrosymmetric):
+#   F_cs = Δρ_c · V_core · f_sph(q·R_core)
+#         + Δρ_s · V_total · f_sph(q·R_total)
+#
+# G[i,j] = F_cs²(q_i, R_c[j], R_t[j]) / V_total(r_t[j]) × 1e-4  [cm⁻¹]
+#
+# Unit derivation:
+#   F_cs = Δρ [10⁻⁶ Å⁻²] × V [Å³]  →  implicit units 10⁻⁶ Å
+#   Physical: F_A [cm] = F_cs × 10¹⁰ [cm⁻²/unit] × 10⁻²⁴ [cm³/ų] = F_cs × 10⁻¹⁴
+#   |F_A|² [cm²] = F_cs² × 10⁻²⁸
+#   I [cm⁻¹] = (φ/V_t) × |F_A|² = φ × F_cs²/(V_t × 10⁻²⁴) × 10⁻²⁸
+#            = φ × F_cs²/V_t × 10⁻⁴
+#   → G = F_cs²/V_t × 1e-4  where V_t in Å³
+#
+# VOLUME CONVENTION: V_total = (4/3)π R_total³ is the volume of the
+# ENTIRE particle (core + shell).  The ``scale`` parameter encodes the
+# total-particle volume fraction Vf, NOT the core-only volume fraction.
+#
+# The `contrast` argument is accepted for API consistency but ignored.
+#
+# Polydispersity modes — what the r_grid axis represents:
+#   by_core:  r_grid = R_core;  R_total = R_core + t_shell
+#   by_shell: r_grid = t_shell; R_total = r_core_fixed + t_shell
+#   by_total: r_grid = R_total; R_core  = R_total − t_shell
+
+
+def _coreshell_f(
+    q: np.ndarray,
+    r_c: float,
+    r_t: float,
+    d_rho_c: float,
+    d_rho_s: float,
+) -> np.ndarray:
+    """Core-shell sphere amplitude for a single (R_core, R_total) pair.
+
+    Returns F_cs(q) [Å³ · Å⁻² · 10⁻⁶] — a 1-D array over q values.
+
+    Args:
+        q:       Q values [Å⁻¹], shape (M,)
+        r_c:     Core radius [Å]
+        r_t:     Total (outer) radius [Å]; must be ≥ r_c
+        d_rho_c: ρ_core − ρ_shell  in 10⁻⁶ Å⁻²
+        d_rho_s: ρ_shell − ρ_solvent in 10⁻⁶ Å⁻²
+    """
+    V_c = (4.0 / 3.0) * np.pi * r_c ** 3
+    V_t = (4.0 / 3.0) * np.pi * r_t ** 3
+    F_c = _sphere_amplitude(q * r_c)   # (M,)
+    F_t = _sphere_amplitude(q * r_t)   # (M,)
+    return d_rho_c * V_c * F_c + d_rho_s * V_t * F_t
+
+
+def _cs_g_from_pairs(
+    q: np.ndarray,
+    r_c_arr: np.ndarray,
+    r_t_arr: np.ndarray,
+    sld_core: float,
+    sld_shell: float,
+    sld_solvent: float,
+) -> np.ndarray:
+    """Build G matrix from pre-computed (R_core, R_total) arrays.
+
+    G[i,j] = F_cs²(q_i, r_c[j], r_t[j]) / V_total(r_t[j]) × 1e-4  [cm⁻¹]
+
+    Unit derivation (SLDs in 10⁻⁶ Å⁻², volumes in Å³):
+      F_cs has implicit units 10⁻⁶ Å⁻² × Å³ = 10⁻⁶ Å
+      Physical amplitude F_A [cm] = F_cs × 10⁻¹⁴
+      Intensity per Vf = |F_A|² / V_total = F_cs² × 10⁻²⁸ / (V_t × 10⁻²⁴)
+                       = F_cs² / V_t × 10⁻⁴  [cm⁻¹]
+    """
+    d_rho_c = float(sld_core)   - float(sld_shell)    # 10⁻⁶ Å⁻²
+    d_rho_s = float(sld_shell)  - float(sld_solvent)  # 10⁻⁶ Å⁻²
+
+    M, N = len(q), len(r_c_arr)
+    G = np.empty((M, N), dtype=float)
+    for j in range(N):
+        r_t = float(r_t_arr[j])
+        V_t = (4.0 / 3.0) * np.pi * r_t ** 3          # total sphere volume [Å³]
+        F = _coreshell_f(q, float(r_c_arr[j]), r_t, d_rho_c, d_rho_s)
+        G[:, j] = F ** 2 / V_t
+    return G * 1e-4   # convert to cm⁻¹ per unit vol-frac
+
+
+def _build_g_cs_sphere_by_core(
+    q: np.ndarray, r_grid: np.ndarray, contrast: float,
+    sld_core: float = 10.0, sld_shell: float = 1.0,
+    sld_solvent: float = 9.46, t_shell: float = 20.0,
+) -> np.ndarray:
+    """Core-Shell Sphere G matrix — distribution over core radius.
+
+    r_grid = R_core;  R_total = R_core + t_shell (constant)
+    """
+    r_t = r_grid + float(t_shell)
+    return _cs_g_from_pairs(q, r_grid, r_t, sld_core, sld_shell, sld_solvent)
+
+
+def _build_g_cs_sphere_by_shell(
+    q: np.ndarray, r_grid: np.ndarray, contrast: float,
+    sld_core: float = 10.0, sld_shell: float = 1.0,
+    sld_solvent: float = 9.46, r_core_fixed: float = 50.0,
+) -> np.ndarray:
+    """Core-Shell Sphere G matrix — distribution over shell thickness.
+
+    r_grid = t_shell;  R_core = r_core_fixed (constant);  R_total = R_core + t_shell
+    """
+    r_c = np.full_like(r_grid, float(r_core_fixed))
+    r_t = r_c + r_grid
+    return _cs_g_from_pairs(q, r_c, r_t, sld_core, sld_shell, sld_solvent)
+
+
+def _build_g_cs_sphere_by_total(
+    q: np.ndarray, r_grid: np.ndarray, contrast: float,
+    sld_core: float = 10.0, sld_shell: float = 1.0,
+    sld_solvent: float = 9.46, t_shell: float = 20.0,
+) -> np.ndarray:
+    """Core-Shell Sphere G matrix — distribution over total outer radius.
+
+    r_grid = R_total;  R_core = R_total − t_shell (constant shell thickness)
+    Bins where R_total ≤ t_shell are treated as zero-shell (R_core = 0).
+    """
+    t = float(t_shell)
+    r_c = np.maximum(r_grid - t, 0.0)
+    return _cs_g_from_pairs(q, r_c, r_grid, sld_core, sld_shell, sld_solvent)
+
+
+def _cs_spheroid_g_from_pairs(
+    q: np.ndarray,
+    r_c_arr: np.ndarray,
+    r_t_arr: np.ndarray,
+    sld_core: float,
+    sld_shell: float,
+    sld_solvent: float,
+    aspect_ratio: float,
+) -> np.ndarray:
+    """Core-Shell Spheroid G matrix from (R_core, R_total) arrays.
+
+    Orientational average via 50-point Gauss-Legendre quadrature over
+    cos(α) ∈ [0, 1].  The spheroid semi-axes are (R, R, R·AR) for
+    both the core and total particle, sharing the same AR.
+
+    The core-shell spheroid amplitude at angle α:
+      F(q, α) = Δρ_c · V_core · f_sph(q · r_eff(R_core, α))
+               + Δρ_s · V_total· f_sph(q · r_eff(R_total, α))
+    where r_eff(R, α) = R · √[1 + (AR²−1)·cos²(α)]
+
+    The exact orientation average of the squared amplitude is:
+      ⟨F²⟩ = ∫₀¹ F²(q, α) d(cosα)  ≈  Σₖ wₖ · F²(q, αₖ)
+    """
+    AR = float(aspect_ratio)
+    cos_t   = 0.5 * (_GL_NODES + 1.0)   # (K,)
+    weights = 0.5 * _GL_WEIGHTS          # (K,)
+
+    d_rho_c = float(sld_core)  - float(sld_shell)
+    d_rho_s = float(sld_shell) - float(sld_solvent)
+
+    M, N = len(q), len(r_c_arr)
+    G = np.empty((M, N), dtype=float)
+
+    for j in range(N):
+        R_c = float(r_c_arr[j])
+        R_t = float(r_t_arr[j])
+        V_c = (4.0 / 3.0) * np.pi * R_c ** 3 * AR
+        V_t = (4.0 / 3.0) * np.pi * R_t ** 3 * AR
+
+        # r_eff at each GL angle for core and total radii — shape (K,)
+        stretch = np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_t ** 2)
+        r_eff_c = R_c * stretch   # (K,)
+        r_eff_t = R_t * stretch   # (K,)
+
+        # Sphere amplitudes — shape (M, K)
+        F_c = _sphere_amplitude(q[:, np.newaxis] * r_eff_c)
+        F_t = _sphere_amplitude(q[:, np.newaxis] * r_eff_t)
+
+        # Core-shell amplitude at each angle — (M, K)
+        F_cs = d_rho_c * V_c * F_c + d_rho_s * V_t * F_t
+
+        G[:, j] = (F_cs ** 2 @ weights) / V_t
+
+    return G * 1e-4
+
+
+def _build_g_cs_spheroid_by_core(
+    q: np.ndarray, r_grid: np.ndarray, contrast: float,
+    sld_core: float = 10.0, sld_shell: float = 1.0,
+    sld_solvent: float = 9.46, t_shell: float = 20.0,
+    aspect_ratio: float = 1.0,
+) -> np.ndarray:
+    """Core-Shell Spheroid G matrix — distribution over core radius.
+
+    r_grid = R_core;  R_total = R_core + t_shell.
+    Both core and shell share the same aspect ratio AR.
+    """
+    r_t = r_grid + float(t_shell)
+    return _cs_spheroid_g_from_pairs(
+        q, r_grid, r_t, sld_core, sld_shell, sld_solvent, aspect_ratio
+    )
+
+
+def _build_g_cs_spheroid_by_total(
+    q: np.ndarray, r_grid: np.ndarray, contrast: float,
+    sld_core: float = 10.0, sld_shell: float = 1.0,
+    sld_solvent: float = 9.46, t_shell: float = 20.0,
+    aspect_ratio: float = 1.0,
+) -> np.ndarray:
+    """Core-Shell Spheroid G matrix — distribution over total outer radius.
+
+    r_grid = R_total;  R_core = R_total − t_shell.
+    """
+    t = float(t_shell)
+    r_c = np.maximum(r_grid - t, 0.0)
+    return _cs_spheroid_g_from_pairs(
+        q, r_c, r_grid, sld_core, sld_shell, sld_solvent, aspect_ratio
+    )
+
+
 #: Vectorized G-matrix builders, keyed by shape name.
 _G_BUILDERS: dict[str, callable] = {
-    'sphere':          _build_g_sphere,
-    'spheroid':        _build_g_spheroid,
-    'cylinder_ar':     _build_g_cylinder_ar,
-    'cylinder_length': _build_g_cylinder_length,
+    'sphere':               _build_g_sphere,
+    'spheroid':             _build_g_spheroid,
+    'cylinder_ar':          _build_g_cylinder_ar,
+    'cylinder_length':      _build_g_cylinder_length,
+    'cs_sphere_by_core':    _build_g_cs_sphere_by_core,
+    'cs_sphere_by_shell':   _build_g_cs_sphere_by_shell,
+    'cs_sphere_by_total':   _build_g_cs_sphere_by_total,
+    'cs_spheroid_by_core':  _build_g_cs_spheroid_by_core,
+    'cs_spheroid_by_total': _build_g_cs_spheroid_by_total,
 }
 
 
@@ -327,12 +555,18 @@ def build_g_matrix(
         q:           1-D array of Q values [Å^-1], shape (M,)
         r_grid:      1-D array of radius bin centres [Å], shape (N,)
         shape:       Particle shape: 'sphere', 'spheroid', 'cylinder_ar',
-                     or 'cylinder_length'
-        contrast:    (Δρ)² in units of 10^20 cm^-4
+                     'cylinder_length', or any 'cs_*' core-shell variant.
+        contrast:    (Δρ)² in units of 10^20 cm^-4.  Ignored for core-shell
+                     shapes (SLDs encode the contrast internally).
         **shape_params: Extra parameters for the form factor.
-                        For spheroid:        aspect_ratio=<float>
-                        For cylinder_ar:     aspect_ratio=<float>  (L = AR·r)
-                        For cylinder_length: length=<float> [Å]   (total height)
+                        For spheroid:           aspect_ratio=<float>
+                        For cylinder_ar:        aspect_ratio=<float>  (L = AR·r)
+                        For cylinder_length:    length=<float> [Å]
+                        For cs_sphere_by_core:  sld_core, sld_shell, sld_solvent
+                                                [10⁻⁶ Å⁻²], t_shell [Å]
+                        For cs_sphere_by_shell: …, r_core_fixed [Å]
+                        For cs_sphere_by_total: …, t_shell [Å]
+                        For cs_spheroid_*:      above + aspect_ratio
 
     Returns:
         G matrix of shape (M, N)

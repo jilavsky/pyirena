@@ -3320,8 +3320,10 @@ class DataSelectorPanel(QWidget):
         _mod_pop_cols = [
             'type', 'label',
             # size_dist
-            'dist_type', 'scale', 'contrast', 'form_factor', 'ff_aspect_ratio', 'ff_length',
-            'structure_factor', 'vol_fraction', 'mean_r',
+            'dist_type', 'scale', 'contrast', 'form_factor',
+            'ff_aspect_ratio', 'ff_length',
+            'ff_sld_core', 'ff_sld_shell', 'ff_sld_solvent', 'ff_t_shell', 'ff_r_core_fixed',
+            'structure_factor', 'vol_fraction', 'mean_r', 'r_total_mean',
             # unified_level
             'G', 'Rg', 'B', 'P', 'RgCO', 'ETA', 'PACK',
             # diffraction_peak
@@ -3493,9 +3495,15 @@ class DataSelectorPanel(QWidget):
                                 pop.get('form_factor'),
                                 _fmt(pop.get('ff_params', {}).get('aspect_ratio')),
                                 _fmt(pop.get('ff_params', {}).get('length')),
+                                _fmt(pop.get('ff_params', {}).get('sld_core')),
+                                _fmt(pop.get('ff_params', {}).get('sld_shell')),
+                                _fmt(pop.get('ff_params', {}).get('sld_solvent')),
+                                _fmt(pop.get('ff_params', {}).get('t_shell')),
+                                _fmt(pop.get('ff_params', {}).get('r_core_fixed')),
                                 pop.get('structure_factor'),
                                 _fmt(derived.get('volume_fraction')),
                                 _fmt(derived.get('vol_mean_r')),
+                                _fmt(derived.get('r_total_mean')),
                                 # unified_level
                                 _fmt(pop.get('G')),
                                 _fmt(pop.get('Rg')),

@@ -383,6 +383,28 @@ def _volume_cylinder(r_grid: np.ndarray, pop) -> np.ndarray:
     return _volume_sphere(r_grid)
 
 
+def _volume_coreshell(r_grid: np.ndarray, pop) -> np.ndarray:
+    """Total particle volume per bin for core-shell FF modes.
+
+    Volume is always computed from the *outer* (total) radius R_total so
+    that ``pop.scale`` correctly encodes the total particle volume fraction.
+
+    by_core / by_spheroid_core:  r_grid = R_core;  R_total = R_core + t_shell
+    by_shell:                    r_grid = t_shell;  R_total = r_core_fixed + t_shell
+    by_total / by_spheroid_total: r_grid = R_total
+    """
+    ff = getattr(pop, 'form_factor', 'sphere')
+    if ff in ('cs_sphere_by_core', 'cs_spheroid_by_core'):
+        t = float(pop.ff_params.get('t_shell', 0.0))
+        r_total = r_grid + t
+    elif ff == 'cs_sphere_by_shell':
+        r_cf = float(pop.ff_params.get('r_core_fixed', 0.0))
+        r_total = r_cf + r_grid          # r_grid = t_shell here
+    else:  # by_total variants
+        r_total = r_grid
+    return _volume_sphere(r_total)
+
+
 def _uf_invariant(pop: 'UnifiedLevelPopulation') -> float:
     """Compute the Porod invariant for a Unified Fit Level.
 
@@ -453,6 +475,8 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
 
     # Rg² (volume-weighted) — geometry depends on form factor
     ff = getattr(pop, 'form_factor', 'sphere')
+    is_cs = ff.startswith('cs_')
+
     if ff == 'cylinder_ar':
         AR = float(pop.ff_params.get('aspect_ratio', 1.0))
         # Rg²(r) = r²/2 + L²/3  where L = AR·r
@@ -461,6 +485,38 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
         length = float(pop.ff_params.get('length', 100.0))
         # Rg²(r) = r²/2 + (length/2)²/3 = r²/2 + length²/12
         rg2_integrand = radius_grid ** 2 / 2.0 + (length / 2.0) ** 2 / 3.0
+    elif is_cs:
+        # Core-shell: SLD-weighted Rg per bin, then volume-averaged.
+        # Rg²(R_c, R_t) = [Δρ_c·V_c·3R_c²/5 + Δρ_s·(V_t·3R_t²/5 − V_c·3R_c²/5)]
+        #                 / [Δρ_c·V_c + Δρ_s·V_t]
+        # Fall back to geometric Rg² = 3/5·R_t² when denominator ≤ 0.
+        sld_c = float(pop.ff_params.get('sld_core',    10.0))
+        sld_s = float(pop.ff_params.get('sld_shell',    1.0))
+        sld_0 = float(pop.ff_params.get('sld_solvent',  9.46))
+        d_rho_c = sld_c - sld_s   # 10⁻⁶ Å⁻²
+        d_rho_s = sld_s - sld_0
+        # Compute R_core and R_total per bin
+        t = float(pop.ff_params.get('t_shell', 0.0))
+        r_cf = float(pop.ff_params.get('r_core_fixed', 0.0))
+        if ff in ('cs_sphere_by_core', 'cs_spheroid_by_core'):
+            r_c_arr = radius_grid
+            r_t_arr = radius_grid + t
+        elif ff == 'cs_sphere_by_shell':
+            r_c_arr = np.full_like(radius_grid, r_cf)
+            r_t_arr = r_cf + radius_grid
+        else:  # by_total
+            r_t_arr = radius_grid
+            r_c_arr = np.maximum(radius_grid - t, 0.0)
+        V_c = _volume_sphere(r_c_arr)
+        V_t = _volume_sphere(r_t_arr)
+        num_cs = d_rho_c * V_c * (3.0 / 5.0) * r_c_arr ** 2 + \
+                 d_rho_s * (V_t * (3.0 / 5.0) * r_t_arr ** 2 -
+                            V_c * (3.0 / 5.0) * r_c_arr ** 2)
+        den_cs = d_rho_c * V_c + d_rho_s * V_t
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rg2_integrand = np.where(den_cs > 0, num_cs / den_cs,
+                                     (3.0 / 5.0) * r_t_arr ** 2)
     else:
         # Sphere: Rg²(r) = 3/5 · r²
         rg2_integrand = (3.0 / 5.0) * radius_grid ** 2
@@ -483,6 +539,10 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
             length = float(pop.ff_params.get('length', 100.0))
             # Sv(r) = 4/H + 2/r  where H = total height = length
             sv_integrand = 4.0 / max(length, 1e-30) + 2.0 / safe_r
+        elif is_cs:
+            # Sv based on outer surface only: Sv = 3/R_total (Porod law outer interface)
+            safe_rt = np.maximum(r_t_arr, 1e-30)
+            sv_integrand = 3.0 / safe_rt
         else:
             # Sphere: Sv(r) = 3/r
             sv_integrand = 3.0 / safe_r
@@ -492,13 +552,17 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
         else:
             specific_surface = 0.0
 
-    return {
+    # For core-shell: also report volume-weighted mean outer radius
+    result = {
         'vol_mean_r':       vol_mean_r,
         'num_mean_r':       num_mean_r,
         'volume_fraction':  vf,
         'Rg':               Rg,
         'specific_surface': specific_surface,
     }
+    if is_cs and vol_tot > 0:
+        result['r_total_mean'] = float(np.sum(r_t_arr * vol_dist * dr) / vol_tot)
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -545,9 +609,12 @@ class ModelingEngine:
             raw_pdf = np.ones_like(radius_grid)
 
         ff = getattr(pop, 'form_factor', 'sphere')
-        V_r = (_volume_cylinder(radius_grid, pop)
-               if ff.startswith('cylinder')
-               else _volume_sphere(radius_grid))   # particle volume per bin  [Å³]
+        if ff.startswith('cylinder'):
+            V_r = _volume_cylinder(radius_grid, pop)
+        elif ff.startswith('cs_'):
+            V_r = _volume_coreshell(radius_grid, pop)
+        else:
+            V_r = _volume_sphere(radius_grid)      # particle volume per bin  [Å³]
 
         if pop.use_number_dist:
             num_raw = raw_pdf
