@@ -246,6 +246,53 @@ For `cylinder_length`: L = H/2 is constant, so Rg² = ⟨R²⟩/2 + H²/12.
 - Use `cylinder_ar` when the aspect ratio is physically meaningful and expected to be correlated with particle size.
 - Use `cylinder_length` when the thickness/length is a fixed structural parameter (e.g., bilayer thickness, layer period).
 
+### Core-Shell form factor details
+
+Core-shell form factors embed the scattering length densities (SLDs) directly into the form factor calculation. The **Contrast** field is automatically locked to 1.0 when a core-shell form factor is selected — do not change it; contrast is encoded by the SLD difference parameters.
+
+**Available core-shell entries:**
+
+| Key | Combo label | "Size" axis | Extra FF parameters |
+|-----|-------------|-------------|---------------------|
+| `cs_sphere_by_core` | Core-Shell Sphere (by core R) | R_core | sld_core, sld_shell, sld_solvent, t_shell |
+| `cs_sphere_by_shell` | Core-Shell Sphere (by shell t) | t_shell | sld_core, sld_shell, sld_solvent, r_core_fixed |
+| `cs_sphere_by_total` | Core-Shell Sphere (by total R) | R_total | sld_core, sld_shell, sld_solvent, t_shell |
+| `cs_spheroid_by_core` | Core-Shell Spheroid (by core R) | R_core | sld_core, sld_shell, sld_solvent, t_shell, aspect_ratio |
+| `cs_spheroid_by_total` | Core-Shell Spheroid (by total R) | R_total | sld_core, sld_shell, sld_solvent, t_shell, aspect_ratio |
+
+**SLD parameters** are in units of **10⁻⁶ Å⁻²** (standard SLD units). Typical values:
+
+| Material | SLD (10⁻⁶ Å⁻²) | Notes |
+|----------|----------------|-------|
+| H₂O | 9.46 | X-ray solvent default |
+| D₂O | 6.36 | Neutron solvent default |
+| Silica SiO₂ | 18.85 | X-ray |
+| Gold Au | 121 | X-ray |
+| Polystyrene | 9.5 | X-ray |
+
+**Scattering amplitude:**
+```
+F_cs(Q, R_core, R_total) =
+    (ρ_core − ρ_shell)   · V_core  · f_sph(Q·R_core)  +
+    (ρ_shell − ρ_solvent) · V_total · f_sph(Q·R_total)
+```
+where `f_sph(x) = 3(sin x − x·cos x)/x³` (normalised sphere amplitude) and V = (4/3)πR³.
+
+**Polydispersity mode guide:**
+- **by_core** — polydisperse core radius (most common; shell thickness uniform). R_total = R_core + t_shell.
+- **by_shell** — polydisperse shell thickness (core radius fixed). R_total = r_core_fixed + t_shell.
+- **by_total** — polydisperse outer radius (shell thickness uniform). R_core = R_total − t_shell.
+
+**Derived quantities for core-shell populations:**
+
+| Quantity | Description |
+|----------|-------------|
+| vol_mean_r | Volume-weighted mean of the distributed dimension (R_core, t_shell, or R_total) |
+| r_total_mean | Volume-weighted mean total (outer) radius [Å] |
+| volume_fraction | Derived from `scale` parameter (based on total particle volume) |
+| Rg | SLD-contrast-weighted radius of gyration (matches Guinier plot) |
+| specific_surface | Based on outer surface: Sv = 3/R_total (Porod law, outer interface) |
+
 ---
 
 ## Structure Factors

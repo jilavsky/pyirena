@@ -102,15 +102,27 @@ SF_PARAM_LABELS = {
 
 # Form-factor display labels and their extra params
 FF_LABELS = {
-    'sphere':          ('Sphere',                    []),
-    'spheroid':        ('Spheroid',                  ['aspect_ratio']),
-    'cylinder_ar':     ('Cylinder (Aspect Ratio)',   ['aspect_ratio']),
-    'cylinder_length': ('Cylinder (Length)',          ['length']),
+    'sphere':               ('Sphere',                              []),
+    'spheroid':             ('Spheroid',                            ['aspect_ratio']),
+    'cylinder_ar':          ('Cylinder (Aspect Ratio)',             ['aspect_ratio']),
+    'cylinder_length':      ('Cylinder (Length)',                   ['length']),
+    'cs_sphere_by_core':    ('Core-Shell Sphere (by core R)',       ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
+    'cs_sphere_by_shell':   ('Core-Shell Sphere (by shell t)',      ['sld_core', 'sld_shell', 'sld_solvent', 'r_core_fixed']),
+    'cs_sphere_by_total':   ('Core-Shell Sphere (by total R)',      ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
+    'cs_spheroid_by_core':  ('Core-Shell Spheroid (by core R)',     ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
+    'cs_spheroid_by_total': ('Core-Shell Spheroid (by total R)',    ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
 }
 FF_PARAM_LABELS = {
-    'aspect_ratio': 'Aspect ratio (L/R)',
-    'length':       'Length H [Å]',
+    'aspect_ratio':  'Aspect ratio (L/R)',
+    'length':        'Length H [Å]',
+    'sld_core':      'SLD core [10⁻⁶ Å⁻²]',
+    'sld_shell':     'SLD shell [10⁻⁶ Å⁻²]',
+    'sld_solvent':   'SLD solvent [10⁻⁶ Å⁻²]',
+    't_shell':       'Shell thickness t [Å]',
+    'r_core_fixed':  'Core radius R_core [Å]',
 }
+# Form-factor keys that embed SLDs — contrast is fixed at 1.0 and hidden
+_CS_FF_KEYS = frozenset(FF_LABELS) - {'sphere', 'spheroid', 'cylinder_ar', 'cylinder_length'}
 
 # Unified Fit Level parameter definitions: (key, display_label, default, lo, hi, fit_default)
 UF_PARAMS = [
@@ -290,6 +302,7 @@ class PopulationTab(QWidget):
         # ── Build initial parameter rows ───────────────────────────────────
         self._rebuild_dist_params()
         self._rebuild_ff_params()
+        self._toggle_contrast_visibility()
         self._rebuild_sf_params()
 
     def _build_size_dist_panel(self):
@@ -385,7 +398,8 @@ class PopulationTab(QWidget):
         phys_lay = QGridLayout(phys_group)
         phys_lay.setSpacing(3)
 
-        phys_lay.addWidget(QLabel('Contrast (Δρ)² [10²⁰ cm⁻⁴]:'), 0, 0)
+        self._contrast_label = QLabel('Contrast (Δρ)² [10²⁰ cm⁻⁴]:')
+        phys_lay.addWidget(self._contrast_label, 0, 0)
         self.contrast_edit = ScrubbableLineEdit()
         self.contrast_edit.setText('1.0')
         self.contrast_edit.setFixedWidth(90)
@@ -575,8 +589,13 @@ class PopulationTab(QWidget):
         ff_key = self.ff_combo.currentData() or 'sphere'
         _, extra_keys = FF_LABELS.get(ff_key, ('', []))
         _ff_defaults = {
-            'aspect_ratio': (1.0,   0.001, 1000.0),
-            'length':       (100.0, 0.1,   1e6),
+            'aspect_ratio':  (1.0,   0.001,   1000.0),
+            'length':        (100.0, 0.1,     1e6),
+            'sld_core':      (10.0,  -100.0,  100.0),   # 10⁻⁶ Å⁻²
+            'sld_shell':     (1.0,   -100.0,  100.0),
+            'sld_solvent':   (9.46,  -100.0,  100.0),   # H₂O ≈ 9.46
+            't_shell':       (20.0,  0.1,     1e4),     # Å
+            'r_core_fixed':  (50.0,  0.1,     1e6),     # Å
         }
         for row_i, pname in enumerate(extra_keys):
             label = FF_PARAM_LABELS.get(pname, pname)
@@ -661,10 +680,29 @@ class PopulationTab(QWidget):
         self._rebuild_dist_params()
         self._emit_changed()
 
+    def _toggle_contrast_visibility(self):
+        """Show or hide the contrast row depending on the selected form factor.
+
+        Core-shell form factors embed SLDs directly, so contrast must be
+        fixed at 1.0 and is not user-editable.  Hiding the row prevents
+        confusion about which contrast parameter to set.
+        """
+        ff_key = self.ff_combo.currentData() or 'sphere'
+        is_cs = ff_key in _CS_FF_KEYS
+        visible = not is_cs
+        self._contrast_label.setVisible(visible)
+        self.contrast_edit.setVisible(visible)
+        self.contrast_fit_cb.setVisible(visible)
+        if is_cs:
+            # Force contrast to 1.0 (SLDs carry the contrast)
+            self.contrast_edit.setText('1.0')
+            self.contrast_fit_cb.setChecked(False)
+
     def _on_ff_changed(self, _=None):
         if self._building:
             return
         self._rebuild_ff_params()
+        self._toggle_contrast_visibility()
         self._emit_changed()
 
     def _on_sf_changed(self, _=None):
@@ -794,8 +832,13 @@ class PopulationTab(QWidget):
             hi = _parse(hi_edit.text(), 1e10)
             pop.sf_params_limits[key] = (lo, hi)
 
-        pop.contrast = _parse(self.contrast_edit.text(), 1.0)
-        pop.fit_contrast = self.contrast_fit_cb.isChecked()
+        ff_key = self.ff_combo.currentData() or 'sphere'
+        if ff_key in _CS_FF_KEYS:
+            pop.contrast = 1.0
+            pop.fit_contrast = False
+        else:
+            pop.contrast = _parse(self.contrast_edit.text(), 1.0)
+            pop.fit_contrast = self.contrast_fit_cb.isChecked()
         pop.scale = _parse(self.scale_edit.text(), 0.001)
         pop.fit_scale = self.scale_fit_cb.isChecked()
         pop.use_number_dist = self.num_dist_rb.isChecked()
@@ -884,6 +927,7 @@ class PopulationTab(QWidget):
                 self.ff_combo.setCurrentIndex(i)
                 break
         self._rebuild_ff_params()
+        self._toggle_contrast_visibility()
         for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._ff_rows.items():
             val_edit.setText(_fmt(pop.ff_params.get(key, 1.0)))
             fit_cb.setChecked(pop.ff_params_fit.get(key, False))
