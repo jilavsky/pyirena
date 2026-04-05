@@ -34,6 +34,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
+from pyirena.gui.sas_plot import RadiusAxisItem
 from pyirena.state.state_manager import StateManager
 
 
@@ -131,58 +132,7 @@ class LogDecadeAxis(pg.AxisItem):
         return strings
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# RadiusAxisItem — top axis showing R = π/Q in Å
-# ─────────────────────────────────────────────────────────────────────────────
-
-class RadiusAxisItem(pg.AxisItem):
-    """Top axis for the I(Q) log-log plot showing radius R = π/Q in Angstroms.
-
-    The ViewBox x-coordinates are log10(Q).  This axis selects nice round
-    radius values (1, 2, 5, 10, 20, 50, 100, … Å), converts them to
-    log10(Q) positions, and labels them.  The labels decrease from left to
-    right because R ∝ 1/Q.
-    """
-
-    _NICE_MULTIPLIERS = (1, 2, 5)
-
-    def tickValues(self, minVal, maxVal, size):
-        """minVal/maxVal are log10(Q) ViewBox coordinates."""
-        import math
-        PI = math.pi
-        # R = π/Q — left edge (minVal, small Q) has large R; right edge has small R
-        r_min = PI / (10.0 ** maxVal)
-        r_max = PI / (10.0 ** minVal)
-        if r_min <= 0 or r_max <= 0 or r_min >= r_max:
-            return []
-        decade_lo = math.floor(math.log10(r_min)) - 1
-        decade_hi = math.ceil(math.log10(r_max)) + 1
-        positions = []
-        for exp in range(int(decade_lo), int(decade_hi) + 1):
-            for mult in self._NICE_MULTIPLIERS:
-                r = mult * (10.0 ** exp)
-                if r_min <= r <= r_max:
-                    positions.append(math.log10(PI / r))
-        if not positions:
-            return []
-        return [(1.0, positions)]
-
-    def tickStrings(self, values, scale, spacing):
-        import math
-        PI = math.pi
-        strings = []
-        for v in values:
-            R = PI / (10.0 ** v)
-            if R >= 100:
-                strings.append(f'{R:.0f}')
-            elif R >= 10:
-                strings.append(f'{R:.0f}')
-            elif R >= 1:
-                strings.append(f'{R:.1f}')
-            else:
-                strings.append(f'{R:.2f}')
-        return strings
-
+# RadiusAxisItem imported from pyirena.gui.sas_plot
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SizesFitGraphWindow

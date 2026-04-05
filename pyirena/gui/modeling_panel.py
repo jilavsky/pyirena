@@ -62,6 +62,7 @@ from pyirena.core.modeling import (
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
+    RadiusAxisItem,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
@@ -1173,14 +1174,18 @@ class ModelingGraphWindow(QWidget):
         self.gl.clear()
 
         # ── I(Q) main plot ────────────────────────────────────────────────
-        self.iq_plot = self.gl.addPlot(row=0, col=0)
+        self.iq_plot = self.gl.addPlot(
+            row=0, col=0,
+            axisItems={'top': RadiusAxisItem(orientation='top')},
+        )
         self.iq_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.iq_plot.setLabel('left', 'Intensity (cm⁻¹)', **{'color': 'k', 'font-size': '11pt'})
+        self.iq_plot.getAxis('top').setLabel('R = π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
         self.iq_plot.setLogMode(x=True, y=True)
         self.iq_plot.showGrid(x=True, y=True, alpha=0.3)
         self.iq_plot.setTitle('Modeling — I(Q)', size='12pt', color='k')
         self.iq_plot.addLegend(offset=(-10, 10), labelTextSize='9pt')
-        self._style_axes(self.iq_plot)
+        self._style_axes(self.iq_plot, show_top_values=True)
 
         # ── Residuals plot ────────────────────────────────────────────────
         self.resid_plot = self.gl.addPlot(row=1, col=0)
@@ -1219,7 +1224,7 @@ class ModelingGraphWindow(QWidget):
         act2.triggered.connect(self._save_dist_jpeg)
 
     @staticmethod
-    def _style_axes(plot):
+    def _style_axes(plot, show_top_values=False):
         for side in ('left', 'bottom', 'top', 'right'):
             ax = plot.getAxis(side)
             ax.setPen('k')
@@ -1227,7 +1232,8 @@ class ModelingGraphWindow(QWidget):
             ax.enableAutoSIPrefix(False)
         plot.showAxis('top')
         plot.showAxis('right')
-        plot.getAxis('top').setStyle(showValues=False)
+        if not show_top_values:
+            plot.getAxis('top').setStyle(showValues=False)
         plot.getAxis('right').setStyle(showValues=False)
 
     # ── Cursors ──────────────────────────────────────────────────────────────

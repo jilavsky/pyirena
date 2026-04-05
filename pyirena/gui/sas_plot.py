@@ -94,6 +94,55 @@ class SASPlotStyle:
 
 
 # ===========================================================================
+# RadiusAxisItem — top axis showing R = π/Q
+# ===========================================================================
+
+class RadiusAxisItem(pg.AxisItem):
+    """Top axis for I(Q) log-log plots showing feature radius R = π/Q [Å].
+
+    The ViewBox x-coordinates are log10(Q).  This axis selects nice round
+    radius values (1, 2, 5, 10, 20, 50, 100, … Å), converts them to
+    log10(Q) positions, and labels them.  Labels decrease from left to
+    right because R ∝ 1/Q.
+    """
+
+    _NICE_MULTIPLIERS = (1, 2, 5)
+
+    def tickValues(self, minVal, maxVal, size):
+        import math
+        PI = math.pi
+        r_min = PI / (10.0 ** maxVal)
+        r_max = PI / (10.0 ** minVal)
+        if r_min <= 0 or r_max <= 0 or r_min >= r_max:
+            return []
+        decade_lo = math.floor(math.log10(r_min)) - 1
+        decade_hi = math.ceil(math.log10(r_max)) + 1
+        positions = []
+        for exp in range(int(decade_lo), int(decade_hi) + 1):
+            for mult in self._NICE_MULTIPLIERS:
+                r = mult * (10.0 ** exp)
+                if r_min <= r <= r_max:
+                    positions.append(math.log10(PI / r))
+        if not positions:
+            return []
+        return [(1.0, positions)]
+
+    def tickStrings(self, values, scale, spacing):
+        import math
+        PI = math.pi
+        strings = []
+        for v in values:
+            R = PI / (10.0 ** v)
+            if R >= 10:
+                strings.append(f'{R:.0f}')
+            elif R >= 1:
+                strings.append(f'{R:.1f}')
+            else:
+                strings.append(f'{R:.2f}')
+        return strings
+
+
+# ===========================================================================
 # _SafeInfiniteLine — prevents PySide6 segfaults on macOS ARM
 # ===========================================================================
 
@@ -168,10 +217,15 @@ def make_sas_plot(
         pyqtgraph items added to this plot — pyqtgraph applies the log10
         transform automatically when setLogMode is active.
     """
-    plot = graphics_layout.addPlot(row=row, col=col)
+    axis_items = {}
+    if log_x:
+        axis_items['top'] = RadiusAxisItem(orientation='top')
+    plot = graphics_layout.addPlot(row=row, col=col, axisItems=axis_items)
     plot.setLogMode(x=log_x, y=log_y)
     plot.setLabel('left',   y_label)
     plot.setLabel('bottom', x_label)
+    if log_x and 'top' in axis_items:
+        plot.getAxis('top').setLabel('R = π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
     plot.showGrid(x=True, y=True, alpha=SASPlotStyle.GRID_ALPHA)
     plot.getAxis('left').enableAutoSIPrefix(False)
     plot.getAxis('bottom').enableAutoSIPrefix(False)

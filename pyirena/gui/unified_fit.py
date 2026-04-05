@@ -42,6 +42,7 @@ except ImportError:
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+from pyirena.gui.sas_plot import RadiusAxisItem
 from pyirena.state import StateManager
 
 
@@ -491,9 +492,13 @@ class UnifiedFitGraphWindow(QWidget):
         self.graphics_layout.setBackground('w')
 
         # Main plot (data + fit) - 80% of height
-        self.main_plot = self.graphics_layout.addPlot(row=0, col=0)
+        self.main_plot = self.graphics_layout.addPlot(
+            row=0, col=0,
+            axisItems={'top': RadiusAxisItem(orientation='top')},
+        )
         self.main_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.main_plot.setLabel('left', 'Intensity (cm⁻¹)', **{'color': 'k', 'font-size': '11pt'})
+        self.main_plot.getAxis('top').setLabel('R = π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
         self.main_plot.setLogMode(x=True, y=True)
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self.main_plot.setTitle('Unified Fit Model', size='12pt', color='k')
