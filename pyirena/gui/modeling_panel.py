@@ -1816,6 +1816,13 @@ class ModelingPanel(QWidget):
             if i < len(pops):
                 pw.from_full_dict(pops[i])
 
+        # Re-apply no-limits visibility after populations are fully loaded,
+        # because from_full_dict() rebuilds parameter rows that reset visibility
+        self._on_no_limits_changed(
+            Qt.CheckState.Checked.value if nl else Qt.CheckState.Unchecked.value
+            if hasattr(Qt.CheckState, 'Checked') else (2 if nl else 0)
+        )
+
     def _save_state(self):
         state = {
             'background':    _parse(self.bg_edit.text(), 0.0),
@@ -2119,55 +2126,59 @@ class ModelingPanel(QWidget):
         self._restore_fit_button()
         self._last_result = result
 
-        # Update GUI with best-fit parameters
-        self._write_config_back(result.config)
-        self.bg_edit.setText(_fmt(result.config.background))
+        try:
+            # Update GUI with best-fit parameters
+            self._write_config_back(result.config)
+            self.bg_edit.setText(_fmt(result.config.background))
 
-        # Chi² display
-        self.chi2_lbl.setText(f'{result.chi_squared:.4f}')
-        self.rchi2_lbl.setText(f'{result.reduced_chi_squared:.4f}')
-        self.dof_lbl.setText(str(result.dof))
+            # Chi² display
+            self.chi2_lbl.setText(f'{result.chi_squared:.4f}')
+            self.rchi2_lbl.setText(f'{result.reduced_chi_squared:.4f}')
+            self.dof_lbl.setText(str(result.dof))
 
-        # Replot
-        self.graph.iq_plot.clear()
-        self.graph._pop_items.clear()
-        self.graph._total_item = None
-        self.graph.clear_result_annotations()
-        if self.graph._cursor_left_line is not None:
-            self.graph.iq_plot.addItem(self.graph._cursor_left_line)
-            self.graph.iq_plot.addItem(self.graph._cursor_right_line)
+            # Replot
+            self.graph.iq_plot.clear()
+            self.graph._pop_items.clear()
+            self.graph._total_item = None
+            self.graph.clear_result_annotations()
+            if self.graph._cursor_left_line is not None:
+                self.graph.iq_plot.addItem(self.graph._cursor_left_line)
+                self.graph.iq_plot.addItem(self.graph._cursor_right_line)
 
-        s, e = plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
-                            self._data_dI, label='Data')
-        self.graph._data_items = [s, e]
-        set_robust_y_range(self.graph.iq_plot, self._data_I)
-        self.graph.plot_model(result)
+            s, e = plot_iq_data(self.graph.iq_plot, self._data_q, self._data_I,
+                                self._data_dI, label='Data')
+            self.graph._data_items = [s, e]
+            set_robust_y_range(self.graph.iq_plot, self._data_I)
+            self.graph.plot_model(result)
 
-        # Residuals over fitted Q range
-        mask = ((self._data_q >= result.config.q_min) &
-                (self._data_q <= result.config.q_max))
-        q_fit  = self._data_q[mask]
-        dI_fit = self._data_dI[mask]
-        with np.errstate(invalid='ignore', divide='ignore'):
-            resid = (self._data_I[mask] - result.model_I) / np.maximum(dI_fit, 1e-30)
-        self.graph.plot_residuals(q_fit, resid)
+            # Residuals over fitted Q range
+            mask = ((self._data_q >= result.config.q_min) &
+                    (self._data_q <= result.config.q_max))
+            q_fit  = self._data_q[mask]
+            dI_fit = self._data_dI[mask]
+            with np.errstate(invalid='ignore', divide='ignore'):
+                resid = (self._data_I[mask] - result.model_I) / np.maximum(dI_fit, 1e-30)
+            self.graph.plot_residuals(q_fit, resid)
 
-        # Populate derived results on each active population tab
-        for k, pi in enumerate(result.pop_indices):
-            if pi < len(self._pop_widgets) and k < len(result.derived):
-                self._pop_widgets[pi].set_derived(result.derived[k])
+            # Populate derived results on each active population tab
+            for k, pi in enumerate(result.pop_indices):
+                if pi < len(self._pop_widgets) and k < len(result.derived):
+                    self._pop_widgets[pi].set_derived(result.derived[k])
 
+            msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
+                   f'χ²/dof = {result.reduced_chi_squared:.4f},  '
+                   f'DOF = {result.dof}')
+            self.graph.set_status(msg, 'success')
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            self.graph.set_status(f'Fit completed but display error: {exc}', 'error')
+
+        # Always re-enable buttons and save state, even if display code fails
         self.btn_fit.setEnabled(True)
         self.btn_graph.setEnabled(True)
         self.btn_mc.setEnabled(True)
         self.btn_save.setEnabled(True)
-        self.btn_export.setEnabled(True)
         self.btn_revert.setEnabled(self._pre_fit_state is not None)
-
-        msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
-               f'χ²/dof = {result.reduced_chi_squared:.4f},  '
-               f'DOF = {result.dof}')
-        self.graph.set_status(msg, 'success')
         self._save_state()
 
     def _on_fit_error(self, msg: str):
