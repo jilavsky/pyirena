@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-05
+
+### Added
+
+#### Cylinder form factors for Modeling tool
+Two new form factor entries for disk-like and rod-like particles:
+
+- **Cylinder (Aspect Ratio)** (`cylinder_ar`): half-length L = AR·R, where R is the
+  radius from the distribution. Disk-like for AR < 1, rod-like for AR > 1.
+- **Cylinder (Length)** (`cylinder_length`): fixed total height H [Å], independent of
+  radius. Volume scales as R² (not R³).
+- Derived quantities (Rg, specific surface) use cylinder geometry.
+- Orientationally-averaged form factor via 50-point Gauss-Legendre quadrature.
+
+#### Core-shell form factors for Modeling tool
+Five core-shell form factor variants with three polydispersity modes, following the
+Igor Pro implementation:
+
+- **Core-Shell Sphere** — by core R, by shell thickness, or by total R.
+- **Core-Shell Spheroid** — by core R or by total R (with shared aspect ratio).
+- SLD parameters (sld_core, sld_shell, sld_solvent in 10⁻⁶ Å⁻²) replace the scalar
+  contrast parameter, which is automatically locked to 1.0 and hidden in the GUI.
+- SLD-contrast-weighted Rg; specific surface based on outer radius (Porod law).
+- Volume convention: `scale` and `volume_fraction` are based on total particle volume
+  (core + shell together), not core-only. Documented in code and user guide.
+
+#### Modeling GUI — standard buttons
+Added standard buttons matching other tools (Simple Fits, Unified Fit, Sizes):
+
+- **Results to graph** (#81c784 green) — annotate I(Q) plot with fitted parameter values.
+- **Save State** (#3498db blue) — save current parameters to state file.
+- **Import Parameters** (lightgreen) — import from pyIrena JSON config file.
+- **Reset to Defaults** (#e67e22 orange) — reset all populations to default values.
+- **Store in File** / **Export Parameters** renamed and recoloured to match standard.
+- Auto-save state on window close (`closeEvent`).
+
+### Fixed
+
+- **Modeling "Open..." button**: loading a new file now clears all previous data, model
+  curves, distributions, residuals, and annotations from the graph. Previously old items
+  persisted because `graph_model()` and `_on_fit_complete()` bypassed the data tracking.
+- **Modeling `load_file()`**: replaced nonexistent `load_nxcansas` import with the correct
+  `readGenericNXcanSAS` function from `pyirena.io.hdf5`.
+- **Core-shell G-matrix units**: corrected from `F²×1e-16` to `F²/V_total×1e-4`. The old
+  formula double-counted the SLD unit conversion and missed the division by particle
+  volume, causing intensities ~10⁶ times too low.
+
 ## [0.2.1] - 2026-03-20
 
 ### Added
