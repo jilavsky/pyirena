@@ -126,6 +126,9 @@ The merged curve is overlaid on the plot in green.
 
 Enable **Match files** to automatically pair DS1 and DS2 files that share the
 same prefix (text before the first `_`) and the same trailing number.
+Dataset **Filter** fields are applied first — matching only considers files
+that pass their respective filter.  Changing a filter while Match mode is
+active re-runs the matching automatically.
 Then click **Batch Run** to process all pairs sequentially.
 
 Alternatively, select specific files in both lists using Ctrl+click or

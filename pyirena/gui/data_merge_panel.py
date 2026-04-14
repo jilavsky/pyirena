@@ -16,7 +16,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Callable, Optional, List, Tuple
 
 import numpy as np
 
@@ -106,7 +106,9 @@ class _DatasetSelectorWidget(QWidget):
         self._all_files: List[str] = []
         # Optional callback invoked when the user clicks "Select Folder" and a new
         # folder is chosen.  Set by DataMergePanel after construction.
-        self.folder_changed_callback = None
+        self.folder_changed_callback: Optional[Callable] = None
+        # Optional callback invoked when the text filter changes.
+        self.filter_changed_callback: Optional[Callable] = None
 
         self._build_ui()
 
@@ -207,6 +209,13 @@ class _DatasetSelectorWidget(QWidget):
         """Return the unfiltered file list for the current folder/type."""
         return list(self._all_files)
 
+    def get_filtered_files(self) -> List[str]:
+        """Return the file list after the text filter has been applied."""
+        text = self.filter_edit.text().lower()
+        if not text:
+            return list(self._all_files)
+        return [f for f in self._all_files if text in f.lower()]
+
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
@@ -242,6 +251,8 @@ class _DatasetSelectorWidget(QWidget):
         for f in self._all_files:
             if text in f.lower():
                 self.file_list.addItem(f)
+        if self.filter_changed_callback is not None:
+            self.filter_changed_callback()
 
 
 # ===========================================================================
@@ -636,6 +647,8 @@ class DataMergePanel(QWidget):
         # (DS1 only) and uncheck "Match files" (both datasets).
         self._ds1.folder_changed_callback = self._on_ds1_folder_changed
         self._ds2.folder_changed_callback = self._on_ds2_folder_changed
+        self._ds1.filter_changed_callback = self._on_filter_changed
+        self._ds2.filter_changed_callback = self._on_filter_changed
 
         top_row.addWidget(self._ds1)
         top_row.addWidget(self._ds2)
@@ -944,13 +957,18 @@ class DataMergePanel(QWidget):
         self._update_cursor_display()
         self.save_state()
 
+    def _on_filter_changed(self) -> None:
+        """Re-run matching when a dataset filter changes while match mode is active."""
+        if self._match_chk.isChecked():
+            self._apply_match_filter()
+
     def _on_match_changed(self, _state) -> None:
         if self._match_chk.isChecked():
             self._apply_match_filter()
         else:
-            # Restore full lists
-            self._ds1._refresh_file_list()
-            self._ds2._refresh_file_list()
+            # Restore full (filtered) lists
+            self._ds1._apply_filter()
+            self._ds2._apply_filter()
         self._check_enable_batch_btn()
 
     # ================================================================== #
@@ -1197,8 +1215,8 @@ class DataMergePanel(QWidget):
     # ================================================================== #
 
     def _apply_match_filter(self) -> None:
-        files1 = self._ds1.get_all_files()
-        files2 = self._ds2.get_all_files()
+        files1 = self._ds1.get_filtered_files()
+        files2 = self._ds2.get_filtered_files()
         pairs = self._engine.match_files(files1, files2)
         matched1 = [p[0] for p in pairs]
         matched2 = [p[1] for p in pairs]
@@ -1212,8 +1230,8 @@ class DataMergePanel(QWidget):
     def _get_matched_pairs(self) -> List[Tuple[str, str]]:
         if not self._match_chk.isChecked():
             return []
-        files1 = self._ds1.get_all_files()
-        files2 = self._ds2.get_all_files()
+        files1 = self._ds1.get_filtered_files()
+        files2 = self._ds2.get_filtered_files()
         return self._engine.match_files(files1, files2)
 
     # ================================================================== #

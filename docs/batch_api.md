@@ -258,7 +258,8 @@ result = fit_sizes(
 
 Reads the `sizes` section from the config file and runs the size-distribution
 inversion (same four methods as the GUI: Regularization, MaxEnt, TNNLS, Monte Carlo).
-Saves the full size distribution, residuals, and all scalar parameters to
+Saves the volume size distribution, number size distribution, cumulative
+distributions (volume and number), residuals, and all scalar parameters to
 `entry/sizes_results` in the HDF5 file.
 
 ### Returns

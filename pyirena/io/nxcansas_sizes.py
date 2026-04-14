@@ -15,7 +15,10 @@ intensity_error    — measurement uncertainty [cm^-1]  (if available)
 intensity_model    — fitted model intensity [cm^-1]
 residuals          — normalised residuals (I_data - I_model) / error
 r_grid             — radius bin centres [Å]
-distribution       — size distribution P(r) [volume fraction / Å]
+distribution       — volume size distribution P(r) [volume fraction / Å]
+number_dist        — number size distribution N(r) [1 / Å]
+cumul_vol_dist     — cumulative volume distribution (running integral from r_min)
+cumul_num_dist     — cumulative number distribution (running integral from r_min)
 distribution_std   — per-bin std of P(r) across Monte Carlo repetitions (if available)
 
 Group attributes (fit results)
@@ -157,12 +160,30 @@ def save_sizes_results(
             grp.create_dataset('distribution_std', data=distribution_std.astype('f8'), compression='gzip')
             grp['distribution_std'].attrs['units'] = 'volume_fraction/angstrom'
 
+        # ── Derived distributions ────────────────────────────────────────────
+        # Number distribution: N(r) = P(r) / V(r),  V(r) = (4/3)πr³
+        V_r = (4.0 / 3.0) * np.pi * r_grid ** 3
+        num_dist = np.where(V_r > 0, distribution / V_r, 0.0)
+
+        # Cumulative distributions: running integral from r_min using the
+        # trapezoidal rule over bin-centre spacing.
+        dr = np.diff(r_grid, prepend=r_grid[0])
+        cumul_vol = np.cumsum(distribution * dr)
+        cumul_num = np.cumsum(num_dist * dr)
+
+        grp.create_dataset('number_dist',    data=num_dist.astype('f8'),   compression='gzip')
+        grp.create_dataset('cumul_vol_dist', data=cumul_vol.astype('f8'),  compression='gzip')
+        grp.create_dataset('cumul_num_dist', data=cumul_num.astype('f8'),  compression='gzip')
+
         # Units annotations
         grp['Q'].attrs['units']              = '1/angstrom'
         grp['intensity_data'].attrs['units'] = '1/cm'
         grp['intensity_model'].attrs['units'] = '1/cm'
         grp['r_grid'].attrs['units']         = 'angstrom'
         grp['distribution'].attrs['units']   = 'volume_fraction/angstrom'
+        grp['number_dist'].attrs['units']    = '1/angstrom'
+        grp['cumul_vol_dist'].attrs['units'] = 'volume_fraction'
+        grp['cumul_num_dist'].attrs['units'] = 'dimensionless'
 
 
 def load_sizes_results(filepath: Path) -> dict:
@@ -175,7 +196,8 @@ def load_sizes_results(filepath: Path) -> dict:
     Returns:
         dict with keys:
             ``Q``, ``intensity_data``, ``intensity_model``, ``residuals``,
-            ``r_grid``, ``distribution``,
+            ``r_grid``, ``distribution``, ``number_dist``,
+            ``cumul_vol_dist``, ``cumul_num_dist``,
             ``intensity_error`` (may be None),
             and all scalar metadata stored as group attributes
             (fit results: ``chi_squared``, ``volume_fraction``, ``rg``,
@@ -223,6 +245,9 @@ def load_sizes_results(filepath: Path) -> dict:
             result['distribution_std'] = grp['distribution_std'][:]
         else:
             result['distribution_std'] = None
+
+        for key in ('number_dist', 'cumul_vol_dist', 'cumul_num_dist'):
+            result[key] = grp[key][:] if key in grp else None
 
         # Scalar metadata: fit results may be datasets (new format) or attrs (old format)
         _dataset_keys = ('chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power')

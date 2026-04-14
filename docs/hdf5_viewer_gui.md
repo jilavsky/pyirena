@@ -7,7 +7,7 @@ of files into a table and scatter plot.
 
 The viewer supports results from all pyirena analysis tools: **Unified Fit**
 (including Guinier analysis, Porod's law exponents, and fractal/agglomerate
-models), **Size Distribution** (volume-weighted P(R) and I(Q) models),
+models), **Size Distribution** (volume/number distributions, cumulative distributions, and I(Q) models),
 **WAXS Peak Fit** (diffraction peak fitting), **Simple Fits** (Guinier, Porod,
 Debye-Bueche, Treubner-Strey, and other models), and **Data Merge**
 (merged SAXS/USAXS datasets).
@@ -168,13 +168,16 @@ Check one or more boxes to include the corresponding data in the next graph:
 |----------|-------------|
 | NXcanSAS (I vs Q) | Reduced scattering data + uncertainties |
 | Unified Fit model | Fit model curve; data overlay if available |
-| Size Distribution I(Q) | Model I(Q) from size distribution |
-| Size Distribution P(r) | Pair-distance distribution (separate graph) |
+| Size Dist. model (I vs Q) | Model I(Q) from size distribution |
+| Size Dist. vol. P(r) | Volume size distribution vs r (separate graph) |
+| Size Dist. num. N(r) | Number size distribution vs r (separate graph) |
+| Size Dist. cumul. vol. | Cumulative volume distribution vs r (separate graph) |
+| Size Dist. cumul. num. | Cumulative number distribution vs r (separate graph) |
 | WAXS Peak Fit | Total fit curve |
 | Simple Fit model | Model curve from simple fit |
 
-Size Distribution P(r) always opens in a **separate** Graph Window because its
-axes are incompatible with I(Q) data.
+Size Distribution distribution plots (P(r), N(r), cumulative) always open in a
+**separate** Graph Window because their axes are incompatible with I(Q) data.
 
 #### Custom data (from HDF5 browser)
 
@@ -390,7 +393,7 @@ collection via the HDF5 Viewer:
 | Analysis | Keyword / technique |
 |----------|-------------------|
 | Unified Fit | Guinier analysis, Porod's law (power-law exponent), fractal dimension, Beaucage model |
-| Size Distribution | size distribution, P(R) distribution, volume-weighted particle size |
+| Size Distribution | size distribution, volume/number P(r), cumulative distributions, particle size |
 | WAXS Peak Fit | diffraction peak fitting, d-spacing, FWHM |
 | Simple Fits | Guinier, Porod, Debye-Bueche (two-phase model), Treubner-Strey (microemulsion / lamellar), power law, Lorentzian, Gaussian |
 | Data Merge | SAXS/USAXS merge, scale matching, background subtraction |

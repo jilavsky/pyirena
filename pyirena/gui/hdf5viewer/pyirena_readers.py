@@ -127,6 +127,7 @@ def read_sizes(filepath: str | Path) -> dict | None:
 
     Returns {
         "Q", "I_model", "r", "distribution", "distribution_std" (may be None),
+        "number_dist", "cumul_vol_dist", "cumul_num_dist" (may be None),
         "chi2", "label"
     } or None.
     """
@@ -136,12 +137,20 @@ def read_sizes(filepath: str | Path) -> dict | None:
         if not res:
             return None
         dist_std = res.get("distribution_std")
+
+        def _opt(key):
+            v = res.get(key)
+            return np.asarray(v, float) if v is not None else None
+
         return {
             "Q":              np.asarray(res["Q"],              float),
             "I_model":        np.asarray(res["intensity_model"], float),
             "r":              np.asarray(res["r_grid"],          float),
             "distribution":   np.asarray(res["distribution"],   float),
             "distribution_std": np.asarray(dist_std, float) if dist_std is not None else None,
+            "number_dist":    _opt("number_dist"),
+            "cumul_vol_dist": _opt("cumul_vol_dist"),
+            "cumul_num_dist": _opt("cumul_num_dist"),
             "chi2":           res.get("chi_squared"),
             "label":          Path(filepath).stem,
         }
