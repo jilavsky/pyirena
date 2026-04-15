@@ -217,11 +217,13 @@ class HDF5BrowserWidget(QWidget):
                 ds: h5py.Dataset = child
                 shape_str = "×".join(str(d) for d in ds.shape) if ds.shape else "scalar"
                 dtype_str = str(ds.dtype)
-                # Read scalar string values inline
+                # Read scalar or 1-element array values inline
                 val_str = ""
-                if ds.shape == () or ds.ndim == 0:
+                if ds.shape == () or ds.ndim == 0 or ds.size == 1:
                     try:
                         v = ds[()]
+                        if hasattr(v, 'flat'):
+                            v = v.flat[0]   # extract single value from 1-element array
                         if isinstance(v, (bytes, np.bytes_)):
                             v = v.decode("utf-8", errors="replace")
                         val_str = f" = {v}"
