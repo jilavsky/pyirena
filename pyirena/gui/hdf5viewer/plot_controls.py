@@ -257,10 +257,10 @@ class PlotControlsPanel(QWidget):
 
         wg.addWidget(_label("Custom path:"), 3, 0)
         self._collect_path = QLineEdit()
-        self._collect_path.setPlaceholderText("/entry/...  or @attr")
+        self._collect_path.setPlaceholderText("/entry/*/sasdata/T  — use * for any group name")
         wg.addWidget(self._collect_path, 3, 1, 1, 2)
 
-        self._collect_hint = QLabel("← right-click a dataset in HDF5 browser")
+        self._collect_hint = QLabel("Use * as wildcard for varying group names (e.g. sample names)")
         self._collect_hint.setStyleSheet("font-size:8pt; color:#888; font-style:italic;")
         wg.addWidget(self._collect_hint, 4, 0, 1, 3)
 

@@ -16,6 +16,58 @@ import h5py
 import numpy as np
 
 
+# ── Wildcard path resolver ────────────────────────────────────────────────
+
+def _resolve_wildcard(f: h5py.File, hdf5_path: str) -> str | None:
+    """Resolve ``*`` segments in an HDF5 path to the first matching group.
+
+    Example: ``/entry/*/sastransmission_spectrum/T`` will walk into the
+    first child of ``/entry/`` that contains ``sastransmission_spectrum/T``.
+
+    Multiple ``*`` segments are supported.  Returns the resolved path or
+    None if no match is found.  Attribute suffixes (``@attr``) are
+    preserved.
+    """
+    # Fast path — no wildcards
+    if '*' not in hdf5_path:
+        return hdf5_path
+
+    # Separate trailing @attr if present
+    attr_suffix = ''
+    path = hdf5_path
+    if '@' in path:
+        path, attr_suffix = path.rsplit('@', 1)
+        attr_suffix = '@' + attr_suffix
+
+    parts = [p for p in path.split('/') if p]
+    matches = ['']  # start at root
+
+    for part in parts:
+        next_matches = []
+        for prefix in matches:
+            node_path = prefix or '/'
+            try:
+                node = f[node_path]
+            except KeyError:
+                continue
+            if part == '*':
+                # Expand to all child group/dataset names
+                if hasattr(node, 'keys'):
+                    for child_name in node.keys():
+                        next_matches.append(f'{prefix}/{child_name}')
+            else:
+                candidate = f'{prefix}/{part}'
+                if candidate in f:
+                    next_matches.append(candidate)
+        matches = next_matches
+        if not matches:
+            return None
+
+    if not matches:
+        return None
+    return matches[0] + attr_suffix
+
+
 # ── Detection ──────────────────────────────────────────────────────────────
 
 def detect_available_data(filepath: str | Path) -> list[str]:
@@ -317,11 +369,16 @@ def read_dataset(filepath: str | Path, hdf5_path: str) -> np.ndarray | None:
     """
     Read any 1D or scalar dataset from an HDF5 file.
 
+    Wildcard ``*`` segments are resolved to the first matching child group.
+
     Returns a numpy array, or None on failure.
     """
     try:
         with h5py.File(str(filepath), "r") as f:
-            ds = f[hdf5_path]
+            resolved = _resolve_wildcard(f, hdf5_path)
+            if resolved is None:
+                return None
+            ds = f[resolved]
             data = ds[()]
             if isinstance(data, (bytes, np.bytes_)):
                 return None   # string dataset
@@ -484,18 +541,25 @@ def read_metadata_value(filepath: str | Path, hdf5_path: str) -> float | None:
 
     Supports both dataset paths (``/entry/foo/bar``) and attribute paths
     (``/entry/foo/bar@attr_name``).
+
+    Wildcard ``*`` segments are resolved to the first matching child group,
+    e.g. ``/entry/*/sastransmission_spectrum/T``.
     """
     if not hdf5_path:
         return None
     try:
         with h5py.File(str(filepath), "r") as f:
-            if "@" in hdf5_path:
-                path, attr = hdf5_path.rsplit("@", 1)
+            resolved = _resolve_wildcard(f, hdf5_path)
+            if resolved is None:
+                return None
+            if "@" in resolved:
+                path, attr = resolved.rsplit("@", 1)
                 path = path.rstrip("/") or "/"
                 val = f[path].attrs[attr]
             else:
-                val = f[hdf5_path][()]
-            # Convert bytes → string → float where possible
+                val = f[resolved][()]
+            if hasattr(val, 'flat') and val.size == 1:
+                val = val.flat[0]
             if isinstance(val, (bytes, np.bytes_)):
                 val = val.decode("utf-8", errors="replace")
             return float(val)
@@ -534,12 +598,15 @@ def read_hdf5_item(
         return None, 'error'
     try:
         with h5py.File(str(filepath), 'r') as f:
-            if '@' in hdf5_path:
-                path, attr = hdf5_path.rsplit('@', 1)
+            resolved = _resolve_wildcard(f, hdf5_path)
+            if resolved is None:
+                return None, 'error'
+            if '@' in resolved:
+                path, attr = resolved.rsplit('@', 1)
                 path = path.rstrip('/') or '/'
                 raw = f[path].attrs[attr]
             else:
-                raw = f[hdf5_path][()]
+                raw = f[resolved][()]
     except Exception:
         return None, 'error'
 
