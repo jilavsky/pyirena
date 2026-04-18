@@ -1,11 +1,11 @@
 """
-nxcansas_data_merge.py — HDF5 / NXcanSAS I/O for the Data Merge tool.
+nxcansas_data_manipulation.py — HDF5 / NXcanSAS I/O for the Data Manipulation tool.
 
 Handles:
 - Copying an input NXcanSAS file and replacing its Q/I/Idev/Qdev arrays with
-  the merged data while stripping any existing pyirena result groups.
-- Creating a fresh NXcanSAS file when the DS1 input is not already NXcanSAS.
-- Appending a provenance NXprocess group recording the merge parameters.
+  the manipulated data while stripping any existing pyirena result groups.
+- Creating a fresh NXcanSAS file when the input is not NXcanSAS.
+- Appending a provenance NXprocess group recording the operation parameters.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pyirena.io.nxcansas_unified import create_nxcansas_file
 from pyirena.io.hdf5 import find_matching_groups
 
 
-# Known pyirena result group paths to strip when copying DS1
+# Known pyirena result group paths to strip when copying the source file
 _PYIRENA_RESULT_GROUPS = [
     'entry/unified_fit_results',
     'entry/sizes_results',
@@ -32,50 +32,59 @@ _PYIRENA_RESULT_GROUPS = [
     'entry/data_manipulation_results',
 ]
 
+# Default suffix per operation
+_OPERATION_SUFFIXES = {
+    'scaled': '_scaled',
+    'trimmed': '_trimmed',
+    'rebinned': '_rebinned',
+    'avg': '_avg',
+    'sub': '_sub',
+    'div': '_div',
+}
 
-def save_merged_data(
+
+def save_manipulated_data(
     output_folder: Path,
-    ds1_path: Path,
-    ds1_is_nxcansas: bool,
+    source_path: Path,
+    source_is_nxcansas: bool,
     q: np.ndarray,
     I: np.ndarray,
     dI: np.ndarray,
     dQ: Optional[np.ndarray],
-    merge_result_dict: dict,
-    ds2_path: Optional[Path] = None,
-    output_stem_suffix: str = '_merged',
+    operation: str,
+    provenance: dict,
+    output_stem_suffix: Optional[str] = None,
 ) -> Path:
-    """Save merged SAS data to a NXcanSAS HDF5 file.
+    """Save manipulated SAS data to a NXcanSAS HDF5 file.
 
     Strategy
     --------
-    - If *ds1_is_nxcansas*: copy DS1 → output dir (stripping pyirena results),
-      then replace the Q/I/Idev/Qdev arrays in the existing sasdata group.
+    - If *source_is_nxcansas*: copy source → output dir (stripping pyirena
+      results), then replace Q/I/Idev/Qdev in the existing sasdata group.
     - Otherwise: create a fresh NXcanSAS file via ``create_nxcansas_file()``.
 
-    In both cases a ``data_merge_results`` NXprocess group is appended with all
-    merge parameters for provenance.
+    In both cases a ``data_manipulation_results`` NXprocess group is appended
+    with all operation parameters for provenance.
 
     Parameters
     ----------
     output_folder : Path
         Directory where the output file will be written.  Must already exist.
-    ds1_path : Path
-        Full path to the DS1 input file.
-    ds1_is_nxcansas : bool
-        True if DS1 was read as a proper NXcanSAS HDF5 file.
+    source_path : Path
+        Full path to the source input file.
+    source_is_nxcansas : bool
+        True if the source was read as a proper NXcanSAS HDF5 file.
     q, I, dI : ndarray
-        Merged Q, intensity, and uncertainty arrays.
+        Manipulated Q, intensity, and uncertainty arrays.
     dQ : ndarray or None
-        Merged Q-resolution array, or None.
-    merge_result_dict : dict
-        Keys: scale, q_shift, background, chi_squared, q_overlap_min,
-        q_overlap_max, scale_dataset, fit_scale, fit_qshift,
-        split_at_left_cursor.  Values are scalars or booleans.
-    ds2_path : Path or None
-        Full path to DS2 input file (for provenance only).
-    output_stem_suffix : str
-        Appended to DS1 stem for the output filename.
+        Q-resolution array, or None.
+    operation : str
+        Operation key (e.g. 'scaled', 'trimmed', 'avg').
+    provenance : dict
+        Operation-specific parameters to store as datasets.
+    output_stem_suffix : str or None
+        Override the default suffix.  If None, looks up *operation* in
+        ``_OPERATION_SUFFIXES``.
 
     Returns
     -------
@@ -83,31 +92,26 @@ def save_merged_data(
         Full path of the written output file.
     """
     output_folder = Path(output_folder)
-    ds1_path = Path(ds1_path)
+    source_path = Path(source_path)
 
-    # Determine output filename
-    stem = ds1_path.stem
-    ext = ds1_path.suffix if ds1_is_nxcansas else '.h5'
-    out_name = f"{stem}{output_stem_suffix}{ext}"
+    suffix = output_stem_suffix or _OPERATION_SUFFIXES.get(operation, f'_{operation}')
+    stem = source_path.stem
+    ext = source_path.suffix if source_is_nxcansas else '.h5'
+    out_name = f"{stem}{suffix}{ext}"
     out_path = output_folder / out_name
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    if ds1_is_nxcansas:
-        # Copy DS1 file, strip results, replace data arrays
-        _copy_and_strip_results(ds1_path, out_path)
+    if source_is_nxcansas:
+        _copy_and_strip_results(source_path, out_path)
         _replace_nxcansas_data(out_path, q, I, dI, dQ)
     else:
-        # Create fresh NXcanSAS file
         sample_name = stem
         create_nxcansas_file(out_path, q, I, error=dI, sample_name=sample_name)
-        # Add dQ if available
         if dQ is not None:
             _append_dq(out_path, dQ, sample_name)
 
-    # Append provenance group
-    _append_merge_provenance(out_path, merge_result_dict, ds1_path, ds2_path)
-
+    _append_manipulation_provenance(out_path, operation, provenance, source_path)
     return out_path
 
 
@@ -133,14 +137,12 @@ def _replace_nxcansas_data(
 ) -> None:
     """Overwrite Q/I/Idev/Qdev arrays in the first NXcanSAS sasdata group."""
     with h5py.File(filepath, 'a') as f:
-        # Locate the sasdata group dynamically (same approach as the reader)
         sasdata_paths = find_matching_groups(
             f,
             required_attributes={'canSAS_class': 'SASdata'},
             required_items={},
         )
         if not sasdata_paths:
-            # Fallback: look for NXdata group
             sasdata_paths = find_matching_groups(
                 f,
                 required_attributes={'NX_class': 'NXdata'},
@@ -149,12 +151,11 @@ def _replace_nxcansas_data(
         if not sasdata_paths:
             raise RuntimeError(
                 f"Could not locate a sasdata/NXdata group in {filepath}. "
-                "Cannot replace merged data."
+                "Cannot replace manipulated data."
             )
 
         sasdata = f[sasdata_paths[0]]
 
-        # Replace each array dataset; delete-then-recreate to allow size change
         for name, data, attrs in [
             ('Q',    q,  {'units': '1/angstrom', 'long_name': 'Q'}),
             ('I',    I,  {'units': '1/cm',       'long_name': 'Intensity'}),
@@ -166,11 +167,9 @@ def _replace_nxcansas_data(
             for k, v in attrs.items():
                 ds.attrs[k] = v
 
-        # I.uncertainties attribute
         if 'I' in sasdata:
             sasdata['I'].attrs['uncertainties'] = 'Idev'
 
-        # Qdev (Q resolution) — add only if provided
         if dQ is not None:
             if 'Qdev' in sasdata:
                 del sasdata['Qdev']
@@ -179,13 +178,11 @@ def _replace_nxcansas_data(
             ds_qdev.attrs['long_name'] = 'Q resolution'
             sasdata['Q'].attrs['resolutions'] = 'Qdev'
         else:
-            # Remove stale Qdev if the merged data has none
             if 'Qdev' in sasdata:
                 del sasdata['Qdev']
             if 'Q' in sasdata and 'resolutions' in sasdata['Q'].attrs:
                 del sasdata['Q'].attrs['resolutions']
 
-        # Update file timestamp
         f.attrs['file_time'] = datetime.now().isoformat()
 
 
@@ -207,38 +204,34 @@ def _append_dq(filepath: Path, dQ: np.ndarray, sample_name: str) -> None:
                     sasdata['Q'].attrs['resolutions'] = 'Qdev'
 
 
-def _append_merge_provenance(
+def _append_manipulation_provenance(
     filepath: Path,
-    merge_result_dict: dict,
-    ds1_path: Path,
-    ds2_path: Optional[Path],
+    operation: str,
+    provenance: dict,
+    source_path: Path,
 ) -> None:
-    """Append ``entry/data_merge_results`` NXprocess group with merge parameters."""
+    """Append ``entry/data_manipulation_results`` NXprocess group."""
     with h5py.File(filepath, 'a') as f:
-        # Remove stale group if present (e.g. re-saving after re-merge)
-        if 'entry/data_merge_results' in f:
-            del f['entry/data_merge_results']
+        grp_path = 'entry/data_manipulation_results'
+        if grp_path in f:
+            del f[grp_path]
 
-        grp = f.require_group('entry/data_merge_results')
+        grp = f.require_group(grp_path)
         grp.attrs['NX_class'] = 'NXprocess'
+        grp.attrs['analysis_type'] = 'Data Manipulation'
         grp.attrs['program'] = 'pyirena'
         grp.attrs['version'] = '1.0'
         grp.attrs['timestamp'] = datetime.now().isoformat()
 
-        # Store source filenames as string datasets (visible in HDF5 viewer)
-        # and as group attributes (for quick programmatic access).
-        ds1_str = str(ds1_path)
-        ds2_str = str(ds2_path) if ds2_path else ''
-        grp.create_dataset('ds1_file', data=ds1_str)
-        grp.create_dataset('ds2_file', data=ds2_str)
-        grp.attrs['ds1_path'] = ds1_str   # keep attr for backwards compatibility
-        grp.attrs['ds2_path'] = ds2_str
+        grp.create_dataset('operation', data=operation)
+        grp.create_dataset('source_file', data=str(source_path))
 
-        # Store merge parameters as scalar datasets (visible in HDF5 viewer)
-        for key, value in merge_result_dict.items():
+        for key, value in provenance.items():
             if isinstance(value, bool):
                 grp.create_dataset(key, data=int(value))
             elif value is None:
                 grp.create_dataset(key, data=float('nan'))
-            else:
+            elif isinstance(value, str):
                 grp.create_dataset(key, data=value)
+            elif isinstance(value, (int, float, np.integer, np.floating)):
+                grp.create_dataset(key, data=float(value))

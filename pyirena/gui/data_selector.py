@@ -2064,6 +2064,7 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
         self.hdf5_viewer_window = None         # HDF5 Viewer / Data Extractor
         self.data_merge_window = None          # Data Merge panel
+        self.data_manip_window = None          # Data Manipulation panel
         self.contrast_window = None            # Scattering Contrast Calculator
         self._batch_worker = None      # Batch fitting thread
 
@@ -2613,6 +2614,15 @@ class DataSelectorPanel(QWidget):
         )
         self.data_merge_button.clicked.connect(self.launch_data_merge)
 
+        self.data_manip_button = QPushButton("Data Manipulation")
+        self.data_manip_button.setMinimumHeight(38)
+        self.data_manip_button.setStyleSheet(_utility_style)
+        self.data_manip_button.setToolTip(
+            "Open the Data Manipulation tool for scaling, trimming,\n"
+            "rebinning, averaging, subtracting, and dividing datasets."
+        )
+        self.data_manip_button.clicked.connect(self.launch_data_manipulation)
+
         self.manage_config_button = QPushButton("Manage Config...")
         self.manage_config_button.setMinimumHeight(38)
         self.manage_config_button.setStyleSheet(_utility_style)
@@ -2665,6 +2675,7 @@ class DataSelectorPanel(QWidget):
         right_layout.addWidget(_util_sep2)
 
         right_layout.addWidget(self.data_merge_button)
+        right_layout.addWidget(self.data_manip_button)
         right_layout.addWidget(self.hdf5_viewer_button)
         right_layout.addWidget(self.manage_config_button)
         file_area_layout.addLayout(right_layout, stretch=1)
@@ -2737,6 +2748,10 @@ class DataSelectorPanel(QWidget):
         data_merge_action.setStatusTip("Open Data Merge tool for USAXS+SAXS/WAXS merging")
         data_merge_action.triggered.connect(self.launch_data_merge)
         tools_menu.addAction(data_merge_action)
+        data_manip_action = QAction("Data &Manipulation", self)
+        data_manip_action.setStatusTip("Open Data Manipulation tool for scaling, trimming, averaging, etc.")
+        data_manip_action.triggered.connect(self.launch_data_manipulation)
+        tools_menu.addAction(data_manip_action)
         tools_menu.addSeparator()
         hdf5_viewer_action = QAction("&HDF5 Viewer", self)
         hdf5_viewer_action.setStatusTip("Open HDF5 Viewer / Data Extractor")
@@ -3884,6 +3899,23 @@ class DataSelectorPanel(QWidget):
         self.data_merge_window.raise_()
         self.data_merge_window.activateWindow()
         self.status_label.setText("Data Merge tool opened.")
+
+    def launch_data_manipulation(self):
+        """Open the Data Manipulation tool."""
+        from pyirena.gui.data_manipulation_panel import DataManipulationPanel
+
+        if self.data_manip_window is None:
+            self.data_manip_window = DataManipulationPanel(
+                state_manager=self.state_manager,
+            )
+
+        if self.current_folder:
+            self.data_manip_window.set_folder(self.current_folder)
+
+        self.data_manip_window.show()
+        self.data_manip_window.raise_()
+        self.data_manip_window.activateWindow()
+        self.status_label.setText("Data Manipulation tool opened.")
 
     def launch_contrast(self):
         """Open the Scattering Contrast Calculator."""

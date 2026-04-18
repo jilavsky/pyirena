@@ -270,6 +270,30 @@ class StateManager:
             "plot_mode": "saxs",           # "saxs" (log-log) or "waxs" (lin-lin)
             "match_files": False,
         },
+        "data_manipulation": {
+            "schema_version": 1,
+            "folder": None,
+            "file_type": "HDF5 Nexus",
+            "filter": "",
+            "sort_index": 6,               # Order number up
+            "output_folder": None,
+            "active_tab": 0,               # 0=Scale, 1=Trim, 2=Rebin, 3=Avg, 4=Sub, 5=Div
+            # Scale tab
+            "scale_I": 1.0,
+            "scale_background": 0.0,
+            "scale_uncertainty": None,      # None → same as scale_I
+            # Rebin tab
+            "rebin_mode": "log",            # 'log' | 'linear' | 'reference'
+            "rebin_n_points": 200,
+            "rebin_q_min": None,
+            "rebin_q_max": None,
+            # Subtract tab
+            "subtract_buffer_scale": 1.0,
+            "subtract_auto_scale": False,
+            # Divide tab
+            "divide_denominator_scale": 1.0,
+            "divide_denominator_background": 0.0,
+        },
         "modeling": {
             "schema_version": 2,
             "q_min": None,

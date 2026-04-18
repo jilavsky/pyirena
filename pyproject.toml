@@ -71,6 +71,7 @@ pyirena-gui = "pyirena.gui.launch:main"
 pyirena-viewer = "pyirena.gui.hdf5viewer:main"
 pyirena-modeling = "pyirena.gui.modeling_panel:main"
 pyirena-datamerge = "pyirena.gui.data_merge_panel:main"
+pyirena-datamanip = "pyirena.gui.data_manipulation_panel:main"
 pyirena-contrast = "pyirena.gui.contrast_panel:main"
 
 [tool.setuptools.packages.find]

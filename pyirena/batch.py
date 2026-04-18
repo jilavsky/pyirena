@@ -1872,3 +1872,199 @@ def fit_modeling(
         'result': fit_result,
         'output_file': out_path,
     }
+
+
+# ===========================================================================
+# Data Manipulation (headless)
+# ===========================================================================
+
+def manipulate_data(
+    data_file,
+    operation: str,
+    config: Optional[Dict] = None,
+    buffer_file=None,
+    output_folder=None,
+    verbose: bool = True,
+) -> Optional[Dict]:
+    """Apply a data manipulation operation to a SAS dataset.
+
+    Parameters
+    ----------
+    data_file : str or Path
+        Path to the input data file.
+    operation : str
+        One of 'scale', 'trim', 'rebin', 'subtract', 'divide'.
+    config : dict, optional
+        Operation-specific parameters.  If None, uses defaults.
+    buffer_file : str or Path, optional
+        Path to the buffer/denominator file (for subtract/divide).
+    output_folder : str or Path, optional
+        Where to save the result.  If None, uses ``{data_folder}_manip``.
+    verbose : bool
+        Print progress messages.
+
+    Returns
+    -------
+    dict or None
+        Result dict with keys: success, operation, output_file, message.
+    """
+    from pyirena.core.data_manipulation import (
+        DataManipulation, ScaleConfig, TrimConfig, RebinConfig,
+        SubtractConfig, DivideConfig,
+    )
+    from pyirena.io.nxcansas_data_manipulation import save_manipulated_data
+
+    data_file = Path(data_file)
+    data = _load_data(data_file)
+    if data is None:
+        return None
+
+    q, I, dI = data['Q'], data['Intensity'], data.get('Error', data['Intensity'] * 0.05)
+    dQ = data.get('dQ')
+    cfg = config or {}
+    engine = DataManipulation
+
+    try:
+        if operation == 'scale':
+            result = engine.scale(q, I, dI, dQ, ScaleConfig(**cfg))
+        elif operation == 'trim':
+            result = engine.trim(q, I, dI, dQ, TrimConfig(**cfg))
+        elif operation == 'rebin':
+            result = engine.rebin(q, I, dI, dQ, RebinConfig(**cfg))
+        elif operation == 'subtract':
+            if buffer_file is None:
+                print("[pyirena.batch] buffer_file required for subtract")
+                return None
+            buf = _load_data(Path(buffer_file))
+            if buf is None:
+                return None
+            result = engine.subtract(
+                q, I, dI, dQ,
+                buf['Q'], buf['Intensity'],
+                buf.get('Error', buf['Intensity'] * 0.05),
+                SubtractConfig(**cfg),
+            )
+        elif operation == 'divide':
+            if buffer_file is None:
+                print("[pyirena.batch] buffer_file (denominator) required for divide")
+                return None
+            den = _load_data(Path(buffer_file))
+            if den is None:
+                return None
+            result = engine.divide(
+                q, I, dI, dQ,
+                den['Q'], den['Intensity'],
+                den.get('Error', den['Intensity'] * 0.05),
+                DivideConfig(**cfg),
+            )
+        else:
+            print(f"[pyirena.batch] Unknown operation: {operation}")
+            return None
+    except Exception:
+        print(f"[pyirena.batch.manipulate_data] Error:\n{traceback.format_exc()}")
+        return None
+
+    # Save
+    if output_folder is None:
+        output_folder = str(data_file.parent) + '_manip'
+    output_folder = Path(output_folder)
+
+    try:
+        out_path = save_manipulated_data(
+            output_folder=output_folder,
+            source_path=data_file,
+            source_is_nxcansas=data.get('is_nxcansas', False),
+            q=result.q, I=result.I, dI=result.dI, dQ=result.dQ,
+            operation=result.operation,
+            provenance=result.metadata,
+        )
+    except Exception:
+        print(f"[pyirena.batch.manipulate_data] Save error:\n{traceback.format_exc()}")
+        return None
+
+    msg = f"{operation} complete: {len(result.q)} points → {out_path.name}"
+    if verbose:
+        print(f"[pyirena.batch] {msg}")
+
+    return {
+        'success': True,
+        'operation': operation,
+        'output_file': out_path,
+        'message': msg,
+    }
+
+
+def average_data(
+    data_files,
+    output_folder=None,
+    verbose: bool = True,
+) -> Optional[Dict]:
+    """Average multiple SAS datasets.
+
+    Parameters
+    ----------
+    data_files : list of str or Path
+        Paths to data files to average.
+    output_folder : str or Path, optional
+        Where to save.  If None, uses ``{first_file_folder}_manip``.
+    verbose : bool
+        Print progress.
+
+    Returns
+    -------
+    dict or None
+    """
+    from pyirena.core.data_manipulation import DataManipulation
+    from pyirena.io.nxcansas_data_manipulation import save_manipulated_data
+
+    files = [Path(f) for f in data_files]
+    if not files:
+        return None
+
+    datasets = []
+    first_data = None
+    for fp in files:
+        d = _load_data(fp)
+        if d is None:
+            continue
+        if first_data is None:
+            first_data = d
+        q, I = d['Q'], d['Intensity']
+        dI = d.get('Error', I * 0.05)
+        dQ = d.get('dQ')
+        datasets.append((q, I, dI, dQ))
+
+    if len(datasets) < 2:
+        print("[pyirena.batch] Need at least 2 datasets to average")
+        return None
+
+    result = DataManipulation.average(datasets, reference_index=0)
+
+    if output_folder is None:
+        output_folder = str(files[0].parent) + '_manip'
+    output_folder = Path(output_folder)
+
+    try:
+        out_path = save_manipulated_data(
+            output_folder=output_folder,
+            source_path=files[0],
+            source_is_nxcansas=first_data.get('is_nxcansas', False),
+            q=result.q, I=result.I, dI=result.dI, dQ=result.dQ,
+            operation=result.operation,
+            provenance=result.metadata,
+        )
+    except Exception:
+        print(f"[pyirena.batch.average_data] Save error:\n{traceback.format_exc()}")
+        return None
+
+    msg = f"Average of {len(datasets)} datasets → {out_path.name}"
+    if verbose:
+        print(f"[pyirena.batch] {msg}")
+
+    return {
+        'success': True,
+        'operation': 'avg',
+        'output_file': out_path,
+        'message': msg,
+        'n_datasets': len(datasets),
+    }
