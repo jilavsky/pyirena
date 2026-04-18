@@ -644,6 +644,11 @@ class DataManipulationPanel(QWidget):
         self._rebin_ref_btn = QPushButton("Load Reference\u2026")
         self._rebin_ref_btn.setMaximumHeight(26)
         self._rebin_ref_btn.setEnabled(False)
+        self._rebin_ref_btn.setToolTip(
+            "Select 'From reference file' in the Grid combo first.\n"
+            "Then click here to load any data file — its Q values\n"
+            "will be used as the new Q grid for rebinning."
+        )
         self._rebin_ref_btn.clicked.connect(self._load_rebin_reference)
         layout.addWidget(self._rebin_ref_btn)
         self._rebin_ref_q: Optional[np.ndarray] = None
@@ -962,29 +967,34 @@ class DataManipulationPanel(QWidget):
     def _build_file_context_menu(self, menu: QMenu, filename: str, row: int) -> None:
         tab = self._tabs.currentIndex()
 
+        # NOTE: QAction.triggered emits a bool `checked` argument.  Lambdas
+        # that use a default-value parameter (e.g. ``lambda fn=val:``) would
+        # receive that bool as the first positional arg, shadowing the default.
+        # Use an explicit ``_checked`` parameter to absorb it.
+
         # Average tab context menu
         if tab == _TAB_AVERAGE:
             act_remove = menu.addAction("Remove from selection")
             act_remove.triggered.connect(
-                lambda: self._fb.file_list.item(row).setSelected(False)
+                lambda _checked=False, _r=row: self._fb.file_list.item(_r).setSelected(False)
             )
             act_remove_after = menu.addAction("Remove all after this")
             act_remove_after.triggered.connect(
-                lambda r=row: self._deselect_after(r)
+                lambda _checked=False, r=row: self._deselect_after(r)
             )
 
         # Subtract tab context menu
         elif tab == _TAB_SUBTRACT:
             act_buffer = menu.addAction("Set as buffer")
             act_buffer.triggered.connect(
-                lambda fn=filename: self._set_buffer(fn)
+                lambda _checked=False, fn=filename: self._set_buffer(fn)
             )
 
         # Divide tab context menu
         elif tab == _TAB_DIVIDE:
             act_denom = menu.addAction("Set as denominator")
             act_denom.triggered.connect(
-                lambda fn=filename: self._set_denominator(fn)
+                lambda _checked=False, fn=filename: self._set_denominator(fn)
             )
 
     def _deselect_after(self, row: int) -> None:
@@ -1301,12 +1311,30 @@ class DataManipulationPanel(QWidget):
         )
         if not path:
             return
-        data = self._load_file(path)
+        data = self._load_reference_file(path)
         if data is None:
             return
         self._rebin_ref_q = data['Q']
         self._rebin_ref_label.setText(f"({len(data['Q'])} pts from {Path(path).name})")
         self._status.setText(f"Reference Q grid loaded: {len(data['Q'])} points.")
+
+    def _load_reference_file(self, filepath: str) -> Optional[dict]:
+        """Load a reference data file, auto-detecting type by extension."""
+        from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
+        fp = Path(filepath)
+        ext = fp.suffix.lower()
+        try:
+            if ext in ('.dat', '.txt'):
+                data = readTextFile(str(fp.parent), fp.name)
+            elif ext in ('.h5', '.hdf5', '.hdf'):
+                data = readGenericNXcanSAS(str(fp.parent), fp.name)
+            else:
+                data = readGenericNXcanSAS(str(fp.parent), fp.name)
+            return data
+        except Exception as exc:
+            QMessageBox.warning(self, "Load Error",
+                                f"Could not read reference file {fp.name}:\n{exc}")
+            return None
 
     # ================================================================== #
     #  Save / Batch                                                        #
