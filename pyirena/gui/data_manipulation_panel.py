@@ -27,7 +27,7 @@ try:
         QAbstractItemView, QSizePolicy, QListWidgetItem,
         QTabWidget, QSpinBox, QMenu,
     )
-    from PySide6.QtCore import Qt, QUrl
+    from PySide6.QtCore import Qt, QUrl, QTimer
     from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
 except ImportError:
     try:
@@ -38,7 +38,7 @@ except ImportError:
             QAbstractItemView, QSizePolicy, QListWidgetItem,
             QTabWidget, QSpinBox, QMenu,
         )
-        from PyQt6.QtCore import Qt, QUrl
+        from PyQt6.QtCore import Qt, QUrl, QTimer
         from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
     except ImportError:
         raise ImportError(
@@ -111,7 +111,7 @@ _DATASET_COLORS = [
     '#d35400', '#7f8c8d', '#9b59b6', '#34495e', '#e91e63',
 ]
 
-_RESULT_PEN = pg.mkPen('#27ae60', width=2)   # green result line
+_RESULT_PEN = pg.mkPen('#27ae60', width=3)   # green result line (thick, drawn on top)
 
 _BTN_GREEN = ("QPushButton { background: #27ae60; color: white; font-weight: bold; "
               "border-radius: 4px; padding: 6px 10px; }"
@@ -444,7 +444,7 @@ class DataManipulationGraphWindow(QWidget):
         self._data_items.append((scatter, color, label))
 
     def plot_result(self, q: np.ndarray, I: np.ndarray) -> None:
-        """Overlay the manipulation result as a green line."""
+        """Overlay the manipulation result as a thick green line on top."""
         if self._result_item is not None:
             self._plot.removeItem(self._result_item)
         valid = (q > 0) & (I > 0) & np.isfinite(q) & np.isfinite(I)
@@ -454,6 +454,7 @@ class DataManipulationGraphWindow(QWidget):
         self._result_item = self._plot.plot(
             q[valid], I[valid], pen=_RESULT_PEN, name='Result',
         )
+        self._result_item.setZValue(10)  # draw on top of data scatter (Z=0)
 
     def set_y_range_from_data(self, *I_arrays: np.ndarray) -> None:
         """Set robust Y range from one or more intensity arrays."""
@@ -545,7 +546,14 @@ class DataManipulationPanel(QWidget):
         self._denominator_file: Optional[str] = None  # for Divide tab
         self._out_folder: Optional[str] = None
 
+        # Throttle timer for auto-recalculate (500 ms)
+        self._auto_timer = QTimer(self)
+        self._auto_timer.setSingleShot(True)
+        self._auto_timer.setInterval(500)
+        self._auto_timer.timeout.connect(self._auto_update)
+
         self._build_ui()
+        self._connect_auto_signals()
         self.load_state()
 
     # ================================================================== #
@@ -630,13 +638,6 @@ class DataManipulationPanel(QWidget):
         self._scale_unc_edit.setMaximumWidth(100)
         layout.addWidget(self._scale_unc_edit)
 
-        # Preview button
-        preview = QPushButton("Preview")
-        preview.setMinimumHeight(28)
-        preview.setStyleSheet(_BTN_GREEN)
-        preview.clicked.connect(self._preview_scale)
-        layout.addWidget(preview)
-
         layout.addStretch()
         self._tabs.addTab(tab, "Scale")
 
@@ -665,12 +666,6 @@ class DataManipulationPanel(QWidget):
         layout.addWidget(self._trim_qmax)
 
         layout.addWidget(QLabel("\u00c5\u207b\u00b9   (drag cursors on plot)"))
-
-        preview = QPushButton("Preview")
-        preview.setMinimumHeight(28)
-        preview.setStyleSheet(_BTN_GREEN)
-        preview.clicked.connect(self._preview_trim)
-        layout.addWidget(preview)
 
         layout.addStretch()
         self._tabs.addTab(tab, "Trim")
@@ -727,12 +722,6 @@ class DataManipulationPanel(QWidget):
         self._rebin_ref_label.setStyleSheet("color: #555; font-size: 10px;")
         layout.addWidget(self._rebin_ref_label)
 
-        preview = QPushButton("Preview")
-        preview.setMinimumHeight(28)
-        preview.setStyleSheet(_BTN_GREEN)
-        preview.clicked.connect(self._preview_rebin)
-        layout.addWidget(preview)
-
         layout.addStretch()
         self._tabs.addTab(tab, "Rebin")
 
@@ -747,8 +736,8 @@ class DataManipulationPanel(QWidget):
         layout.setSpacing(12)
 
         info = QLabel(
-            "Select multiple files in the list, then preview.\n"
-            "Right-click to remove bad datasets before averaging."
+            "Select multiple files to average.\n"
+            "Right-click on graph to remove bad datasets."
         )
         info.setStyleSheet("color: #555;")
         layout.addWidget(info)
@@ -756,12 +745,6 @@ class DataManipulationPanel(QWidget):
         self._avg_count_label = QLabel("0 files selected")
         self._avg_count_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
         layout.addWidget(self._avg_count_label)
-
-        preview = QPushButton("Preview Average")
-        preview.setMinimumHeight(28)
-        preview.setStyleSheet(_BTN_GREEN)
-        preview.clicked.connect(self._preview_average)
-        layout.addWidget(preview)
 
         layout.addStretch()
         self._tabs.addTab(tab, "Average")
@@ -772,54 +755,57 @@ class DataManipulationPanel(QWidget):
 
     def _build_subtract_tab(self) -> None:
         tab = QWidget()
-        layout = QHBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(12)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(8, 4, 8, 4)
+        outer.setSpacing(4)
 
+        # Row 1: dataset names
+        row1 = QHBoxLayout()
+        row1.setSpacing(16)
         self._sub_sample_label = QLabel("Sample: (none)")
         self._sub_sample_label.setStyleSheet("color: #2980b9;")
-        layout.addWidget(self._sub_sample_label)
-
+        row1.addWidget(self._sub_sample_label)
         self._sub_buffer_label = QLabel("Buffer: (none)")
         self._sub_buffer_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
-        layout.addWidget(self._sub_buffer_label)
+        row1.addWidget(self._sub_buffer_label)
+        row1.addStretch()
+        outer.addLayout(row1)
 
-        layout.addWidget(QLabel("Buffer scale:"))
+        # Row 2: controls
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+        row2.addWidget(QLabel("Buffer scale:"))
         self._sub_scale_edit = _ScalableLineEdit("1.0", step=0.001)
         self._sub_scale_edit.setMaximumWidth(100)
-        layout.addWidget(self._sub_scale_edit)
+        row2.addWidget(self._sub_scale_edit)
 
         self._sub_auto_chk = QCheckBox("Auto-scale")
         self._sub_auto_chk.stateChanged.connect(self._on_sub_auto_changed)
-        layout.addWidget(self._sub_auto_chk)
+        row2.addWidget(self._sub_auto_chk)
 
         self._sub_qmin_label = QLabel("Q min:")
         self._sub_qmin_label.setVisible(False)
-        layout.addWidget(self._sub_qmin_label)
+        row2.addWidget(self._sub_qmin_label)
         self._sub_qmin = QLineEdit("")
         self._sub_qmin.setReadOnly(True)
         self._sub_qmin.setStyleSheet(_RDONLY_STYLE)
         self._sub_qmin.setMaximumWidth(80)
         self._sub_qmin.setVisible(False)
-        layout.addWidget(self._sub_qmin)
+        row2.addWidget(self._sub_qmin)
 
         self._sub_qmax_label = QLabel("Q max:")
         self._sub_qmax_label.setVisible(False)
-        layout.addWidget(self._sub_qmax_label)
+        row2.addWidget(self._sub_qmax_label)
         self._sub_qmax = QLineEdit("")
         self._sub_qmax.setReadOnly(True)
         self._sub_qmax.setStyleSheet(_RDONLY_STYLE)
         self._sub_qmax.setMaximumWidth(80)
         self._sub_qmax.setVisible(False)
-        layout.addWidget(self._sub_qmax)
+        row2.addWidget(self._sub_qmax)
 
-        preview = QPushButton("Preview")
-        preview.setMinimumHeight(28)
-        preview.setStyleSheet(_BTN_GREEN)
-        preview.clicked.connect(self._preview_subtract)
-        layout.addWidget(preview)
+        row2.addStretch()
+        outer.addLayout(row2)
 
-        layout.addStretch()
         self._tabs.addTab(tab, "Subtract")
 
     # ------------------------------------------------------------------ #
@@ -828,37 +814,40 @@ class DataManipulationPanel(QWidget):
 
     def _build_divide_tab(self) -> None:
         tab = QWidget()
-        layout = QHBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(12)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(8, 4, 8, 4)
+        outer.setSpacing(4)
 
+        # Row 1: dataset names
+        row1 = QHBoxLayout()
+        row1.setSpacing(16)
         self._div_num_label = QLabel("Numerator: (none)")
         self._div_num_label.setStyleSheet("color: #2980b9;")
-        layout.addWidget(self._div_num_label)
-
+        row1.addWidget(self._div_num_label)
         self._div_den_label = QLabel("Denominator: (none)")
         self._div_den_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
-        layout.addWidget(self._div_den_label)
+        row1.addWidget(self._div_den_label)
+        row1.addStretch()
+        outer.addLayout(row1)
 
-        layout.addWidget(QLabel("Denom. scale:"))
+        # Row 2: controls
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+        row2.addWidget(QLabel("Denom. scale:"))
         self._div_scale_edit = QLineEdit("1.0")
         self._div_scale_edit.setValidator(QDoubleValidator(-1e10, 1e10, 6))
-        self._div_scale_edit.setMaximumWidth(80)
-        layout.addWidget(self._div_scale_edit)
+        self._div_scale_edit.setMaximumWidth(100)
+        row2.addWidget(self._div_scale_edit)
 
-        layout.addWidget(QLabel("Denom. bg:"))
+        row2.addWidget(QLabel("Denom. bg:"))
         self._div_bg_edit = QLineEdit("0.0")
         self._div_bg_edit.setValidator(QDoubleValidator(-1e10, 1e10, 6))
-        self._div_bg_edit.setMaximumWidth(80)
-        layout.addWidget(self._div_bg_edit)
+        self._div_bg_edit.setMaximumWidth(100)
+        row2.addWidget(self._div_bg_edit)
 
-        preview = QPushButton("Preview")
-        preview.setMinimumHeight(28)
-        preview.setStyleSheet(_BTN_GREEN)
-        preview.clicked.connect(self._preview_divide)
-        layout.addWidget(preview)
+        row2.addStretch()
+        outer.addLayout(row2)
 
-        layout.addStretch()
         self._tabs.addTab(tab, "Divide")
 
     # ------------------------------------------------------------------ #
@@ -961,6 +950,55 @@ class DataManipulationPanel(QWidget):
         return self._loaded[filepath]
 
     # ================================================================== #
+    #  Auto-recalculate                                                    #
+    # ================================================================== #
+
+    def _connect_auto_signals(self) -> None:
+        """Wire parameter-change signals to throttled auto-update."""
+        # Scale tab
+        self._scale_I_edit.editingFinished.connect(self._schedule_auto_update)
+        self._scale_bg_edit.editingFinished.connect(self._schedule_auto_update)
+        self._scale_unc_edit.editingFinished.connect(self._schedule_auto_update)
+
+        # Rebin tab
+        self._rebin_mode.currentIndexChanged.connect(self._schedule_auto_update)
+        self._rebin_npts.valueChanged.connect(self._schedule_auto_update)
+        self._rebin_qmin.editingFinished.connect(self._schedule_auto_update)
+        self._rebin_qmax.editingFinished.connect(self._schedule_auto_update)
+
+        # Subtract tab — editingFinished also fires from wheelEvent
+        self._sub_scale_edit.editingFinished.connect(self._schedule_auto_update)
+        self._sub_auto_chk.stateChanged.connect(self._schedule_auto_update)
+
+        # Divide tab
+        self._div_scale_edit.editingFinished.connect(self._schedule_auto_update)
+        self._div_bg_edit.editingFinished.connect(self._schedule_auto_update)
+
+    def _schedule_auto_update(self) -> None:
+        """Restart the throttle timer (500 ms single-shot)."""
+        self._auto_timer.start()
+
+    def _auto_update(self) -> None:
+        """Fire the appropriate preview for the active tab."""
+        selected = self._fb.get_selected_filenames()
+        if not selected:
+            return
+
+        tab = self._tabs.currentIndex()
+        if tab == _TAB_SCALE:
+            self._preview_scale()
+        elif tab == _TAB_TRIM:
+            self._preview_trim()
+        elif tab == _TAB_REBIN:
+            self._preview_rebin()
+        elif tab == _TAB_AVERAGE:
+            self._preview_average(auto_triggered=True)
+        elif tab == _TAB_SUBTRACT:
+            self._preview_subtract()
+        elif tab == _TAB_DIVIDE:
+            self._preview_divide()
+
+    # ================================================================== #
     #  Event handlers                                                      #
     # ================================================================== #
 
@@ -981,18 +1019,17 @@ class DataManipulationPanel(QWidget):
         if tab == _TAB_AVERAGE:
             n = len(self._fb.get_selected_filenames())
             self._avg_count_label.setText(f"{n} file(s) selected")
+            self._schedule_auto_update()
         elif tab == _TAB_SUBTRACT:
             self._update_sub_labels()
         elif tab == _TAB_DIVIDE:
             self._update_div_labels()
 
     def _on_file_double_clicked(self, item: QListWidgetItem) -> None:
-        """Double-click: plot the file (tab-aware)."""
+        """Double-click: plot the file (tab-aware) and auto-calculate."""
         tab = self._tabs.currentIndex()
 
         if tab == _TAB_SUBTRACT:
-            # On Subtract tab, double-click sets this file as the sample
-            # and plots both sample + buffer
             self._update_sub_labels()
             self._plot_subtract_inputs()
             self._status.setText(f"Sample: {item.text()}")
@@ -1000,17 +1037,17 @@ class DataManipulationPanel(QWidget):
                 data = self._get_or_load(item.text())
                 if data is not None:
                     self._ensure_subtract_cursors(data)
+            self._schedule_auto_update()
             return
 
         if tab == _TAB_DIVIDE:
-            # On Divide tab, double-click sets this file as the numerator
-            # and plots both numerator + denominator
             self._update_div_labels()
             self._plot_divide_inputs()
             self._status.setText(f"Numerator: {item.text()}")
+            self._schedule_auto_update()
             return
 
-        # Default: just plot the file
+        # Default: plot the file and trigger auto-calculate
         data = self._get_or_load(item.text())
         if data is None:
             return
@@ -1022,15 +1059,19 @@ class DataManipulationPanel(QWidget):
         if tab == _TAB_TRIM:
             self._ensure_trim_cursors(data)
 
+        self._schedule_auto_update()
+
     def _on_tab_changed(self, index: int) -> None:
-        """Handle tab change — show/hide cursors as needed."""
-        # Remove cursors when leaving cursor-using tabs
-        if index not in (_TAB_TRIM,):
-            if not (index == _TAB_SUBTRACT and self._sub_auto_chk.isChecked()):
-                self._graph.remove_cursors()
+        """Handle tab change — clear stale graph and manage cursors."""
+        # Clear graph and result when switching tabs
+        self._graph.clear_all()
+        self._graph.remove_cursors()
+        self._last_result = None
+
         # Clear average dataset tracking when leaving Average tab
         if index != _TAB_AVERAGE:
             self._graph.clear_avg_datasets()
+
         self._update_cursor_display()
         self._check_enable_buttons()
 
