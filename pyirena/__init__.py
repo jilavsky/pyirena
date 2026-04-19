@@ -29,7 +29,7 @@ References:
     Beaucage, G. (1996). J. Appl. Cryst. 29, 134-146
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __author__ = "Jan Ilavsky"
 __email__ = "ilavsky@aps.anl.gov"
 
