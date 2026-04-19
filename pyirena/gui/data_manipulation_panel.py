@@ -981,9 +981,36 @@ class DataManipulationPanel(QWidget):
         if tab == _TAB_AVERAGE:
             n = len(self._fb.get_selected_filenames())
             self._avg_count_label.setText(f"{n} file(s) selected")
+        elif tab == _TAB_SUBTRACT:
+            self._update_sub_labels()
+        elif tab == _TAB_DIVIDE:
+            self._update_div_labels()
 
     def _on_file_double_clicked(self, item: QListWidgetItem) -> None:
-        """Double-click: plot the file."""
+        """Double-click: plot the file (tab-aware)."""
+        tab = self._tabs.currentIndex()
+
+        if tab == _TAB_SUBTRACT:
+            # On Subtract tab, double-click sets this file as the sample
+            # and plots both sample + buffer
+            self._update_sub_labels()
+            self._plot_subtract_inputs()
+            self._status.setText(f"Sample: {item.text()}")
+            if self._sub_auto_chk.isChecked():
+                data = self._get_or_load(item.text())
+                if data is not None:
+                    self._ensure_subtract_cursors(data)
+            return
+
+        if tab == _TAB_DIVIDE:
+            # On Divide tab, double-click sets this file as the numerator
+            # and plots both numerator + denominator
+            self._update_div_labels()
+            self._plot_divide_inputs()
+            self._status.setText(f"Numerator: {item.text()}")
+            return
+
+        # Default: just plot the file
         data = self._get_or_load(item.text())
         if data is None:
             return
@@ -992,12 +1019,8 @@ class DataManipulationPanel(QWidget):
         self._graph.set_y_range_from_data(data['Intensity'])
         self._status.setText(f"Plotted: {item.text()}")
 
-        # Ensure cursors for Trim tab
-        tab = self._tabs.currentIndex()
         if tab == _TAB_TRIM:
             self._ensure_trim_cursors(data)
-        elif tab == _TAB_SUBTRACT and self._sub_auto_chk.isChecked():
-            self._ensure_subtract_cursors(data)
 
     def _on_tab_changed(self, index: int) -> None:
         """Handle tab change — show/hide cursors as needed."""

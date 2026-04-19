@@ -107,6 +107,7 @@ class RadiusAxisItem(pg.AxisItem):
     """
 
     _NICE_MULTIPLIERS = (1, 2, 5)
+    _MAX_TICKS = 8  # keep the top axis readable
 
     def tickValues(self, minVal, maxVal, size):
         import math
@@ -125,6 +126,10 @@ class RadiusAxisItem(pg.AxisItem):
                     positions.append(math.log10(PI / r))
         if not positions:
             return []
+        # Thin to at most _MAX_TICKS evenly-spaced entries
+        if len(positions) > self._MAX_TICKS:
+            step = max(1, len(positions) // self._MAX_TICKS)
+            positions = positions[::step]
         return [(1.0, positions)]
 
     def tickStrings(self, values, scale, spacing):
