@@ -461,10 +461,21 @@ class DataManipulationGraphWindow(QWidget):
         combined = np.concatenate([arr for arr in I_arrays if arr is not None and len(arr) > 0])
         set_robust_y_range(self._plot, combined)
 
-    def ensure_cursors(self, q_min: float, q_max: float) -> None:
-        """Create or reposition cursors at the given Q values."""
+    def ensure_cursors(self, q_min: float, q_max: float,
+                       on_moved=None) -> None:
+        """Create or reposition cursors at the given Q values.
+
+        Parameters
+        ----------
+        on_moved : callable or None
+            If provided, connected to ``sigPositionChanged`` on both cursors
+            (only on first creation to avoid duplicate connections).
+        """
         if self._cursor_a is None or self._cursor_b is None:
             self._cursor_a, self._cursor_b = make_cursors(self._plot, q_min, q_max)
+            if on_moved is not None:
+                self._cursor_a.sigPositionChanged.connect(on_moved)
+                self._cursor_b.sigPositionChanged.connect(on_moved)
         else:
             self._cursor_a.setValue(np.log10(q_min))
             self._cursor_b.setValue(np.log10(q_max))
@@ -618,15 +629,13 @@ class DataManipulationPanel(QWidget):
 
         # Scale I
         layout.addWidget(QLabel("Scale I:"))
-        self._scale_I_edit = QLineEdit("1.0")
-        self._scale_I_edit.setValidator(QDoubleValidator(-1e10, 1e10, 6))
+        self._scale_I_edit = _ScalableLineEdit("1.0", step=0.01)
         self._scale_I_edit.setMaximumWidth(100)
         layout.addWidget(self._scale_I_edit)
 
         # Background
         layout.addWidget(QLabel("Background:"))
-        self._scale_bg_edit = QLineEdit("0.0")
-        self._scale_bg_edit.setValidator(QDoubleValidator(-1e10, 1e10, 6))
+        self._scale_bg_edit = _ScalableLineEdit("0.0", step=0.001)
         self._scale_bg_edit.setMaximumWidth(100)
         layout.addWidget(self._scale_bg_edit)
 
@@ -1221,11 +1230,16 @@ class DataManipulationPanel(QWidget):
     #  Cursor helpers                                                      #
     # ================================================================== #
 
+    def _on_cursor_moved(self, _line=None) -> None:
+        """Called when a cursor is dragged — update display and recalculate."""
+        self._update_cursor_display()
+        self._schedule_auto_update()
+
     def _ensure_trim_cursors(self, data: dict) -> None:
         q = data['Q']
         q_lo = float(q.min()) * 1.05
         q_hi = float(q.max()) * 0.95
-        self._graph.ensure_cursors(q_lo, q_hi)
+        self._graph.ensure_cursors(q_lo, q_hi, on_moved=self._on_cursor_moved)
         self._update_cursor_display()
 
     def _ensure_subtract_cursors(self, data: dict) -> None:
@@ -1233,7 +1247,7 @@ class DataManipulationPanel(QWidget):
         # Place cursors at high-Q end (last 20%)
         q_lo = float(np.percentile(q, 80))
         q_hi = float(q.max()) * 0.95
-        self._graph.ensure_cursors(q_lo, q_hi)
+        self._graph.ensure_cursors(q_lo, q_hi, on_moved=self._on_cursor_moved)
         self._update_cursor_display()
 
     def _update_cursor_display(self) -> None:
