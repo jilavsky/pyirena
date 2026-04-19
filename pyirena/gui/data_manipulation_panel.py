@@ -28,7 +28,7 @@ try:
         QTabWidget, QSpinBox, QMenu,
     )
     from PySide6.QtCore import Qt, QUrl
-    from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction
+    from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
@@ -39,7 +39,7 @@ except ImportError:
             QTabWidget, QSpinBox, QMenu,
         )
         from PyQt6.QtCore import Qt, QUrl
-        from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction
+        from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
     except ImportError:
         raise ImportError(
             "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
@@ -305,6 +305,13 @@ class _ManipFileBrowser(QWidget):
 # DataManipulationGraphWindow — pyqtgraph plot widget
 # ===========================================================================
 
+def _color_icon(color_str: str, size: int = 12) -> QIcon:
+    """Create a small square icon filled with the given color."""
+    pix = QPixmap(size, size)
+    pix.fill(QColor(color_str))
+    return QIcon(pix)
+
+
 class DataManipulationGraphWindow(QWidget):
     """Single-panel I(Q) log-log plot for the Data Manipulation tool."""
 
@@ -312,11 +319,16 @@ class DataManipulationGraphWindow(QWidget):
         super().__init__(parent)
         self._show_errorbars: bool = True
 
-        # Plot items
-        self._data_items: list = []       # (scatter, err) tuples
+        # Plot items: list of (scatter_item, color_str, label_str)
+        self._data_items: list = []
         self._result_item = None
         self._cursor_a: Optional[_SafeInfiniteLine] = None
         self._cursor_b: Optional[_SafeInfiniteLine] = None
+
+        # Average-mode dataset management (set by parent panel)
+        self._avg_datasets: List[str] = []       # ordered filenames
+        self._avg_remove_callback = None         # fn(filename) called on remove
+        self._avg_remove_after_callback = None   # fn(filename) called on remove-all-after
 
         self._build_ui()
 
@@ -339,15 +351,74 @@ class DataManipulationGraphWindow(QWidget):
         self._eb_action = self._plot.getViewBox().menu.addAction("Hide Error Bars")
         self._eb_action.triggered.connect(self._toggle_error_bars)
 
+        # Intercept the ViewBox context menu to inject Average dataset actions
+        vb = self._plot.getViewBox()
+        vb.menu.aboutToShow.connect(self._inject_avg_menu)
+
+    def _inject_avg_menu(self) -> None:
+        """Add 'Remove dataset' / 'Remove all after' submenus when in Average mode."""
+        menu = self._plot.getViewBox().menu
+
+        # Clean up previously injected actions
+        for act in getattr(self, '_injected_actions', []):
+            menu.removeAction(act)
+        self._injected_actions = []
+
+        if not self._avg_datasets:
+            return
+
+        sep = menu.addSeparator()
+        self._injected_actions.append(sep)
+
+        # "Remove dataset" submenu
+        remove_menu = QMenu("Remove dataset", menu)
+        for i, fname in enumerate(self._avg_datasets):
+            color = _DATASET_COLORS[i % len(_DATASET_COLORS)]
+            act = remove_menu.addAction(_color_icon(color), fname)
+            act.triggered.connect(
+                lambda _checked=False, fn=fname: self._on_avg_remove(fn)
+            )
+        remove_action = menu.addMenu(remove_menu)
+        self._injected_actions.append(remove_action)
+
+        # "Remove all after" submenu
+        remove_after_menu = QMenu("Remove all after\u2026", menu)
+        for i, fname in enumerate(self._avg_datasets):
+            color = _DATASET_COLORS[i % len(_DATASET_COLORS)]
+            act = remove_after_menu.addAction(_color_icon(color), fname)
+            act.triggered.connect(
+                lambda _checked=False, fn=fname: self._on_avg_remove_after(fn)
+            )
+        remove_after_action = menu.addMenu(remove_after_menu)
+        self._injected_actions.append(remove_after_action)
+
+    def _on_avg_remove(self, filename: str) -> None:
+        if self._avg_remove_callback:
+            self._avg_remove_callback(filename)
+
+    def _on_avg_remove_after(self, filename: str) -> None:
+        if self._avg_remove_after_callback:
+            self._avg_remove_after_callback(filename)
+
+    def set_avg_datasets(self, filenames: List[str],
+                         remove_cb=None, remove_after_cb=None) -> None:
+        """Set the list of average-mode datasets for graph right-click menu."""
+        self._avg_datasets = list(filenames)
+        self._avg_remove_callback = remove_cb
+        self._avg_remove_after_callback = remove_after_cb
+
+    def clear_avg_datasets(self) -> None:
+        self._avg_datasets = []
+        self._avg_remove_callback = None
+        self._avg_remove_after_callback = None
+
     # -- Public API -------------------------------------------------------
 
     def clear_all(self) -> None:
         """Remove all data and result items (preserves cursors)."""
-        for scatter, err in self._data_items:
+        for scatter, _color, _label in self._data_items:
             if scatter is not None:
                 self._plot.removeItem(scatter)
-            if err is not None:
-                self._plot.removeItem(err)
         self._data_items.clear()
         if self._result_item is not None:
             self._plot.removeItem(self._result_item)
@@ -370,7 +441,7 @@ class DataManipulationGraphWindow(QWidget):
             symbolBrush=brush, symbolPen=pg.mkPen(None),
             name=label,
         )
-        self._data_items.append((scatter, None))
+        self._data_items.append((scatter, color, label))
 
     def plot_result(self, q: np.ndarray, I: np.ndarray) -> None:
         """Overlay the manipulation result as a green line."""
@@ -934,6 +1005,9 @@ class DataManipulationPanel(QWidget):
         if index not in (_TAB_TRIM,):
             if not (index == _TAB_SUBTRACT and self._sub_auto_chk.isChecked()):
                 self._graph.remove_cursors()
+        # Clear average dataset tracking when leaving Average tab
+        if index != _TAB_AVERAGE:
+            self._graph.clear_avg_datasets()
         self._update_cursor_display()
         self._check_enable_buttons()
 
@@ -1005,10 +1079,12 @@ class DataManipulationPanel(QWidget):
     def _set_buffer(self, filename: str) -> None:
         self._buffer_file = filename
         self._update_sub_labels()
+        self._plot_subtract_inputs()
 
     def _set_denominator(self, filename: str) -> None:
         self._denominator_file = filename
         self._update_div_labels()
+        self._plot_divide_inputs()
 
     def _update_sub_labels(self) -> None:
         buf = self._buffer_file or "(none \u2014 right-click to set)"
@@ -1030,6 +1106,52 @@ class DataManipulationPanel(QWidget):
             self._div_num_label.setText(f"Numerator: {nums[0]}")
         else:
             self._div_num_label.setText("Numerator: (none)")
+
+    # ================================================================== #
+    #  Auto-plot helpers (Subtract / Divide)                               #
+    # ================================================================== #
+
+    def _plot_subtract_inputs(self) -> None:
+        """Plot sample + buffer datasets when both are identified."""
+        selected = self._fb.get_selected_filenames()
+        samples = [f for f in selected if f != self._buffer_file]
+        self._graph.clear_all()
+        all_I = []
+        if samples:
+            data = self._get_or_load(samples[0])
+            if data is not None:
+                self._graph.plot_data(data['Q'], data['Intensity'],
+                                      data.get('Error'), color='#2980b9', label='Sample')
+                all_I.append(data['Intensity'])
+        if self._buffer_file:
+            data = self._get_or_load(self._buffer_file)
+            if data is not None:
+                self._graph.plot_data(data['Q'], data['Intensity'],
+                                      data.get('Error'), color='#e74c3c', label='Buffer')
+                all_I.append(data['Intensity'])
+        if all_I:
+            self._graph.set_y_range_from_data(*all_I)
+
+    def _plot_divide_inputs(self) -> None:
+        """Plot numerator + denominator datasets when both are identified."""
+        selected = self._fb.get_selected_filenames()
+        nums = [f for f in selected if f != self._denominator_file]
+        self._graph.clear_all()
+        all_I = []
+        if nums:
+            data = self._get_or_load(nums[0])
+            if data is not None:
+                self._graph.plot_data(data['Q'], data['Intensity'],
+                                      data.get('Error'), color='#2980b9', label='Numerator')
+                all_I.append(data['Intensity'])
+        if self._denominator_file:
+            data = self._get_or_load(self._denominator_file)
+            if data is not None:
+                self._graph.plot_data(data['Q'], data['Intensity'],
+                                      data.get('Error'), color='#e74c3c', label='Denominator')
+                all_I.append(data['Intensity'])
+        if all_I:
+            self._graph.set_y_range_from_data(*all_I)
 
     # ================================================================== #
     #  Cursor helpers                                                      #
@@ -1147,13 +1269,15 @@ class DataManipulationPanel(QWidget):
             return
         self._show_preview(data, result)
 
-    def _preview_average(self) -> None:
+    def _preview_average(self, auto_triggered: bool = False) -> None:
         selected = self._fb.get_selected_filenames()
-        if len(selected) < 2:
-            self._status.setText("Select at least 2 files to average.")
+        if len(selected) < 1:
+            if not auto_triggered:
+                self._status.setText("Select at least 2 files to average.")
             return
 
         datasets = []
+        loaded_names = []
         self._graph.clear_all()
         all_I = []
         for i, fname in enumerate(selected):
@@ -1167,10 +1291,22 @@ class DataManipulationPanel(QWidget):
             dI = data.get('Error', I * 0.05)
             dQ = data.get('dQ')
             datasets.append((q, I, dI, dQ))
+            loaded_names.append(fname)
             all_I.append(I)
 
+        # Register datasets for graph right-click menu
+        self._graph.set_avg_datasets(
+            loaded_names,
+            remove_cb=self._avg_remove_dataset,
+            remove_after_cb=self._avg_remove_after_dataset,
+        )
+
         if len(datasets) < 2:
-            self._status.setText("Could not load enough files.")
+            if not auto_triggered:
+                self._status.setText("Select at least 2 files to average.")
+            self._last_result = None
+            if all_I:
+                self._graph.set_y_range_from_data(*all_I)
             return
 
         result = self._engine.average(datasets, reference_index=0)
@@ -1180,6 +1316,33 @@ class DataManipulationPanel(QWidget):
             self._graph.set_y_range_from_data(*all_I)
         self._save_btn.setEnabled(self._out_folder is not None)
         self._status.setText(f"Average of {len(datasets)} datasets previewed.")
+
+    def _avg_remove_dataset(self, filename: str) -> None:
+        """Remove a single dataset from the Average selection and re-plot."""
+        # Deselect in file list
+        for i in range(self._fb.file_list.count()):
+            item = self._fb.file_list.item(i)
+            if item.text() == filename and item.isSelected():
+                item.setSelected(False)
+                break
+        self._on_selection_changed()
+        self._preview_average(auto_triggered=True)
+
+    def _avg_remove_after_dataset(self, filename: str) -> None:
+        """Remove all datasets after the given one and re-plot."""
+        selected = self._fb.get_selected_filenames()
+        try:
+            idx = selected.index(filename)
+        except ValueError:
+            return
+        # Deselect all files after this one in the selected order
+        to_deselect = set(selected[idx + 1:])
+        for i in range(self._fb.file_list.count()):
+            item = self._fb.file_list.item(i)
+            if item.text() in to_deselect:
+                item.setSelected(False)
+        self._on_selection_changed()
+        self._preview_average(auto_triggered=True)
 
     def _preview_subtract(self) -> None:
         selected = self._fb.get_selected_filenames()
