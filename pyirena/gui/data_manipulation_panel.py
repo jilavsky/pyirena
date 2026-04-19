@@ -588,9 +588,29 @@ class DataManipulationPanel(QWidget):
         self._fb.set_context_menu_builder(self._build_file_context_menu)
         top_row.addWidget(self._fb)
 
-        # Center: tabs + graph
+        # Center: title + tabs + graph
         center_col = QVBoxLayout()
         center_col.setSpacing(4)
+
+        # Title row with Help button
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        title_row.addStretch()
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/data_manipulation_gui.md"
+            ))
+        )
+        title_row.addWidget(_help_btn)
+        center_col.addLayout(title_row)
 
         self._tabs = QTabWidget()
         self._tabs.setMaximumHeight(200)
