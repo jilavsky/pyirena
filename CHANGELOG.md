@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-04-21
+
+### Added
+
+#### Igor Pro ITX export on all graph right-click menus
+Every interactive graph in pyIrena now offers **"Save as Igor Pro ITX…"** in its
+ViewBox right-click menu, alongside the existing "Save graph as JPEG…" action.
+
+- New public helper `save_itx_from_plot()` in `pyirena/gui/sas_plot.py` collects
+  all named `PlotDataItem` objects from a plot (data scatter, model curves) and
+  writes them as Igor Pro waves with display, log-axis, color, axis-label, and
+  legend commands.  Unnamed error-bar segments are skipped automatically.
+- Axis labels and title are auto-extracted from the plot when not supplied.
+- Correct log-mode handling: `getOriginalDataset()` is used (not `getData()`) so
+  that the physical linear values (Q in Å⁻¹, I in cm⁻¹, radius in Å, …) are
+  written to the ITX waves, and the `ModifyGraph log=1` commands applied by Igor
+  Pro provide the log scale — no double-log artefact.
+- Works correctly for mixed-mode plots (e.g. size distribution: log-x / linear-y).
+- Covered tools: Data Selector raw viewer, all fit-result windows, Simple Fits,
+  Unified Fit, Size Distribution, Modeling, WAXS Peak Fit, Data Manipulation,
+  HDF5 Viewer (already had ITX; menu entry unchanged).
+
+#### Legend text color
+All legends across every tool now use **black text** (`labelTextColor='k'`), which
+is more readable on the white background used throughout pyIrena.  The canonical
+value `SASPlotStyle.LEGEND_TEXT_COLOR = 'k'` is defined in `sas_plot.py`.
+
+### Fixed
+
+- **Size Distribution — MaxEnt `sky_background` auto-correction** (closes #3):
+  two-layer self-correction prevents divergence when the starting sky-background
+  value is out of range.
+  - Layer 1: if χ² > 100 × M after the first run, retries with sky / 100, / 1000,
+    / 10 000 until convergence is restored.
+  - Layer 2: after convergence, if sky > 5 % of max(distribution) the value is
+    recalibrated to 1 % of max and the fit re-runs once.
+  - The corrected value is written back to `maxent_sky_background`, reported via
+    `result['sky_note']`, shown in the GUI sky-background field, and flagged with
+    an orange status message.  Headless/batch runs receive a `log.info` note.
+
+- **Size Distribution batch defaults** (`batch.py`): default `maxent_max_iter` and
+  `tnnls_max_iter` reduced from 1000 to 300 when no saved state is present,
+  matching the typical GUI default and avoiding unexpectedly long batch runs.
+
 ## Released as first beta
 
 ## [0.3.2] - 2026-04-05 — First public beta
