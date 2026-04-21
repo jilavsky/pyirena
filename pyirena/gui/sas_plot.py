@@ -350,7 +350,11 @@ def save_itx_from_plot(
         name = item.name() or ''
         if not name:
             continue
-        x_data, y_data = item.getData()
+        # Use getOriginalDataset() to get the pre-log-transform linear values.
+        # getData() returns log10-transformed values when the item has logMode
+        # active, which would cause a double-log in Igor Pro when combined with
+        # the ModifyGraph log=1 commands we also emit.
+        x_data, y_data = item.getOriginalDataset()
         if x_data is None or y_data is None or len(x_data) < 2:
             continue
         # Skip error-bar segments (NaN-separated lines: >30 % NaN values)
