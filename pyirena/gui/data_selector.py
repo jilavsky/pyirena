@@ -40,6 +40,7 @@ except ImportError:
 import re
 import numpy as np
 import pyqtgraph as pg
+from pyirena.gui.sas_plot import save_itx_from_plot
 
 # ── Shared colour palette for multi-file graphs ────────────────────────────
 def _gen_colors(n: int) -> list:
@@ -181,8 +182,9 @@ _SORT_KEYS = [
 # ── JPEG export helper ─────────────────────────────────────────────────────
 def _add_jpeg_export(window, *plot_items):
     """
-    Add a 'Save as JPEG…' action to the ViewBox context menu of every
-    PlotItem passed in.  Captures the whole *window* widget via grab().
+    Add 'Save as JPEG' and 'Save as Igor Pro ITX' actions to the ViewBox
+    context menu of every PlotItem passed in.  JPEG captures the whole
+    *window* widget; ITX exports named curves from the individual plot_item.
     """
     def _save():
         path, _ = QFileDialog.getSaveFileName(
@@ -200,6 +202,13 @@ def _add_jpeg_export(window, *plot_items):
         act = QAction("Save as JPEG…", window)
         act.triggered.connect(_save)
         plot_item.getViewBox().menu.addAction(act)
+
+        act_itx = QAction("Save as Igor Pro ITX…", window)
+        act_itx.triggered.connect(
+            lambda checked=False, p=plot_item, w=window:
+                save_itx_from_plot(p, w)
+        )
+        plot_item.getViewBox().menu.addAction(act_itx)
 
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
@@ -1075,7 +1084,7 @@ class GraphWindow(QWidget):
         self.plot.setLabel('bottom', 'Q (Å⁻¹)')
         self.plot.setTitle('Small-Angle Scattering Data', size='13pt')
         self.plot.showGrid(x=True, y=True, alpha=0.3)
-        self.plot.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        self.plot.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.plot)
         _add_jpeg_export(self, self.plot)
 
@@ -1264,7 +1273,7 @@ class UnifiedFitResultsWindow(QWidget):
         self.ax_main.setLabel('left', 'Intensity (cm⁻¹)')
         self.ax_main.setTitle('Unified Fit Results', size='13pt')
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
-        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
 
         # ── Bottom panel: residuals ────────────────────────────────────────
@@ -1276,7 +1285,7 @@ class UnifiedFitResultsWindow(QWidget):
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
         self.ax_resid.setLabel('left', 'Residuals (norm.)')
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
-        self.ax_resid.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        self.ax_resid.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_resid)
 
         # Synchronise x-axes
@@ -1422,7 +1431,7 @@ class SizeDistResultsWindow(QWidget):
         self.ax_main.setLabel('left', 'Intensity (cm⁻¹)')
         self.ax_main.setTitle('Size Distribution Fit Results', size='13pt')
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
-        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
 
         # ── Middle: residuals ──────────────────────────────────────────────
@@ -1446,7 +1455,7 @@ class SizeDistResultsWindow(QWidget):
         self.ax_dist.setLabel('bottom', 'r (Å)')
         self.ax_dist.setLabel('left', 'P(r)  (vol. frac. Å⁻¹)')
         self.ax_dist.showGrid(x=True, y=True, alpha=0.3)
-        self.ax_dist.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        self.ax_dist.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_dist)
 
         # Allocate space: main 3×, residuals 1×, distribution 2×
@@ -1617,7 +1626,7 @@ class SimpleFitResultsWindow(QWidget):
         self.ax_main.setLabel('left', 'Intensity (cm⁻¹)')
         self.ax_main.setTitle('Simple Fits Results', size='13pt')
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
-        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt')
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
 
         # ── Bottom: residuals ──────────────────────────────────────────────
@@ -1764,7 +1773,7 @@ class WAXSPeakFitResultsWindow(QWidget):
         self.ax_main.setLabel('bottom', 'Q  (Å⁻¹)')
         self.ax_main.setTitle('WAXS Peak Fit Results', size='13pt')
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
-        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='10pt')
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='10pt', labelTextColor='k')
         _style_plot(self.ax_main)
 
         # ── Bottom: residuals ──────────────────────────────────────────────

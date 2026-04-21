@@ -431,7 +431,7 @@ class WAXSPeakFitGraphWindow(QWidget):
         self.main_plot.setLabel('left',   'Intensity')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-        self._legend = self.main_plot.addLegend(offset=(-10, 10), labelTextSize='13pt')
+        self._legend = self.main_plot.addLegend(offset=(-10, 10), labelTextSize='13pt', labelTextColor='k')
         self._style_axes(self.main_plot)
 
         # ── Bottom plot: residuals ────────────────────────────────────────

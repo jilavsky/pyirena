@@ -89,6 +89,9 @@ class SASPlotStyle:
     # ── Annotation text ───────────────────────────────────────────────────
     ANNOT_COLOR      = (40, 40, 40)    # near-black
 
+    # ── Legend ────────────────────────────────────────────────────────────
+    LEGEND_TEXT_COLOR = 'k'     # black — visible on the white background used by all tools
+
     # ── Grid ──────────────────────────────────────────────────────────────
     GRID_ALPHA       = 0.3
 
@@ -239,26 +242,36 @@ def make_sas_plot(
     if x_link is not None:
         plot.setXLink(x_link)
     if parent_widget is not None:
-        _add_jpeg_export(plot, parent_widget, jpeg_default_name)
+        _add_jpeg_export(plot, parent_widget, jpeg_default_name,
+                         x_label=x_label, y_label=y_label, title=title or '')
     return plot
 
 
 # ===========================================================================
-# JPEG export
+# JPEG / ITX export
 # ===========================================================================
 
 def _add_jpeg_export(
     plot: pg.PlotItem,
     parent_widget,
     default_name: str,
+    x_label: str = '',
+    y_label: str = '',
+    title: str = '',
 ):
-    """Append a 'Save graph as JPEG…' entry to the ViewBox right-click menu."""
+    """Append 'Save as JPEG' and 'Save as Igor Pro ITX' entries to the ViewBox menu."""
     vb = plot.getViewBox()
     vb.menu.addSeparator()
-    action = vb.menu.addAction("Save graph as JPEG…")
-    action.triggered.connect(
+    jpeg_action = vb.menu.addAction("Save graph as JPEG…")
+    jpeg_action.triggered.connect(
         lambda checked=False, p=plot, pw=parent_widget, n=default_name:
             _save_plot_as_jpeg(p, pw, n)
+    )
+    itx_action = vb.menu.addAction("Save as Igor Pro ITX…")
+    itx_action.triggered.connect(
+        lambda checked=False, p=plot, pw=parent_widget, n=default_name,
+               xl=x_label, yl=y_label, t=title:
+            save_itx_from_plot(p, pw, n, xl, yl, t)
     )
 
 
@@ -279,6 +292,158 @@ def _save_plot_as_jpeg(plot: pg.PlotItem, parent, default_name: str):
     except Exception as exc:
         QMessageBox.warning(parent, 'Export Failed',
                             f'Could not save image:\n{exc}')
+
+
+def _get_item_color_hex(item: pg.PlotDataItem) -> str:
+    """Extract the primary color of a PlotDataItem as an #rrggbb hex string."""
+    try:
+        pen = item.opts.get('pen')
+        if pen is not None:
+            return pg.mkPen(pen).color().name()
+    except Exception:
+        pass
+    try:
+        brush = item.opts.get('symbolBrush')
+        if brush is not None:
+            return pg.mkBrush(brush).color().name()
+    except Exception:
+        pass
+    return '#000000'
+
+
+def save_itx_from_plot(
+    plot: pg.PlotItem,
+    parent,
+    default_name: str = 'pyirena_graph',
+    x_label: str | None = None,
+    y_label: str | None = None,
+    title: str | None = None,
+) -> None:
+    """Export named data curves from *plot* as an Igor Pro Text (.itx) file.
+
+    Iterates all named ``PlotDataItem`` objects in *plot* (scatter data and
+    model curves) and writes them as Igor Pro waves with display, log-axis,
+    color, label, and legend commands.  Error-bar segments (NaN-separated
+    lines without a name) are automatically skipped.
+
+    Auto-extracts axis labels and title from *plot* when the corresponding
+    parameters are ``None``.
+    """
+    import re
+
+    # Auto-extract labels / title from the plot_item if not provided.
+    if x_label is None:
+        x_label = getattr(plot.getAxis('bottom'), 'labelText', '') or ''
+    if y_label is None:
+        y_label = getattr(plot.getAxis('left'), 'labelText', '') or ''
+    if title is None:
+        try:
+            title = plot.titleLabel.text or ''
+        except Exception:
+            title = ''
+
+    # Collect named, non-NaN-heavy PlotDataItems.
+    named_items: list[tuple[str, np.ndarray, np.ndarray, str]] = []
+    for item in plot.listDataItems():
+        if not isinstance(item, pg.PlotDataItem):
+            continue
+        name = item.name() or ''
+        if not name:
+            continue
+        x_data, y_data = item.getData()
+        if x_data is None or y_data is None or len(x_data) < 2:
+            continue
+        # Skip error-bar segments (NaN-separated lines: >30 % NaN values)
+        if np.sum(np.isnan(y_data)) > len(y_data) * 0.3:
+            continue
+        mask = np.isfinite(x_data) & np.isfinite(y_data)
+        if mask.sum() < 2:
+            continue
+        named_items.append((name, x_data[mask], y_data[mask],
+                             _get_item_color_hex(item)))
+
+    if not named_items:
+        QMessageBox.warning(parent, 'No data',
+                            'No named data curves found to export.')
+        return
+
+    default_path = str(Path.home() / f'{default_name}.itx')
+    filepath, _ = QFileDialog.getSaveFileName(
+        parent, 'Save as Igor Pro ITX', default_path,
+        'Igor Pro Text (*.itx);;All files (*)',
+    )
+    if not filepath:
+        return
+    if not filepath.lower().endswith('.itx'):
+        filepath += '.itx'
+
+    log_x = bool(getattr(plot.getAxis('bottom'), 'logMode', False))
+    log_y = bool(getattr(plot.getAxis('left'),   'logMode', False))
+
+    def _safe_name(s: str) -> str:
+        n = re.sub(r'[^A-Za-z0-9_]', '_', s)
+        if n and n[0].isdigit():
+            n = 'w_' + n
+        return n[:31] or 'wave'
+
+    def _hex_to_igor(h: str) -> tuple[int, int, int]:
+        h = h.lstrip('#')
+        if len(h) == 6:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        else:
+            r = g = b = 0
+        return r * 257, g * 257, b * 257
+
+    lines = ['IGOR']
+    wave_info: list[tuple[str, str, str, str]] = []   # (xn, yn, label, color)
+    n = len(named_items)
+
+    for i, (lbl, x_arr, y_arr, color) in enumerate(named_items):
+        suffix = f'_{i + 1:02d}' if n > 1 else ''
+        xn = _safe_name(f'X_{lbl}{suffix}')
+        yn = _safe_name(f'Y_{lbl}{suffix}')
+        wave_info.append((xn, yn, lbl, color))
+
+        lines += [f'WAVES/D  {xn}', 'BEGIN']
+        lines += [f'  {v:.10g}' for v in x_arr]
+        lines += ['END', f'WAVES/D  {yn}', 'BEGIN']
+        lines += [f'  {v:.10g}' for v in y_arr]
+        lines.append('END')
+
+    lines.append('')
+    for j, (xn, yn, lbl, _) in enumerate(wave_info):
+        if j == 0:
+            lines.append(f'X Display {yn} vs {xn} as "{lbl}"')
+        else:
+            lines.append(f'X AppendToGraph {yn} vs {xn}')
+
+    if log_x:
+        lines.append('X ModifyGraph log(bottom)=1')
+    if log_y:
+        lines.append('X ModifyGraph log(left)=1')
+
+    for _, yn, _, color in wave_info:
+        r, g, b = _hex_to_igor(color)
+        lines.append(f'X ModifyGraph rgb({yn})=({r},{g},{b})')
+
+    if x_label:
+        lines.append(f'X Label bottom "{x_label}"')
+    if y_label:
+        lines.append(f'X Label left "{y_label}"')
+    if title:
+        lines.append(f'X TextBox/C/N=title0/A=MC/X=0/Y=5 "{title}"')
+
+    legend_parts = [f'\\\\s({yn}) {lbl}' for _, yn, lbl, _ in wave_info]
+    if legend_parts:
+        legend_text = '\\r'.join(legend_parts)
+        lines.append(f'X Legend/C/N=text0 "{legend_text}"')
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+    except Exception as exc:
+        QMessageBox.warning(parent, 'Export Failed',
+                            f'Could not save file:\n{exc}')
 
 
 # ===========================================================================

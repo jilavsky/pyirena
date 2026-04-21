@@ -352,7 +352,7 @@ class GraphWindow(QWidget):
         if not self._legend_btn.isChecked():
             return
         if self._legend is None:
-            self._legend = self._plot.addLegend(offset=(10, 10))
+            self._legend = self._plot.addLegend(offset=(10, 10), labelTextColor='k')
         # The legend auto-updates from named plot items
 
     # ── Toolbar actions ────────────────────────────────────────────────────

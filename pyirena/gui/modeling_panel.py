@@ -1184,7 +1184,7 @@ class ModelingGraphWindow(QWidget):
         self.iq_plot.setLogMode(x=True, y=True)
         self.iq_plot.showGrid(x=True, y=True, alpha=0.3)
         self.iq_plot.setTitle('Modeling — I(Q)', size='12pt', color='k')
-        self.iq_plot.addLegend(offset=(-10, 10), labelTextSize='9pt')
+        self.iq_plot.addLegend(offset=(-10, 10), labelTextSize='9pt', labelTextColor='k')
         self._style_axes(self.iq_plot, show_top_values=True)
 
         # ── Residuals plot ────────────────────────────────────────────────
@@ -1202,7 +1202,7 @@ class ModelingGraphWindow(QWidget):
         self.dist_plot.setLabel('left', 'Distribution', **{'color': 'k', 'font-size': '10pt'})
         self.dist_plot.showGrid(x=True, y=True, alpha=0.3)
         self.dist_plot.setTitle('Size Distribution', size='10pt', color='k')
-        self.dist_plot.addLegend(offset=(-10, 10), labelTextSize='9pt')
+        self.dist_plot.addLegend(offset=(-10, 10), labelTextSize='9pt', labelTextColor='k')
         self._style_axes(self.dist_plot)
 
         # Height ratios: 5 : 2 : 3

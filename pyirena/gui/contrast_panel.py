@@ -393,7 +393,7 @@ class ContrastGraphWindow(QWidget):
             arr = scan_data.get(key)
             if arr is not None:
                 self._ax_mu.plot(E, arr, pen=pg.mkPen(color, width=1.5), name=label)
-        self._ax_mu.addLegend(offset=(5, 5))
+        self._ax_mu.addLegend(offset=(5, 5), labelTextColor='k')
         self._ax_mu.autoRange()
 
         # Transmission
@@ -405,7 +405,7 @@ class ContrastGraphWindow(QWidget):
             arr = scan_data.get(key)
             if arr is not None:
                 self._ax_tr.plot(E, arr, pen=pg.mkPen(color, width=1.5), name=label)
-        self._ax_tr.addLegend(offset=(5, 5))
+        self._ax_tr.addLegend(offset=(5, 5), labelTextColor='k')
         self._ax_tr.setYRange(0, 1.05, padding=0)
 
         self._scan_lbl.setText(

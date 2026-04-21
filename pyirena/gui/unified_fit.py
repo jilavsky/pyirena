@@ -502,7 +502,7 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.setLogMode(x=True, y=True)
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self.main_plot.setTitle('Unified Fit Model', size='12pt', color='k')
-        self.main_plot.addLegend()
+        self.main_plot.addLegend(labelTextColor='k')
 
         # Set axis colors to black for visibility on white background
         # Disable SI-prefix auto-scaling so axes show plain units (e.g. cm⁻¹, not ×10⁹ cm⁻¹)
