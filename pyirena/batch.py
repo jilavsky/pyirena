@@ -695,11 +695,11 @@ def fit_sizes(
         s.method             = str(sizes_state.get('method', 'regularization'))
         s.maxent_sky_background  = float(sizes_state.get('maxent_sky_background', 1e-6))
         s.maxent_stability       = float(sizes_state.get('maxent_stability', 0.01))
-        s.maxent_max_iter        = int(sizes_state.get('maxent_max_iter', 1000))
+        s.maxent_max_iter        = int(sizes_state.get('maxent_max_iter', 300))
         s.regularization_evalue  = float(sizes_state.get('regularization_evalue', 1.0))
         s.regularization_min_ratio = float(sizes_state.get('regularization_min_ratio', 1e-4))
         s.tnnls_approach_param   = float(sizes_state.get('tnnls_approach_param', 0.95))
-        s.tnnls_max_iter         = int(sizes_state.get('tnnls_max_iter', 1000))
+        s.tnnls_max_iter         = int(sizes_state.get('tnnls_max_iter', 300))
         s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run, matching GUI
     except Exception:
         print(f"[pyirena.batch] Error building Sizes model from config:\n{traceback.format_exc()}")
