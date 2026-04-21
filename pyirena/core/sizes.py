@@ -261,11 +261,53 @@ class SizesDistribution:
         G = self._build_g_matrix(q, r_grid)
 
         # Fit
+        _sky_note: str | None = None
         try:
             method = self.method.lower()
             x_raw_std = None
             if method == 'maxent':
+                _sky_notes: list[str] = []
+                _sky_orig = float(self.maxent_sky_background)
                 x_raw, n_iter = self._fit_maxent(G, I, err)
+
+                # Layer 1: catastrophic-failure retry.
+                # chi² >> M almost always means sky_background is far too large;
+                # progressively reduce by 100×/1000×/10000× until chi² is sane.
+                _chi2 = float(np.sum(((G @ x_raw - I) / err) ** 2))
+                if _chi2 > 100.0 * len(I):
+                    for _factor in (100, 1000, 10000):
+                        _sky_trial = _sky_orig / _factor
+                        if _sky_trial < 1e-20:
+                            break
+                        self.maxent_sky_background = _sky_trial
+                        x_raw, n_iter = self._fit_maxent(G, I, err)
+                        _chi2 = float(np.sum(((G @ x_raw - I) / err) ** 2))
+                        if _chi2 <= 100.0 * len(I):
+                            _sky_notes.append(
+                                f"sky_background reduced {_factor}× to {_sky_trial:.2e} for convergence"
+                            )
+                            break
+
+                # Layer 2: post-fit calibration.
+                # sky should be ~0.01 × max(distribution); if it is more than 5×
+                # above that target the fit is likely pulled toward the sky prior.
+                _dw_safe = np.maximum(bin_widths(r_grid), 1e-300)
+                _pos = (x_raw / _dw_safe)
+                _pos = _pos[_pos > 0]
+                if len(_pos) > 0:
+                    _dist_max = float(np.max(_pos))
+                    _sky_now = float(self.maxent_sky_background)
+                    _target = 0.01 * _dist_max
+                    if _sky_now > 5.0 * _target and _target > 1e-20:
+                        self.maxent_sky_background = _target
+                        x_raw, n_iter = self._fit_maxent(G, I, err)
+                        _sky_notes.append(
+                            f"sky_background calibrated {_sky_now:.2e} → {_target:.2e}"
+                        )
+
+                if _sky_notes:
+                    _sky_note = '; '.join(_sky_notes)
+
             elif method == 'regularization':
                 x_raw, n_iter = self._fit_regularization(G, I, err)
             elif method in ('tnnls', 'ipg', 'nnls'):
@@ -313,6 +355,9 @@ class SizesDistribution:
 
         result['n_iterations'] = n_iter
         result['n_data'] = len(I)   # number of Q points used; chi² target ≈ this value
+        result['sky_note'] = _sky_note
+        if _sky_note:
+            log.info("MaxEnt sky_background auto-adjusted: %s", _sky_note)
         result['success'] = True
         result['message'] = (
             f"Fit converged in {n_iter} iterations; "

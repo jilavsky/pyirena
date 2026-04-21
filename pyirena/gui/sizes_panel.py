@@ -1904,6 +1904,11 @@ class SizesFitPanel(QWidget):
 
             # ── Status message ────────────────────────────────────────────────
             n_iter = result.get('n_iterations', '?')
+            sky_note = result.get('sky_note')
+            if sky_note:
+                # Update the sky background field to show the auto-adjusted value
+                self.maxent_sky_edit.setText(f"{s.maxent_sky_background:.3g}")
+
             msg = (
                 f"Fit complete | method: {s.method} | "
                 f"χ²: {chi2:.4g} | "
@@ -1912,7 +1917,11 @@ class SizesFitPanel(QWidget):
                 f"peak r: {peak_r:.4g} Å | "
                 f"iterations: {n_iter}"
             )
-            self.graph_window.show_success_message(msg)
+            if sky_note:
+                msg += f" | Auto: {sky_note}"
+                self.graph_window.show_message(msg, '#e67e22')
+            else:
+                self.graph_window.show_success_message(msg)
             self.status_label.setText(f"Fit done: χ²={chi2:.4g}, Vf={vf:.4g}")
 
         except Exception as exc:
