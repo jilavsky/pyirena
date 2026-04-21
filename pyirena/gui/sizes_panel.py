@@ -34,7 +34,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
-from pyirena.gui.sas_plot import RadiusAxisItem
+from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot
 from pyirena.state.state_manager import StateManager
 
 
@@ -241,6 +241,22 @@ class SizesFitGraphWindow(QWidget):
         _style_axes(self.distribution_plot)
         self.distribution_plot.getAxis('left').setWidth(65)
 
+        # Export right-click menus (JPEG + ITX) for main and distribution plots
+        for _plot, _stem in [
+            (self.main_plot,         'sizes_iq'),
+            (self.distribution_plot, 'sizes_dist'),
+        ]:
+            _vb = _plot.getViewBox()
+            _vb.menu.addSeparator()
+            _act_j = _vb.menu.addAction('Save graph as JPEG…')
+            _act_j.triggered.connect(
+                lambda checked=False, p=_plot, s=_stem: self._save_jpeg(p, s)
+            )
+            _act_i = _vb.menu.addAction('Save as Igor Pro ITX…')
+            _act_i.triggered.connect(
+                lambda checked=False, p=_plot: save_itx_from_plot(p, self)
+            )
+
         layout.addWidget(self.graphics_layout)
 
         # ── "Save graph as JPEG" in right-click context menu of each plot ────
@@ -433,6 +449,21 @@ class SizesFitGraphWindow(QWidget):
         )
         self._ensure_cursors(q_)
         self._set_robust_y_range(I_, q_)
+
+    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
+        from pyqtgraph.exporters import ImageExporter
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Save as JPEG', str(Path.home() / f'{stem}.jpg'),
+            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
+        )
+        if not path:
+            return
+        try:
+            exp = ImageExporter(plot)
+            exp.parameters()['width'] = 1600
+            exp.export(path)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Export failed', str(exc))
 
     def _set_robust_y_range(self, intensity, q=None):
         """Set Y range (and optionally x range) of main plot to percentile-based bounds.

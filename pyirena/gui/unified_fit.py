@@ -42,7 +42,7 @@ except ImportError:
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
-from pyirena.gui.sas_plot import RadiusAxisItem
+from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot
 from pyirena.state import StateManager
 
 
@@ -555,11 +555,27 @@ class UnifiedFitGraphWindow(QWidget):
         self.graphics_layout.ci.layout.setRowStretchFactor(0, 4)
         self.graphics_layout.ci.layout.setRowStretchFactor(1, 1)
 
-        # Add "Save graph as JPEG" to the top plot's right-click context menu
+        # Export menus: JPEG + ITX for main plot
         vb = self.main_plot.getViewBox()
         vb.menu.addSeparator()
         save_action = vb.menu.addAction("Save graph as JPEG…")
         save_action.triggered.connect(self.save_top_graph_as_jpeg)
+        itx_action = vb.menu.addAction("Save as Igor Pro ITX…")
+        itx_action.triggered.connect(
+            lambda checked=False: save_itx_from_plot(self.main_plot, self)
+        )
+
+        # Export menus: JPEG + ITX for residual plot
+        vb2 = self.residual_plot.getViewBox()
+        vb2.menu.addSeparator()
+        resid_jpeg = vb2.menu.addAction("Save graph as JPEG…")
+        resid_jpeg.triggered.connect(
+            lambda checked=False: self._save_jpeg(self.residual_plot, 'unified_fit_residuals')
+        )
+        resid_itx = vb2.menu.addAction("Save as Igor Pro ITX…")
+        resid_itx.triggered.connect(
+            lambda checked=False: save_itx_from_plot(self.residual_plot, self)
+        )
 
     def save_top_graph_as_jpeg(self):
         """Export the top (main) plot to a JPEG file chosen by the user."""
@@ -582,6 +598,21 @@ class UnifiedFitGraphWindow(QWidget):
             exporter.export(file_path)
         except Exception as e:
             QMessageBox.warning(self, "Export Failed", f"Could not save image:\n{e}")
+
+    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
+        from pyqtgraph.exporters import ImageExporter
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Save as JPEG', str(Path.home() / f'{stem}.jpg'),
+            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
+        )
+        if not path:
+            return
+        try:
+            exp = ImageExporter(plot)
+            exp.parameters()['width'] = 1600
+            exp.export(path)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Export failed', str(exc))
 
     def clear_result_text_annotations(self):
         """Remove all result text annotations from the graph."""

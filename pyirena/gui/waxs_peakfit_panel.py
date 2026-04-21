@@ -47,6 +47,7 @@ from pyirena.core.waxs_peakfit import (
     compute_adaptive_background,
     find_peaks_in_data, WAXSPeakFitModel,
 )
+from pyirena.gui.sas_plot import save_itx_from_plot
 
 
 # ── colour palette for peaks ──────────────────────────────────────────────
@@ -525,12 +526,16 @@ class WAXSPeakFitGraphWindow(QWidget):
             ax.enableAutoSIPrefix(False)
 
     def _add_jpeg_export(self, plot: pg.PlotItem, stem: str):
-        """Add 'Save as JPEG…' to the ViewBox right-click menu."""
+        """Add 'Save as JPEG…' and 'Save as Igor Pro ITX…' to the ViewBox right-click menu."""
         vb = plot.getViewBox()
         vb.menu.addSeparator()
         act = vb.menu.addAction("Save as JPEG…")
         act.triggered.connect(
             lambda checked=False, p=plot, s=stem: self._save_jpeg(p, s)
+        )
+        act_itx = vb.menu.addAction("Save as Igor Pro ITX…")
+        act_itx.triggered.connect(
+            lambda checked=False, p=plot: save_itx_from_plot(p, self)
         )
 
     def _save_jpeg(self, plot: pg.PlotItem, stem: str):

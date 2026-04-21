@@ -62,7 +62,7 @@ from pyirena.core.modeling import (
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
-    RadiusAxisItem,
+    RadiusAxisItem, save_itx_from_plot,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
@@ -1213,15 +1213,23 @@ class ModelingGraphWindow(QWidget):
         # Link X axes so Q range is synchronised
         self.resid_plot.setXLink(self.iq_plot)
 
-        # JPEG export right-click
+        # JPEG + ITX export right-click
         vb = self.iq_plot.getViewBox()
         vb.menu.addSeparator()
         act = vb.menu.addAction('Save I(Q) graph as JPEG…')
         act.triggered.connect(self._save_iq_jpeg)
+        act_itx = vb.menu.addAction('Save as Igor Pro ITX…')
+        act_itx.triggered.connect(
+            lambda checked=False: save_itx_from_plot(self.iq_plot, self)
+        )
         vb2 = self.dist_plot.getViewBox()
         vb2.menu.addSeparator()
         act2 = vb2.menu.addAction('Save size distribution as JPEG…')
         act2.triggered.connect(self._save_dist_jpeg)
+        act2_itx = vb2.menu.addAction('Save as Igor Pro ITX…')
+        act2_itx.triggered.connect(
+            lambda checked=False: save_itx_from_plot(self.dist_plot, self)
+        )
 
     @staticmethod
     def _style_axes(plot, show_top_values=False):
