@@ -1884,8 +1884,14 @@ class SizesFitPanel(QWidget):
             # model_intensity from fit() is G@x_raw (background already subtracted
             # from data before fitting).  Add the complex background back so the
             # model curve sits on top of the raw measured data in the graph.
+            #
+            # Use result['q'] — the q the fit actually used after its internal
+            # NaN/non-positive-I mask — so model_intensity, residuals, and the
+            # background curve all share the same length.  Falls back to the
+            # input q if the result lacks this key (legacy fit objects).
+            q_used = result.get('q', q)
             I_model_bg_subtracted = result['model_intensity']
-            complex_bg_q = s.compute_complex_background(q)
+            complex_bg_q = s.compute_complex_background(q_used)
             I_model_display = I_model_bg_subtracted + complex_bg_q
             residuals = result.get('residuals', None)
 
@@ -1921,10 +1927,10 @@ class SizesFitPanel(QWidget):
                     )
 
             # Plot fit on top so it is visible over other items
-            self.graph_window.plot_fit(q, I_model_display, 'Fitted Model')
+            self.graph_window.plot_fit(q_used, I_model_display, 'Fitted Model')
 
             if residuals is not None:
-                self.graph_window.plot_residuals(q, residuals)
+                self.graph_window.plot_residuals(q_used, residuals)
             self.graph_window.plot_distribution(r_grid, distribution)
             dist_std = result.get('distribution_std')
             if dist_std is not None:
@@ -2544,6 +2550,13 @@ class SizesFitPanel(QWidget):
             params['volume_fraction'] = result.get('volume_fraction')
             params['rg'] = result.get('rg')
             params['n_iterations'] = result.get('n_iterations')
+
+            # Use the q/I/err the fit actually used (post internal NaN/non-positive
+            # mask) so all stored arrays have matching lengths.  Falls back to the
+            # cursor-range arrays for legacy fit objects.
+            q_fit  = result.get('q',      q_fit)
+            i_data = result.get('I_data', i_data)
+            i_err  = result.get('err',    i_err)
 
             save_sizes_results(
                 filepath=output_path,

@@ -242,6 +242,12 @@ class SizesDistribution:
         if len(q) == 0:
             return self._fail("No valid data points after cleaning.")
 
+        # Preserve the raw observed intensities (post-mask, pre-bg-subtraction)
+        # so callers can plot/store data and model on consistent arrays even
+        # when the input contained non-positive or non-finite points that the
+        # mask above filtered out.
+        I_observed = I.copy()
+
         # Subtract complex background (B·q^(-P) + flat)
         I = I - self.compute_complex_background(q)
 
@@ -356,6 +362,16 @@ class SizesDistribution:
         result['n_iterations'] = n_iter
         result['n_data'] = len(I)   # number of Q points used; chi² target ≈ this value
         result['sky_note'] = _sky_note
+
+        # Expose the actual arrays the fit used (post-mask).  Callers should
+        # use these for any post-fit plotting / storing so that array shapes
+        # match `model_intensity` and `residuals`.  Without this, when input
+        # contains negative or non-finite intensities, the mask drops points
+        # and downstream code mixing the original input arrays with fit
+        # outputs hits a shape mismatch (e.g. (323,) vs (326,)).
+        result['q']      = q
+        result['I_data'] = I_observed   # raw observed I, post-mask, pre-bg-subtraction
+        result['err']    = err
         if _sky_note:
             log.info("MaxEnt sky_background auto-adjusted: %s", _sky_note)
         result['success'] = True

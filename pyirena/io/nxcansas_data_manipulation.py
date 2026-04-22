@@ -43,6 +43,37 @@ _OPERATION_SUFFIXES = {
 }
 
 
+def _strip_nonpositive_intensities(
+    q: np.ndarray,
+    I: np.ndarray,
+    dI: np.ndarray,
+    dQ: Optional[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], int]:
+    """Drop any points with non-positive or non-finite Q or I.
+
+    Subtraction operations and similar can produce negative intensities at
+    sample-buffer boundaries.  Such points are not physically meaningful and
+    break downstream analysis (in particular log plots and the Size
+    Distribution fit).  Igor Pro's equivalent routines delete these points
+    before saving; we do the same.
+
+    Returns the cleaned arrays and the number of points removed.
+    """
+    q  = np.asarray(q,  dtype=float)
+    I  = np.asarray(I,  dtype=float)
+    dI = np.asarray(dI, dtype=float)
+    mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+    n_removed = int(np.sum(~mask))
+    if n_removed == 0:
+        return q, I, dI, dQ, 0
+    q  = q[mask]
+    I  = I[mask]
+    dI = dI[mask]
+    if dQ is not None:
+        dQ = np.asarray(dQ, dtype=float)[mask]
+    return q, I, dI, dQ, n_removed
+
+
 def save_manipulated_data(
     output_folder: Path,
     source_path: Path,
@@ -93,6 +124,18 @@ def save_manipulated_data(
     """
     output_folder = Path(output_folder)
     source_path = Path(source_path)
+
+    # Strip points with non-positive / non-finite Q or I before writing.
+    # See _strip_nonpositive_intensities() for the rationale.
+    q, I, dI, dQ, n_stripped = _strip_nonpositive_intensities(q, I, dI, dQ)
+    if n_stripped:
+        print(f"[data_manipulation] Stripped {n_stripped} non-positive/non-finite "
+              f"point(s) before saving '{operation}' result.")
+    if len(q) < 2:
+        raise ValueError(
+            f"After stripping non-positive intensities only {len(q)} point(s) "
+            f"remain — refusing to save an empty/degenerate '{operation}' result."
+        )
 
     suffix = output_stem_suffix or _OPERATION_SUFFIXES.get(operation, f'_{operation}')
     stem = source_path.stem

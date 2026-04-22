@@ -33,6 +33,39 @@ _PYIRENA_RESULT_GROUPS = [
 ]
 
 
+def _strip_nonpositive_intensities(
+    q: np.ndarray,
+    I: np.ndarray,
+    dI: np.ndarray,
+    dQ: Optional[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], int]:
+    """Drop any points with non-positive or non-finite Q or I.
+
+    Data Merge can occasionally produce negative intensities at the edges of
+    DS1 where a flat background is subtracted.  Such points are not
+    physically meaningful and break downstream analysis (in particular, log
+    plots and the Size Distribution fit which masks I > 0 internally and
+    then mismatches array shapes with caller-side arrays).  Igor Pro's
+    equivalent merge routine deletes these points before saving; we do the
+    same.
+
+    Returns the cleaned arrays and the number of points removed.
+    """
+    q  = np.asarray(q,  dtype=float)
+    I  = np.asarray(I,  dtype=float)
+    dI = np.asarray(dI, dtype=float)
+    mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+    n_removed = int(np.sum(~mask))
+    if n_removed == 0:
+        return q, I, dI, dQ, 0
+    q  = q[mask]
+    I  = I[mask]
+    dI = dI[mask]
+    if dQ is not None:
+        dQ = np.asarray(dQ, dtype=float)[mask]
+    return q, I, dI, dQ, n_removed
+
+
 def save_merged_data(
     output_folder: Path,
     ds1_path: Path,
@@ -84,6 +117,18 @@ def save_merged_data(
     """
     output_folder = Path(output_folder)
     ds1_path = Path(ds1_path)
+
+    # Strip points with non-positive / non-finite Q or I before writing.
+    # See _strip_nonpositive_intensities() for the rationale.
+    q, I, dI, dQ, n_stripped = _strip_nonpositive_intensities(q, I, dI, dQ)
+    if n_stripped:
+        print(f"[data_merge] Stripped {n_stripped} non-positive/non-finite "
+              f"point(s) before saving merged data.")
+    if len(q) < 2:
+        raise ValueError(
+            f"After stripping non-positive intensities only {len(q)} point(s) "
+            f"remain — refusing to save an empty/degenerate merged dataset."
+        )
 
     # Determine output filename
     stem = ds1_path.stem
