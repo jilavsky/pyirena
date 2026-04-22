@@ -34,6 +34,28 @@ value `SASPlotStyle.LEGEND_TEXT_COLOR = 'k'` is defined in `sas_plot.py`.
 
 ### Fixed
 
+- **Size Distribution — shape mismatch with negative intensities**: fitting
+  data that contained any non-positive or non-finite I values (typical of
+  Data Merge output where flat-background subtraction can drive a few
+  end-of-DS1 points negative) crashed with
+  `operands could not be broadcast together with shapes (323,) (326,)`.
+  - `SizesDistribution.fit()` now exposes the actual q / I_data / err it used
+    after its internal `(q > 0) & (I > 0) & finite` mask, via the new
+    `result['q']`, `result['I_data']`, `result['err']` keys.
+  - `SizesFitPanel.run_fit()` and `store_results_to_file()` use these fit-side
+    arrays for the complex-background curve, model overlay, residuals plot,
+    and saved HDF5 datasets — guaranteeing matching shapes.
+  - Backwards-compatible: if `result['q']` is absent (legacy fit objects), the
+    panel falls back to its own cursor-range arrays.
+
+- **Data Merge / Data Manipulation — strip non-positive intensities at save**:
+  `save_merged_data()` and `save_manipulated_data()` now drop any points with
+  non-positive or non-finite Q / I (with matching dI / dQ entries) before
+  writing the HDF5 file, mirroring Igor Pro's behavior.  Prints
+  `[data_merge] Stripped N non-positive/non-finite point(s)…` (or
+  `[data_manipulation]`) when stripping occurs.  Refuses to save if fewer
+  than 2 points remain.
+
 - **Size Distribution — MaxEnt `sky_background` auto-correction** (closes #3):
   two-layer self-correction prevents divergence when the starting sky-background
   value is out of range.
