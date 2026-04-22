@@ -250,6 +250,13 @@ class StateManager:
                 "n_steps":       50,      # grid steps for per-peak scan
             },
         },
+        "diffraction_lines": {
+            "schema_version": 1,
+            "wavelength_a": 1.5406,        # default Cu Kα; auto-replaced when file has /entry/instrument/wavelength
+            "wavelength_auto": True,       # True = use file value when available
+            "last_folder": None,           # remembered CIF folder for file picker
+            "cif_files": [],               # list of dicts: {path, name, color, visible, scale, show_hkl}
+        },
         "data_merge": {
             # schema_version 1: initial release
             "schema_version": 1,
