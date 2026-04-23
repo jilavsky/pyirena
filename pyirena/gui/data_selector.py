@@ -2751,11 +2751,17 @@ class DataSelectorPanel(QWidget):
         simple_fits_action.triggered.connect(self.launch_simple_fits)
         models_menu.addAction(simple_fits_action)
 
-        # Add separator and future models placeholder
-        models_menu.addSeparator()
-        placeholder_action = QAction("More models coming soon...", self)
-        placeholder_action.setEnabled(False)
-        models_menu.addAction(placeholder_action)
+        # Modeling action
+        modeling_action = QAction("&Modeling", self)
+        modeling_action.setStatusTip("Open Modeling panel")
+        modeling_action.triggered.connect(self.launch_modeling)
+        models_menu.addAction(modeling_action)
+
+        # WAXS Peak Fit action
+        waxs_peakfit_action = QAction("&WAXS Peak Fit", self)
+        waxs_peakfit_action.setStatusTip("Open WAXS Peak Fit panel")
+        waxs_peakfit_action.triggered.connect(self.launch_waxs_peakfit)
+        models_menu.addAction(waxs_peakfit_action)
 
         menu_bar.addMenu(models_menu)
 
