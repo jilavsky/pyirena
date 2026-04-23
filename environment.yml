@@ -27,4 +27,5 @@ dependencies:
   # pyirena itself — installed in editable mode from local source
   - pip
   - pip:
+      - Dans-Diffraction>=3.0
       - -e .
