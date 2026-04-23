@@ -20,13 +20,16 @@ In the Data Selector:
 ## Panel layout
 
 The window is split into a **left control panel** (≈430 px wide) and a
-**right graph area**.
+**right graph area**.  The left panel contains two tabs:
+
+- **WAXS Peak Fit** — peak finding, background, and fitting controls (described below).
+- **Diffraction Lines** — theoretical stick-pattern overlay for phase identification (see [Diffraction Lines tab](#diffraction-lines-tab)).
 
 ### Graph area
 
 | Panel | Content |
 |-------|---------|
-| Top (main) | Data scatter, total model (red), per-peak overlays (colors), background (dashed gray) |
+| Top (main) | Data scatter, total model (red), per-peak overlays (colors), background (dashed gray), diffraction line sticks (one color per phase) |
 | Bottom (residuals) | Normalized residuals `(I − fit) / σ`; dashed zero line; x-axis linked to main |
 
 **Right-click** on the main graph to:
@@ -201,6 +204,88 @@ API (`fit_waxs_peaks` / `fit_waxs`).
 | Results to graphs | Overlay a text annotation with fitted values on the main plot |
 | Export Parameters | Write current parameters to `pyirena_config.json` in the data directory |
 | Import Parameters | Load parameters from a previously exported JSON file |
+
+---
+
+## Diffraction Lines tab
+
+The **Diffraction Lines** tab overlays theoretical powder diffraction stick
+patterns from CIF files on the main graph.  This is a phase-identification
+aid — it shows expected peak positions and relative heights for one or more
+known crystal structures so you can compare them visually against the measured
+data.  It is **not** a Rietveld refinement; no profile fitting is performed.
+
+Patterns are computed using
+[Dans_Diffraction](https://github.com/DanPorter/Dans_Diffraction) (Apache-2.0
+licence).  It must be installed separately:
+
+```
+pip install Dans-Diffraction
+```
+
+or, if you use the conda environment shipped with pyirena:
+
+```
+conda env update -f environment.yml
+```
+
+### Wavelength
+
+| Control | Description |
+|---------|-------------|
+| **λ (Å)** spinbox | X-ray wavelength used to convert d-spacings to Q (Q = 4π sin θ / λ).  Default 1.5406 Å (Cu Kα). |
+| **Auto from file** checkbox | When checked, the wavelength is read automatically from the loaded NXcanSAS file (`/entry/instrument/wavelength`).  Editing the spinbox manually unchecks this so the value is not overwritten when the next file loads. |
+
+### CIF files list
+
+Each imported CIF appears as a row:
+
+| Control | Description |
+|---------|-------------|
+| Visibility checkbox (leftmost) | Show or hide this phase's sticks without removing it. |
+| Color swatch button | Click to open a color-picker dialog and change the phase color. |
+| Phase name | Chemical formula or CIF filename stem read from the CIF on import.  Hover for full file path. |
+| Scale spinbox (0.01 – 10×) | Manual multiplier applied on top of the automatic scaling.  The automatic scaling sets the tallest stick to the measured data's peak intensity within the same Q span.  Adjust this spinbox to make sticks taller or shorter. |
+| **hkl** checkbox | Show Miller-index labels (e.g. `(110)`) above each stick.  Off by default; only labels for reflections with intensity ≥ 5 % of the phase maximum are shown to avoid clutter. |
+| **×** button | Remove this CIF from the list. |
+
+**Right-click** any row for a **Delete** context-menu entry.
+
+### Buttons
+
+| Button | Action |
+|--------|--------|
+| **Import CIF…** (blue) | Open a file picker to select one or more `.cif` files.  The picker reopens at the last used folder.  Invalid or unparseable CIFs produce an error dialog; all others are added to the list. |
+| **AMCSD…** | Open the [American Mineralogist Crystal Structure Database](https://www.rruff.net/amcsd/) in your default browser. |
+| **COD…** | Open the [Crystallography Open Database](https://www.crystallography.net/cod/search.html) in your default browser. |
+| **Clear all CIFs** (orange) | Prompts for confirmation, then removes all CIF entries from the list and clears the overlays. |
+
+### Persistence
+
+All Diffraction Lines settings — CIF file paths, phase names, colors,
+visibility, scales, hkl-toggle state, wavelength, and the last folder used
+for the file picker — are saved automatically to the pyirena state file
+whenever a control changes.  They are restored the next time the WAXS Peak
+Fit tool is opened.
+
+CIF files that have been moved or deleted since the last session are silently
+skipped on state restore.
+
+### Phase identification workflow
+
+1. Switch to the **Diffraction Lines** tab.
+2. Verify the wavelength matches your data (auto-detected from NXcanSAS files).
+3. Click **AMCSD…** or **COD…** to open a database in your browser; search
+   for a candidate phase and download its CIF file.
+4. Click **Import CIF…**, select the downloaded CIF.  Sticks appear on the
+   main graph immediately, auto-scaled to the data peak.
+5. Compare stick positions to the measured peaks.  Use the scale spinbox to
+   adjust stick height if the auto-scale is off.
+6. Enable **hkl** to verify individual reflection assignments.
+7. Add more CIFs for additional candidate phases; each gets a distinct color.
+8. Uncheck the visibility box for phases you want to temporarily hide.
+9. Phases you do not need can be deleted with the **×** button or right-click
+   → **Delete**.
 
 ---
 
