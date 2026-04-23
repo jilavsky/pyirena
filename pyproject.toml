@@ -47,6 +47,7 @@ gui = [
     "pyqtgraph>=0.13.0",
     "xraydb>=4.5",
     "periodictable>=1.7",
+    "Dans-Diffraction>=3.0",
 ]
 dev = [
     "pytest>=7.0",

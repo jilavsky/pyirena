@@ -23,7 +23,7 @@ try:
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
         QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
         QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
-        QMessageBox, QFrame, QSizePolicy, QSpacerItem,
+        QMessageBox, QFrame, QSizePolicy, QSpacerItem, QTabWidget,
         QDialog, QDialogButtonBox,
     )
     from PySide6.QtCore import Qt, Signal, QTimer, QUrl
@@ -33,7 +33,7 @@ except ImportError:
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
         QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
         QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
-        QMessageBox, QFrame, QSizePolicy, QSpacerItem,
+        QMessageBox, QFrame, QSizePolicy, QSpacerItem, QTabWidget,
         QDialog, QDialogButtonBox,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
@@ -399,6 +399,39 @@ class PeakRowWidget(QWidget):
             w.setVisible(show)
 
 
+def _read_nxcansas_wavelength(filepath: Optional[Path]) -> Optional[float]:
+    """Best-effort read of incident wavelength (Å) from an NXcanSAS HDF5 file.
+
+    Tries the canonical NXcanSAS path /entry/instrument/wavelength first, then
+    a few common variants seen in real files. Returns None if nothing usable
+    is found — callers must tolerate that (manual spinbox is the fallback).
+    """
+    if filepath is None:
+        return None
+    try:
+        import h5py
+    except ImportError:
+        return None
+    candidate_paths = [
+        "/entry/instrument/wavelength",
+        "/entry/instrument/monochromator/wavelength",
+        "/entry/Metadata/wavelength",
+    ]
+    try:
+        with h5py.File(str(filepath), "r") as f:
+            for path in candidate_paths:
+                if path in f:
+                    val = f[path][()]
+                    if hasattr(val, "item"):
+                        val = val.item()
+                    val = float(val)
+                    if val > 0:
+                        return val
+    except Exception:
+        return None
+    return None
+
+
 # ===========================================================================
 # WAXSPeakFitGraphWindow
 # ===========================================================================
@@ -514,6 +547,10 @@ class WAXSPeakFitGraphWindow(QWidget):
         # Peak item pool — grows on demand; excess slots hidden via setData([])
         self._peak_items:       List[pg.PlotDataItem] = []
         self._peak_label_items: List[pg.TextItem]     = []
+
+        # Diffraction-lines overlay item pools
+        self._diff_stick_items: List[pg.PlotDataItem] = []
+        self._diff_label_items: List[pg.TextItem]     = []
 
     # ── Internal helpers ─────────────────────────────────────────────────
 
@@ -840,6 +877,119 @@ class WAXSPeakFitGraphWindow(QWidget):
             view_r = max(r_max * 1.5, 0.5)
             self.resid_plot.setYRange(-view_r, view_r, padding=0)
 
+    # ── Diffraction lines (CIF stick patterns) ───────────────────────────
+
+    def _data_peak_in(self, q_lo: float, q_hi: float) -> float:
+        """Return max intensity in [q_lo, q_hi] from the loaded data, or NaN."""
+        if self._data_item is None:
+            return float('nan')
+        try:
+            xd, yd = self._data_item.getData()
+        except Exception:
+            return float('nan')
+        if xd is None or yd is None or len(xd) == 0:
+            return float('nan')
+        m = np.isfinite(xd) & np.isfinite(yd) & (xd >= q_lo) & (xd <= q_hi)
+        if not m.any():
+            # Fall back to global max if the pattern's Q range doesn't intersect the data
+            m = np.isfinite(yd)
+            if not m.any():
+                return float('nan')
+        return float(np.max(yd[m]))
+
+    def set_diffraction_lines(self, patterns: list) -> None:
+        """Render theoretical diffraction stick patterns on the main plot.
+
+        Parameters
+        ----------
+        patterns
+            List of dicts: ``{pattern, color, scale, show_hkl, name}`` where
+            ``pattern`` is a :class:`pyirena.core.diffraction_lines.DiffractionPattern`.
+            Pass an empty list to hide all sticks.
+        """
+        from pyirena.core.diffraction_lines import hkl_label
+
+        # Hide previous labels (we'll rebuild what we need)
+        for lbl in self._diff_label_items:
+            lbl.setVisible(False)
+
+        # Grow stick-item pool to required size
+        n_needed = len(patterns)
+        while len(self._diff_stick_items) < n_needed:
+            item = self.main_plot.plot(
+                np.array([], dtype=float),
+                np.array([], dtype=float),
+                pen=pg.mkPen('#2980b9', width=2),
+                connect='finite',
+            )
+            self._diff_stick_items.append(item)
+
+        # Hide leftover stick items from previous calls
+        _ex: np.ndarray = np.array([], dtype=float)
+        _ey: np.ndarray = np.array([], dtype=float)
+        for i in range(n_needed, len(self._diff_stick_items)):
+            self._diff_stick_items[i].setData(_ex, _ey)
+
+        if n_needed == 0:
+            return
+
+        label_idx = 0
+        for i, p in enumerate(patterns):
+            pat = p["pattern"]
+            color = p.get("color", "#2980b9")
+            user_scale = float(p.get("scale", 1.0))
+            show_hkl = bool(p.get("show_hkl", False))
+            name = p.get("name", pat.name)
+
+            q_arr = np.asarray(pat.q, float)
+            i_arr = np.asarray(pat.intensity, float)
+            if q_arr.size == 0:
+                self._diff_stick_items[i].setData(_ex, _ey)
+                continue
+
+            # Auto-scale to data peak in the pattern's Q span
+            data_peak = self._data_peak_in(float(q_arr.min()), float(q_arr.max()))
+            if not np.isfinite(data_peak) or data_peak <= 0:
+                # Fall back to a sensible scale so sticks are still visible
+                data_peak = 1.0
+            heights = i_arr * data_peak * user_scale
+
+            # NaN-separated vertical segments: bottom (y=0), top (y=h), gap
+            n = q_arr.size
+            xs = np.empty(3 * n)
+            ys = np.empty(3 * n)
+            xs[0::3] = q_arr
+            xs[1::3] = q_arr
+            xs[2::3] = np.nan
+            ys[0::3] = 0.0
+            ys[1::3] = heights
+            ys[2::3] = np.nan
+
+            self._diff_stick_items[i].setData(
+                xs, ys,
+                pen=pg.mkPen(color, width=2),
+                connect='finite',
+            )
+            self._diff_stick_items[i].setZValue(5)   # under data (10) but over background
+
+            if not show_hkl:
+                continue
+
+            # Add hkl labels for the strongest reflections only (avoid clutter)
+            # Threshold: 5% of pattern max
+            label_mask = i_arr >= 0.05
+            for j in np.where(label_mask)[0]:
+                # Reuse pool of TextItems
+                if label_idx >= len(self._diff_label_items):
+                    txt = pg.TextItem(anchor=(0.5, 1.0), color=color)
+                    self.main_plot.addItem(txt)
+                    self._diff_label_items.append(txt)
+                txt = self._diff_label_items[label_idx]
+                txt.setText(hkl_label(pat.hkl[j]), color=color)
+                txt.setPos(float(q_arr[j]), float(heights[j]))
+                txt.setVisible(True)
+                label_idx += 1
+
     def clear_all(self):
         """Reset graph without calling plot.clear() — preserves persistent items."""
         if self._data_item is not None:
@@ -851,8 +1001,13 @@ class WAXSPeakFitGraphWindow(QWidget):
         self._dI_stored = None
         self._legend.clear()
         self._clear_overlay_data()
+        # Also hide diffraction stick overlays
         _ex: np.ndarray = np.array([], dtype=float)
         _ey: np.ndarray = np.array([], dtype=float)
+        for item in self._diff_stick_items:
+            item.setData(_ex, _ey)
+        for lbl in self._diff_label_items:
+            lbl.setVisible(False)
         self._resid_item.setData(_ex, _ey)
 
 
@@ -953,15 +1108,27 @@ class WAXSPeakFitPanel(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.setChildrenCollapsible(False)
 
-        left_container = QWidget()
-        left_container.setFixedWidth(440)
-        left_container.setMaximumWidth(440)
-        self._left_layout = QVBoxLayout(left_container)
+        # Existing peak-fit controls live in their own tab
+        self._peakfit_tab = QWidget()
+        self._left_layout = QVBoxLayout(self._peakfit_tab)
         self._left_layout.setContentsMargins(4, 4, 4, 4)
         self._left_layout.setSpacing(4)
         self._build_left_panel()
 
-        splitter.addWidget(left_container)
+        # New diffraction-lines tab
+        from pyirena.gui.diffraction_lines_panel import DiffractionLinesPanel
+        self._diffraction_panel = DiffractionLinesPanel(self._state_mgr)
+        self._diffraction_panel.patterns_changed.connect(
+            self._graph.set_diffraction_lines
+        )
+
+        left_tabs = QTabWidget()
+        left_tabs.setFixedWidth(440)
+        left_tabs.setMaximumWidth(440)
+        left_tabs.addTab(self._peakfit_tab, "WAXS Peak Fit")
+        left_tabs.addTab(self._diffraction_panel, "Diffraction Lines")
+
+        splitter.addWidget(left_tabs)
         splitter.addWidget(self._graph)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -1815,6 +1982,8 @@ class WAXSPeakFitPanel(QWidget):
         self._ps_steps_spin.setValue(50)
         self._update_ps_visibility()
         self._clear_peaks()
+        # Also clear all imported diffraction-line CIFs
+        self._diffraction_panel.clear_all()
         self._graph.clear_all()
         if self._q is not None and self._I is not None:
             self._graph.plot_data(self._q, self._I, self._dI)
@@ -1908,6 +2077,10 @@ class WAXSPeakFitPanel(QWidget):
     def _save_state(self):
         state = self._get_current_state()
         self._state_mgr.update("waxs_peakfit", state)
+        # Persist diffraction-lines tab too (CIF list, wavelength, last folder)
+        self._state_mgr.update(
+            "diffraction_lines", self._diffraction_panel.collect_state()
+        )
         if self._state_mgr.save():
             self._set_status("State saved.")
         else:
@@ -2143,6 +2316,18 @@ class WAXSPeakFitPanel(QWidget):
         self._is_nxcansas = is_nxcansas
 
         self._graph.plot_data(self._q, self._I, self._dI, label=label)
+
+        # Diffraction-lines tab: pass data Q-range and (best-effort) wavelength
+        try:
+            qv = self._q[np.isfinite(self._q) & (self._q > 0)]
+            if qv.size >= 2:
+                self._diffraction_panel.set_data_q_range(
+                    float(qv.min()), float(qv.max())
+                )
+            wl = _read_nxcansas_wavelength(self._filepath) if is_nxcansas else None
+            self._diffraction_panel.set_wavelength_from_data(wl)
+        except Exception:
+            pass   # diffraction overlay is non-critical
 
         # Load stored results if the file has them
         if is_nxcansas and filepath is not None:

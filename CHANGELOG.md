@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Diffraction Lines overlay in WAXS Peak Fit (issue #4)
+
+The WAXS Peak Fit window now has two tabs in the left control area:
+
+1. **WAXS Peak Fit** — the existing peak-fitting controls, unchanged.
+2. **Diffraction Lines** — a new tab for overlaying theoretical powder
+   diffraction stick patterns on the experimental I(Q) curve, to help
+   identify crystallographic phases.
+
+Workflow:
+
+- **Import CIF** files via a file-picker that remembers the last folder used.
+- **AMCSD** and **COD** buttons open the free crystallography databases in
+  your browser so you can download CIFs.
+- Each imported CIF appears in a list with: visibility checkbox,
+  colour swatch (click to recolour), phase name (auto-detected from the CIF
+  formula), per-phase scale factor (× auto-scale to the data peak), and a
+  toggle to show Miller-index `(hkl)` labels above each stick.
+- **Right-click** a CIF row or click the red `×` button to remove that phase.
+  Reset to Defaults clears the entire CIF list.
+- **Wavelength** is auto-detected from the loaded NXcanSAS file
+  (`/entry/instrument/wavelength`) when "Auto from file" is enabled, and
+  can be overridden manually (default 1.5406 Å, Cu Kα).
+- The CIF list, wavelength, colours, and last-folder are persisted in
+  `state.json` and restored on next launch.
+
+The theoretical patterns are computed by the
+[Dans-Diffraction](https://github.com/DanPorter/Dans_Diffraction) library
+(Apache-2.0). It is added as a GUI optional-dependency; install with
+`pip install pyirena[gui]` or `pip install Dans-Diffraction`.
+
+New files: `pyirena/core/diffraction_lines.py`,
+`pyirena/gui/diffraction_lines_panel.py`.
+
 ## [0.4.2] - 2026-04-21
 
 ### Added
