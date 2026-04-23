@@ -2641,23 +2641,23 @@ class DataSelectorPanel(QWidget):
         )
         self.manage_config_button.clicked.connect(self.open_config_manager)
 
-        right_layout.addLayout(btn_grid)
-
-        right_layout.addStretch()
-
-        # Visual separator between analysis-tool buttons and support/utility buttons
+        # ── Support Tools section — kept inside btn_grid so all rows compress
+        # equally when the window is made small (avoids the bug where direct
+        # right_layout children are Fixed-policy and resist shrinking while the
+        # nested QGridLayout is Preferred-policy and absorbs all compression).
+        # Row 8: separator
         _util_sep = QFrame()
         _util_sep.setFrameShape(QFrame.Shape.HLine)
         _util_sep.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep.setStyleSheet("color: #bdc3c7;")
-        right_layout.addWidget(_util_sep)
+        btn_grid.addWidget(_util_sep, 8, 0, 1, 2)
 
-        # ── Support Tools (experiment planning — no data required) ────
+        # Row 9: "Support Tools" label
         _support_sep_lbl = QLabel("Support Tools")
         _support_sep_lbl.setStyleSheet(
             "color:#7f8c8d; font-size:10px; font-weight:bold; padding:1px 0px;"
         )
-        right_layout.addWidget(_support_sep_lbl)
+        btn_grid.addWidget(_support_sep_lbl, 9, 0, 1, 2)
 
         _contrast_style = (
             "QPushButton { background: #16a085; color: white; "
@@ -2674,19 +2674,27 @@ class DataSelectorPanel(QWidget):
             "(free-electron and anomalous Chantler-corrected X-ray values)."
         )
         self.contrast_button.clicked.connect(self.launch_contrast)
-        right_layout.addWidget(self.contrast_button)
 
-        # Visual separator before utility buttons
+        # Row 10: Scattering Contrast Calculator (full width)
+        btn_grid.addWidget(self.contrast_button, 10, 0, 1, 2)
+
+        # Row 11: separator
         _util_sep2 = QFrame()
         _util_sep2.setFrameShape(QFrame.Shape.HLine)
         _util_sep2.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep2.setStyleSheet("color: #bdc3c7;")
-        right_layout.addWidget(_util_sep2)
+        btn_grid.addWidget(_util_sep2, 11, 0, 1, 2)
 
-        right_layout.addWidget(self.data_merge_button)
-        right_layout.addWidget(self.data_manip_button)
-        right_layout.addWidget(self.hdf5_viewer_button)
-        right_layout.addWidget(self.manage_config_button)
+        # Row 12: Data Merge | Data Manipulation
+        btn_grid.addWidget(self.data_merge_button, 12, 0)
+        btn_grid.addWidget(self.data_manip_button, 12, 1)
+
+        # Row 13: HDF5 Viewer | Manage Config
+        btn_grid.addWidget(self.hdf5_viewer_button, 13, 0)
+        btn_grid.addWidget(self.manage_config_button, 13, 1)
+
+        right_layout.addLayout(btn_grid)
+        right_layout.addStretch()
         file_area_layout.addLayout(right_layout, stretch=1)
 
         content_layout.addLayout(file_area_layout)
