@@ -47,7 +47,7 @@ def _next_color(used_colors: List[str]) -> str:
 
 
 # AMCSD search page (free CIFs from American Mineralogist)
-AMCSD_URL = "https://rruff.geo.arizona.edu/AMS/amcsd.php"
+AMCSD_URL = "https://www.rruff.net/amcsd/"
 # COD (Crystallography Open Database) search page
 COD_URL = "https://www.crystallography.net/cod/search.html"
 
