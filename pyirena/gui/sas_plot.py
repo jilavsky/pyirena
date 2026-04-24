@@ -178,6 +178,57 @@ class _SafeInfiniteLine(pg.InfiniteLine):
             ev.ignore()
 
 
+# ---------------------------------------------------------------------------
+# Defensive monkey-patch for pyqtgraph GraphicsScene.sendDragEvent
+# ---------------------------------------------------------------------------
+# When a plot is rebuilt (e.g. via GraphicsLayoutWidget.clear()), Qt's
+# parent-child cleanup destroys the C++ side of cursor (InfiniteLine) items.
+# pyqtgraph's GraphicsScene caches ``lastHoverEvent`` which can still hold
+# Python references to those now-deleted items.  When the user later starts
+# a drag, ``sendDragEvent`` reads ``acceptedItem.scene()`` on the dead item
+# and Qt raises ``RuntimeError: Internal C++ object already deleted``.
+#
+# The patch wraps the unsafe call in try/except so the dead reference is
+# cleared and the drag falls back to the "find nearby item" path.
+def _install_sendDragEvent_safeguard() -> None:
+    from pyqtgraph.GraphicsScene import GraphicsScene as _GSModule
+    Scene = _GSModule.GraphicsScene
+    if getattr(Scene, '_pyirena_safe_sendDragEvent', False):
+        return
+    _orig = Scene.sendDragEvent
+
+    def _safe_sendDragEvent(self, ev, init=False, final=False):
+        try:
+            if init and self.dragItem is None and self.lastHoverEvent is not None:
+                # Probe whether any cached drag-target item has been deleted.
+                # Iterating the dict is enough to invalidate stale references
+                # before the original method dereferences them.
+                for btn, item in list(self.lastHoverEvent.dragItems().items()):
+                    try:
+                        _ = item.scene()
+                    except RuntimeError:
+                        # Underlying C++ object is gone — drop the cache so the
+                        # original method does not try to use it.
+                        self.lastHoverEvent = None
+                        break
+        except Exception:
+            self.lastHoverEvent = None
+        try:
+            return _orig(self, ev, init=init, final=final)
+        except RuntimeError:
+            # Last-ditch defense: any lingering deleted-object access aborts
+            # the drag instead of crashing the GUI.
+            self.dragItem = None
+            self.lastHoverEvent = None
+            return None
+
+    Scene.sendDragEvent = _safe_sendDragEvent
+    Scene._pyirena_safe_sendDragEvent = True
+
+
+_install_sendDragEvent_safeguard()
+
+
 # ===========================================================================
 # Plot factory
 # ===========================================================================

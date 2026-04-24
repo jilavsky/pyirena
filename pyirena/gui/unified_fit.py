@@ -484,8 +484,34 @@ class UnifiedFitGraphWindow(QWidget):
             }
         """)
 
+    def _detach_cursors(self):
+        """Disconnect signals and remove cursor lines via pyqtgraph's cleanup.
+
+        Must be called before ``graphics_layout.clear()``.  Without this,
+        Qt's parent-child cleanup destroys the cursor C++ objects directly,
+        which bypasses pyqtgraph's GraphicsScene bookkeeping and leaves
+        ``lastHoverEvent`` pointing at deleted items — that triggers a
+        RuntimeError ("Internal C++ object already deleted") the next time
+        the user drags anywhere on the plot.
+        """
+        for attr in ('cursor_left_line', 'cursor_right_line'):
+            line = getattr(self, attr, None)
+            if line is None:
+                continue
+            try:
+                line.sigPositionChanged.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                if self.main_plot is not None:
+                    self.main_plot.removeItem(line)
+            except (RuntimeError, AttributeError):
+                pass
+            setattr(self, attr, None)
+
     def init_plots(self):
         """Initialize the plot widgets."""
+        self._detach_cursors()
         self.graphics_layout.clear()
 
         # Set white background for the graphics layout
@@ -1477,7 +1503,13 @@ class LevelParametersWidget(QWidget):
             # Add Porod tail if RgCO < 0.1 (no cutoff)
             if RgCO < 0.1:
                 # Porod tail contribution: -B * maxQ^(3-P) / (3-P)
-                invariant += -B * maxQ**(3 - abs(P)) / (3 - abs(P))
+                # Skip when P≈3: integrand becomes B/Q which integrates to
+                # B*ln(Q), and the closed-form (3-P) denominator is singular.
+                # In practice P=3 is a degenerate Porod regime and the tail
+                # contribution to the invariant is undefined here.
+                denom = 3 - abs(P)
+                if abs(denom) > 1e-6:
+                    invariant += -B * maxQ**denom / denom
 
             # Check if invariant is valid (negative means bad extrapolation)
             if invariant < 0:

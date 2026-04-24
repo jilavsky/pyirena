@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-04-24
+
+### Fixed
+
+- **Unified Fit: GUI no longer crashes when moving cursors after parameter
+  changes.** Toggling controls such as the number of levels or "Display local
+  fits?" rebuilds the plot, which was destroying the cursor C++ objects while
+  pyqtgraph's `GraphicsScene` still held references to them via
+  `lastHoverEvent`. The next mouse drag then raised
+  `RuntimeError: Internal C++ object (_SafeInfiniteLine) already deleted` and,
+  on macOS, took the whole window down. Cursors are now explicitly detached
+  before each plot rebuild, and a defensive guard inside the shared SAS plot
+  module swallows any remaining stale references rather than crashing.
+- **Unified Fit: Sv/Invariant calculation no longer raises
+  `ZeroDivisionError` when fitted P = 3.** The Porod-tail integrand is
+  `B/Q` at P = 3, whose closed-form `(3 − P)` denominator is singular; the
+  tail term is now skipped in that degenerate case so the calculation
+  completes instead of erroring out.
+
 ## [0.4.3] - 2026-04-22
 
 ### Added
