@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-04-25
+
+### Fixed
+
+- **Startup crash on macOS (and any pyqtgraph build with compiled
+  subpackages).** The `sendDragEvent` safeguard introduced in 0.4.4 used a
+  module import path (`pyqtgraph.GraphicsScene.GraphicsScene`) that works on
+  Windows but fails on macOS conda where pyqtgraph compiles that subpackage,
+  raising `AttributeError`/`ImportError` before the GUI could open. The import
+  now tries both paths with a full fallback chain and, if the class cannot be
+  located at all, skips the patch silently rather than aborting startup.
+
 ## [0.4.4] - 2026-04-24
 
 ### Fixed
