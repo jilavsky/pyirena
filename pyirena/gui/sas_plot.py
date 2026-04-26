@@ -191,8 +191,27 @@ class _SafeInfiniteLine(pg.InfiniteLine):
 # The patch wraps the unsafe call in try/except so the dead reference is
 # cleared and the drag falls back to the "find nearby item" path.
 def _install_sendDragEvent_safeguard() -> None:
-    import pyqtgraph.GraphicsScene.GraphicsScene as _GSModule
-    Scene = _GSModule.GraphicsScene
+    # Locate the GraphicsScene class regardless of pyqtgraph build layout.
+    # Some builds (e.g. macOS conda) compile the subpackage so the inner
+    # GraphicsScene.py module is not importable by name; others (Windows)
+    # expose it as a regular module.  Try both paths and skip silently if
+    # the class cannot be found at all — the primary defence is _detach_cursors.
+    Scene = None
+    try:
+        import pyqtgraph.GraphicsScene.GraphicsScene as _mod
+        Scene = _mod.GraphicsScene
+    except (ImportError, AttributeError):
+        pass
+    if Scene is None:
+        try:
+            from pyqtgraph.GraphicsScene import GraphicsScene as Scene
+            if not isinstance(Scene, type):
+                Scene = None
+        except (ImportError, AttributeError):
+            pass
+    if Scene is None:
+        return
+
     if getattr(Scene, '_pyirena_safe_sendDragEvent', False):
         return
     _orig = Scene.sendDragEvent
@@ -200,15 +219,10 @@ def _install_sendDragEvent_safeguard() -> None:
     def _safe_sendDragEvent(self, ev, init=False, final=False):
         try:
             if init and self.dragItem is None and self.lastHoverEvent is not None:
-                # Probe whether any cached drag-target item has been deleted.
-                # Iterating the dict is enough to invalidate stale references
-                # before the original method dereferences them.
                 for btn, item in list(self.lastHoverEvent.dragItems().items()):
                     try:
                         _ = item.scene()
                     except RuntimeError:
-                        # Underlying C++ object is gone — drop the cache so the
-                        # original method does not try to use it.
                         self.lastHoverEvent = None
                         break
         except Exception:
@@ -216,8 +230,6 @@ def _install_sendDragEvent_safeguard() -> None:
         try:
             return _orig(self, ev, init=init, final=final)
         except RuntimeError:
-            # Last-ditch defense: any lingering deleted-object access aborts
-            # the drag instead of crashing the GUI.
             self.dragItem = None
             self.lastHoverEvent = None
             return None
@@ -226,7 +238,10 @@ def _install_sendDragEvent_safeguard() -> None:
     Scene._pyirena_safe_sendDragEvent = True
 
 
-_install_sendDragEvent_safeguard()
+try:
+    _install_sendDragEvent_safeguard()
+except Exception:
+    pass
 
 
 # ===========================================================================
