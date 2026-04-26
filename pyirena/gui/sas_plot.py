@@ -191,7 +191,7 @@ class _SafeInfiniteLine(pg.InfiniteLine):
 # The patch wraps the unsafe call in try/except so the dead reference is
 # cleared and the drag falls back to the "find nearby item" path.
 def _install_sendDragEvent_safeguard() -> None:
-    from pyqtgraph.GraphicsScene import GraphicsScene as _GSModule
+    import pyqtgraph.GraphicsScene.GraphicsScene as _GSModule
     Scene = _GSModule.GraphicsScene
     if getattr(Scene, '_pyirena_safe_sendDragEvent', False):
         return
