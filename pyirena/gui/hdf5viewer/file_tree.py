@@ -34,7 +34,7 @@ except ImportError:
     from PyQt6.QtGui import QFont, QBrush, QColor      # type: ignore[no-redef]
 
 # ── Extensions treated as HDF5 files ───────────────────────────────────────
-HDF5_EXTENSIONS = {".h5", ".hdf5", ".hdf", ".nxs"}
+HDF5_EXTENSIONS = {".h5", ".hdf5", ".hdf", ".nxs", ".h5xp"}
 
 # ── Sort key functions (copied from data_selector.py) ──────────────────────
 def _sort_key_name(name: str) -> str:

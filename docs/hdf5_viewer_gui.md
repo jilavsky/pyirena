@@ -57,7 +57,7 @@ The three panels are separated by draggable splitters.
 ### Selecting a folder
 
 Click **Select Folder** to open a folder browser.  The viewer scans the chosen
-directory for HDF5 files (`.h5`, `.hdf5`, `.hdf`, `.nxs`) and lists them in
+directory for HDF5 files (`.h5`, `.hdf5`, `.hdf`, `.nxs`, `.h5xp`) and lists them in
 the tree.  Subdirectories that contain at least one HDF5 file appear as
 **bold-italic** folder nodes; they expand lazily on first click.
 
