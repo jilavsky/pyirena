@@ -2853,7 +2853,7 @@ class UnifiedFitPanel(QWidget):
                 bg_line = pg.InfiniteLine(
                     pos=np.log10(bg_val),
                     angle=0,
-                    pen=pg.mkPen(color=(200, 130, 0), width=1, style=Qt.PenStyle.DotLine),
+                    pen=pg.mkPen(color=(150, 75, 0), width=2, style=Qt.PenStyle.DashLine),
                 )
                 self.graph_window.main_plot.addItem(bg_line)
         except (ValueError, TypeError):
