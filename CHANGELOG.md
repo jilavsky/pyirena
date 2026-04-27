@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### Unified Fit: zoom preserved across recalculations
+
+When "Update automatically?" is checked, every parameter change
+triggered a full `init_plots()` call which re-enabled auto-range,
+snapping the view back to the full data extent.  The graph window now
+saves the pyqtgraph view-box ranges before each plot rebuild and
+restores them afterward, so a user-zoomed region is preserved across
+automatic recalculations.  Auto-range continues to apply on the first
+plot or whenever the user explicitly zooms out to the full view.
+
+#### Unified Fit: scroll-wheel parameter changes no longer hang the GUI
+
+With "Update automatically?" enabled, each scroll-wheel notch on a
+parameter field emitted an `editingFinished` signal and immediately
+called `graph_unified()`.  Rapid scrolling therefore queued dozens of
+full recalculations that were executed one after another, freezing the
+GUI for several seconds after the user stopped scrolling.
+
+Auto-updates now use a **throttle** rather than a debounce: the first
+change arms a 150 ms single-shot timer that is *not* restarted by
+subsequent events.  When the timer fires, `graph_unified()` reads the
+current (latest) field values, then re-arms once if further events
+arrived during the blocking call.  The maximum lag before the graph
+updates is ~150 ms + one recalculation, and the GUI stays responsive
+throughout because the timer is never reset mid-scroll.
+
+#### Unified Fit: out-of-range cursors now clamp to data boundaries
+
+Previously, if either cursor was positioned outside the loaded data
+range (common when fitting a different dataset with a narrower Q
+range), both cursors were reset to the central 20–80% of the log Q
+span.  Cursors are now clamped individually: cursor A snaps to Q_min
+if it is below the data, cursor B snaps to Q_max if it is above.  The
+other cursor is left untouched.  This preserves the user's intent
+(e.g. "include all high-Q data") rather than discarding both
+positions.  The default placement on first load is also widened from
+20–80% to 10–90% of the log Q range.
+
 ## [0.4.5] - 2026-04-25
 
 ### Fixed
