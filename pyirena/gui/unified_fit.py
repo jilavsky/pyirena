@@ -755,15 +755,20 @@ class UnifiedFitGraphWindow(QWidget):
             q_min, q_max = q.min(), q.max()
 
             if self.cursor_left is None:
-                self.cursor_left = q_min * (q_max / q_min) ** 0.2
-                self.cursor_right = q_min * (q_max / q_min) ** 0.8
+                self.cursor_left = q_min * (q_max / q_min) ** 0.1
+                self.cursor_right = q_min * (q_max / q_min) ** 0.9
             else:
-                if (self.cursor_left < q_min or self.cursor_left > q_max or
-                    self.cursor_right < q_min or self.cursor_right > q_max):
-                    print(f"Cursor positions ({self.cursor_left:.3e}, {self.cursor_right:.3e}) "
-                          f"outside data range [{q_min:.3e}, {q_max:.3e}]. Resetting to defaults.")
-                    self.cursor_left = q_min * (q_max / q_min) ** 0.2
-                    self.cursor_right = q_min * (q_max / q_min) ** 0.8
+                # Clamp each cursor to the data boundary it overshot — preserving
+                # the user's intent (e.g. "include all low-Q data") rather than
+                # resetting both cursors to a central default.
+                if self.cursor_left < q_min:
+                    self.cursor_left = q_min
+                if self.cursor_right > q_max:
+                    self.cursor_right = q_max
+                # Degenerate: both cursors ended up on the same side of the data
+                if self.cursor_left >= self.cursor_right:
+                    self.cursor_left = q_min
+                    self.cursor_right = q_max
 
         if self.cursor_left is not None and self.cursor_right is not None:
             self.add_cursors()
@@ -1807,6 +1812,15 @@ class UnifiedFitPanel(QWidget):
         # Reset whenever the number of levels changes.
         self.fit_uncertainties = self._empty_uncertainties()
 
+        # Throttle timer: fires every 150ms; only starts when not already running.
+        # Scroll events set a pending flag but never restart the timer, so the GUI
+        # stays responsive and graph_unified() always reads the latest values.
+        self._auto_update_pending = False
+        self._auto_update_timer = QTimer()
+        self._auto_update_timer.setSingleShot(True)
+        self._auto_update_timer.setInterval(150)
+        self._auto_update_timer.timeout.connect(self._do_auto_update)
+
         self.init_ui()
         self.load_state()
 
@@ -2200,13 +2214,25 @@ class UnifiedFitPanel(QWidget):
 
         # Recalculate if "Update automatically" is checked
         if self.update_auto_check.isChecked() and self.data is not None:
-            self.graph_unified()
+            self._auto_update_pending = True
+            if not self._auto_update_timer.isActive():
+                self._auto_update_timer.start()
 
     def update_level_tabs(self):
         """Update which level tabs are enabled."""
         num_levels = self.num_levels_spin.value()
         for i in range(5):
             self.level_tabs.setTabEnabled(i, i < num_levels)
+
+    def _do_auto_update(self):
+        """Throttled auto-update: recalculate with current (latest) values, then
+        re-arm the timer if more scroll events arrived during the blocking call."""
+        self._auto_update_pending = False
+        self.graph_unified()
+        # Scroll events queued during graph_unified() will have set pending=True;
+        # re-arm so they get processed without the user having to scroll again.
+        if self._auto_update_pending and not self._auto_update_timer.isActive():
+            self._auto_update_timer.start()
 
     def on_parameter_changed(self):
         """Called when any parameter changes. Auto-update if enabled."""
@@ -2218,7 +2244,9 @@ class UnifiedFitPanel(QWidget):
         self.sync_rgcutoff_links()
 
         if self.update_auto_check.isChecked() and self.data is not None:
-            self.graph_unified()
+            self._auto_update_pending = True
+            if not self._auto_update_timer.isActive():
+                self._auto_update_timer.start()
 
     def on_no_limits_changed(self, state):
         """Handle change in 'No limits?' checkbox."""
@@ -2301,6 +2329,17 @@ class UnifiedFitPanel(QWidget):
             # Calculate
             intensity_calc = self.model.calculate_intensity(self.data['Q'])
 
+            # Preserve user zoom: save ranges if the user has manually zoomed
+            # (PyQtGraph disables auto-range when the user pans/zooms)
+            _main_range = None
+            _resid_range = None
+            main_vb = self.graph_window.main_plot.getViewBox()
+            resid_vb = self.graph_window.residual_plot.getViewBox()
+            if not all(main_vb.autoRangeEnabled()):
+                _main_range = main_vb.viewRange()
+            if not all(resid_vb.autoRangeEnabled()):
+                _resid_range = resid_vb.viewRange()
+
             # Plot
             self.graph_window.init_plots()
             self.graph_window.plot_data(
@@ -2322,6 +2361,14 @@ class UnifiedFitPanel(QWidget):
             # Plot local fits and background line if checkbox is enabled
             if self.display_local_check.isChecked():
                 self.plot_local_fits()
+
+            # Restore zoom after replot if user had manually zoomed
+            if _main_range is not None:
+                self.graph_window.main_plot.setXRange(_main_range[0][0], _main_range[0][1], padding=0)
+                self.graph_window.main_plot.setYRange(_main_range[1][0], _main_range[1][1], padding=0)
+            if _resid_range is not None:
+                self.graph_window.residual_plot.setXRange(_resid_range[0][0], _resid_range[0][1], padding=0)
+                self.graph_window.residual_plot.setYRange(_resid_range[1][0], _resid_range[1][1], padding=0)
 
             # Update Sv and Invariant for all active levels
             for i in range(num_levels):
