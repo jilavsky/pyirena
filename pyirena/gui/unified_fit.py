@@ -2229,15 +2229,8 @@ class UnifiedFitPanel(QWidget):
 
     def on_display_local_changed(self, state):
         """Handle change in 'Display local fits?' checkbox."""
-        if self.display_local_check.isChecked():
-            # Show local fits if any exist
-            if self.local_fits and self.data is not None:
-                # Redraw the graph with local fits
-                self.graph_unified()
-        else:
-            # Hide local fits by redrawing without them
-            if self.data is not None:
-                self.graph_unified()
+        if self.data is not None:
+            self.graph_unified()
 
     def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
         """Set the data to be fitted."""
@@ -2326,8 +2319,8 @@ class UnifiedFitPanel(QWidget):
 
             self.graph_window.plot_residuals(self.data['Q'], residuals)
 
-            # Plot local fits if checkbox is enabled and there are local fits to display
-            if self.display_local_check.isChecked() and self.local_fits:
+            # Plot local fits and background line if checkbox is enabled
+            if self.display_local_check.isChecked():
                 self.plot_local_fits()
 
             # Update Sv and Invariant for all active levels
@@ -2823,12 +2816,10 @@ class UnifiedFitPanel(QWidget):
 
     def plot_local_fits(self):
         """
-        Plot all stored local fit curves (Guinier and Porod) on the graph.
+        Plot all stored local fit curves (Guinier and Porod) on the graph, and a
+        horizontal dotted line at the SAS background level.
         Uses green color and different line styles for Guinier (dashed) and Porod (dotted).
         """
-        if not self.local_fits:
-            return
-
         # Use green color for all local fits (distinct from blue data points and red unified fit line)
         local_fit_color = (0, 180, 0)  # Green color
 
@@ -2854,6 +2845,19 @@ class UnifiedFitPanel(QWidget):
                     pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DotLine),
                     name=f'Level {level} Porod fit'
                 )
+
+        # Plot horizontal dotted line at SAS background level
+        try:
+            bg_val = float(self.background_value.text() or 0)
+            if bg_val > 0:
+                bg_line = pg.InfiniteLine(
+                    pos=np.log10(bg_val),
+                    angle=0,
+                    pen=pg.mkPen(color=(200, 130, 0), width=1, style=Qt.PenStyle.DotLine),
+                )
+                self.graph_window.main_plot.addItem(bg_line)
+        except (ValueError, TypeError):
+            pass
 
     def clear_local_fits(self):
         """Clear all stored local fit curves."""
