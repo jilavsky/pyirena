@@ -885,6 +885,15 @@ class UnifiedFitGraphWindow(QWidget):
         q_v = q[valid]
         i_porod = intensity[valid] * q_v ** 4
 
+        # Disable auto-range BEFORE adding items.  init_plots() left auto-range
+        # enabled, so without this each subsequent .plot() call triggers a
+        # transient sigRangeChanged → repaint at the auto-computed extent
+        # (which is huge for I·Q⁴, especially with wild error bars), and the
+        # user sees a flash before the explicit setYRange() snaps the view
+        # back.  The I-Q tab gets away with this because raw I has a much
+        # tighter log-decade range than I·Q⁴, so the flash is imperceptible.
+        self.porod_plot.getViewBox().disableAutoRange()
+
         self.porod_plot.plot(
             q_v.tolist(), i_porod.tolist(),
             pen=None,

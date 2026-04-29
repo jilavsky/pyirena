@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### Unified Fit: eliminate Porod-tab scale flicker during parameter scrub
+
+When parameters were scrubbed with the mouse wheel, the Porod plot
+flashed an auto-ranged "everything visible" view for a split-second
+before snapping back to the user's saved range.  Root cause:
+`init_plots()` left auto-range enabled on the Porod view-box, so each
+`.plot()` call inside `plot_data_porod` (scatter and the wide error
+bars) triggered a transient `sigRangeChanged` → repaint at the
+auto-computed extent before the explicit `setYRange()` at the end of
+the method took effect.  The I-Q tab uses the same pattern but is
+imperceptible because raw I has a much tighter log-decade range than
+I·Q⁴ — the Porod transform amplifies high-Q dramatically and makes
+the flash visible.  Fix: call `viewBox.disableAutoRange()` before
+adding any items in `plot_data_porod`, so the view stays put through
+the `.plot()` calls and only repaints once at the final explicit
+range.
+
 #### Unified Fit: cap tick-label density on all axes (~12 max)
 
 When zoomed into ~3 decades, pyqtgraph's log axis labelled every
