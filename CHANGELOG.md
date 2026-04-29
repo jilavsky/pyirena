@@ -9,24 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-#### Unified Fit: stop Porod-tab frame from "breathing" on parameter scrub
+#### Unified Fit: pin axis text-space to stop the Porod frame from "breathing"
 
-Even after the previous Y-range fix, users reported the Porod plot's
-frame appearing to grow and shrink with each parameter scroll.  Root
-cause: `init_plots()` tears down and rebuilds the Porod plot on every
-auto-update, and pyqtgraph's `AxisItem.autoExpandTextSpace` starts each
-new axis at a default text-space allocation, then expands once labels
-are computed.  The central plot area shrinks momentarily, then grows
-back.  The I-Q tab masks the same effect because its layout has two
-stacked plots (main + residuals) that settle together; the single-plot
-Porod layout exposes the jitter.
+The previous `setUpdatesEnabled` wrap suppressed *intra*-call paint
+flicker but not *inter*-call layout settling: `init_plots()` rebuilds
+the plot from scratch on every parameter scrub, and pyqtgraph's
+`AxisItem.autoExpandTextSpace=True` starts each new axis at the
+default `tickTextWidth=30` and expands once labels are drawn — so
+the *final* axis width landed at a slightly different value per
+rebuild, making the central plot area visibly grow and shrink across
+parameter scrolls.
 
-`graph_unified()` now wraps the entire rebuild block (init_plots →
-plot_data → plot_fit → plot_residuals → restore zoom) with
-`porod_layout.setUpdatesEnabled(False)/True`, suppressing all paint
-events on the Porod tab while the layout settles.  Qt processes a
-single repaint of the final state when updates are re-enabled, so the
-frame stays put.
+`_LimitedAxisItem` now sets `autoExpandTextSpace=False` with fixed
+`tickTextWidth=60` (left/right) and `tickTextHeight=22` (top/bottom),
+sized to fit typical log labels like "10⁻¹⁰" or "0.0001" at 11 pt
+without clipping.  Axis allocation is now identical across rebuilds,
+so the frame stays put.  Applies to both tabs (the I-Q tab also
+benefits, though the effect was less visible there because two
+stacked plots settle together).
 
 #### Unified Fit: eliminate Porod-tab scale flicker during parameter scrub
 

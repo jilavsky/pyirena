@@ -165,11 +165,33 @@ class _LimitedAxisItem(pg.AxisItem):
     count stays under ``max_ticks`` (default 12), keeping the major
     decade tier intact and stride-thinning minor tiers as needed.
     Works on linear axes too (residual Y).
+
+    Also pins text-space allocation (``autoExpandTextSpace=False``).
+    pyqtgraph's default starts every fresh axis at ``tickTextWidth=30``
+    and expands once labels are drawn, so a plot rebuilt by
+    ``init_plots()`` lands at a slightly different final axis width
+    than the previous rebuild — making the central plot area "breathe"
+    on every parameter scrub.  Pinning the width and height holds the
+    frame stable.  Allocations are sized for typical log labels
+    (e.g. "10⁻¹⁰", "0.0001") at 11 pt without clipping.
     """
+
+    _PINNED_TICK_TEXT_WIDTH = 60   # left/right axes (Y label width)
+    _PINNED_TICK_TEXT_HEIGHT = 22  # top/bottom axes (X label line height)
 
     def __init__(self, *args, max_ticks=12, **kwargs):
         super().__init__(*args, **kwargs)
         self.max_ticks = int(max_ticks)
+        if self.orientation in ('left', 'right'):
+            self.setStyle(
+                autoExpandTextSpace=False,
+                tickTextWidth=self._PINNED_TICK_TEXT_WIDTH,
+            )
+        else:
+            self.setStyle(
+                autoExpandTextSpace=False,
+                tickTextHeight=self._PINNED_TICK_TEXT_HEIGHT,
+            )
 
     def tickValues(self, minVal, maxVal, size):
         tiers = super().tickValues(minVal, maxVal, size)
