@@ -399,12 +399,16 @@ class UnifiedFitGraphWindow(QWidget):
         self.setWindowTitle("pyIrena - Unified Fit")
         self.setGeometry(100, 100, 900, 700)
 
-        # Create pyqtgraph layout widget
+        # Two graphics layouts, one per tab.
+        # Tab 1 ("I vs Q") holds the main I/Q plot + residuals + cursors.
+        # Tab 2 ("Porod (I·Q⁴)") holds a single full-height Porod-presentation plot.
         self.graphics_layout = pg.GraphicsLayoutWidget()
+        self.porod_layout = pg.GraphicsLayoutWidget()
 
         # Plot widget references (renamed to avoid conflicts with methods)
         self.main_plot = None
         self.residual_plot = None
+        self.porod_plot = None
 
         # Cursor attributes
         self.cursor_left = None
@@ -420,9 +424,14 @@ class UnifiedFitGraphWindow(QWidget):
         # Current data folder — updated when data is loaded; used for file dialogs
         self.data_folder = str(Path.cwd())
 
-        # Layout
+        # Layout — tab widget hosts both plots so users can switch presentations
+        # without losing the I-Q view (with cursors) or the Porod view.
+        self.tab_widget = QTabWidget()
+        self.tab_widget.addTab(self.graphics_layout, "I vs Q")
+        self.tab_widget.addTab(self.porod_layout, "Porod (I·Q⁴)")
+
         layout = QVBoxLayout()
-        layout.addWidget(self.graphics_layout)
+        layout.addWidget(self.tab_widget)
 
         # Status message area (2-3 lines under graphs)
         self.status_message = QLabel("")
@@ -603,6 +612,43 @@ class UnifiedFitGraphWindow(QWidget):
             lambda checked=False: save_itx_from_plot(self.residual_plot, self)
         )
 
+        # Porod tab: full-height single plot of I·Q⁴ vs Q (no cursors, no residuals).
+        self.porod_layout.clear()
+        self.porod_layout.setBackground('w')
+        self.porod_plot = self.porod_layout.addPlot(row=0, col=0)
+        self.porod_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
+        self.porod_plot.setLabel('left', 'I·Q⁴ (cm⁻¹·Å⁻⁴)', **{'color': 'k', 'font-size': '11pt'})
+        self.porod_plot.setLogMode(x=True, y=True)
+        self.porod_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.porod_plot.setTitle('Porod Plot (I·Q⁴ vs Q)', size='12pt', color='k')
+        self.porod_plot.addLegend(labelTextColor='k')
+
+        for side in ('left', 'bottom'):
+            ax = self.porod_plot.getAxis(side)
+            ax.setPen('k')
+            ax.setTextPen('k')
+            ax.enableAutoSIPrefix(False)
+
+        self.porod_plot.showAxis('top')
+        self.porod_plot.showAxis('right')
+        self.porod_plot.getAxis('top').setPen('k')
+        self.porod_plot.getAxis('right').setPen('k')
+        self.porod_plot.getAxis('top').setStyle(showValues=False)
+        self.porod_plot.getAxis('right').setStyle(showValues=False)
+        self.porod_plot.enableAutoRange()
+
+        # Export menus: JPEG + ITX for Porod plot
+        vb3 = self.porod_plot.getViewBox()
+        vb3.menu.addSeparator()
+        porod_jpeg = vb3.menu.addAction("Save graph as JPEG…")
+        porod_jpeg.triggered.connect(
+            lambda checked=False: self._save_jpeg(self.porod_plot, 'unified_fit_porod')
+        )
+        porod_itx = vb3.menu.addAction("Save as Igor Pro ITX…")
+        porod_itx.triggered.connect(
+            lambda checked=False: save_itx_from_plot(self.porod_plot, self)
+        )
+
     def save_top_graph_as_jpeg(self):
         """Export the top (main) plot to a JPEG file chosen by the user."""
         from pyqtgraph.exporters import ImageExporter
@@ -686,8 +732,11 @@ class UnifiedFitGraphWindow(QWidget):
         print(f"DEBUG: Added text item at log coordinates Q_log={q_log}, Y_log={y_log}")
 
     def plot_data(self, q, intensity, error=None, label='Data'):
-        """Plot experimental data."""
+        """Plot experimental data on the main I-Q plot and the Porod tab."""
         self.q_data = q
+
+        # Mirror onto the Porod tab (same data, transformed presentation).
+        self.plot_data_porod(q, intensity, error, label)
 
         # Plot data points
         self.main_plot.plot(
@@ -793,11 +842,97 @@ class UnifiedFitGraphWindow(QWidget):
             self.main_plot.enableAutoRange()
 
     def plot_fit(self, q, fit, label='Unified Fit'):
-        """Plot fit curve."""
+        """Plot fit curve on the main plot and the Porod tab."""
         self.main_plot.plot(
             q, fit,
             pen=pg.mkPen('r', width=2),
             name=label
+        )
+        self.plot_fit_porod(q, fit, label)
+
+    def plot_data_porod(self, q, intensity, error=None, label='Data'):
+        """Plot experimental data on the Porod tab as I·Q⁴ vs Q (log-log).
+
+        Mirrors the I-Q tab style (blue scatter + faint error bars) but no
+        cursors and no global Y-cap percentile (Porod presentation amplifies
+        high-Q noise; we use a percentile-based Y range to clip outliers).
+        """
+        if self.porod_plot is None:
+            return
+
+        q = np.asarray(q, dtype=float)
+        intensity = np.asarray(intensity, dtype=float)
+        valid = (q > 0) & (intensity > 0) & np.isfinite(q) & np.isfinite(intensity)
+        if not np.any(valid):
+            return
+
+        q_v = q[valid]
+        i_porod = intensity[valid] * q_v ** 4
+
+        self.porod_plot.plot(
+            q_v.tolist(), i_porod.tolist(),
+            pen=None,
+            symbol='o',
+            symbolSize=4,
+            symbolBrush=(100, 100, 255, 150),
+            name=label,
+        )
+
+        # Error bars: dI scaled by Q⁴ (Q is exact). Skip if not provided.
+        if error is not None and len(error) == len(q):
+            err = np.asarray(error, dtype=float)
+            x_lines: List[float] = []
+            y_lines: List[float] = []
+            cap_width_log = 0.05
+            for qi, ii, ei in zip(q_v, i_porod, err[valid]):
+                if not np.isfinite(ei) or ei <= 0:
+                    continue
+                ei_porod = ei * qi ** 4
+                y_top = ii + ei_porod
+                y_bottom = max(ii - ei_porod, ii * 0.001)
+                x_lines.extend([qi, qi, np.nan])
+                y_lines.extend([y_bottom, y_top, np.nan])
+                x_left = qi / (1 + cap_width_log)
+                x_right = qi * (1 + cap_width_log)
+                x_lines.extend([x_left, x_right, np.nan])
+                y_lines.extend([y_top, y_top, np.nan])
+                x_lines.extend([x_left, x_right, np.nan])
+                y_lines.extend([y_bottom, y_bottom, np.nan])
+            if x_lines:
+                self.porod_plot.plot(
+                    x_lines, y_lines,
+                    pen=pg.mkPen((100, 100, 255, 120), width=1),
+                    connect='finite',
+                )
+
+        # Percentile-based Y range (Porod plots span many decades and have
+        # noisy high-Q tails; use the same approach as the I-Q tab).
+        if len(i_porod) >= 3:
+            log_y = np.log10(i_porod)
+            lo = float(np.percentile(log_y, 2)) - 0.5
+            hi = float(np.percentile(log_y, 99)) + 0.5
+            self.porod_plot.setYRange(lo, hi, padding=0)
+            limits = dict(yMin=lo - 3, yMax=hi + 3,
+                          xMin=int(np.floor(np.log10(float(q_v.min())))) - 1,
+                          xMax=int(np.ceil(np.log10(float(q_v.max())))) + 1)
+            self.porod_plot.getViewBox().setLimits(**limits)
+        else:
+            self.porod_plot.enableAutoRange()
+
+    def plot_fit_porod(self, q, fit, label='Unified Fit'):
+        """Plot the model curve on the Porod tab as model·Q⁴ vs Q."""
+        if self.porod_plot is None:
+            return
+        q = np.asarray(q, dtype=float)
+        fit = np.asarray(fit, dtype=float)
+        valid = (q > 0) & (fit > 0) & np.isfinite(q) & np.isfinite(fit)
+        if not np.any(valid):
+            return
+        q_v = q[valid]
+        self.porod_plot.plot(
+            q_v.tolist(), (fit[valid] * q_v ** 4).tolist(),
+            pen=pg.mkPen('r', width=2),
+            name=label,
         )
 
     def plot_residuals(self, q, residuals):
@@ -2871,11 +3006,12 @@ class UnifiedFitPanel(QWidget):
         local_fit_color = (0, 180, 0)  # Green color
 
         # Plot local fits for each level
+        porod_plot = getattr(self.graph_window, 'porod_plot', None)
         for level, fits in self.local_fits.items():
             if level < 1 or level > 5:
                 continue
 
-            # Plot Guinier fit (dashed line)
+            # Plot Guinier fit (dashed line) on both tabs
             if 'guinier' in fits:
                 q_data, i_data = fits['guinier']
                 self.graph_window.main_plot.plot(
@@ -2883,8 +3019,19 @@ class UnifiedFitPanel(QWidget):
                     pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DashLine),
                     name=f'Level {level} Guinier fit'
                 )
+                if porod_plot is not None:
+                    q_arr = np.asarray(q_data, dtype=float)
+                    i_arr = np.asarray(i_data, dtype=float)
+                    valid = (q_arr > 0) & (i_arr > 0) & np.isfinite(q_arr) & np.isfinite(i_arr)
+                    if np.any(valid):
+                        porod_plot.plot(
+                            q_arr[valid].tolist(),
+                            (i_arr[valid] * q_arr[valid] ** 4).tolist(),
+                            pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DashLine),
+                            name=f'Level {level} Guinier fit',
+                        )
 
-            # Plot Porod fit (dotted line)
+            # Plot Porod fit (dotted line) on both tabs
             if 'porod' in fits:
                 q_data, i_data = fits['porod']
                 self.graph_window.main_plot.plot(
@@ -2892,6 +3039,17 @@ class UnifiedFitPanel(QWidget):
                     pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DotLine),
                     name=f'Level {level} Porod fit'
                 )
+                if porod_plot is not None:
+                    q_arr = np.asarray(q_data, dtype=float)
+                    i_arr = np.asarray(i_data, dtype=float)
+                    valid = (q_arr > 0) & (i_arr > 0) & np.isfinite(q_arr) & np.isfinite(i_arr)
+                    if np.any(valid):
+                        porod_plot.plot(
+                            q_arr[valid].tolist(),
+                            (i_arr[valid] * q_arr[valid] ** 4).tolist(),
+                            pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DotLine),
+                            name=f'Level {level} Porod fit',
+                        )
 
         # Plot horizontal dotted line at SAS background level
         try:

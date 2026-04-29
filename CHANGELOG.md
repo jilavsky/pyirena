@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Added
+
+#### Unified Fit: Porod-presentation tab (I·Q⁴ vs Q)
+
+The Unified Fit graph window is now a tabbed view.  The first tab
+("I vs Q") is unchanged — main I-Q log-log plot, residuals strip, and
+draggable cursors.  The second tab ("Porod (I·Q⁴)") shows the same
+data and unified-fit model in Porod presentation: log(I·Q⁴) vs log(Q)
+in a single full-height plot.  Local fits and Porod fits drawn via
+"Display local fits" appear on both tabs.  This presentation makes
+it easier to judge how many levels are needed and where they should be
+placed.  No cursors on the Porod tab — it is purely for visual
+inspection.  Right-click on the Porod plot offers the same JPEG and
+Igor ITX export actions.
+
 ## [0.4.6]
 
 ### Fixed
