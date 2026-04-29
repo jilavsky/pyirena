@@ -151,6 +151,52 @@ class RadiusAxisItem(pg.AxisItem):
 
 
 # ===========================================================================
+# _LimitedAxisItem — caps tick-label density on log/linear axes
+# ===========================================================================
+
+
+class _LimitedAxisItem(pg.AxisItem):
+    """AxisItem that caps the total number of returned tick values.
+
+    Pyqtgraph's log-mode AxisItem labels every sub-decade value
+    (1, 2, 3, …, 9 within each decade) once you zoom in, so ~3 visible
+    decades produce ~30 cramped labels.  This subclass subsamples the
+    finer tiers returned by ``super().tickValues()`` so the total
+    count stays under ``max_ticks`` (default 12), keeping the major
+    decade tier intact and stride-thinning minor tiers as needed.
+    Works on linear axes too (residual Y).
+    """
+
+    def __init__(self, *args, max_ticks=12, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_ticks = int(max_ticks)
+
+    def tickValues(self, minVal, maxVal, size):
+        tiers = super().tickValues(minVal, maxVal, size)
+        result = []
+        total = 0
+        budget = self.max_ticks
+        for spacing, values in tiers:
+            n = len(values)
+            if n == 0:
+                result.append((spacing, values))
+                continue
+            if total + n <= budget:
+                result.append((spacing, values))
+                total += n
+                continue
+            remaining = budget - total
+            if remaining <= 0:
+                break
+            stride = max(1, int(np.ceil(n / remaining)))
+            kept = list(values[::stride])
+            result.append((spacing, kept))
+            total += len(kept)
+            break
+        return result
+
+
+# ===========================================================================
 # _SafeInfiniteLine — prevents PySide6 segfaults on macOS ARM
 # ===========================================================================
 

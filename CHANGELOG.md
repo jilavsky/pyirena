@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### Unified Fit: cap tick-label density on all axes (~12 max)
+
+When zoomed into ~3 decades, pyqtgraph's log axis labelled every
+sub-decade value (1, 2, 3, …, 9 within each decade), producing ~30
+cramped, unreadable labels.  A new `_LimitedAxisItem` subclass in
+`pyirena/gui/sas_plot.py` overrides `tickValues()` to keep the major
+decade tier intact and stride-thin the finer minor tiers so the total
+label count stays ≤ 12.  Applied to the left+bottom axes of the I-Q
+main plot, the residuals plot, and the new Porod plot.  The top
+`RadiusAxisItem` already had its own thinning (max 8) and is unchanged.
+
 #### Unified Fit: Porod tab now preserves user zoom across auto-updates
 
 The new Porod tab inherited the same auto-range bug the I-Q tab had

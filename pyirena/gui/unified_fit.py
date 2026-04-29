@@ -42,7 +42,7 @@ except ImportError:
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
-from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot
+from pyirena.gui.sas_plot import RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot
 from pyirena.state import StateManager
 
 
@@ -529,7 +529,11 @@ class UnifiedFitGraphWindow(QWidget):
         # Main plot (data + fit) - 80% of height
         self.main_plot = self.graphics_layout.addPlot(
             row=0, col=0,
-            axisItems={'top': RadiusAxisItem(orientation='top')},
+            axisItems={
+                'top': RadiusAxisItem(orientation='top'),
+                'left': _LimitedAxisItem(orientation='left'),
+                'bottom': _LimitedAxisItem(orientation='bottom'),
+            },
         )
         self.main_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.main_plot.setLabel('left', 'Intensity (cm⁻¹)', **{'color': 'k', 'font-size': '11pt'})
@@ -559,7 +563,13 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.enableAutoRange()
 
         # Residuals plot - 20% of height
-        self.residual_plot = self.graphics_layout.addPlot(row=1, col=0)
+        self.residual_plot = self.graphics_layout.addPlot(
+            row=1, col=0,
+            axisItems={
+                'left': _LimitedAxisItem(orientation='left'),
+                'bottom': _LimitedAxisItem(orientation='bottom'),
+            },
+        )
         self.residual_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.residual_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '11pt'})
         self.residual_plot.setLogMode(x=True, y=False)
@@ -615,7 +625,13 @@ class UnifiedFitGraphWindow(QWidget):
         # Porod tab: full-height single plot of I·Q⁴ vs Q (no cursors, no residuals).
         self.porod_layout.clear()
         self.porod_layout.setBackground('w')
-        self.porod_plot = self.porod_layout.addPlot(row=0, col=0)
+        self.porod_plot = self.porod_layout.addPlot(
+            row=0, col=0,
+            axisItems={
+                'left': _LimitedAxisItem(orientation='left'),
+                'bottom': _LimitedAxisItem(orientation='bottom'),
+            },
+        )
         self.porod_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
         self.porod_plot.setLabel('left', 'I·Q⁴ (cm⁻¹·Å⁻⁴)', **{'color': 'k', 'font-size': '11pt'})
         self.porod_plot.setLogMode(x=True, y=True)
