@@ -87,7 +87,7 @@ placed.  No cursors on the Porod tab — it is purely for visual
 inspection.  Right-click on the Porod plot offers the same JPEG and
 Igor ITX export actions.
 
-## [0.4.7]
+## [0.4.6]
 
 ### Fixed
 
