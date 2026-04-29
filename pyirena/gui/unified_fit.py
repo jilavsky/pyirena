@@ -518,8 +518,22 @@ class UnifiedFitGraphWindow(QWidget):
                 pass
             setattr(self, attr, None)
 
-    def init_plots(self):
-        """Initialize the plot widgets."""
+    def init_plots(self, rebuild_porod=True):
+        """Initialize the plot widgets.
+
+        Parameters
+        ----------
+        rebuild_porod : bool
+            True  — full teardown + rebuild of the Porod tab (use on first
+                    load, after fit, and on state restore).
+            False — only clear the Porod plot's data items, leaving the
+                    plot widget, axes, and layout intact (use during
+                    auto-updates to stop the frame from "breathing").
+                    porod_layout.clear() collapses the QGraphicsScene
+                    bounding rect, triggers updateGeometry() on the parent,
+                    and then addPlot() expands it again — two layout passes
+                    that visibly resize the tab frame on every scroll tick.
+        """
         self._detach_cursors()
         self.graphics_layout.clear()
 
@@ -623,47 +637,58 @@ class UnifiedFitGraphWindow(QWidget):
         )
 
         # Porod tab: full-height single plot of I·Q⁴ vs Q (no cursors, no residuals).
-        self.porod_layout.clear()
-        self.porod_layout.setBackground('w')
-        self.porod_plot = self.porod_layout.addPlot(
-            row=0, col=0,
-            axisItems={
-                'left': _LimitedAxisItem(orientation='left'),
-                'bottom': _LimitedAxisItem(orientation='bottom'),
-            },
-        )
-        self.porod_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
-        self.porod_plot.setLabel('left', 'I·Q⁴ (cm⁻¹·Å⁻⁴)', **{'color': 'k', 'font-size': '11pt'})
-        self.porod_plot.setLogMode(x=True, y=True)
-        self.porod_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.porod_plot.setTitle('Porod Plot (I·Q⁴ vs Q)', size='12pt', color='k')
-        self.porod_plot.addLegend(labelTextColor='k')
+        if rebuild_porod:
+            # Full teardown — only done on initial load, after fit, state restore.
+            self.porod_layout.clear()
+            self.porod_layout.setBackground('w')
+            self.porod_plot = self.porod_layout.addPlot(
+                row=0, col=0,
+                axisItems={
+                    'left': _LimitedAxisItem(orientation='left'),
+                    'bottom': _LimitedAxisItem(orientation='bottom'),
+                },
+            )
+            self.porod_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
+            self.porod_plot.setLabel('left', 'I·Q⁴ (cm⁻¹·Å⁻⁴)', **{'color': 'k', 'font-size': '11pt'})
+            self.porod_plot.setLogMode(x=True, y=True)
+            self.porod_plot.showGrid(x=True, y=True, alpha=0.3)
+            self.porod_plot.setTitle('Porod Plot (I·Q⁴ vs Q)', size='12pt', color='k')
+            self.porod_plot.addLegend(labelTextColor='k')
 
-        for side in ('left', 'bottom'):
-            ax = self.porod_plot.getAxis(side)
-            ax.setPen('k')
-            ax.setTextPen('k')
-            ax.enableAutoSIPrefix(False)
+            for side in ('left', 'bottom'):
+                ax = self.porod_plot.getAxis(side)
+                ax.setPen('k')
+                ax.setTextPen('k')
+                ax.enableAutoSIPrefix(False)
 
-        self.porod_plot.showAxis('top')
-        self.porod_plot.showAxis('right')
-        self.porod_plot.getAxis('top').setPen('k')
-        self.porod_plot.getAxis('right').setPen('k')
-        self.porod_plot.getAxis('top').setStyle(showValues=False)
-        self.porod_plot.getAxis('right').setStyle(showValues=False)
-        self.porod_plot.enableAutoRange()
+            self.porod_plot.showAxis('top')
+            self.porod_plot.showAxis('right')
+            self.porod_plot.getAxis('top').setPen('k')
+            self.porod_plot.getAxis('right').setPen('k')
+            self.porod_plot.getAxis('top').setStyle(showValues=False)
+            self.porod_plot.getAxis('right').setStyle(showValues=False)
+            self.porod_plot.enableAutoRange()
 
-        # Export menus: JPEG + ITX for Porod plot
-        vb3 = self.porod_plot.getViewBox()
-        vb3.menu.addSeparator()
-        porod_jpeg = vb3.menu.addAction("Save graph as JPEG…")
-        porod_jpeg.triggered.connect(
-            lambda checked=False: self._save_jpeg(self.porod_plot, 'unified_fit_porod')
-        )
-        porod_itx = vb3.menu.addAction("Save as Igor Pro ITX…")
-        porod_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.porod_plot, self)
-        )
+            # Export menus: JPEG + ITX for Porod plot
+            vb3 = self.porod_plot.getViewBox()
+            vb3.menu.addSeparator()
+            porod_jpeg = vb3.menu.addAction("Save graph as JPEG…")
+            porod_jpeg.triggered.connect(
+                lambda checked=False: self._save_jpeg(self.porod_plot, 'unified_fit_porod')
+            )
+            porod_itx = vb3.menu.addAction("Save as Igor Pro ITX…")
+            porod_itx.triggered.connect(
+                lambda checked=False: save_itx_from_plot(self.porod_plot, self)
+            )
+        else:
+            # Soft clear: remove only data items from the existing plot.
+            # PlotItem.clear() calls removeItem() on each item which also
+            # strips entries from the legend — no legend.clear() needed.
+            # The plot widget, axes, title, and layout all stay in place,
+            # so the QGraphicsScene bounding rect never collapses and no
+            # updateGeometry() is propagated to the parent tab.
+            if self.porod_plot is not None:
+                self.porod_plot.clear()
 
     def save_top_graph_as_jpeg(self):
         """Export the top (main) plot to a JPEG file chosen by the user."""
@@ -2508,53 +2533,41 @@ class UnifiedFitPanel(QWidget):
             if porod_vb is not None and not all(porod_vb.autoRangeEnabled()):
                 _porod_range = porod_vb.viewRange()
 
-            # Suppress paint events on the Porod tab while we tear down and
-            # rebuild it.  Without this, Qt's layout pass re-flows the axis
-            # frame as the AxisItem's autoExpandTextSpace recomputes its
-            # allocated label width across init_plots → plot_data_porod →
-            # restore, making the central plot area "breathe" on every
-            # parameter scrub.  The I-Q tab masks this because its layout
-            # has two stacked plots that settle together; the single-plot
-            # Porod layout makes the frame jump obvious.
-            porod_layout = getattr(self.graph_window, 'porod_layout', None)
-            if porod_layout is not None:
-                porod_layout.setUpdatesEnabled(False)
-            try:
-                # Plot
-                self.graph_window.init_plots()
-                self.graph_window.plot_data(
-                    self.data['Q'],
-                    self.data['Intensity'],
-                    self.data.get('Error'),
-                    self.data['label']
-                )
-                self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Unified Fit')
+            # rebuild_porod=False: keep the Porod layout widget intact and
+            # only clear its data items.  porod_layout.clear() collapses
+            # the QGraphicsScene bounding rect → updateGeometry() → parent
+            # layout resizes the tab frame → "breathing" on every scroll tick.
+            self.graph_window.init_plots(rebuild_porod=False)
+            self.graph_window.plot_data(
+                self.data['Q'],
+                self.data['Intensity'],
+                self.data.get('Error'),
+                self.data['label']
+            )
+            self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Unified Fit')
 
-                # Residuals
-                if self.data.get('Error') is not None:
-                    residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
-                else:
-                    residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+            # Residuals
+            if self.data.get('Error') is not None:
+                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+            else:
+                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
-                self.graph_window.plot_residuals(self.data['Q'], residuals)
+            self.graph_window.plot_residuals(self.data['Q'], residuals)
 
-                # Plot local fits and background line if checkbox is enabled
-                if self.display_local_check.isChecked():
-                    self.plot_local_fits()
+            # Plot local fits and background line if checkbox is enabled
+            if self.display_local_check.isChecked():
+                self.plot_local_fits()
 
-                # Restore zoom after replot if user had manually zoomed
-                if _main_range is not None:
-                    self.graph_window.main_plot.setXRange(_main_range[0][0], _main_range[0][1], padding=0)
-                    self.graph_window.main_plot.setYRange(_main_range[1][0], _main_range[1][1], padding=0)
-                if _resid_range is not None:
-                    self.graph_window.residual_plot.setXRange(_resid_range[0][0], _resid_range[0][1], padding=0)
-                    self.graph_window.residual_plot.setYRange(_resid_range[1][0], _resid_range[1][1], padding=0)
-                if _porod_range is not None and getattr(self.graph_window, 'porod_plot', None) is not None:
-                    self.graph_window.porod_plot.setXRange(_porod_range[0][0], _porod_range[0][1], padding=0)
-                    self.graph_window.porod_plot.setYRange(_porod_range[1][0], _porod_range[1][1], padding=0)
-            finally:
-                if porod_layout is not None:
-                    porod_layout.setUpdatesEnabled(True)
+            # Restore zoom after replot if user had manually zoomed
+            if _main_range is not None:
+                self.graph_window.main_plot.setXRange(_main_range[0][0], _main_range[0][1], padding=0)
+                self.graph_window.main_plot.setYRange(_main_range[1][0], _main_range[1][1], padding=0)
+            if _resid_range is not None:
+                self.graph_window.residual_plot.setXRange(_resid_range[0][0], _resid_range[0][1], padding=0)
+                self.graph_window.residual_plot.setYRange(_resid_range[1][0], _resid_range[1][1], padding=0)
+            if _porod_range is not None and getattr(self.graph_window, 'porod_plot', None) is not None:
+                self.graph_window.porod_plot.setXRange(_porod_range[0][0], _porod_range[0][1], padding=0)
+                self.graph_window.porod_plot.setYRange(_porod_range[1][0], _porod_range[1][1], padding=0)
 
             # Update Sv and Invariant for all active levels
             for i in range(num_levels):

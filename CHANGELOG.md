@@ -9,24 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-#### Unified Fit: pin axis text-space to stop the Porod frame from "breathing"
+#### Unified Fit: stop Porod-tab frame from "breathing" on parameter scrub
 
-The previous `setUpdatesEnabled` wrap suppressed *intra*-call paint
-flicker but not *inter*-call layout settling: `init_plots()` rebuilds
-the plot from scratch on every parameter scrub, and pyqtgraph's
-`AxisItem.autoExpandTextSpace=True` starts each new axis at the
-default `tickTextWidth=30` and expands once labels are drawn — so
-the *final* axis width landed at a slightly different value per
-rebuild, making the central plot area visibly grow and shrink across
-parameter scrolls.
+`init_plots()` was calling `porod_layout.clear()` on every auto-update
+(every parameter scroll tick).  `clear()` empties the
+`QGraphicsScene`, collapsing its bounding rect, which fires
+`updateGeometry()` on the parent widget — the tab frame briefly
+shrinks.  Then `addPlot()` grows the scene back, firing a second
+`updateGeometry()` — the frame expands again.  Two layout passes per
+tick = visible breathing.  The I-Q tab has the same `clear()` call
+but two stacked plots give the layout a stable anchor; the single-plot
+Porod layout exposes the jitter.
 
-`_LimitedAxisItem` now sets `autoExpandTextSpace=False` with fixed
-`tickTextWidth=60` (left/right) and `tickTextHeight=22` (top/bottom),
-sized to fit typical log labels like "10⁻¹⁰" or "0.0001" at 11 pt
-without clipping.  Axis allocation is now identical across rebuilds,
-so the frame stays put.  Applies to both tabs (the I-Q tab also
-benefits, though the effect was less visible there because two
-stacked plots settle together).
+`init_plots()` now accepts a `rebuild_porod` flag (default `True`).
+When `False`, the Porod layout widget is left intact and only the
+`PlotItem`'s data items are cleared via `porod_plot.clear()`
+(pyqtgraph's `removeItem` loop, which also strips legend entries).
+The `QGraphicsScene` bounding rect never changes, no `updateGeometry`
+fires, and the frame is completely stable.
+
+`graph_unified()` (the auto-update path triggered by parameter scrubs)
+now calls `init_plots(rebuild_porod=False)`.  All other callers
+(`set_data`, after-fit, state-restore) still use the default full
+rebuild.
 
 #### Unified Fit: eliminate Porod-tab scale flicker during parameter scrub
 
