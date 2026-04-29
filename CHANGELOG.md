@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Fixed
+
+#### Unified Fit: Porod tab now preserves user zoom across auto-updates
+
+The new Porod tab inherited the same auto-range bug the I-Q tab had
+before its zoom-preservation fix: every parameter scroll triggered
+`init_plots()` + `plot_data_porod()`, which re-applied the percentile-
+based default Y-range and snapped any user zoom back to the full data
+extent.  `graph_unified()` now saves the Porod view-box range before
+the rebuild (mirroring the existing main + residuals logic) and
+restores it afterward, so a zoomed Porod view stays put while the user
+scrubs parameters with the mouse wheel.
+
 ### Added
 
 #### Unified Fit: Porod-presentation tab (I·Q⁴ vs Q)

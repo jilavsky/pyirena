@@ -2468,12 +2468,20 @@ class UnifiedFitPanel(QWidget):
             # (PyQtGraph disables auto-range when the user pans/zooms)
             _main_range = None
             _resid_range = None
+            _porod_range = None
             main_vb = self.graph_window.main_plot.getViewBox()
             resid_vb = self.graph_window.residual_plot.getViewBox()
+            porod_vb = (
+                self.graph_window.porod_plot.getViewBox()
+                if getattr(self.graph_window, 'porod_plot', None) is not None
+                else None
+            )
             if not all(main_vb.autoRangeEnabled()):
                 _main_range = main_vb.viewRange()
             if not all(resid_vb.autoRangeEnabled()):
                 _resid_range = resid_vb.viewRange()
+            if porod_vb is not None and not all(porod_vb.autoRangeEnabled()):
+                _porod_range = porod_vb.viewRange()
 
             # Plot
             self.graph_window.init_plots()
@@ -2504,6 +2512,9 @@ class UnifiedFitPanel(QWidget):
             if _resid_range is not None:
                 self.graph_window.residual_plot.setXRange(_resid_range[0][0], _resid_range[0][1], padding=0)
                 self.graph_window.residual_plot.setYRange(_resid_range[1][0], _resid_range[1][1], padding=0)
+            if _porod_range is not None and getattr(self.graph_window, 'porod_plot', None) is not None:
+                self.graph_window.porod_plot.setXRange(_porod_range[0][0], _porod_range[0][1], padding=0)
+                self.graph_window.porod_plot.setYRange(_porod_range[1][0], _porod_range[1][1], padding=0)
 
             # Update Sv and Invariant for all active levels
             for i in range(num_levels):
