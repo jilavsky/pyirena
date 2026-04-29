@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### Unified Fit: stop Porod-tab frame from "breathing" on parameter scrub
+
+Even after the previous Y-range fix, users reported the Porod plot's
+frame appearing to grow and shrink with each parameter scroll.  Root
+cause: `init_plots()` tears down and rebuilds the Porod plot on every
+auto-update, and pyqtgraph's `AxisItem.autoExpandTextSpace` starts each
+new axis at a default text-space allocation, then expands once labels
+are computed.  The central plot area shrinks momentarily, then grows
+back.  The I-Q tab masks the same effect because its layout has two
+stacked plots (main + residuals) that settle together; the single-plot
+Porod layout exposes the jitter.
+
+`graph_unified()` now wraps the entire rebuild block (init_plots →
+plot_data → plot_fit → plot_residuals → restore zoom) with
+`porod_layout.setUpdatesEnabled(False)/True`, suppressing all paint
+events on the Porod tab while the layout settles.  Qt processes a
+single repaint of the final state when updates are re-enabled, so the
+frame stays put.
+
 #### Unified Fit: eliminate Porod-tab scale flicker during parameter scrub
 
 When parameters were scrubbed with the mouse wheel, the Porod plot

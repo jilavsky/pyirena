@@ -2508,38 +2508,53 @@ class UnifiedFitPanel(QWidget):
             if porod_vb is not None and not all(porod_vb.autoRangeEnabled()):
                 _porod_range = porod_vb.viewRange()
 
-            # Plot
-            self.graph_window.init_plots()
-            self.graph_window.plot_data(
-                self.data['Q'],
-                self.data['Intensity'],
-                self.data.get('Error'),
-                self.data['label']
-            )
-            self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Unified Fit')
+            # Suppress paint events on the Porod tab while we tear down and
+            # rebuild it.  Without this, Qt's layout pass re-flows the axis
+            # frame as the AxisItem's autoExpandTextSpace recomputes its
+            # allocated label width across init_plots → plot_data_porod →
+            # restore, making the central plot area "breathe" on every
+            # parameter scrub.  The I-Q tab masks this because its layout
+            # has two stacked plots that settle together; the single-plot
+            # Porod layout makes the frame jump obvious.
+            porod_layout = getattr(self.graph_window, 'porod_layout', None)
+            if porod_layout is not None:
+                porod_layout.setUpdatesEnabled(False)
+            try:
+                # Plot
+                self.graph_window.init_plots()
+                self.graph_window.plot_data(
+                    self.data['Q'],
+                    self.data['Intensity'],
+                    self.data.get('Error'),
+                    self.data['label']
+                )
+                self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Unified Fit')
 
-            # Residuals
-            if self.data.get('Error') is not None:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
-            else:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+                # Residuals
+                if self.data.get('Error') is not None:
+                    residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                else:
+                    residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
-            self.graph_window.plot_residuals(self.data['Q'], residuals)
+                self.graph_window.plot_residuals(self.data['Q'], residuals)
 
-            # Plot local fits and background line if checkbox is enabled
-            if self.display_local_check.isChecked():
-                self.plot_local_fits()
+                # Plot local fits and background line if checkbox is enabled
+                if self.display_local_check.isChecked():
+                    self.plot_local_fits()
 
-            # Restore zoom after replot if user had manually zoomed
-            if _main_range is not None:
-                self.graph_window.main_plot.setXRange(_main_range[0][0], _main_range[0][1], padding=0)
-                self.graph_window.main_plot.setYRange(_main_range[1][0], _main_range[1][1], padding=0)
-            if _resid_range is not None:
-                self.graph_window.residual_plot.setXRange(_resid_range[0][0], _resid_range[0][1], padding=0)
-                self.graph_window.residual_plot.setYRange(_resid_range[1][0], _resid_range[1][1], padding=0)
-            if _porod_range is not None and getattr(self.graph_window, 'porod_plot', None) is not None:
-                self.graph_window.porod_plot.setXRange(_porod_range[0][0], _porod_range[0][1], padding=0)
-                self.graph_window.porod_plot.setYRange(_porod_range[1][0], _porod_range[1][1], padding=0)
+                # Restore zoom after replot if user had manually zoomed
+                if _main_range is not None:
+                    self.graph_window.main_plot.setXRange(_main_range[0][0], _main_range[0][1], padding=0)
+                    self.graph_window.main_plot.setYRange(_main_range[1][0], _main_range[1][1], padding=0)
+                if _resid_range is not None:
+                    self.graph_window.residual_plot.setXRange(_resid_range[0][0], _resid_range[0][1], padding=0)
+                    self.graph_window.residual_plot.setYRange(_resid_range[1][0], _resid_range[1][1], padding=0)
+                if _porod_range is not None and getattr(self.graph_window, 'porod_plot', None) is not None:
+                    self.graph_window.porod_plot.setXRange(_porod_range[0][0], _porod_range[0][1], padding=0)
+                    self.graph_window.porod_plot.setYRange(_porod_range[1][0], _porod_range[1][1], padding=0)
+            finally:
+                if porod_layout is not None:
+                    porod_layout.setUpdatesEnabled(True)
 
             # Update Sv and Invariant for all active levels
             for i in range(num_levels):
