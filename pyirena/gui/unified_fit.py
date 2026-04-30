@@ -971,11 +971,14 @@ class UnifiedFitGraphWindow(QWidget):
             log_y = np.log10(i_porod)
             lo = float(np.percentile(log_y, 2)) - 0.5
             hi = float(np.percentile(log_y, 99)) + 0.5
+            x_lo = np.log10(float(q_v.min()))
+            x_hi = np.log10(float(q_v.max()))
             self.porod_plot.setYRange(lo, hi, padding=0)
             limits = dict(yMin=lo - 3, yMax=hi + 3,
-                          xMin=int(np.floor(np.log10(float(q_v.min())))) - 1,
-                          xMax=int(np.ceil(np.log10(float(q_v.max())))) + 1)
+                          xMin=int(np.floor(x_lo)) - 1,
+                          xMax=int(np.ceil(x_hi)) + 1)
             self.porod_plot.getViewBox().setLimits(**limits)
+            self.porod_plot.setXRange(x_lo, x_hi, padding=0.05)
         else:
             self.porod_plot.enableAutoRange()
 
