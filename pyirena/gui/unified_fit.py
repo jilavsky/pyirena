@@ -779,6 +779,11 @@ class UnifiedFitGraphWindow(QWidget):
         # Mirror onto the Porod tab (same data, transformed presentation).
         self.plot_data_porod(q, intensity, error, label)
 
+        # Disable auto-range before adding items so pyqtgraph's deferred
+        # sigRangeChanged updates don't override the explicit setXRange/setYRange
+        # we apply after all data is plotted (same pattern as plot_data_porod).
+        self.main_plot.disableAutoRange()
+
         # Plot data points
         self.main_plot.plot(
             q, intensity,
@@ -875,13 +880,15 @@ class UnifiedFitGraphWindow(QWidget):
             # Hard limits: 3 extra decades y zoom room + nearest-decade x bounds.
             limits = dict(yMin=lo - 3, yMax=hi + 3)
             valid_q = q[(q > 0) & np.isfinite(q)]
+            x_lo = x_hi = None
             if len(valid_q) >= 2:
                 x_lo = np.log10(float(valid_q.min()))
                 x_hi = np.log10(float(valid_q.max()))
                 limits['xMin'] = int(np.floor(x_lo)) - 1
                 limits['xMax'] = int(np.ceil(x_hi)) + 1
-                self.main_plot.setXRange(x_lo, x_hi, padding=0.05)
             self.main_plot.getViewBox().setLimits(**limits)
+            if x_lo is not None:
+                self.main_plot.setXRange(x_lo, x_hi, padding=0.05)
         else:
             self.main_plot.enableAutoRange()
 
