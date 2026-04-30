@@ -876,8 +876,11 @@ class UnifiedFitGraphWindow(QWidget):
             limits = dict(yMin=lo - 3, yMax=hi + 3)
             valid_q = q[(q > 0) & np.isfinite(q)]
             if len(valid_q) >= 2:
-                limits['xMin'] = int(np.floor(np.log10(float(valid_q.min())))) - 1
-                limits['xMax'] = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+                x_lo = np.log10(float(valid_q.min()))
+                x_hi = np.log10(float(valid_q.max()))
+                limits['xMin'] = int(np.floor(x_lo)) - 1
+                limits['xMax'] = int(np.ceil(x_hi)) + 1
+                self.main_plot.setXRange(x_lo, x_hi, padding=0.05)
             self.main_plot.getViewBox().setLimits(**limits)
         else:
             self.main_plot.enableAutoRange()
