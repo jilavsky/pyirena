@@ -1365,7 +1365,7 @@ class SimpleFitsPanel(QWidget):
         _registry_param_names = {
             name for name, *_ in MODEL_REGISTRY.get(model_name, {}).get('params', [])
         }
-        _bg_keys = {'BG_A', 'BG_n', 'BG_flat'}
+        _bg_keys = {'BG_G', 'BG_P', 'BG_flat'}
         for stale_key in list(self.model.params.keys()):
             if stale_key not in _registry_param_names and stale_key not in _bg_keys:
                 del self.model.params[stale_key]

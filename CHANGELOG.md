@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Simple Fits: Debye Polymer Chain model** — single-chain Debye form factor
+  `I(Q) = Scale · 2(exp(−x) − 1 + x) / x²` where `x = Q²·Rg²`.  Parameters:
+  Scale (forward intensity) and Rg (radius of gyration).  Supports complex background.
+
+### Changed
+
+- **Simple Fits: complex background parameter rename** — `BG_A` → `BG_G` and
+  `BG_n` → `BG_P`, matching the Unified Fit amplitude/exponent naming convention
+  (G for Guinier-type prefactor, P for power-law exponent).  Existing HDF5 results
+  with the old names are not automatically migrated (use-complex-bg fits will need
+  to re-export parameters from the GUI after upgrading).
+
 ## [0.4.7]
 
 ### Fixed

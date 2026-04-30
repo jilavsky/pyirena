@@ -101,6 +101,22 @@ Valid Q range for Guinier approximation: `Q·Rg < 1.3`.
 These models have an explicit flat Background parameter.  The complex background
 option is not available for these two models.
 
+### Debye Polymer Chain
+
+| Model | Formula |
+|-------|---------|
+| **Debye Polymer Chain** | `I(Q) = Scale · 2(exp(−x) − 1 + x) / x²`  where `x = Q²·Rg²` |
+
+The Debye function (P. Debye, 1947) describes single-chain scattering from an ideal
+Gaussian polymer.  It is exact for a random-walk chain with no excluded volume.
+Key properties:
+
+- `P(Q) → 1` as `Q → 0` (forward-scattering limit)
+- At high Q, `P(Q) ∝ Q⁻²` — characteristic of a chain with fractal dimension 2
+
+Parameters: **Scale** (forward-scattering intensity at Q=0), **Rg** (radius of
+gyration of the chain).  Complex background is supported.
+
 ### Sphere and Spheroid
 
 | Model | Formula |
@@ -112,7 +128,7 @@ The spheroid orientational average is computed with Gauss-Legendre quadrature
 (50-point rule) for efficiency.
 
 Both models support complex background.  A flat background can be added via the
-complex background option (set BG_A = 0, BG_flat = desired value).
+complex background option (set BG_G = 0, BG_flat = desired value).
 
 ### Correlation models
 
@@ -142,19 +158,21 @@ any other parameter.
 Check **"Complex background"** to add a background term of the form:
 
 ```
-BG(Q) = BG_A · Q^(−BG_n) + BG_flat
+BG(Q) = BG_G · Q^(−BG_P) + BG_flat
 ```
 
 Three additional parameters appear:
 
 | Parameter | Meaning | Typical use |
 |-----------|---------|-------------|
-| `BG_A` | Power-law amplitude | Parasitic scattering |
-| `BG_n` | Power-law exponent | Usually 4 (Porod) |
+| `BG_G` | Power-law amplitude | Parasitic scattering |
+| `BG_P` | Power-law exponent | Usually 4 (Porod) |
 | `BG_flat` | Flat (incoherent) background | Incoherent scattering |
 
-To add only a flat background: set `BG_A = 0` (fixed) and fit `BG_flat`.
-To model a Porod-law background: fix `BG_n = 4` and fit `BG_A`.
+The naming mirrors the Unified Fit convention (G for amplitude, P for exponent).
+
+To add only a flat background: set `BG_G = 0` (fixed) and fit `BG_flat`.
+To model a Porod-law background: fix `BG_P = 4` and fit `BG_G`.
 
 ---
 

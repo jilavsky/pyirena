@@ -14,6 +14,7 @@ From SimpleFits:
   * Power Law        — Prefactor·Q⁻Exponent + Background
   * Sphere           — Scale·|FF(QR)|²
   * Spheroid         — orientationally-averaged sphere FF with aspect ratio
+  * Debye Polymer Chain — Scale·2(exp(−x)−1+x)/x² where x=Q²Rg²
 
 From SystemSpecificModels:
   * Debye-Bueche         — Prefactor·Eta²·ξ³/(1+Q²ξ²)²
@@ -68,8 +69,8 @@ _UBG_COS_A = np.cos(_UBG_ANGLES)            # shape (20,)
 # ---------------------------------------------------------------------------
 # (name, default, lower_bound, upper_bound)
 _BG_PARAMS: list[tuple] = [
-    ('BG_A',    0.0,  0.0,  None),
-    ('BG_n',    4.0,  0.1,  10.0),
+    ('BG_G',    0.0,  0.0,  None),
+    ('BG_P',    4.0,  0.1,  10.0),
     ('BG_flat', 0.0,  None, None),
 ]
 
@@ -110,6 +111,22 @@ def _power_law(q: np.ndarray, Prefactor: float, Exponent: float,
     with np.errstate(divide='ignore', invalid='ignore'):
         val = Prefactor * q**(-Exponent)
     return np.where(q > 0, val, 0.0) + Background
+
+
+def _debye_polymer_chain(q: np.ndarray, Scale: float, Rg: float) -> np.ndarray:
+    """I(Q) = Scale·2(exp(−x)−1+x)/x²  where x = Q²·Rg²
+
+    Debye form factor for an ideal Gaussian polymer chain (Debye 1947).
+    P(q)→1 as q→0; asymptotically ∝ q⁻² at high q (fractal dimension 2).
+    """
+    x = q**2 * Rg**2
+    with np.errstate(divide='ignore', invalid='ignore'):
+        val = np.where(
+            x < 1e-6,
+            1.0 - x / 3.0,          # Taylor expansion avoids 0/0
+            2.0 * (np.exp(-x) - 1.0 + x) / x**2,
+        )
+    return Scale * val
 
 
 def _sphere_ff_sq(u: np.ndarray) -> np.ndarray:
@@ -364,6 +381,15 @@ MODEL_REGISTRY: dict[str, dict] = {
         'linearization': None,
         'complex_bg': False,
     },
+    'Debye Polymer Chain': {
+        'params': [
+            ('Scale', 1.0,  1e-30, None),
+            ('Rg',    50.0, 0.1,   100_000.0),
+        ],
+        'formula': _debye_polymer_chain,
+        'linearization': None,
+        'complex_bg': True,
+    },
     'Sphere': {
         'params': [
             ('Scale', 1.0,  1e-30, None),
@@ -485,7 +511,7 @@ class SimpleFitModel:
         ``None`` entries map to ±∞ for ``scipy.optimize.curve_fit``.
     use_complex_bg : bool
         When True (and the model supports it), add a complex background
-        ``BG_A·Q^(−BG_n) + BG_flat`` as extra fit parameters.
+        ``BG_G·Q^(−BG_P) + BG_flat`` as extra fit parameters.
     n_mc_runs : int
         Number of Monte Carlo runs used by the batch ``fit_simple()``
         uncertainty estimation.
@@ -564,9 +590,9 @@ class SimpleFitModel:
         if use_bg:
             def func(q, *all_params):
                 model_params = all_params[:n_model]
-                BG_A, BG_n, BG_flat = all_params[n_model:]
+                BG_G, BG_P, BG_flat = all_params[n_model:]
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    bg = np.where(q > 0, BG_A * q**(-BG_n), 0.0) + BG_flat
+                    bg = np.where(q > 0, BG_G * q**(-BG_P), 0.0) + BG_flat
                 return formula(q, *model_params) + bg
         else:
             def func(q, *all_params):
@@ -804,7 +830,7 @@ class SimpleFitModel:
         model.  Returns None if the model has no linearization.
 
         Data points are background-corrected: when ``use_complex_bg`` is True
-        the fitted complex background (BG_A·Q⁻BG_n + BG_flat) is subtracted
+        the fitted complex background (BG_G·Q⁻BG_P + BG_flat) is subtracted
         before applying the log/Porod transform so that the resulting data
         points are linear in the transformed space.
 
@@ -847,11 +873,11 @@ class SimpleFitModel:
         # they are not combined with the complex background widget.
         I_corr = I.copy()
         if lin != 'porod' and self.use_complex_bg and MODEL_REGISTRY[self.model].get('complex_bg', False):
-            BG_A    = self.params.get('BG_A',    0.0)
-            BG_n    = self.params.get('BG_n',    4.0)
+            BG_G    = self.params.get('BG_G',    0.0)
+            BG_P    = self.params.get('BG_P',    4.0)
             BG_flat = self.params.get('BG_flat', 0.0)
             with np.errstate(divide='ignore', invalid='ignore'):
-                bg = np.where(q > 0, BG_A * q**(-BG_n), 0.0) + BG_flat
+                bg = np.where(q > 0, BG_G * q**(-BG_P), 0.0) + BG_flat
             I_corr = I - bg
 
         # Only keep points where background-corrected intensity is positive
