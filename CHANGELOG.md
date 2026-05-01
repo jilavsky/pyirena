@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data Selector: button layout** — Tabulate Results moved from full-width
   to half-width to accommodate Export to ASCII alongside it.
 
-## [0.4.7]
+## [0.4.8]
 
 ### Fixed
 
