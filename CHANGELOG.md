@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   margins.  Other tools were unaffected because their graph widgets sit
   inside QTabWidgets which expand by default.
 
-## [0.4.8]
+## [0.4.7]
 
 ### Fixed
 
