@@ -864,6 +864,7 @@ class DataSelectorConfigDialog(QDialog):
     'str'    — plain QLineEdit
     'bool'   — QCheckBox
     'color'  — QPushButton that opens QColorDialog (stores hex color string)
+    'choice' — QComboBox of (label, value) pairs; stores the value
     """
 
     # ---------------------------------------------------------------------------
@@ -927,6 +928,62 @@ class DataSelectorConfigDialog(QDialog):
             'min':     1,
             'max':     500,
             'decimals': 0,
+        },
+        {
+            'group':   'ASCII Export Options',
+            'key':     'ascii_delimiter',
+            'label':   'Column delimiter',
+            'tooltip': (
+                'Character separating columns in exported .dat files.\n'
+                'Space (default): widest legacy-tool compatibility (LoadWave/J,\n'
+                'awk, np.loadtxt, gnuplot).\n'
+                'Comma: CSV-style; readable by Excel.'
+            ),
+            'type':    'choice',
+            'choices': [('Space', ' '), ('Comma', ',')],
+            'default': ' ',
+        },
+        {
+            'group':   'ASCII Export Options',
+            'key':     'ascii_precision',
+            'label':   'Significant figures',
+            'tooltip': (
+                'Number of significant figures used for numeric columns and\n'
+                'header parameters.\n'
+                '7 (default): single-precision-safe; old Fortran codes parse\n'
+                'these reliably.\n'
+                '12: double-precision; for tools needing full accuracy.'
+            ),
+            'type':    'choice',
+            'choices': [('7 (single-prec safe)', 7), ('12 (double-prec)', 12)],
+            'default': 7,
+        },
+        {
+            'group':   'ASCII Export Options',
+            'key':     'ascii_include_header',
+            'label':   'Write metadata header',
+            'tooltip': (
+                'When checked, each .dat file starts with up to 25 lines of\n'
+                "'# key = value' metadata (sample, instrument, wavelength,\n"
+                'energy, fit parameters, etc.).\n'
+                'Uncheck for bare numeric data (some old tools refuse # lines).'
+            ),
+            'type':    'bool',
+            'default': True,
+        },
+        {
+            'group':   'ASCII Export Options',
+            'key':     'ascii_include_models',
+            'label':   'Also write model curves',
+            'tooltip': (
+                "When checked, for every fit-result checkbox that's enabled,\n"
+                'an additional 4-column file ({stem}_<acronym>.dat) is written\n'
+                'with Q, I_model, I_data, dI columns and model parameters in\n'
+                'the header.  Acronyms: _unif, _simp, _mod, _sd, _waxs.\n'
+                'Files without that result type are silently skipped.'
+            ),
+            'type':    'bool',
+            'default': True,
         },
         # -----------------------------------------------------------------------
         # Future settings — just append a dict here, no other code changes needed
@@ -1004,6 +1061,20 @@ class DataSelectorConfigDialog(QDialog):
                         lambda checked, btn=widget: self._pick_color(btn)
                     )
 
+                elif ftype == 'choice':
+                    widget = QComboBox()
+                    choices = spec.get('choices', [])
+                    widget._values = [v for _, v in choices]
+                    for label, _val in choices:
+                        widget.addItem(label)
+                    # Select the entry whose value matches *value*
+                    selected_idx = 0
+                    for i, v in enumerate(widget._values):
+                        if v == value:
+                            selected_idx = i
+                            break
+                    widget.setCurrentIndex(selected_idx)
+
                 else:   # 'str'
                     widget = QLineEdit(str(value))
 
@@ -1053,6 +1124,13 @@ class DataSelectorConfigDialog(QDialog):
                 result[key] = widget.isChecked()
             elif ftype == 'color':
                 result[key] = widget._color
+            elif ftype == 'choice':
+                idx = widget.currentIndex()
+                values = getattr(widget, '_values', [])
+                if 0 <= idx < len(values):
+                    result[key] = values[idx]
+                else:
+                    result[key] = spec.get('default', '')
             else:
                 result[key] = widget.text()
         return result
@@ -2372,6 +2450,32 @@ class DataSelectorPanel(QWidget):
         self.tabulate_button.clicked.connect(self.tabulate_results)
         self.tabulate_button.setEnabled(False)
 
+        _btn_style_orange = """
+            QPushButton {
+                background-color: #d35400; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 5px 8px;
+            }
+            QPushButton:hover { background-color: #ba4a00; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.export_ascii_button = QPushButton("Export to ASCII")
+        self.export_ascii_button.setMinimumHeight(34)
+        self.export_ascii_button.setStyleSheet(_btn_style_orange)
+        self.export_ascii_button.setToolTip(
+            "Write space-separated .dat files into an 'ascii_export' subfolder\n"
+            "next to each selected HDF5 file.  Three columns: Q  I  dI.\n"
+            "USAXS files: only desmeared data is exported (slit-smeared\n"
+            "variants are skipped).\n"
+            "If 'Also write model curves' is enabled in Configure, an extra\n"
+            "4-column file is added per enabled fit-result checkbox\n"
+            "(_unif, _simp, _mod, _sd, _waxs).\n"
+            "Defaults (Configure...): space delimiter, 7 sig figs,\n"
+            "header on, model curves on."
+        )
+        self.export_ascii_button.clicked.connect(self.export_to_ascii)
+        self.export_ascii_button.setEnabled(False)
+
         right_layout.addSpacing(10)
 
         # ── Unified Fit: GUI button + Script batch button side by side ─────
@@ -2492,7 +2596,7 @@ class DataSelectorPanel(QWidget):
 
         # ── Single grid so all buttons share equal column widths ───────────
         # Row 0: Create Graph | Create Report
-        # Row 1: Tabulate Results (spans both columns)
+        # Row 1: Tabulate Results | Export to ASCII
         # Row 2: spacer
         # Row 3: Unified Fit (GUI) | Unified Fit (script)
         # Row 4: Modeling (GUI) | Modeling (script)
@@ -2506,7 +2610,8 @@ class DataSelectorPanel(QWidget):
         btn_grid.setColumnStretch(1, 1)
         btn_grid.addWidget(self.plot_button,            0, 0)
         btn_grid.addWidget(self.report_button,          0, 1)
-        btn_grid.addWidget(self.tabulate_button,        1, 0, 1, 2)  # full-width
+        btn_grid.addWidget(self.tabulate_button,        1, 0)
+        btn_grid.addWidget(self.export_ascii_button,    1, 1)
         btn_grid.setRowMinimumHeight(2, 10)                          # visual separator
         btn_grid.addWidget(self.unified_fit_button,     3, 0)
         btn_grid.addWidget(self.unified_script_button,  3, 1)
@@ -2914,6 +3019,7 @@ class DataSelectorPanel(QWidget):
         self.plot_button.setEnabled(has_selection)
         self.report_button.setEnabled(has_selection)
         self.tabulate_button.setEnabled(has_selection)
+        self.export_ascii_button.setEnabled(has_selection)
         self.unified_fit_button.setEnabled(has_selection)
         self.unified_script_button.setEnabled(has_selection)
         self.modeling_button.setEnabled(has_selection)
@@ -3577,6 +3683,88 @@ class DataSelectorPanel(QWidget):
         self.status_label.setText(
             f"Tabulated {len(rows)} file(s) — use 'Save as CSV' in the results window."
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def export_to_ascii(self):
+        """
+        Export selected HDF5 files to plain-text .dat files in an
+        'ascii_export' subfolder next to each source file.
+
+        Each file gets a 3-column primary {stem}.dat (Q, I, dI).  When the
+        Configure option 'Also write model curves' is enabled, an extra
+        4-column file is added per fit-result checkbox that has matching data
+        in the HDF5 (Unified Fit, Simple Fits, Modeling, Size Distribution,
+        WAXS Peaks).
+
+        For USAXS files only the desmeared sasdata group is exported;
+        slit-smeared (_SMR) variants are skipped because old text-based tools
+        cannot interpret the resolution columns.
+        """
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection",
+                                "Please select files to export.")
+            return
+
+        sm = self.state_manager
+        delim          = sm.get('data_selector', 'ascii_delimiter', ' ')
+        precision      = int(sm.get('data_selector', 'ascii_precision', 7))
+        include_header = bool(sm.get('data_selector', 'ascii_include_header', True))
+        include_models = bool(sm.get('data_selector', 'ascii_include_models', True))
+        err_frac       = float(sm.get('data_selector', 'error_fraction', 0.05))
+
+        model_flags = {
+            "unif": self.unified_fit_result_checkbox.isChecked(),
+            "simp": self.simple_fits_checkbox.isChecked(),
+            "mod":  self.modeling_checkbox.isChecked(),
+            "sd":   self.size_dist_checkbox.isChecked(),
+            "waxs": self.waxs_peakfit_checkbox.isChecked(),
+        }
+
+        file_paths = [
+            Path(self.current_folder) / item.text()
+            for item in selected_items
+        ]
+
+        from pyirena.io.ascii_export import export_dataset_to_ascii
+
+        n_data    = 0
+        n_models  = 0
+        errors    = []
+        out_dir_first = None
+
+        for fp in file_paths:
+            if fp.suffix.lower() not in ('.h5', '.hdf5', '.hdf'):
+                errors.append((fp.name, 'not an HDF5 file'))
+                continue
+            try:
+                out_dir = fp.parent / 'ascii_export'
+                manifest = export_dataset_to_ascii(
+                    fp, out_dir,
+                    delimiter=delim,
+                    precision=precision,
+                    include_header=include_header,
+                    include_models=include_models,
+                    model_flags=model_flags,
+                    error_fraction=err_frac,
+                )
+                if manifest['data'] is not None:
+                    n_data += 1
+                    if out_dir_first is None:
+                        out_dir_first = out_dir
+                n_models += len(manifest['models'])
+            except Exception as e:
+                errors.append((fp.name, str(e)))
+
+        msg = f"Exported {n_data} data file(s), {n_models} model file(s)"
+        if out_dir_first:
+            msg += f" → {out_dir_first}"
+        if errors:
+            preview = '; '.join(f"{n} ({r})" for n, r in errors[:3])
+            msg += f".  Skipped {len(errors)}: {preview}"
+            if len(errors) > 3:
+                msg += f" (+{len(errors) - 3} more)"
+        self.status_label.setText(msg)
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""

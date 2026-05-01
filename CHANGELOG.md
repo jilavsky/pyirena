@@ -7,11 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8]
+
 ### Added
 
+- **Data Selector: Export to ASCII** — new orange "Export to ASCII" button next
+  to "Tabulate Results".  For each selected HDF5 file, writes a 3-column
+  `{stem}.dat` (Q, I, dI) with a 20–25 line metadata header (sample, instrument,
+  wavelength, energy, Kfactor, OmegaFactor, Q range, units) into an
+  `ascii_export/` subfolder next to the source file.  USAXS files: only the
+  desmeared sasdata group is exported (slit-smeared `_SMR` variants are skipped).
+  When the matching fit-result checkbox is enabled and the file contains those
+  results, an additional 4-column `{stem}_<acronym>.dat` is written per tool —
+  acronyms `_unif` (Unified Fit), `_simp` (Simple Fits), `_mod` (Modeling),
+  `_sd` (Size Distribution), `_waxs` (WAXS Peaks) — with model parameters in
+  the header and Q, I_model, I_data, dI columns.
+- **Configure dialog: ASCII Export Options** — four new settings under a new
+  "ASCII Export Options" group: column delimiter (Space default / Comma),
+  significant figures (7 single-precision-safe default / 12 double-precision),
+  write metadata header (on by default), and also write model curves
+  (on by default).  Defaults match old Fortran-tolerant tools.  Adds a
+  reusable `'choice'` field type to the Configure dialog spec system.
 - **Simple Fits: Debye Polymer Chain model** — single-chain Debye form factor
   `I(Q) = Scale · 2(exp(−x) − 1 + x) / x²` where `x = Q²·Rg²`.  Parameters:
   Scale (forward intensity) and Rg (radius of gyration).  Supports complex background.
+- **Documentation: HDF5 Structure Reference** — new `docs/HDF5_Structure_Reference.md`
+  documents every HDF5 group structure pyirena reads and writes (raw NXcanSAS
+  data, all 7 result groups, sample/instrument/metadata sub-trees, desmeared
+  vs SMR detection, backward-compatibility notes, Igor Pro and Python loading
+  recipes, glossary of acronyms).  Suitable for an AI assistant writing Igor Pro
+  importer code.
 
 ### Changed
 
@@ -20,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (G for Guinier-type prefactor, P for power-law exponent).  Existing HDF5 results
   with the old names are not automatically migrated (use-complex-bg fits will need
   to re-export parameters from the GUI after upgrading).
+- **Data Selector: button layout** — Tabulate Results moved from full-width
+  to half-width to accommodate Export to ASCII alongside it.
 
 ## [0.4.7]
 
