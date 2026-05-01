@@ -12,16 +12,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Data Selector: Export to ASCII** — new orange "Export to ASCII" button next
-  to "Tabulate Results".  For each selected HDF5 file, writes a 3-column
-  `{stem}.dat` (Q, I, dI) with a 20–25 line metadata header (sample, instrument,
-  wavelength, energy, Kfactor, OmegaFactor, Q range, units) into an
-  `ascii_export/` subfolder next to the source file.  USAXS files: only the
-  desmeared sasdata group is exported (slit-smeared `_SMR` variants are skipped).
-  When the matching fit-result checkbox is enabled and the file contains those
-  results, an additional 4-column `{stem}_<acronym>.dat` is written per tool —
-  acronyms `_unif` (Unified Fit), `_simp` (Simple Fits), `_mod` (Modeling),
-  `_sd` (Size Distribution), `_waxs` (WAXS Peaks) — with model parameters in
-  the header and Q, I_model, I_data, dI columns.
+  to "Tabulate Results".  For each selected HDF5 file, writes plain-text `.dat`
+  files into an `ascii_export/` subfolder next to the source file.  Each `.dat`
+  carries up to 25 lines of `# key = value` metadata (sample, instrument,
+  wavelength, energy, Kfactor, OmegaFactor, Q range, units, model parameters).
+  Filenames per source HDF5 (gated by checkboxes, see "Checkbox semantics"):
+    - `{stem}.dat` — primary data, columns Q I dI
+    - `{stem}_unif.dat` — Unified Fit, Q I_model I_data dI
+    - `{stem}_simp.dat` — Simple Fits, Q I_model I_data dI
+    - `{stem}_waxs.dat` — WAXS Peak Fit, Q I_fit I_data dI
+    - `{stem}_sdQI.dat` — Sizes I(Q) curve, Q I_model I_data dI
+    - `{stem}_sdSD.dat` — Sizes distribution, r volume_dist number_dist [std]
+    - `{stem}_modQI.dat` — Modeling total, Q I_model I_data dI
+    - `{stem}_modP1.dat`, `_modP2.dat`, … — Modeling per population:
+        size_dist → r volume_dist number_dist;
+        diffraction_peak → Q I_peak;
+        unified_level populations are skipped (no distribution to plot).
+  USAXS files: only the desmeared sasdata group is exported.  Files with only
+  a slit-smeared `_SMR` variant are silently skipped (typically indicates
+  reduction never produced desmeared data — a problem with the file itself).
+- **Data Selector: checkbox semantics for export** — the "Data" checkbox now
+  gates whether the primary `{stem}.dat` is written; uncheck to export only
+  model curves without re-writing data.  Each fit-result checkbox gates its
+  own model `.dat` files when "Also write model curves" is enabled in
+  Configure.
 - **Configure dialog: ASCII Export Options** — four new settings under a new
   "ASCII Export Options" group: column delimiter (Space default / Comma),
   significant figures (7 single-precision-safe default / 12 double-precision),
@@ -47,6 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to re-export parameters from the GUI after upgrading).
 - **Data Selector: button layout** — Tabulate Results moved from full-width
   to half-width to accommodate Export to ASCII alongside it.
+
+### Fixed
+
+- **Modeling: Unified Fit Level G=0 enforcement** — when the user enters G=0
+  on a Unified Fit Level population in Modeling, Rg is now automatically set
+  to 1e10 and both "Fit?" checkboxes are unchecked.  This mirrors the
+  long-standing behavior of the standalone Unified Fit tool and keeps the
+  Guinier term `G·exp(-q²Rg²/3)` numerically inert; previously the fitter
+  could oscillate on Rg when the Guinier amplitude was zero.
+- **Simple Fits: panel resizes with window** — the graphics widget and the
+  control/graph splitter now expand vertically when the window is enlarged;
+  previously they stayed at preferred size while the window grew empty
+  margins.  Other tools were unaffected because their graph widgets sit
+  inside QTabWidgets which expand by default.
 
 ## [0.4.8]
 

@@ -447,6 +447,14 @@ class PopulationTab(QWidget):
         uf_lay.addLayout(uf_grid)
         c.addWidget(uf_group)
 
+        # When the user enters G=0 (or essentially 0), force Rg=1e10 and
+        # uncheck both Fit? checkboxes — same behavior the Unified Fit
+        # tool enforces (see unified_fit.py::_on_g_changed).  This keeps the
+        # Guinier term `G·exp(-q²Rg²/3)` numerically inert and prevents the
+        # fitter from drifting on a parameter that can't contribute.
+        g_val_edit = self._uf_rows['G'][1]
+        g_val_edit.editingFinished.connect(self._on_uf_g_changed)
+
         corr_row = QHBoxLayout()
         self.uf_corr_cb = QCheckBox('Correlations (Born-Green)')
         self.uf_corr_cb.stateChanged.connect(self._on_uf_corr_changed)
@@ -466,6 +474,29 @@ class PopulationTab(QWidget):
         self._uf_corr_group.setVisible(False)
         c.addWidget(self._uf_corr_group)
         c.addStretch()
+
+    def _on_uf_g_changed(self):
+        """
+        If the user sets G = 0 (or below 1e-10) on a Unified Fit Level
+        population, force Rg to 1e10 and uncheck both Fit? boxes.  Mirrors
+        the same behavior in the standalone Unified Fit tool
+        (`unified_fit.py::_on_g_changed`).  Without this, the fitter can
+        oscillate on Rg when the Guinier amplitude is zero.
+        """
+        try:
+            g_text = self._uf_rows['G'][1].text() or '0'
+            g_value = float(g_text)
+        except (ValueError, KeyError):
+            return
+        if g_value < 1e-10:
+            # Force Rg = 1e10 (Guinier term decays instantly to zero)
+            self._uf_rows['Rg'][1].setText(_fmt(1e10))
+            # Uncheck Fit? for both G and Rg
+            self._uf_rows['G'][2].setChecked(False)
+            self._uf_rows['Rg'][2].setChecked(False)
+            # Normalize the displayed G value to "0"
+            self._uf_rows['G'][1].setText('0')
+            self._emit_changed()
 
     def _build_peak_panel(self):
         """Build Diffraction Peak controls inside self._peak_panel."""

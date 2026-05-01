@@ -130,7 +130,15 @@ class SimpleFitsGraphWindow(QWidget):
         ci.layout.setRowStretchFactor(1, 1)
         ci.layout.setRowStretchFactor(2, 4)
 
-        layout.addWidget(self.graphics_layout)
+        # Stretch=1 so the graphics widget expands vertically when the
+        # window grows (default is 0 = stay at preferred size).  Other tools
+        # (sizes_panel, unified_fit) get this for free because their
+        # graph windows hold a QTabWidget, which has Expanding policy by
+        # default; pg.GraphicsLayoutWidget needs the explicit factor.
+        self.graphics_layout.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        layout.addWidget(self.graphics_layout, stretch=1)
 
         # ── Status label ──────────────────────────────────────────────────────
         self.status_label = QLabel('')
@@ -410,7 +418,11 @@ class SimpleFitsPanel(QWidget):
         splitter.setSizes([420, 780])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        main_layout.addWidget(splitter)
+        # stretch=1 so the splitter (graph + controls) absorbs all extra
+        # vertical space when the window grows; the status label below
+        # stays at its preferred (small) height.  Without this, the layout
+        # leaves the splitter at preferred size on resize.
+        main_layout.addWidget(splitter, stretch=1)
 
         # Status label at bottom
         self.status_label = QLabel('No data loaded.')

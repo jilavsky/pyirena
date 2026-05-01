@@ -3690,15 +3690,32 @@ class DataSelectorPanel(QWidget):
         Export selected HDF5 files to plain-text .dat files in an
         'ascii_export' subfolder next to each source file.
 
-        Each file gets a 3-column primary {stem}.dat (Q, I, dI).  When the
-        Configure option 'Also write model curves' is enabled, an extra
-        4-column file is added per fit-result checkbox that has matching data
-        in the HDF5 (Unified Fit, Simple Fits, Modeling, Size Distribution,
-        WAXS Peaks).
+        Checkbox semantics
+        ------------------
+        - 'Data' checkbox: gates the primary {stem}.dat file (Q, I, dI).
+          Uncheck to export only model curves without re-writing data.
+        - Each fit-result checkbox (Unified Fit, Simple Fits, Sizes,
+          WAXS Peaks, Modeling) gates its own model .dat files when the
+          'Also write model curves' option is enabled in Configure.
+
+        File naming
+        -----------
+        - Primary:        {stem}.dat                (Q, I, dI)
+        - Unified Fit:    {stem}_unif.dat           (Q, I_model, I_data, dI)
+        - Simple Fits:    {stem}_simp.dat           (Q, I_model, I_data, dI)
+        - WAXS Peaks:     {stem}_waxs.dat           (Q, I_fit, I_data, dI)
+        - Size Dist:      {stem}_sdQI.dat           (Q, I_model, I_data, dI)
+                          {stem}_sdSD.dat           (r, vol_dist, num_dist [, std])
+        - Modeling:       {stem}_modQI.dat          (Q, I_total, I_data, dI)
+                          {stem}_modP1.dat, _modP2.dat, …
+                              size_dist:        (r, vol_dist, num_dist)
+                              diffraction_peak: (Q, I_peak)
+                              unified_level:    (no file written)
 
         For USAXS files only the desmeared sasdata group is exported;
-        slit-smeared (_SMR) variants are skipped because old text-based tools
-        cannot interpret the resolution columns.
+        files with only a slit-smeared (_SMR) variant are silently skipped
+        — that condition usually means the reduction never produced
+        desmeared data, which is a problem with the file itself.
         """
         selected_items = self.file_list.selectedItems()
         if not selected_items:
@@ -3713,6 +3730,9 @@ class DataSelectorPanel(QWidget):
         include_models = bool(sm.get('data_selector', 'ascii_include_models', True))
         err_frac       = float(sm.get('data_selector', 'error_fraction', 0.05))
 
+        # Data checkbox gates the primary .dat file; model checkboxes gate
+        # their respective model .dat files.
+        include_data = self.data_checkbox.isChecked()
         model_flags = {
             "unif": self.unified_fit_result_checkbox.isChecked(),
             "simp": self.simple_fits_checkbox.isChecked(),
@@ -3721,6 +3741,12 @@ class DataSelectorPanel(QWidget):
             "waxs": self.waxs_peakfit_checkbox.isChecked(),
         }
 
+        if not include_data and not any(model_flags.values()):
+            self.status_label.setText(
+                "Nothing to export — check 'Data' or a fit-result checkbox."
+            )
+            return
+
         file_paths = [
             Path(self.current_folder) / item.text()
             for item in selected_items
@@ -3728,9 +3754,10 @@ class DataSelectorPanel(QWidget):
 
         from pyirena.io.ascii_export import export_dataset_to_ascii
 
-        n_data    = 0
-        n_models  = 0
-        errors    = []
+        n_data        = 0
+        n_models      = 0
+        n_silent_skip = 0
+        errors        = []
         out_dir_first = None
 
         for fp in file_paths:
@@ -3744,24 +3771,36 @@ class DataSelectorPanel(QWidget):
                     delimiter=delim,
                     precision=precision,
                     include_header=include_header,
+                    include_data=include_data,
                     include_models=include_models,
                     model_flags=model_flags,
                     error_fraction=err_frac,
                 )
+                if manifest.get('silently_skipped'):
+                    n_silent_skip += 1
+                    continue
                 if manifest['data'] is not None:
                     n_data += 1
-                    if out_dir_first is None:
-                        out_dir_first = out_dir
-                n_models += len(manifest['models'])
+                if manifest['models']:
+                    n_models += len(manifest['models'])
+                if (manifest['data'] is not None or manifest['models']) \
+                        and out_dir_first is None:
+                    out_dir_first = out_dir
             except Exception as e:
                 errors.append((fp.name, str(e)))
 
-        msg = f"Exported {n_data} data file(s), {n_models} model file(s)"
+        parts = []
+        if include_data:
+            parts.append(f"{n_data} data file(s)")
+        parts.append(f"{n_models} model file(s)")
+        msg = "Exported " + ", ".join(parts)
         if out_dir_first:
             msg += f" → {out_dir_first}"
+        if n_silent_skip:
+            msg += f".  {n_silent_skip} file(s) silently skipped (no desmeared data)"
         if errors:
             preview = '; '.join(f"{n} ({r})" for n, r in errors[:3])
-            msg += f".  Skipped {len(errors)}: {preview}"
+            msg += f".  Errors {len(errors)}: {preview}"
             if len(errors) > 3:
                 msg += f" (+{len(errors) - 3} more)"
         self.status_label.setText(msg)

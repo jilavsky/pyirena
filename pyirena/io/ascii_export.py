@@ -57,6 +57,17 @@ _MODEL_SUFFIX_GROUPS = {
 _MAX_HEADER_LINES = 25
 
 
+class _SilentSkip(Exception):
+    """
+    Raised when a file should be skipped without being reported as an error.
+
+    Used for the USAXS edge-case where only the slit-smeared variant is
+    present in the file (no desmeared sasdata).  This indicates a problem
+    with the data file itself, not with the export — the file is left
+    untouched and not counted in the GUI status.
+    """
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Formatting helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -305,7 +316,10 @@ def _load_primary_data(h5_path: Path) -> dict:
             required_items={"definition": "NXcanSAS"},
         )
         if sas_entries:
-            raise ValueError("only slit-smeared (_SMR) data present; export refuses")
+            # USAXS file with only slit-smeared data — this means reduction
+            # never produced a desmeared variant; treat as a data problem and
+            # skip the file silently rather than reporting an error.
+            raise _SilentSkip("only slit-smeared (_SMR) data present")
 
         # Fallback: simple HDF5 layouts (entry1/data1/Q,I,Idev etc.)
         for base in ("entry1/data1", "entry/data", "data", ""):
@@ -351,7 +365,7 @@ def _format_data_header(
     extra_lines = extra_lines or []
     lines = ["# pyirena ASCII export"]
     lines.append(f"# Source file = {_ascii_safe(h5_path.name)}")
-    lines.append(f"# Source group = {_ascii_safe(primary.get('source_group', ''))}  (desmeared)")
+    lines.append(f"# Source group = {_ascii_safe(primary.get('source_group', ''))}")
     lines.append(f"# Export time = {datetime.now().isoformat(timespec='seconds')}")
 
     sample_name = primary.get("sample_name") or ""
@@ -614,59 +628,204 @@ def _hdr_waxs(wp: dict) -> list:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Model curves extraction — return (Q, I_model, I_data, dI) for 4-col file
+# Per-tool file builders
+#
+# Each `_build_files_<suffix>(loaded, primary)` returns a list of file specs:
+#     [(suffix_str, header_extra_lines, columns_label, [col_array, …]), …]
+# Most tools produce a single file; Size Distribution produces two (_sdQI +
+# _sdSD), and Modeling produces _modQI plus per-population _modPN files.
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _curves_unif(uf: dict, primary: dict):
-    Q = uf.get("Q")
-    I_model = uf.get("intensity_model")
-    I_data = uf.get("intensity_data")
-    dI = uf.get("intensity_error")
-    if dI is None:
-        dI = _resample_dI(primary, Q)
-    return Q, I_model, I_data, dI
-
-
-def _curves_simp(sf: dict, primary: dict):
-    Q = sf.get("Q")
-    I_model = sf.get("I_model")
-    I_data = sf.get("intensity_data")
-    dI = sf.get("intensity_error")
+def _qidi(Q, I_model, I_data, dI, primary):
+    """Fill missing I_data / dI from primary by log-log resampling."""
     if I_data is None:
         I_data = _resample_I(primary, Q)
     if dI is None:
         dI = _resample_dI(primary, Q)
+    if Q is not None:
+        if I_data is None:
+            I_data = np.full_like(np.asarray(Q, dtype=float), np.nan)
+        if dI is None:
+            dI = np.full_like(np.asarray(Q, dtype=float), np.nan)
     return Q, I_model, I_data, dI
 
 
-def _curves_mod(mod: dict, primary: dict):
+def _build_files_unif(uf: dict, primary: dict) -> list:
+    Q, I_model, I_data, dI = _qidi(
+        uf.get("Q"), uf.get("intensity_model"),
+        uf.get("intensity_data"), uf.get("intensity_error"), primary,
+    )
+    if Q is None or I_model is None:
+        return []
+    return [("unif", _hdr_unif(uf), "Q  I_model  I_data  dI",
+             [Q, I_model, I_data, dI])]
+
+
+def _build_files_simp(sf: dict, primary: dict) -> list:
+    Q, I_model, I_data, dI = _qidi(
+        sf.get("Q"), sf.get("I_model"),
+        sf.get("intensity_data"), sf.get("intensity_error"), primary,
+    )
+    if Q is None or I_model is None:
+        return []
+    return [("simp", _hdr_simp(sf), "Q  I_model  I_data  dI",
+             [Q, I_model, I_data, dI])]
+
+
+def _build_files_waxs(wp: dict, primary: dict) -> list:
+    Q, I_model, I_data, dI = _qidi(
+        wp.get("Q"), wp.get("I_fit"),
+        wp.get("intensity_data"), wp.get("intensity_error"), primary,
+    )
+    if Q is None or I_model is None:
+        return []
+    return [("waxs", _hdr_waxs(wp), "Q  I_model  I_data  dI",
+             [Q, I_model, I_data, dI])]
+
+
+def _build_files_sd(sz: dict, primary: dict) -> list:
+    """
+    Size Distribution emits two files:
+      _sdQI : Q, I_model, I_data, dI  (same structure as other model files)
+      _sdSD : r, volume_dist, number_dist [, volume_dist_std]
+    Two separate files (rather than two blocks in one) because some legacy
+    tools fail when a column block changes shape mid-file.
+    """
+    files = []
+
+    Q, I_model, I_data, dI = _qidi(
+        sz.get("Q"), sz.get("intensity_model"),
+        sz.get("intensity_data"), sz.get("intensity_error"), primary,
+    )
+    if Q is not None and I_model is not None:
+        files.append(("sdQI", _hdr_sd(sz), "Q  I_model  I_data  dI",
+                      [Q, I_model, I_data, dI]))
+
+    r  = sz.get("r_grid")
+    vd = sz.get("distribution")
+    nd = sz.get("number_dist")
+    std = sz.get("distribution_std")
+    if r is not None and vd is not None:
+        if nd is None:
+            nd = np.full_like(r, np.nan)
+        cols_label = "r  volume_dist  number_dist"
+        cols = [r, vd, nd]
+        if std is not None:
+            cols_label += "  volume_dist_std"
+            cols.append(std)
+        # Tag the SD file so the model header notes what's inside
+        sd_hdr = _hdr_sd(sz) + ["# File contents = particle size distribution"]
+        files.append(("sdSD", sd_hdr, cols_label, cols))
+
+    return files
+
+
+def _build_files_mod(mod: dict, primary: dict) -> list:
+    """
+    Modeling emits:
+      _modQI                : total Q, I_model, I_data, dI
+      _modP1, _modP2, …     : per population, only for size_dist and
+                              diffraction_peak types (unified_level skipped
+                              — it has no distribution / peak profile to plot)
+        size_dist:        r, volume_dist, number_dist
+        diffraction_peak: Q, I_peak (population's I(Q) on shared model_q)
+    """
+    files = []
+
     Q = mod.get("model_q")
-    I_model = mod.get("model_I")
-    I_data = _resample_I(primary, Q)
-    dI = _resample_dI(primary, Q)
-    return Q, I_model, I_data, dI
+    I_model_total = mod.get("model_I")
+    if Q is not None and I_model_total is not None:
+        Q1, Im, Id, dI1 = _qidi(Q, I_model_total, None, None, primary)
+        files.append(("modQI", _hdr_mod(mod), "Q  I_model  I_data  dI",
+                      [Q1, Im, Id, dI1]))
+
+    pops = mod.get("populations", []) or []
+    for k, pop in enumerate(pops, start=1):
+        ptype = pop.get("pop_type", "size_dist")
+        if not pop.get("enabled", True):
+            continue
+
+        if ptype == "size_dist":
+            r  = pop.get("radius_grid")
+            vd = pop.get("volume_dist")
+            nd = pop.get("number_dist")
+            if r is None or vd is None:
+                continue
+            if nd is None:
+                nd = np.full_like(r, np.nan)
+            extra = _hdr_mod_pop(mod, pop, k)
+            files.append((f"modP{k}", extra,
+                          "r  volume_dist  number_dist",
+                          [r, vd, nd]))
+
+        elif ptype == "diffraction_peak":
+            pop_I = pop.get("model_I")
+            if Q is None or pop_I is None:
+                continue
+            extra = _hdr_mod_pop(mod, pop, k)
+            files.append((f"modP{k}", extra,
+                          "Q  I_peak",
+                          [Q, pop_I]))
+        # unified_level: skip silently — no distribution / peak to plot
+
+    return files
 
 
-def _curves_sd(sz: dict, primary: dict):
-    Q = sz.get("Q")
-    I_model = sz.get("intensity_model")
-    I_data = sz.get("intensity_data")
-    dI = sz.get("intensity_error")
-    if dI is None:
-        dI = _resample_dI(primary, Q)
-    return Q, I_model, I_data, dI
+def _hdr_mod_pop(mod: dict, pop: dict, k: int) -> list:
+    """Header lines for a per-population modeling _modPN file."""
+    ptype = pop.get("pop_type", "size_dist")
+    label = _ascii_safe(pop.get("label", ""))
+    lines = [f"# Modeling Population {k} [{ptype}]"]
+    if label:
+        lines.append(f"# Label = {label}")
 
+    # Global modeling fit quality (so the file is interpretable standalone)
+    if mod.get("chi_squared") is not None:
+        parts = [f"chi^2 = {_format_scalar_for_header(mod['chi_squared'])}"]
+        if mod.get("background") is not None:
+            parts.append(f"background = {_format_scalar_for_header(mod['background'])}")
+        lines.append("# " + "   ".join(parts))
 
-def _curves_waxs(wp: dict, primary: dict):
-    Q = wp.get("Q")
-    I_model = wp.get("I_fit")
-    I_data = wp.get("intensity_data")
-    dI = wp.get("intensity_error")
-    if I_data is None:
-        I_data = _resample_I(primary, Q)
-    if dI is None:
-        dI = _resample_dI(primary, Q)
-    return Q, I_model, I_data, dI
+    if ptype == "size_dist":
+        ff = _ascii_safe(pop.get("form_factor", ""))
+        sf = _ascii_safe(pop.get("structure_factor", ""))
+        dt = _ascii_safe(pop.get("dist_type", ""))
+        lines.append(f"# distribution = {dt}   form factor = {ff}   "
+                     f"structure factor = {sf}")
+        scale = pop.get("scale")
+        contrast = pop.get("contrast")
+        if scale is not None or contrast is not None:
+            parts = []
+            if scale is not None:
+                parts.append(f"scale = {_format_scalar_for_header(scale)}")
+            if contrast is not None:
+                parts.append(f"contrast = {_format_scalar_for_header(contrast)}")
+            lines.append("# " + "   ".join(parts))
+        dp = pop.get("dist_params", {}) or {}
+        if dp:
+            parts = [f"{n}={_format_scalar_for_header(v)}" for n, v in dp.items()]
+            lines.append("# Dist params: " + "   ".join(parts))
+        ffp = pop.get("ff_params", {}) or {}
+        if ffp:
+            parts = [f"{n}={_format_scalar_for_header(v)}" for n, v in ffp.items()]
+            lines.append("# FF params: " + "   ".join(parts))
+        sfp = pop.get("sf_params", {}) or {}
+        if sfp:
+            parts = [f"{n}={_format_scalar_for_header(v)}" for n, v in sfp.items()]
+            lines.append("# SF params: " + "   ".join(parts))
+        derived = pop.get("derived", {}) or {}
+        if derived:
+            parts = [f"{n}={_format_scalar_for_header(v)}" for n, v in derived.items()]
+            lines.append("# Derived: " + "   ".join(parts))
+
+    elif ptype == "diffraction_peak":
+        peak_type = _ascii_safe(pop.get("peak_type", "gaussian"))
+        lines.append(f"# Peak type = {peak_type}")
+        for key in ("position", "amplitude", "width", "eta_voigt"):
+            if pop.get(key) is not None:
+                lines.append(f"# {key} = {_format_scalar_for_header(pop[key])}")
+
+    return lines
 
 
 def _resample_I(primary: dict, Q_target):
@@ -749,13 +908,12 @@ def _load_model(suffix: str, h5_path: Path):
     return None
 
 
-_HDR_DISPATCH = {
-    "unif": _hdr_unif, "simp": _hdr_simp, "mod": _hdr_mod,
-    "sd": _hdr_sd, "waxs": _hdr_waxs,
-}
-_CURVES_DISPATCH = {
-    "unif": _curves_unif, "simp": _curves_simp, "mod": _curves_mod,
-    "sd": _curves_sd, "waxs": _curves_waxs,
+_BUILD_DISPATCH = {
+    "unif": _build_files_unif,
+    "simp": _build_files_simp,
+    "mod":  _build_files_mod,
+    "sd":   _build_files_sd,
+    "waxs": _build_files_waxs,
 }
 
 
@@ -789,6 +947,7 @@ def export_dataset_to_ascii(
     delimiter: str = " ",
     precision: int = 7,
     include_header: bool = True,
+    include_data: bool = True,
     include_models: bool = True,
     model_flags: Optional[dict] = None,
     error_fraction: float = 0.05,
@@ -809,9 +968,13 @@ def export_dataset_to_ascii(
         Default 7 (single-precision-safe).
     include_header : bool
         When False, the .dat files contain only data lines (no '#' header).
+    include_data : bool
+        When False, the primary {stem}.dat file is NOT written.  Useful when
+        the user only wants model curves.  Primary data is still loaded
+        internally (needed to resample I_data / dI for model files).
     include_models : bool
-        When False, only the primary {stem}.dat file is written; per-model
-        .dat files are skipped even if model_flags asks for them.
+        When False, no model .dat files are written even if model_flags asks
+        for them.
     model_flags : dict or None
         Map of suffix → bool.  Suffixes: 'unif', 'simp', 'mod', 'sd', 'waxs'.
         When None, all five are False (only primary data is exported).
@@ -822,7 +985,12 @@ def export_dataset_to_ascii(
     Returns
     -------
     dict
-        ``{'data': Path|None, 'models': [Path...], 'skipped': [(suffix, reason)...]}``
+        Manifest with keys:
+          - 'data'              : Path to primary .dat or None (skipped/disabled)
+          - 'models'            : list of Paths to model .dat files written
+          - 'skipped'           : list of (suffix, reason) for loader errors
+          - 'silently_skipped'  : True if the whole file was skipped silently
+                                  (e.g. USAXS with only _SMR data)
     """
     h5_path = Path(h5_path)
     out_dir = Path(out_dir)
@@ -831,10 +999,19 @@ def export_dataset_to_ascii(
     if model_flags is None:
         model_flags = {}
 
-    manifest = {"data": None, "models": [], "skipped": []}
+    manifest = {
+        "data": None, "models": [], "skipped": [],
+        "silently_skipped": False,
+    }
 
-    # 1. Primary data
-    primary = _load_primary_data(h5_path)
+    # 1. Primary data — always loaded (needed for I_data / dI resampling),
+    #    but only written when include_data is True.
+    try:
+        primary = _load_primary_data(h5_path)
+    except _SilentSkip:
+        manifest["silently_skipped"] = True
+        return manifest
+
     Q  = primary["Q"]
     I  = primary["I"]
     dI = primary.get("Idev")
@@ -845,22 +1022,23 @@ def export_dataset_to_ascii(
                  f"(no measurement uncertainty in source)")
 
     stem = h5_path.stem
-    data_path = out_dir / f"{stem}.dat"
 
-    if include_header:
-        header = _format_data_header(h5_path, primary,
-                                     extra_lines=None,
-                                     columns_label="Q  I  dI",
-                                     notes=notes)
-    else:
-        header = []
-    _write_dat(data_path, [Q, I, dI], header, delimiter, precision)
-    manifest["data"] = data_path
+    if include_data:
+        data_path = out_dir / f"{stem}.dat"
+        if include_header:
+            header = _format_data_header(h5_path, primary,
+                                         extra_lines=None,
+                                         columns_label="Q  I  dI",
+                                         notes=notes)
+        else:
+            header = []
+        _write_dat(data_path, [Q, I, dI], header, delimiter, precision)
+        manifest["data"] = data_path
 
-    # 2. Model results (one .dat per enabled checkbox that has data)
+    # 2. Model results — each tool may emit one or more files.
     if include_models:
-        # Pre-check which result groups exist so we can distinguish
-        # "missing" (silent skip, expected) from "format error" (worth noting).
+        # Pre-check which result groups exist so loader errors can be
+        # distinguished from "no result group" (the expected silent skip).
         with h5py.File(h5_path, "r") as f:
             present = {
                 suffix: (path in f)
@@ -870,38 +1048,33 @@ def export_dataset_to_ascii(
             if not model_flags.get(suffix, False):
                 continue
             if not present.get(suffix, False):
-                # Group not in the file — silent skip (expected case)
-                continue
+                continue   # group missing — silent skip (expected)
+
             loaded = _load_model(suffix, h5_path)
             if loaded is None:
                 manifest["skipped"].append((suffix, "loader error"))
                 continue
             try:
-                hdr_extra = _HDR_DISPATCH[suffix](loaded)
-                Qm, Im_model, Im_data, dIm = _CURVES_DISPATCH[suffix](loaded, primary)
+                file_specs = _BUILD_DISPATCH[suffix](loaded, primary)
             except Exception as e:
                 manifest["skipped"].append((suffix, f"format error: {e}"))
                 continue
-            if Qm is None or Im_model is None:
-                manifest["skipped"].append((suffix, "missing Q/I_model arrays"))
+            if not file_specs:
+                manifest["skipped"].append((suffix, "no exportable arrays"))
                 continue
-            # If I_data or dI couldn't be reconstructed, fill with NaN
-            if Im_data is None:
-                Im_data = np.full_like(np.asarray(Qm, dtype=float), np.nan)
-            if dIm is None:
-                dIm = np.full_like(np.asarray(Qm, dtype=float), np.nan)
-            if include_header:
-                hdr_lines = _format_data_header(
-                    h5_path, primary,
-                    extra_lines=hdr_extra,
-                    columns_label="Q  I_model  I_data  dI",
-                    notes=notes,
-                )
-            else:
-                hdr_lines = []
-            mp = out_dir / f"{stem}_{suffix}.dat"
-            _write_dat(mp, [Qm, Im_model, Im_data, dIm],
-                       hdr_lines, delimiter, precision)
-            manifest["models"].append(mp)
+
+            for fs_suffix, hdr_extra, cols_label, columns in file_specs:
+                if include_header:
+                    hdr_lines = _format_data_header(
+                        h5_path, primary,
+                        extra_lines=hdr_extra,
+                        columns_label=cols_label,
+                        notes=notes,
+                    )
+                else:
+                    hdr_lines = []
+                mp = out_dir / f"{stem}_{fs_suffix}.dat"
+                _write_dat(mp, columns, hdr_lines, delimiter, precision)
+                manifest["models"].append(mp)
 
     return manifest
