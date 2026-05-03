@@ -1422,10 +1422,14 @@ class SaxsMorphPanel(QWidget):
             ('φ (actual)',   f'{result.phi_actual:.4g}'),
             ('contrast Δρ²', f'{cfg.contrast:.4g}'),
         ]
+        rg_str = (f'{result.rg_A:.1f} Å'
+                  if np.isfinite(getattr(result, 'rg_A', float('nan')))
+                  else '—')
         rows_right = [
             ('voxel size',   f'{result.voxel_size}³'),
             ('box size',     f'{result.box_size_A:.4g} Å'),
             ('voxel pitch',  f'{result.voxel_pitch_A:.4g} Å'),
+            ('Rg (γ(r))',    rg_str),
             ('power-law B',  f'{cfg.power_law_B:.4g}'),
             ('power-law P',  f'{cfg.power_law_P:.4g}'),
             ('flat bg',      f'{cfg.background:.4g}'),

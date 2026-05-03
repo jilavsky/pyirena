@@ -187,6 +187,10 @@ class SaxsMorphResult:
 
     rng_seed_used: int
 
+    # Radius of gyration derived from the autocorrelation function gamma(r).
+    # nan if it cannot be computed (e.g. degenerate autocorrelation).
+    rg_A: float = float('nan')
+
     # MC uncertainties (param_name -> std). Empty if not run.
     params_std: dict = field(default_factory=dict)
 
@@ -379,6 +383,35 @@ def spectral_function(
 
     F = np.maximum(F, 0.0)
     return k_grid, F
+
+
+def compute_rg_from_autocorr(r_grid: np.ndarray, gamma_r: np.ndarray) -> float:
+    """Estimate the radius of gyration from the Debye autocorrelation function.
+
+    Uses the standard PDDF formula:
+        Rg² = ∫r⁴ γ(r) dr / (2 ∫r² γ(r) dr)
+
+    where p(r) ∝ r² γ(r) is the pair distance distribution function.
+    Integration is truncated at the first downward zero-crossing of γ(r) to
+    avoid negative contributions from interference oscillations at large r.
+
+    Returns nan if the denominator is non-positive or if there are too few
+    r-grid points after truncation.
+    """
+    r = np.asarray(r_grid, dtype=float)
+    g = np.asarray(gamma_r, dtype=float)
+    # Truncate at first downward zero crossing (γ goes from 1 toward 0)
+    crossings = np.where((g[:-1] > 0) & (g[1:] <= 0))[0]
+    n = int(crossings[0]) + 1 if len(crossings) > 0 else len(r)
+    r = r[:n]
+    g = np.maximum(g[:n], 0.0)
+    if len(r) < 3:
+        return float('nan')
+    num = _simpson(r ** 4 * g, x=r)
+    den = _simpson(r ** 2 * g, x=r)
+    if den <= 0.0:
+        return float('nan')
+    return float(np.sqrt(0.5 * num / den))
 
 
 def generate_voxelgram(
@@ -842,6 +875,7 @@ class SaxsMorphEngine:
         )
         # pitch already computed above for the spectral k-grid sizing
         phi_actual = float(voxelgram.mean())
+        rg_A = compute_rg_from_autocorr(r_grid, gamma_r_norm)
 
         # Model intensity (from binary voxelgram — correct physics)
         I_struct = voxelgram_to_iq(voxelgram, pitch, q_fit)
@@ -887,6 +921,7 @@ class SaxsMorphEngine:
             voxel_pitch_A=float(pitch),
             phi_actual=phi_actual,
             rng_seed_used=seed_used,
+            rg_A=rg_A,
         )
 
     # ----- fitting ---------------------------------------------------------

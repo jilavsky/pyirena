@@ -96,7 +96,7 @@ class Voxel3DViewer(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self._actor = None
-        self._outline_actor = None
+        self._bounds_actor = None
         self._show_outline = True
         self._iso_color = (0.10, 0.50, 0.90)
         self._voxelgram = None
@@ -199,9 +199,9 @@ class Voxel3DViewer(QWidget):
                 self.plotter.remove_actor(self._actor)
             except Exception:
                 pass
-        if self._outline_actor is not None:
+        if self._bounds_actor is not None:
             try:
-                self.plotter.remove_actor(self._outline_actor)
+                self.plotter.remove_actor(self._bounds_actor)
             except Exception:
                 pass
 
@@ -209,10 +209,25 @@ class Voxel3DViewer(QWidget):
             mesh, color=self._iso_color, smooth_shading=True,
             specular=0.3, specular_power=15,
         )
+        # Bounding box with Å tick labels (5 per side).
+        # show_bounds() draws the cube ruler; if it fails (old VTK), fall back
+        # to a plain outline.
+        self._bounds_actor = None
         if self._show_outline:
-            self._outline_actor = self.plotter.add_mesh(
-                grid.outline(), color='black', line_width=1,
-            )
+            box_label = f'{N * self._pitch_A:.0f} Å'  # noqa: F841 (used in log)
+            try:
+                self._bounds_actor = self.plotter.show_bounds(
+                    mesh=grid,
+                    xlabel='X (Å)', ylabel='Y (Å)', zlabel='Z (Å)',
+                    n_xlabels=5, n_ylabels=5, n_zlabels=5,
+                    fmt='%.0f', font_size=9, bold=False,
+                    ticks='outside', grid=False, all_edges=True,
+                )
+            except Exception:
+                # Older VTK / pyvistaqt that does not support show_bounds well
+                self._bounds_actor = self.plotter.add_mesh(
+                    grid.outline(), color='black', line_width=1,
+                )
         self.plotter.reset_camera()
 
     def reset_view(self):
@@ -257,12 +272,12 @@ class Voxel3DViewer(QWidget):
             except Exception:
                 pass
             self._actor = None
-        if self._outline_actor is not None:
+        if self._bounds_actor is not None:
             try:
-                self.plotter.remove_actor(self._outline_actor)
+                self.plotter.remove_actor(self._bounds_actor)
             except Exception:
                 pass
-            self._outline_actor = None
+            self._bounds_actor = None
         self._voxelgram = None
 
     def shutdown(self):
@@ -288,7 +303,7 @@ class Voxel3DViewer(QWidget):
             return
         # Drop our own references first
         self._actor = None
-        self._outline_actor = None
+        self._bounds_actor = None
         self._mesh = None
         self._voxelgram = None
         # Tell VTK to release the render window resources
@@ -323,6 +338,12 @@ class Slice2DViewer(QWidget):
         ('XZ plane (Y slice)', 'y'),
         ('YZ plane (X slice)', 'x'),
     ]
+    # Physical axis labels for each slice plane: (horizontal_label, vertical_label)
+    _PLANE_AXIS_LABELS = {
+        'z': ('x (Å)', 'y (Å)'),
+        'y': ('x (Å)', 'z (Å)'),
+        'x': ('y (Å)', 'z (Å)'),
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -357,12 +378,16 @@ class Slice2DViewer(QWidget):
         # the PHYSICAL microstructure — thresholded 0 (void) and 1 (solid)
         # as sharp black and white regions.  Smoothing is deliberately
         # NOT applied here; it goes only to the 3D isosurface viewer.
-        self.image_view = pg.ImageView(view=pg.PlotItem())
+        plot_item = pg.PlotItem()
+        self.image_view = pg.ImageView(view=plot_item)
         self.image_view.ui.histogram.hide()
         self.image_view.ui.roiBtn.hide()
         self.image_view.ui.menuBtn.hide()
         self.image_view.view.setAspectLocked(True)
-        self.image_view.view.invertY(True)
+        self.image_view.view.invertY(False)  # y increases upward (physical)
+        # Physical axis labels (updated when the slice plane changes)
+        self.image_view.view.setLabel('bottom', 'x (Å)', size='9pt')
+        self.image_view.view.setLabel('left', 'y (Å)', size='9pt')
         bw_lut = np.array([[0, 0, 0, 255], [255, 255, 255, 255]], dtype=np.uint8)
         self.image_view.imageItem.setLookupTable(bw_lut)
         self.image_view.imageItem.setLevels([0, 1])
@@ -390,6 +415,7 @@ class Slice2DViewer(QWidget):
         self.slider.setRange(0, N - 1)
         self.slider.setValue(N // 2)
         self._building = False
+        self._update_axis_labels()
         self._refresh()
 
     def clear(self):
@@ -406,7 +432,15 @@ class Slice2DViewer(QWidget):
         if self._building:
             return
         self._axis = self.axis_combo.itemData(idx)
+        self._update_axis_labels()
         self._refresh()
+
+    def _update_axis_labels(self):
+        h_label, v_label = self._PLANE_AXIS_LABELS.get(
+            self._axis, ('Position (Å)', 'Position (Å)')
+        )
+        self.image_view.view.setLabel('bottom', h_label, size='9pt')
+        self.image_view.view.setLabel('left', v_label, size='9pt')
 
     def _on_slice_changed(self, _val):
         if self._building:
@@ -421,15 +455,21 @@ class Slice2DViewer(QWidget):
 
         if self._axis == 'z':
             slc = self._voxelgram[:, :, idx]
-            coord_label = f'z = {idx * self._pitch_A:.2f} Å'
+            coord_label = f'z = {idx * self._pitch_A:.1f} Å'
         elif self._axis == 'y':
             slc = self._voxelgram[:, idx, :]
-            coord_label = f'y = {idx * self._pitch_A:.2f} Å'
+            coord_label = f'y = {idx * self._pitch_A:.1f} Å'
         else:
             slc = self._voxelgram[idx, :, :]
-            coord_label = f'x = {idx * self._pitch_A:.2f} Å'
+            coord_label = f'x = {idx * self._pitch_A:.1f} Å'
 
-        self.image_view.setImage(slc.astype(np.float32), autoLevels=False, levels=[0, 1])
+        # Display with physical Å coordinates on the axes.
+        # pos=(0,0): lower-left corner; scale=(pitch, pitch): Å per voxel.
+        self.image_view.setImage(
+            slc.astype(np.float32),
+            autoLevels=False, levels=[0, 1],
+            pos=(0.0, 0.0), scale=(self._pitch_A, self._pitch_A),
+        )
         self.slice_label.setText(f'Slice {idx + 1} / {N} ({coord_label})')
 
 
