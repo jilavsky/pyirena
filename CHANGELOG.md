@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+
+- **SAXS Morph (3D voxelgram) tool** (Issue #5) — generates a 3D voxelgram of
+  a two-phase porous structure from experimental I(Q) using the Gaussian
+  Random Fields method (Berk 1991, Roberts 1997, Levitz 2007), then computes
+  the model I(Q) from the voxelgram and refines volume fraction, contrast,
+  and Power-law + Flat background by fitting the model back to the data.
+  Includes:
+  - `pyirena.core.saxs_morph.SaxsMorphEngine` — pure-numpy/scipy engine with
+    `compute_voxelgram()`, `fit()` (least_squares + Nelder-Mead), and
+    `calculate_uncertainty_mc()`. The fit loop is hard-clamped to ≤256³
+    voxels for memory safety; the final post-convergence voxelgram uses the
+    user-selected render resolution (up to 512³).
+  - GUI panel `pyirena-saxsmorph` with:
+    - left controls: Voxel grid (fit/render combos + box size + RNG seed),
+      Two-phase parameters (φ + contrast + invariant link), Power-law / Flat
+      background tabs, action row with Graph Model / Fit / Cancel / MC
+      uncertainty / Revert.
+    - top right: log-log I(Q) plot with two cursors and three traces
+      (data, data−background, red model).
+    - bottom right: 2D slice viewer (axis combo + slider) and interactive
+      3D PyVista viewer (binary isosurface via flying_edges, right-click
+      menu for color / outline / screenshot). Each viewer has a Pop out ⤢
+      button that reparents it to a resizable QDialog.
+  - Headless `pyirena.batch.fit_saxs_morph()` for batch-fitting.
+  - HDF5 storage at `entry/saxs_morph_results/` with the binary uint8
+    voxelgram stored gzip-compressed and chunked `(N, N, 1)` for cheap 2D
+    slice loads. Stores the RNG seed for reproducibility.
+- **Data Selector**: new SAXS Morph (GUI) and SAXS Morph (script) buttons
+  on row 8 (purple `#8e44ad` / `#6c3483`); new SAXS Morph (3D) entry in the
+  Models menu.
+- **New optional dependency group `gui3d`** (PyVista 0.45-0.48 + pyvistaqt
+  ≥ 0.11 + VTK 9.3-9.4). Install with `pip install pyirena[gui3d]`. The
+  rest of pyirena still works without VTK; the SAXS Morph 3D viewer pane
+  shows an install hint when PyVista is missing, while the 2D slice viewer
+  and I(Q) plot still function.
+- **New script entry point** `pyirena-saxsmorph`.
+
+### Changed
+
+- **`gui` extra**: pinned `PySide6 != 6.7.*, != 6.10.*` to avoid the known
+  pyvistaqt incompatibility in those releases (also matters for
+  `_SafeInfiniteLine` cursors used by existing tools).
+- **Version**: bumped to 0.5.0 to mark the addition of the new 3D-tools
+  category.
+
 ## [0.4.8]
 
 ### Added
