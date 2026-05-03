@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -38,7 +39,7 @@ try:
         QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
         QScrollArea, QFrame, QSizePolicy,
     )
-    from PySide6.QtCore import Qt, Signal, QThread
+    from PySide6.QtCore import Qt, Signal, QThread, QTimer
     from PySide6.QtGui import QFont, QDoubleValidator
 except ImportError:
     try:
@@ -48,7 +49,7 @@ except ImportError:
             QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
             QScrollArea, QFrame, QSizePolicy,
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QThread
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QThread, QTimer
         from PyQt6.QtGui import QFont, QDoubleValidator
     except ImportError:
         from PyQt5.QtWidgets import (
@@ -57,7 +58,7 @@ except ImportError:
             QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
             QScrollArea, QFrame, QSizePolicy,
         )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QThread
+        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QThread, QTimer
         from PyQt5.QtGui import QFont, QDoubleValidator
 
 import pyqtgraph as pg
@@ -791,6 +792,19 @@ class SaxsMorphPanel(QWidget):
         )
         g.addWidget(self.seed_edit, 3, 1)
 
+        g.addWidget(QLabel('Smoothing σ [vox]:'), 4, 0)
+        self.smooth_edit = QLineEdit('1.0')
+        self.smooth_edit.setValidator(QDoubleValidator(0.0, 10.0, 4))
+        self.smooth_edit.setToolTip(
+            'Gaussian smoothing applied to the voxelgram after thresholding '
+            '(in voxel units).  Mimics Igor Pro\'s ImageFilter/N=5 gauss3d '
+            'step that knocks down per-voxel numerical noise.\n'
+            '  0    = no smoothing, output stays uint8 binary\n'
+            '  1.0  = mild smoothing (recommended default, matches Igor)\n'
+            '  >2   = heavy smoothing, may wash out fine features'
+        )
+        g.addWidget(self.smooth_edit, 4, 1)
+
         return gb
 
     def _build_two_phase_box(self) -> QGroupBox:
@@ -977,6 +991,7 @@ class SaxsMorphPanel(QWidget):
             'voxel_size_render': self.render_size_combo.currentData(),
             'box_size_A':        _parse(self.box_size_edit.text(), 1000.0),
             'rng_seed':          _parse_int_optional(self.seed_edit.text()),
+            'smooth_sigma':      _parse(self.smooth_edit.text(), 1.0),
 
             'input_mode':       self.mode_combo.currentData(),
             'volume_fraction':  _parse(self.phi_edit.text(), 0.30),
@@ -1009,6 +1024,7 @@ class SaxsMorphPanel(QWidget):
         self.box_size_edit.setText(_fmt(st.get('box_size_A', 1000.0)))
         seed = st.get('rng_seed')
         self.seed_edit.setText('' if seed is None else str(seed))
+        self.smooth_edit.setText(_fmt(st.get('smooth_sigma', 1.0)))
 
         # Input mode + values
         mode = st.get('input_mode', 'phi')
@@ -1177,6 +1193,7 @@ class SaxsMorphPanel(QWidget):
             power_law_B=float(st['power_law_B']),
             power_law_P=float(st['power_law_P']),
             background=float(st['background']),
+            smooth_sigma=float(st.get('smooth_sigma', 1.0)),
             rng_seed=st['rng_seed'],
         )
         return cfg
@@ -1251,6 +1268,11 @@ class SaxsMorphPanel(QWidget):
     # ── Action: Calculate 3D ─────────────────────────────────────────────
 
     def _on_calculate(self):
+        # Re-entrancy guard.  setEnabled(False) on the button is not enough
+        # because a click already in the OS event queue can fire after we
+        # disable, and on macOS the disable repaint can lag the compute.
+        if getattr(self, '_calculating', False):
+            return
         if self._data_q is None:
             QMessageBox.warning(self, 'No data', 'Open a data file first.')
             return
@@ -1260,13 +1282,21 @@ class SaxsMorphPanel(QWidget):
             QMessageBox.warning(self, 'Bad parameters', str(e))
             return
 
+        # Show the busy banner FIRST so the user gets immediate feedback,
+        # then defer the heavy compute to the next event-loop tick via
+        # QTimer.singleShot(0, ...).  Without the deferral the synchronous
+        # compute would freeze the GUI before Qt had a chance to repaint.
+        self._calculating = True
         self.btn_calc.setEnabled(False)
         self.graph.set_status(
             f'Calculating 3D at {cfg.voxel_size_render}³ … please wait.',
             style='working',
         )
         QApplication.processEvents()
+        QTimer.singleShot(0, lambda: self._do_calculate(cfg))
 
+    def _do_calculate(self, cfg):
+        t_start = time.perf_counter()
         try:
             # Use render resolution directly — there's no separate "fit"
             # iteration any more, so we skip the fit_size shortcut.
@@ -1278,7 +1308,9 @@ class SaxsMorphPanel(QWidget):
             self.graph.set_status(f'Failed: {e}', style='error')
             QMessageBox.critical(self, 'Calculate 3D failed', str(e))
             self.btn_calc.setEnabled(True)
+            self._calculating = False
             return
+        elapsed_s = time.perf_counter() - t_start
 
         self._last_result = result
 
@@ -1289,11 +1321,13 @@ class SaxsMorphPanel(QWidget):
         elif cfg_out.input_mode == 'contrast':
             self.phi_edit.setText(_fmt(cfg_out.volume_fraction))
 
-        self._update_after_eval(result)
+        self._update_after_eval(result, elapsed_s=elapsed_s)
         self.btn_calc.setEnabled(True)
+        self._calculating = False
         self._save_state()
 
-    def _update_after_eval(self, result: SaxsMorphResult):
+    def _update_after_eval(self, result: SaxsMorphResult,
+                           elapsed_s: Optional[float] = None):
         # Refresh background curve + data − bg over full Q range,
         # then overlay the GRF model curve over the modelling window.
         cfg = result.config
@@ -1303,10 +1337,12 @@ class SaxsMorphPanel(QWidget):
         self.graph.plot_model_iq(result.model_q, result.model_I)
         # Push the voxelgram to the 2D slice + 3D viewers
         self.graph.show_voxelgram(result.voxelgram, result.voxel_pitch_A)
+        elapsed_str = (f' [took {elapsed_s:.1f} s]'
+                       if elapsed_s is not None else '')
         self.graph.set_status(
             f'Calculate 3D done: χ² = {result.chi_squared:.4g}, '
             f'φ_actual = {result.phi_actual:.4g}, '
-            f'voxel = {result.voxel_size}³',
+            f'voxel = {result.voxel_size}³{elapsed_str}',
             style='success',
         )
         # Result block

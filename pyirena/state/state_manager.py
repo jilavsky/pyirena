@@ -451,6 +451,9 @@ class StateManager:
             "power_law_B":  0.0,
             "power_law_P":  4.0,
             "background":   0.0,
+            # Post-threshold Gaussian smoothing (in voxels) — knocks down
+            # per-voxel numerical noise.  0 = no smoothing.
+            "smooth_sigma": 1.0,
             # Misc
             "rng_seed": None,
         },

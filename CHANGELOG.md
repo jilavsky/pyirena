@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5]
+
+### Added
+
+- **SAXS Morph: invariant extrapolation outside the data Q range** —
+  matches the Igor reference's `IR3T_ExtendDataCalcParams` behaviour
+  and removes the residual ~1.6× discrepancy with Igor noted in 0.5.2.
+  - Low-Q: `I(Q→0) ≈ <I[0:5]>` (constant), contributing
+    `I0 · q_min³ / 3`.
+  - High-Q: `I(Q→∞) ≈ K·Q⁻⁴` Porod tail with
+    `K = <I·Q⁴ over last 5 points>`, contributing closed-form
+    `K / q_max` to the invariant integral.
+  - New helper `compute_invariant_extrapolated()`; both
+    `derive_contrast_from_invariant()` and
+    `derive_phi_from_invariant()` now use it.
+- **SAXS Morph: post-threshold Gaussian smoothing of the voxelgram** —
+  mimics Igor's `ImageFilter/N=5 gauss3d`, knocking down the per-voxel
+  numerical noise that comes out of the GRF realisation.
+  - New `SaxsMorphConfig.smooth_sigma` (in voxels; default 1.0).
+  - When > 0, voxelgram is `float32` in `[0, 1]` (3D viewer's
+    isosurface at 0.5 still works; 2D slice viewer renders as a
+    smooth grayscale gradient via a 256-level LUT).
+  - When 0, voxelgram stays `uint8` binary (legacy behaviour).
+  - Exposed in the GUI as **Smoothing σ [vox]** in the Voxel grid box.
+- **SAXS Morph: snappy Calculate 3D button + elapsed-time report.**
+  - The yellow "Calculating..." status banner now appears immediately
+    on click (was delayed by the synchronous compute starting before
+    Qt could repaint).  Fix uses `QTimer.singleShot(0, ...)` to defer
+    the heavy compute to the next event-loop tick.
+  - Re-entrancy guard (`_calculating` flag) prevents queued OS-level
+    clicks from re-triggering the compute after `setEnabled(False)`.
+  - Status banner now reports elapsed time, e.g.
+    `Calculate 3D done: χ² = 12.34, φ_actual = 0.31, voxel = 256³ [took 18.7 s]`.
+
 ## [0.5.4]
 
 ### Fixed

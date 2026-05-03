@@ -18,6 +18,7 @@ from pyirena.core.saxs_morph import (
     alfa_threshold, debye_autocorr, spectral_function,
     generate_voxelgram, voxelgram_to_iq,
     derive_contrast_from_invariant, derive_phi_from_invariant,
+    compute_invariant_extrapolated,
     fit_power_law_bg, fit_flat_bg,
 )
 
@@ -163,9 +164,8 @@ class TestInvariant:
         phi=0.30, the derived contrast in 10^20 cm^-4 must be
         (pi/4) * 1e4 / (2 pi^2 * 0.30 * 0.70) =~ 1894.
         """
-        from scipy.integrate import simpson
         q, I, _ = make_synthetic_dataset(I0=1.0, a=100.0)
-        Qstar_num = float(simpson(q ** 2 * I, x=q))
+        Qstar_num = compute_invariant_extrapolated(q, I)
         expected = Qstar_num * 1e4 / (2 * np.pi ** 2 * 0.30 * 0.70)
         actual = derive_contrast_from_invariant(q, I, 0.30)
         # Loose tolerance because the synthetic dataset only spans a
@@ -213,6 +213,32 @@ class TestInvariant:
         assert 0.30 < ratio < 1.5, (
             f"invariant ratio {ratio:.3g} out of band — units bug? "
             f"Qstar={Qstar_e20cm4:.3g}, expected={expected:.3g}")
+
+    def test_invariant_extrapolation_adds_to_data(self):
+        """compute_invariant_extrapolated must equal data integral + low-Q
+        + high-Q closed-form contributions.
+        """
+        from scipy.integrate import simpson
+        q, I, _ = make_synthetic_dataset()
+        Q_data = float(simpson(q ** 2 * I, x=q))
+
+        n = 5
+        I0 = float(np.mean(I[:n]))
+        Q_low_expected = I0 * q[0] ** 3 / 3.0
+
+        K = float(np.mean(I[-n:] * q[-n:] ** 4))
+        Q_high_expected = K / q[-1]
+
+        Q_total = compute_invariant_extrapolated(q, I, n_avg=n)
+        assert abs(Q_total - (Q_data + Q_low_expected + Q_high_expected)) < 1e-12
+
+    def test_invariant_no_extrapolation_when_n_avg_zero(self):
+        """n_avg=0 should reduce to bare Simpson integral."""
+        from scipy.integrate import simpson
+        q, I, _ = make_synthetic_dataset()
+        Q_data = float(simpson(q ** 2 * I, x=q))
+        Q_no_extrap = compute_invariant_extrapolated(q, I, n_avg=0)
+        assert abs(Q_no_extrap - Q_data) < 1e-12
 
     def test_recovers_known_contrast(self):
         # Build I(Q) = 2 pi**2 phi (1-phi) Drho**2 * gamma_FT(q)
@@ -362,6 +388,7 @@ class TestEngineSmoke:
             volume_fraction=0.30,
             link_phi_contrast=True,
             rng_seed=42,
+            smooth_sigma=0.0,   # explicit: keep binary uint8 output
         )
         engine = SaxsMorphEngine()
         res = engine.compute_voxelgram(cfg, q, I, dI)
@@ -377,11 +404,36 @@ class TestEngineSmoke:
         assert np.all(np.isfinite(res.model_I))
         assert res.contrast_or_link()  # see helper below
 
+    def test_compute_voxelgram_with_smoothing_returns_float32(self):
+        """With smooth_sigma > 0 the voxelgram is float32 in [0, 1]."""
+        q, I, dI = make_synthetic_dataset()
+        cfg = SaxsMorphConfig(
+            voxel_size_fit=32, voxel_size_render=32,
+            box_size_A=500.0,
+            volume_fraction=0.30,
+            link_phi_contrast=True,
+            rng_seed=42,
+            smooth_sigma=1.0,   # default, mimics Igor's gauss3d
+        )
+        engine = SaxsMorphEngine()
+        res = engine.compute_voxelgram(cfg, q, I, dI)
+        assert res.voxelgram.dtype == np.float32
+        assert res.voxelgram.shape == (32, 32, 32)
+        assert res.voxelgram.min() >= 0.0
+        assert res.voxelgram.max() <= 1.0
+        # Smoothing preserves the mean of the binary indicator.
+        assert 0.20 < res.phi_actual < 0.40
+        # Smoothing should reduce the per-voxel variance vs binary
+        # (binary cube has variance phi*(1-phi); smoothed is lower).
+        binary_var = res.phi_actual * (1.0 - res.phi_actual)
+        assert float(res.voxelgram.var()) < binary_var
+
     def test_seed_reproducible_through_engine(self):
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
             voxel_size_fit=32, voxel_size_render=32,
             box_size_A=500.0, volume_fraction=0.30, rng_seed=7,
+            smooth_sigma=0.0,
         )
         engine = SaxsMorphEngine()
         r1 = engine.compute_voxelgram(cfg, q, I, dI)
@@ -450,6 +502,7 @@ class TestHDF5RoundTrip:
             voxel_size_fit=32, voxel_size_render=32,
             box_size_A=500.0, volume_fraction=0.30,
             rng_seed=42, link_phi_contrast=True,
+            smooth_sigma=0.0,   # binary uint8 output
         )
         engine = SaxsMorphEngine()
         res = engine.compute_voxelgram(cfg, q, I, dI)

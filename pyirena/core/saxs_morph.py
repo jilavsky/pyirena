@@ -128,6 +128,14 @@ class SaxsMorphConfig:
     power_law_P: float = 4.0
     background: float = 0.0
 
+    # Post-threshold smoothing of the binary voxelgram (in voxels).
+    # Mimics Igor Pro's ``ImageFilter/N=5 gauss3d`` step that knocks
+    # down the per-voxel numerical noise in the GRF realisation.
+    # 0 = no smoothing (output stays uint8 binary).
+    # > 0 = scipy.ndimage.gaussian_filter with this sigma (output is
+    #       float32 in [0, 1]).  Default 1.0 matches Igor's default.
+    smooth_sigma: float = 1.0
+
     # ----- Backward-compatibility (deprecated, used only by Engine.fit) ----
     fit_volume_fraction: bool = False
     volume_fraction_limits: tuple = (0.05, 0.95)
@@ -311,6 +319,7 @@ def generate_voxelgram(
     voxel_size: int, box_size_A: float,
     alfa: float,
     rng_seed: Optional[int] = None,
+    smooth_sigma: float = 0.0,
 ) -> tuple[np.ndarray, float, int]:
     """Generate the binary uint8 voxelgram via the GRF FFT pipeline.
 
@@ -365,6 +374,18 @@ def generate_voxelgram(
         sigma = 1.0  # degenerate (e.g. all-zero spectrum) — return all-zeros voxelgram
 
     voxelgram = (field > alfa * sigma).astype(np.uint8)
+
+    if smooth_sigma > 0:
+        # Mimic Igor's ``ImageFilter/N=5 gauss3d`` post-processing step.
+        # Output is float32 in [0, 1] (no longer strictly binary, but
+        # the 3D viewer still renders an isosurface at 0.5 cleanly and
+        # the spectrum has its high-Q noise damped by the Gaussian's
+        # frequency response).
+        from scipy.ndimage import gaussian_filter
+        voxelgram = gaussian_filter(
+            voxelgram.astype(np.float32), sigma=float(smooth_sigma),
+        )
+
     return voxelgram, sigma, seed_used
 
 
@@ -463,6 +484,57 @@ def voxelgram_to_iq(
     return np.exp(log_It)
 
 
+def compute_invariant_extrapolated(
+    q: np.ndarray, I_corr: np.ndarray, n_avg: int = 5,
+) -> float:
+    """Porod invariant Q* = integral_0^inf I(Q) * Q**2 dQ with extrapolations
+    beyond the data range.
+
+    The numerical integral covers ``q[0]..q[-1]``.  Beyond the data ends we
+    add closed-form contributions matching the standard SAS extrapolations
+    used by the Igor reference (``IR3T_ExtendDataCalcParams``):
+
+      Low-Q  (Q < q_min)
+        Approximate I(Q) ~ I0 (constant) where
+        I0 = mean of the first ``n_avg`` data points.
+        Contribution: I0 * q_min**3 / 3.
+
+      High-Q (Q > q_max)
+        Approximate I(Q) ~ K * Q**-4 (Porod tail) where
+        K = mean of (I * Q**4) over the last ``n_avg`` data points.
+        Contribution: integral_qmax^inf K * Q**-2 dQ = K / q_max.
+
+    Returns Q*_numerical in units of [Å**-3 * cm**-1] when ``q`` is in
+    Å**-1 and ``I_corr`` is in cm**-1.
+
+    Without extrapolation (e.g. n_avg=0) the function reduces to the
+    bare Simpson integral over the data range.
+    """
+    order = np.argsort(q)
+    q_s = q[order]
+    I_s = I_corr[order]
+
+    # Numerical part
+    Q_data = float(_simpson((q_s ** 2) * I_s, x=q_s))
+
+    if n_avg <= 0 or len(q_s) < 2:
+        return Q_data
+
+    n = min(int(n_avg), len(q_s))
+
+    # Low-Q extrapolation: constant I = mean of first n points
+    q_min = float(q_s[0])
+    I0 = float(np.mean(I_s[:n]))
+    Q_low = I0 * q_min ** 3 / 3.0 if q_min > 0 else 0.0
+
+    # High-Q extrapolation: Porod tail I = K * Q^-4
+    q_max = float(q_s[-1])
+    K = float(np.mean(I_s[-n:] * q_s[-n:] ** 4))
+    Q_high = K / q_max if q_max > 0 else 0.0
+
+    return Q_data + Q_low + Q_high
+
+
 def derive_contrast_from_invariant(
     q: np.ndarray, I_corr: np.ndarray, phi: float,
 ) -> float:
@@ -491,10 +563,7 @@ def derive_contrast_from_invariant(
     used by the Igor reference implementation).
     """
     phi = float(np.clip(phi, 1e-3, 1.0 - 1e-3))
-    order = np.argsort(q)
-    q_s = q[order]
-    I_s = I_corr[order]
-    Qstar_num = float(_simpson((q_s ** 2) * I_s, x=q_s))   # A**-3 * cm**-1
+    Qstar_num = compute_invariant_extrapolated(q, I_corr)   # A**-3 * cm**-1
     Qstar_e20cm4 = Qstar_num * 1e4                          # 10**20 cm**-4
     denom = 2.0 * np.pi ** 2 * phi * (1.0 - phi)
     if denom <= 0:
@@ -524,10 +593,7 @@ def derive_phi_from_invariant(
     """
     if contrast <= 0:
         return 0.5
-    order = np.argsort(q)
-    q_s = q[order]
-    I_s = I_corr[order]
-    Qstar_num = float(_simpson((q_s ** 2) * I_s, x=q_s))   # A**-3 * cm**-1
+    Qstar_num = compute_invariant_extrapolated(q, I_corr)   # A**-3 * cm**-1
     Qstar_e20cm4 = Qstar_num * 1e4                          # 10**20 cm**-4
     # contrast is in 10**20 cm**-4 to match the inverse function above
     K = Qstar_e20cm4 / (2.0 * np.pi ** 2 * contrast)
@@ -671,6 +737,7 @@ class SaxsMorphEngine:
             spectral_k, spectral_F,
             voxel_size=N, box_size_A=config.box_size_A,
             alfa=alfa, rng_seed=config.rng_seed,
+            smooth_sigma=float(getattr(config, 'smooth_sigma', 0.0) or 0.0),
         )
         pitch = config.box_size_A / N
         phi_actual = float(voxelgram.mean())
