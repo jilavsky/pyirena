@@ -427,6 +427,39 @@ class StateManager:
                 ],
             ],
         },
+        "saxs_morph": {
+            # schema_version 1: initial release
+            "schema_version": 1,
+            # Q range (None = use full data range)
+            "q_min": None,
+            "q_max": None,
+            # Voxel grid
+            "voxel_size_fit":    128,
+            "voxel_size_render": 256,
+            "box_size_A":        1000.0,
+            # Two-phase parameters
+            "volume_fraction":          0.30,
+            "fit_volume_fraction":      True,
+            "volume_fraction_limits":   [0.05, 0.95],
+            "contrast":                 1.0,
+            "fit_contrast":             False,
+            "contrast_limits":          [0.0, 1e10],
+            "link_phi_contrast":        True,
+            # Background (Power-law + Flat)
+            "power_law_B":          0.0,
+            "fit_power_law_B":      False,
+            "power_law_B_limits":   [0.0, 1e10],
+            "power_law_P":          4.0,
+            "fit_power_law_P":      False,
+            "power_law_P_limits":   [0.0, 6.0],
+            "background":           0.0,
+            "fit_background":       False,
+            "background_limits":    [0.0, 1e10],
+            # Misc
+            "no_limits":   False,
+            "n_mc_runs":   10,
+            "rng_seed":    None,
+        },
     }
 
     def __init__(self, state_file: Optional[Path] = None):
