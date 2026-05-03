@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7]
+
+### Changed
+
+- **SAXS Morph: removed "Cube side (fit)" from the GUI** — it had no
+  effect. The two-combo design came from an abandoned idea of running an
+  optimiser loop at a small voxel size (fit) then rendering at a larger
+  one (render). Since there is no iterative fitting in the current
+  workflow (Calculate 3D always runs once at the chosen resolution),
+  both controls pointed at the same step and the "fit" one was silently
+  ignored. The Voxel grid box now has a single "Cube side" combo with
+  an improved tooltip listing expected compute times and RAM usage.
+  The underlying `SaxsMorphConfig.voxel_size_fit` field is kept for
+  backward compatibility with the deprecated `engine.fit()` API and is
+  automatically set equal to `voxel_size_render` by the GUI.
+
 ## [0.5.6]
 
 ### Fixed

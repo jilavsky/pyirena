@@ -810,48 +810,47 @@ class SaxsMorphPanel(QWidget):
         g = QGridLayout(gb)
         g.setVerticalSpacing(4)
 
-        g.addWidget(QLabel('Cube side (fit):'), 0, 0)
-        self.fit_size_combo = QComboBox()
-        for n in ALLOWED_VOXEL_SIZES:
-            if n <= MAX_FIT_VOXEL_SIZE:
-                self.fit_size_combo.addItem(f'{n}³', n)
-        self.fit_size_combo.setCurrentIndex(1)  # 128
-        self.fit_size_combo.setToolTip(
-            f'Voxel cube side used during the fit loop. '
-            f'Hard limit {MAX_FIT_VOXEL_SIZE}³ for memory safety.'
-        )
-        g.addWidget(self.fit_size_combo, 0, 1)
-
-        g.addWidget(QLabel('Cube side (render):'), 1, 0)
+        g.addWidget(QLabel('Cube side:'), 0, 0)
         self.render_size_combo = QComboBox()
         for n in ALLOWED_VOXEL_SIZES:
             self.render_size_combo.addItem(f'{n}³', n)
         self.render_size_combo.setCurrentIndex(2)  # 256
         self.render_size_combo.setToolTip(
-            'Final voxel cube used for the saved result and 3D viewer. '
-            'Larger values cost RAM and disk; 256³ is a good default.'
+            'Edge length of the cubic simulation box in voxels.\n'
+            'Determines voxel pitch = Box size / Cube side.\n'
+            'Larger values give better Q resolution and finer structure\n'
+            'but cost more RAM and time:\n'
+            '  64³  ~< 1 s    16 MB RAM\n'
+            '  128³ ~  5 s    16 MB RAM\n'
+            '  256³ ~ 15 s   125 MB RAM\n'
+            '  384³ ~ 40 s   430 MB RAM\n'
+            '  512³ ~120 s     1 GB RAM'
         )
-        g.addWidget(self.render_size_combo, 1, 1)
+        g.addWidget(self.render_size_combo, 0, 1)
 
-        g.addWidget(QLabel('Box size [Å]:'), 2, 0)
+        g.addWidget(QLabel('Box size [Å]:'), 1, 0)
         self.box_size_edit = QLineEdit('1000')
         self.box_size_edit.setValidator(QDoubleValidator(1.0, 1e9, 4))
         self.box_size_edit.setToolTip(
-            'Physical edge length of the cubic simulation box. '
-            'Determines voxel pitch = box_size / cube_side.'
+            'Physical edge length of the cubic simulation box.\n'
+            'Voxel pitch = Box size / Cube side.\n'
+            'Choose so that the pitch is smaller than the correlation\n'
+            'length of interest and the box is at least a few correlation\n'
+            'lengths across (e.g. pitch ~ 5 Å for a 20 Å feature).'
         )
-        g.addWidget(self.box_size_edit, 2, 1)
+        g.addWidget(self.box_size_edit, 1, 1)
 
-        g.addWidget(QLabel('RNG seed:'), 3, 0)
+        g.addWidget(QLabel('RNG seed:'), 2, 0)
         self.seed_edit = QLineEdit('')
         self.seed_edit.setPlaceholderText('(blank = random)')
         self.seed_edit.setToolTip(
-            'Integer for reproducible voxelgrams. Leave blank to draw a '
-            'fresh seed each Graph Model / Fit.'
+            'Integer for reproducible voxelgrams.\n'
+            'Leave blank for a fresh random realisation each time.\n'
+            'Fix to an integer to reproduce a published figure.'
         )
-        g.addWidget(self.seed_edit, 3, 1)
+        g.addWidget(self.seed_edit, 2, 1)
 
-        g.addWidget(QLabel('Smoothing σ [vox]:'), 4, 0)
+        g.addWidget(QLabel('Smoothing σ [vox]:'), 3, 0)
         self.smooth_edit = QLineEdit('1.0')
         self.smooth_edit.setValidator(QDoubleValidator(0.0, 10.0, 4))
         self.smooth_edit.setToolTip(
@@ -862,7 +861,7 @@ class SaxsMorphPanel(QWidget):
             '  1.0  = mild smoothing (recommended default, matches Igor)\n'
             '  >2   = heavy smoothing, may wash out fine features'
         )
-        g.addWidget(self.smooth_edit, 4, 1)
+        g.addWidget(self.smooth_edit, 3, 1)
 
         return gb
 
@@ -1046,7 +1045,6 @@ class SaxsMorphPanel(QWidget):
 
     def _current_state(self) -> dict:
         st = {
-            'voxel_size_fit':    self.fit_size_combo.currentData(),
             'voxel_size_render': self.render_size_combo.currentData(),
             'box_size_A':        _parse(self.box_size_edit.text(), 1000.0),
             'rng_seed':          _parse_int_optional(self.seed_edit.text()),
@@ -1078,7 +1076,6 @@ class SaxsMorphPanel(QWidget):
         st = self._state.get('saxs_morph') or {}
 
         # Voxel grid
-        self._select_combo_value(self.fit_size_combo, st.get('voxel_size_fit', 128))
         self._select_combo_value(self.render_size_combo, st.get('voxel_size_render', 256))
         self.box_size_edit.setText(_fmt(st.get('box_size_A', 1000.0)))
         seed = st.get('rng_seed')
@@ -1243,8 +1240,8 @@ class SaxsMorphPanel(QWidget):
             power_law_q_max=st['power_law_q_max'],
             background_q_min=st['background_q_min'],
             background_q_max=st['background_q_max'],
-            voxel_size_fit=int(st['voxel_size_fit']),
             voxel_size_render=int(st['voxel_size_render']),
+            voxel_size_fit=int(st['voxel_size_render']),  # same — fit loop is not used
             box_size_A=float(st['box_size_A']),
             input_mode=st['input_mode'],
             volume_fraction=float(st['volume_fraction']),
