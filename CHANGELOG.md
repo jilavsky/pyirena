@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2]
+
+### Fixed
+
+- **SAXS Morph: critical Å↔cm unit conversion bug.** Two related errors in
+  the math gave nonsensical contrast values and grossly inflated model
+  intensity:
+  - `derive_contrast_from_invariant()` and `derive_phi_from_invariant()`
+    integrated `Q²·I·dQ` numerically with Q in Å⁻¹ and I in cm⁻¹, giving
+    a result in Å⁻³·cm⁻¹ — but treated it as if it were in cm⁻⁴ (or
+    10²⁰ cm⁻⁴). Missing factor: 10⁴. For a typical sample where Igor
+    reports Δρ² = 34, pyirena 0.5.1 returned 0.005559 (6116× too low,
+    or 1.6× off after this fix once you account for Igor's Q*
+    extrapolations beyond the data window).
+  - `voxelgram_to_iq()` multiplied the per-bin `<|FFT|²>/N³` by the box
+    volume `(N·pitch)³` instead of just `pitch³`, double-counting N³.
+    It also omitted the Å³→cm³ conversion (10⁻²⁴) needed when contrast
+    is in 10²⁰ cm⁻⁴ and the result must be in cm⁻¹. Combined error:
+    `N³ × 10⁴` too high in the structure factor — for N=256, ~10¹¹×
+    too high. With contrast self-derived from the (also buggy) invariant,
+    the two 10⁴ factors cancelled but the spurious N³ remained, leaving
+    the model curve ~N³ ≈ 10⁷–10⁸ above the data.
+  - Both formulas now use explicit `× 1e4` and `× 1e-4` factors with
+    inline derivations in the docstrings/comments, and a new self-
+    consistency test (`test_voxelgram_iq_is_in_per_cm_when_contrast_is_e20cm4`)
+    verifies that integrating the model `Q²·I·dQ` reproduces
+    `2π²·φ(1−φ)·Δρ²` to within a numerical-aperture factor of ~1.5
+    (a stray 10⁴ or N³ would push it off by orders of magnitude).
+  - 28 tests pass (was 26).
+
 ## [0.5.1]
 
 ### Changed

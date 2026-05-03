@@ -430,13 +430,26 @@ def voxelgram_to_iq(
     k_keep = k_radial[nonzero]
     I_keep = I_radial[nonzero]
 
-    # Multiply by box volume so I_struct(Q) has units of 1/cm when contrast
-    # is in 10**20 cm**-4 and lengths are in A.  (See e.g. Levitz 2007 and
-    # IR3T_AvgIntensityFromBox in the Igor source: factor V = (N*pitch)**3
-    # is needed because the FFT defines the structure factor without
-    # normalisation by sample volume.)
-    V_box = (N * pitch) ** 3
-    I_keep = I_keep * V_box
+    # Convert from <|F_DFT|^2>/N**3 (dimensionless) to a structure-factor
+    # pre-factor with the right units so that I [cm**-1] = contrast
+    # [10**20 cm**-4] * I_struct.
+    #
+    # Continuous Fourier transform vs DFT:
+    #   F_continuous(q) ~= pitch**3 * F_DFT(k)
+    #   |F_continuous|**2 ~= pitch**6 * |F_DFT|**2
+    #   S(q) [length**3] = |F_continuous|**2 / V_sample
+    #                     = pitch**3 / N**3 * |F_DFT|**2
+    #
+    # In cm units: S(q) [cm**3] = pitch_A**3 * 10**(-24) / N**3 * <|F_DFT|^2>
+    #   I [cm**-1] = (Delta rho)**2 [cm**-4] * S [cm**3]
+    #              = (contrast_e20cm4 * 10**20) * pitch_A**3 * 10**(-24)/N**3 * <|F|^2>
+    #              = contrast_e20cm4 * pitch_A**3 * 10**(-4)/N**3 * <|F|^2>
+    #              = contrast_e20cm4 * pitch_A**3 * 10**(-4) * (<|F|^2>/N**3)
+    #
+    # I_keep currently equals <|F|^2>/N**3, so multiply by pitch_A**3 * 1e-4
+    # (NOT by the (N*pitch)**3 box volume — that double-counted N**3 and
+    #  was missing the 10**(-24) Angstrom-to-cm conversion).
+    I_keep = I_keep * (pitch ** 3) * 1e-4
 
     # Log-log interpolation onto q_target.  Outside the table return small
     # but positive values to keep ratios well-behaved.
@@ -455,19 +468,38 @@ def derive_contrast_from_invariant(
 ) -> float:
     """Compute (Delta rho)**2 from the Porod invariant.
 
-    Q* = integral_0^inf I_corr(Q) * Q**2 dQ = 2 * pi**2 * phi * (1 - phi) * (Delta rho)**2
+    Q* = integral_0^inf I(Q) * Q**2 dQ = 2 * pi**2 * phi * (1 - phi) * (Delta rho)**2
 
-    so (Delta rho)**2 = Q* / ( 2 * pi**2 * phi * (1 - phi) )
+    Unit conversion
+    ---------------
+    With I in cm**-1 and Q in A**-1 (the pyirena standard), the *numerical*
+    integral has units of A**-3 * cm**-1.  But the right-hand side of the
+    invariant identity is in cm**-4 (or 10**20 cm**-4 in the SAS-conventional
+    "1e20" reporting unit).  Since 1 A**-1 = 10**8 cm**-1, we have
+
+        Q*_numerical [A**-3 * cm**-1] * 10**24 = Q*_proper [cm**-4]
+
+    and dividing by 10**20 to express the result in 10**20 cm**-4 leaves a
+    net factor of 10**4 multiplying the numerical integral.  This is the
+    (10**4) constant in the formula below; it is the difference between
+    the value Igor reports and the unit-naive integration we used in
+    pyirena <= 0.5.1.
+
+    Returns
+    -------
+    Delta rho**2 in 10**20 cm**-4 (the standard SAS reporting unit, also
+    used by the Igor reference implementation).
     """
     phi = float(np.clip(phi, 1e-3, 1.0 - 1e-3))
     order = np.argsort(q)
     q_s = q[order]
     I_s = I_corr[order]
-    Qstar = float(_simpson((q_s ** 2) * I_s, x=q_s))
+    Qstar_num = float(_simpson((q_s ** 2) * I_s, x=q_s))   # A**-3 * cm**-1
+    Qstar_e20cm4 = Qstar_num * 1e4                          # 10**20 cm**-4
     denom = 2.0 * np.pi ** 2 * phi * (1.0 - phi)
     if denom <= 0:
         return 0.0
-    return Qstar / denom
+    return Qstar_e20cm4 / denom
 
 
 def derive_phi_from_invariant(
@@ -495,8 +527,10 @@ def derive_phi_from_invariant(
     order = np.argsort(q)
     q_s = q[order]
     I_s = I_corr[order]
-    Qstar = float(_simpson((q_s ** 2) * I_s, x=q_s))
-    K = Qstar / (2.0 * np.pi ** 2 * contrast)
+    Qstar_num = float(_simpson((q_s ** 2) * I_s, x=q_s))   # A**-3 * cm**-1
+    Qstar_e20cm4 = Qstar_num * 1e4                          # 10**20 cm**-4
+    # contrast is in 10**20 cm**-4 to match the inverse function above
+    K = Qstar_e20cm4 / (2.0 * np.pi ** 2 * contrast)
     disc = 1.0 - 4.0 * K
     if disc < 0:
         return 0.5

@@ -152,6 +152,68 @@ class TestVoxelgramToIQ:
 # ---------------------------------------------------------------------------
 
 class TestInvariant:
+    def test_units_are_10e20_cm_minus_4(self):
+        """Contrast must be returned in 10^20 cm^-4 (matches Igor convention).
+
+        Pin the unit-conversion factor so a future refactor cannot silently
+        drop the Angstrom-to-cm factor (10^4) that we added in 0.5.2.
+
+        Synthetic Debye-Bueche I(Q) with I0 = 1 has the closed-form
+        invariant Q* = pi/4 (in numerical Å^-3 cm^-1 units).  So with
+        phi=0.30, the derived contrast in 10^20 cm^-4 must be
+        (pi/4) * 1e4 / (2 pi^2 * 0.30 * 0.70) =~ 1894.
+        """
+        from scipy.integrate import simpson
+        q, I, _ = make_synthetic_dataset(I0=1.0, a=100.0)
+        Qstar_num = float(simpson(q ** 2 * I, x=q))
+        expected = Qstar_num * 1e4 / (2 * np.pi ** 2 * 0.30 * 0.70)
+        actual = derive_contrast_from_invariant(q, I, 0.30)
+        # Loose tolerance because the synthetic dataset only spans a
+        # finite Q range, so simpson != closed form.
+        assert abs(actual - expected) / expected < 1e-9
+
+    def test_voxelgram_iq_is_in_per_cm_when_contrast_is_e20cm4(self):
+        """Verify the absolute-units relationship between voxelgram_to_iq
+        and Porod's invariant identity.
+
+        For a uniform random voxelgram of volume fraction phi, the
+        reconstructed I(Q) integrated as Q* = sum(Q^2 I dQ) * 1e4 should
+        equal 2 pi^2 * phi(1-phi) * Delta rho^2 (in 10^20 cm^-4) up to a
+        numerical-aperture factor.  We cannot achieve full agreement because
+        the voxelgram only resolves Q < pi/pitch — but we should be within
+        a factor of ~2 of the theoretical invariant for a binary cube,
+        confirming the units are right (a stray factor of N^3 or 10^4
+        would push us off by orders of magnitude).
+        """
+        from scipy.integrate import simpson
+        rng = np.random.default_rng(7)
+        N, pitch = 32, 10.0  # box edge = 320 A
+        # Spatially-correlated binary cube (random + Gaussian smoothing)
+        # so the FFT spectrum is concentrated below pi/pitch and we're
+        # not throwing away half the variance to high-Q aliasing.
+        from scipy.ndimage import gaussian_filter
+        field = rng.standard_normal((N, N, N))
+        field = gaussian_filter(field, sigma=2.0)
+        threshold = np.percentile(field, 70)        # phi ~= 0.30
+        vox = (field > threshold).astype(np.uint8)
+        phi_actual = float(vox.mean())
+        contrast = 1.0  # in 10^20 cm^-4
+
+        q = np.logspace(-4, np.log10(np.pi / pitch * 0.9), 300)  # A^-1
+        I_struct = voxelgram_to_iq(vox, voxel_pitch_A=pitch, q_target=q)
+        I_model = contrast * I_struct  # cm^-1
+
+        Qstar_num = float(simpson(q ** 2 * I_model, x=q))  # A^-3 cm^-1
+        Qstar_e20cm4 = Qstar_num * 1e4
+        expected = 2 * np.pi ** 2 * phi_actual * (1 - phi_actual) * contrast
+
+        # Within a factor of 2 — our Q range only covers low-Q, missing
+        # some high-Q content.  But it should NOT be off by 1e4 or N^3.
+        ratio = Qstar_e20cm4 / expected
+        assert 0.30 < ratio < 1.5, (
+            f"invariant ratio {ratio:.3g} out of band — units bug? "
+            f"Qstar={Qstar_e20cm4:.3g}, expected={expected:.3g}")
+
     def test_recovers_known_contrast(self):
         # Build I(Q) = 2 pi**2 phi (1-phi) Drho**2 * gamma_FT(q)
         # Easiest sanity check: invariant of any I should be > 0 and the
