@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1]
+
+### Changed
+
+- **SAXS Morph: workflow rework to match the Igor Pro reference.** The
+  initial 0.5.0 release treated φ, contrast, B/P, and the flat background
+  as iteratively-fittable parameters via least_squares — but in the
+  Berk/Roberts/Levitz GRF method these are not free parameters. The
+  voxelgram is computed deterministically from φ (or contrast) plus a
+  spectral function derived from the data; the only true fits are the
+  two background pre-fits.
+  - Background tabs renamed to **Power-law Bckg** and **Flat Bckg**.
+    Each tab now has its own Q range fields, a **Set from cursors**
+    button, and a **Fit *Bckg** button that runs the pre-fit over that
+    range. The Power-law fit is a log-log linear regression; the flat
+    fit is a median over the high-Q window after the power-law has been
+    subtracted.
+  - Two-phase parameters box now has an **Input mode** combo with three
+    options: *Input φ → derive Δρ²*, *Input Δρ² → derive φ*, *Use both
+    as-is*. The non-input field is greyed out and auto-updated.
+  - **Fit / Cancel / MC uncertainty / Revert** buttons removed from
+    the GUI; the main action is now a single big green **Calculate 3D**
+    button that runs `compute_voxelgram()` synchronously at the render
+    resolution.
+  - Headless `pyirena.batch.fit_saxs_morph()` rewritten to follow the
+    same three-step workflow: Power-law pre-fit → Flat pre-fit →
+    Calculate 3D. Each pre-fit is skipped if its Q range is missing.
+  - State schema bumped to v2 with new `input_mode`, `power_law_q_min/max`,
+    `background_q_min/max` fields. Old v1 states migrate automatically
+    (`link_phi_contrast=True` ⇒ `input_mode='phi'`).
+  - New engine helpers `fit_power_law_bg()`, `fit_flat_bg()`, and
+    `derive_phi_from_invariant()`. Documented `Engine.fit()` and
+    `calculate_uncertainty_mc()` as deprecated (kept for back-compat).
+  - 11 new unit tests (26 total) covering the helpers, the φ ↔ contrast
+    round-trip, and the three input-mode resolutions.
+- Documentation rewrite of `docs/saxs_morph_gui.md` to describe the new
+  workflow, panel layout, parameter table, and scripting recipes.
+
+### Fixed
+
+- **gui3d**: vtk version pin `<9.5` excluded the only currently-available
+  PyPI wheels (vtk 9.6.x). Upper bounds dropped on `pyvista` and `vtk`
+  so pip can resolve to the latest available release on any platform.
+
 ## [0.5.0]
 
 ### Added

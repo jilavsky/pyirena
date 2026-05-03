@@ -16,7 +16,9 @@ import pytest
 from pyirena.core.saxs_morph import (
     SaxsMorphConfig, SaxsMorphResult, SaxsMorphEngine,
     alfa_threshold, debye_autocorr, spectral_function,
-    generate_voxelgram, voxelgram_to_iq, derive_contrast_from_invariant,
+    generate_voxelgram, voxelgram_to_iq,
+    derive_contrast_from_invariant, derive_phi_from_invariant,
+    fit_power_law_bg, fit_flat_bg,
 )
 
 
@@ -162,6 +164,127 @@ class TestInvariant:
         assert c_a > 0 and c_b > 0
         ratio = c_b / c_a
         assert 9.0 < ratio < 11.0
+
+    def test_phi_from_contrast_inverse_of_contrast_from_phi(self):
+        # Round-trip: φ → contrast → φ should recover the input φ.
+        q, I, _ = make_synthetic_dataset()
+        for phi_in in (0.1, 0.2, 0.35, 0.49):
+            c = derive_contrast_from_invariant(q, I, phi_in)
+            phi_back = derive_phi_from_invariant(q, I, c)
+            assert abs(phi_back - phi_in) < 1e-6, (
+                f"round-trip mismatch: phi_in={phi_in}, phi_back={phi_back}")
+
+    def test_phi_from_contrast_handles_too_high_contrast(self):
+        # If contrast is set very high so that 1 - 4K is negative,
+        # function should fail gracefully (return 0.5 sentinel).
+        q, I, _ = make_synthetic_dataset()
+        result = derive_phi_from_invariant(q, I, contrast=1e-30)
+        # Tiny contrast → K huge → disc < 0 → sentinel
+        assert result == 0.5
+
+    def test_phi_from_contrast_zero_contrast_safe(self):
+        q, I, _ = make_synthetic_dataset()
+        assert derive_phi_from_invariant(q, I, contrast=0.0) == 0.5
+        assert derive_phi_from_invariant(q, I, contrast=-1.0) == 0.5
+
+
+class TestPreFitHelpers:
+    def test_power_law_recovers_known_slope(self):
+        # Synthesise pure power-law I = B0 * q^-P0; the fit must recover B0, P0.
+        B0, P0 = 1e-4, 4.0
+        q = np.logspace(-3, 0, 200)
+        I = B0 * q ** -P0
+        B, P = fit_power_law_bg(q, I, q_min=1e-3, q_max=1e-1)
+        assert abs(P - P0) < 1e-6
+        assert abs(B - B0) / B0 < 1e-6
+
+    def test_power_law_robust_to_window(self):
+        # Power-law plus a small Gaussian peak at high Q.  The pre-fit
+        # window should isolate the low-Q power-law region cleanly.
+        B0, P0 = 1e-4, 4.0
+        q = np.logspace(-3, 0, 300)
+        I = B0 * q ** -P0 + 1e-6 * np.exp(-((q - 0.3) / 0.05) ** 2)
+        B, P = fit_power_law_bg(q, I, q_min=1e-3, q_max=1e-2)
+        # Low-Q window should be uncontaminated by the peak.
+        assert abs(P - P0) < 0.1
+        assert abs(B - B0) / B0 < 0.1
+
+    def test_power_law_empty_window(self):
+        q = np.logspace(-3, 0, 100)
+        I = q ** -4
+        # Window outside the data range → fall back to defaults
+        B, P = fit_power_law_bg(q, I, q_min=10.0, q_max=100.0)
+        assert (B, P) == (0.0, 4.0)
+
+    def test_flat_bg_recovers_constant(self):
+        q = np.logspace(-3, 0, 300)
+        # Pure flat background of 0.05 with some power law thrown in.
+        flat0 = 0.05
+        I = 1e-4 * q ** -4 + flat0
+        # Fit power law first to subtract it before the flat-bg call.
+        bg = fit_flat_bg(q, I, q_min=0.5, q_max=1.0,
+                         power_law_B=1e-4, power_law_P=4.0)
+        assert abs(bg - flat0) < 1e-3
+
+    def test_flat_bg_empty_window(self):
+        q = np.logspace(-3, 0, 100)
+        I = np.ones_like(q)
+        bg = fit_flat_bg(q, I, q_min=10.0, q_max=100.0)
+        assert bg == 0.0
+
+
+class TestInputModeResolution:
+    def test_compute_voxelgram_input_mode_phi(self):
+        # mode='phi': contrast must be derived (not equal to the input value
+        # of 999.0, which would give absurd model intensity).
+        q, I, dI = make_synthetic_dataset()
+        cfg = SaxsMorphConfig(
+            voxel_size_fit=32, voxel_size_render=32,
+            box_size_A=500.0,
+            input_mode='phi',
+            volume_fraction=0.30, contrast=999.0,  # contrast should be overwritten
+            rng_seed=42,
+        )
+        engine = SaxsMorphEngine()
+        res = engine.compute_voxelgram(cfg, q, I, dI)
+        assert res.config.contrast != 999.0
+        assert res.config.contrast > 0
+        # phi should be unchanged
+        assert abs(res.config.volume_fraction - 0.30) < 1e-12
+
+    def test_compute_voxelgram_input_mode_contrast(self):
+        # mode='contrast': phi must be derived (overrides the 0.99 input).
+        q, I, dI = make_synthetic_dataset()
+        # First, find a self-consistent (phi, contrast) pair.
+        contrast0 = derive_contrast_from_invariant(q, I, phi=0.30)
+
+        cfg = SaxsMorphConfig(
+            voxel_size_fit=32, voxel_size_render=32,
+            box_size_A=500.0,
+            input_mode='contrast',
+            volume_fraction=0.99,  # should be overwritten
+            contrast=contrast0,
+            rng_seed=42,
+        )
+        engine = SaxsMorphEngine()
+        res = engine.compute_voxelgram(cfg, q, I, dI)
+        assert abs(res.config.contrast - contrast0) < 1e-12  # unchanged
+        assert abs(res.config.volume_fraction - 0.30) < 1e-3  # derived back
+
+    def test_compute_voxelgram_input_mode_both(self):
+        # mode='both': both inputs are honored exactly.
+        q, I, dI = make_synthetic_dataset()
+        cfg = SaxsMorphConfig(
+            voxel_size_fit=32, voxel_size_render=32,
+            box_size_A=500.0,
+            input_mode='both',
+            volume_fraction=0.30, contrast=2.5,
+            rng_seed=42,
+        )
+        engine = SaxsMorphEngine()
+        res = engine.compute_voxelgram(cfg, q, I, dI)
+        assert abs(res.config.contrast - 2.5) < 1e-12
+        assert abs(res.config.volume_fraction - 0.30) < 1e-12
 
 
 # ---------------------------------------------------------------------------

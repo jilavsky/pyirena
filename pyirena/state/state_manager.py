@@ -428,37 +428,31 @@ class StateManager:
             ],
         },
         "saxs_morph": {
-            # schema_version 1: initial release
-            "schema_version": 1,
-            # Q range (None = use full data range)
+            # schema_version 2: workflow rework — background pre-fits with their
+            #                   own Q ranges + input_mode combo (no model fit).
+            "schema_version": 2,
+            # Modelling Q range (driven by main I(Q) cursors)
             "q_min": None,
             "q_max": None,
+            # Background pre-fit Q ranges (set via "Set from cursors" button)
+            "power_law_q_min":  None,
+            "power_law_q_max":  None,
+            "background_q_min": None,
+            "background_q_max": None,
             # Voxel grid
             "voxel_size_fit":    128,
             "voxel_size_render": 256,
             "box_size_A":        1000.0,
             # Two-phase parameters
-            "volume_fraction":          0.30,
-            "fit_volume_fraction":      True,
-            "volume_fraction_limits":   [0.05, 0.95],
-            "contrast":                 1.0,
-            "fit_contrast":             False,
-            "contrast_limits":          [0.0, 1e10],
-            "link_phi_contrast":        True,
-            # Background (Power-law + Flat)
-            "power_law_B":          0.0,
-            "fit_power_law_B":      False,
-            "power_law_B_limits":   [0.0, 1e10],
-            "power_law_P":          4.0,
-            "fit_power_law_P":      False,
-            "power_law_P_limits":   [0.0, 6.0],
-            "background":           0.0,
-            "fit_background":       False,
-            "background_limits":    [0.0, 1e10],
+            "input_mode":      "phi",   # 'phi' | 'contrast' | 'both'
+            "volume_fraction": 0.30,
+            "contrast":        1.0,
+            # Background values (populated by pre-fits)
+            "power_law_B":  0.0,
+            "power_law_P":  4.0,
+            "background":   0.0,
             # Misc
-            "no_limits":   False,
-            "n_mc_runs":   10,
-            "rng_seed":    None,
+            "rng_seed": None,
         },
     }
 

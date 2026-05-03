@@ -31,7 +31,7 @@ References:
 7. [3D viewer controls](#3d-viewer-controls)
 8. [2D slice viewer](#2d-slice-viewer)
 9. [Pop-out mode](#pop-out-mode)
-10. [Fitting and MC uncertainty](#fitting-and-mc-uncertainty)
+10. [Calculate 3D](#calculate-3d)
 11. [Performance and memory notes](#performance-and-memory-notes)
 12. [HDF5 output format](#hdf5-output-format)
 13. [Limitations (v1)](#limitations-v1)
@@ -41,22 +41,41 @@ References:
 
 ## Overview
 
-Algorithm pipeline for one Graph Model / Fit iteration:
+The SAXS Morph method is **not an iterative fit** of model parameters.
+Given the data invariant Q* and one of (φ, Δρ²), the *other* is uniquely
+determined (Q* = 2π² φ(1−φ) Δρ²). Once those are set, the spectral
+function F(k) is derived from the data, and the voxelgram is generated
+**deterministically** from F(k) plus a random seed. No model parameter
+is varied to minimise χ². The only true fits are the two **background
+pre-fits**.
 
-1. Subtract user background (Power-law + Flat) from the data → `I_corr(Q)`.
-2. Sinc-transform `Q² · I_corr(Q)` → Debye autocorrelation γ(r); normalise
-   γ(0) = 1.
-3. Sinc-transform γ(r) · r² → spectral density F(k); clip negative bins.
-4. Threshold parameter α = √2 · erfinv(1 − 2φ).
-5. Generate 3D Gaussian white noise → FFT → multiply by √F(|k₃ᴅ|) →
+Algorithm pipeline for one **Calculate 3D** click:
+
+1. Subtract the user-supplied background (Power-law + Flat) from the
+   data → `I_corr(Q)`.
+2. Resolve (φ, Δρ²) according to **Input mode**:
+   - mode `phi`: user supplies φ; Δρ² is computed from the invariant.
+   - mode `contrast`: user supplies Δρ²; φ is computed from the invariant.
+   - mode `both`: both are used as supplied (no derivation).
+3. Sinc-transform `Q² · I_corr(Q)` → Debye autocorrelation γ(r);
+   normalise γ(0) = 1.
+4. Sinc-transform γ(r) · r² → spectral density F(k); clip negative bins.
+5. Threshold parameter α = √2 · erfinv(1 − 2φ).
+6. Generate 3D Gaussian white noise → FFT → multiply by √F(|k₃ᴅ|) →
    inverse FFT → real scalar field.
-6. Threshold the scalar field at α·σ → binary uint8 cube.
-7. FFT the (mean-subtracted) voxelgram → spherically average |F(k)|² →
+7. Threshold the scalar field at α·σ → binary uint8 voxelgram.
+8. FFT the (mean-subtracted) voxelgram → spherically average |F(k)|² →
    resample onto Q grid → multiply by contrast.
-8. Add background back and compute χ² against data.
+9. Add background back and compute χ² against data (as a quality metric,
+   not a fit objective).
 
-The fit varies any of `volume_fraction`, `contrast` (when not linked),
-`power_law_B`, `power_law_P`, `background` to minimise χ².
+The two background pre-fits performed before step 1:
+
+- **Power-law**: linear least-squares fit of log10(I) = log10(B) − P·log10(Q)
+  over a user-selected low-Q window where the data is dominated by the
+  Porod tail.
+- **Flat background**: median of (I − Power-law) over a user-selected
+  high-Q window where the structural scattering has decayed.
 
 ---
 
@@ -83,92 +102,110 @@ python -m pyirena.gui.saxs_morph_panel path/to/file.h5
 ## Panel layout
 
 ```
-┌─────────────────────────────┬────────────────────────────────────────────┐
-│  Left controls (~440 px)     │  Right graphs / 3D                         │
-│                              │                                            │
-│  SAXS Morph    [? Help]      │  ┌─────────────────────────────────────┐   │
-│  Data file:  ………  [Open…]   │  │  I(Q)  log-log                      │   │
-│  Q range: 0.001 to 0.3 Å⁻¹   │  │   • Data scatter                     │   │
-│  ┌─ Voxel grid ─────────┐    │  │   • Data − background scatter        │   │
-│  │ Cube side (fit):  128│    │  │   • Red model line                   │   │
-│  │ Cube side (rendr):256│    │  │   • Two cursors (red Qmin / blue)    │   │
-│  │ Box size [Å]:    1000│    │  └─────────────────────────────────────┘   │
-│  │ RNG seed:  (blank=…) │    │  ┌────────────────┬───────────────────┐   │
-│  └──────────────────────┘    │  │ 2D slice       │ 3D PyVista        │   │
-│  ┌─ Two-phase ─────────┐     │  │ XY/XZ/YZ combo │ rotate w/ mouse   │   │
-│  │ φ:        Fit lo hi │     │  │ slider         │ right-click menu  │   │
-│  │ Δρ²:      Fit lo hi │     │  │  [Pop out ⤢]   │  [Pop out ⤢]      │   │
-│  │ ☑ Link via invariant│     │  └────────────────┴───────────────────┘   │
-│  └─────────────────────┘     │                                            │
-│  ┌ Background tabs ─────┐    │  Status bar                                │
-│  │ Power-law │  Flat    │    │  Fit done. χ² = 12.34, φ_actual = 0.31    │
-│  │  B        Fit lo hi  │    │                                            │
-│  │  P        Fit lo hi  │    │                                            │
-│  └──────────────────────┘    │                                            │
-│  ☐ No limits (Nelder-Mead)   │                                            │
-│  [Graph Model] [Fit] [Cancel]│                                            │
-│  Passes: 10  [MC] [Revert]   │                                            │
-│  Result block (chi², φ, …)   │                                            │
-│  [Save Result to HDF5…]      │                                            │
-└─────────────────────────────┴────────────────────────────────────────────┘
+┌─────────────────────────────────┬────────────────────────────────────────────┐
+│  Left controls (~440 px)         │  Right graphs / 3D                         │
+│                                  │                                            │
+│  SAXS Morph     [? Help]         │  ┌─────────────────────────────────────┐  │
+│  Data file:  ………   [Open…]      │  │  I(Q)  log-log                      │  │
+│  Q range: 0.001 to 0.3 Å⁻¹       │  │   • Data scatter                     │  │
+│  ┌─ Voxel grid ──────────┐       │  │   • Data − background scatter        │  │
+│  │ Cube side (render): 256│      │  │   • Red model line                   │  │
+│  │ Box size [Å]:      1000│      │  │   • Two cursors (red Qmin / blue)    │  │
+│  │ RNG seed:    (blank=…) │      │  └─────────────────────────────────────┘  │
+│  └────────────────────────┘      │  ┌────────────────┬───────────────────┐  │
+│  ┌─ Two-phase ─────────────┐     │  │ 2D slice       │ 3D PyVista        │  │
+│  │ Input mode: [φ → derive Δρ²]│ │  │ XY/XZ/YZ combo │ rotate w/ mouse   │  │
+│  │ φ:    [0.30]  (input)       │ │  │ slider         │ right-click menu  │  │
+│  │ Δρ²:  [3.21]  (derived)     │ │  │  [Pop out ⤢]   │  [Pop out ⤢]      │  │
+│  └─────────────────────────────┘ │  └────────────────┴───────────────────┘  │
+│  ┌ Background tabs ──────────┐   │  Status bar                                │
+│  │ Power-law Bckg │ Flat Bckg│   │  Calculate 3D done. χ² = 12.34            │
+│  │  Q range: [0.001..0.005]  │   │                                            │
+│  │  [Set from cursors]        │   │                                            │
+│  │  [Fit Power-law Bckg]      │   │                                            │
+│  │  B = 1.2e-5,  P = 4.0      │   │                                            │
+│  └────────────────────────────┘   │                                            │
+│  [Calculate 3D]  (big green)     │                                            │
+│  Result block (chi², φ, …)       │                                            │
+│  [Save Result to HDF5…]          │                                            │
+└─────────────────────────────────┴────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Workflow
 
+The workflow has **three sequential pre-steps** before generating the 3D voxelgram:
+
 1. **Load a data file** (Data Selector → SAXS Morph (GUI), or `Open…` button
    in the panel).
-2. **Set background** in the Power-law / Flat tabs. For most porous-glass /
-   Vycor samples, fit a Q⁻⁴ Porod tail at high Q first using a separate tool,
-   then plug B and P into the Power-law tab here.
-3. **Set Q range** by dragging the red and blue cursors on the I(Q) plot.
-   The fit only sees data within `[Qmin, Qmax]`.
-4. **Set initial parameters**:
-   - `φ` (volume fraction): your best guess of the minority-phase fraction.
-   - `Δρ²` (contrast): leave the **Link via invariant** checkbox enabled to
-     have contrast derived automatically from the Porod invariant — this is
-     the recommended default.
-   - Voxel size (fit): **128³** is the practical sweet spot during fitting;
-     drop to 64³ for very fast iteration on slow machines.
-   - Voxel size (render): **256³** is a good default for the saved result;
-     384³ / 512³ produce nicer renders at the cost of disk space.
-   - Box size (Å): Make sure `box_size_A / voxel_size` is comparable to the
-     correlation length you expect to resolve (e.g. 1000 Å / 128 ≈ 8 Å pitch).
-   - RNG seed: leave blank for stochastic exploration; set an integer to
-     freeze the voxelgram for figures or to reproduce a published result.
-5. Click **Graph Model**. After ~5–30 s (depending on voxel size), you see:
-   - The model I(Q) as a red curve overlaying the data.
+2. **Pre-fit the Power-law background** (low-Q tail):
+   - Drag the red/blue cursors to a low-Q window where the data is dominated
+     by the Q⁻⁴ Porod slope.
+   - Open the **Power-law Bckg** tab → click **Set from cursors** → the
+     Q-range fields fill in.
+   - Click **Fit Power-law Bckg** → B and P are populated.
+3. **Pre-fit the flat background** (high-Q noise floor):
+   - Drag the cursors to a high-Q window where structural scattering has
+     decayed and the residual is detector noise.
+   - Open the **Flat Bckg** tab → click **Set from cursors** → click
+     **Fit Flat Bckg** → background is populated (median of I − Power-law
+     in that range).
+4. **Set the modelling Q range**: drag the cursors back to the Q range you
+   want the GRF method to use (typically the full structural region).
+5. **Set parameters** in the Two-phase parameters box:
+   - **Input mode** combo:
+     - *Input φ → derive Δρ²*  — recommended default. You enter φ, the
+       contrast is computed automatically from the data invariant.
+     - *Input Δρ² → derive φ* — useful when the contrast is known from
+       sample composition.
+     - *Use both as-is* — manual override, no derivation.
+   - **Voxel cube side (render)**: 256³ is a good default; 384³ / 512³
+     produce nicer renders at the cost of disk space and RAM.
+   - **Box size (Å)**: ensure `box_size_A / N` is roughly the correlation
+     length you expect to resolve (e.g. 1000 Å / 256 ≈ 4 Å pitch).
+   - **RNG seed**: leave blank for stochastic exploration; set an integer
+     to freeze the voxelgram for reproducible figures.
+6. Click **Calculate 3D**. After ~5–30 s (depending on voxel size), you see:
+   - The red **model I(Q)** overlaying the data.
+   - The black **data − background** trace (what the GRF method actually
+     models).
    - A 2D slice in the bottom-left viewer (drag the slider to scrub depth).
    - A 3D isosurface in the bottom-right PyVista viewer (rotate with mouse).
-6. Iterate parameters until the model resembles the data, then click **Fit**.
-7. After convergence, click **Calc. Uncertainty (MC)** to estimate parameter
-   error bars (the spinbox sets the number of passes; 10 is a reasonable
-   default).
-8. Click **Save Result to HDF5…** to write the compressed voxelgram +
+   - The result block updates with χ², φ_actual, contrast, etc.
+7. Click **Save Result to HDF5…** to write the compressed voxelgram +
    parameters into the source HDF5 file (or a new file).
+
+If you want to try a different RNG seed, change φ, swap input modes, etc.,
+just edit and click **Calculate 3D** again — the voxelgram regenerates in
+seconds (no iterative fitting).
 
 ---
 
 ## Parameter reference
 
-| Parameter | Units | Default | Range | Notes |
-|---|---|---|---|---|
-| `voxel_size_fit` | voxels | 128 | {64, 128, 256} | Hard-clamped ≤ 256 in fit loop. |
-| `voxel_size_render` | voxels | 256 | {64, 128, 256, 384, 512} | One-off post-fit render at this size. |
-| `box_size_A` | Å | 1000 | > 0 | Edge length of the cubic simulation box. |
-| `volume_fraction` (φ) | — | 0.30 | [0.05, 0.95] | Minority-phase volume fraction. |
-| `contrast` (Δρ²) | 10²⁰ cm⁻⁴ | 1.0 | ≥ 0 | Auto-derived when Link is on. |
-| `link_phi_contrast` | — | True | — | Derive Δρ² from invariant. |
-| `power_law_B` | cm⁻¹ Å^P | 0 | ≥ 0 | Power-law amplitude. |
-| `power_law_P` | — | 4.0 | [0, 6] | Power-law exponent. |
-| `background` | cm⁻¹ | 0 | ≥ 0 | Flat background. |
-| `rng_seed` | — | None | — | Integer freezes randomness. |
-| `n_mc_runs` | passes | 10 | [1, 500] | MC uncertainty passes. |
+| Parameter | Units | Default | Notes |
+|---|---|---|---|
+| `voxel_size_render` | voxels | 256 | {64, 128, 256, 384, 512}. One-off render at this size. |
+| `box_size_A` | Å | 1000 | Edge length of the cubic simulation box. |
+| `input_mode` | — | `phi` | `phi` (derive Δρ²) / `contrast` (derive φ) / `both` (no derivation). |
+| `volume_fraction` (φ) | — | 0.30 | Minority-phase volume fraction. |
+| `contrast` (Δρ²) | 10²⁰ cm⁻⁴ | 1.0 | Auto-derived in mode `phi`; user-input in mode `contrast`/`both`. |
+| `power_law_B` | cm⁻¹ Å^P | 0 | Set by **Fit Power-law Bckg**. |
+| `power_law_P` | — | 4.0 | Set by **Fit Power-law Bckg**. |
+| `background` | cm⁻¹ | 0 | Set by **Fit Flat Bckg**. |
+| `power_law_q_min/q_max` | Å⁻¹ | None | Q range for the Power-law pre-fit. |
+| `background_q_min/q_max` | Å⁻¹ | None | Q range for the Flat pre-fit. |
+| `q_min/q_max` | Å⁻¹ | (cursor-driven) | Q range used by **Calculate 3D**. |
+| `rng_seed` | — | None | Integer freezes randomness across runs. |
 
-Each fittable parameter has a `Fit?` checkbox and `lo` / `hi` limits.
-The **No limits** master toggle hides the lo/hi columns and switches the
-optimiser to Nelder-Mead (no bounds).
+There are **no fittable parameters in this workflow** beyond the two
+background pre-fits — the GRF method computes the voxelgram
+deterministically from the chosen φ and the data spectrum.
+
+The `voxel_size_fit`, `fit_*`, `*_limits`, `no_limits`, `n_mc_runs`
+fields in `SaxsMorphConfig` are kept for backward compatibility with
+the deprecated `Engine.fit()` method but are not exposed in the GUI.
 
 ---
 
@@ -243,19 +280,22 @@ original slot in the panel.
 
 ---
 
-## Fitting and MC uncertainty
+## Calculate 3D
 
-- **Graph Model** runs `compute_voxelgram` once with the current parameters
-  (no fit). Synchronous — typically 5–30 s at 128³.
-- **Fit** runs `SaxsMorphEngine.fit` on a background `QThread`. Status bar
-  shows progress; **Cancel** aborts at the next iteration (sub-second
-  latency at ≤256³). On success, best-fit values are written back into the
-  widgets and the 3D viewer refreshes at the render resolution.
-- **Calc. Uncertainty (MC)** perturbs the data by Gaussian noise ~ σ_I and
-  refits N times (N = `Passes:` spinbox). Results are reported as ± standard
-  deviations in a popup and stored in the result.
-- **Revert** restores all widget values to the snapshot taken just before
-  the last fit started.
+The single big green action button. Runs `SaxsMorphEngine.compute_voxelgram`
+synchronously at the render resolution, applying the input-mode rule
+(derive φ from invariant + contrast, or vice versa, or use both as-is).
+
+The button blocks the GUI for the duration of the calculation (typically
+5–30 s at 256³). For faster iteration on slow machines or large boxes,
+either:
+
+- Lower the **Cube side (render)** value temporarily.
+- Use the scripting API to run a parameter sweep headlessly.
+
+There is no MC uncertainty in this workflow because the model has no
+fittable parameters — variation across RNG seeds reflects only the
+stochastic nature of the GRF realisation, not parameter uncertainty.
 
 ---
 
@@ -288,15 +328,15 @@ cheaply without inflating the whole cube.
 
 - **Cube only** — anisotropic boxes (e.g. 64×256×256) are not yet supported.
 - **Two phases only** — ternary thresholding is planned for a follow-up.
-- **Fit voxel size hard-clamped to 256³** — the per-iteration FFT memory
-  cost grows as N³·complex128, and 384³ / 512³ during fitting will OOM most
-  laptops.
-- **Cancel latency** — proportional to one iteration of `compute_voxelgram`,
-  so cancelling at 256³ takes up to a few seconds.
+- **Calculate 3D blocks the GUI** — the run is synchronous (typically
+  5–30 s at 256³). Use a smaller render size for fast iteration.
 
 ---
 
 ## Scripting API
+
+The headless `fit_saxs_morph()` function follows the same three-step
+workflow as the GUI: Power-law pre-fit → Flat pre-fit → Calculate 3D.
 
 ```python
 from pyirena import fit_saxs_morph
@@ -305,25 +345,44 @@ result = fit_saxs_morph(
     data_file='sample.h5',
     config_file='pyirena_config.json',  # exported from GUI
     save_to_nexus=True,
-    with_uncertainty=True,
-    n_mc_runs=10,
 )
 print(result['message'])
 ```
 
-Or programmatically:
+The `pyirena_config.json` should contain a `'saxs_morph'` section with
+the four pre-fit Q ranges plus the modelling Q range. If a pre-fit Q
+range is missing, that pre-fit step is skipped and the corresponding
+parameter values from the config are used as-is.
+
+Or call the engine + helpers directly:
 
 ```python
-from pyirena.core.saxs_morph import SaxsMorphEngine, SaxsMorphConfig
+from pyirena.core.saxs_morph import (
+    SaxsMorphEngine, SaxsMorphConfig,
+    fit_power_law_bg, fit_flat_bg,
+)
 from pyirena.io.nxcansas_saxs_morph import save_saxs_morph_results
 
+# Step 1: Power-law pre-fit at low Q.
+B, P = fit_power_law_bg(q, I, q_min=1e-3, q_max=5e-3)
+
+# Step 2: Flat-bg pre-fit at high Q (subtracts the power law first).
+flat = fit_flat_bg(q, I, q_min=0.4, q_max=0.5,
+                   power_law_B=B, power_law_P=P)
+
+# Step 3: Calculate 3D.
 cfg = SaxsMorphConfig(
-    voxel_size_fit=128, voxel_size_render=256,
-    box_size_A=1000.0, volume_fraction=0.30,
-    link_phi_contrast=True, rng_seed=42,
+    voxel_size_render=256,
+    box_size_A=1000.0,
+    input_mode='phi',
+    volume_fraction=0.30,
+    power_law_B=B, power_law_P=P, background=flat,
+    rng_seed=42,
 )
 engine = SaxsMorphEngine()
-res = engine.fit(cfg, q, I, dI)          # SaxsMorphResult
+res = engine.compute_voxelgram(cfg, q, I, dI,
+                               voxel_size_override=cfg.voxel_size_render)
 save_saxs_morph_results('out.h5', res)
-print(f'chi^2 = {res.chi_squared:.4g}, phi_actual = {res.phi_actual:.4g}')
+print(f'phi_actual = {res.phi_actual:.4g}, '
+      f'derived contrast = {res.config.contrast:.4g}')
 ```

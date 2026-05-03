@@ -123,6 +123,16 @@ def _parse_int_optional(text: str) -> Optional[int]:
         return None
 
 
+def _parse_optional(text: str) -> Optional[float]:
+    """Parse a float, returning None for empty/invalid text."""
+    if not text or not text.strip():
+        return None
+    try:
+        return float(text.strip())
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Graph window: I(Q) plot with cursors + placeholder for 3D viewers
 # ---------------------------------------------------------------------------
@@ -507,9 +517,6 @@ class SaxsMorphPanel(QWidget):
 
         self._engine = SaxsMorphEngine()
         self._state = StateManager()
-        self._fit_worker: Optional[_FitWorker] = None
-        self._mc_worker: Optional[_MCWorker] = None
-        self._pre_fit_state: Optional[dict] = None
 
         self._building = True
         self._build_ui()
@@ -596,57 +603,20 @@ class SaxsMorphPanel(QWidget):
         # ── Background tabs ──────────────────────────────────────────────
         lay.addWidget(self._build_background_tabs())
 
-        # ── No-limits toggle ─────────────────────────────────────────────
-        nl_row = QHBoxLayout()
-        self.no_limits_cb = QCheckBox('No limits (use Nelder-Mead)')
-        self.no_limits_cb.stateChanged.connect(self._on_no_limits_changed)
-        nl_row.addWidget(self.no_limits_cb)
-        nl_row.addStretch()
-        lay.addLayout(nl_row)
-
-        # ── Action row 1: Graph Model + Fit + Cancel ─────────────────────
+        # ── Action row: Calculate 3D ─────────────────────────────────────
         lay.addWidget(_sep())
-        act1 = QHBoxLayout()
-        self.btn_graph = QPushButton('Graph Model')
-        self.btn_graph.setStyleSheet(
-            'background:#52c77a;color:white;font-weight:bold;'
-            'font-size:11pt;padding:6px;border-radius:4px;border:none;')
-        self.btn_graph.clicked.connect(self._on_graph_model)
-        act1.addWidget(self.btn_graph)
-
-        self.btn_fit = QPushButton('Fit')
-        self.btn_fit.setStyleSheet(
+        act_row = QHBoxLayout()
+        self.btn_calc = QPushButton('Calculate 3D')
+        self.btn_calc.setStyleSheet(
             'background:#27ae60;color:white;font-weight:bold;'
-            'font-size:11pt;padding:6px;border-radius:4px;border:none;')
-        self.btn_fit.clicked.connect(self._on_fit)
-        act1.addWidget(self.btn_fit)
-
-        self.btn_cancel = QPushButton('Cancel')
-        self.btn_cancel.setEnabled(False)
-        self.btn_cancel.clicked.connect(self._on_cancel_fit)
-        act1.addWidget(self.btn_cancel)
-        lay.addLayout(act1)
-
-        # ── Action row 2: MC uncertainty ─────────────────────────────────
-        act2 = QHBoxLayout()
-        act2.addWidget(QLabel('Passes:'))
-        self.n_runs_spin = QSpinBox()
-        self.n_runs_spin.setRange(1, 500)
-        self.n_runs_spin.setValue(10)
-        act2.addWidget(self.n_runs_spin)
-        self.btn_mc = QPushButton('Calc. Uncertainty (MC)')
-        self.btn_mc.setStyleSheet(
-            'background:#16a085;color:white;font-weight:bold;'
-            'font-size:11pt;padding:6px;border-radius:4px;border:none;')
-        self.btn_mc.setEnabled(False)
-        self.btn_mc.clicked.connect(self._on_mc)
-        act2.addWidget(self.btn_mc)
-        self.btn_revert = QPushButton('Revert')
-        self.btn_revert.setEnabled(False)
-        self.btn_revert.setToolTip('Restore parameters from before last fit')
-        self.btn_revert.clicked.connect(self._on_revert)
-        act2.addWidget(self.btn_revert)
-        lay.addLayout(act2)
+            'font-size:12pt;padding:8px;border-radius:4px;border:none;')
+        self.btn_calc.setToolTip(
+            'Generate the voxelgram from the current parameters.\n'
+            'Run the two background pre-fits first (Power-law Bckg + Flat Bckg tabs).'
+        )
+        self.btn_calc.clicked.connect(self._on_calculate)
+        act_row.addWidget(self.btn_calc)
+        lay.addLayout(act_row)
 
         # ── Result block ─────────────────────────────────────────────────
         lay.addWidget(_sep())
@@ -728,56 +698,175 @@ class SaxsMorphPanel(QWidget):
         gb = QGroupBox('Two-phase parameters')
         v = QVBoxLayout(gb)
 
-        self.phi_row = ParamRow(
-            'Volume fraction φ:', 0.30, True, (0.05, 0.95),
+        # Input mode combo
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel('Input mode:'))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem('Input φ → derive Δρ² from invariant', 'phi')
+        self.mode_combo.addItem('Input Δρ² → derive φ from invariant', 'contrast')
+        self.mode_combo.addItem('Use both as-is (no derivation)', 'both')
+        self.mode_combo.setToolTip(
+            'In the GRF method, φ and Δρ² are linked through the data '
+            'invariant Q* = 2π² φ(1−φ) Δρ². Specify one and derive the '
+            'other, or supply both manually.'
         )
-        v.addWidget(self.phi_row)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        mode_row.addWidget(self.mode_combo)
+        mode_row.addStretch()
+        v.addLayout(mode_row)
 
-        self.contrast_row = ParamRow(
-            'Contrast (Δρ)²:', 1.0, False, (0.0, 1e10),
+        # φ value (label + line edit) — the "Fit?" / lo / hi columns are not
+        # used in this workflow, so we drop them in favour of a compact row.
+        self.phi_row_widget, self.phi_edit, self.phi_status = self._make_value_row(
+            'Volume fraction φ:', 0.30,
         )
-        v.addWidget(self.contrast_row)
+        v.addWidget(self.phi_row_widget)
 
-        link_row = QHBoxLayout()
-        self.link_cb = QCheckBox('Link contrast to φ via invariant')
-        self.link_cb.setChecked(True)
-        self.link_cb.setToolTip(
-            'When checked, contrast is derived from the data invariant '
-            'Q* = 2π² φ(1−φ) Δρ² rather than being a free parameter.'
+        self.contrast_row_widget, self.contrast_edit, self.contrast_status = (
+            self._make_value_row('Contrast (Δρ)²:', 1.0)
         )
-        self.link_cb.stateChanged.connect(self._on_link_changed)
-        link_row.addWidget(self.link_cb)
-        link_row.addStretch()
-        v.addLayout(link_row)
+        v.addWidget(self.contrast_row_widget)
 
         return gb
+
+    @staticmethod
+    def _make_value_row(label: str, value: float) -> tuple:
+        """Build a `label | value-edit | status-tag` row.
+
+        Returns (container_widget, line_edit, status_label).  The status
+        label is used to mark the row 'derived' (read-only) or 'input'.
+        """
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lbl = QLabel(label)
+        lbl.setMinimumWidth(140)
+        lay.addWidget(lbl)
+        ed = QLineEdit(_fmt(value))
+        ed.setMaximumWidth(120)
+        ed.setValidator(QDoubleValidator())
+        lay.addWidget(ed)
+        status = QLabel('')
+        status.setStyleSheet('color:#7f8c8d;font-size:9pt;font-style:italic;')
+        lay.addWidget(status)
+        lay.addStretch()
+        return w, ed, status
 
     def _build_background_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
 
-        # ── Power-law tab ────────────────────────────────────────────────
+        # ── Power-law Bckg tab ───────────────────────────────────────────
         pl_tab = QWidget()
         pl_lay = QVBoxLayout(pl_tab)
-        self.pl_B_row = ParamRow('Amplitude B:', 0.0, False, (0.0, 1e10))
-        self.pl_P_row = ParamRow('Exponent P:', 4.0, False, (0.0, 6.0))
-        pl_lay.addWidget(self.pl_B_row)
-        pl_lay.addWidget(self.pl_P_row)
-        pl_help = QLabel('I_pl(Q) = B · Q^(−P)')
+
+        # Q range for the pre-fit
+        pl_q = QGridLayout()
+        pl_q.addWidget(QLabel('Q range for fit [Å⁻¹]:'), 0, 0, 1, 4)
+        pl_q.addWidget(QLabel('Q min:'), 1, 0)
+        self.pl_qmin_edit = QLineEdit('')
+        self.pl_qmin_edit.setMaximumWidth(90)
+        self.pl_qmin_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
+        pl_q.addWidget(self.pl_qmin_edit, 1, 1)
+        pl_q.addWidget(QLabel('Q max:'), 1, 2)
+        self.pl_qmax_edit = QLineEdit('')
+        self.pl_qmax_edit.setMaximumWidth(90)
+        self.pl_qmax_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
+        pl_q.addWidget(self.pl_qmax_edit, 1, 3)
+        pl_lay.addLayout(pl_q)
+
+        pl_btn_row = QHBoxLayout()
+        self.btn_pl_set_cursors = QPushButton('Set from cursors')
+        self.btn_pl_set_cursors.setToolTip(
+            'Copy the current main I(Q) cursor positions into the Q-range '
+            'fields above. Drag the red/blue cursors to a low-Q window '
+            'where the data is dominated by a power-law tail.'
+        )
+        self.btn_pl_set_cursors.clicked.connect(
+            lambda: self._set_qrange_from_cursors('power_law'))
+        pl_btn_row.addWidget(self.btn_pl_set_cursors)
+
+        self.btn_pl_fit = QPushButton('Fit Power-law Bckg')
+        self.btn_pl_fit.setStyleSheet(
+            'background:#52c77a;color:white;font-weight:bold;'
+            'padding:4px 10px;border-radius:3px;border:none;')
+        self.btn_pl_fit.setToolTip(
+            'Linear least-squares fit of log10(I) vs log10(Q) over the '
+            'Q range above. Sets B and P below.'
+        )
+        self.btn_pl_fit.clicked.connect(self._on_fit_power_law)
+        pl_btn_row.addWidget(self.btn_pl_fit)
+        pl_lay.addLayout(pl_btn_row)
+
+        pl_lay.addWidget(_sep())
+
+        # B / P value rows (no Fit?/lo/hi — they aren't fittable in this workflow)
+        self.pl_B_widget, self.pl_B_edit, _ = self._make_value_row(
+            'Amplitude B:', 0.0)
+        pl_lay.addWidget(self.pl_B_widget)
+        self.pl_P_widget, self.pl_P_edit, _ = self._make_value_row(
+            'Exponent P:', 4.0)
+        pl_lay.addWidget(self.pl_P_widget)
+
+        pl_help = QLabel('I_pl(Q) = B · Q^(−P)   (subtracted from data before GRF inversion)')
         pl_help.setStyleSheet('color:#888;font-size:9pt;')
+        pl_help.setWordWrap(True)
         pl_lay.addWidget(pl_help)
         pl_lay.addStretch()
-        tabs.addTab(pl_tab, 'Power-law')
+        tabs.addTab(pl_tab, 'Power-law Bckg')
 
-        # ── Flat tab ─────────────────────────────────────────────────────
+        # ── Flat Bckg tab ────────────────────────────────────────────────
         flat_tab = QWidget()
         flat_lay = QVBoxLayout(flat_tab)
-        self.bg_row = ParamRow('Background:', 0.0, False, (0.0, 1e10))
-        flat_lay.addWidget(self.bg_row)
-        flat_help = QLabel('Constant offset added to the model.')
+
+        flat_q = QGridLayout()
+        flat_q.addWidget(QLabel('Q range for fit [Å⁻¹]:'), 0, 0, 1, 4)
+        flat_q.addWidget(QLabel('Q min:'), 1, 0)
+        self.bg_qmin_edit = QLineEdit('')
+        self.bg_qmin_edit.setMaximumWidth(90)
+        self.bg_qmin_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
+        flat_q.addWidget(self.bg_qmin_edit, 1, 1)
+        flat_q.addWidget(QLabel('Q max:'), 1, 2)
+        self.bg_qmax_edit = QLineEdit('')
+        self.bg_qmax_edit.setMaximumWidth(90)
+        self.bg_qmax_edit.setValidator(QDoubleValidator(0.0, 1e10, 6))
+        flat_q.addWidget(self.bg_qmax_edit, 1, 3)
+        flat_lay.addLayout(flat_q)
+
+        flat_btn_row = QHBoxLayout()
+        self.btn_bg_set_cursors = QPushButton('Set from cursors')
+        self.btn_bg_set_cursors.setToolTip(
+            'Copy current main cursor positions. Drag the cursors to a '
+            'high-Q window where the structural scattering has decayed.'
+        )
+        self.btn_bg_set_cursors.clicked.connect(
+            lambda: self._set_qrange_from_cursors('background'))
+        flat_btn_row.addWidget(self.btn_bg_set_cursors)
+
+        self.btn_bg_fit = QPushButton('Fit Flat Bckg')
+        self.btn_bg_fit.setStyleSheet(
+            'background:#52c77a;color:white;font-weight:bold;'
+            'padding:4px 10px;border-radius:3px;border:none;')
+        self.btn_bg_fit.setToolTip(
+            'Median of (I − Power-law) over the Q range above. '
+            'Run the Power-law fit first so it can be subtracted.'
+        )
+        self.btn_bg_fit.clicked.connect(self._on_fit_flat_bg)
+        flat_btn_row.addWidget(self.btn_bg_fit)
+        flat_lay.addLayout(flat_btn_row)
+
+        flat_lay.addWidget(_sep())
+
+        self.bg_widget, self.bg_edit, _ = self._make_value_row(
+            'Background:', 0.0)
+        flat_lay.addWidget(self.bg_widget)
+
+        flat_help = QLabel(
+            'Constant offset (subtracted from data before GRF inversion).')
         flat_help.setStyleSheet('color:#888;font-size:9pt;')
+        flat_help.setWordWrap(True)
         flat_lay.addWidget(flat_help)
         flat_lay.addStretch()
-        tabs.addTab(flat_tab, 'Flat')
+        tabs.addTab(flat_tab, 'Flat Bckg')
 
         return tabs
 
@@ -790,28 +879,19 @@ class SaxsMorphPanel(QWidget):
             'box_size_A':        _parse(self.box_size_edit.text(), 1000.0),
             'rng_seed':          _parse_int_optional(self.seed_edit.text()),
 
-            'volume_fraction':         self.phi_row.value(),
-            'fit_volume_fraction':     self.phi_row.fit_flag(),
-            'volume_fraction_limits':  list(self.phi_row.limits()),
+            'input_mode':       self.mode_combo.currentData(),
+            'volume_fraction':  _parse(self.phi_edit.text(), 0.30),
+            'contrast':         _parse(self.contrast_edit.text(), 1.0),
 
-            'contrast':         self.contrast_row.value(),
-            'fit_contrast':     self.contrast_row.fit_flag(),
-            'contrast_limits':  list(self.contrast_row.limits()),
-            'link_phi_contrast': self.link_cb.isChecked(),
+            'power_law_B':      _parse(self.pl_B_edit.text(), 0.0),
+            'power_law_P':      _parse(self.pl_P_edit.text(), 4.0),
+            'background':       _parse(self.bg_edit.text(), 0.0),
 
-            'power_law_B':         self.pl_B_row.value(),
-            'fit_power_law_B':     self.pl_B_row.fit_flag(),
-            'power_law_B_limits':  list(self.pl_B_row.limits()),
-            'power_law_P':         self.pl_P_row.value(),
-            'fit_power_law_P':     self.pl_P_row.fit_flag(),
-            'power_law_P_limits':  list(self.pl_P_row.limits()),
+            'power_law_q_min':  _parse_optional(self.pl_qmin_edit.text()),
+            'power_law_q_max':  _parse_optional(self.pl_qmax_edit.text()),
+            'background_q_min': _parse_optional(self.bg_qmin_edit.text()),
+            'background_q_max': _parse_optional(self.bg_qmax_edit.text()),
 
-            'background':         self.bg_row.value(),
-            'fit_background':     self.bg_row.fit_flag(),
-            'background_limits':  list(self.bg_row.limits()),
-
-            'no_limits': self.no_limits_cb.isChecked(),
-            'n_mc_runs': self.n_runs_spin.value(),
             'q_min': None,
             'q_max': None,
         }
@@ -831,32 +911,29 @@ class SaxsMorphPanel(QWidget):
         seed = st.get('rng_seed')
         self.seed_edit.setText('' if seed is None else str(seed))
 
-        # Two-phase
-        self.phi_row.set_value(st.get('volume_fraction', 0.30))
-        self.phi_row.set_fit(st.get('fit_volume_fraction', True))
-        self.phi_row.set_limits(*st.get('volume_fraction_limits', [0.05, 0.95]))
+        # Input mode + values
+        mode = st.get('input_mode', 'phi')
+        # Migration from schema_version 1: link_phi_contrast=True ⇒ 'phi'
+        if mode not in ('phi', 'contrast', 'both'):
+            mode = 'phi' if st.get('link_phi_contrast', True) else 'both'
+        self._select_combo_value(self.mode_combo, mode)
+        self.phi_edit.setText(_fmt(st.get('volume_fraction', 0.30)))
+        self.contrast_edit.setText(_fmt(st.get('contrast', 1.0)))
 
-        self.contrast_row.set_value(st.get('contrast', 1.0))
-        self.contrast_row.set_fit(st.get('fit_contrast', False))
-        self.contrast_row.set_limits(*st.get('contrast_limits', [0.0, 1e10]))
-        self.link_cb.setChecked(st.get('link_phi_contrast', True))
-        self._on_link_changed()
+        # Background values
+        self.pl_B_edit.setText(_fmt(st.get('power_law_B', 0.0)))
+        self.pl_P_edit.setText(_fmt(st.get('power_law_P', 4.0)))
+        self.bg_edit.setText(_fmt(st.get('background', 0.0)))
 
-        # Background
-        self.pl_B_row.set_value(st.get('power_law_B', 0.0))
-        self.pl_B_row.set_fit(st.get('fit_power_law_B', False))
-        self.pl_B_row.set_limits(*st.get('power_law_B_limits', [0.0, 1e10]))
-        self.pl_P_row.set_value(st.get('power_law_P', 4.0))
-        self.pl_P_row.set_fit(st.get('fit_power_law_P', False))
-        self.pl_P_row.set_limits(*st.get('power_law_P_limits', [0.0, 6.0]))
+        # Background pre-fit Q ranges
+        for key, edit in [('power_law_q_min', self.pl_qmin_edit),
+                          ('power_law_q_max', self.pl_qmax_edit),
+                          ('background_q_min', self.bg_qmin_edit),
+                          ('background_q_max', self.bg_qmax_edit)]:
+            v = st.get(key)
+            edit.setText('' if v is None else _fmt(v))
 
-        self.bg_row.set_value(st.get('background', 0.0))
-        self.bg_row.set_fit(st.get('fit_background', False))
-        self.bg_row.set_limits(*st.get('background_limits', [0.0, 1e10]))
-
-        self.no_limits_cb.setChecked(st.get('no_limits', False))
-        self.n_runs_spin.setValue(st.get('n_mc_runs', 10))
-        self._on_no_limits_changed()
+        self._on_mode_changed()
 
     def _save_state(self):
         self._state.update('saxs_morph', self._current_state())
@@ -872,22 +949,42 @@ class SaxsMorphPanel(QWidget):
 
     # ── Signal handlers ──────────────────────────────────────────────────
 
-    def _on_link_changed(self, *_):
-        linked = self.link_cb.isChecked()
-        self.contrast_row.setEnabled(not linked)
-        if linked:
-            self.contrast_row.set_fit(False)
-
-    def _on_no_limits_changed(self, *_):
-        nl = self.no_limits_cb.isChecked()
-        for row in (self.phi_row, self.contrast_row,
-                    self.pl_B_row, self.pl_P_row, self.bg_row):
-            row.set_no_limits(nl)
+    def _on_mode_changed(self, *_):
+        """Grey out the derived field and tag the input/derived fields."""
+        mode = self.mode_combo.currentData()
+        if mode == 'phi':
+            self.phi_edit.setReadOnly(False)
+            self.contrast_edit.setReadOnly(True)
+            self.phi_status.setText('(input)')
+            self.contrast_status.setText('(derived from invariant)')
+        elif mode == 'contrast':
+            self.phi_edit.setReadOnly(True)
+            self.contrast_edit.setReadOnly(False)
+            self.phi_status.setText('(derived from invariant)')
+            self.contrast_status.setText('(input)')
+        else:  # 'both'
+            self.phi_edit.setReadOnly(False)
+            self.contrast_edit.setReadOnly(False)
+            self.phi_status.setText('(input, manual)')
+            self.contrast_status.setText('(input, manual)')
 
     def _on_cursor_moved(self):
         q_lo, q_hi = self.graph.get_q_range()
         self.qmin_lbl.setText(f'{q_lo:.4g}')
         self.qmax_lbl.setText(f'{q_hi:.4g}')
+
+    def _set_qrange_from_cursors(self, which: str):
+        """Copy current main-cursor positions into the named tab's Q-range fields."""
+        if self._data_q is None:
+            QMessageBox.information(self, 'No data', 'Open a data file first.')
+            return
+        q_lo, q_hi = self.graph.get_q_range()
+        if which == 'power_law':
+            self.pl_qmin_edit.setText(_fmt(q_lo))
+            self.pl_qmax_edit.setText(_fmt(q_hi))
+        elif which == 'background':
+            self.bg_qmin_edit.setText(_fmt(q_lo))
+            self.bg_qmax_edit.setText(_fmt(q_hi))
 
     def _open_help(self):
         try:
@@ -968,75 +1065,144 @@ class SaxsMorphPanel(QWidget):
         st = self._current_state()
         cfg = SaxsMorphConfig(
             q_min=st['q_min'], q_max=st['q_max'],
+            power_law_q_min=st['power_law_q_min'],
+            power_law_q_max=st['power_law_q_max'],
+            background_q_min=st['background_q_min'],
+            background_q_max=st['background_q_max'],
             voxel_size_fit=int(st['voxel_size_fit']),
             voxel_size_render=int(st['voxel_size_render']),
             box_size_A=float(st['box_size_A']),
+            input_mode=st['input_mode'],
             volume_fraction=float(st['volume_fraction']),
-            fit_volume_fraction=bool(st['fit_volume_fraction']),
-            volume_fraction_limits=tuple(st['volume_fraction_limits']),
             contrast=float(st['contrast']),
-            fit_contrast=bool(st['fit_contrast']),
-            contrast_limits=tuple(st['contrast_limits']),
-            link_phi_contrast=bool(st['link_phi_contrast']),
             power_law_B=float(st['power_law_B']),
-            fit_power_law_B=bool(st['fit_power_law_B']),
-            power_law_B_limits=tuple(st['power_law_B_limits']),
             power_law_P=float(st['power_law_P']),
-            fit_power_law_P=bool(st['fit_power_law_P']),
-            power_law_P_limits=tuple(st['power_law_P_limits']),
             background=float(st['background']),
-            fit_background=bool(st['fit_background']),
-            background_limits=tuple(st['background_limits']),
-            no_limits=bool(st['no_limits']),
-            n_mc_runs=int(st['n_mc_runs']),
             rng_seed=st['rng_seed'],
         )
         return cfg
 
-    def _on_graph_model(self):
+    # ── Pre-fit actions ──────────────────────────────────────────────────
+
+    def _on_fit_power_law(self):
+        if self._data_q is None:
+            QMessageBox.information(self, 'No data', 'Open a data file first.')
+            return
+        q_lo = _parse_optional(self.pl_qmin_edit.text())
+        q_hi = _parse_optional(self.pl_qmax_edit.text())
+        if q_lo is None or q_hi is None or q_hi <= q_lo:
+            QMessageBox.warning(
+                self, 'Bad range',
+                'Set a valid Power-law Q range (q_min < q_max). '
+                'Use "Set from cursors" or type the values directly.'
+            )
+            return
+        from pyirena.core.saxs_morph import fit_power_law_bg
+        try:
+            B, P = fit_power_law_bg(self._data_q, self._data_I, q_lo, q_hi)
+        except Exception as e:
+            QMessageBox.critical(self, 'Power-law fit failed', str(e))
+            return
+        self.pl_B_edit.setText(_fmt(B))
+        self.pl_P_edit.setText(_fmt(P))
+        self.graph.set_status(
+            f'Power-law pre-fit done: B = {B:.4g}, P = {P:.4g} '
+            f'(over Q ∈ [{q_lo:.4g}, {q_hi:.4g}] Å⁻¹).',
+            style='success',
+        )
+        self._save_state()
+
+    def _on_fit_flat_bg(self):
+        if self._data_q is None:
+            QMessageBox.information(self, 'No data', 'Open a data file first.')
+            return
+        q_lo = _parse_optional(self.bg_qmin_edit.text())
+        q_hi = _parse_optional(self.bg_qmax_edit.text())
+        if q_lo is None or q_hi is None or q_hi <= q_lo:
+            QMessageBox.warning(
+                self, 'Bad range',
+                'Set a valid flat-background Q range (q_min < q_max). '
+                'Use "Set from cursors" or type the values directly.'
+            )
+            return
+        # Use current Power-law values to subtract before taking median.
+        B = _parse(self.pl_B_edit.text(), 0.0)
+        P = _parse(self.pl_P_edit.text(), 4.0)
+        from pyirena.core.saxs_morph import fit_flat_bg
+        try:
+            flat = fit_flat_bg(self._data_q, self._data_I, q_lo, q_hi,
+                               power_law_B=B, power_law_P=P)
+        except Exception as e:
+            QMessageBox.critical(self, 'Flat-bg fit failed', str(e))
+            return
+        self.bg_edit.setText(_fmt(flat))
+        self.graph.set_status(
+            f'Flat-bg pre-fit done: background = {flat:.4g} '
+            f'(median over Q ∈ [{q_lo:.4g}, {q_hi:.4g}] Å⁻¹).',
+            style='success',
+        )
+        self._save_state()
+
+    # ── Action: Calculate 3D ─────────────────────────────────────────────
+
+    def _on_calculate(self):
         if self._data_q is None:
             QMessageBox.warning(self, 'No data', 'Open a data file first.')
             return
-
         try:
             cfg = self._make_config()
         except Exception as e:
             QMessageBox.warning(self, 'Bad parameters', str(e))
             return
 
+        self.btn_calc.setEnabled(False)
         self.graph.set_status(
-            f'Computing voxelgram at {cfg.voxel_size_fit}³ … please wait.',
+            f'Calculating 3D at {cfg.voxel_size_render}³ … please wait.',
             style='working',
         )
         QApplication.processEvents()
 
         try:
+            # Use render resolution directly — there's no separate "fit"
+            # iteration any more, so we skip the fit_size shortcut.
             result = self._engine.compute_voxelgram(
                 cfg, self._data_q, self._data_I, self._data_dI,
+                voxel_size_override=cfg.voxel_size_render,
             )
         except Exception as e:
             self.graph.set_status(f'Failed: {e}', style='error')
-            QMessageBox.critical(self, 'Compute failed', str(e))
+            QMessageBox.critical(self, 'Calculate 3D failed', str(e))
+            self.btn_calc.setEnabled(True)
             return
 
         self._last_result = result
-        self._update_after_eval(result, label='Graph Model')
+
+        # Reflect derived value back into the read-only field
+        cfg_out = result.config
+        if cfg_out.input_mode == 'phi':
+            self.contrast_edit.setText(_fmt(cfg_out.contrast))
+        elif cfg_out.input_mode == 'contrast':
+            self.phi_edit.setText(_fmt(cfg_out.volume_fraction))
+
+        self._update_after_eval(result)
+        self.btn_calc.setEnabled(True)
         self._save_state()
 
-    def _update_after_eval(self, result: SaxsMorphResult, label: str):
+    def _update_after_eval(self, result: SaxsMorphResult):
         # Plot data − bg + model
         self.graph.plot_data_minus_bg(result.data_q, result.data_I_corr)
         self.graph.plot_model_iq(result.model_q, result.model_I)
         # Push the voxelgram to the 2D slice + 3D viewers
         self.graph.show_voxelgram(result.voxelgram, result.voxel_pitch_A)
         self.graph.set_status(
-            f'{label}: χ² = {result.chi_squared:.4g}, '
+            f'Calculate 3D done: χ² = {result.chi_squared:.4g}, '
             f'φ_actual = {result.phi_actual:.4g}, '
             f'voxel = {result.voxel_size}³',
             style='success',
         )
         # Result block
         cfg = result.config
+        mode_labels = {'phi': 'φ', 'contrast': 'Δρ²', 'both': 'both manual'}
         text = (
             f"χ²            = {result.chi_squared:.6g}\n"
             f"red. χ²       = {result.reduced_chi_squared:.6g}\n"
@@ -1044,10 +1210,10 @@ class SaxsMorphPanel(QWidget):
             f"voxel size    = {result.voxel_size}³\n"
             f"box size      = {result.box_size_A:.4g} Å\n"
             f"voxel pitch   = {result.voxel_pitch_A:.4g} Å\n"
+            f"input mode    = {mode_labels.get(cfg.input_mode, cfg.input_mode)}\n"
             f"φ (target)    = {cfg.volume_fraction:.4g}\n"
             f"φ (actual)    = {result.phi_actual:.4g}\n"
-            f"contrast Δρ²  = {cfg.contrast:.4g}"
-            f"  ({'derived' if cfg.link_phi_contrast else 'set'})\n"
+            f"contrast Δρ²  = {cfg.contrast:.4g}\n"
             f"power-law B   = {cfg.power_law_B:.4g}\n"
             f"power-law P   = {cfg.power_law_P:.4g}\n"
             f"flat bg       = {cfg.background:.4g}\n"
@@ -1055,155 +1221,6 @@ class SaxsMorphPanel(QWidget):
         )
         self.result_lbl.setText(text)
         self.btn_save.setEnabled(True)
-
-    # ── Action: Fit ──────────────────────────────────────────────────────
-
-    def _on_fit(self):
-        if self._fit_worker is not None and self._fit_worker.isRunning():
-            return  # Cancel button handles in-flight cancellation
-        if self._data_q is None:
-            QMessageBox.warning(self, 'No data', 'Open a data file first.')
-            return
-
-        try:
-            cfg = self._make_config()
-        except Exception as e:
-            QMessageBox.warning(self, 'Bad parameters', str(e))
-            return
-
-        # Snapshot current widget state for Revert
-        self._pre_fit_state = self._current_state()
-
-        # UI state during fit
-        self.btn_fit.setEnabled(False)
-        self.btn_graph.setEnabled(False)
-        self.btn_mc.setEnabled(False)
-        self.btn_revert.setEnabled(False)
-        self.btn_cancel.setEnabled(True)
-        self.graph.set_status(
-            f'Fitting at {cfg.voxel_size_fit}³ … (Cancel to abort)',
-            style='working',
-        )
-
-        self._fit_worker = _FitWorker(
-            self._engine, cfg, self._data_q, self._data_I, self._data_dI,
-            parent=self,
-        )
-        self._fit_worker.finished.connect(self._on_fit_done)
-        self._fit_worker.error.connect(self._on_fit_error)
-        self._fit_worker.start()
-
-    def _on_cancel_fit(self):
-        if self._fit_worker is not None and self._fit_worker.isRunning():
-            self._fit_worker.cancel()
-            self.btn_cancel.setEnabled(False)
-            self.graph.set_status('Cancelling fit …', style='working')
-
-    def _on_fit_done(self, result: SaxsMorphResult):
-        self._last_result = result
-        # Push best-fit values back into widgets
-        cfg = result.config
-        self.phi_row.set_value(cfg.volume_fraction)
-        self.contrast_row.set_value(cfg.contrast)
-        self.pl_B_row.set_value(cfg.power_law_B)
-        self.pl_P_row.set_value(cfg.power_law_P)
-        self.bg_row.set_value(cfg.background)
-
-        self._update_after_eval(result, label='Fit')
-        self._restore_buttons_after_fit(success=True)
-        self._save_state()
-
-    def _on_fit_error(self, msg: str):
-        self.graph.set_status(f'Fit error: {msg}', style='error')
-        self._restore_buttons_after_fit(success=False)
-
-    def _restore_buttons_after_fit(self, success: bool):
-        self.btn_fit.setEnabled(True)
-        self.btn_graph.setEnabled(True)
-        self.btn_mc.setEnabled(self._last_result is not None)
-        self.btn_revert.setEnabled(self._pre_fit_state is not None)
-        self.btn_cancel.setEnabled(False)
-
-    # ── Action: MC uncertainty ───────────────────────────────────────────
-
-    def _on_mc(self):
-        if self._last_result is None or self._data_q is None:
-            QMessageBox.information(self, 'No result', 'Run Fit first.')
-            return
-        if self._mc_worker is not None and self._mc_worker.isRunning():
-            return
-
-        n = self.n_runs_spin.value()
-        cfg = deepcopy(self._last_result.config)
-        # Use the same fit-time voxel size for each MC pass
-        cfg.voxel_size_render = cfg.voxel_size_fit
-
-        self.btn_mc.setEnabled(False)
-        self.btn_fit.setEnabled(False)
-        self.graph.set_status(f'Starting MC — 0 / {n} passes …', style='working')
-
-        self._mc_worker = _MCWorker(
-            self._engine, cfg, self._data_q, self._data_I, self._data_dI,
-            n_runs=n, parent=self,
-        )
-        self._mc_worker.progress.connect(self._on_mc_progress)
-        self._mc_worker.finished.connect(self._on_mc_done)
-        self._mc_worker.error.connect(self._on_mc_error)
-        self._mc_worker.start()
-
-    def _on_mc_progress(self, current: int, total: int):
-        self.graph.set_status(f'MC uncertainty — pass {current} / {total} …',
-                              style='working')
-
-    def _on_mc_done(self, stds: dict):
-        if self._last_result is not None:
-            self._last_result.params_std = stds
-        self.btn_mc.setEnabled(True)
-        self.btn_fit.setEnabled(True)
-        self.graph.set_status('MC uncertainty estimation complete.', style='success')
-        if stds:
-            lines = [f'  {k}: ± {v:.4g}' for k, v in sorted(stds.items())]
-            QMessageBox.information(
-                self, 'MC Uncertainties',
-                'Parameter standard deviations:\n' + '\n'.join(lines),
-            )
-        else:
-            QMessageBox.information(
-                self, 'MC Uncertainties',
-                'No fittable parameters or too few successful runs.',
-            )
-
-    def _on_mc_error(self, msg: str):
-        self.graph.set_status(f'MC error: {msg}', style='error')
-        self.btn_mc.setEnabled(True)
-        self.btn_fit.setEnabled(True)
-
-    # ── Action: Revert ───────────────────────────────────────────────────
-
-    def _on_revert(self):
-        if self._pre_fit_state is None:
-            return
-        st = self._pre_fit_state
-        self.phi_row.set_value(st['volume_fraction'])
-        self.phi_row.set_fit(st['fit_volume_fraction'])
-        self.phi_row.set_limits(*st['volume_fraction_limits'])
-        self.contrast_row.set_value(st['contrast'])
-        self.contrast_row.set_fit(st['fit_contrast'])
-        self.contrast_row.set_limits(*st['contrast_limits'])
-        self.link_cb.setChecked(st.get('link_phi_contrast', True))
-        self.pl_B_row.set_value(st['power_law_B'])
-        self.pl_B_row.set_fit(st['fit_power_law_B'])
-        self.pl_B_row.set_limits(*st['power_law_B_limits'])
-        self.pl_P_row.set_value(st['power_law_P'])
-        self.pl_P_row.set_fit(st['fit_power_law_P'])
-        self.pl_P_row.set_limits(*st['power_law_P_limits'])
-        self.bg_row.set_value(st['background'])
-        self.bg_row.set_fit(st['fit_background'])
-        self.bg_row.set_limits(*st['background_limits'])
-        self.no_limits_cb.setChecked(st.get('no_limits', False))
-        self._on_link_changed()
-        self._on_no_limits_changed()
-        self.graph.set_status('Reverted to pre-fit parameters.', style='info')
 
     # ── Save result ──────────────────────────────────────────────────────
 

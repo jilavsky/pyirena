@@ -73,50 +73,45 @@ ALLOWED_VOXEL_SIZES = (64, 128, 256, 384, 512)
 class SaxsMorphConfig:
     """Configuration for one SAXS Morph run.
 
-    Q range
-    -------
-    q_min, q_max          Cursor-driven Q range used for fitting; outside this
-                          window data are ignored.
+    Workflow
+    --------
+    The SAXS Morph method does NOT iteratively fit the model parameters
+    (phi, contrast).  Given the data invariant and one of (phi, Delta rho^2),
+    the other is uniquely determined; given those plus a spectral function
+    derived from the data, the voxelgram is generated *deterministically*
+    (modulo the RNG seed).  The only true fits are the two background
+    pre-fits: a Power-law fit at low Q and a flat-background fit at high Q.
 
-    Voxel grid
+    Q ranges
+    --------
+    q_min, q_max                        Range used for the GRF modelling
+                                         step (read from the main I(Q)
+                                         cursors at "Calculate 3D" time).
+    power_law_q_min, power_law_q_max    Range for the Power-law pre-fit
+                                         (typically a low-Q window).
+    background_q_min, background_q_max  Range for the flat-background
+                                         pre-fit (typically a high-Q window).
+
+    Input mode
     ----------
-    voxel_size_fit        Cube side used during the fit loop (clamped <= 256).
-    voxel_size_render     Cube side used for the final post-convergence
-                          voxelgram (up to 512).
-    box_size_A            Physical cube side length [A].
+    input_mode  One of:
+        'phi'      User supplies phi; contrast is derived from the invariant.
+        'contrast' User supplies contrast; phi is derived from the invariant.
+        'both'     User supplies both; no derivation (invariant ignored).
 
-    Two-phase parameters
-    --------------------
-    volume_fraction       phi of phase 1 (0..1). Always fittable in principle,
-                          but ``fit_volume_fraction`` enables it.
-    contrast              (Delta rho)**2 in 10**20 cm**-4. Used as a global
-                          intensity scale once the structure factor S(Q) is
-                          computed from the voxelgram.
-    link_phi_contrast     If True, contrast is derived inside ``compute_voxelgram``
-                          from the data invariant Q* = 2 pi**2 * phi (1-phi) * Delta rho**2,
-                          so the fit only varies phi (contrast is auto-set).
-
-    Background
-    ----------
-    power_law_B, power_law_P, background    Power-law amplitude / exponent
-                          and flat background; subtracted from data before the
-                          GRF inversion and re-added when computing model I(Q).
-
-    Fit flags / limits
-    ------------------
-    *_fit                 Per-parameter boolean: include in least-squares.
-    *_limits              Per-parameter (lo, hi) tuple.
-
-    Misc
-    ----
-    no_limits             If True, switch to Nelder-Mead (no bounds).
-    n_mc_runs             Number of Monte Carlo passes for uncertainty.
-    rng_seed              Optional integer seed for reproducible voxelgrams;
-                          None -> fresh per call.
+    The fit_* flags and *_limits fields are kept for backward compatibility
+    with the (deprecated) Engine.fit() method but are no longer used by the
+    GUI workflow.
     """
-    # Q range
+    # Modelling Q range (driven by main cursors)
     q_min: Optional[float] = None
     q_max: Optional[float] = None
+
+    # Background pre-fit Q ranges
+    power_law_q_min: Optional[float] = None
+    power_law_q_max: Optional[float] = None
+    background_q_min: Optional[float] = None
+    background_q_max: Optional[float] = None
 
     # Voxel grid
     voxel_size_fit: int = 128
@@ -124,32 +119,31 @@ class SaxsMorphConfig:
     box_size_A: float = 1000.0
 
     # Two-phase parameters
+    input_mode: str = 'phi'           # 'phi' | 'contrast' | 'both'
     volume_fraction: float = 0.3
-    fit_volume_fraction: bool = True
-    volume_fraction_limits: tuple = (0.05, 0.95)
-
     contrast: float = 1.0
+
+    # Background (Power-law + Flat) — values populated by pre-fits
+    power_law_B: float = 0.0
+    power_law_P: float = 4.0
+    background: float = 0.0
+
+    # ----- Backward-compatibility (deprecated, used only by Engine.fit) ----
+    fit_volume_fraction: bool = False
+    volume_fraction_limits: tuple = (0.05, 0.95)
     fit_contrast: bool = False
     contrast_limits: tuple = (0.0, 1e10)
-
-    link_phi_contrast: bool = True
-
-    # Background (Power-law + Flat)
-    power_law_B: float = 0.0
+    link_phi_contrast: bool = True   # legacy alias: True == input_mode 'phi'
     fit_power_law_B: bool = False
     power_law_B_limits: tuple = (0.0, 1e10)
-
-    power_law_P: float = 4.0
     fit_power_law_P: bool = False
     power_law_P_limits: tuple = (0.0, 6.0)
-
-    background: float = 0.0
     fit_background: bool = False
     background_limits: tuple = (0.0, 1e10)
-
-    # Misc
     no_limits: bool = False
     n_mc_runs: int = 10
+    # -----------------------------------------------------------------------
+
     rng_seed: Optional[int] = None
 
 
@@ -476,6 +470,90 @@ def derive_contrast_from_invariant(
     return Qstar / denom
 
 
+def derive_phi_from_invariant(
+    q: np.ndarray, I_corr: np.ndarray, contrast: float,
+) -> float:
+    """Inverse of :func:`derive_contrast_from_invariant`.
+
+    Given Q* (computed from data) and contrast Delta rho^2, solve
+
+        Q* = 2 * pi^2 * phi * (1 - phi) * Delta rho^2
+
+    for phi.  This is a quadratic in phi:
+
+        phi^2 - phi + K = 0,  where K = Q* / (2 * pi^2 * Delta rho^2)
+
+    with roots phi = 0.5 * (1 +/- sqrt(1 - 4K)).  We return the *smaller*
+    root (phi < 0.5) which corresponds to the minority phase.
+
+    If 1 - 4K < 0 the data is inconsistent with the supplied contrast (the
+    invariant is too large to be explained by any two-phase split at this
+    contrast) — we return 0.5 in that case as a sentinel.
+    """
+    if contrast <= 0:
+        return 0.5
+    order = np.argsort(q)
+    q_s = q[order]
+    I_s = I_corr[order]
+    Qstar = float(_simpson((q_s ** 2) * I_s, x=q_s))
+    K = Qstar / (2.0 * np.pi ** 2 * contrast)
+    disc = 1.0 - 4.0 * K
+    if disc < 0:
+        return 0.5
+    return float(0.5 * (1.0 - np.sqrt(disc)))
+
+
+def fit_power_law_bg(
+    q: np.ndarray, I: np.ndarray,
+    q_min: float, q_max: float,
+) -> tuple[float, float]:
+    """Linear least-squares fit of log10(I) = log10(B) - P * log10(Q) over [q_min, q_max].
+
+    Returns (B, P) where I_pl(Q) = B * Q**(-P).  Suitable for a low-Q
+    window where the data is dominated by a power-law tail (e.g. Porod's
+    Q^-4 in a sharp-interface system).
+
+    Falls back to (0.0, 4.0) if the window contains fewer than 2 valid
+    (positive Q, positive I) points.
+    """
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    mask = (q >= q_min) & (q <= q_max) & (q > 0) & (I > 0)
+    if mask.sum() < 2:
+        return 0.0, 4.0
+    lq = np.log10(q[mask])
+    lI = np.log10(I[mask])
+    # lI = log10(B) - P * lq    →    polyfit returns [slope, intercept]
+    slope, intercept = np.polyfit(lq, lI, 1)
+    P = float(-slope)
+    B = float(10.0 ** intercept)
+    return B, P
+
+
+def fit_flat_bg(
+    q: np.ndarray, I: np.ndarray,
+    q_min: float, q_max: float,
+    power_law_B: float = 0.0, power_law_P: float = 4.0,
+) -> float:
+    """Estimate flat background as the median of (I - power_law) over [q_min, q_max].
+
+    Use this in a high-Q window where the structural scattering has
+    decayed and the residual is dominated by detector / electronic noise.
+
+    Median is preferred over mean because high-Q data points often have a
+    long-tailed noise distribution.
+    """
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    mask = (q >= q_min) & (q <= q_max)
+    if not np.any(mask):
+        return 0.0
+    q_w = q[mask]
+    I_w = I[mask]
+    pl = power_law_B * np.maximum(q_w, 1e-30) ** -power_law_P
+    return float(np.median(I_w - pl))
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
@@ -530,12 +608,22 @@ class SaxsMorphEngine:
             config.power_law_B, config.power_law_P, config.background,
         )
 
-        # Optionally derive contrast from invariant
-        contrast = config.contrast
-        if config.link_phi_contrast:
-            contrast = derive_contrast_from_invariant(
-                q_fit, np.maximum(I_corr, 0.0), config.volume_fraction,
-            )
+        # Resolve input mode: legacy `link_phi_contrast=True` maps to 'phi'.
+        mode = (config.input_mode or '').lower()
+        if mode not in ('phi', 'contrast', 'both'):
+            mode = 'phi' if config.link_phi_contrast else 'both'
+
+        phi = float(config.volume_fraction)
+        contrast = float(config.contrast)
+        I_corr_pos = np.maximum(I_corr, 0.0)
+
+        if mode == 'phi':
+            # User input: phi.  Derive contrast from invariant.
+            contrast = derive_contrast_from_invariant(q_fit, I_corr_pos, phi)
+        elif mode == 'contrast':
+            # User input: contrast.  Derive phi from invariant.
+            phi = derive_phi_from_invariant(q_fit, I_corr_pos, contrast)
+        # else 'both': use both as supplied.
 
         # Cached spectral function
         r_grid, gamma_r, spectral_k, spectral_F = self._spectral(q_fit, I_corr)
@@ -544,7 +632,7 @@ class SaxsMorphEngine:
         N = int(voxel_size_override) if voxel_size_override else config.voxel_size_fit
         if N < 8:
             raise ValueError(f"voxel_size must be >= 8 (got {N})")
-        alfa = alfa_threshold(config.volume_fraction)
+        alfa = alfa_threshold(phi)
         voxelgram, _sigma, seed_used = generate_voxelgram(
             spectral_k, spectral_F,
             voxel_size=N, box_size_A=config.box_size_A,
@@ -568,8 +656,9 @@ class SaxsMorphEngine:
         chi2 = float(np.sum(resid * resid))
         dof = max(len(q_fit) - 1, 1)
 
-        # Reflect derived contrast back so callers/UI can read it
+        # Reflect resolved phi/contrast back so callers/UI can read them
         cfg_out = deepcopy(config)
+        cfg_out.volume_fraction = float(phi)
         cfg_out.contrast = float(contrast)
         cfg_out.q_min = float(q_min)
         cfg_out.q_max = float(q_max)
@@ -607,15 +696,20 @@ class SaxsMorphEngine:
         I: np.ndarray,
         dI: Optional[np.ndarray] = None,
     ) -> SaxsMorphResult:
-        """Refine fittable parameters by least_squares (or Nelder-Mead).
+        """**DEPRECATED**: kept only for backward compatibility / regression tests.
 
-        Parameters that may be fit (via fit_* flags):
-          volume_fraction, contrast, power_law_B, power_law_P, background.
+        The standard SAXS Morph workflow does NOT iteratively fit the model
+        parameters; volume fraction and contrast are linked through the data
+        invariant and the voxelgram is computed deterministically from them
+        plus the spectral function.  Use
+        :meth:`compute_voxelgram` instead, after pre-fitting the background
+        with :func:`fit_power_law_bg` and :func:`fit_flat_bg`.
 
-        The fit loop is hard-clamped to ``MAX_FIT_VOXEL_SIZE`` to bound memory.
-        After convergence, one final ``compute_voxelgram`` is run at
-        ``config.voxel_size_render`` and that high-resolution voxelgram is
-        returned in the result.
+        This method still varies any parameters whose ``fit_*`` flag is True
+        (volume_fraction, contrast, power_law_B, power_law_P, background)
+        via least_squares/Nelder-Mead and was the basis of the original
+        implementation; it is preserved only to avoid breaking existing
+        scripts and tests.
         """
         cfg = deepcopy(config)
 
