@@ -388,7 +388,6 @@ class TestEngineSmoke:
             volume_fraction=0.30,
             link_phi_contrast=True,
             rng_seed=42,
-            smooth_sigma=0.0,   # explicit: keep binary uint8 output
         )
         engine = SaxsMorphEngine()
         res = engine.compute_voxelgram(cfg, q, I, dI)
@@ -404,29 +403,28 @@ class TestEngineSmoke:
         assert np.all(np.isfinite(res.model_I))
         assert res.contrast_or_link()  # see helper below
 
-    def test_compute_voxelgram_with_smoothing_returns_float32(self):
-        """With smooth_sigma > 0 the voxelgram is float32 in [0, 1]."""
+    def test_compute_voxelgram_always_returns_binary_for_physics(self):
+        """compute_voxelgram always stores uint8 binary in result.voxelgram
+        regardless of smooth_sigma — smoothing is for display only so that
+        the I(Q) calculation uses the unmodified binary field.
+        """
         q, I, dI = make_synthetic_dataset()
-        cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
-            box_size_A=500.0,
-            volume_fraction=0.30,
-            link_phi_contrast=True,
-            rng_seed=42,
-            smooth_sigma=1.0,   # default, mimics Igor's gauss3d
-        )
-        engine = SaxsMorphEngine()
-        res = engine.compute_voxelgram(cfg, q, I, dI)
-        assert res.voxelgram.dtype == np.float32
-        assert res.voxelgram.shape == (32, 32, 32)
-        assert res.voxelgram.min() >= 0.0
-        assert res.voxelgram.max() <= 1.0
-        # Smoothing preserves the mean of the binary indicator.
-        assert 0.20 < res.phi_actual < 0.40
-        # Smoothing should reduce the per-voxel variance vs binary
-        # (binary cube has variance phi*(1-phi); smoothed is lower).
-        binary_var = res.phi_actual * (1.0 - res.phi_actual)
-        assert float(res.voxelgram.var()) < binary_var
+        for sigma in (0.0, 1.0, 2.0):
+            cfg = SaxsMorphConfig(
+                voxel_size_fit=32, voxel_size_render=32,
+                box_size_A=500.0,
+                volume_fraction=0.30,
+                link_phi_contrast=True,
+                rng_seed=42,
+                smooth_sigma=sigma,
+            )
+            engine = SaxsMorphEngine()
+            res = engine.compute_voxelgram(cfg, q, I, dI)
+            assert res.voxelgram.dtype == np.uint8, (
+                f"Expected uint8 for smooth_sigma={sigma}, got {res.voxelgram.dtype}")
+            assert res.voxelgram.shape == (32, 32, 32)
+            # phi_actual is the mean of the binary cube (same for all sigma)
+            assert 0.20 < res.phi_actual < 0.40
 
     def test_seed_reproducible_through_engine(self):
         q, I, dI = make_synthetic_dataset()

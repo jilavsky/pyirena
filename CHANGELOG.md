@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6]
+
+### Fixed
+
+- **SAXS Morph: beach ball / frozen GUI during Calculate 3D.** The
+  `QTimer.singleShot(0, ...)` deferral still ran on the main thread.
+  Replaced with a proper `_CalcWorker(QThread)` that runs
+  `compute_voxelgram()` on a background thread, keeping the GUI fully
+  responsive (no macOS spinning beach ball).
+- **SAXS Morph: model I(Q) systematically low (~2x) when Gaussian
+  smoothing was enabled.** The engine was computing I(Q) from the
+  *smoothed* float32 voxelgram, which has lower variance than the
+  original binary field (smoothing suppresses high-frequency content).
+  Fix: I(Q) is always computed from the **binary uint8 voxelgram**
+  (correct physics).  Gaussian smoothing (`smooth_sigma`) is applied
+  **separately** at display time — only to the 3D PyVista viewer, where
+  it softens isosurface aliasing.  The 2D slice viewer and the HDF5
+  result always hold the binary cube.  `result.voxelgram` is always
+  `uint8` regardless of `smooth_sigma`.
+- **SAXS Morph: 2D slice viewer grayscale was confusing.** The slice
+  viewer now always displays the binary microstructure (black = void,
+  white = solid) with a 2-colour LUT.  Only the 3D isosurface viewer
+  uses the smoothed float field.
+- **SAXS Morph: Save button label misleading.** Renamed from
+  "Save Result to HDF5…" to **"Save/Append to HDF5…"** with a tooltip
+  explaining that all other result groups in the HDF5 file are
+  preserved and only `entry/saxs_morph_results` is replaced.  In
+  batch/script mode (`fit_saxs_morph()`) the save is always automatic
+  — no dialog shown.
+
 ## [0.5.5]
 
 ### Added

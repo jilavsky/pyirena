@@ -79,6 +79,7 @@ from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer, Slice2DViewer, make_popout_button,
     HAS_PYVISTA, PYVISTA_INSTALL_HINT,
 )
+# SaxsMorphGraphWindow.show_voxelgram needs HAS_PYVISTA for conditional smoothing
 from pyirena.state import StateManager
 
 
@@ -400,10 +401,32 @@ class SaxsMorphGraphWindow(QWidget):
         item = add_plot_annotation(self.iq_plot, text, corner=corner)
         self._annotation_items.append(item)
 
-    def show_voxelgram(self, voxelgram, pitch_A: float):
-        """Push a fresh voxelgram into both the 2D slice and 3D viewers."""
+    def show_voxelgram(self, voxelgram: np.ndarray, pitch_A: float,
+                       smooth_sigma: float = 0.0):
+        """Push a voxelgram into both viewers.
+
+        Parameters
+        ----------
+        voxelgram  : uint8 binary cube (0/1) — as returned by the engine.
+        pitch_A    : voxel spacing in Å.
+        smooth_sigma : optional Gaussian sigma (in voxels) applied to the
+                      voxelgram BEFORE sending to the 3D viewer.  The 2D
+                      slice viewer always receives the original binary cube
+                      so that slices show the physical microstructure as
+                      sharp black/white regions.
+        """
+        # 2D slice: always binary — the thresholded microstructure
         self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
-        self.voxel3d_viewer.set_voxelgram(voxelgram, pitch_A)
+
+        # 3D viewer: optionally smooth to soften voxel-edge aliasing
+        if smooth_sigma > 0 and HAS_PYVISTA:
+            from scipy.ndimage import gaussian_filter
+            vox_display = gaussian_filter(
+                voxelgram.astype(np.float32), sigma=float(smooth_sigma),
+            )
+        else:
+            vox_display = voxelgram
+        self.voxel3d_viewer.set_voxelgram(vox_display, pitch_A)
 
     def clear_annotations(self):
         for item in list(self._annotation_items):
@@ -528,6 +551,33 @@ class _FitCancelled(Exception):
     """Raised when the user cancels a fit in progress."""
 
 
+class _CalcWorker(QThread):
+    """Runs SaxsMorphEngine.compute_voxelgram() on a background thread.
+
+    Using a real QThread (rather than QTimer.singleShot which still blocks
+    the main thread) keeps the GUI fully responsive during the calculation.
+    """
+    finished = Signal(object)   # SaxsMorphResult
+    error = Signal(str)
+
+    def __init__(self, engine, config, q, I, dI, parent=None):
+        super().__init__(parent)
+        self._engine = engine
+        self._config = config
+        self._q, self._I, self._dI = q, I, dI
+
+    def run(self):
+        try:
+            result = self._engine.compute_voxelgram(
+                self._config, self._q, self._I, self._dI,
+                voxel_size_override=self._config.voxel_size_render,
+            )
+            self.finished.emit(result)
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            self.error.emit(str(exc))
+
+
 class _FitWorker(QThread):
     """Runs SaxsMorphEngine.fit() off the GUI thread, with cancel support."""
     finished = Signal(object)   # SaxsMorphResult
@@ -617,6 +667,9 @@ class SaxsMorphPanel(QWidget):
 
         self._engine = SaxsMorphEngine()
         self._state = StateManager()
+        self._calc_worker: Optional[_CalcWorker] = None
+        self._calc_start_time: float = 0.0
+        self._calculating: bool = False
 
         self._building = True
         self._build_ui()
@@ -729,11 +782,17 @@ class SaxsMorphPanel(QWidget):
 
         # ── Save row ─────────────────────────────────────────────────────
         save_row = QHBoxLayout()
-        self.btn_save = QPushButton('Save Result to HDF5…')
+        self.btn_save = QPushButton('Save/Append to HDF5…')
         self.btn_save.setStyleSheet(
             'background:#2980b9;color:white;font-weight:bold;'
             'font-size:11pt;padding:6px;border-radius:4px;border:none;')
         self.btn_save.setEnabled(False)
+        self.btn_save.setToolTip(
+            'Append the SAXS Morph results (voxelgram + parameters) into an\n'
+            'HDF5 file.  All other result groups in the file are preserved;\n'
+            'only the saxs_morph_results group is replaced.\n'
+            'In batch / script mode this step runs automatically — no dialog.'
+        )
         self.btn_save.clicked.connect(self._save_result)
         save_row.addWidget(self.btn_save)
         lay.addLayout(save_row)
@@ -1268,10 +1327,8 @@ class SaxsMorphPanel(QWidget):
     # ── Action: Calculate 3D ─────────────────────────────────────────────
 
     def _on_calculate(self):
-        # Re-entrancy guard.  setEnabled(False) on the button is not enough
-        # because a click already in the OS event queue can fire after we
-        # disable, and on macOS the disable repaint can lag the compute.
-        if getattr(self, '_calculating', False):
+        # Re-entrancy guard: any OS-queued click while busy is dropped.
+        if self._calculating:
             return
         if self._data_q is None:
             QMessageBox.warning(self, 'No data', 'Open a data file first.')
@@ -1282,36 +1339,30 @@ class SaxsMorphPanel(QWidget):
             QMessageBox.warning(self, 'Bad parameters', str(e))
             return
 
-        # Show the busy banner FIRST so the user gets immediate feedback,
-        # then defer the heavy compute to the next event-loop tick via
-        # QTimer.singleShot(0, ...).  Without the deferral the synchronous
-        # compute would freeze the GUI before Qt had a chance to repaint.
+        # Show the busy banner and disable the button IMMEDIATELY so the
+        # user gets visual feedback before the compute starts.
         self._calculating = True
         self.btn_calc.setEnabled(False)
         self.graph.set_status(
-            f'Calculating 3D at {cfg.voxel_size_render}³ … please wait.',
+            f'Calculating 3D at {cfg.voxel_size_render}³ … '
+            f'(smooth σ={cfg.smooth_sigma:.1f}) please wait.',
             style='working',
         )
-        QApplication.processEvents()
-        QTimer.singleShot(0, lambda: self._do_calculate(cfg))
+        QApplication.processEvents()   # repaint before spawning thread
 
-    def _do_calculate(self, cfg):
-        t_start = time.perf_counter()
-        try:
-            # Use render resolution directly — there's no separate "fit"
-            # iteration any more, so we skip the fit_size shortcut.
-            result = self._engine.compute_voxelgram(
-                cfg, self._data_q, self._data_I, self._data_dI,
-                voxel_size_override=cfg.voxel_size_render,
-            )
-        except Exception as e:
-            self.graph.set_status(f'Failed: {e}', style='error')
-            QMessageBox.critical(self, 'Calculate 3D failed', str(e))
-            self.btn_calc.setEnabled(True)
-            self._calculating = False
-            return
-        elapsed_s = time.perf_counter() - t_start
+        # Run the compute in a background QThread so the GUI stays
+        # fully responsive (no beach ball on macOS).
+        self._calc_start_time = time.perf_counter()
+        self._calc_worker = _CalcWorker(
+            self._engine, cfg, self._data_q, self._data_I, self._data_dI,
+            parent=self,
+        )
+        self._calc_worker.finished.connect(self._on_calc_done)
+        self._calc_worker.error.connect(self._on_calc_error)
+        self._calc_worker.start()
 
+    def _on_calc_done(self, result):
+        elapsed_s = time.perf_counter() - self._calc_start_time
         self._last_result = result
 
         # Reflect derived value back into the read-only field
@@ -1326,6 +1377,12 @@ class SaxsMorphPanel(QWidget):
         self._calculating = False
         self._save_state()
 
+    def _on_calc_error(self, msg: str):
+        self.graph.set_status(f'Calculate 3D failed: {msg}', style='error')
+        QMessageBox.critical(self, 'Calculate 3D failed', msg)
+        self.btn_calc.setEnabled(True)
+        self._calculating = False
+
     def _update_after_eval(self, result: SaxsMorphResult,
                            elapsed_s: Optional[float] = None):
         # Refresh background curve + data − bg over full Q range,
@@ -1335,8 +1392,13 @@ class SaxsMorphPanel(QWidget):
             cfg.power_law_B, cfg.power_law_P, cfg.background,
         )
         self.graph.plot_model_iq(result.model_q, result.model_I)
-        # Push the voxelgram to the 2D slice + 3D viewers
-        self.graph.show_voxelgram(result.voxelgram, result.voxel_pitch_A)
+        # Push the voxelgram to the 2D slice + 3D viewers.
+        # 2D slice always gets the binary cube; 3D viewer gets optionally
+        # smoothed for better isosurface rendering.
+        self.graph.show_voxelgram(
+            result.voxelgram, result.voxel_pitch_A,
+            smooth_sigma=float(result.config.smooth_sigma or 0.0),
+        )
         elapsed_str = (f' [took {elapsed_s:.1f} s]'
                        if elapsed_s is not None else '')
         self.graph.set_status(
@@ -1402,7 +1464,7 @@ class SaxsMorphPanel(QWidget):
         signals on widgets that are about to be deleted.
         """
         # Stop background workers first
-        for attr in ('_fit_worker', '_mc_worker'):
+        for attr in ('_fit_worker', '_mc_worker', '_calc_worker'):
             w = getattr(self, attr, None)
             if w is not None:
                 try:

@@ -353,20 +353,18 @@ class Slice2DViewer(QWidget):
         top.addStretch()
         lay.addLayout(top)
 
-        # Image view with a 256-level grayscale LUT — works for both binary
-        # uint8 voxelgrams (sharp black/white) AND smoothed float32 ones
-        # (continuous greyscale gradient).
+        # Image view: strictly binary black/white.  The 2D slice shows
+        # the PHYSICAL microstructure — thresholded 0 (void) and 1 (solid)
+        # as sharp black and white regions.  Smoothing is deliberately
+        # NOT applied here; it goes only to the 3D isosurface viewer.
         self.image_view = pg.ImageView(view=pg.PlotItem())
         self.image_view.ui.histogram.hide()
         self.image_view.ui.roiBtn.hide()
         self.image_view.ui.menuBtn.hide()
         self.image_view.view.setAspectLocked(True)
         self.image_view.view.invertY(True)
-        gray = np.arange(256, dtype=np.uint8)
-        gray_lut = np.column_stack([
-            gray, gray, gray, np.full(256, 255, dtype=np.uint8),
-        ])
-        self.image_view.imageItem.setLookupTable(gray_lut)
+        bw_lut = np.array([[0, 0, 0, 255], [255, 255, 255, 255]], dtype=np.uint8)
+        self.image_view.imageItem.setLookupTable(bw_lut)
         self.image_view.imageItem.setLevels([0, 1])
         lay.addWidget(self.image_view)
 

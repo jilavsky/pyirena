@@ -733,16 +733,21 @@ class SaxsMorphEngine:
         if N < 8:
             raise ValueError(f"voxel_size must be >= 8 (got {N})")
         alfa = alfa_threshold(phi)
+        # ALWAYS generate binary voxelgram for I(Q) computation.
+        # Smoothing is applied SEPARATELY for display only (see below).
+        # Using a smoothed field for I(Q) would reduce the variance
+        # (smoothing damps high-frequency content), causing the model
+        # intensity to be systematically lower than the data.
         voxelgram, _sigma, seed_used = generate_voxelgram(
             spectral_k, spectral_F,
             voxel_size=N, box_size_A=config.box_size_A,
             alfa=alfa, rng_seed=config.rng_seed,
-            smooth_sigma=float(getattr(config, 'smooth_sigma', 0.0) or 0.0),
+            smooth_sigma=0.0,   # binary for physics — display smoothing happens in GUI
         )
         pitch = config.box_size_A / N
         phi_actual = float(voxelgram.mean())
 
-        # Model intensity
+        # Model intensity (from binary voxelgram — correct physics)
         I_struct = voxelgram_to_iq(voxelgram, pitch, q_fit)
         I_model = add_background(
             q_fit, contrast * I_struct,
