@@ -601,6 +601,13 @@ class SaxsMorphPanel(QWidget):
         self.setWindowTitle('pyIrena — SAXS Morph')
         self.setMinimumSize(1300, 900)
 
+        # Auto-destroy this panel on close so the embedded VTK render
+        # window is fully torn down (avoids the macOS Cocoa segfault when
+        # the cached panel is reopened with a stale plotter).  Callers
+        # (e.g. Data Selector) should connect to ``destroyed`` and clear
+        # any cached reference so a fresh panel is created next time.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
         self._data_q: Optional[np.ndarray] = None
         self._data_I: Optional[np.ndarray] = None
         self._data_dI: Optional[np.ndarray] = None

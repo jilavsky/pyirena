@@ -4228,6 +4228,13 @@ class DataSelectorPanel(QWidget):
 
             if self.saxs_morph_window is None:
                 self.saxs_morph_window = SaxsMorphPanel()
+                # SaxsMorphPanel sets WA_DeleteOnClose so the embedded
+                # PyVista QtInteractor is fully destroyed on close.  When
+                # that happens, clear our cached reference so the next
+                # launch creates a fresh panel with a live VTK window.
+                self.saxs_morph_window.destroyed.connect(
+                    self._on_saxs_morph_destroyed
+                )
 
             self.saxs_morph_window.set_data(
                 data['Q'],
@@ -4250,6 +4257,12 @@ class DataSelectorPanel(QWidget):
                 f"Error loading data for SAXS Morph:\n{str(e)}",
             )
             self.status_label.setText(f"Error: {str(e)}")
+
+    def _on_saxs_morph_destroyed(self, _obj=None):
+        """Clear the cached SAXS Morph panel reference once Qt has
+        destroyed the underlying widget (triggered by WA_DeleteOnClose).
+        """
+        self.saxs_morph_window = None
 
     def run_saxs_morph_script(self):
         """Batch-fit all selected files with SAXS Morph."""

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4]
+
+### Fixed
+
+- **SAXS Morph: dead 3D viewer on second open.** The 0.5.3 shutdown fix
+  nulled `Voxel3DViewer.plotter` on close, but the Data Selector cached
+  the panel object — so reopening it gave back the same panel with a
+  dead plotter (`AttributeError: 'NoneType' object has no attribute
+  'add_mesh'` on the next Calculate 3D).
+  - `SaxsMorphPanel` now sets `WA_DeleteOnClose`, so the panel is fully
+    destroyed when closed (rather than just hidden) — the embedded
+    PyVista QtInteractor goes away with it.
+  - `DataSelectorPanel.launch_saxs_morph()` connects to the panel's
+    `destroyed` signal to clear `self.saxs_morph_window`, so the next
+    launch creates a fresh panel with a live VTK render window.
+  - State / parameters persist across recreations because they're
+    saved to `~/.pyirena/state.json`.  The data file is reloaded from
+    Data Selector's current selection.
+- **CHANGELOG correction**: the 0.5.3 note suggesting
+  `pip install "PySide6==6.6.*"` is wrong on Python 3.13+ — only
+  PySide6 6.10.1+ ships wheels for those Python versions.  The 0.5.3
+  shutdown fix already makes the panel safe to close on PySide6 6.10.x;
+  the WA_DeleteOnClose addition above closes the loop on reopening.
+
 ## [0.5.3]
 
 ### Fixed
