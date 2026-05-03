@@ -265,13 +265,49 @@ class Voxel3DViewer(QWidget):
             self._outline_actor = None
         self._voxelgram = None
 
+    def shutdown(self):
+        """Tear down the PyVista plotter and the underlying VTK render window
+        before Qt destroys the widget hierarchy.
+
+        On macOS, the VTK CocoaRenderWindow holds a reference to a layer-backed
+        NSView; if Qt destroys the QNSView while VTK still owns it, a delayed
+        signal (e.g. propagateBackingProperties) will invoke vtkCocoaRenderWindow::Render
+        on a freed view and segfault the whole process.
+
+        This method:
+          1. removes all actors,
+          2. calls Finalize() on the render window (releases the GL context),
+          3. closes the plotter and nulls our reference (so any late signal
+             that does reach Python finds None and bails out).
+        Safe to call multiple times.
+        """
+        if not HAS_PYVISTA:
+            return
+        plotter = getattr(self, 'plotter', None)
+        if plotter is None:
+            return
+        # Drop our own references first
+        self._actor = None
+        self._outline_actor = None
+        self._mesh = None
+        self._voxelgram = None
+        # Tell VTK to release the render window resources
+        try:
+            ren_win = plotter.render_window
+            if ren_win is not None:
+                ren_win.Finalize()
+        except Exception:
+            pass
+        # Close the QtInteractor / Plotter
+        try:
+            plotter.close()
+        except Exception:
+            pass
+        # Drop our reference so late signals see None
+        self.plotter = None
+
     def closeEvent(self, evt):
-        # Release VTK resources cleanly to avoid segfaults on app shutdown.
-        if HAS_PYVISTA:
-            try:
-                self.plotter.close()
-            except Exception:
-                pass
+        self.shutdown()
         super().closeEvent(evt)
 
 
@@ -416,11 +452,28 @@ class _PopoutDialog(QDialog):
         lay.addWidget(widget)
 
     def closeEvent(self, evt):
-        # Return the widget to its original layout slot
+        # Return the widget to its original layout slot.  If the original
+        # layout has been destroyed (e.g. parent panel closed first), the
+        # widget is a 3D viewer that needs explicit shutdown to avoid the
+        # macOS VTK CocoaRenderWindow crash.
+        restored = False
         try:
             self._layout.insertWidget(self._index, self._widget)
+            restored = True
         except Exception:
-            self._layout.addWidget(self._widget)
+            try:
+                self._layout.addWidget(self._widget)
+                restored = True
+            except Exception:
+                pass
+        if not restored:
+            # Original layout is gone — shut down the widget explicitly.
+            shutdown = getattr(self._widget, 'shutdown', None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception:
+                    pass
         super().closeEvent(evt)
 
 

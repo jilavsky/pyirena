@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3]
+
+### Fixed
+
+- **SAXS Morph: macOS segfault when closing the panel.** Closing the
+  SAXS Morph window killed the entire pyirena process with
+  `EXC_BAD_ACCESS` in `vtkCocoaRenderWindow::Render` (PySide6 6.10.x +
+  PyVista on macOS).  Root cause: Qt does not propagate `closeEvent` to
+  child widgets, so `Voxel3DViewer.closeEvent` was never called and the
+  VTK render window stayed alive long enough to receive a late
+  "backing layer changed" signal from AppKit, which then tried to
+  `Render()` onto a freed `NSView`.
+  - Added `Voxel3DViewer.shutdown()` that explicitly calls
+    `render_window.Finalize()` before `plotter.close()` and nulls out
+    `self.plotter` so any late signal sees `None` and bails out.
+  - Added `SaxsMorphPanel.closeEvent()` that calls `shutdown()` on the
+    embedded 3D viewer first, and also stops any in-flight worker
+    threads (`_FitWorker`, `_MCWorker`) before allowing Qt to destroy
+    the widget tree.
+  - `_PopoutDialog.closeEvent()` now calls `shutdown()` on its widget
+    if the original layout has been destroyed (e.g. main panel closed
+    while the popout was open).
+- **Note**: PySide6 6.10.x is still flagged as incompatible in the
+  `gui` extra (`!=6.10.*`) but pip will not downgrade an
+  already-installed PySide6.  If you continue to see VTK shutdown
+  warnings, pin manually: `pip install "PySide6==6.6.*"`.
+
 ## [0.5.2]
 
 ### Fixed

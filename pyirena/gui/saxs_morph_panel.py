@@ -1342,6 +1342,44 @@ class SaxsMorphPanel(QWidget):
         except Exception as e:
             QMessageBox.critical(self, 'Save failed', str(e))
 
+    # ── Shutdown ─────────────────────────────────────────────────────────
+
+    def closeEvent(self, event):
+        """Tear down PyVista BEFORE Qt destroys the widget tree.
+
+        Qt does not propagate closeEvent to child widgets — when the user
+        clicks the X on the SAXS Morph window, the parent's closeEvent
+        fires but Voxel3DViewer.closeEvent does NOT.  Without this hook
+        the VTK Cocoa render window stays alive long enough to receive a
+        late "backing layer changed" signal from AppKit, calls Render()
+        on a freed NSView, and segfaults the entire Python process
+        (especially on macOS with PySide6 6.10.x).
+
+        We also kill any active worker threads here so they cannot fire
+        signals on widgets that are about to be deleted.
+        """
+        # Stop background workers first
+        for attr in ('_fit_worker', '_mc_worker'):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    if hasattr(w, 'cancel'):
+                        w.cancel()
+                    if w.isRunning():
+                        w.requestInterruption()
+                        w.wait(2000)   # up to 2 s
+                except Exception:
+                    pass
+        # Then tear down the 3D viewer (PyVista + VTK)
+        try:
+            graph = getattr(self, 'graph', None)
+            viewer = getattr(graph, 'voxel3d_viewer', None) if graph else None
+            if viewer is not None and hasattr(viewer, 'shutdown'):
+                viewer.shutdown()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
 
 # ---------------------------------------------------------------------------
 # CLI entry
