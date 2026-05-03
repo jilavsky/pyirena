@@ -487,6 +487,9 @@ class SaxsMorphEngine:
         # Cache of (k, F) keyed by hash of (q_corr_bytes, B, P, flat).
         # The data are constant during a fit; only voxel size changes per call.
         self._spectral_cache: dict = {}
+        # Optional cancellation hook installed by GUI workers; raises an
+        # exception when set to abort the current fit between iterations.
+        self._cancel_check = None
 
     # ----- one-shot evaluation ---------------------------------------------
 
@@ -630,6 +633,8 @@ class SaxsMorphEngine:
         x0_arr = np.array(x0, dtype=float)
 
         def _residuals(x):
+            if self._cancel_check is not None:
+                self._cancel_check()
             self._unpack_params(x, keys, cfg)
             res = self.compute_voxelgram(
                 cfg, q, I, dI, voxel_size_override=cfg.voxel_size_fit,

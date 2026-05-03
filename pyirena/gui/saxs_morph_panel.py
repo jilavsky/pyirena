@@ -38,7 +38,7 @@ try:
         QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
         QScrollArea, QFrame, QSizePolicy,
     )
-    from PySide6.QtCore import Qt, Signal
+    from PySide6.QtCore import Qt, Signal, QThread
     from PySide6.QtGui import QFont, QDoubleValidator
 except ImportError:
     try:
@@ -48,7 +48,7 @@ except ImportError:
             QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
             QScrollArea, QFrame, QSizePolicy,
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QThread
         from PyQt6.QtGui import QFont, QDoubleValidator
     except ImportError:
         from PyQt5.QtWidgets import (
@@ -57,7 +57,7 @@ except ImportError:
             QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
             QScrollArea, QFrame, QSizePolicy,
         )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal
+        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QThread
         from PyQt5.QtGui import QFont, QDoubleValidator
 
 import pyqtgraph as pg
@@ -418,6 +418,76 @@ class ParamRow(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Background worker threads
+# ---------------------------------------------------------------------------
+
+class _FitCancelled(Exception):
+    """Raised when the user cancels a fit in progress."""
+
+
+class _FitWorker(QThread):
+    """Runs SaxsMorphEngine.fit() off the GUI thread, with cancel support."""
+    finished = Signal(object)   # SaxsMorphResult
+    error = Signal(str)
+
+    def __init__(self, engine, config, q, I, dI, parent=None):
+        super().__init__(parent)
+        self._engine = engine
+        self._config = config
+        self._q, self._I, self._dI = q, I, dI
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        worker = self
+
+        def _check():
+            if worker._cancelled:
+                raise _FitCancelled('Fit cancelled by user.')
+
+        try:
+            self._engine._cancel_check = _check
+            try:
+                result = self._engine.fit(self._config, self._q, self._I, self._dI)
+                self.finished.emit(result)
+            finally:
+                self._engine._cancel_check = None
+        except _FitCancelled:
+            self.error.emit('Fit cancelled by user.')
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            self.error.emit(str(exc))
+
+
+class _MCWorker(QThread):
+    """Runs SaxsMorphEngine.calculate_uncertainty_mc() off the GUI thread."""
+    progress = Signal(int, int)   # (current, total)
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, engine, config, q, I, dI, n_runs, parent=None):
+        super().__init__(parent)
+        self._engine = engine
+        self._config = config
+        self._q, self._I, self._dI = q, I, dI
+        self._n_runs = n_runs
+
+    def run(self):
+        try:
+            stds = self._engine.calculate_uncertainty_mc(
+                self._config, self._q, self._I, self._dI,
+                n_runs=self._n_runs,
+                progress_cb=lambda i, n: self.progress.emit(i, n),
+            )
+            self.finished.emit(stds)
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            self.error.emit(str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Main panel
 # ---------------------------------------------------------------------------
 
@@ -437,6 +507,9 @@ class SaxsMorphPanel(QWidget):
 
         self._engine = SaxsMorphEngine()
         self._state = StateManager()
+        self._fit_worker: Optional[_FitWorker] = None
+        self._mc_worker: Optional[_MCWorker] = None
+        self._pre_fit_state: Optional[dict] = None
 
         self._building = True
         self._build_ui()
@@ -545,12 +618,12 @@ class SaxsMorphPanel(QWidget):
         self.btn_fit.setStyleSheet(
             'background:#27ae60;color:white;font-weight:bold;'
             'font-size:11pt;padding:6px;border-radius:4px;border:none;')
-        self.btn_fit.setEnabled(False)
-        self.btn_fit.setToolTip('Fit (wired in Phase 4)')
+        self.btn_fit.clicked.connect(self._on_fit)
         act1.addWidget(self.btn_fit)
 
         self.btn_cancel = QPushButton('Cancel')
         self.btn_cancel.setEnabled(False)
+        self.btn_cancel.clicked.connect(self._on_cancel_fit)
         act1.addWidget(self.btn_cancel)
         lay.addLayout(act1)
 
@@ -566,11 +639,12 @@ class SaxsMorphPanel(QWidget):
             'background:#16a085;color:white;font-weight:bold;'
             'font-size:11pt;padding:6px;border-radius:4px;border:none;')
         self.btn_mc.setEnabled(False)
-        self.btn_mc.setToolTip('Monte-Carlo uncertainty (wired in Phase 4)')
+        self.btn_mc.clicked.connect(self._on_mc)
         act2.addWidget(self.btn_mc)
         self.btn_revert = QPushButton('Revert')
         self.btn_revert.setEnabled(False)
-        self.btn_revert.setToolTip('Restore parameters from before last fit (Phase 4)')
+        self.btn_revert.setToolTip('Restore parameters from before last fit')
+        self.btn_revert.clicked.connect(self._on_revert)
         act2.addWidget(self.btn_revert)
         lay.addLayout(act2)
 
@@ -981,6 +1055,157 @@ class SaxsMorphPanel(QWidget):
         )
         self.result_lbl.setText(text)
         self.btn_save.setEnabled(True)
+
+    # ── Action: Fit ──────────────────────────────────────────────────────
+
+    def _on_fit(self):
+        if self._fit_worker is not None and self._fit_worker.isRunning():
+            return  # Cancel button handles in-flight cancellation
+        if self._data_q is None:
+            QMessageBox.warning(self, 'No data', 'Open a data file first.')
+            return
+
+        try:
+            cfg = self._make_config()
+        except Exception as e:
+            QMessageBox.warning(self, 'Bad parameters', str(e))
+            return
+
+        # Snapshot current widget state for Revert
+        self._pre_fit_state = self._current_state()
+
+        # UI state during fit
+        self.btn_fit.setEnabled(False)
+        self.btn_graph.setEnabled(False)
+        self.btn_mc.setEnabled(False)
+        self.btn_revert.setEnabled(False)
+        self.btn_cancel.setEnabled(True)
+        self.graph.set_status(
+            f'Fitting at {cfg.voxel_size_fit}³ … (Cancel to abort)',
+            style='working',
+        )
+
+        self._fit_worker = _FitWorker(
+            self._engine, cfg, self._data_q, self._data_I, self._data_dI,
+            parent=self,
+        )
+        self._fit_worker.finished.connect(self._on_fit_done)
+        self._fit_worker.error.connect(self._on_fit_error)
+        self._fit_worker.start()
+
+    def _on_cancel_fit(self):
+        if self._fit_worker is not None and self._fit_worker.isRunning():
+            self._fit_worker.cancel()
+            self.btn_cancel.setEnabled(False)
+            self.graph.set_status('Cancelling fit …', style='working')
+
+    def _on_fit_done(self, result: SaxsMorphResult):
+        self._last_result = result
+        # Push best-fit values back into widgets
+        cfg = result.config
+        self.phi_row.set_value(cfg.volume_fraction)
+        self.contrast_row.set_value(cfg.contrast)
+        self.pl_B_row.set_value(cfg.power_law_B)
+        self.pl_P_row.set_value(cfg.power_law_P)
+        self.bg_row.set_value(cfg.background)
+
+        self._update_after_eval(result, label='Fit')
+        self._restore_buttons_after_fit(success=True)
+        self._save_state()
+
+    def _on_fit_error(self, msg: str):
+        self.graph.set_status(f'Fit error: {msg}', style='error')
+        self._restore_buttons_after_fit(success=False)
+
+    def _restore_buttons_after_fit(self, success: bool):
+        self.btn_fit.setEnabled(True)
+        self.btn_graph.setEnabled(True)
+        self.btn_mc.setEnabled(self._last_result is not None)
+        self.btn_revert.setEnabled(self._pre_fit_state is not None)
+        self.btn_cancel.setEnabled(False)
+
+    # ── Action: MC uncertainty ───────────────────────────────────────────
+
+    def _on_mc(self):
+        if self._last_result is None or self._data_q is None:
+            QMessageBox.information(self, 'No result', 'Run Fit first.')
+            return
+        if self._mc_worker is not None and self._mc_worker.isRunning():
+            return
+
+        n = self.n_runs_spin.value()
+        cfg = deepcopy(self._last_result.config)
+        # Use the same fit-time voxel size for each MC pass
+        cfg.voxel_size_render = cfg.voxel_size_fit
+
+        self.btn_mc.setEnabled(False)
+        self.btn_fit.setEnabled(False)
+        self.graph.set_status(f'Starting MC — 0 / {n} passes …', style='working')
+
+        self._mc_worker = _MCWorker(
+            self._engine, cfg, self._data_q, self._data_I, self._data_dI,
+            n_runs=n, parent=self,
+        )
+        self._mc_worker.progress.connect(self._on_mc_progress)
+        self._mc_worker.finished.connect(self._on_mc_done)
+        self._mc_worker.error.connect(self._on_mc_error)
+        self._mc_worker.start()
+
+    def _on_mc_progress(self, current: int, total: int):
+        self.graph.set_status(f'MC uncertainty — pass {current} / {total} …',
+                              style='working')
+
+    def _on_mc_done(self, stds: dict):
+        if self._last_result is not None:
+            self._last_result.params_std = stds
+        self.btn_mc.setEnabled(True)
+        self.btn_fit.setEnabled(True)
+        self.graph.set_status('MC uncertainty estimation complete.', style='success')
+        if stds:
+            lines = [f'  {k}: ± {v:.4g}' for k, v in sorted(stds.items())]
+            QMessageBox.information(
+                self, 'MC Uncertainties',
+                'Parameter standard deviations:\n' + '\n'.join(lines),
+            )
+        else:
+            QMessageBox.information(
+                self, 'MC Uncertainties',
+                'No fittable parameters or too few successful runs.',
+            )
+
+    def _on_mc_error(self, msg: str):
+        self.graph.set_status(f'MC error: {msg}', style='error')
+        self.btn_mc.setEnabled(True)
+        self.btn_fit.setEnabled(True)
+
+    # ── Action: Revert ───────────────────────────────────────────────────
+
+    def _on_revert(self):
+        if self._pre_fit_state is None:
+            return
+        st = self._pre_fit_state
+        self.phi_row.set_value(st['volume_fraction'])
+        self.phi_row.set_fit(st['fit_volume_fraction'])
+        self.phi_row.set_limits(*st['volume_fraction_limits'])
+        self.contrast_row.set_value(st['contrast'])
+        self.contrast_row.set_fit(st['fit_contrast'])
+        self.contrast_row.set_limits(*st['contrast_limits'])
+        self.link_cb.setChecked(st.get('link_phi_contrast', True))
+        self.pl_B_row.set_value(st['power_law_B'])
+        self.pl_B_row.set_fit(st['fit_power_law_B'])
+        self.pl_B_row.set_limits(*st['power_law_B_limits'])
+        self.pl_P_row.set_value(st['power_law_P'])
+        self.pl_P_row.set_fit(st['fit_power_law_P'])
+        self.pl_P_row.set_limits(*st['power_law_P_limits'])
+        self.bg_row.set_value(st['background'])
+        self.bg_row.set_fit(st['fit_background'])
+        self.bg_row.set_limits(*st['background_limits'])
+        self.no_limits_cb.setChecked(st.get('no_limits', False))
+        self._on_link_changed()
+        self._on_no_limits_changed()
+        self.graph.set_status('Reverted to pre-fit parameters.', style='info')
+
+    # ── Save result ──────────────────────────────────────────────────────
 
     def _save_result(self):
         if self._last_result is None:
