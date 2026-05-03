@@ -133,6 +133,34 @@ def _parse_optional(text: str) -> Optional[float]:
         return None
 
 
+def _patch_sparse_log_ticks(axis):
+    """Replace ``axis.tickValues`` with a sparser variant for log-scale axes.
+
+    pyqtgraph's default log-axis tick generator emits a label for every
+    minor (log10(2)..log10(9)) position on top of every decade.  At
+    moderate zoom these labels overlap heavily and become unreadable.
+
+    The replacement emits at most ~4 labels per decade:
+      - >=4 decades visible → decade ticks only (10^n)
+      - 2-3 decades        → decades + log10(3) midpoint
+      - <=1 decade         → decades + log10(2)/log10(3)/log10(5)
+    """
+    def tickValues(minVal, maxVal, size):
+        lo_dec = int(np.floor(minVal))
+        hi_dec = int(np.ceil(maxVal))
+        n = hi_dec - lo_dec
+        decades = [float(d) for d in range(lo_dec, hi_dec + 1)]
+        if n >= 4:
+            return [(1.0, decades)]
+        if n >= 2:
+            mids = [d + np.log10(3) for d in range(lo_dec, hi_dec)]
+            return [(1.0, decades), (0.5, mids)]
+        offsets = [np.log10(2), np.log10(3), np.log10(5)]
+        mids = [d + off for d in range(lo_dec - 1, hi_dec + 1) for off in offsets]
+        return [(1.0, decades), (0.5, mids)]
+    axis.tickValues = tickValues
+
+
 # ---------------------------------------------------------------------------
 # Graph window: I(Q) plot with cursors + placeholder for 3D viewers
 # ---------------------------------------------------------------------------
@@ -150,7 +178,14 @@ class SaxsMorphGraphWindow(QWidget):
         self._cursor_right = None
         self._cursor_updating = False
 
+        # Full data — kept here so the background curve and
+        # data-minus-background trace can be drawn over the whole Q range
+        # regardless of where the modelling cursors are placed.
+        self._full_q: Optional[np.ndarray] = None
+        self._full_I: Optional[np.ndarray] = None
+
         self._data_items = []
+        self._bg_curve_item = None
         self._corr_item = None
         self._model_item = None
         self._annotation_items: list = []
@@ -177,6 +212,11 @@ class SaxsMorphGraphWindow(QWidget):
             parent_widget=self,
             jpeg_default_name='saxs_morph_iq.jpg',
         )
+        # Sparser tick labels — default log-axis emits 9 labels per decade
+        # which overlap badly at moderate zoom.
+        _patch_sparse_log_ticks(self.iq_plot.getAxis('bottom'))
+        _patch_sparse_log_ticks(self.iq_plot.getAxis('top'))
+        _patch_sparse_log_ticks(self.iq_plot.getAxis('left'))
 
         self.splitter.addWidget(top)
 
@@ -265,30 +305,82 @@ class SaxsMorphGraphWindow(QWidget):
     # ── Data plotting ────────────────────────────────────────────────────
 
     def plot_data(self, q, I, dI=None):
-        """Plot raw experimental data; clears previous items."""
+        """Plot raw experimental data; clears previous items.
+
+        Stores ``q`` and ``I`` so subsequent ``plot_background()`` /
+        ``plot_model_iq()`` calls can use the full Q range, not just
+        the cursor-bounded modelling window.
+        """
         self.iq_plot.clear()
         self._data_items.clear()
+        self._bg_curve_item = None
         self._corr_item = None
         self._model_item = None
         self.clear_annotations()
 
+        self._full_q = np.asarray(q, dtype=float)
+        self._full_I = np.asarray(I, dtype=float)
+
         scatter, errbar = plot_iq_data(self.iq_plot, q, I, dI, label='Data')
         self._data_items = [scatter, errbar]
 
-    def plot_data_minus_bg(self, q, I_corr):
-        """Overlay data - background as a black scatter."""
-        if self._corr_item is not None:
-            try:
-                self.iq_plot.removeItem(self._corr_item)
-            except Exception:
-                pass
-        I_pos = np.where(I_corr > 0, I_corr, np.nan)
+    def plot_background(self, power_law_B: float, power_law_P: float,
+                        background: float):
+        """Overlay (B·Q^-P + flat) over the full data Q range plus
+        ``data − background`` as a green scatter.
+
+        Called after each background pre-fit and after Calculate 3D, so the
+        user can see how well the chosen background matches the low-Q tail
+        and the high-Q noise floor before committing to the model fit.
+        """
+        if self._full_q is None or self._full_I is None:
+            return
+
+        # Remove previous bg + corr items
+        for item in (self._bg_curve_item, self._corr_item):
+            if item is not None:
+                try:
+                    self.iq_plot.removeItem(item)
+                except Exception:
+                    pass
+        self._bg_curve_item = None
+        self._corr_item = None
+
+        q = self._full_q
+        I = self._full_I
+        q_safe = np.maximum(q, 1e-30)
+        bg = power_law_B * q_safe ** -power_law_P + background
+
+        # Background curve (dashed mid-grey).  Mask non-positive values
+        # for the log-scale plot.
+        bg_pos = np.where(bg > 0, bg, np.nan)
+        self._bg_curve_item = self.iq_plot.plot(
+            q, bg_pos,
+            pen=pg.mkPen('#7f8c8d', width=1.5,
+                         style=Qt.PenStyle.DashLine),
+            name='Background (B·Q⁻ᴾ + flat)',
+        )
+
+        # Data − background scatter.
+        I_corr = I - bg
+        I_corr_pos = np.where(I_corr > 0, I_corr, np.nan)
         self._corr_item = self.iq_plot.plot(
-            q, I_pos, pen=None,
+            q, I_corr_pos, pen=None,
             symbol='t', symbolSize=5,
-            symbolBrush='#222', symbolPen=None,
+            symbolBrush='#27ae60', symbolPen=None,
             name='Data − Background',
         )
+
+    def clear_background_overlay(self):
+        """Remove the background curve + data-minus-bg traces."""
+        for item in (self._bg_curve_item, self._corr_item):
+            if item is not None:
+                try:
+                    self.iq_plot.removeItem(item)
+                except Exception:
+                    pass
+        self._bg_curve_item = None
+        self._corr_item = None
 
     def plot_model_iq(self, q, I_model):
         """Overlay the GRF model as a red line."""
@@ -1105,6 +1197,10 @@ class SaxsMorphPanel(QWidget):
             return
         self.pl_B_edit.setText(_fmt(B))
         self.pl_P_edit.setText(_fmt(P))
+        # Refresh the background curve and data−bg trace immediately so
+        # the user can judge fit quality.
+        flat = _parse(self.bg_edit.text(), 0.0)
+        self.graph.plot_background(B, P, flat)
         self.graph.set_status(
             f'Power-law pre-fit done: B = {B:.4g}, P = {P:.4g} '
             f'(over Q ∈ [{q_lo:.4g}, {q_hi:.4g}] Å⁻¹).',
@@ -1136,6 +1232,8 @@ class SaxsMorphPanel(QWidget):
             QMessageBox.critical(self, 'Flat-bg fit failed', str(e))
             return
         self.bg_edit.setText(_fmt(flat))
+        # Refresh the displayed background curve + data−bg trace.
+        self.graph.plot_background(B, P, flat)
         self.graph.set_status(
             f'Flat-bg pre-fit done: background = {flat:.4g} '
             f'(median over Q ∈ [{q_lo:.4g}, {q_hi:.4g}] Å⁻¹).',
@@ -1189,8 +1287,12 @@ class SaxsMorphPanel(QWidget):
         self._save_state()
 
     def _update_after_eval(self, result: SaxsMorphResult):
-        # Plot data − bg + model
-        self.graph.plot_data_minus_bg(result.data_q, result.data_I_corr)
+        # Refresh background curve + data − bg over full Q range,
+        # then overlay the GRF model curve over the modelling window.
+        cfg = result.config
+        self.graph.plot_background(
+            cfg.power_law_B, cfg.power_law_P, cfg.background,
+        )
         self.graph.plot_model_iq(result.model_q, result.model_I)
         # Push the voxelgram to the 2D slice + 3D viewers
         self.graph.show_voxelgram(result.voxelgram, result.voxel_pitch_A)
@@ -1201,7 +1303,6 @@ class SaxsMorphPanel(QWidget):
             style='success',
         )
         # Result block
-        cfg = result.config
         mode_labels = {'phi': 'φ', 'contrast': 'Δρ²', 'both': 'both manual'}
         text = (
             f"χ²            = {result.chi_squared:.6g}\n"
