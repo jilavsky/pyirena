@@ -216,7 +216,7 @@ from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
-from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config, fit_waxs_peaks_from_config, fit_modeling
+from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config, fit_waxs_peaks_from_config, fit_modeling, fit_saxs_morph
 
 
 def _build_report(file_path: str,
@@ -2094,11 +2094,13 @@ class BatchWorker(QThread):
             fit_fn = fit_simple_from_config
         elif self.tool == 'waxs_peakfit':
             fit_fn = fit_waxs_peaks_from_config
+        elif self.tool == 'saxs_morph':
+            fit_fn = fit_saxs_morph
         else:
             fit_fn = fit_sizes
         total = len(self.file_paths)
 
-        # MC uncertainty is supported by unified/modeling/sizes/simple_fits, not waxs
+        # MC uncertainty is supported by unified/modeling/sizes/simple_fits/saxs_morph, not waxs
         mc_kwargs = {}
         if self.with_uncertainty and self.tool != 'waxs_peakfit':
             mc_kwargs = {'with_uncertainty': True, 'n_mc_runs': self.n_mc_runs}
@@ -2153,6 +2155,7 @@ class DataSelectorPanel(QWidget):
         self.data_merge_window = None          # Data Merge panel
         self.data_manip_window = None          # Data Manipulation panel
         self.contrast_window = None            # Scattering Contrast Calculator
+        self.saxs_morph_window = None          # SAXS Morph (3D voxelgram) panel
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -2603,6 +2606,13 @@ class DataSelectorPanel(QWidget):
         # Row 5: Size Distribution (GUI) | Size Distribution (script)
         # Row 6: Simple Fits (GUI) | Simple Fits (script)
         # Row 7: WAXS Peaks (GUI) | WAXS Peaks (script)
+        # Row 8: SAXS Morph (GUI) | SAXS Morph (script)
+        # Row 9: separator
+        # Row 10: "Support Tools" label
+        # Row 11: Scattering Contrast Calculator (full width)
+        # Row 12: separator
+        # Row 13: Data Merge | Data Manipulation
+        # Row 14: HDF5 Viewer | Manage Config
         btn_grid = QGridLayout()
         btn_grid.setHorizontalSpacing(4)
         btn_grid.setVerticalSpacing(4)
@@ -2706,6 +2716,49 @@ class DataSelectorPanel(QWidget):
         btn_grid.addWidget(self.waxs_peakfit_button,        7, 0)
         btn_grid.addWidget(self.waxs_peakfit_script_button, 7, 1)
 
+        # ── SAXS Morph: GUI button + Script batch button ──────────────────
+        _sm_gui_style = """
+            QPushButton {
+                background-color: #8e44ad; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #7d3c98; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        _sm_script_style = """
+            QPushButton {
+                background-color: #6c3483; color: white;
+                font-size: 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #5b2c6f; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """
+        self.saxs_morph_button = QPushButton("SAXS Morph (GUI)")
+        self.saxs_morph_button.setMinimumHeight(38)
+        self.saxs_morph_button.setStyleSheet(_sm_gui_style)
+        self.saxs_morph_button.setToolTip(
+            "Open SAXS Morph (3D voxelgram) panel for the first selected file."
+        )
+        self.saxs_morph_button.clicked.connect(self.launch_saxs_morph)
+        self.saxs_morph_button.setEnabled(False)
+
+        self.saxs_morph_script_button = QPushButton("SAXS Morph (script)")
+        self.saxs_morph_script_button.setMinimumHeight(38)
+        self.saxs_morph_script_button.setStyleSheet(_sm_script_style)
+        self.saxs_morph_script_button.setToolTip(
+            "Batch-fit all selected files with SAXS Morph using pyirena_config.json.\n"
+            "Compressed voxelgrams + parameters are saved into each NXcanSAS file."
+        )
+        self.saxs_morph_script_button.clicked.connect(self.run_saxs_morph_script)
+        self.saxs_morph_script_button.setEnabled(False)
+
+        btn_grid.addWidget(self.saxs_morph_button,        8, 0)
+        btn_grid.addWidget(self.saxs_morph_script_button, 8, 1)
+
         _utility_style = (
             "QPushButton { background: #16a085; color: white; "
             "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
@@ -2750,19 +2803,19 @@ class DataSelectorPanel(QWidget):
         # equally when the window is made small (avoids the bug where direct
         # right_layout children are Fixed-policy and resist shrinking while the
         # nested QGridLayout is Preferred-policy and absorbs all compression).
-        # Row 8: separator
+        # Row 9: separator
         _util_sep = QFrame()
         _util_sep.setFrameShape(QFrame.Shape.HLine)
         _util_sep.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep.setStyleSheet("color: #bdc3c7;")
-        btn_grid.addWidget(_util_sep, 8, 0, 1, 2)
+        btn_grid.addWidget(_util_sep, 9, 0, 1, 2)
 
-        # Row 9: "Support Tools" label
+        # Row 10: "Support Tools" label
         _support_sep_lbl = QLabel("Support Tools")
         _support_sep_lbl.setStyleSheet(
             "color:#7f8c8d; font-size:10px; font-weight:bold; padding:1px 0px;"
         )
-        btn_grid.addWidget(_support_sep_lbl, 9, 0, 1, 2)
+        btn_grid.addWidget(_support_sep_lbl, 10, 0, 1, 2)
 
         _contrast_style = (
             "QPushButton { background: #16a085; color: white; "
@@ -2780,23 +2833,23 @@ class DataSelectorPanel(QWidget):
         )
         self.contrast_button.clicked.connect(self.launch_contrast)
 
-        # Row 10: Scattering Contrast Calculator (full width)
-        btn_grid.addWidget(self.contrast_button, 10, 0, 1, 2)
+        # Row 11: Scattering Contrast Calculator (full width)
+        btn_grid.addWidget(self.contrast_button, 11, 0, 1, 2)
 
-        # Row 11: separator
+        # Row 12: separator
         _util_sep2 = QFrame()
         _util_sep2.setFrameShape(QFrame.Shape.HLine)
         _util_sep2.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep2.setStyleSheet("color: #bdc3c7;")
-        btn_grid.addWidget(_util_sep2, 11, 0, 1, 2)
+        btn_grid.addWidget(_util_sep2, 12, 0, 1, 2)
 
-        # Row 12: Data Merge | Data Manipulation
-        btn_grid.addWidget(self.data_merge_button, 12, 0)
-        btn_grid.addWidget(self.data_manip_button, 12, 1)
+        # Row 13: Data Merge | Data Manipulation
+        btn_grid.addWidget(self.data_merge_button, 13, 0)
+        btn_grid.addWidget(self.data_manip_button, 13, 1)
 
-        # Row 13: HDF5 Viewer | Manage Config
-        btn_grid.addWidget(self.hdf5_viewer_button, 13, 0)
-        btn_grid.addWidget(self.manage_config_button, 13, 1)
+        # Row 14: HDF5 Viewer | Manage Config
+        btn_grid.addWidget(self.hdf5_viewer_button, 14, 0)
+        btn_grid.addWidget(self.manage_config_button, 14, 1)
 
         right_layout.addLayout(btn_grid)
         right_layout.addStretch()
@@ -2867,6 +2920,12 @@ class DataSelectorPanel(QWidget):
         waxs_peakfit_action.setStatusTip("Open WAXS Peak Fit panel")
         waxs_peakfit_action.triggered.connect(self.launch_waxs_peakfit)
         models_menu.addAction(waxs_peakfit_action)
+
+        # SAXS Morph action (3D voxelgram)
+        saxs_morph_action = QAction("S&AXS Morph (3D)", self)
+        saxs_morph_action.setStatusTip("Open SAXS Morph (3D voxelgram) panel")
+        saxs_morph_action.triggered.connect(self.launch_saxs_morph)
+        models_menu.addAction(saxs_morph_action)
 
         menu_bar.addMenu(models_menu)
 
@@ -3030,6 +3089,8 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_script_button.setEnabled(has_selection)
         self.waxs_peakfit_button.setEnabled(has_selection)
         self.waxs_peakfit_script_button.setEnabled(has_selection)
+        self.saxs_morph_button.setEnabled(has_selection)
+        self.saxs_morph_script_button.setEnabled(has_selection)
 
     def plot_selected_files(self):
         """Plot the selected files according to the Data / Unified Fit checkboxes."""
@@ -4131,6 +4192,68 @@ class DataSelectorPanel(QWidget):
     def run_waxs_peakfit_script(self):
         """Batch-fit all selected files with WAXS Peak Fit."""
         self._run_batch_fit('waxs_peakfit')
+
+    def launch_saxs_morph(self):
+        """Open the SAXS Morph (3D voxelgram) panel with the first selected file."""
+        from pyirena.gui.saxs_morph_panel import SaxsMorphPanel
+
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select a file to open in SAXS Morph.",
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        path, filename = os.path.split(file_path)
+        _, ext = os.path.splitext(filename)
+
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        try:
+            if ext.lower() in ['.txt', '.dat']:
+                data = readTextFile(path, filename, error_fraction=error_fraction)
+                is_nxcansas = False
+            else:
+                data = readGenericNXcanSAS(path, filename)
+                is_nxcansas = True
+
+            if data is None:
+                QMessageBox.critical(
+                    self, "Error",
+                    f"Could not read data from file: {filename}",
+                )
+                return
+
+            if self.saxs_morph_window is None:
+                self.saxs_morph_window = SaxsMorphPanel()
+
+            self.saxs_morph_window.set_data(
+                data['Q'],
+                data['Intensity'],
+                data.get('Error'),
+                filename=filename,
+                filepath=file_path,
+                is_nxcansas=is_nxcansas,
+            )
+
+            self.saxs_morph_window.show()
+            self.saxs_morph_window.raise_()
+            self.saxs_morph_window.activateWindow()
+
+            self.status_label.setText(f"Opened SAXS Morph for {filename}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error",
+                f"Error loading data for SAXS Morph:\n{str(e)}",
+            )
+            self.status_label.setText(f"Error: {str(e)}")
+
+    def run_saxs_morph_script(self):
+        """Batch-fit all selected files with SAXS Morph."""
+        self._run_batch_fit('saxs_morph')
 
     def launch_data_merge(self):
         """Open the Data Merge tool, pre-populated with the current folder as DS1."""

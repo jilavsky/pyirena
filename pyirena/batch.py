@@ -1875,6 +1875,144 @@ def fit_modeling(
 
 
 # ===========================================================================
+# SAXS Morph (headless)
+# ===========================================================================
+
+def fit_saxs_morph(
+    data_file: Union[str, Path],
+    config_file: Union[str, Path],
+    save_to_nexus: bool = True,
+    with_uncertainty: bool = False,
+    n_mc_runs: int = 10,
+) -> Optional[Dict]:
+    """Run a SAXS Morph (3D voxelgram) fit driven by a pyIrena config file.
+
+    Reads the ``'saxs_morph'`` section from *config_file*, builds a
+    :class:`~pyirena.core.saxs_morph.SaxsMorphConfig`, runs
+    :meth:`~pyirena.core.saxs_morph.SaxsMorphEngine.fit`, and optionally
+    saves the result (compressed voxelgram + parameters) into the HDF5 file
+    via :func:`~pyirena.io.nxcansas_saxs_morph.save_saxs_morph_results`.
+
+    Parameters
+    ----------
+    data_file       : NXcanSAS HDF5 (.h5/.hdf5/.nxs) or .dat/.txt SAS data.
+    config_file     : pyIrena JSON config containing a ``'saxs_morph'`` block
+                      (e.g. produced by Export Parameters in the GUI).
+    save_to_nexus   : Save voxelgram + params into the HDF5 file (HDF5 only).
+    with_uncertainty: If True, run Monte Carlo uncertainty estimation.
+    n_mc_runs       : MC pass count (used when *with_uncertainty* is True).
+
+    Returns
+    -------
+    dict or None    Same shape as :func:`fit_modeling`.
+    """
+    from pyirena.core.saxs_morph import SaxsMorphEngine, SaxsMorphConfig
+    from pyirena.io.nxcansas_saxs_morph import save_saxs_morph_results
+
+    data_file = Path(data_file)
+    config_file = Path(config_file)
+
+    # --- Load config ---
+    try:
+        config = _load_config(config_file)
+        if config is None:
+            return None
+        sm_cfg = config.get('saxs_morph')
+        if sm_cfg is None:
+            print(f"[pyirena.batch.fit_saxs_morph] No 'saxs_morph' section in '{config_file.name}'")
+            return {'success': False, 'message': "No 'saxs_morph' section in config file"}
+    except Exception:
+        print(f"[pyirena.batch.fit_saxs_morph] Error reading config:\n{traceback.format_exc()}")
+        return None
+
+    # --- Load data ---
+    try:
+        data = _load_data(data_file)
+        if data is None:
+            return None
+    except Exception:
+        print(f"[pyirena.batch.fit_saxs_morph] Error loading data:\n{traceback.format_exc()}")
+        return None
+
+    q = np.asarray(data['Q'], dtype=float)
+    I = np.asarray(data['Intensity'], dtype=float)
+    _err = data.get('Error')
+    dI = np.asarray(_err if _err is not None else 0.05 * np.abs(I), dtype=float)
+    dI = np.where(dI <= 0, 0.05 * np.abs(I), dI)
+
+    # --- Build SaxsMorphConfig ---
+    try:
+        cfg = SaxsMorphConfig(
+            q_min=sm_cfg.get('q_min'),
+            q_max=sm_cfg.get('q_max'),
+            voxel_size_fit=int(sm_cfg.get('voxel_size_fit', 128)),
+            voxel_size_render=int(sm_cfg.get('voxel_size_render', 256)),
+            box_size_A=float(sm_cfg.get('box_size_A', 1000.0)),
+            volume_fraction=float(sm_cfg.get('volume_fraction', 0.30)),
+            fit_volume_fraction=bool(sm_cfg.get('fit_volume_fraction', True)),
+            volume_fraction_limits=tuple(sm_cfg.get('volume_fraction_limits', [0.05, 0.95])),
+            contrast=float(sm_cfg.get('contrast', 1.0)),
+            fit_contrast=bool(sm_cfg.get('fit_contrast', False)),
+            contrast_limits=tuple(sm_cfg.get('contrast_limits', [0.0, 1e10])),
+            link_phi_contrast=bool(sm_cfg.get('link_phi_contrast', True)),
+            power_law_B=float(sm_cfg.get('power_law_B', 0.0)),
+            fit_power_law_B=bool(sm_cfg.get('fit_power_law_B', False)),
+            power_law_B_limits=tuple(sm_cfg.get('power_law_B_limits', [0.0, 1e10])),
+            power_law_P=float(sm_cfg.get('power_law_P', 4.0)),
+            fit_power_law_P=bool(sm_cfg.get('fit_power_law_P', False)),
+            power_law_P_limits=tuple(sm_cfg.get('power_law_P_limits', [0.0, 6.0])),
+            background=float(sm_cfg.get('background', 0.0)),
+            fit_background=bool(sm_cfg.get('fit_background', False)),
+            background_limits=tuple(sm_cfg.get('background_limits', [0.0, 1e10])),
+            no_limits=bool(sm_cfg.get('no_limits', False)),
+            n_mc_runs=int(sm_cfg.get('n_mc_runs', n_mc_runs)),
+            rng_seed=sm_cfg.get('rng_seed'),
+        )
+    except Exception:
+        print(f"[pyirena.batch.fit_saxs_morph] Error building SaxsMorphConfig:\n{traceback.format_exc()}")
+        return None
+
+    # --- Run fit ---
+    try:
+        engine = SaxsMorphEngine()
+        fit_result = engine.fit(cfg, q, I, dI)
+    except Exception:
+        print(f"[pyirena.batch.fit_saxs_morph] Fit error:\n{traceback.format_exc()}")
+        return {'success': False, 'message': 'SAXS Morph fit failed (see console)'}
+
+    # --- Optional MC uncertainty ---
+    if with_uncertainty:
+        try:
+            mc_runs = n_mc_runs or cfg.n_mc_runs
+            stds = engine.calculate_uncertainty_mc(cfg, q, I, dI, mc_runs)
+            fit_result.params_std.update(stds)
+        except Exception:
+            print(f"[pyirena.batch.fit_saxs_morph] MC error:\n{traceback.format_exc()}")
+
+    # --- Save ---
+    out_path = None
+    if save_to_nexus and data_file.suffix.lower() in ('.h5', '.hdf5', '.nxs'):
+        try:
+            save_saxs_morph_results(data_file, fit_result)
+            out_path = data_file
+        except Exception:
+            print(f"[pyirena.batch.fit_saxs_morph] Save error:\n{traceback.format_exc()}")
+
+    chi2_str = f"χ²/dof={fit_result.reduced_chi_squared:.4g}"
+    msg = (f"SAXS Morph complete — {chi2_str}, "
+           f"φ_actual={fit_result.phi_actual:.3g}, "
+           f"voxel={fit_result.voxel_size}³")
+    print(f"[pyirena.batch] {msg}")
+
+    return {
+        'success': True,
+        'message': msg,
+        'result': fit_result,
+        'output_file': out_path,
+    }
+
+
+# ===========================================================================
 # Data Manipulation (headless)
 # ===========================================================================
 
