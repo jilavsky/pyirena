@@ -405,28 +405,34 @@ class SaxsMorphGraphWindow(QWidget):
                        smooth_sigma: float = 0.0):
         """Push a voxelgram into both viewers.
 
+        When ``smooth_sigma > 0`` the voxelgram is Gaussian-filtered to
+        soften voxel-edge aliasing in the 3D isosurface render.  To keep
+        the 2D slice and 3D view CONSISTENT (showing the same boundary),
+        the 2D slice is the **threshold of the smoothed field at 0.5**
+        — the same level the 3D isosurface uses.
+
         Parameters
         ----------
         voxelgram  : uint8 binary cube (0/1) — as returned by the engine.
         pitch_A    : voxel spacing in Å.
-        smooth_sigma : optional Gaussian sigma (in voxels) applied to the
-                      voxelgram BEFORE sending to the 3D viewer.  The 2D
-                      slice viewer always receives the original binary cube
-                      so that slices show the physical microstructure as
-                      sharp black/white regions.
+        smooth_sigma : Gaussian sigma in voxels.  0 → 2D and 3D both show
+                      the raw binary cube (no smoothing applied).
         """
-        # 2D slice: always binary — the thresholded microstructure
-        self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
-
-        # 3D viewer: optionally smooth to soften voxel-edge aliasing
-        if smooth_sigma > 0 and HAS_PYVISTA:
+        if smooth_sigma > 0:
             from scipy.ndimage import gaussian_filter
-            vox_display = gaussian_filter(
+            smoothed = gaussian_filter(
                 voxelgram.astype(np.float32), sigma=float(smooth_sigma),
             )
+            # 2D: threshold smoothed at 0.5 → binary view of the 3D isosurface
+            vox_2d = (smoothed >= 0.5).astype(np.uint8)
+            # 3D: smoothed scalar field (PyVista renders isosurface at 0.5)
+            vox_3d = smoothed
         else:
-            vox_display = voxelgram
-        self.voxel3d_viewer.set_voxelgram(vox_display, pitch_A)
+            vox_2d = voxelgram
+            vox_3d = voxelgram
+
+        self.slice_viewer.set_voxelgram(vox_2d, pitch_A)
+        self.voxel3d_viewer.set_voxelgram(vox_3d, pitch_A)
 
     def clear_annotations(self):
         for item in list(self._annotation_items):
@@ -775,9 +781,10 @@ class SaxsMorphPanel(QWidget):
         lay.addWidget(_sep())
         self.result_lbl = QLabel('No model computed yet.')
         self.result_lbl.setWordWrap(True)
+        self.result_lbl.setTextFormat(Qt.TextFormat.RichText)
         self.result_lbl.setStyleSheet(
             'background:#fafafa;border:1px solid #ddd;border-radius:4px;'
-            'padding:6px;font-family:monospace;font-size:9pt;')
+            'padding:8px;font-size:11pt;')
         lay.addWidget(self.result_lbl)
 
         # ── Save row ─────────────────────────────────────────────────────
@@ -1404,25 +1411,41 @@ class SaxsMorphPanel(QWidget):
             f'voxel = {result.voxel_size}³{elapsed_str}',
             style='success',
         )
-        # Result block
+        # Result block — 2-column HTML table for compact, readable layout
         mode_labels = {'phi': 'φ', 'contrast': 'Δρ²', 'both': 'both manual'}
-        text = (
-            f"χ²            = {result.chi_squared:.6g}\n"
-            f"red. χ²       = {result.reduced_chi_squared:.6g}\n"
-            f"dof           = {result.dof}\n"
-            f"voxel size    = {result.voxel_size}³\n"
-            f"box size      = {result.box_size_A:.4g} Å\n"
-            f"voxel pitch   = {result.voxel_pitch_A:.4g} Å\n"
-            f"input mode    = {mode_labels.get(cfg.input_mode, cfg.input_mode)}\n"
-            f"φ (target)    = {cfg.volume_fraction:.4g}\n"
-            f"φ (actual)    = {result.phi_actual:.4g}\n"
-            f"contrast Δρ²  = {cfg.contrast:.4g}\n"
-            f"power-law B   = {cfg.power_law_B:.4g}\n"
-            f"power-law P   = {cfg.power_law_P:.4g}\n"
-            f"flat bg       = {cfg.background:.4g}\n"
-            f"RNG seed used = {result.rng_seed_used}"
-        )
-        self.result_lbl.setText(text)
+        rows_left = [
+            ('χ²',           f'{result.chi_squared:.4g}'),
+            ('reduced χ²',   f'{result.reduced_chi_squared:.4g}'),
+            ('dof',          f'{result.dof}'),
+            ('input mode',   mode_labels.get(cfg.input_mode, cfg.input_mode)),
+            ('φ (target)',   f'{cfg.volume_fraction:.4g}'),
+            ('φ (actual)',   f'{result.phi_actual:.4g}'),
+            ('contrast Δρ²', f'{cfg.contrast:.4g}'),
+        ]
+        rows_right = [
+            ('voxel size',   f'{result.voxel_size}³'),
+            ('box size',     f'{result.box_size_A:.4g} Å'),
+            ('voxel pitch',  f'{result.voxel_pitch_A:.4g} Å'),
+            ('power-law B',  f'{cfg.power_law_B:.4g}'),
+            ('power-law P',  f'{cfg.power_law_P:.4g}'),
+            ('flat bg',      f'{cfg.background:.4g}'),
+            ('RNG seed',     f'{result.rng_seed_used}'),
+        ]
+        n = max(len(rows_left), len(rows_right))
+        html = ['<table cellpadding="2" cellspacing="0">']
+        for i in range(n):
+            l_label, l_value = rows_left[i] if i < len(rows_left) else ('', '')
+            r_label, r_value = rows_right[i] if i < len(rows_right) else ('', '')
+            html.append(
+                f'<tr>'
+                f'<td><b>{l_label}</b></td>'
+                f'<td style="padding-right:18px;">{l_value}</td>'
+                f'<td><b>{r_label}</b></td>'
+                f'<td>{r_value}</td>'
+                f'</tr>'
+            )
+        html.append('</table>')
+        self.result_lbl.setText(''.join(html))
         self.btn_save.setEnabled(True)
 
     # ── Save result ──────────────────────────────────────────────────────

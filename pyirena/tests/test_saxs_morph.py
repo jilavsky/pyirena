@@ -20,6 +20,7 @@ from pyirena.core.saxs_morph import (
     derive_contrast_from_invariant, derive_phi_from_invariant,
     compute_invariant_extrapolated,
     fit_power_law_bg, fit_flat_bg,
+    berk_lut, berk_invert,
 )
 
 
@@ -274,6 +275,50 @@ class TestInvariant:
         q, I, _ = make_synthetic_dataset()
         assert derive_phi_from_invariant(q, I, contrast=0.0) == 0.5
         assert derive_phi_from_invariant(q, I, contrast=-1.0) == 0.5
+
+
+class TestBerkInversion:
+    """Verify the Berk forward LUT and the inverse mapping it provides."""
+
+    def test_T_at_g_zero_is_zero(self):
+        for alfa in (0.0, 0.5, 1.0, 1.5):
+            g_grid, T_grid = berk_lut(alfa)
+            T_at_zero = float(np.interp(0.0, g_grid, T_grid))
+            assert abs(T_at_zero) < 1e-10
+
+    def test_T_at_g_one_equals_phi_one_minus_phi(self):
+        # Closed-form check: T(g→1, alfa) = phi(1-phi) where phi = 0.5(1-erf(alfa/√2))
+        from scipy.special import erf
+        for phi in (0.1, 0.3, 0.5, 0.7, 0.9):
+            alfa = alfa_threshold(phi)
+            g_grid, T_grid = berk_lut(alfa, n=4000)
+            # Take T at g closest to +1 (the LUT stops at sin(pi/2 * 0.999))
+            T_at_one = float(T_grid[-1])
+            expected = phi * (1.0 - phi)
+            # Within ~1% (LUT doesn't quite reach g=1)
+            assert abs(T_at_one - expected) / expected < 0.05, (
+                f"phi={phi}: T(~1)={T_at_one}, phi(1-phi)={expected}")
+
+    def test_invert_round_trip(self):
+        # Pick some g values, compute T(g), invert -> should recover g
+        alfa = alfa_threshold(0.3)
+        lut = berk_lut(alfa)
+        g_truth = np.array([-0.5, -0.2, 0.0, 0.1, 0.5, 0.9])
+        # Forward: compute T at each g via interp on the LUT
+        T_vals = np.interp(g_truth, lut[0], lut[1])
+        # Inverse: should recover g
+        g_back = berk_invert(T_vals, alfa, lut=lut)
+        assert np.allclose(g_back, g_truth, atol=5e-3)
+
+    def test_T_is_monotonic_in_g(self):
+        # T must be non-decreasing in g (positive integrand).  For large
+        # alfa the integrand exp(-alfa^2/(1+g)) is ~0 near g=-1, giving a
+        # plateau that np.interp handles fine — np.diff >= 0 is enough.
+        for alfa in (0.0, 0.5, 1.0, 2.0):
+            g_grid, T_grid = berk_lut(alfa)
+            assert np.all(np.diff(T_grid) >= -1e-15), (
+                f"T(g, alfa={alfa}) is not monotonic — Berk inversion would be ambiguous"
+            )
 
 
 class TestPreFitHelpers:

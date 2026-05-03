@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.8]
+
+### Fixed
+
+- **SAXS Morph: Berk inversion missing — model I(Q) was systematically
+  too low by 5–10× in the data Q range.**  In Berk's GRF method, if the
+  underlying Gaussian field has autocorrelation `g(r)` and is thresholded
+  at level α, the binary indicator's autocorrelation is `T(g, α)` —
+  **not** `g` itself, where
+
+      T(g, α) = (1/2π) · ∫₀^g exp(-α²/(1+t)) / √(1−t²) dt
+
+  For φ=0.3 (α≈0.52), `T(g, α) ≈ 0.16·g` at small g, so feeding
+  `gamma_data(r)` directly as the field's autocorrelation (the previous
+  behaviour) produced an indicator whose autocorrelation was ~6× lower
+  than the data, and a model I(Q) correspondingly suppressed.
+  - New `berk_lut(alfa, n)` builds a forward LUT of T(g, α) using the
+    `t = sin(θ)` substitution to remove the integrable singularity at
+    g = ±1; `berk_invert(target_T, alfa, lut)` solves T(g, α) = target_T
+    by 1-D interpolation (T is monotonic in g).
+  - `compute_voxelgram` now: (1) rescales the normalised γ to its
+    physical absolute scale `γ_phys = γ_norm · φ(1−φ)`, (2) inverts
+    via `berk_invert` to obtain g(r), (3) computes the spectral function
+    F(k) as the Fourier transform of g(r) — not γ(r) — so that the
+    field synthesised by FFT-filtering white noise has the correct g,
+    and after thresholding gives the desired indicator γ.
+  - Also: the spectral-function k-grid is now sized to cover the full
+    3D FFT range (`k_max = √3 · π / pitch`), so high-k content is no
+    longer silently zeroed during the 3D resampling.
+  - Four new tests verify Berk LUT properties: T(0)=0, T(g→1) ≈ φ(1−φ),
+    invertibility, and monotonicity.
+
+### Changed
+
+- **SAXS Morph: Result block re-laid out as 2-column HTML table** with
+  font bumped from 9pt monospace to 11pt sans.  All 14 result fields fit
+  comfortably; the parameters block is much easier to scan.
+- **SAXS Morph: 2D and 3D viewers now show the same boundary** when
+  smoothing is on.  Previously the 2D slice showed the raw binary
+  voxelgram (sharp, voxel-scale aliasing) while the 3D viewer showed a
+  Gaussian-smoothed isosurface (much smoother) — the two views looked
+  inconsistent.  Now the smoothed scalar field is computed once; the 3D
+  viewer renders its isosurface at 0.5 and the 2D slice shows the same
+  smoothed field thresholded at 0.5.  Both views display the same
+  microstructure boundary as a binary black/white image.
+
 ## [0.5.7]
 
 ### Changed
