@@ -74,6 +74,10 @@ from pyirena.gui.sas_plot import (
     RadiusAxisItem, save_itx_from_plot, SASPlotStyle,
 )
 from pyirena.gui.unified_fit import _SafeInfiniteLine
+from pyirena.gui.saxs_morph_3d import (
+    Voxel3DViewer, Slice2DViewer, make_popout_button,
+    HAS_PYVISTA, PYVISTA_INSTALL_HINT,
+)
 from pyirena.state import StateManager
 
 
@@ -166,20 +170,34 @@ class SaxsMorphGraphWindow(QWidget):
 
         self.splitter.addWidget(top)
 
-        # ── Bottom: 3D viewer placeholder (replaced in Phase 3) ──────────
+        # ── Bottom: 2D slice + 3D viewer side by side ────────────────────
         self.viewer_container = QWidget()
-        viewer_lay = QVBoxLayout(self.viewer_container)
-        viewer_lay.setContentsMargins(4, 4, 4, 4)
-        placeholder = QLabel('3D viewer + 2D slice viewer (added in Phase 3)')
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet(
-            'background: #f4f4f4; border: 1px dashed #aaa; '
-            'color: #888; font-size: 11pt; padding: 30px;'
-        )
-        viewer_lay.addWidget(placeholder)
+        viewer_row = QHBoxLayout(self.viewer_container)
+        viewer_row.setContentsMargins(4, 4, 4, 4)
+        viewer_row.setSpacing(6)
+
+        # Left half: slice viewer + popout
+        slice_box = QWidget()
+        slice_col = QVBoxLayout(slice_box)
+        slice_col.setContentsMargins(0, 0, 0, 0)
+        self.slice_viewer = Slice2DViewer()
+        slice_col.addWidget(self.slice_viewer)
+        slice_col.addWidget(make_popout_button(self.slice_viewer, '2D slice viewer'))
+        viewer_row.addWidget(slice_box, 1)
+
+        # Right half: 3D viewer + popout
+        voxel_box = QWidget()
+        voxel_col = QVBoxLayout(voxel_box)
+        voxel_col.setContentsMargins(0, 0, 0, 0)
+        self.voxel3d_viewer = Voxel3DViewer()
+        voxel_col.addWidget(self.voxel3d_viewer)
+        voxel_col.addWidget(make_popout_button(self.voxel3d_viewer, '3D viewer'))
+        viewer_row.addWidget(voxel_box, 1)
+
         self.splitter.addWidget(self.viewer_container)
 
-        self.splitter.setSizes([400, 500])
+        # Top : bottom = 3 : 5 so the 3D viewer gets adequate room.
+        self.splitter.setSizes([360, 600])
         layout.addWidget(self.splitter)
 
         # ── Status bar ────────────────────────────────────────────────────
@@ -278,6 +296,11 @@ class SaxsMorphGraphWindow(QWidget):
     def add_annotation(self, text: str, corner: str = 'lower_left'):
         item = add_plot_annotation(self.iq_plot, text, corner=corner)
         self._annotation_items.append(item)
+
+    def show_voxelgram(self, voxelgram, pitch_A: float):
+        """Push a fresh voxelgram into both the 2D slice and 3D viewers."""
+        self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
+        self.voxel3d_viewer.set_voxelgram(voxelgram, pitch_A)
 
     def clear_annotations(self):
         for item in list(self._annotation_items):
@@ -930,6 +953,8 @@ class SaxsMorphPanel(QWidget):
         # Plot data − bg + model
         self.graph.plot_data_minus_bg(result.data_q, result.data_I_corr)
         self.graph.plot_model_iq(result.model_q, result.model_I)
+        # Push the voxelgram to the 2D slice + 3D viewers
+        self.graph.show_voxelgram(result.voxelgram, result.voxel_pitch_A)
         self.graph.set_status(
             f'{label}: χ² = {result.chi_squared:.4g}, '
             f'φ_actual = {result.phi_actual:.4g}, '
