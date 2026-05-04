@@ -104,6 +104,7 @@ def save_saxs_morph_results(
             ('phi_actual', result.phi_actual),
             ('rng_seed', result.rng_seed_used),
             ('rg_A', getattr(result, 'rg_A', float('nan'))),
+            ('q_max_model_A', getattr(result, 'q_max_model_A', float('nan'))),
         ]:
             grp.create_dataset(name, data=_h5_scalar(val))
 
@@ -233,6 +234,7 @@ def load_saxs_morph_results(
             'phi_actual':          _scal('phi_actual'),
             'rng_seed':            _scal('rng_seed'),
             'rg_A':                _scal('rg_A', float('nan')),
+            'q_max_model_A':       _scal('q_max_model_A', float('nan')),
             # Fit flags / limits (read attrs)
             'fit_flags':   {n: bool(grp[n].attrs.get('fit', False))
                             for n in ('volume_fraction', 'contrast',
@@ -305,5 +307,6 @@ def result_from_loaded_dict(d: dict) -> SaxsMorphResult:
         phi_actual=float(d.get('phi_actual') or 0.0),
         rng_seed_used=int(d.get('rng_seed') or 0),
         rg_A=float(d.get('rg_A') if d.get('rg_A') is not None else float('nan')),
+        q_max_model_A=float(d.get('q_max_model_A') if d.get('q_max_model_A') is not None else float('nan')),
         params_std=dict(d.get('params_std') or {}),
     )

@@ -191,6 +191,12 @@ class SaxsMorphResult:
     # nan if it cannot be computed (e.g. degenerate autocorrelation).
     rg_A: float = float('nan')
 
+    # Voxel Nyquist limit Q_max_model = pi/(2*pitch_A).  Above this Q the
+    # discrete voxel grid cannot resolve features and the structural
+    # contribution to the model is set to 0; the user-supplied Porod
+    # background continues alone.  Marked as a vertical line in the GUI.
+    q_max_model_A: float = float('nan')
+
     # MC uncertainties (param_name -> std). Empty if not run.
     params_std: dict = field(default_factory=dict)
 
@@ -298,7 +304,7 @@ def alfa_threshold(phi: float) -> float:
 def debye_autocorr(
     q: np.ndarray, I_corr: np.ndarray,
     r_grid: Optional[np.ndarray] = None,
-    n_r: int = 256,
+    n_r: int = 1024,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute the Debye phase autocorrelation gamma(r) from corrected I(Q).
 
@@ -347,7 +353,7 @@ def debye_autocorr(
 def spectral_function(
     r: np.ndarray, gamma: np.ndarray,
     k_grid: Optional[np.ndarray] = None,
-    n_k: int = 256,
+    n_k: int = 1024,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Spectral density F(k) of gamma(r): sinc transform of gamma * r**2.
 
@@ -492,6 +498,7 @@ def generate_voxelgram(
 def voxelgram_to_iq(
     voxelgram: np.ndarray, voxel_pitch_A: float,
     q_target: np.ndarray,
+    truncate_above_nyquist: bool = True,
 ) -> np.ndarray:
     """Compute spherically-averaged structure factor of a binary voxelgram.
 
@@ -508,6 +515,17 @@ def voxelgram_to_iq(
       5. Resample onto user q_target by log-log linear interpolation.
 
     Returns I_struct of shape q_target.shape.
+
+    High-Q truncation
+    -----------------
+    Above ``Q_max_model = pi / (2 * pitch_A)`` the discrete voxel grid
+    cannot resolve features (smallest representable feature is ~2 voxels).
+    The FFT in that range is dominated by aliasing, not by the underlying
+    structure.  When ``truncate_above_nyquist`` is True (default), I_struct
+    is set to 0 above this Q.  Combined with the user-supplied background
+    in the caller, the total model intensity above Q_max_model becomes
+    just ``B * Q^-P + flat`` — i.e. the fitted Porod tail naturally
+    extends to higher Q without any extra fitting.
     """
     N = voxelgram.shape[0]
     pitch = float(voxel_pitch_A)
@@ -581,7 +599,16 @@ def voxelgram_to_iq(
     log_I = np.log(np.maximum(I_keep, 1e-30))
     log_qt = np.log(np.maximum(q_target, 1e-30))
     log_It = np.interp(log_qt, log_k, log_I, left=log_I[0], right=log_I[-1])
-    return np.exp(log_It)
+    I_struct = np.exp(log_It)
+
+    if truncate_above_nyquist:
+        # Voxel Nyquist limit: smallest resolvable feature ≈ 2 voxels.
+        # Above this Q the FFT is aliasing, not structure → zero out so
+        # the caller's background (Porod + flat) takes over cleanly.
+        Q_max_model = np.pi / (2.0 * pitch)
+        I_struct = np.where(np.asarray(q_target) > Q_max_model, 0.0, I_struct)
+
+    return I_struct
 
 
 def compute_invariant_extrapolated(
@@ -828,9 +855,19 @@ class SaxsMorphEngine:
         # gamma_r_norm is the indicator (binary phase) autocorrelation
         # normalised to gamma(0) = 1.  Its absolute scale should be
         # phi*(1-phi), so we rescale before the Berk inversion below.
-        r_grid, gamma_r_norm, _spectral_k_unused, _spectral_F_unused = (
-            self._spectral(q_fit, I_corr)
+        #
+        # r-range: decoupled from the user's fit q_min cursor so that long-r
+        # correlations are captured even when the fit window is narrow.
+        # Use the larger of (a) 2.5x the modelling box and (b) Igor's
+        # traditional Kmin=0.0002 → r ≈ 16000 Å range, whichever covers
+        # more of the structural autocorrelation tail.
+        q_min_fit = float(q_fit.min())
+        r_max_A = max(
+            2.5 * float(config.box_size_A),
+            float(np.pi / max(q_min_fit, 0.0002)),
         )
+        r_grid_in = np.linspace(0.0, r_max_A, 1024)
+        r_grid, gamma_r_norm = debye_autocorr(q_fit, I_corr, r_grid=r_grid_in)
 
         # Voxelgram size
         N = int(voxel_size_override) if voxel_size_override else config.voxel_size_fit
@@ -860,7 +897,7 @@ class SaxsMorphEngine:
         k_max_3d = float(np.sqrt(3.0) * np.pi / pitch) * 1.05  # +5% safety
         spectral_k, spectral_F = spectral_function(
             r_grid, g_r,
-            k_grid=np.linspace(0.0, k_max_3d, max(512, N)),
+            k_grid=np.linspace(0.0, k_max_3d, max(1024, 2 * N)),
         )
         # ALWAYS generate binary voxelgram for I(Q) computation.
         # Smoothing is applied SEPARATELY for display only (see below).
@@ -876,6 +913,7 @@ class SaxsMorphEngine:
         # pitch already computed above for the spectral k-grid sizing
         phi_actual = float(voxelgram.mean())
         rg_A = compute_rg_from_autocorr(r_grid, gamma_r_norm)
+        q_max_model_A = float(np.pi / (2.0 * pitch))
 
         # Model intensity (from binary voxelgram — correct physics)
         I_struct = voxelgram_to_iq(voxelgram, pitch, q_fit)
@@ -922,6 +960,7 @@ class SaxsMorphEngine:
             phi_actual=phi_actual,
             rng_seed_used=seed_used,
             rg_A=rg_A,
+            q_max_model_A=q_max_model_A,
         )
 
     # ----- fitting ---------------------------------------------------------

@@ -190,6 +190,7 @@ class SaxsMorphGraphWindow(QWidget):
         self._bg_curve_item = None
         self._corr_item = None
         self._model_item = None
+        self._qmax_marker = None
         self._annotation_items: list = []
 
         self._build_ui()
@@ -317,6 +318,8 @@ class SaxsMorphGraphWindow(QWidget):
         self._data_items.clear()
         self._bg_curve_item = None
         self._corr_item = None
+        self._qmax_marker = None
+        self._model_item = None
         self._model_item = None
         self.clear_annotations()
 
@@ -396,6 +399,31 @@ class SaxsMorphGraphWindow(QWidget):
             pen=pg.mkPen('#c0392b', width=2),
             name='Model',
         )
+
+    def set_qmax_marker(self, q_max_A: Optional[float]):
+        """Vertical dashed line at the voxel Nyquist limit Q_max_model.
+
+        Above this Q the discrete voxel grid cannot resolve features so
+        the structural part of the model is zero — only the fitted Porod
+        background continues.  The marker tells the user where that
+        transition happens.  Pass None to clear.
+        """
+        if self._qmax_marker is not None:
+            try:
+                self.iq_plot.removeItem(self._qmax_marker)
+            except Exception:
+                pass
+            self._qmax_marker = None
+        if q_max_A is None or not np.isfinite(q_max_A) or q_max_A <= 0:
+            return
+        self._qmax_marker = _SafeInfiniteLine(
+            pos=float(np.log10(q_max_A)), angle=90, movable=False,
+            pen=pg.mkPen('#7f8c8d', width=1, style=Qt.PenStyle.DashLine),
+            label='Q_max_model',
+            labelOpts={'position': 0.92, 'color': '#7f8c8d',
+                       'fill': (255, 255, 255, 200)},
+        )
+        self.iq_plot.addItem(self._qmax_marker)
 
     def add_annotation(self, text: str, corner: str = 'lower_left'):
         item = add_plot_annotation(self.iq_plot, text, corner=corner)
@@ -1396,6 +1424,7 @@ class SaxsMorphPanel(QWidget):
             cfg.power_law_B, cfg.power_law_P, cfg.background,
         )
         self.graph.plot_model_iq(result.model_q, result.model_I)
+        self.graph.set_qmax_marker(getattr(result, 'q_max_model_A', None))
         # Push the voxelgram to the 2D slice + 3D viewers.
         # 2D slice always gets the binary cube; 3D viewer gets optionally
         # smoothed for better isosurface rendering.
@@ -1425,11 +1454,14 @@ class SaxsMorphPanel(QWidget):
         rg_str = (f'{result.rg_A:.1f} Å'
                   if np.isfinite(getattr(result, 'rg_A', float('nan')))
                   else '—')
+        qmax = getattr(result, 'q_max_model_A', float('nan'))
+        qmax_str = f'{qmax:.4g} Å⁻¹' if np.isfinite(qmax) else '—'
         rows_right = [
             ('voxel size',   f'{result.voxel_size}³'),
             ('box size',     f'{result.box_size_A:.4g} Å'),
             ('voxel pitch',  f'{result.voxel_pitch_A:.4g} Å'),
             ('Rg (γ(r))',    rg_str),
+            ('Q_max_model',  qmax_str),
             ('power-law B',  f'{cfg.power_law_B:.4g}'),
             ('power-law P',  f'{cfg.power_law_P:.4g}'),
             ('flat bg',      f'{cfg.background:.4g}'),
