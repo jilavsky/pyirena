@@ -866,7 +866,7 @@ class SaxsMorphEngine:
             10 * float(config.box_size_A),
             float(np.pi / max(q_min_fit, 0.0002)),
         )
-        r_grid_in = np.linspace(0.0, r_max_A, 10240)
+        r_grid_in = np.linspace(0.0, r_max_A, 102400)
         r_grid, gamma_r_norm = debye_autocorr(q_fit, I_corr, r_grid=r_grid_in)
 
         # Voxelgram size
