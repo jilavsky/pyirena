@@ -863,10 +863,10 @@ class SaxsMorphEngine:
         # more of the structural autocorrelation tail.
         q_min_fit = float(q_fit.min())
         r_max_A = max(
-            10 * float(config.box_size_A),
+            2.5 * float(config.box_size_A),
             float(np.pi / max(q_min_fit, 0.0002)),
         )
-        r_grid_in = np.linspace(0.0, r_max_A, 102400)
+        r_grid_in = np.linspace(0.0, r_max_A, 1024)
         r_grid, gamma_r_norm = debye_autocorr(q_fit, I_corr, r_grid=r_grid_in)
 
         # Voxelgram size
