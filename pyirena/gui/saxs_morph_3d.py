@@ -218,7 +218,7 @@ class Voxel3DViewer(QWidget):
             try:
                 self._bounds_actor = self.plotter.show_bounds(
                     mesh=grid,
-                    xlabel='X (Å)', ylabel='Y (Å)', zlabel='Z (Å)',
+                    xtitle='X (Å)', ytitle='Y (Å)', ztitle='Z (Å)',
                     n_xlabels=5, n_ylabels=5, n_zlabels=5,
                     fmt='%.0f', font_size=9, bold=False,
                     ticks='outside', grid=False, all_edges=True,

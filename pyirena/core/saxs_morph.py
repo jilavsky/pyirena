@@ -856,17 +856,21 @@ class SaxsMorphEngine:
         # normalised to gamma(0) = 1.  Its absolute scale should be
         # phi*(1-phi), so we rescale before the Berk inversion below.
         #
-        # r-range: decoupled from the user's fit q_min cursor so that long-r
-        # correlations are captured even when the fit window is narrow.
-        # Use the larger of (a) 2.5x the modelling box and (b) Igor's
-        # traditional Kmin=0.0002 → r ≈ 16000 Å range, whichever covers
-        # more of the structural autocorrelation tail.
+        # r-range: physical extent of g(r) is set by the data's q_min
+        # (longer r requires lower-q data).  Use Igor's traditional
+        # Kmin=0.0002 floor → r_max ≈ 16000 Å, ensuring long-r
+        # correlations are captured even when the fit cursor is
+        # narrower.  n_r is chosen so dr = pitch_min/4, which keeps
+        # the sinc transforms accurate up to the highest 3D k that
+        # we actually feed into the GRF generator (see truncation below).
         q_min_fit = float(q_fit.min())
-        r_max_A = max(
-            2.5 * float(config.box_size_A),
-            float(np.pi / max(q_min_fit, 0.0002)),
-        )
-        r_grid_in = np.linspace(0.0, r_max_A, 1024)
+        q_max_data = float(q_fit.max())
+        r_max_A = float(np.pi / max(q_min_fit, 0.0002))
+        # Adaptive n_r: ensure dr is small enough for the spectral FT to
+        # converge at the data's highest q.  Cap at 16384 to keep cost in line.
+        dr_target = float(np.pi / (10.0 * max(q_max_data, 1e-3)))
+        n_r = int(np.clip(np.ceil(r_max_A / dr_target), 1024, 16384))
+        r_grid_in = np.linspace(0.0, r_max_A, n_r)
         r_grid, gamma_r_norm = debye_autocorr(q_fit, I_corr, r_grid=r_grid_in)
 
         # Voxelgram size
@@ -899,6 +903,17 @@ class SaxsMorphEngine:
             r_grid, g_r,
             k_grid=np.linspace(0.0, k_max_3d, max(1024, 2 * N)),
         )
+
+        # ── Band-limit F(k) at the data's q_max ────────────────────────
+        # The data carries no information about features smaller than
+        # ~pi/q_max_data.  In k-space this means F(k) MUST be zero for
+        # k > q_max_data; the numerical sinc transform leaves spurious
+        # artifact values there which, when fed to the 3D filter, inject
+        # high-frequency white-noise content into the field and produce
+        # single-voxel speckle at high N (where k_max_3d >> q_max_data).
+        # Without this clamp the model is correct only when k_max_3d is
+        # naturally below q_max_data — i.e. for low N.
+        spectral_F = np.where(spectral_k > q_max_data, 0.0, spectral_F)
         # ALWAYS generate binary voxelgram for I(Q) computation.
         # Smoothing is applied SEPARATELY for display only (see below).
         # Using a smoothed field for I(Q) would reduce the variance

@@ -471,6 +471,56 @@ class TestEngineSmoke:
             # phi_actual is the mean of the binary cube (same for all sigma)
             assert 0.20 < res.phi_actual < 0.40
 
+    def test_high_n_does_not_produce_speckle(self):
+        """Regression: at high N the 3D FFT k-grid extends well beyond the
+        data's q_max.  Without band-limiting F(k) at q_max_data, sinc-transform
+        artifacts at high k inject white-noise-like content into the GRF and
+        the voxelgram degenerates into single-voxel speckle.
+
+        Detection: count the fraction of nearest-neighbour voxel pairs that
+        belong to different phases.  For pure white-noise speckle at phi=0.3,
+        this is ~2*phi*(1-phi) = 0.42.  For a properly-structured field with
+        characteristic length L >> pitch the value is much lower (interfaces
+        are confined to phase boundaries, not every voxel).
+        """
+        # Debye–Bueche-like data with L = 300 Å.  Box = 5000, N = 128 →
+        # pitch = 39 Å, so L/pitch ≈ 8.  k_max_3d ≈ 0.14 Å^-1 vs
+        # data q_max = 0.1 Å^-1 — without the band-limit, the upper third
+        # of the 3D filter would be filled with sinc artifacts.
+        q = np.logspace(-3, -1.0, 120)
+        L = 300.0
+        I = 1.0 / (1.0 + (q * L) ** 2) ** 2
+        dI = np.maximum(0.05 * I, 1e-30)
+
+        cfg = SaxsMorphConfig(
+            q_min=q.min(), q_max=q.max(),
+            voxel_size_fit=128, voxel_size_render=128,
+            box_size_A=5000.0,
+            input_mode='phi', volume_fraction=0.30,
+            contrast=1.0, rng_seed=42, smooth_sigma=0.0,
+        )
+        engine = SaxsMorphEngine()
+        res = engine.compute_voxelgram(cfg, q, I, dI)
+        vox = res.voxelgram
+
+        # Interface fraction across nearest neighbours
+        diffs = (
+            (vox[:-1, :, :] != vox[1:, :, :]).sum() +
+            (vox[:, :-1, :] != vox[:, 1:, :]).sum() +
+            (vox[:, :, :-1] != vox[:, :, 1:]).sum()
+        )
+        N = vox.shape[0]
+        total_pairs = 3 * (N - 1) * N * N
+        interface_fraction = float(diffs) / total_pairs
+
+        # White-noise speckle at phi=0.3 → ~0.42.  Properly structured field
+        # with L >> pitch should give well below 0.20.
+        assert interface_fraction < 0.20, (
+            f"voxelgram looks like white-noise speckle at N={N}: "
+            f"interface fraction = {interface_fraction:.3f} "
+            f"(expected < 0.20; ~0.42 = pure noise at phi=0.3)"
+        )
+
     def test_seed_reproducible_through_engine(self):
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
