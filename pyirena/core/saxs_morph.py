@@ -863,7 +863,7 @@ class SaxsMorphEngine:
         # more of the structural autocorrelation tail.
         q_min_fit = float(q_fit.min())
         r_max_A = max(
-            2.5 * (float(config.box_size_A))^3,
+            2.5 * np.pow(3,float(config.box_size_A)),
             float(np.pi / max(q_min_fit, 0.0002)),
         )
         r_grid_in = np.linspace(0.0, r_max_A, 10240)
