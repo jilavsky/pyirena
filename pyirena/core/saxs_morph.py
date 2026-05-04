@@ -604,6 +604,21 @@ def voxelgram_to_iq(
     #  was missing the 10**(-24) Angstrom-to-cm conversion).
     I_keep = I_keep * (pitch ** 3) * 1e-4
 
+    # Future option — PDDF display (not a separate I(Q) calculator):
+    # The power spectrum (k_keep, I_keep) already contains all information
+    # needed to compute the pair distance distribution function p(r) of the
+    # voxelgram without any Monte Carlo sampling:
+    #
+    #   p(r) ∝ r² · IFFT[ spherically-averaged |η_hat(k)|² ]
+    #         = r² · ∫ I_struct(k) · sinc(kr) · 4πk² dk
+    #
+    # p(r) is a useful diagnostic (shows characteristic feature sizes,
+    # directly comparable to ATSAS/GNOM output from experimental I(Q)).
+    # Implementation: sinc-transform k_keep → I_keep once (O(n_bins · n_r));
+    # store (r, p(r)) in SaxsMorphResult; add a pyqtgraph panel below I(Q);
+    # add "Export PDDF" button for ATSAS-compatible 3-column ASCII output.
+    # Cost: ~1 day, no new dependencies, negligible extra CPU.
+
     # Log-log interpolation onto q_target.  Outside the table return small
     # but positive values to keep ratios well-behaved.
     if len(k_keep) < 2:
