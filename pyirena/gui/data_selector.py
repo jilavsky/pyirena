@@ -2155,6 +2155,7 @@ class DataSelectorPanel(QWidget):
         self.data_merge_window = None          # Data Merge panel
         self.data_manip_window = None          # Data Manipulation panel
         self.contrast_window = None            # Scattering Contrast Calculator
+        self.fractals_window = None            # Fractals (mass fractal aggregate) panel
         self.saxs_morph_window = None          # SAXS Morph (3D voxelgram) panel
         self._batch_worker = None      # Batch fitting thread
 
@@ -2836,20 +2837,36 @@ class DataSelectorPanel(QWidget):
         # Row 11: Scattering Contrast Calculator (full width)
         btn_grid.addWidget(self.contrast_button, 11, 0, 1, 2)
 
-        # Row 12: separator
+        # Fractals (mass fractal aggregate visualization tool) — same color as
+        # other Support Tools.  GUI-only; no scripting / batch entry.
+        self.fractals_button = QPushButton("Fractals")
+        self.fractals_button.setMinimumHeight(38)
+        self.fractals_button.setStyleSheet(_contrast_style)
+        self.fractals_button.setToolTip(
+            "Open the Fractals tool: grow random mass-fractal aggregates by\n"
+            "Monte-Carlo on a simple cubic lattice, compute their fractal\n"
+            "parameters (Z, dmin, c, df, Rg primary, Rg aggregate), and\n"
+            "back-calculate I(Q).  Optionally compares against Unified-fit\n"
+            "results from a NeXus file."
+        )
+        self.fractals_button.clicked.connect(self.launch_fractals)
+        # Row 12: Fractals (full width)
+        btn_grid.addWidget(self.fractals_button, 12, 0, 1, 2)
+
+        # Row 13: separator
         _util_sep2 = QFrame()
         _util_sep2.setFrameShape(QFrame.Shape.HLine)
         _util_sep2.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep2.setStyleSheet("color: #bdc3c7;")
-        btn_grid.addWidget(_util_sep2, 12, 0, 1, 2)
+        btn_grid.addWidget(_util_sep2, 13, 0, 1, 2)
 
-        # Row 13: Data Merge | Data Manipulation
-        btn_grid.addWidget(self.data_merge_button, 13, 0)
-        btn_grid.addWidget(self.data_manip_button, 13, 1)
+        # Row 14: Data Merge | Data Manipulation
+        btn_grid.addWidget(self.data_merge_button, 14, 0)
+        btn_grid.addWidget(self.data_manip_button, 14, 1)
 
-        # Row 14: HDF5 Viewer | Manage Config
-        btn_grid.addWidget(self.hdf5_viewer_button, 14, 0)
-        btn_grid.addWidget(self.manage_config_button, 14, 1)
+        # Row 15: HDF5 Viewer | Manage Config
+        btn_grid.addWidget(self.hdf5_viewer_button, 15, 0)
+        btn_grid.addWidget(self.manage_config_button, 15, 1)
 
         right_layout.addLayout(btn_grid)
         right_layout.addStretch()
@@ -4316,6 +4333,30 @@ class DataSelectorPanel(QWidget):
         self.contrast_window.raise_()
         self.contrast_window.activateWindow()
         self.status_label.setText("Scattering Contrast Calculator opened.")
+
+    def launch_fractals(self):
+        """Open the Fractals (mass fractal aggregate) visualization tool."""
+        from pyirena.gui.fractals_panel import FractalsGraphWindow
+
+        if self.fractals_window is None:
+            self.fractals_window = FractalsGraphWindow(
+                state_manager=self.state_manager,
+            )
+            # WA_DeleteOnClose is set on the window; clear our cached reference
+            # once Qt destroys the panel so the next launch creates a fresh one
+            # with a live VTK render window.
+            self.fractals_window.destroyed.connect(self._on_fractals_destroyed)
+
+        self.fractals_window.show()
+        self.fractals_window.raise_()
+        self.fractals_window.activateWindow()
+        self.status_label.setText("Fractals tool opened.")
+
+    def _on_fractals_destroyed(self, _obj=None):
+        """Clear the cached Fractals window reference once Qt has destroyed
+        the underlying widget (triggered by WA_DeleteOnClose).
+        """
+        self.fractals_window = None
 
     def launch_hdf5_viewer(self):
         """Open the HDF5 Viewer / Data Extractor for the current folder."""

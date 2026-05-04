@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fractals tool — new Support Tool for mass-fractal aggregate visualization.**
+  Grows random fractal aggregates by Monte-Carlo random walk on a simple
+  cubic lattice (port of Irena's `IR3A_MakeAgg` / `IR3_3DModels.ipf`),
+  computes their fractal parameters (Z, dmin, c, df, R, p, s, Rg primary,
+  Rg aggregate, true sticking probability), and back-calculates I(Q) by
+  two paths: a fast closed-form two-level Beaucage Unified-fit intensity
+  (always computed) and a slow Monte-Carlo PDF-based intensity (on demand).
+  - Three growth modes: Grow One, Grow Many (queued batch), and an
+    Optimizer ("Find Best Growth") that bisects sticking probability to
+    match a target dmin and c.
+  - Background QThread queue keeps the UI responsive while aggregates
+    grow; users can inspect already-completed aggregates in the in-session
+    list while new ones are still growing.
+  - Optionally loads a NeXus file containing Unified-fit results: when two
+    consecutive levels have `RgCutoff_high ≈ Rg_low`, the pair is treated
+    as a fractal representation and target Rg primary, Rg aggregate, and
+    df are displayed for visual comparison.
+  - GUI mirrors SAXS Morph: scrollable left panel + right vertical
+    splitter (top: log-log I(Q), bottom: 2D slice + 3D PyVista isosurface
+    of the voxelized sphere structure).  Reuses `Voxel3DViewer`,
+    `Slice2DViewer`, `make_popout_button`, and the standard `sas_plot`
+    helpers — no duplication.
+  - Save selected aggregate to a NeXus file as
+    `entry/fractals_results/aggregate_{N}` (NXprocess group with
+    positions, neighbor list, computed parameters, input parameters, and
+    optional intensity).  Multiple aggregates auto-increment.  Loader
+    supports reading them back into the session list.
+  - GUI-only — no batch / scripting / headless API (matches the tool's
+    visualization-focused workflow).
+  - New files: `pyirena/core/fractals.py`,
+    `pyirena/io/nxcansas_fractals.py`, `pyirena/gui/fractals_workers.py`,
+    `pyirena/gui/fractals_panel.py`.  New `fractals` block in
+    `state_manager` (schema_version 1).  New "Fractals" button in
+    `data_selector` Support Tools section, immediately below the
+    Scattering Contrast Calculator.
+
 ## [0.5.8]
 
 ### Fixed

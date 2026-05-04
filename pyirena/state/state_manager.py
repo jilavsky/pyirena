@@ -427,6 +427,27 @@ class StateManager:
                 ],
             ],
         },
+        "fractals": {
+            "schema_version": 1,
+            "last_growth_params": {
+                "z": 250,
+                "sticking_prob": 75.0,
+                "num_test_paths": 2500,
+                "rg_primary": 10.0,
+                "allowed_near_dist": 3,
+                "attraction": "Neutral",
+                "seed": 0,
+            },
+            "q_range": {"q_min": 0.001, "q_max": 1.0, "n_points": 200},
+            "optimizer": {
+                "target_dmin": 2.0,
+                "target_c": 1.2,
+                "tolerance": 0.05,
+                "max_iter": 10,
+            },
+            "grow_many_n": 5,
+            "last_loaded_nexus_path": "",
+        },
         "saxs_morph": {
             # schema_version 2: workflow rework — background pre-fits with their
             #                   own Q ranges + input_mode combo (no model fit).
