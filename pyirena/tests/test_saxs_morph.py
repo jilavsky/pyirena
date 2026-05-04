@@ -521,6 +521,52 @@ class TestEngineSmoke:
             f"(expected < 0.20; ~0.42 = pure noise at phi=0.3)"
         )
 
+    def test_model_iq_smooth_no_gibbs_ripples(self):
+        """Regression: the GRF model I(Q) should track a smooth input I(Q)
+        without large evenly-spaced ripples.  Two known sources of ripples
+        the engine must suppress:
+          1. Gibbs ringing from a hard band-limit on F(k) (we use a cosine
+             taper instead).
+          2. Cubic-lattice spherical-counting fluctuations in the radial
+             FFT average (we use log-spaced bins + a small log-log
+             Gaussian smoothing).
+
+        Detection: fit a flexible smooth (degree-4 polynomial in log-log)
+        through the model in the structurally-meaningful Q window, and
+        bound the std of the log-residuals.  Pre-fix: std ~0.06–0.10;
+        post-fix: std < 0.05 at N=128 box=5000.
+        """
+        q = np.logspace(-3, -1.0, 150)
+        L = 300.0
+        I = 1.0 / (1.0 + (q * L) ** 2) ** 2
+        dI = np.maximum(0.05 * I, 1e-30)
+
+        cfg = SaxsMorphConfig(
+            q_min=q.min(), q_max=q.max(),
+            voxel_size_fit=128, voxel_size_render=128,
+            box_size_A=5000.0,
+            input_mode='phi', volume_fraction=0.30,
+            contrast=1.0, rng_seed=42, smooth_sigma=0.0,
+        )
+        engine = SaxsMorphEngine()
+        res = engine.compute_voxelgram(cfg, q, I, dI)
+
+        # Structural window — above Q_max_model the model is pure background
+        mask = (res.model_q > 1.5 * res.model_q.min()) & (
+            res.model_q < 0.9 * res.q_max_model_A)
+        if mask.sum() < 20:
+            return  # window too small
+        log_q = np.log(res.model_q[mask])
+        log_I = np.log(np.maximum(res.model_I[mask], 1e-30))
+        coeffs = np.polyfit(log_q, log_I, 4)
+        resid = log_I - np.polyval(coeffs, log_q)
+        std_resid = float(resid.std())
+        assert std_resid < 0.06, (
+            f"Model I(Q) shows large log-space oscillations "
+            f"(std = {std_resid:.3f}) — likely Gibbs ringing or "
+            f"lattice-binning artifact."
+        )
+
     def test_seed_reproducible_through_engine(self):
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(

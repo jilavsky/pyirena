@@ -541,10 +541,18 @@ def voxelgram_to_iq(
     k_mag = np.sqrt(kx * kx + ky * ky + kz * kz)
     del kx, ky, kz
 
-    # Bin edges: linear from 0 to k_max, ~N/2 bins.
+    # Log-spaced bin edges from the box's lowest mode to the FFT k_max.
+    # Linear bins (with constant width = 2*sqrt(3)*pi/box) suffer cubic-
+    # lattice spherical-counting fluctuations that show up as evenly-spaced
+    # ripples in the spherically-averaged power spectrum.  Log bins put
+    # MORE modes per low-k bin (where lattice quantisation matters most)
+    # and fewer at high k (where modes are abundant), substantially
+    # smoothing the radial average.  60 bins per cube spans ~3 decades
+    # with ~10% Q resolution — comfortably finer than typical SAXS data.
     k_max = float(k_axis.max())
-    n_bins = max(N // 2, 32)
-    edges = np.linspace(0.0, k_max, n_bins + 1)
+    k_min_bin = float(np.pi / (float(N) * pitch))   # half the box mode
+    n_bins = 60
+    edges = np.logspace(np.log10(k_min_bin), np.log10(k_max), n_bins + 1)
     bin_idx = np.digitize(k_mag.ravel(), edges) - 1
     valid = (bin_idx >= 0) & (bin_idx < n_bins)
     bin_idx = bin_idx[valid]
@@ -562,12 +570,18 @@ def voxelgram_to_iq(
     I_radial[nonzero] = sums[nonzero] / counts[nonzero] / (N ** 3)
     k_radial[nonzero] = k_sums[nonzero] / counts[nonzero]
 
-    # Drop the DC bin (k=0).
-    if k_radial[0] == 0.0:
-        nonzero[0] = False
-
     k_keep = k_radial[nonzero]
     I_keep = I_radial[nonzero]
+
+    # Smooth the binned spectrum in log-log space to suppress residual
+    # cubic-lattice spherical-counting ripples that survive log binning.
+    # sigma=1 bin ≈ 10% in Q — finer than typical SAXS data resolution
+    # so this is a true variance-reduction filter, not Q-resolution loss.
+    if len(I_keep) >= 5:
+        from scipy.ndimage import gaussian_filter1d
+        log_I_keep = np.log(np.maximum(I_keep, 1e-30))
+        log_I_smooth = gaussian_filter1d(log_I_keep, sigma=1.0, mode='nearest')
+        I_keep = np.exp(log_I_smooth)
 
     # Convert from <|F_DFT|^2>/N**3 (dimensionless) to a structure-factor
     # pre-factor with the right units so that I [cm**-1] = contrast
@@ -904,16 +918,35 @@ class SaxsMorphEngine:
             k_grid=np.linspace(0.0, k_max_3d, max(1024, 2 * N)),
         )
 
-        # ── Band-limit F(k) at the data's q_max ────────────────────────
+        # ── Soft band-limit F(k) at the data's q_max ───────────────────
         # The data carries no information about features smaller than
-        # ~pi/q_max_data.  In k-space this means F(k) MUST be zero for
+        # ~pi/q_max_data.  In k-space this means F(k) MUST be ~zero for
         # k > q_max_data; the numerical sinc transform leaves spurious
-        # artifact values there which, when fed to the 3D filter, inject
-        # high-frequency white-noise content into the field and produce
-        # single-voxel speckle at high N (where k_max_3d >> q_max_data).
-        # Without this clamp the model is correct only when k_max_3d is
-        # naturally below q_max_data — i.e. for low N.
-        spectral_F = np.where(spectral_k > q_max_data, 0.0, spectral_F)
+        # artifact values there which, fed to the 3D filter, would inject
+        # high-frequency white-noise content and produce single-voxel
+        # speckle at high N (where k_max_3d >> q_max_data).
+        #
+        # A HARD cutoff (Pi-shaped step at q_max_data) zeros the artifacts
+        # but introduces sinc-shaped autocorrelation in real space → Gibbs
+        # ringing in the voxelgram → linearly-spaced ripples in model I(Q)
+        # whose count scales with N (since Q_max_model = pi/(2*pitch) sets
+        # the structured range).  Use a Hann-like cosine taper instead:
+        # smooth from 1 at k_low to 0 at k_high, where the taper region
+        # spans the upper 30% of the data range.  This kills both the
+        # speckle and the ringing.
+        k_high = q_max_data
+        k_low = 0.7 * q_max_data
+        with np.errstate(invalid='ignore'):
+            taper = np.where(
+                spectral_k <= k_low, 1.0,
+                np.where(
+                    spectral_k >= k_high, 0.0,
+                    0.5 * (1.0 + np.cos(
+                        np.pi * (spectral_k - k_low) / (k_high - k_low)
+                    )),
+                ),
+            )
+        spectral_F = spectral_F * taper
         # ALWAYS generate binary voxelgram for I(Q) computation.
         # Smoothing is applied SEPARATELY for display only (see below).
         # Using a smoothed field for I(Q) would reduce the variance
