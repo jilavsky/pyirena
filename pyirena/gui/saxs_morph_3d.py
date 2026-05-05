@@ -98,7 +98,10 @@ class Voxel3DViewer(QWidget):
         self._actor = None
         self._bounds_actor = None
         self._show_outline = True
-        self._iso_color = (0.10, 0.50, 0.90)
+        # Dark grey for the solid (majority) phase against the white
+        # background / minority phase.  Edges of the structure stand out
+        # clearly with this contrast.
+        self._iso_color = (0.30, 0.30, 0.30)
         self._voxelgram = None
         self._pitch_A = 1.0
         self._mesh = None
@@ -214,14 +217,17 @@ class Voxel3DViewer(QWidget):
         # to a plain outline.
         self._bounds_actor = None
         if self._show_outline:
-            box_label = f'{N * self._pitch_A:.0f} Å'  # noqa: F841 (used in log)
+            box_label = f'{N * self._pitch_A:.0f} A'  # noqa: F841 (used in log)
+            # NOTE: VTK's font does not include the Å (U+00C5) glyph; using
+            # it produces missing-glyph rectangles or "X()".  Use ASCII "[A]".
             try:
                 self._bounds_actor = self.plotter.show_bounds(
                     mesh=grid,
-                    xtitle='X (Å)', ytitle='Y (Å)', ztitle='Z (Å)',
+                    xtitle='X [A]', ytitle='Y [A]', ztitle='Z [A]',
                     n_xlabels=5, n_ylabels=5, n_zlabels=5,
                     fmt='%.0f', font_size=9, bold=False,
                     ticks='outside', grid=False, all_edges=True,
+                    color='black',
                 )
             except Exception:
                 # Older VTK / pyvistaqt that does not support show_bounds well
@@ -339,10 +345,11 @@ class Slice2DViewer(QWidget):
         ('YZ plane (X slice)', 'x'),
     ]
     # Physical axis labels for each slice plane: (horizontal_label, vertical_label)
+    # ASCII units (no Å glyph) so they render reliably in every Qt font.
     _PLANE_AXIS_LABELS = {
-        'z': ('x (Å)', 'y (Å)'),
-        'y': ('x (Å)', 'z (Å)'),
-        'x': ('y (Å)', 'z (Å)'),
+        'z': ('x [A]', 'y [A]'),
+        'y': ('x [A]', 'z [A]'),
+        'x': ('y [A]', 'z [A]'),
     }
 
     def __init__(self, parent=None):
@@ -374,10 +381,10 @@ class Slice2DViewer(QWidget):
         top.addStretch()
         lay.addLayout(top)
 
-        # Image view: strictly binary black/white.  The 2D slice shows
-        # the PHYSICAL microstructure — thresholded 0 (void) and 1 (solid)
-        # as sharp black and white regions.  Smoothing is deliberately
-        # NOT applied here; it goes only to the 3D isosurface viewer.
+        # Image view: white = minority phase (void), dark grey = majority
+        # phase (solid).  Sharp two-level rendering keeps structural edges
+        # crisp without anti-aliasing blur.  Smoothing is NOT applied here —
+        # it is reserved for the 3D isosurface viewer.
         plot_item = pg.PlotItem()
         self.image_view = pg.ImageView(view=plot_item)
         self.image_view.ui.histogram.hide()
@@ -385,10 +392,22 @@ class Slice2DViewer(QWidget):
         self.image_view.ui.menuBtn.hide()
         self.image_view.view.setAspectLocked(True)
         self.image_view.view.invertY(False)  # y increases upward (physical)
-        # Physical axis labels (updated when the slice plane changes)
-        self.image_view.view.setLabel('bottom', 'x (Å)', size='9pt')
-        self.image_view.view.setLabel('left', 'y (Å)', size='9pt')
-        bw_lut = np.array([[0, 0, 0, 255], [255, 255, 255, 255]], dtype=np.uint8)
+        # Black axes against white background — match the 3D viewer style.
+        for ax_name in ('left', 'bottom', 'top', 'right'):
+            ax = plot_item.getAxis(ax_name)
+            if ax is not None:
+                ax.setPen(pg.mkPen('k', width=1))
+                ax.setTextPen(pg.mkPen('k'))
+        # Physical axis labels (updated when the slice plane changes).
+        # ASCII units so they always render.
+        self.image_view.view.setLabel('bottom', 'x [A]', size='9pt', color='k')
+        self.image_view.view.setLabel('left', 'y [A]', size='9pt', color='k')
+        # White-background canvas (was default dark grey of pyqtgraph)
+        plot_item.getViewBox().setBackgroundColor('w')
+        # 0 → white (void / minority);  1 → dark grey (solid / majority).
+        bw_lut = np.array(
+            [[255, 255, 255, 255], [80, 80, 80, 255]], dtype=np.uint8,
+        )
         self.image_view.imageItem.setLookupTable(bw_lut)
         self.image_view.imageItem.setLevels([0, 1])
         lay.addWidget(self.image_view)
@@ -437,10 +456,10 @@ class Slice2DViewer(QWidget):
 
     def _update_axis_labels(self):
         h_label, v_label = self._PLANE_AXIS_LABELS.get(
-            self._axis, ('Position (Å)', 'Position (Å)')
+            self._axis, ('Position [A]', 'Position [A]')
         )
-        self.image_view.view.setLabel('bottom', h_label, size='9pt')
-        self.image_view.view.setLabel('left', v_label, size='9pt')
+        self.image_view.view.setLabel('bottom', h_label, size='9pt', color='k')
+        self.image_view.view.setLabel('left', v_label, size='9pt', color='k')
 
     def _on_slice_changed(self, _val):
         if self._building:
@@ -455,13 +474,13 @@ class Slice2DViewer(QWidget):
 
         if self._axis == 'z':
             slc = self._voxelgram[:, :, idx]
-            coord_label = f'z = {idx * self._pitch_A:.1f} Å'
+            coord_label = f'z = {idx * self._pitch_A:.1f} A'
         elif self._axis == 'y':
             slc = self._voxelgram[:, idx, :]
-            coord_label = f'y = {idx * self._pitch_A:.1f} Å'
+            coord_label = f'y = {idx * self._pitch_A:.1f} A'
         else:
             slc = self._voxelgram[idx, :, :]
-            coord_label = f'x = {idx * self._pitch_A:.1f} Å'
+            coord_label = f'x = {idx * self._pitch_A:.1f} A'
 
         # Display with physical Å coordinates on the axes.
         # pos=(0,0): lower-left corner; scale=(pitch, pitch): Å per voxel.

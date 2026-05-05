@@ -2392,6 +2392,25 @@ class DataSelectorPanel(QWidget):
             "Only HDF5 files with stored Modeling results are used."
         )
         cb_row.addWidget(self.modeling_checkbox)
+
+        # 3D-only visualization tools (no I(Q) curves; on Create Graph,
+        # opens a viewer for the first selected file with stored results).
+        self.saxs_morph_checkbox = QCheckBox("3D saxsMorph")
+        self.saxs_morph_checkbox.setChecked(False)
+        self.saxs_morph_checkbox.setToolTip(
+            "Open 3D saxsMorph viewer for the first selected file with\n"
+            "stored saxs_morph results (2D slice + 3D voxelgram)."
+        )
+        cb_row.addWidget(self.saxs_morph_checkbox)
+
+        self.fractals_checkbox = QCheckBox("Fractals")
+        self.fractals_checkbox.setChecked(False)
+        self.fractals_checkbox.setToolTip(
+            "Open Fractals viewer for the first selected file with stored\n"
+            "fractal aggregates (2D slice + 3D voxelgram + I(Q))."
+        )
+        cb_row.addWidget(self.fractals_checkbox)
+
         cb_row.addStretch()
         right_layout.addLayout(cb_row)
 
@@ -2738,7 +2757,7 @@ class DataSelectorPanel(QWidget):
             QPushButton:hover { background-color: #5b2c6f; }
             QPushButton:disabled { background-color: #bdc3c7; }
         """
-        self.saxs_morph_button = QPushButton("SAXS Morph (GUI)")
+        self.saxs_morph_button = QPushButton("3D saxsMorph (GUI)")
         self.saxs_morph_button.setMinimumHeight(38)
         self.saxs_morph_button.setStyleSheet(_sm_gui_style)
         self.saxs_morph_button.setToolTip(
@@ -2747,7 +2766,7 @@ class DataSelectorPanel(QWidget):
         self.saxs_morph_button.clicked.connect(self.launch_saxs_morph)
         self.saxs_morph_button.setEnabled(False)
 
-        self.saxs_morph_script_button = QPushButton("SAXS Morph (script)")
+        self.saxs_morph_script_button = QPushButton("3D saxsMorph (script)")
         self.saxs_morph_script_button.setMinimumHeight(38)
         self.saxs_morph_script_button.setStyleSheet(_sm_script_style)
         self.saxs_morph_script_button.setToolTip(
@@ -2834,9 +2853,6 @@ class DataSelectorPanel(QWidget):
         )
         self.contrast_button.clicked.connect(self.launch_contrast)
 
-        # Row 11: Scattering Contrast Calculator (full width)
-        btn_grid.addWidget(self.contrast_button, 11, 0, 1, 2)
-
         # Fractals (mass fractal aggregate visualization tool) — same color as
         # other Support Tools.  GUI-only; no scripting / batch entry.
         self.fractals_button = QPushButton("Fractals")
@@ -2850,23 +2866,25 @@ class DataSelectorPanel(QWidget):
             "results from a NeXus file."
         )
         self.fractals_button.clicked.connect(self.launch_fractals)
-        # Row 12: Fractals (full width)
-        btn_grid.addWidget(self.fractals_button, 12, 0, 1, 2)
 
-        # Row 13: separator
+        # Row 11: Scattering Contrast Calculator | Fractals (split row)
+        btn_grid.addWidget(self.contrast_button, 11, 0)
+        btn_grid.addWidget(self.fractals_button, 11, 1)
+
+        # Row 12: separator
         _util_sep2 = QFrame()
         _util_sep2.setFrameShape(QFrame.Shape.HLine)
         _util_sep2.setFrameShadow(QFrame.Shadow.Sunken)
         _util_sep2.setStyleSheet("color: #bdc3c7;")
-        btn_grid.addWidget(_util_sep2, 13, 0, 1, 2)
+        btn_grid.addWidget(_util_sep2, 12, 0, 1, 2)
 
-        # Row 14: Data Merge | Data Manipulation
-        btn_grid.addWidget(self.data_merge_button, 14, 0)
-        btn_grid.addWidget(self.data_manip_button, 14, 1)
+        # Row 13: Data Merge | Data Manipulation
+        btn_grid.addWidget(self.data_merge_button, 13, 0)
+        btn_grid.addWidget(self.data_manip_button, 13, 1)
 
-        # Row 15: HDF5 Viewer | Manage Config
-        btn_grid.addWidget(self.hdf5_viewer_button, 15, 0)
-        btn_grid.addWidget(self.manage_config_button, 15, 1)
+        # Row 14: HDF5 Viewer | Manage Config
+        btn_grid.addWidget(self.hdf5_viewer_button, 14, 0)
+        btn_grid.addWidget(self.manage_config_button, 14, 1)
 
         right_layout.addLayout(btn_grid)
         right_layout.addStretch()
@@ -3233,6 +3251,18 @@ class DataSelectorPanel(QWidget):
             if mod_plotted:
                 self.graph_window.show()
                 plotted.append(f"Modeling ({mod_plotted} file(s))")
+
+        # ── 3D saxsMorph viewer ─────────────────────────────────────────────
+        if self.saxs_morph_checkbox.isChecked():
+            opened = self._open_saxs_morph_viewer(file_paths)
+            if opened:
+                plotted.append(f"3D saxsMorph ({opened} file(s))")
+
+        # ── Fractals viewer ─────────────────────────────────────────────────
+        if self.fractals_checkbox.isChecked():
+            opened = self._open_fractals_viewer(file_paths)
+            if opened:
+                plotted.append(f"Fractals ({opened} file(s))")
 
         if plotted:
             self.status_label.setText(
@@ -4357,6 +4387,97 @@ class DataSelectorPanel(QWidget):
         the underlying widget (triggered by WA_DeleteOnClose).
         """
         self.fractals_window = None
+
+    # ── Visualization for "Create Graph" with 3D-tool checkboxes ─────────
+
+    def _open_saxs_morph_viewer(self, file_paths) -> int:
+        """Open the saxsMorph viewer with the first file that has stored
+        results.  Returns the count of files for which results were found."""
+        from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
+        usable = []
+        for fp in file_paths:
+            try:
+                if load_saxs_morph_results(Path(fp)) is not None:
+                    usable.append(fp)
+            except Exception:
+                continue
+        if not usable:
+            QMessageBox.information(
+                self, "No saxsMorph results",
+                "None of the selected files contain stored 3D saxsMorph results.",
+            )
+            return 0
+
+        # Open SaxsMorphPanel (re-uses the full panel — user can inspect 2D + 3D)
+        from pyirena.gui.saxs_morph_panel import SaxsMorphPanel
+        if self.saxs_morph_window is None:
+            self.saxs_morph_window = SaxsMorphPanel()
+            self.saxs_morph_window.destroyed.connect(self._on_saxs_morph_destroyed)
+        # Just load the first usable file — populates I(Q), then the panel
+        # auto-renders saved voxelgram via Calculate 3D action history (or
+        # the user can re-run Calculate 3D themselves).  Showing stored
+        # voxelgrams without recompute is a panel-side enhancement; for
+        # now this gets the user to the right tool with the right data.
+        try:
+            self.saxs_morph_window.load_file(Path(usable[0]))
+        except Exception as exc:
+            QMessageBox.warning(self, "Load failed",
+                                 f"Could not load {usable[0]}:\n{exc}")
+            return 0
+        self.saxs_morph_window.show()
+        self.saxs_morph_window.raise_()
+        self.saxs_morph_window.activateWindow()
+        return len(usable)
+
+    def _open_fractals_viewer(self, file_paths) -> int:
+        """Open the Fractals viewer pre-populated with stored aggregates from
+        all selected files.  Returns the count of files where any aggregate
+        was found."""
+        from pyirena.io.nxcansas_fractals import (
+            list_fractal_aggregates, load_fractal_aggregate,
+        )
+        from pyirena.gui.fractals_panel import FractalsGraphWindow
+
+        if self.fractals_window is None:
+            self.fractals_window = FractalsGraphWindow(state_manager=self.state_manager)
+            self.fractals_window.destroyed.connect(self._on_fractals_destroyed)
+
+        n_files_with_aggs = 0
+        n_aggs_loaded = 0
+        for fp in file_paths:
+            try:
+                entries = list_fractal_aggregates(Path(fp))
+            except Exception:
+                continue
+            if not entries:
+                continue
+            n_files_with_aggs += 1
+            for e in entries:
+                try:
+                    agg = load_fractal_aggregate(Path(fp), e["group_path"])
+                    agg.label = (agg.label or e["name"]) + f" — {Path(fp).name}"
+                    self.fractals_window.panel._aggregates.append(agg)
+                    n_aggs_loaded += 1
+                except Exception:
+                    continue
+
+        if n_files_with_aggs == 0:
+            QMessageBox.information(
+                self, "No Fractals results",
+                "None of the selected files contain stored Fractals aggregates.",
+            )
+            return 0
+
+        # Refresh the list and show the most recently-loaded aggregate
+        self.fractals_window.panel._refresh_aggregates_list()
+        if n_aggs_loaded > 0:
+            self.fractals_window.panel.agg_list.setCurrentRow(
+                self.fractals_window.panel.agg_list.count() - 1
+            )
+        self.fractals_window.show()
+        self.fractals_window.raise_()
+        self.fractals_window.activateWindow()
+        return n_files_with_aggs
 
     def launch_hdf5_viewer(self):
         """Open the HDF5 Viewer / Data Extractor for the current folder."""

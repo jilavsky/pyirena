@@ -475,8 +475,19 @@ class FractalsPanel(QWidget):
 
     def _build_params_box(self) -> QGroupBox:
         gb = QGroupBox("Active aggregate parameters")
-        g = QGridLayout(gb)
+        outer = QVBoxLayout(gb)
+
+        # Target summary that mirrors targets_label at top of panel — duplicated
+        # here so the user can compare actual vs target without scrolling.
+        self.targets_summary_label = QLabel("Targets: —")
+        self.targets_summary_label.setWordWrap(True)
+        self.targets_summary_label.setStyleSheet(
+            "color:#7f8c8d;font-size:10pt;font-style:italic;padding:2px;")
+        outer.addWidget(self.targets_summary_label)
+
+        g = QGridLayout()
         g.setVerticalSpacing(2)
+        outer.addLayout(g)
         self._param_labels: dict[str, QLabel] = {}
 
         rows = [
@@ -704,9 +715,23 @@ class FractalsPanel(QWidget):
             self.opt_iter_spin.setValue(int(opt["max_iter"]))
 
         self.many_n_spin.setValue(int(st.get("grow_many_n", 5)))
+
+        # Auto-restore last NeXus file: if it still exists on disk, load
+        # everything (data + Unified-fit + targets) so the user does not
+        # have to re-pick the file every session.  If the file has been
+        # moved or deleted, silently clear the path so the field is empty.
         last_path = st.get("last_loaded_nexus_path", "")
         if last_path:
-            self.nexus_path_edit.setText(last_path)
+            nexus_path = Path(last_path)
+            if nexus_path.exists():
+                self.nexus_path_edit.setText(last_path)
+                try:
+                    self._load_unified_from_nexus(nexus_path)
+                except Exception as exc:
+                    print(f"[fractals] auto-load of {last_path} failed: {exc}")
+            else:
+                # File no longer exists — drop the stale path
+                self.nexus_path_edit.clear()
 
     def _save_state(self):
         st = {
@@ -817,8 +842,22 @@ class FractalsPanel(QWidget):
     @staticmethod
     def _derive_targets_from_levels(levels: list[dict]) -> dict:
         """Find the first consecutive (low, high) level pair where the high
-        level's RgCutoff ≈ the low level's Rg (within ±25 %).  Returns
-        {rg_primary, rg_aggregate, df, z_target} when a pair is found."""
+        level's RgCutoff ≈ the low level's Rg (within ±25 %), then derive
+        the target fractal parameters.
+
+        Igor (IR3A_*) formulas:
+          df    = P2
+          dmin  = B2 · Rg2^P2 / ( Γ(P2/2) · G2 )
+          c     = P2 / dmin
+          Z     = G2 / G1 + 1            (degree of aggregation)
+          fBr   = 1 − (G2/G1)^(1/(c-1))  (branched fraction, informational)
+          fM    = 1 − (G2/G1)^(1/(dmin-1))  (mass fraction, informational)
+
+        Returns a dict with keys:
+          level_low, level_high, rg_primary, rg_aggregate,
+          df, z_target, dmin_target, c_target, fBr, fM
+        Empty dict if no qualifying pair.
+        """
         if not levels or len(levels) < 2:
             return {}
         for i in range(len(levels) - 1):
@@ -831,28 +870,76 @@ class FractalsPanel(QWidget):
                 continue
             if abs(cutoff_hi - rg_lo) / rg_lo > 0.25:
                 continue
-            df = float(hi.get("P", 2.5))
-            z_target = float(hi.get("G", 1.0))
-            return {
-                "level_low": i + 1, "level_high": i + 2,
-                "rg_primary": rg_lo, "rg_aggregate": rg_hi,
-                "df": df, "z_target": z_target,
-            }
+            G1 = float(lo.get("G", 0.0))
+            G2 = float(hi.get("G", 0.0))
+            B2 = float(hi.get("B", 0.0))
+            P2 = float(hi.get("P", 0.0))
+            if not (G1 > 0 and G2 > 0 and B2 > 0 and P2 > 0):
+                continue
+            try:
+                gamma_term = math.exp(math.lgamma(P2 / 2.0))
+                dmin = (B2 * (rg_hi ** P2)) / (gamma_term * G2)
+                if not math.isfinite(dmin) or dmin <= 0:
+                    continue
+                c = P2 / dmin
+                z_target = G2 / G1 + 1.0
+                df = P2
+                # Auxiliary fractions (informational; NaN-safe if exponent invalid)
+                ratio = G2 / G1
+                try:
+                    fBr = 1.0 - ratio ** (1.0 / (c - 1.0)) if c != 1.0 else float("nan")
+                except (OverflowError, ValueError):
+                    fBr = float("nan")
+                try:
+                    fM = 1.0 - ratio ** (1.0 / (dmin - 1.0)) if dmin != 1.0 else float("nan")
+                except (OverflowError, ValueError):
+                    fM = float("nan")
+                return {
+                    "level_low": i + 1, "level_high": i + 2,
+                    "rg_primary": rg_lo, "rg_aggregate": rg_hi,
+                    "df": df, "z_target": z_target,
+                    "dmin_target": dmin, "c_target": c,
+                    "fBr": fBr, "fM": fM,
+                }
+            except (OverflowError, ValueError, ZeroDivisionError):
+                continue
         return {}
 
     def _update_targets_label(self):
         if not self._targets:
-            self.targets_label.setText("No fractal pair detected — load a NeXus file with Unified-fit "
-                                        "where two consecutive levels have RgCutoff_high ≈ Rg_low.")
+            empty = ("No targets — load a NeXus file with Unified-fit where two "
+                     "consecutive levels have RgCutoff_high ≈ Rg_low, or set "
+                     "manual targets in the Optimizer tab.")
+            self.targets_label.setText(empty)
+            self.targets_label.setStyleSheet(
+                "color:#7f8c8d;font-size:10pt;font-style:italic;padding:4px;")
+            if hasattr(self, 'targets_summary_label'):
+                self.targets_summary_label.setText("Targets: —")
+                self.targets_summary_label.setStyleSheet(
+                    "color:#7f8c8d;font-size:10pt;font-style:italic;padding:2px;")
             return
         t = self._targets
+        # Top label (full detail) — visible at top of panel
         msg = (f"<b>Detected fractal pair: levels {t['level_low']} + {t['level_high']}</b><br>"
+               f"<b>Z = {_fmt(t.get('z_target'))}</b>, "
+               f"<b>dmin = {_fmt(t.get('dmin_target'))}</b>, "
+               f"<b>c = {_fmt(t.get('c_target'))}</b>, "
+               f"<b>df = {_fmt(t.get('df'))}</b><br>"
                f"Rg primary = {_fmt(t['rg_primary'])} Å, "
-               f"Rg aggregate = {_fmt(t['rg_aggregate'])} Å, "
-               f"df target = {_fmt(t['df'])}, "
-               f"Z target ≈ {_fmt(t['z_target'])}")
+               f"Rg aggregate = {_fmt(t['rg_aggregate'])} Å")
         self.targets_label.setText(msg)
         self.targets_label.setStyleSheet("color:#16a085;font-size:10pt;padding:4px;")
+        # Compact summary near "Active aggregate parameters" widget
+        if hasattr(self, 'targets_summary_label'):
+            short = (f"<b>Targets — Z={_fmt(t.get('z_target'))}, "
+                     f"dmin={_fmt(t.get('dmin_target'))}, "
+                     f"c={_fmt(t.get('c_target'))}, "
+                     f"df={_fmt(t.get('df'))}, "
+                     f"Rg_p={_fmt(t['rg_primary'])} Å, "
+                     f"Rg_a={_fmt(t['rg_aggregate'])} Å</b>")
+            self.targets_summary_label.setText(short)
+            self.targets_summary_label.setStyleSheet(
+                "color:#16a085;font-size:10pt;padding:2px;")
 
     # ── Action handlers ──────────────────────────────────────────────────
 
@@ -1080,19 +1167,25 @@ class FractalsPanel(QWidget):
                 return "color:#e67e22;"
             return "color:#c0392b;"
 
+        def _with_target(actual_text: str, target_key: str) -> str:
+            t = targets.get(target_key)
+            if t is None or not isinstance(t, (int, float)) or not math.isfinite(float(t)):
+                return actual_text
+            return f"{actual_text}   (target: {_fmt(t)})"
+
         mapping = [
-            ("Z", str(p.z), ""),
-            ("dmin", _fmt(p.dmin), _color(p.dmin, "dmin_target")),
-            ("c", _fmt(p.c), _color(p.c, "c_target")),
-            ("df", _fmt(p.df), _color(p.df, "df")),
-            ("R", _fmt(p.R_dimensionless), ""),
-            ("p", _fmt(p.p), ""),
-            ("s", _fmt(p.s), ""),
-            ("true_sp", _fmt(p.true_sticking_prob), ""),
-            ("rg_primary", _fmt(p.rg_primary), _color(p.rg_primary, "rg_primary")),
-            ("rg_aggregate", _fmt(p.rg_aggregate), _color(p.rg_aggregate, "rg_aggregate")),
-            ("primary_d", _fmt(p.primary_diameter), ""),
-            ("n_ends", str(p.num_endpoints), ""),
+            ("Z",            _with_target(str(p.z), "z_target"),                ""),
+            ("dmin",         _with_target(_fmt(p.dmin), "dmin_target"),         _color(p.dmin, "dmin_target")),
+            ("c",            _with_target(_fmt(p.c), "c_target"),               _color(p.c, "c_target")),
+            ("df",           _with_target(_fmt(p.df), "df"),                    _color(p.df, "df")),
+            ("R",            _fmt(p.R_dimensionless),                           ""),
+            ("p",            _fmt(p.p),                                         ""),
+            ("s",            _fmt(p.s),                                         ""),
+            ("true_sp",      _fmt(p.true_sticking_prob),                        ""),
+            ("rg_primary",   _with_target(_fmt(p.rg_primary), "rg_primary"),    _color(p.rg_primary, "rg_primary")),
+            ("rg_aggregate", _with_target(_fmt(p.rg_aggregate), "rg_aggregate"), _color(p.rg_aggregate, "rg_aggregate")),
+            ("primary_d",    _fmt(p.primary_diameter),                          ""),
+            ("n_ends",       str(p.num_endpoints),                              ""),
         ]
         for key, text, css in mapping:
             lbl = self._param_labels.get(key)

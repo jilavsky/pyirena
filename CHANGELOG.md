@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fractals: documentation file** [`docs/fractals_gui.md`](docs/fractals_gui.md)
+  covering panel layout, workflow, target derivation formulas, growth
+  parameter reference, MC vs analytical I(Q), HDF5 layout, and Igor
+  compatibility notes.
+- **Data Selector: top-row checkboxes for "3D saxsMorph" and "Fractals"**.
+  Clicking **Create Graph** with these checked opens the saxsMorph panel
+  (loaded with the first selected file's I(Q)) or the Fractals window
+  (pre-populated with every aggregate found in the selected files).
+  Files without stored results are silently skipped.
+- **Fractals: auto-load NeXus reference file from saved state.**  When
+  the Fractals tool is opened and a previously-loaded NeXus file path
+  is in the application state, the file is now opened automatically
+  (data + Unified-fit + targets) without the user needing to re-pick
+  it.  If the file has been moved or deleted, the path is silently
+  cleared.
+- **Fractals: target Z, dmin, c, df derived using Igor formulas.**
+  Previously `z_target` was just `G2` (the Guinier prefactor of level 2,
+  ~3e6 for typical aggregates) and `dmin`/`c` targets were missing
+  altogether.  Now matches Irena's `IR3A_*` exactly:
+    `df    = P2`
+    `dmin  = B2 · Rg2^P2 / (Γ(P2/2) · G2)`
+    `c     = P2 / dmin`
+    `Z     = G2 / G1 + 1`
+  Verified: a Unified-fit pair that gives Z=40 in Igor now also gives
+  Z=40 in pyirena (previously gave 3 000 000).
+- **Fractals: target summary duplicated next to the Active Aggregate
+  Parameters widget**, so the comparison stays visible without scrolling
+  back to the top of the panel.  Each comparable parameter row now also
+  shows `(target: X)` inline next to the actual value, colour-coded
+  green/orange/red by relative agreement.
+
+### Changed
+
+- **Data Selector: Fractals button moved to share a row with Scattering
+  Contrast Calculator** (Support Tools section) instead of taking a
+  full row of its own.
+- **Data Selector: SAXS Morph buttons renamed** to "3D saxsMorph (GUI)"
+  and "3D saxsMorph (script)" for consistency with the new "Fractals"
+  3D-tool labelling.
+- **saxsMorph 3D viewer: dark grey isosurface on white background**
+  (was light blue) so the structure stands out cleanly with visible
+  edges.
+- **saxsMorph 2D slice viewer: white = void / minority phase, dark
+  grey = solid / majority phase** (was black/white inverted), matching
+  the 3D viewer convention.  Black axes and tick labels for clear
+  contrast with the white canvas.
+- **saxsMorph 2D + 3D viewers: axis units now `[A]` instead of `(Å)`**.
+  VTK's default font does not include the U+00C5 (Å) glyph, so the 3D
+  axes were previously rendering as `X()`.  Plain ASCII `[A]` works
+  in every Qt font and VTK build.
+
 ### Fixed
 
 - **Fractals: MC I(Q) low-Q Guinier knee was shifted to lower Q vs the
