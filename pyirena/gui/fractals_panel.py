@@ -1104,13 +1104,23 @@ class FractalsPanel(QWidget):
         if self._active is None:
             return
         try:
-            # voxelize() defaults to (oversample=20, sphere_voxel_radius=10):
-            # physical sphere radius = R (correct), with a 10-voxel kernel
-            # that renders smoothly and produces a visible neck where edge-
-            # neighbor particles are tangent.  pitch_A = primary_diameter
-            # / 20 because there are 20 voxels per lattice unit.
-            voxelgram, pitch_lattice = voxelize(self._active.positions)
-            pitch_A = self._active.params.primary_diameter / 20.0
+            # DISPLAY uses Irena-style "fat spheres": oversample=10 with
+            # sphere_voxel_radius=10 so that the sphere RADIUS equals the
+            # full lattice spacing D (= primary_diameter).  This guarantees
+            # that all neighbor types (edge at d=1, face-diag at d=√2,
+            # body-diag at d=√3) overlap visually — producing the familiar
+            # connected-blob fractal look.  The sphere is physically 2× too
+            # large, but that is acceptable for a qualitative 3D visualis-
+            # ation.  The MC scattering calculation (intensity_montecarlo)
+            # uses the physically-correct geometry independently
+            # (oversample=20, sphere_voxel_radius=10 → sphere radius = R).
+            voxelgram, _pitch_lattice = voxelize(
+                self._active.positions,
+                oversample=10,
+                sphere_voxel_radius=10,
+            )
+            # pitch_A = D / oversample = primary_diameter / 10
+            pitch_A = self._active.params.primary_diameter / 10.0
             self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
             self.voxel3d_viewer.set_voxelgram(voxelgram, pitch_A)
         except Exception as exc:
