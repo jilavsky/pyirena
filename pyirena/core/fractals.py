@@ -76,7 +76,7 @@ class FractalParams:
     p: float                           # Weighted average path length
     s: float                           # exp(ln(z)/dmin)
     rg_primary: float                  # Primary-particle Rg [Å] (echoed from config)
-    rg_aggregate: float                # Aggregate Rg [Å] (Alex McGlasson formula)
+    rg_aggregate: float                # Aggregate Rg [Å] from particle positions (parallel-axis)
     primary_diameter: float            # 2·√(5/3)·Rg_primary [Å]
     true_sticking_prob: float          # 100·z / attempt_value
     num_endpoints: int                 # Particles with neighbor_count < 2
@@ -542,11 +542,26 @@ def compute_fractal_params(
 
     # ── Physical scaling ──────────────────────────────────────────────────
     primary_diameter = 2.0 * math.sqrt(5.0 / 3.0) * float(rg_primary)
-    if math.isfinite(c) and math.isfinite(dmin) and math.isfinite(df) \
-            and (dmin - df) != 0:
-        rg_aggregate = float(rg_primary) * (z ** ((1.0 / c - 1.0) / (dmin - df)))
-    else:
-        rg_aggregate = float("nan")
+
+    # Aggregate Rg directly from particle positions (parallel-axis theorem):
+    #   Rg_total² = Rg_centers² + Rg_sphere²
+    # where Rg_sphere = Rg_primary (for a solid sphere of radius R with
+    # Rg_sphere = R·√(3/5) = Rg_primary when R = primary_radius).
+    # Rg_centers is the rms distance of the Z particle centres from their
+    # centroid, in Ångströms.  The lattice unit = primary_diameter, so
+    # multiplying lattice-unit Rg by primary_diameter converts to Å.
+    #
+    # This replaces the earlier Alex McGlasson approximation
+    #   Rg_agg = Rg_primary · Z^((1/c - 1)/(dmin - df))
+    # which underestimates the true aggregate Rg by 30–100 % depending
+    # on Z and df, causing the analytical Unified I(Q) to place its
+    # low-Q Guinier knee at too-high Q relative to the MC curve.
+    pos_f = positions.astype(np.float64)
+    CM = np.mean(pos_f, axis=0)
+    Rg_centers_lattice = float(np.sqrt(np.mean(np.sum((pos_f - CM) ** 2, axis=1))))
+    Rg_centers_A = Rg_centers_lattice * primary_diameter
+    rg_aggregate = math.sqrt(Rg_centers_A ** 2 + float(rg_primary) ** 2)
+
     true_sticking_prob = (100.0 * z / attempt_value) if attempt_value > 0 else float("nan")
 
     return FractalParams(

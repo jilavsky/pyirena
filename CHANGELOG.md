@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fractals: MC I(Q) low-Q Guinier knee was shifted to lower Q vs the
+  analytical Unified curve (aggregate Rg approximation bug).**
+  `rg_aggregate` was computed with the Alex McGlasson approximation
+  `Rg_agg = Rg_primary · Z^((1/c−1)/(dmin−df))`, which systematically
+  underestimates the true aggregate Rg by 30–100 % depending on Z and
+  df.  As a result, the analytical Unified curve placed its low-Q Guinier
+  knee at too-high Q relative to the MC curve (factor of ~1.6 for Z=80,
+  larger for smaller Z).  Replaced with the direct measurement from the
+  grown particle positions via the parallel-axis (Steiner) theorem:
+    `Rg_agg = sqrt(Rg_centers² + Rg_primary²)`
+  where `Rg_centers = sqrt( mean( ||p_i − centroid||² ) ) × D` and D is
+  the physical lattice spacing (`primary_diameter`).  The residual Q
+  offset after the fix is ~10–15 %, which is expected: the MC I(Q) has a
+  fractal power-law in the intermediate regime that shifts the half-fall
+  Q slightly lower than the Unified model's mathematical Guinier knee.
+
 - **Fractals: Monte-Carlo Guinier knees were a factor of 2 too low in Q
   (radius vs diameter geometry bug).**  In the voxelization, lattice
   spacing 1 = `primary_diameter` and oversample = 10 voxels per lattice
