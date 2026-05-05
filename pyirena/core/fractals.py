@@ -625,11 +625,28 @@ def intensity_unified(params: FractalParams, q: np.ndarray) -> np.ndarray:
 def voxelize(
     positions: np.ndarray,
     oversample: int = 10,
-    sphere_voxel_radius: int = 10,
+    sphere_voxel_radius: int = 5,
 ) -> tuple[np.ndarray, float]:
     """Convert (N, 3) lattice positions to a binary voxelgram of touching spheres.
 
     Ports `IR3T_ConvertToVoxelGram` + `IR3T_CreateSpheresStructure`.
+
+    Geometry — important for getting the absolute Q scale right:
+
+      * Particle centers are placed on integer lattice positions where
+        unit lattice spacing = `primary_diameter` = 2·R (R = primary
+        physical radius).  Adjacent (edge-neighbor) particles are exactly
+        in contact, center-to-center distance = primary_diameter.
+      * `oversample=10` means 10 voxels per lattice spacing, so the voxel
+        pitch in physical units is `primary_diameter / 10 = R / 5`.
+      * `sphere_voxel_radius=5` then gives a physical sphere radius
+        `5 × (R/5) = R` = correct primary radius.  Two edge-neighbor
+        spheres just touch.
+
+    Setting `sphere_voxel_radius=10` (e.g. Irena's IR3T_ConvertToVoxelGram)
+    produces spheres of radius 2R — twice the correct primary radius —
+    which inflates Rg of the solid voxel cloud and shifts BOTH Guinier
+    knees of the MC I(Q) curve to lower Q by a factor of 2.
 
     Returns
     -------
@@ -682,25 +699,48 @@ def intensity_montecarlo(
     aggregate: FractalAggregate,
     q: np.ndarray,
     oversample: int = 10,
-    sphere_voxel_radius: int = 10,
+    sphere_voxel_radius: int = 5,
     max_pairs: int = 10_000_000,
     time_budget_s: float = 20.0,
     progress_cb: Optional[Callable[[float], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
 ) -> np.ndarray:
-    """Monte-Carlo PDF-based scattering intensity from the 3D voxelized model.
+    """Monte-Carlo scattering intensity via pair-distance distribution.
 
-    Ports `IR3A_Model1DIntensity` + `IR3T_CreatePDFIntensity` +
-    `IR3T_CalcIntensityPDF`.  Voxelizes the aggregate, samples random pairs
-    of solid voxels for distances, builds a PDF, then Fourier-sine-transforms
-    it onto the supplied Q grid.
+    Method (matches Igor's `IR3A_Model1DIntensity` +
+    `IR3T_CreatePDFIntensity` + `IR3T_CalcIntensityPDF`):
+
+      1. Voxelize the aggregate (`voxelize`): place a sphere of radius
+         `R = primary_diameter / 2` around every lattice center on a
+         10x-oversampled cubic grid.  Voxel pitch = `R / 5`.
+      2. Sample random pairs of solid voxels uniformly with replacement
+         and build a histogram of their Euclidean distances.  This is the
+         Glatter pair-distance distribution function p(r) = 4π·r²·γ(r).
+         The spherical-shell r² weighting is built into p(r) by
+         construction, so no extra factor is needed in the transform.
+      3. Apply the Debye / Glatter sine transform to the supplied Q grid:
+            I(Q) ∝ ∫₀^∞ p(r) · sinc(Qr) dr
+         which gives a Guinier plateau at Q << 1/Rg_aggregate, mass-fractal
+         power-law in the intermediate regime, and a primary-particle
+         knee around Q ≈ 1/Rg_primary.
+      4. Truncate the result above the voxel-grid Nyquist Q
+            Q_voxel = π / pitch_A
+         where the discrete voxel approximation cannot resolve any
+         features.  Above this Q the intensity is dominated by the
+         stair-step quantization of the spheres and is unphysical.
+         Truncated values are returned as NaN.
+
+    The returned intensity is in arbitrary units; callers typically
+    invariant-scale to data.
 
     Parameters
     ----------
     aggregate : FractalAggregate
     q : (Nq,) Q values [Å⁻¹]
-    oversample : voxels per lattice-distance unit (10 matches Igor)
-    sphere_voxel_radius : sphere kernel radius in voxels (10 matches Igor)
+    oversample : voxels per lattice-distance unit (10 = Irena default)
+    sphere_voxel_radius : sphere kernel radius in voxels — must be set so
+        that `sphere_voxel_radius × pitch_A == primary_radius` for correct
+        absolute Q scale.  With oversample=10 this is 5 voxels.
     max_pairs : hard cap on sampled distance pairs
     time_budget_s : soft cap on sampling duration
     progress_cb : callable(percent) for UI feedback
@@ -708,7 +748,7 @@ def intensity_montecarlo(
 
     Returns
     -------
-    I_q : (Nq,) intensity, **not** scaled to data — caller may invariant-scale.
+    I_q : (Nq,) intensity, NaN above Q_voxel.
     """
     q = np.asarray(q, dtype=np.float64)
 
@@ -796,9 +836,27 @@ def intensity_montecarlo(
                           1.0)
     integrand = pdf * sinc_term            # (Nq, n_bins)
     I_q = np.sum(integrand, axis=1) * delta_r
+
+    # 7) Truncate above the voxel-grid Nyquist Q.  Above this Q the
+    #    discrete voxel approximation of the spheres cannot resolve any
+    #    real features and the curve is dominated by quantization noise
+    #    (the model also will not reproduce the smooth Porod tail there).
+    q_voxel_max = math.pi / pitch_A
+    I_q = np.where(q > q_voxel_max, np.nan, I_q)
+
     if progress_cb is not None:
         progress_cb(100)
     return I_q
+
+
+def mc_q_max(aggregate: FractalAggregate, oversample: int = 10) -> float:
+    """Maximum reliable Q for `intensity_montecarlo` given the voxel pitch.
+
+    Above Q_voxel = π / pitch_A the discrete voxel grid no longer resolves
+    the sphere surfaces, so the MC intensity is unphysical there.
+    """
+    pitch_A = aggregate.params.primary_diameter / float(oversample)
+    return math.pi / pitch_A
 
 
 # ---------------------------------------------------------------------------

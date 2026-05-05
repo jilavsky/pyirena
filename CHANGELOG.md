@@ -9,28 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Fractals: Monte-Carlo I(Q) had a spurious low-Q rise.**  The Glatter-
-  Kratky transform was applied with an extra `r²` factor.  The pair-distance
-  histogram from random voxel-pair sampling already IS the Glatter PDD
-  `p(r) = 4π·r²·γ(r)` — the spherical-shell `r²` weighting is built in by
-  construction.  Multiplying by another `r²` over-weighted large pair
-  separations and distorted the low-Q shape (the Guinier plateau expected
-  for a finite particle below `Q ≈ 1/Rg_aggregate` was wrong).  Corrected
-  to `I(Q) ∝ ∫ p(r) · sinc(Qr) dr`.  Verified: low-Q plateau now matches
-  the analytical Unified curve to within 1 % across the lowest decade.
-- **Fractals: changing "# points" after Grow made all curves vanish from
-  the I(Q) plot.**  When the Monte-Carlo worker returned with a different
-  Q-grid length than the previously stored `i_unified`, the bookkeeping
-  arrays (`agg.q`, `agg.i_unified`, `agg.i_montecarlo`) ended up with
-  mismatched shapes.  The plot's mask `(q > 0) & (I > 0)` then raised a
-  silent broadcast error.  `_on_compute_mc` now syncs `agg.q` and
-  `agg.i_unified` to the new Q-grid *before* starting the MC worker, and
-  `_on_mc_finished` re-evaluates `i_unified` on the returned grid as a
-  belt-and-braces measure.  `_refresh_plot` also includes a defensive
-  shape check that drops mismatched arrays rather than crashing.
+- **Fractals: Monte-Carlo Guinier knees were a factor of 2 too low in Q
+  (radius vs diameter geometry bug).**  In the voxelization, lattice
+  spacing 1 = `primary_diameter` and oversample = 10 voxels per lattice
+  unit, so 1 voxel = `primary_radius / 5`.  The sphere kernel radius was
+  `sphere_voxel_radius=10`, which made the physical sphere radius
+  `10 × R/5 = 2R = primary_diameter` — i.e. each particle in the MC
+  voxelization was exactly twice the correct primary radius.  This
+  inflated the Rg of the solid voxel cloud and pushed both the primary
+  and aggregate Guinier knees of the MC curve to half their true Q.
+  Corrected default to `sphere_voxel_radius=5` so the physical sphere
+  radius equals the primary radius and edge-neighbor particles are
+  exactly tangent.  Smoke-test: aggregate-knee Q is now 0.01047 1/Å for
+  Rg_agg = 100 Å (expected 1/Rg = 0.01) — was previously ~0.005.
+
+- **Fractals: high-Q MC intensity was unphysical noise.**  Above
+  `Q_voxel = π / pitch_A` the discrete voxel grid cannot resolve sphere
+  surfaces, so the MC curve there is dominated by quantization noise
+  rather than the expected Porod tail.  `intensity_montecarlo` now
+  returns NaN for Q > Q_voxel; the panel filters those out and `clip`s
+  the curve at Q_voxel cleanly.  New helper `mc_q_max(aggregate)`
+  exposes the cutoff for callers.
 
 ### Changed
 
+- **Fractals: # points spinbox max raised 2000 → 20000.**  MC scattering
+  computation is fast (≤1 s for 20000 points) so a fine Q grid is cheap.
+- **Fractals: Monte-Carlo curve color changed from orange to blue
+  (`#2980b9`).**  The previous orange was hard to distinguish from the
+  red "Unified fit (loaded)" curve.
+- **Fractals: 3D / 2D voxel viewers now use `sphere_voxel_radius=5`**,
+  matching the MC scattering geometry.  Visually: edge-neighbor spheres
+  are tangent rather than heavily overlapping (slightly less "blobby"
+  than the previous render).
 - **Fractals: model is now scaled to data over the fractal regime
   Q ∈ [0.5π/Rg_agg, 1.5π/Rg_primary]** (matches Igor's
   `IR3A_Calculate1DIntensity`) instead of the full visible Q range.
@@ -43,6 +54,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (loaded)", "Aggregate Unified (analytical)", "Aggregate Monte-Carlo").
   The legend is rebuilt on every plot refresh so stale entries from prior
   aggregates do not accumulate.
+
+(Earlier in this Unreleased cycle:)
+
+- **Fractals: Monte-Carlo I(Q) had a spurious low-Q rise.**  The Glatter-
+  Kratky transform was applied with an extra `r²` factor.  The pair-distance
+  histogram from random voxel-pair sampling already IS the Glatter PDD
+  `p(r) = 4π·r²·γ(r)` — the spherical-shell `r²` weighting is built in by
+  construction.  Multiplying by another `r²` over-weighted large pair
+  separations and distorted the low-Q shape (the Guinier plateau expected
+  for a finite particle below `Q ≈ 1/Rg_aggregate` was wrong).  Corrected
+  to `I(Q) ∝ ∫ p(r) · sinc(Qr) dr`.
+- **Fractals: changing "# points" after Grow made all curves vanish from
+  the I(Q) plot.**  When the Monte-Carlo worker returned with a different
+  Q-grid length than the previously stored `i_unified`, the bookkeeping
+  arrays (`agg.q`, `agg.i_unified`, `agg.i_montecarlo`) ended up with
+  mismatched shapes.  The plot's mask `(q > 0) & (I > 0)` then raised a
+  silent broadcast error.  `_on_compute_mc` now syncs `agg.q` and
+  `agg.i_unified` to the new Q-grid *before* starting the MC worker, and
+  `_on_mc_finished` re-evaluates `i_unified` on the returned grid as a
+  belt-and-braces measure.  `_refresh_plot` also includes a defensive
+  shape check that drops mismatched arrays rather than crashing.
 
 ### Added
 

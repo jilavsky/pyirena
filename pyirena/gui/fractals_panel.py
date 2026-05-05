@@ -513,8 +513,14 @@ class FractalsPanel(QWidget):
         g.addWidget(self.qmax_edit, 0, 3)
         g.addWidget(QLabel("# points:"), 1, 0)
         self.qn_spin = QSpinBox()
-        self.qn_spin.setRange(20, 2000)
+        self.qn_spin.setRange(20, 20000)
         self.qn_spin.setValue(200)
+        self.qn_spin.setToolTip(
+            "Number of Q-points in the model intensity grid.\n"
+            "Both the analytical Unified curve and the Monte-Carlo curve\n"
+            "are evaluated on this grid.  Computation is fast even at 20000;\n"
+            "a finer grid mainly helps see Porod-region structure."
+        )
         g.addWidget(self.qn_spin, 1, 1)
 
         self.btn_mc = QPushButton("Compute Monte Carlo I(Q)")
@@ -1098,10 +1104,11 @@ class FractalsPanel(QWidget):
         if self._active is None:
             return
         try:
-            voxelgram, pitch_lattice = voxelize(
-                self._active.positions,
-                oversample=10, sphere_voxel_radius=10,
-            )
+            # sphere_voxel_radius=5 (default) gives a sphere of correct
+            # physical radius primary_radius — the same geometry used by
+            # the MC scattering calculation.  Edge-neighbor particles
+            # are tangent (just touching).
+            voxelgram, pitch_lattice = voxelize(self._active.positions)
             pitch_A = self._active.params.primary_diameter / 10.0
             self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
             self.voxel3d_viewer.set_voxelgram(voxelgram, pitch_A)
@@ -1178,7 +1185,7 @@ class FractalsPanel(QWidget):
             # Aggregate Unified-from-fractals (green) — always shown when available
             if q_active is not None and i_uni is not None:
                 I_show = self._invariant_rescale(q_active, i_uni)
-                mask = (q_active > 0) & (I_show > 0)
+                mask = (q_active > 0) & np.isfinite(I_show) & (I_show > 0)
                 if np.any(mask):
                     self.iq_plot.plot(
                         q_active[mask], I_show[mask],
@@ -1187,14 +1194,17 @@ class FractalsPanel(QWidget):
                     )
                     items_for_y.extend(I_show[mask].tolist())
 
-            # Aggregate Monte-Carlo (orange dashed) — only if computed
+            # Aggregate Monte-Carlo (blue dashed) — only if computed.
+            # MC is NaN above the voxel-grid Nyquist Q, so np.isfinite is
+            # required (a bare > 0 check would still let NaNs through some
+            # downstream paths and confuse set_robust_y_range).
             if q_active is not None and i_mc is not None:
                 I_mc_show = self._invariant_rescale(q_active, i_mc)
-                mask = (q_active > 0) & (I_mc_show > 0)
+                mask = (q_active > 0) & np.isfinite(I_mc_show) & (I_mc_show > 0)
                 if np.any(mask):
                     self.iq_plot.plot(
                         q_active[mask], I_mc_show[mask],
-                        pen=pg.mkPen("#e67e22", width=2,
+                        pen=pg.mkPen("#2980b9", width=2,
                                      style=Qt.PenStyle.DashLine),
                         name="Aggregate Monte-Carlo",
                     )
