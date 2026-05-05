@@ -763,28 +763,39 @@ def intensity_montecarlo(
     if all_d.size == 0:
         return np.zeros_like(q)
 
-    # 5) Histogram → PDF
+    # 5) Histogram of pair distances.
+    #    Random-pair sampling already reproduces the Glatter pair-distance
+    #    distribution function p(r) = 4π·r²·γ(r) — the spherical-shell r²
+    #    weighting is BUILT IN to the histogram (more pairs are found at
+    #    larger r because there are more 3D positions at that radius).
     d_max = float(np.max(all_d))
     bin_width = max(0.5 * pitch_A, d_max / 1024.0)
     n_bins = max(32, int(math.ceil(d_max / bin_width)))
     hist, edges = np.histogram(all_d, bins=n_bins, range=(0.0, d_max))
     centers = 0.5 * (edges[:-1] + edges[1:])
 
-    # Normalize PDF to unit area
-    area = np.trapezoid(hist.astype(np.float64), centers)
+    # Normalize so the area is 1 (only the *shape* of I(Q) matters; the
+    # caller invariant-scales to data anyway).
+    area = float(np.trapezoid(hist.astype(np.float64), centers))
     if area > 0:
         pdf = hist.astype(np.float64) / area
     else:
         pdf = hist.astype(np.float64)
 
-    # 6) Glatter-Kratky sine transform: I(Q) = 4π · Σ p(r) · r² · sinc(Qr) Δr
+    # 6) Debye / Glatter sine transform — NO extra r² factor.
+    #    p(r) is already the Glatter PDD (r²-weighted), so the transform is
+    #    simply  I(Q) ∝ ∫ p(r) · sinc(Qr) dr.  Including an extra r² would
+    #    over-weight large r and distort the low-Q shape (in particular it
+    #    spoils the Guinier plateau expected for a finite particle when Q
+    #    drops below 1/Rg_aggregate).
     delta_r = bin_width
     qr = np.outer(q, centers)             # (Nq, n_bins)
-    sinc_term = np.where(qr > 0,
+    # sin(x)/x with the L'Hôpital limit 1 at x=0
+    sinc_term = np.where(qr > 1e-12,
                           np.sin(qr) / np.where(qr == 0, 1.0, qr),
                           1.0)
-    integrand = pdf * (centers ** 2) * sinc_term
-    I_q = 4.0 * math.pi * np.sum(integrand, axis=1) * delta_r
+    integrand = pdf * sinc_term            # (Nq, n_bins)
+    I_q = np.sum(integrand, axis=1) * delta_r
     if progress_cb is not None:
         progress_cb(100)
     return I_q

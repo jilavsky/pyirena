@@ -582,6 +582,13 @@ class FractalsPanel(QWidget):
             parent_widget=self,
             jpeg_default_name="fractals_iq.jpg",
         )
+        # Legend: keep a reference so we can clear and rebuild it on every
+        # _refresh_plot() (otherwise stale entries from prior aggregates
+        # accumulate as you click through the list).
+        self._legend = self.iq_plot.addLegend(
+            offset=(-10, 10),
+            labelTextColor=SASPlotStyle.LEGEND_TEXT_COLOR,
+        )
         v_split.addWidget(gl)
 
         # 2D + 3D viewers in horizontal splitter
@@ -955,11 +962,22 @@ class FractalsPanel(QWidget):
     def _on_mc_finished(self, agg_uuid: str, q: np.ndarray, I_mc: np.ndarray):
         self.btn_mc_cancel.setVisible(False)
         self.mc_status.setText("MC done.")
-        # Find the aggregate by uuid and store result
+        # Find the aggregate by uuid and store result.
+        # Critical: keep `a.q` and `a.i_unified` in sync.  If the user changed
+        # the # points spinbox between Grow and MC, the new MC q-grid has a
+        # different length than the stored i_unified array, and any later
+        # plot mask `(a.q > 0) & (a.i_unified > 0)` would raise a numpy
+        # broadcast error and silently leave the curve off the plot.
         for a in self._aggregates:
             if a.uuid == agg_uuid:
                 a.q = q
                 a.i_montecarlo = I_mc
+                # Re-evaluate the analytical Unified intensity on the same
+                # grid so the two arrays always have matching lengths.
+                try:
+                    a.i_unified = intensity_unified(a.params, q)
+                except Exception:
+                    a.i_unified = None
                 break
         if self._active is not None and self._active.uuid == agg_uuid:
             self._refresh_plot()
@@ -983,6 +1001,16 @@ class FractalsPanel(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Bad Q range", str(exc))
             return
+        # Synchronize the aggregate's q-grid + analytical Unified intensity
+        # to the same array we'll send to the MC worker.  This guarantees
+        # that when MC returns, all three arrays (q, i_unified, i_mc) have
+        # matching shapes — fixes the bug where changing # points caused
+        # all curves to vanish from the plot.
+        self._active.q = q
+        try:
+            self._active.i_unified = intensity_unified(self._active.params, q)
+        except Exception:
+            self._active.i_unified = None
         self._mc_worker.configure(self._active, q)
         self.btn_mc_cancel.setVisible(True)
         self.mc_status.setText("MC starting…")
@@ -1094,10 +1122,18 @@ class FractalsPanel(QWidget):
         return np.logspace(np.log10(qmin), np.log10(qmax), n)
 
     def _refresh_plot(self):
+        # Drop ALL plot items + clear the legend so the next batch of
+        # entries replaces (rather than appends to) any previous ones.
         self.iq_plot.clear()
+        if self._legend is not None:
+            try:
+                self._legend.clear()
+            except Exception:
+                pass
 
-        # Loaded experimental data (if any)
-        items_for_y = []
+        items_for_y: list[float] = []
+
+        # ── Loaded experimental data ─────────────────────────────────────
         if self._loaded_q is not None and self._loaded_I is not None:
             mask = (self._loaded_q > 0) & (self._loaded_I > 0)
             q_d = self._loaded_q[mask]; I_d = self._loaded_I[mask]
@@ -1106,63 +1142,131 @@ class FractalsPanel(QWidget):
                 plot_iq_data(self.iq_plot, q_d, I_d, dI, label="Data")
                 items_for_y.extend(I_d.tolist())
 
-        # Loaded Unified-fit model
+        # ── Loaded Unified-fit model ─────────────────────────────────────
         if self._loaded_unified_q is not None and self._loaded_unified_I is not None:
-            mask = (self._loaded_unified_q > 0) & (self._loaded_unified_I > 0)
-            qm = self._loaded_unified_q[mask]; Im = self._loaded_unified_I[mask]
-            if qm.size:
-                plot_iq_model(self.iq_plot, qm, Im, label="Unified fit (loaded)")
+            qm = self._loaded_unified_q
+            Im = self._loaded_unified_I
+            if qm.shape == Im.shape:
+                mask = (qm > 0) & (Im > 0)
+                if np.any(mask):
+                    plot_iq_model(self.iq_plot, qm[mask], Im[mask],
+                                  label="Unified fit (loaded)")
 
-        # Active aggregate Unified-from-fractals (green)
+        # ── Active aggregate ─────────────────────────────────────────────
         if self._active is not None:
-            if self._active.q is None or self._active.i_unified is None:
-                try:
-                    q = self._make_q_grid()
-                    self._active.q = q
-                    self._active.i_unified = intensity_unified(self._active.params, q)
-                except Exception:
-                    pass
-            if self._active.q is not None and self._active.i_unified is not None:
-                I_pred = self._active.i_unified
-                # Invariant rescale to data when available
-                I_pred_show = self._invariant_rescale(self._active.q, I_pred)
-                mask = (self._active.q > 0) & (I_pred_show > 0)
-                if np.any(mask):
-                    self.iq_plot.plot(
-                        self._active.q[mask], I_pred_show[mask],
-                        pen=pg.mkPen("#27ae60", width=2),
-                        name="Aggregate Unified",
-                    )
-                    items_for_y.extend(I_pred_show[mask].tolist())
+            self._ensure_active_q_and_unified()
+            q_active = self._active.q
+            i_uni = self._active.i_unified
+            i_mc = self._active.i_montecarlo
 
-            # MC overlay
-            if self._active.i_montecarlo is not None and self._active.q is not None:
-                I_mc = self._active.i_montecarlo
-                I_mc_show = self._invariant_rescale(self._active.q, I_mc)
-                mask = (self._active.q > 0) & (I_mc_show > 0)
+            # Defensive shape check — if any earlier code path left arrays
+            # of mismatched length, recompute i_unified once more so the
+            # mask operation below cannot raise.
+            if (q_active is not None and i_uni is not None
+                    and q_active.shape != i_uni.shape):
+                try:
+                    i_uni = intensity_unified(self._active.params, q_active)
+                    self._active.i_unified = i_uni
+                except Exception:
+                    i_uni = None
+            if (q_active is not None and i_mc is not None
+                    and q_active.shape != i_mc.shape):
+                # MC array doesn't match: drop it so we don't crash.
+                i_mc = None
+                self._active.i_montecarlo = None
+
+            # Aggregate Unified-from-fractals (green) — always shown when available
+            if q_active is not None and i_uni is not None:
+                I_show = self._invariant_rescale(q_active, i_uni)
+                mask = (q_active > 0) & (I_show > 0)
                 if np.any(mask):
                     self.iq_plot.plot(
-                        self._active.q[mask], I_mc_show[mask],
+                        q_active[mask], I_show[mask],
+                        pen=pg.mkPen("#27ae60", width=2),
+                        name="Aggregate Unified (analytical)",
+                    )
+                    items_for_y.extend(I_show[mask].tolist())
+
+            # Aggregate Monte-Carlo (orange dashed) — only if computed
+            if q_active is not None and i_mc is not None:
+                I_mc_show = self._invariant_rescale(q_active, i_mc)
+                mask = (q_active > 0) & (I_mc_show > 0)
+                if np.any(mask):
+                    self.iq_plot.plot(
+                        q_active[mask], I_mc_show[mask],
                         pen=pg.mkPen("#e67e22", width=2,
                                      style=Qt.PenStyle.DashLine),
-                        name="Aggregate MC",
+                        name="Aggregate Monte-Carlo",
                     )
+                    items_for_y.extend(I_mc_show[mask].tolist())
 
         if items_for_y:
             set_robust_y_range(self.iq_plot, np.asarray(items_for_y))
 
-    def _invariant_rescale(self, q: np.ndarray, I: np.ndarray) -> np.ndarray:
-        """Scale I so that ∫I·dQ matches ∫I_data·dQ over the visible Q range.
+    def _ensure_active_q_and_unified(self):
+        """Make sure the active aggregate has a q-grid and matching i_unified.
 
-        If no data is loaded the curve is returned unchanged.
+        Lazily generates them on first plot or after `# points` changes when
+        the user re-selects an older aggregate that has no MC computed.
+        """
+        if self._active is None:
+            return
+        a = self._active
+        try:
+            q_target = self._make_q_grid()
+        except Exception:
+            return
+        # If we have nothing yet, or the lengths don't match the desired grid
+        # AND no MC has locked in a specific grid, regenerate from the GUI grid.
+        needs_new = (
+            a.q is None or a.i_unified is None
+            or (a.q.shape != q_target.shape and a.i_montecarlo is None)
+        )
+        if needs_new:
+            a.q = q_target
+            a.i_unified = intensity_unified(a.params, q_target)
+
+    def _invariant_rescale(self, q: np.ndarray, I: np.ndarray) -> np.ndarray:
+        """Scale a model curve to the data using the *fractal-regime* invariant.
+
+        Matches Igor's `IR3A_Calculate1DIntensity`: integrate over
+        Q ∈ [0.5π/Rg_aggregate, 1.5π/Rg_primary].  This window covers the
+        Q range where the aggregate's mass-fractal scattering dominates,
+        and deliberately EXCLUDES:
+          * very low Q where a sample-level power-law from larger structures
+            inflates the data integral
+          * very high Q where flat instrumental background dominates the data
+        Without this window the model would always sit too high relative to
+        the data when either contamination is present.
+
+        Falls back to the visible-Q overlap when no usable Rg pair exists.
+        Returns I unchanged when no data is loaded.
         """
         if self._loaded_q is None or self._loaded_I is None:
             return I
         try:
             q_d = self._loaded_q
             I_d = self._loaded_I
-            qlo = max(float(np.min(q_d[q_d > 0])), float(np.min(q[q > 0])))
-            qhi = min(float(np.max(q_d[q_d > 0])), float(np.max(q[q > 0])))
+            # Choose the integration window
+            qlo, qhi = None, None
+            if self._active is not None:
+                rg_p = self._active.params.rg_primary
+                rg_a = self._active.params.rg_aggregate
+                if (math.isfinite(rg_p) and math.isfinite(rg_a)
+                        and rg_p > 0 and rg_a > rg_p):
+                    qlo = 0.5 * math.pi / rg_a
+                    qhi = 1.5 * math.pi / rg_p
+            if qlo is None or qhi is None:
+                # Fall back to visible-Q overlap
+                qlo = max(float(np.min(q_d[q_d > 0])),
+                          float(np.min(q[q > 0])))
+                qhi = min(float(np.max(q_d[q_d > 0])),
+                          float(np.max(q[q > 0])))
+            # Always clamp to the union of both Q ranges
+            qlo = max(qlo, float(np.min(q_d[q_d > 0])),
+                      float(np.min(q[q > 0])))
+            qhi = min(qhi, float(np.max(q_d[q_d > 0])),
+                      float(np.max(q[q > 0])))
             if qhi <= qlo:
                 return I
             mask_d = (q_d >= qlo) & (q_d <= qhi) & (I_d > 0)

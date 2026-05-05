@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Fractals: Monte-Carlo I(Q) had a spurious low-Q rise.**  The Glatter-
+  Kratky transform was applied with an extra `r²` factor.  The pair-distance
+  histogram from random voxel-pair sampling already IS the Glatter PDD
+  `p(r) = 4π·r²·γ(r)` — the spherical-shell `r²` weighting is built in by
+  construction.  Multiplying by another `r²` over-weighted large pair
+  separations and distorted the low-Q shape (the Guinier plateau expected
+  for a finite particle below `Q ≈ 1/Rg_aggregate` was wrong).  Corrected
+  to `I(Q) ∝ ∫ p(r) · sinc(Qr) dr`.  Verified: low-Q plateau now matches
+  the analytical Unified curve to within 1 % across the lowest decade.
+- **Fractals: changing "# points" after Grow made all curves vanish from
+  the I(Q) plot.**  When the Monte-Carlo worker returned with a different
+  Q-grid length than the previously stored `i_unified`, the bookkeeping
+  arrays (`agg.q`, `agg.i_unified`, `agg.i_montecarlo`) ended up with
+  mismatched shapes.  The plot's mask `(q > 0) & (I > 0)` then raised a
+  silent broadcast error.  `_on_compute_mc` now syncs `agg.q` and
+  `agg.i_unified` to the new Q-grid *before* starting the MC worker, and
+  `_on_mc_finished` re-evaluates `i_unified` on the returned grid as a
+  belt-and-braces measure.  `_refresh_plot` also includes a defensive
+  shape check that drops mismatched arrays rather than crashing.
+
+### Changed
+
+- **Fractals: model is now scaled to data over the fractal regime
+  Q ∈ [0.5π/Rg_agg, 1.5π/Rg_primary]** (matches Igor's
+  `IR3A_Calculate1DIntensity`) instead of the full visible Q range.
+  Previously the model sat too high relative to data because the data's
+  full integral is inflated by sample-level low-Q power-law and high-Q
+  flat background that the single-aggregate model never tries to
+  reproduce.  Falls back to the visible-Q overlap when no usable Rg pair
+  exists.
+- **Fractals: I(Q) plot now shows a legend** ("Data", "Unified fit
+  (loaded)", "Aggregate Unified (analytical)", "Aggregate Monte-Carlo").
+  The legend is rebuilt on every plot refresh so stale entries from prior
+  aggregates do not accumulate.
+
 ### Added
 
 - **Fractals tool — new Support Tool for mass-fractal aggregate visualization.**
