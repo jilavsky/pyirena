@@ -38,10 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fractals: Monte-Carlo curve color changed from orange to blue
   (`#2980b9`).**  The previous orange was hard to distinguish from the
   red "Unified fit (loaded)" curve.
-- **Fractals: 3D / 2D voxel viewers now use `sphere_voxel_radius=5`**,
-  matching the MC scattering geometry.  Visually: edge-neighbor spheres
-  are tangent rather than heavily overlapping (slightly less "blobby"
-  than the previous render).
+- **Fractals: voxelization defaults are now `oversample=20`,
+  `sphere_voxel_radius=10`.**  The first attempt at the
+  radius/diameter fix dropped the sphere kernel from 10→5 voxels with
+  oversample=10; that produced the correct physical sphere radius R but
+  rendered each sphere with only 5 voxels — flying-edges iso-surfaces
+  could barely show the 1-voxel-wide neck where edge-neighbor spheres
+  meet, so the 3D view looked disconnected.  The new defaults preserve
+  the invariant `sphere_voxel_radius / oversample = 1/2` (so physical R
+  is still correct) but use a 2× finer voxel grid, giving a 10-voxel
+  kernel that renders smoothly with a clearly visible neck at edge-
+  neighbor tangent points.  Costs: 8× more memory for the voxelgram
+  (~80 MB at Z=80, ~340 MB at Z=500) and ~8× slower MC sampling
+  (still sub-second to a few seconds).  Q_voxel cutoff doubles
+  (e.g. 1.21 → 2.43 1/Å for primary_diameter = 26 Å), so the MC curve
+  stays valid further into Porod.
 - **Fractals: model is now scaled to data over the fractal regime
   Q ∈ [0.5π/Rg_agg, 1.5π/Rg_primary]** (matches Igor's
   `IR3A_Calculate1DIntensity`) instead of the full visible Q range.

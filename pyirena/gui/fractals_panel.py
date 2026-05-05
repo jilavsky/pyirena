@@ -1104,12 +1104,13 @@ class FractalsPanel(QWidget):
         if self._active is None:
             return
         try:
-            # sphere_voxel_radius=5 (default) gives a sphere of correct
-            # physical radius primary_radius — the same geometry used by
-            # the MC scattering calculation.  Edge-neighbor particles
-            # are tangent (just touching).
+            # voxelize() defaults to (oversample=20, sphere_voxel_radius=10):
+            # physical sphere radius = R (correct), with a 10-voxel kernel
+            # that renders smoothly and produces a visible neck where edge-
+            # neighbor particles are tangent.  pitch_A = primary_diameter
+            # / 20 because there are 20 voxels per lattice unit.
             voxelgram, pitch_lattice = voxelize(self._active.positions)
-            pitch_A = self._active.params.primary_diameter / 10.0
+            pitch_A = self._active.params.primary_diameter / 20.0
             self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
             self.voxel3d_viewer.set_voxelgram(voxelgram, pitch_A)
         except Exception as exc:

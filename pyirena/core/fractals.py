@@ -624,29 +624,41 @@ def intensity_unified(params: FractalParams, q: np.ndarray) -> np.ndarray:
 
 def voxelize(
     positions: np.ndarray,
-    oversample: int = 10,
-    sphere_voxel_radius: int = 5,
+    oversample: int = 20,
+    sphere_voxel_radius: int = 10,
 ) -> tuple[np.ndarray, float]:
     """Convert (N, 3) lattice positions to a binary voxelgram of touching spheres.
 
     Ports `IR3T_ConvertToVoxelGram` + `IR3T_CreateSpheresStructure`.
 
-    Geometry — important for getting the absolute Q scale right:
+    Geometry — the key invariant:
 
-      * Particle centers are placed on integer lattice positions where
-        unit lattice spacing = `primary_diameter` = 2·R (R = primary
-        physical radius).  Adjacent (edge-neighbor) particles are exactly
-        in contact, center-to-center distance = primary_diameter.
-      * `oversample=10` means 10 voxels per lattice spacing, so the voxel
-        pitch in physical units is `primary_diameter / 10 = R / 5`.
-      * `sphere_voxel_radius=5` then gives a physical sphere radius
-        `5 × (R/5) = R` = correct primary radius.  Two edge-neighbor
-        spheres just touch.
+      Physical sphere radius = sphere_voxel_radius · pitch_A
+                             = sphere_voxel_radius · (primary_diameter / oversample)
 
-    Setting `sphere_voxel_radius=10` (e.g. Irena's IR3T_ConvertToVoxelGram)
-    produces spheres of radius 2R — twice the correct primary radius —
-    which inflates Rg of the solid voxel cloud and shifts BOTH Guinier
-    knees of the MC I(Q) curve to lower Q by a factor of 2.
+      For this to equal the correct primary radius R = primary_diameter / 2:
+
+                   sphere_voxel_radius / oversample = 1 / 2
+
+      Default (oversample=20, sphere_voxel_radius=10) satisfies the
+      invariant AND uses a "fat" 10-voxel kernel that renders smoothly
+      and produces a visible neck at edge-neighbor tangent points.
+      An equivalent lighter setting is (oversample=10,
+      sphere_voxel_radius=5) — same physics, 8× less memory, but the
+      5-voxel kernel renders thin tangent connections that VTK's
+      flying-edges iso-surface barely shows.
+
+      Lattice spacing in voxels = `oversample`; edge-neighbor centers
+      are `oversample` voxels apart.  With sphere_voxel_radius =
+      oversample/2, edge neighbors are exactly tangent.  Face- and
+      body-diagonal neighbors are at √2 and √3 times the lattice
+      spacing and have visible gaps — that is the true geometry for
+      physical primary radius R.
+
+    Avoid setting sphere_voxel_radius = oversample (Irena's classic
+    choice): the resulting physical sphere radius is the lattice
+    spacing = 2R, which inflates the Rg of the solid voxel cloud and
+    shifts BOTH MC Guinier knees by a factor of 2.
 
     Returns
     -------
@@ -698,8 +710,8 @@ def voxelize(
 def intensity_montecarlo(
     aggregate: FractalAggregate,
     q: np.ndarray,
-    oversample: int = 10,
-    sphere_voxel_radius: int = 5,
+    oversample: int = 20,
+    sphere_voxel_radius: int = 10,
     max_pairs: int = 10_000_000,
     time_budget_s: float = 20.0,
     progress_cb: Optional[Callable[[float], None]] = None,
@@ -737,10 +749,10 @@ def intensity_montecarlo(
     ----------
     aggregate : FractalAggregate
     q : (Nq,) Q values [Å⁻¹]
-    oversample : voxels per lattice-distance unit (10 = Irena default)
-    sphere_voxel_radius : sphere kernel radius in voxels — must be set so
-        that `sphere_voxel_radius × pitch_A == primary_radius` for correct
-        absolute Q scale.  With oversample=10 this is 5 voxels.
+    oversample : voxels per lattice-distance unit (default 20)
+    sphere_voxel_radius : sphere kernel radius in voxels.  Must satisfy
+        `sphere_voxel_radius / oversample = 1/2` for correct absolute Q
+        scale (default 10 with oversample=20 — see `voxelize`).
     max_pairs : hard cap on sampled distance pairs
     time_budget_s : soft cap on sampling duration
     progress_cb : callable(percent) for UI feedback
@@ -849,7 +861,7 @@ def intensity_montecarlo(
     return I_q
 
 
-def mc_q_max(aggregate: FractalAggregate, oversample: int = 10) -> float:
+def mc_q_max(aggregate: FractalAggregate, oversample: int = 20) -> float:
     """Maximum reliable Q for `intensity_montecarlo` given the voxel pitch.
 
     Above Q_voxel = π / pitch_A the discrete voxel grid no longer resolves
