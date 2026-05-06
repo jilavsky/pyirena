@@ -723,7 +723,8 @@ class ConfigManagerDialog(QDialog):
 
     # Known tool keys in the order we want to display them
     _KNOWN_TOOLS = [
-        'unified_fit', 'sizes', 'modeling', 'simple_fits', 'waxs_peakfit', 'data_merge',
+        'unified_fit', 'sizes', 'modeling', 'simple_fits', 'waxs_peakfit',
+        'saxs_morph', 'data_merge',
     ]
 
     def __init__(self, config_path: str, parent=None):

@@ -863,6 +863,23 @@ class SaxsMorphPanel(QWidget):
         save_row.addWidget(self.btn_save)
         lay.addLayout(save_row)
 
+        # ── Export Config row ────────────────────────────────────────────
+        cfg_row = QHBoxLayout()
+        self.btn_export_config = QPushButton('Save config to JSON…')
+        self.btn_export_config.setStyleSheet(
+            'background:#8e44ad;color:white;font-weight:bold;'
+            'font-size:11pt;padding:6px;border-radius:4px;border:none;')
+        self.btn_export_config.setToolTip(
+            'Append the current SAXS Morph parameters to a pyirena_config.json\n'
+            'file.  Other tool sections in the file are preserved; only the\n'
+            "'saxs_morph' section is replaced.  This is the file the Data\n"
+            'Selector "SAXS Morph (script)" button reads to batch-process\n'
+            'multiple files with the same parameters.'
+        )
+        self.btn_export_config.clicked.connect(self._export_config)
+        cfg_row.addWidget(self.btn_export_config)
+        lay.addLayout(cfg_row)
+
         lay.addStretch()
         scroll.setWidget(inner)
 
@@ -1597,6 +1614,101 @@ class SaxsMorphPanel(QWidget):
             QMessageBox.information(self, 'Saved', f'Result saved to:\n{path}')
         except Exception as e:
             QMessageBox.critical(self, 'Save failed', str(e))
+
+    def _export_config(self):
+        """Append (or replace) the saxs_morph section in a pyirena_config.json
+        file.  Other tool sections in the file are preserved.
+
+        This is the file the Data Selector "SAXS Morph (script)" button
+        reads to batch-process multiple files with the same parameters.
+        """
+        import json
+        import datetime
+        from pyirena import __version__ as _version
+
+        # Default to a pyirena_config.json next to the loaded data file,
+        # or the user's home dir if no file has been opened yet.
+        if self._file_path is not None:
+            default_dir = str(self._file_path.parent)
+        else:
+            default_dir = str(Path.home())
+        default_path = str(Path(default_dir) / 'pyirena_config.json')
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Save SAXS Morph configuration',
+            default_path,
+            'pyIrena Config (*.json);;All Files (*)',
+        )
+        if not path:
+            return
+        path_p = Path(path)
+        if path_p.suffix.lower() != '.json':
+            path_p = path_p.with_suffix('.json')
+
+        # Load existing config or start fresh
+        config: dict = {}
+        if path_p.exists():
+            try:
+                with open(path_p, 'r') as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+
+            # Reject files that aren't pyIrena configs
+            if config and '_pyirena_config' not in config:
+                QMessageBox.warning(
+                    self,
+                    'Not a pyIrena file',
+                    f'The selected file is not a pyIrena configuration file:\n{path_p}\n\n'
+                    'Choose a different file or enter a new filename.',
+                )
+                return
+
+            # Confirm overwrite of existing saxs_morph block
+            if 'saxs_morph' in config:
+                reply = QMessageBox.question(
+                    self,
+                    'Overwrite SAXS Morph section?',
+                    f'File already contains a SAXS Morph configuration:\n{path_p}\n\n'
+                    'Overwrite the existing section?',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+        # Build / update the config envelope
+        now = datetime.datetime.now().isoformat(timespec='seconds')
+        if '_pyirena_config' not in config:
+            config['_pyirena_config'] = {
+                'file_type': 'pyIrena Configuration File',
+                'version': _version,
+                'created': now,
+            }
+        config['_pyirena_config']['modified'] = now
+        config['_pyirena_config']['written_by'] = f'pyIrena {_version}'
+
+        # Pull the current saxs_morph state — _current_state() returns the
+        # exact same flat dict shape that fit_saxs_morph(config_file=…)
+        # consumes (input_mode, voxel_size_render, box_size_A, …).  Persist
+        # to the StateManager too so the next session starts from the same
+        # parameters.
+        sm_state = self._current_state()
+        self._state.update('saxs_morph', sm_state)
+        self._state.save()
+        config['saxs_morph'] = sm_state
+
+        try:
+            with open(path_p, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            QMessageBox.warning(self, 'Export failed', f'Could not write file:\n{e}')
+            return
+
+        self.graph.set_status(
+            f'SAXS Morph configuration written to {path_p.name}',
+            style='success',
+        )
 
     # ── Shutdown ─────────────────────────────────────────────────────────
 

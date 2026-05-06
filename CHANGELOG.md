@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **saxsMorph: "Save config to JSON…" button.**  Persists the current
+  saxsMorph parameters (voxel grid, box, input-mode, φ / contrast,
+  background pre-fit Q ranges + values, smoothing σ, RNG seed, fit Q
+  range) as a `saxs_morph` section inside a `pyirena_config.json`
+  file.  This is the file the Data Selector "SAXS Morph (script)"
+  button reads to batch-process multiple files with the same
+  parameters.  Behaviour matches the canonical Unified-Fit / Modeling
+  pattern: existing `_pyirena_config` files have only the saxs_morph
+  section replaced (other tools' sections preserved); new files get a
+  fresh envelope; non-pyIrena .json files are rejected to prevent
+  accidental overwrite.
+- **Data Selector ConfigManagerDialog: now lists saxs_morph.**
+  Added `'saxs_morph'` to the dialog's `_KNOWN_TOOLS`, so the user
+  can prune the saxs_morph section from a `pyirena_config.json` by
+  unchecking its checkbox in **Manage Config…** — same as for any
+  other batch-capable tool.
+
 ### Changed
 
 - **Data Selector "Create Graph" with Fractals / 3D-saxsMorph
