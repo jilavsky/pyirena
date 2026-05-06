@@ -230,18 +230,19 @@ class MCIntensityWorker(QThread):
         self._cancel = False
         # Point-cloud-Debye knobs (replaces voxel oversample / pair budget)
         self._n_points_per_sphere = 50
-        self._n_bins = 200
+        self._n_bins: Optional[int] = None  # None → auto from r_max·Q_max
         self._polydispersity = 0.10
         self._seed: Optional[int] = None
 
     def configure(self, aggregate: FractalAggregate, q: np.ndarray,
-                  *, n_points_per_sphere: int = 50, n_bins: int = 200,
+                  *, n_points_per_sphere: int = 50,
+                  n_bins: Optional[int] = None,
                   polydispersity: float = 0.10,
                   seed: Optional[int] = None) -> None:
         self._aggregate = aggregate
         self._q = np.asarray(q, dtype=np.float64)
         self._n_points_per_sphere = int(n_points_per_sphere)
-        self._n_bins = int(n_bins)
+        self._n_bins = n_bins  # may be None for auto
         self._polydispersity = float(polydispersity)
         self._seed = seed
         self._cancel = False

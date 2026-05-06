@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Fractals: spurious high-Q "intensity rises above plateau" with large
+  primary particles (e.g. Rg ≥ 100 Å)** caused by histogram bin-width
+  vs Q_max coupling.  Each bin contributes `p_bin · sinc(Q · r_centre)`
+  to the Debye sum, accurate only while `Q · bin_width ≪ 1`.  With
+  default `n_bins = 200` and a 13 000 Å aggregate (Rg = 200 Å), bin
+  width was 70 Å → the sinc-at-bin-centre approximation broke down at
+  Q ≈ 0.01 and produced large pseudo-random fluctuations (sometimes
+  back above the I(0) plateau) at higher Q.  `intensity_montecarlo` now
+  picks `n_bins` adaptively from `r_max · Q_max · 10` (clipped to
+  [200, 200 000]) so `bin_width ≤ 0.1 / Q_max` everywhere — Q_max ·
+  bin_width ≤ 0.1 throughout the requested Q range.  Verified across
+  Rg = 10..500 Å: no above-plateau values, plateau holds at ~1.0,
+  high-Q tail decays cleanly through Porod into the numerical-noise
+  floor.  `MCIntensityWorker.configure(n_bins=None)` (default) selects
+  auto mode; pass an explicit integer to override.
+
 ### Changed
 
 - **Fractals: `intensity_montecarlo` rewritten as a Shape2SAS-style

@@ -864,7 +864,7 @@ def intensity_montecarlo(
     aggregate: FractalAggregate,
     q: np.ndarray,
     n_points_per_sphere: int = 50,
-    n_bins: int = 200,
+    n_bins: Optional[int] = None,
     polydispersity: float = 0.10,
     seed: Optional[int] = None,
     progress_cb: Optional[Callable[[float], None]] = None,
@@ -880,15 +880,32 @@ def intensity_montecarlo(
          If `polydispersity > 0` each primary sphere's R is drawn from
          a Gaussian around the mean — see below.
       2. Compute ALL N(N−1)/2 pair distances deterministically; histogram
-         them into `n_bins` linear bins between 0 and the bounding-box
-         diagonal.  No random sampling, no shot noise.
+         them into linear r-bins.  By default `n_bins` is chosen so that
+         the bin width is small compared to the smallest sinc-oscillation
+         period at the user's `Q_max` (see notes below) — required when
+         the aggregate spans thousands of Ångströms.
       3. Apply the Debye sum  I(Q) = Σ p(r) · sinc(Q·r) / Σ p(r)
          over every bin, normalised so I(0) = 1.
 
-    Compared to the old voxel-MC approach this gives:
-      - Smooth Q⁻⁴ Porod envelope (no random-sampling shot noise).
-      - Lower memory (~few MB vs hundreds of MB for the voxelgram).
-      - Comparable or faster runtime for typical aggregates.
+    Bin-width / Q_max coupling
+    --------------------------
+    Each histogram bin contributes `p_bin · sinc(Q · r_centre)` to I(Q).
+    This is accurate only while sinc varies little within the bin —
+    i.e. while `Q · bin_width ≪ 1`.  When `Q · bin_width > 1`, sinc
+    oscillates *within* one bin and the centre-evaluation gives a
+    pseudo-random value of order ±1/(Q·r) instead of the smooth average.
+    Result: spurious fluctuations and even negative I(Q) at high Q.
+
+    For tiny primaries (Rg ≈ 10 Å) the aggregate is small (~hundreds of
+    Å) so 200 bins gives bin_width ~ 1 Å — fine up to Q ≈ 1.  For large
+    primaries (Rg ≈ 200 Å) the aggregate grows to ~10⁴ Å so 200 bins
+    gives bin_width ~ 70 Å and the breakdown starts at Q ≈ 0.01.
+
+    Auto-mode (default): `n_bins` is chosen so `bin_width ≤ 0.1 / Q_max`,
+    which keeps Q·bin_width ≤ 0.1 throughout the requested Q range.
+    Capped at 200 000 bins for safety (still O(MB) memory and O(few %)
+    extra Debye-sum cost vs the histogram itself).  Pass an explicit
+    `n_bins` to override (e.g. for testing).
 
     Parameters
     ----------
@@ -897,9 +914,10 @@ def intensity_montecarlo(
     n_points_per_sphere : int (default 50)
         Number of uniform points per primary sphere.  Higher → finer
         high-Q resolution at O(N²) cost.
-    n_bins : int (default 200)
-        Number of r-bins in the pair-distance histogram.  More bins =
-        more sinc terms; 100–300 is the sweet spot.
+    n_bins : int or None (default None → auto)
+        Number of r-bins in the pair-distance histogram.  None →
+        adaptive (`r_max · Q_max · 10`, clipped to [200, 200 000]).
+        Override only for testing or to force a coarser histogram.
     polydispersity : float (default 0.10)
         Relative size variation of the primary spheres (σ_R / R_mean).
         Without it (= 0) all primaries are identical and their form-
@@ -942,18 +960,31 @@ def intensity_montecarlo(
     if not (r_max > 0):
         return np.zeros_like(q)
 
-    # 3) Histogram all pair distances (deterministic, on-the-fly)
+    # 3) Pick n_bins adaptively if not specified.  Goal: bin_width small
+    #    enough that Q_max · bin_width ≤ 0.1, so the sinc-at-bin-centre
+    #    approximation stays accurate over the full requested Q range.
+    #    See "Bin-width / Q_max coupling" in the docstring.
+    if n_bins is None:
+        q_pos = q[q > 0]
+        Q_max = float(np.max(q_pos)) if q_pos.size > 0 else 1.0
+        # bin_width target = 0.1 / Q_max  →  n_bins = r_max / bin_width = 10 · r_max · Q_max
+        n_bins_auto = int(math.ceil(10.0 * r_max * Q_max))
+        n_bins = max(200, min(n_bins_auto, 200_000))
+    else:
+        n_bins = int(n_bins)
+
+    # 4) Histogram all pair distances (deterministic, on-the-fly)
     hist = _pair_distance_histogram(
-        points, n_bins=int(n_bins), r_max=r_max,
+        points, n_bins=n_bins, r_max=r_max,
         progress_cb=progress_cb, cancel_check=cancel_check,
     )
     if hist.sum() == 0:
         return np.zeros_like(q)
 
-    edges = np.linspace(0.0, r_max, int(n_bins) + 1)
+    edges = np.linspace(0.0, r_max, n_bins + 1)
     centers = 0.5 * (edges[:-1] + edges[1:])
 
-    # 4) Debye sum
+    # 5) Debye sum
     I_q = _debye_sum(q, centers, hist.astype(np.float64))
 
     if progress_cb is not None:
