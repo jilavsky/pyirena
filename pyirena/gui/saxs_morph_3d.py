@@ -631,25 +631,22 @@ class Slice2DViewer(QWidget):
             if ax is not None:
                 ax.setPen(pg.mkPen('k', width=1))
                 ax.setTextPen(pg.mkPen('k'))
-        # Bounding box around the data area.  Belt-and-braces: try BOTH
-        # known pyqtgraph ways to draw a frame around the ViewBox, plus
-        # showAxis on top/right with showValues=False as a fallback that
-        # adds tick marks completing the box.  Different pyqtgraph
-        # versions / ImageView wrappings respect different combinations.
-        _frame_pen = pg.mkPen('k', width=2)
+        # Bounding box around the data area.
+        # Neither ViewBox.setBorder() nor showAxis('top'/'right') renders
+        # reliably when a PlotItem is wrapped by an ImageView -- ImageView's
+        # internal layout suppresses both.  Robust fallback: add a
+        # PlotCurveItem with 5 points (closed rectangle) to the ViewBox
+        # itself.  Resized to match the image extent in _refresh().
+        self._border_curve = pg.PlotCurveItem(
+            pen=pg.mkPen('k', width=2),
+        )
         try:
-            plot_item.getViewBox().setBorder(_frame_pen)
+            plot_item.getViewBox().addItem(self._border_curve,
+                                            ignoreBounds=True)
         except Exception:
-            pass
-        for ax_name in ('top', 'right'):
-            try:
-                plot_item.showAxis(ax_name)
-                ax = plot_item.getAxis(ax_name)
-                ax.setStyle(showValues=False)
-                ax.setPen(_frame_pen)
-                ax.setTextPen(pg.mkPen('k'))
-            except Exception:
-                pass
+            # Older pyqtgraph: addItem on ViewBox may not accept
+            # ignoreBounds; fall back to plain addItem.
+            plot_item.getViewBox().addItem(self._border_curve)
         # Physical axis labels (updated when the slice plane changes).
         # ASCII units so they always render.
         self.image_view.view.setLabel('bottom', 'x [A]', size='9pt', color='k')
@@ -742,6 +739,20 @@ class Slice2DViewer(QWidget):
             autoLevels=False, levels=[0, 1],
             pos=(0.0, 0.0), scale=(self._pitch_A, self._pitch_A),
         )
+        # Resize the bounding-box rectangle to match the image extent.
+        # Image is at pos=(0,0) with scale=(pitch,pitch), so it spans
+        # (0..h*pitch, 0..w*pitch).  5 points draw a closed rectangle.
+        if hasattr(self, '_border_curve') and self._border_curve is not None:
+            h, w = slc.shape
+            x_max = float(w) * self._pitch_A
+            y_max = float(h) * self._pitch_A
+            try:
+                self._border_curve.setData(
+                    x=[0.0, x_max, x_max, 0.0, 0.0],
+                    y=[0.0, 0.0, y_max, y_max, 0.0],
+                )
+            except Exception as exc:
+                print(f'[Slice2DViewer] border resize failed: {exc}')
         self.slice_label.setText(f'Slice {idx + 1} / {N} ({coord_label})')
 
 
