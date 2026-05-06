@@ -41,10 +41,14 @@ No loaded dataset is required — the tool is always available.
 
 ```
 ┌─────────────────────────────────────────────┬───────────────────────────────┐
-│  Compound 1 (Phase)            Compound 2 (Matrix / Solvent)  [? Help]      │
-│  Name / Formula / Mode / Density            same                            │
-│  Isotope Selection table                    same                            │
-│  Saved Compounds Library                    same                            │
+│  Compound 1 (Phase)                         |                 [? Help]      │
+│  Name / Formula / Mode / Density            |                               │
+│  Isotope Selection table                    |                               │
+│  Saved Compounds Library                    |                            ─────────────────────────────────────────────┤───────────────────────────────┤
+│  Compound 2 (Phase)                         |                 [? Help]      │
+│  Name / Formula / Mode / Density            |                               │
+│  Isotope Selection table                    |                               │
+│  Saved Compounds Library                    |                               │
 ├─────────────────────────────────────────────┤                               │
 │  Calculation Parameters                     │  Results table                │
 │  Energy Scan Range                          │  (read-only, right-click copy)│
