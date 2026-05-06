@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **2D slice viewer: full-white panel background + complete bounding
+  box.**  After we switched the 2D slice axis labels to black for
+  better contrast against the white data area, those labels became
+  invisible against pyqtgraph's default dark-grey panel chrome.  The
+  ImageView widget background is now also white (set via stylesheet),
+  so the entire viewer reads as a clean white canvas with black
+  axes and labels everywhere.  Top and right axes are also shown
+  now (without tick values) so the plot has a complete black
+  bounding box matching the 3D viewer's outline.
+
 - **3D viewer: default isosurface color is now emerald green
   (`#2ecc71`).**  Was dark grey.  Green is the convention used by
   molecular-visualisation tools (PyMOL, VMD) for the default highlight

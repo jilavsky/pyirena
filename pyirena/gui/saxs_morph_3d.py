@@ -615,12 +615,23 @@ class Slice2DViewer(QWidget):
         self.image_view.ui.menuBtn.hide()
         self.image_view.view.setAspectLocked(True)
         self.image_view.view.invertY(False)  # y increases upward (physical)
+        # White panel background so black axis labels stay readable
+        # outside the data area too (pyqtgraph default panel chrome is
+        # dark grey, which made the labels invisible after we switched
+        # to black axes).
+        self.image_view.setStyleSheet('background-color: white;')
         # Black axes against white background — match the 3D viewer style.
         for ax_name in ('left', 'bottom', 'top', 'right'):
             ax = plot_item.getAxis(ax_name)
             if ax is not None:
                 ax.setPen(pg.mkPen('k', width=1))
                 ax.setTextPen(pg.mkPen('k'))
+        # Show top + right axes (no tick values) so the plot has a
+        # complete bounding box, matching the 3D viewer's outline.
+        # Left + bottom are shown by default and carry the values.
+        for ax_name in ('top', 'right'):
+            plot_item.showAxis(ax_name)
+            plot_item.getAxis(ax_name).setStyle(showValues=False)
         # Physical axis labels (updated when the slice plane changes).
         # ASCII units so they always render.
         self.image_view.view.setLabel('bottom', 'x [A]', size='9pt', color='k')
