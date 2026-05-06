@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **3D viewer: default isosurface color is now emerald green
+  (`#2ecc71`).**  Was dark grey.  Green is the convention used by
+  molecular-visualisation tools (PyMOL, VMD) for the default highlight
+  / first object, reads well against the white background under any
+  of the lighting modes (default headlight, 3-point lightkit, EDL,
+  SSAO, shadows), and stays distinct from the data-curve red /
+  reference-fit colours used elsewhere in the I(Q) panel.  Users
+  who want a different colour can still pick one via the right-click
+  menu (`Pick isosurface color…`).
+
 ### Fixed
 
 - **3D viewer: silence VTK shader-error spam on macOS.**  After

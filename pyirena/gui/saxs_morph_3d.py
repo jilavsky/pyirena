@@ -121,10 +121,11 @@ class Voxel3DViewer(QWidget):
         self._actor = None
         self._bounds_actor = None
         self._show_outline = True
-        # Dark grey for the solid (majority) phase against the white
-        # background / minority phase.  Edges of the structure stand out
-        # clearly with this contrast.
-        self._iso_color = (0.30, 0.30, 0.30)
+        # Default isosurface color: emerald green (#2ecc71 ≈ RGB 46/204/113).
+        # Matches the convention used by molecular-visualisation tools
+        # (PyMOL / VMD default highlight) and reads well against the
+        # white background under any of our lighting modes.
+        self._iso_color = (0.18, 0.80, 0.44)
         self._voxelgram = None
         self._pitch_A = 1.0
         self._mesh = None
