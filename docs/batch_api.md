@@ -16,19 +16,20 @@ is no need to write configuration code by hand.
 5. [API reference — `fit_simple`](#fit_simple)
 6. [API reference — `fit_waxs`](#fit_waxs)
 7. [API reference — `fit_modeling`](#fit_modeling)
-8. [API reference — `merge_data`](#merge_data)
-9. [API reference — `fit_pyirena`](#fit_pyirena)
-10. [Return structures](#return-structures)
-11. [Error handling](#error-handling)
-12. [Batch processing patterns](#batch-processing-patterns)
-13. [Extending with new tools](#extending-with-new-tools)
+8. [API reference — `fit_saxs_morph`](#fit_saxs_morph)
+9. [API reference — `merge_data`](#merge_data)
+10. [API reference — `fit_pyirena`](#fit_pyirena)
+11. [Return structures](#return-structures)
+12. [Error handling](#error-handling)
+13. [Batch processing patterns](#batch-processing-patterns)
+14. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
 ## Quick start
 
 ```python
-from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_modeling, fit_pyirena
+from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_modeling, fit_saxs_morph, fit_pyirena
 
 # Fit one file with Unified Fit, save results to NXcanSAS
 result = fit_unified("sample.h5", "pyirena_config.json")
@@ -58,6 +59,13 @@ if result and result['success']:
 result = fit_modeling("sample.h5", "pyirena_config.json")
 if result and result['success']:
     print(f"χ²/dof = {result['result'].reduced_chi_squared:.4g}")
+
+# Generate a 3D voxelgram from SAXS data (reads 'saxs_morph' section from config)
+result = fit_saxs_morph("sample.h5", "pyirena_config.json")
+if result and result['success']:
+    r = result['result']
+    print(f"χ²/dof = {r.reduced_chi_squared:.4g},  φ_actual = {r.phi_actual:.4f}")
+    voxelgram = r.voxelgram   # uint8 ndarray, shape (N, N, N), values 0 or 1
 
 # Run ALL configured tools on one file (one function call)
 results = fit_pyirena("sample.h5", "pyirena_config.json")
@@ -566,6 +574,208 @@ for f in sorted(Path("data/").glob("*.h5")):
 
 ---
 
+## `fit_saxs_morph`
+
+```python
+from pyirena.batch import fit_saxs_morph
+
+result = fit_saxs_morph(
+    data_file,              # str or Path — input SAS data file
+    config_file,            # str or Path — pyIrena JSON config with 'saxs_morph' section
+    save_to_nexus=True,     # bool — write voxelgram + metadata to NXcanSAS HDF5 file
+    with_uncertainty=False, # bool — reserved for API symmetry; ignored (no fittable parameters)
+    n_mc_runs=10,           # int — reserved for API symmetry; ignored
+)
+```
+
+SAXS Morph reconstructs a three-dimensional two-phase voxelgram whose simulated
+I(Q) matches your measured SAXS curve.  The algorithm uses the measured scattering
+curve to derive the spectral density function F(k), then draws a random Gaussian
+field in reciprocal space, band-limits it at the data's q_max to suppress ringing,
+thresholds it at the volume fraction that produces the requested φ, and evaluates
+χ² against the experimental data.  No iterative parameter fitting takes place;
+the volume fraction and contrast (or scattering length density difference) are set
+by the user — this is a direct inversion, not an optimisation.
+
+See the [SAXS Morph GUI documentation](saxs_morph_gui.md) for background theory
+and a description of all GUI controls.
+
+### What it does, step by step
+
+1. **Loads the config file** — validates the `_pyirena_config` header and reads
+   the `saxs_morph` section (written by the **SAXS Morph** panel's **Export
+   Parameters** button).
+2. **Loads data** — same format detection as `fit_unified` (`.h5`/`.hdf5` via
+   NXcanSAS, `.dat`/`.txt` via text reader).
+3. **Applies Q range** — masks data to `[q_min, q_max]` from config.
+4. **Pre-fits background** *(if windows are configured)*:
+   - **Power-law pre-fit** over `[power_law_q_min, power_law_q_max]` → resolves
+     `B` and `P` in I_bg(Q) = B·Q⁻ᴾ.
+   - **Flat-background pre-fit** over `[background_q_min, background_q_max]` →
+     resolves the flat background level.
+5. **Subtracts background** from the data; derives contrast Δρ² from the Porod
+   invariant if `input_mode='phi'`, or derives φ if `input_mode='contrast'`.
+6. **Computes voxelgram** at fit resolution (`voxel_size_fit`) — builds the
+   autocorrelation γ(r), Fourier-transforms to the spectral density F(k),
+   band-limits at q_max, generates a Gaussian random field, and thresholds to
+   obtain a binary {0, 1} voxelgram.
+7. **Re-renders at render resolution** (`voxel_size_render`) using the same RNG
+   seed for the final high-resolution voxelgram.
+8. **Evaluates χ²** — simulates I(Q) from the voxelgram and compares to data.
+9. **Computes topology metrics** — Euler characteristic, genus, connectivity, and
+   specific surface area S/V.
+10. **Saves results** *(if `save_to_nexus=True` and input is HDF5)* — writes the
+    voxelgram array and all scalar results to `entry/saxs_morph_results` in the HDF5 file.
+11. **Returns** a result dict (see below).
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_file` | `str` or `Path` | required | Path to SAS data file |
+| `config_file` | `str` or `Path` | required | Path to pyIrena JSON config containing a `saxs_morph` section |
+| `save_to_nexus` | `bool` | `True` | Save voxelgram and metrics to NXcanSAS HDF5; ignored for text-file inputs |
+| `with_uncertainty` | `bool` | `False` | Reserved; ignored (SAXS Morph has no fittable parameters) |
+| `n_mc_runs` | `int` | `10` | Reserved; ignored |
+
+### `saxs_morph` config section fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `q_min` | float or null | Lower Q bound of the fitting window (Å⁻¹) |
+| `q_max` | float or null | Upper Q bound of the fitting window (Å⁻¹) |
+| `power_law_q_min` | float or null | Lower Q bound for power-law background pre-fit (Å⁻¹); null = skip |
+| `power_law_q_max` | float or null | Upper Q bound for power-law background pre-fit (Å⁻¹); null = skip |
+| `background_q_min` | float or null | Lower Q bound for flat-background pre-fit (Å⁻¹); null = skip |
+| `background_q_max` | float or null | Upper Q bound for flat-background pre-fit (Å⁻¹); null = skip |
+| `voxel_size_fit` | int | Cube side length (voxels) used during the F(k) → voxelgram step; smaller = faster (e.g. `64` or `128`) |
+| `voxel_size_render` | int | Cube side length (voxels) for the final high-resolution voxelgram (e.g. `256` or `512`) |
+| `box_size_A` | float | Physical edge length of the voxel cube (Å); sets the real-space scale |
+| `input_mode` | str | `"phi"` — φ given, Δρ² derived; `"contrast"` — Δρ² given, φ derived; `"both"` — both given (no invariant derivation) |
+| `volume_fraction` | float | Target solid-phase volume fraction φ ∈ (0, 1) |
+| `contrast` | float | Scattering contrast Δρ² (cm⁻⁴) |
+| `power_law_B` | float | Power-law prefactor B (cm⁻¹·Å⁻ᴾ); 0 = no power-law background |
+| `power_law_P` | float | Power-law exponent P; used with `power_law_B` |
+| `background` | float | Flat background level (cm⁻¹); 0 = no flat background |
+| `smooth_sigma` | float | Gaussian smoothing σ applied after thresholding (voxels); 0 = disabled |
+| `rng_seed` | int or null | RNG seed for reproducible voxelgram generation; null = random |
+
+### Returns
+
+`dict` on success, `None` on fatal error (file not found, config missing, data unreadable).
+
+```python
+{
+    'success':     bool,             # True if voxelgram was computed without error
+    'message':     str,              # e.g. "SAXS Morph complete — χ²/dof=1.07, φ=0.312, pitch=3.91 Å"
+    'result':      SaxsMorphResult,  # complete result object (see below)
+    'output_file': Path | None,      # HDF5 file written, or None
+}
+```
+
+`result` is a `SaxsMorphResult` dataclass with the following key attributes:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `chi_squared` | float | χ² (weighted sum of squared residuals) |
+| `reduced_chi_squared` | float | χ² / degrees of freedom |
+| `dof` | int | Degrees of freedom |
+| `voxelgram` | ndarray | `uint8`, shape `(N, N, N)`, values 0 (void) or 1 (solid) |
+| `voxel_size` | int | Cube side length N (voxels) |
+| `box_size_A` | float | Physical box size (Å) |
+| `voxel_pitch_A` | float | Physical voxel edge length (Å) = `box_size_A / voxel_size` |
+| `phi_actual` | float | Realized solid-phase volume fraction after thresholding |
+| `rg_A` | float | Radius of gyration estimated from the model I(Q) (Å) |
+| `q_max_model_A` | float | Voxel Nyquist limit π / voxel_pitch_A (Å⁻¹) |
+| `porod_K_struct` | float | Porod prefactor extracted from the structural I(Q) |
+| `specific_surface_area_inv_A` | float | Specific surface area S/V (Å⁻¹) |
+| `morphology_metrics` | `MorphologyMetrics` or `None` | Topology metrics: Euler characteristic, genus, connected components |
+| `data_q` | ndarray | Q array over the fit window (Å⁻¹) |
+| `data_I` | ndarray | Measured intensity over the fit window (cm⁻¹) |
+| `data_I_corr` | ndarray | Background-subtracted intensity (cm⁻¹) |
+| `model_I` | ndarray | Model intensity over the fit window (cm⁻¹) |
+| `gamma_r` | ndarray | Autocorrelation function γ(r) |
+| `r_grid` | ndarray | Real-space distance grid for γ(r) (Å) |
+| `spectral_F` | ndarray | Spectral density F(k) used to generate the random field |
+| `spectral_k` | ndarray | Wavenumber grid for F(k) (Å⁻¹) |
+| `config` | `SaxsMorphConfig` | Full configuration used for this run |
+
+### Example
+
+```python
+from pyirena.batch import fit_saxs_morph
+
+# Single file — uses all settings from the exported config
+result = fit_saxs_morph("sample.h5", "pyirena_config.json")
+if result and result['success']:
+    r = result['result']
+    print(f"χ²/dof          = {r.reduced_chi_squared:.4g}")
+    print(f"φ_actual        = {r.phi_actual:.4f}")
+    print(f"voxel pitch     = {r.voxel_pitch_A:.2f} Å")
+    print(f"Rg              = {r.rg_A:.1f} Å")
+    print(f"S/V             = {r.specific_surface_area_inv_A:.4g} Å⁻¹")
+    print(f"voxelgram shape = {r.voxelgram.shape}")   # (N, N, N)
+
+# In-memory only — no file written
+result = fit_saxs_morph("sample.h5", "pyirena_config.json", save_to_nexus=False)
+voxelgram = result['result'].voxelgram   # uint8 ndarray ready for VTK, numpy, etc.
+
+# Access topology metrics
+m = result['result'].morphology_metrics
+if m is not None:
+    print(f"Euler number = {m.euler_number},  genus = {m.genus}")
+
+# Visualise I(Q) fit with matplotlib
+import matplotlib.pyplot as plt
+r = result['result']
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+ax = axes[0]
+ax.loglog(r.data_q, r.data_I, 'k.', ms=3, label='data')
+ax.loglog(r.data_q, r.model_I, 'r-', lw=1.5, label='model')
+ax.set_xlabel('Q (Å⁻¹)'); ax.set_ylabel('I(Q) (cm⁻¹)'); ax.legend()
+ax = axes[1]
+ax.imshow(r.voxelgram[r.voxel_size // 2], cmap='gray', origin='lower')
+ax.set_title(f"Central slice  φ={r.phi_actual:.3f}")
+plt.tight_layout(); plt.show()
+
+# Batch over many files
+from pathlib import Path
+for f in sorted(Path("data/").glob("*.h5")):
+    r = fit_saxs_morph(f, "pyirena_config.json")
+    if r and r['success']:
+        res = r['result']
+        print(f"{f.name}: χ²/dof={res.reduced_chi_squared:.3g}  φ={res.phi_actual:.4f}")
+```
+
+### Lower-level engine API
+
+For scripting workflows that bypass the config file entirely:
+
+```python
+from pyirena.core.saxs_morph import SaxsMorphConfig, SaxsMorphEngine
+import numpy as np
+
+cfg = SaxsMorphConfig(
+    q_min=0.001, q_max=0.30,
+    power_law_q_min=0.001, power_law_q_max=0.005,
+    background_q_min=0.25,  background_q_max=0.30,
+    voxel_size_fit=128,
+    voxel_size_render=256,
+    box_size_A=1000.0,
+    input_mode='phi',        # derive contrast from invariant
+    volume_fraction=0.30,
+    smooth_sigma=1.0,
+    rng_seed=42,
+)
+
+engine = SaxsMorphEngine()
+result = engine.compute_voxelgram(cfg, q, I, dI)   # numpy arrays
+print(f"χ²/dof = {result.reduced_chi_squared:.4g}")
+print(f"φ_actual = {result.phi_actual:.4f}")
+```
+
+---
+
 ## `merge_data`
 
 ```python
@@ -720,6 +930,7 @@ to the appropriate fitting function for each.  Recognised tool sections:
 | `simple_fits` | `fit_simple_from_config()` |
 | `waxs_peakfit` | `fit_waxs()` |
 | `modeling` | `fit_modeling()` |
+| `saxs_morph` | `fit_saxs_morph()` |
 
 Unknown sections in the config file are silently skipped.  This means a config
 file created today will still work correctly when new tools are added to pyIrena,
@@ -1016,6 +1227,7 @@ _TOOL_REGISTRY = {
     'simple_fits':  lambda: fit_simple_from_config(data_file, config_file, save_to_nexus, ...),
     'waxs_peakfit': lambda: fit_waxs(data_file, config_file, save_to_nexus, ...),
     'modeling':     lambda: fit_modeling(data_file, config_file, save_to_nexus, ...),
+    'saxs_morph':   lambda: fit_saxs_morph(data_file, config_file, save_to_nexus, ...),
     # add new tools here
 }
 ```
