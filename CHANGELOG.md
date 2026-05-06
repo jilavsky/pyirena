@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **3D viewer: silence VTK shader-error spam on macOS.**  After
+  enabling SSAO / cast-shadows / occasionally EDL on macOS (where
+  Apple has deprecated OpenGL), VTK's modern shader templates miss
+  substitutions on Apple's translation layer and the driver rejects
+  the post-processing program.  The viewer recovers (falls back to
+  the previous valid shader) but the console used to fill with red
+  `vtkShaderProgram` / `vtkOpenGLPolyDataMapper` "Could not set
+  shader program" / "attempt to add attribute without a bound program"
+  walls per render frame.  We now call
+  `vtk.vtkObject.GlobalWarningDisplayOff()` once at module import to
+  mute VTK's global warning display.  Trade-off: VTK warnings that
+  don't bubble through Python exceptions are silenced — acceptable
+  for an end-user tool.  Real exceptions still surface normally.
+
 ### Added
 
 - **3D viewer: rich right-click menu for visual tuning.**  Applies to

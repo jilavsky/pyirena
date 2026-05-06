@@ -78,6 +78,29 @@ except Exception as _e:
 
 
 # ---------------------------------------------------------------------------
+# Silence VTK shader / driver warnings.
+# ---------------------------------------------------------------------------
+# Some shader-based post-processing passes (SSAO, cast shadows, occasionally
+# EDL) emit verbose vtkOpenGLPolyDataMapper / vtkShaderProgram errors when
+# their fragment shader fails to compile on the current GPU.  This is a
+# well-known issue on macOS where Apple has deprecated OpenGL — the modern
+# VTK shader templates miss substitutions on Apple's translation layer and
+# the driver rejects the program.  The viewer recovers (it falls back to the
+# previous valid shader) but the console fills with red noise per render.
+#
+# We silence VTK's global warning display once on import.  The cost is
+# losing visibility into other VTK warnings that don't bubble up through
+# Python exceptions — acceptable for an end-user tool.  Real exceptions
+# coming through the Python layer are still surfaced normally.
+if HAS_PYVISTA:
+    try:
+        import vtk
+        vtk.vtkObject.GlobalWarningDisplayOff()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # 3D viewer
 # ---------------------------------------------------------------------------
 
