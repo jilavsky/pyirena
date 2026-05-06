@@ -25,26 +25,26 @@ import numpy as np
 
 try:
     from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSlider,
-        QDialog, QComboBox, QColorDialog, QFileDialog, QMenu, QSizePolicy,
-        QApplication,
+        QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+        QSlider, QSplitter, QDialog, QComboBox, QColorDialog, QFileDialog,
+        QMenu, QSizePolicy, QApplication,
     )
     from PySide6.QtCore import Qt, Signal
     from PySide6.QtGui import QAction, QColor
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
-            QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSlider,
-            QDialog, QComboBox, QColorDialog, QFileDialog, QMenu, QSizePolicy,
-            QApplication,
+            QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+            QSlider, QSplitter, QDialog, QComboBox, QColorDialog, QFileDialog,
+            QMenu, QSizePolicy, QApplication,
         )
         from PyQt6.QtCore import Qt, pyqtSignal as Signal
         from PyQt6.QtGui import QAction, QColor
     except ImportError:
         from PyQt5.QtWidgets import (
-            QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSlider,
-            QDialog, QComboBox, QColorDialog, QFileDialog, QMenu, QSizePolicy,
-            QApplication,
+            QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+            QSlider, QSplitter, QDialog, QComboBox, QColorDialog, QFileDialog,
+            QMenu, QSizePolicy, QApplication,
         )
         from PyQt5.QtCore import Qt, pyqtSignal as Signal
         from PyQt5.QtGui import QAction, QColor
@@ -579,3 +579,118 @@ def make_popout_button(widget: QWidget, title: str = 'Popout') -> QPushButton:
 
     btn.clicked.connect(_toggle)
     return btn
+
+
+# ---------------------------------------------------------------------------
+# VoxelViewerWindow — standalone 2D + 3D viewer for stored voxelgrams
+# ---------------------------------------------------------------------------
+
+class VoxelViewerWindow(QMainWindow):
+    """Standalone window that displays one or more stored voxelgrams.
+
+    Used by the Data Selector "Create Graph" button when the user has
+    selected the **Fractals** or **3D saxsMorph** checkbox: instead of
+    opening the full SAXS-Morph / Fractals tool (which would re-run the
+    engine), this lightweight viewer just loads the saved 3D structure
+    from the NeXus file and displays it in the same `Slice2DViewer` +
+    `Voxel3DViewer` pair the parent tools use.
+
+    No fitting, no Calculate button, no engine — purely visualisation
+    of saved data.
+
+    Parameters
+    ----------
+    items : list of dict
+        Each dict has keys:
+            ``voxelgram`` : (N, N, N) uint8 / float32 array
+            ``pitch_A``   : float (voxel pitch in Å)
+            ``label``     : str (shown in the dropdown / window title)
+    title : str
+        Window title (e.g. "Fractals — stored aggregates").
+    """
+
+    def __init__(self, items: list, title: str = 'Voxel viewer', parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(1000, 650)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        self._items = list(items)
+
+        central = QWidget()
+        v = QVBoxLayout(central)
+        v.setContentsMargins(6, 6, 6, 6)
+        v.setSpacing(6)
+
+        # Dropdown to switch between items (only if more than one)
+        if len(self._items) > 1:
+            top = QHBoxLayout()
+            top.addWidget(QLabel('Show:'))
+            self._combo = QComboBox()
+            for item in self._items:
+                self._combo.addItem(str(item.get('label', '?')))
+            self._combo.currentIndexChanged.connect(self._on_select)
+            top.addWidget(self._combo, stretch=1)
+            v.addLayout(top)
+        else:
+            self._combo = None
+            if self._items:
+                lbl = QLabel(f"<b>{self._items[0].get('label', '')}</b>")
+                lbl.setStyleSheet('color:#2c3e50;font-size:10pt;padding:2px;')
+                v.addWidget(lbl)
+
+        # 2D + 3D side by side
+        body = QWidget()
+        h = QHBoxLayout(body)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+
+        slice_box = QWidget()
+        sc = QVBoxLayout(slice_box)
+        sc.setContentsMargins(0, 0, 0, 0)
+        self.slice_viewer = Slice2DViewer()
+        sc.addWidget(self.slice_viewer)
+        sc.addWidget(make_popout_button(self.slice_viewer, '2D slice viewer'))
+        h.addWidget(slice_box, 1)
+
+        voxel_box = QWidget()
+        vc = QVBoxLayout(voxel_box)
+        vc.setContentsMargins(0, 0, 0, 0)
+        self.voxel3d_viewer = Voxel3DViewer()
+        vc.addWidget(self.voxel3d_viewer)
+        vc.addWidget(make_popout_button(self.voxel3d_viewer, '3D viewer'))
+        h.addWidget(voxel_box, 1)
+
+        v.addWidget(body, stretch=1)
+        self.setCentralWidget(central)
+
+        if self._items:
+            self._show_item(0)
+
+    # ── Item switching ───────────────────────────────────────────────────
+
+    def _on_select(self, idx: int):
+        if 0 <= idx < len(self._items):
+            self._show_item(idx)
+
+    def _show_item(self, idx: int):
+        item = self._items[idx]
+        vox = item.get('voxelgram')
+        pitch = float(item.get('pitch_A', 1.0))
+        if vox is None or pitch <= 0:
+            return
+        try:
+            self.slice_viewer.set_voxelgram(vox, pitch)
+            self.voxel3d_viewer.set_voxelgram(vox, pitch)
+        except Exception as exc:
+            print(f"[VoxelViewerWindow] failed to display item {idx}: {exc}")
+
+    # ── Lifecycle ────────────────────────────────────────────────────────
+
+    def closeEvent(self, evt):
+        # VTK / Cocoa cleanup — same pattern as SaxsMorphPanel.
+        try:
+            self.voxel3d_viewer.shutdown()
+        except Exception:
+            pass
+        super().closeEvent(evt)

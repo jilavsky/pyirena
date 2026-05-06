@@ -2157,6 +2157,10 @@ class DataSelectorPanel(QWidget):
         self.contrast_window = None            # Scattering Contrast Calculator
         self.fractals_window = None            # Fractals (mass fractal aggregate) panel
         self.saxs_morph_window = None          # SAXS Morph (3D voxelgram) panel
+        # Standalone read-only voxel viewers spawned by Create Graph with
+        # the Fractals / 3D-saxsMorph checkboxes.  We keep references so
+        # Python does not GC them; each viewer removes itself on close.
+        self._standalone_voxel_viewers: list = []
         self._batch_worker = None      # Batch fitting thread
 
         # Initialize state manager
@@ -4389,95 +4393,113 @@ class DataSelectorPanel(QWidget):
         self.fractals_window = None
 
     # ── Visualization for "Create Graph" with 3D-tool checkboxes ─────────
+    #
+    # When a user checks "Fractals" or "3D saxsMorph" and clicks
+    # **Create Graph**, we do NOT open the full SAXS-Morph / Fractals
+    # tool (which would force a recompute).  We just load the saved 3D
+    # voxelgram from the NeXus file and display it in a standalone
+    # `VoxelViewerWindow` (the same `Slice2DViewer` + `Voxel3DViewer`
+    # pair the parent tools use, but read-only).  Tabulate / Report /
+    # Export-ASCII don't apply to either tool, so they ignore these
+    # checkboxes.
 
     def _open_saxs_morph_viewer(self, file_paths) -> int:
-        """Open the saxsMorph viewer with the first file that has stored
-        results.  Returns the count of files for which results were found."""
+        """Open a standalone 2D + 3D viewer pre-loaded with stored saxsMorph
+        voxelgrams from the selected files.  Returns the number of files
+        whose results were displayed."""
         from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
-        usable = []
+        from pyirena.gui.saxs_morph_3d import VoxelViewerWindow
+
+        items = []
         for fp in file_paths:
             try:
-                if load_saxs_morph_results(Path(fp)) is not None:
-                    usable.append(fp)
+                res = load_saxs_morph_results(Path(fp))
             except Exception:
                 continue
-        if not usable:
+            if not res or 'voxelgram' not in res:
+                continue
+            vox = res['voxelgram']
+            pitch = float(res.get('voxel_pitch_A', 1.0)) or 1.0
+            label = (f'{Path(fp).name}  '
+                     f'(saxsMorph, {vox.shape[0]}³, pitch={pitch:.3g} Å)')
+            items.append({'voxelgram': vox, 'pitch_A': pitch, 'label': label})
+
+        if not items:
             QMessageBox.information(
                 self, "No saxsMorph results",
                 "None of the selected files contain stored 3D saxsMorph results.",
             )
             return 0
 
-        # Open SaxsMorphPanel (re-uses the full panel — user can inspect 2D + 3D)
-        from pyirena.gui.saxs_morph_panel import SaxsMorphPanel
-        if self.saxs_morph_window is None:
-            self.saxs_morph_window = SaxsMorphPanel()
-            self.saxs_morph_window.destroyed.connect(self._on_saxs_morph_destroyed)
-        # Just load the first usable file — populates I(Q), then the panel
-        # auto-renders saved voxelgram via Calculate 3D action history (or
-        # the user can re-run Calculate 3D themselves).  Showing stored
-        # voxelgrams without recompute is a panel-side enhancement; for
-        # now this gets the user to the right tool with the right data.
-        try:
-            self.saxs_morph_window.load_file(Path(usable[0]))
-        except Exception as exc:
-            QMessageBox.warning(self, "Load failed",
-                                 f"Could not load {usable[0]}:\n{exc}")
-            return 0
-        self.saxs_morph_window.show()
-        self.saxs_morph_window.raise_()
-        self.saxs_morph_window.activateWindow()
-        return len(usable)
+        win = VoxelViewerWindow(items, title='3D saxsMorph — stored results',
+                                 parent=self)
+        # Keep a reference so Python doesn't GC it; clear on close.
+        self._standalone_voxel_viewers.append(win)
+        win.destroyed.connect(
+            lambda _o=None, w=win: self._standalone_voxel_viewers.remove(w)
+            if w in self._standalone_voxel_viewers else None
+        )
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        return len(items)
 
     def _open_fractals_viewer(self, file_paths) -> int:
-        """Open the Fractals viewer pre-populated with stored aggregates from
-        all selected files.  Returns the count of files where any aggregate
-        was found."""
+        """Open a standalone 2D + 3D viewer pre-loaded with stored fractal
+        aggregates from the selected files.  Each saved aggregate is
+        re-voxelised on the fly with the same display geometry the
+        Fractals tool uses (`oversample=10, sphere_voxel_radius=10` —
+        the chunky-sphere render that makes the aggregate look connected).
+        Returns the number of aggregates displayed."""
         from pyirena.io.nxcansas_fractals import (
             list_fractal_aggregates, load_fractal_aggregate,
         )
-        from pyirena.gui.fractals_panel import FractalsGraphWindow
+        from pyirena.core.fractals import voxelize
+        from pyirena.gui.saxs_morph_3d import VoxelViewerWindow
 
-        if self.fractals_window is None:
-            self.fractals_window = FractalsGraphWindow(state_manager=self.state_manager)
-            self.fractals_window.destroyed.connect(self._on_fractals_destroyed)
-
-        n_files_with_aggs = 0
-        n_aggs_loaded = 0
+        items = []
         for fp in file_paths:
             try:
                 entries = list_fractal_aggregates(Path(fp))
             except Exception:
                 continue
-            if not entries:
-                continue
-            n_files_with_aggs += 1
             for e in entries:
                 try:
-                    agg = load_fractal_aggregate(Path(fp), e["group_path"])
-                    agg.label = (agg.label or e["name"]) + f" — {Path(fp).name}"
-                    self.fractals_window.panel._aggregates.append(agg)
-                    n_aggs_loaded += 1
+                    agg = load_fractal_aggregate(Path(fp), e['group_path'])
                 except Exception:
                     continue
+                try:
+                    voxelgram, _pitch_lattice = voxelize(
+                        agg.positions,
+                        oversample=10, sphere_voxel_radius=10,
+                    )
+                except Exception:
+                    continue
+                pitch_A = float(agg.params.primary_diameter) / 10.0
+                label = (f'{Path(fp).name} : {e["name"]}  '
+                         f'(Z={agg.params.z}, df={agg.params.df:.2f})')
+                items.append({'voxelgram': voxelgram,
+                              'pitch_A': pitch_A,
+                              'label': label})
 
-        if n_files_with_aggs == 0:
+        if not items:
             QMessageBox.information(
                 self, "No Fractals results",
                 "None of the selected files contain stored Fractals aggregates.",
             )
             return 0
 
-        # Refresh the list and show the most recently-loaded aggregate
-        self.fractals_window.panel._refresh_aggregates_list()
-        if n_aggs_loaded > 0:
-            self.fractals_window.panel.agg_list.setCurrentRow(
-                self.fractals_window.panel.agg_list.count() - 1
-            )
-        self.fractals_window.show()
-        self.fractals_window.raise_()
-        self.fractals_window.activateWindow()
-        return n_files_with_aggs
+        win = VoxelViewerWindow(items, title='Fractals — stored aggregates',
+                                 parent=self)
+        self._standalone_voxel_viewers.append(win)
+        win.destroyed.connect(
+            lambda _o=None, w=win: self._standalone_voxel_viewers.remove(w)
+            if w in self._standalone_voxel_viewers else None
+        )
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        return len(items)
 
     def launch_hdf5_viewer(self):
         """Open the HDF5 Viewer / Data Extractor for the current folder."""

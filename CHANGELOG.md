@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Data Selector "Create Graph" with Fractals / 3D-saxsMorph
+  checkboxes now opens a standalone read-only viewer**, not the full
+  tool.  Previously checking either box and clicking Create Graph
+  launched the full SaxsMorphPanel / FractalsGraphWindow with the
+  selected file pre-loaded — useful but heavyweight (the panel re-runs
+  the engine).  The new behaviour:
+    - Reads the saved voxelgram (saxsMorph) or aggregate positions
+      (Fractals, re-voxelised with the chunky-sphere display geometry)
+      directly from the NeXus file.
+    - Displays it in a new `VoxelViewerWindow` that holds the same
+      `Slice2DViewer` + `Voxel3DViewer` pair the parent tools use.
+    - When multiple files / aggregates are selected, a dropdown at
+      the top lets the user switch between them inside the same window.
+  No engine, no fitting, no Calculate button — pure visualisation of
+  saved data.  Tabulate, Create Report and Export ASCII intentionally
+  ignore these checkboxes (no meaningful per-file table or curve to
+  emit for these visualisation tools).
+
 ### Added
 
 - **saxsMorph: vertical Q_box marker on the I(Q) plot.**  Sits at
