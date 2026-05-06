@@ -233,7 +233,6 @@ and an `@analysis_type` tag identifying the tool.
 
 Source: `pyirena/io/nxcansas_unified.py`.
 
-Detailed reference document: `docs/NXcanSAS_UnifiedFit_Format.md`.
 Summary tree:
 
 ```
@@ -665,7 +664,92 @@ loads the cube as an Igor 3-D wave (the HDF5 XOP transparently
 decompresses gzip-chunked datasets). For partial loads — e.g. one
 slice — use `HDF5LoadData /SLAB=...` to read only the chunk you need.
 
-### 3.7 entry/data_merge_results/ — Data Merge (provenance only)
+### 3.7 entry/fractals_results/ — Fractal Aggregates (GUI-only)
+
+Source: `pyirena/io/nxcansas_fractals.py`.
+
+Mass-fractal aggregate visualisation.  The Fractals tool is **GUI-only** — it
+has no batch/scripting API.  It grows random aggregates on a simple cubic lattice
+by Monte-Carlo random walk, computes fractal descriptors, and optionally
+back-calculates I(Q) for comparison with a Unified Fit result.
+
+Unlike every other tool, the root group is `NXcollection` (not `NXprocess`),
+because it is a **container** for multiple independently grown aggregates.  Each
+aggregate lives in its own `aggregate_{N}` sub-group (1-based auto-increment).
+Multiple aggregates from different growth runs coexist freely in the same file —
+they are appended, not overwritten.
+
+```
+entry/fractals_results/                   [NXcollection]
+├── @NX_class       = "NXcollection"
+│
+└── aggregate_1/, aggregate_2/, …         [NXprocess, one per grown aggregate]
+    ├── @NX_class       = "NXprocess"
+    ├── @analysis_type  = "Mass Fractal Aggregate"
+    ├── @program        = "pyirena"
+    ├── @timestamp      (ISO string)
+    ├── @uuid           (string — unique identifier, set at grow time)
+    ├── @label          (string — user label, may be empty)
+    │
+    ├── positions       (int32, (Z, 3), gzip)
+    │                    — lattice coordinates of all Z primary spheres
+    ├── neighbor_list   (int32, (Z, max_nb), gzip)
+    │                    — neighbor indices per primary sphere
+    ├── neighbor_count  (uint8, (Z,), gzip)
+    │                    — number of neighbors per sphere
+    ├── attempt_value   (int64, scalar)
+    │                    — number of placement attempts before acceptance
+    │
+    ├── parameters/     [group — computed fractal descriptors]
+    │   ├── Z                        (int,     scalar) number of primary spheres
+    │   ├── dmin                     (float64, scalar) minimum path dimension
+    │   ├── c                        (float64, scalar) connectivity dimension
+    │   ├── df                       (float64, scalar) mass-fractal dimension
+    │   ├── R_dimensionless          (float64, scalar) dimensionless radius
+    │   ├── p                        (float64, scalar) path statistics exponent
+    │   ├── s                        (float64, scalar) path statistics prefactor
+    │   ├── RgPrimary                (float64, scalar) Å — Rg of one primary sphere
+    │   ├── RgAggregate              (float64, scalar) Å — Rg of the full aggregate
+    │   ├── PrimaryDiameter          (float64, scalar) Å — primary sphere diameter
+    │   ├── TrueStickingProbability  (float64, scalar) 0–1
+    │   ├── NumEndpoints             (int,     scalar) number of chain endpoints
+    │   └── NumPathsUsed             (int,     scalar) paths sampled for statistics
+    │
+    ├── input_params/   [group — growth configuration used]
+    │   ├── StickingProbability      (float64, scalar, 0–1)
+    │   ├── NumberOfTestPaths        (int,     scalar)
+    │   ├── AllowedNearDistance      (int,     scalar — lattice units)
+    │   ├── @MultiParticleAttraction (string attribute) "Neutral"|"Attractive"|"Repulsive"
+    │   └── Seed                     (int,     scalar — RNG seed used)
+    │
+    └── intensity/      [group, optional — present only when I(Q) was computed]
+        ├── Q            (float64, Nq, units="1/angstrom")
+        ├── I_unified    (float64, Nq, optional — Unified analytical model)
+        └── I_montecarlo (float64, Nq, optional — MC-computed I(Q))
+```
+
+**Fractal parameter definitions** (after Beaucage 1995, Sorensen & Roberts 1997):
+
+| Parameter | Symbol | Description |
+|-----------|--------|-------------|
+| `Z` | Z | Number of primary spheres in the aggregate |
+| `df` | df | Mass-fractal dimension (typically 1.5–2.5) |
+| `dmin` | dmin | Minimum path dimension (path-length / size scaling) |
+| `c` | c | Connectivity dimension (Z ~ R^c) |
+| `R_dimensionless` | R | R ≡ Rg_aggregate / Rg_primary |
+| `p` | p | Path-statistics exponent |
+| `s` | s | Path-statistics prefactor |
+
+**Igor hint:** `HDF5LoadGroup /R /Z rootDF, fileID, "/entry/fractals_results/aggregate_1"`
+loads the aggregate sub-tree as waves. Iterate sub-groups with
+`GetIndexedObjName(dfPath, 4, i)` to enumerate all aggregates.
+
+**Note:** `entry/fractals_results` is **not** stripped by Data Merge or Data
+Manipulation — aggregates persist across merge and manipulation operations.
+
+---
+
+### 3.8 entry/data_merge_results/ — Data Merge (provenance only)
 
 Source: `pyirena/io/nxcansas_data_merge.py`.
 
@@ -711,7 +795,7 @@ entry/data_manipulation_results
 
 Importers should not assume these groups persist across a merge.
 
-### 3.8 entry/data_manipulation_results/ — Data Manipulation (provenance only)
+### 3.9 entry/data_manipulation_results/ — Data Manipulation (provenance only)
 
 Source: `pyirena/io/nxcansas_data_manipulation.py`.
 
@@ -739,7 +823,7 @@ Rebin, `denominator_file` for Divide, `buffer_file` for Subtract,
 etc. Importers should treat the contents of this group as a free-form
 string-keyed map.
 
-Same strip-list as §3.6 applies before re-saving.
+Same strip-list as §3.8 applies before re-saving.
 
 ---
 
@@ -759,16 +843,21 @@ file.h5
     ├── sizes_results/                ← from Size Distribution tool
     ├── waxs_peakfit_results/         ← from WAXS Peak Fit tool
     ├── modeling_results/             ← from Modeling tool
+    ├── saxs_morph_results/           ← from SAXS Morph tool
+    ├── fractals_results/             ← from Fractals tool (multiple aggregate_N sub-groups)
     ├── data_merge_results/           ← provenance, if file came from Merge
     └── data_manipulation_results/    ← provenance, if file went through Manipulation
 ```
 
 Tools that mutate the primary data (Data Merge, Data Manipulation)
-strip prior result groups before writing — see the strip list in §3.6.
+strip prior result groups before writing — see the strip list in §3.8.
+Note that `saxs_morph_results` and `fractals_results` are **not** on
+the strip list and therefore survive merge and manipulation operations.
 
-Tools that only compute results (Unified Fit, Simple Fits, Sizes,
-WAXS Peak Fit, Modeling) overwrite their *own* group when re-run but
-leave other tools' results intact.
+Tools that only compute results (Unified Fit, Simple Fits, Sizes, WAXS
+Peak Fit, Modeling, SAXS Morph) overwrite their *own* group when re-run
+but leave other tools' results intact.  The Fractals tool appends a new
+`aggregate_{N}` sub-group on each save rather than overwriting.
 
 An importer that wants to enumerate *all* available analysis results
 in a file should simply walk `entry/*` and look for groups with
@@ -802,8 +891,42 @@ with h5py.File("mydata.h5", "r") as f:
 ```
 
 The pyirena library provides `load_*_results` helpers in
-`pyirena.io.nxcansas_*` that wrap each group. See those modules'
-docstrings for the returned-dict schema.
+`pyirena.io.nxcansas_*` that wrap each group.  Using them is simpler
+than reading h5py directly:
+
+```python
+from pathlib import Path
+from pyirena.io.nxcansas_unified import load_unified_fit_results
+from pyirena.io.nxcansas_sizes import load_sizes_results
+from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
+from pyirena.io.nxcansas_fractals import list_fractal_aggregates, load_fractal_aggregate
+
+p = Path("mydata.h5")
+
+# Unified Fit — returns dict with 'Q', 'intensity_data', 'intensity_model',
+# 'residuals', 'num_levels', 'background', 'chi_squared', 'levels' list
+uf = load_unified_fit_results(p)
+if uf:
+    for lv in uf['levels']:
+        print(f"Level {lv['level_number']}: Rg={lv['Rg']:.1f} Å  G={lv['G']:.3e}")
+
+# Size Distribution — returns dict matching the group layout in §3.3
+sz = load_sizes_results(p)
+if sz:
+    print(f"Volume fraction = {sz['volume_fraction']:.4g}")
+
+# SAXS Morph — returns dict or None if the group is absent
+sm = load_saxs_morph_results(p)
+if sm:
+    voxelgram = sm['voxelgram']    # uint8 ndarray (N, N, N)
+    print(f"φ_actual = {sm['phi_actual']:.4f}  pitch = {sm['voxel_pitch_A']:.2f} Å")
+
+# Fractals — enumerate and load aggregates
+for entry in list_fractal_aggregates(p):
+    print(f"{entry['name']}: Z={entry['Z']}, df={entry['df']:.3f}")
+    agg = load_fractal_aggregate(p, entry['group_path'])
+    print(f"  Rg_aggregate = {agg.params.rg_aggregate:.1f} Å")
+```
 
 ### 5.2 Igor Pro 9/10
 
@@ -908,11 +1031,13 @@ the original Matilda format and is not expected to change.
 
 ## See also
 
-- `docs/NXcanSAS_UnifiedFit_Format.md` — extended Unified Fit format
-  reference with worked examples.
 - `pyirena/io/nxcansas_*.py` — authoritative source code for every
-  result group writer.
+  result group writer/reader.
 - `pyirena/io/hdf5.py` — `readGenericNXcanSAS()` and
   `find_matching_groups()` for generic NXcanSAS reading.
+- `docs/fractals_gui.md` — Fractals tool user guide (fractal parameter
+  theory, growth algorithm, I(Q) back-calculation).
+- `docs/saxs_morph_gui.md` — SAXS Morph tool user guide (Gaussian Random
+  Fields method, background pre-fit, 3D rendering).
 - NeXus standard — http://www.nexusformat.org/
 - NXcanSAS standard — https://www.cansas.org/formats/canSAS2012/1.1/doc/index.html
