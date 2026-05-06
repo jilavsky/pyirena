@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **saxsMorph: vertical Q_box marker on the I(Q) plot.**  Sits at
+  `Q_box = 2π / box_size_A` and indicates the LOW-Q model-validity
+  limit: below this Q the simulation box is smaller than the structure
+  the data is asking the model to represent (no Guinier plateau can
+  appear because the box truncates the autocorrelation).  The marker
+  updates immediately when the user types a new box size.  Together
+  with the existing `Q_nyq` (high-Q voxel-resolution marker, now
+  augmented by the analytical Porod extension), users see the full
+  valid Q range at a glance.
+- **saxsMorph: warning before Calculate when Q_min < 3 × Q_box.**
+  The simulation box of side L can only represent structures with a
+  longest scale of ~L/2; the lowest Q the model can faithfully
+  reproduce is therefore ~Q_box = 2π/L.  When the cursor-set Q_min is
+  within 3× of Q_box, the panel pops a Yes/No dialog explaining the
+  ratio and recommending the user either move the LEFT cursor to
+  higher Q or increase the box size.  Calculate proceeds only on Yes.
+- **Fractals: red warning when a loaded Unified-fit gives c < 1.**
+  Connectivity dimension `c` must be ≥ 1 for any branched / fractal
+  aggregate (chains have c=1; branched fractals c≈1.1–1.4).  When the
+  Igor-style derivation from a NeXus Unified-fit pair yields c < 1
+  the data simply cannot be modelled as a mass-fractal aggregate
+  (Z, dmin, df all become non-physical).  The targets box at the top
+  of the panel turns red with a "⚠ NOT a valid fractal" banner, and
+  the compact summary above the Active Aggregate Parameters widget
+  also flips to red so the warning stays visible no matter where the
+  user has scrolled.  Matches the equivalent Igor-Pro warning.
+
+### Added
+
 - **saxsMorph: model now extends above the voxel-Nyquist Q with a clean
   analytical Porod tail K/Q⁴.**  `voxelgram_to_iq` gains a
   `high_q_mode` parameter with three settings:

@@ -191,6 +191,7 @@ class SaxsMorphGraphWindow(QWidget):
         self._corr_item = None
         self._model_item = None
         self._qmax_marker = None
+        self._qbox_marker = None
         self._annotation_items: list = []
 
         self._build_ui()
@@ -319,6 +320,7 @@ class SaxsMorphGraphWindow(QWidget):
         self._bg_curve_item = None
         self._corr_item = None
         self._qmax_marker = None
+        self._qbox_marker = None
         self._model_item = None
         self._model_item = None
         self.clear_annotations()
@@ -425,6 +427,34 @@ class SaxsMorphGraphWindow(QWidget):
                        'fill': (255, 255, 255, 200)},
         )
         self.iq_plot.addItem(self._qmax_marker)
+
+    def set_qbox_marker(self, q_box_A: Optional[float]):
+        """Vertical dashed line at the box-size Q  (Q_box = 2π / box_size_A).
+
+        Below this Q the simulation box is smaller than the structure so
+        the model literally cannot represent that size scale (no Guinier
+        plateau is visible because the box truncates the autocorrelation
+        before it decays).  Useful for users to see the LOW-Q limit of
+        the model alongside the HIGH-Q Q_nyq limit.
+
+        Pass None to clear.
+        """
+        if self._qbox_marker is not None:
+            try:
+                self.iq_plot.removeItem(self._qbox_marker)
+            except Exception:
+                pass
+            self._qbox_marker = None
+        if q_box_A is None or not np.isfinite(q_box_A) or q_box_A <= 0:
+            return
+        self._qbox_marker = _SafeInfiniteLine(
+            pos=float(np.log10(q_box_A)), angle=90, movable=False,
+            pen=pg.mkPen('#7f8c8d', width=1, style=Qt.PenStyle.DashLine),
+            label='Q_box (model invalid below)',
+            labelOpts={'position': 0.08, 'color': '#7f8c8d',
+                       'fill': (255, 255, 255, 200)},
+        )
+        self.iq_plot.addItem(self._qbox_marker)
 
     def add_annotation(self, text: str, corner: str = 'lower_left'):
         item = add_plot_annotation(self.iq_plot, text, corner=corner)
@@ -874,6 +904,10 @@ class SaxsMorphPanel(QWidget):
             'length of interest and the box is at least a few correlation\n'
             'lengths across (e.g. pitch ~ 5 Å for a 20 Å feature).'
         )
+        # Update Q_box marker on the I(Q) plot whenever the user changes
+        # the box size — gives immediate feedback on where the LOW-Q
+        # validity limit of the model sits relative to the data.
+        self.box_size_edit.editingFinished.connect(self._refresh_qbox_marker)
         g.addWidget(self.box_size_edit, 1, 1)
 
         g.addWidget(QLabel('RNG seed:'), 2, 0)
@@ -1156,6 +1190,23 @@ class SaxsMorphPanel(QWidget):
 
     # ── Signal handlers ──────────────────────────────────────────────────
 
+    def _refresh_qbox_marker(self):
+        """Push current box-size value to the I(Q) plot's Q_box marker.
+
+        Called on init, on every box-size text edit, and after any calc.
+        Q_box = 2π / box_size_A.  Below this Q the model literally cannot
+        resolve scales larger than the box — the marker tells the user
+        where the model's LOW-Q validity ends.
+        """
+        try:
+            box = _parse(self.box_size_edit.text(), 0.0)
+        except Exception:
+            box = 0.0
+        if box > 0:
+            self.graph.set_qbox_marker(2.0 * np.pi / float(box))
+        else:
+            self.graph.set_qbox_marker(None)
+
     def _on_mode_changed(self, *_):
         """Grey out the derived field and tag the input/derived fields."""
         mode = self.mode_combo.currentData()
@@ -1265,6 +1316,9 @@ class SaxsMorphPanel(QWidget):
             self.graph.set_q_range(sq_min, sq_max)
 
         self._on_cursor_moved()
+        # Show the Q_box marker as soon as data is loaded so the user
+        # can judge from the start whether their Q range is meaningful.
+        self._refresh_qbox_marker()
 
     # ── Action: Graph Model ──────────────────────────────────────────────
 
@@ -1372,6 +1426,38 @@ class SaxsMorphPanel(QWidget):
             QMessageBox.warning(self, 'Bad parameters', str(e))
             return
 
+        # ── Sanity check: Q_min vs box size ──────────────────────────────
+        # The simulation box of side L can only represent structures with
+        # a longest scale of ~L/2.  The lowest Q the model can faithfully
+        # reproduce is therefore around Q_box = 2π/L.  As a rule of thumb,
+        # the cursor-set Q_min should be at least 3-5× larger than Q_box;
+        # otherwise the model cannot show a Guinier plateau that the data
+        # is asking it to fit, and chi² is dominated by an unphysical
+        # mismatch at low Q.  (Above the voxel-Nyquist Q the recently-
+        # added analytical Porod extension takes over, so the high-Q
+        # constraint is much looser.)
+        if cfg.q_min is not None and cfg.box_size_A and cfg.box_size_A > 0:
+            q_box = 2.0 * np.pi / float(cfg.box_size_A)
+            if cfg.q_min < 3.0 * q_box:
+                ratio = cfg.q_min / q_box if q_box > 0 else float('nan')
+                btn = QMessageBox.warning(
+                    self,
+                    'Q_min may be too small for box size',
+                    (f'Modelling Q_min = {cfg.q_min:.4g} 1/Å is only '
+                     f'{ratio:.2f}× the box-size limit '
+                     f'Q_box = 2π/L = {q_box:.4g} 1/Å.\n\n'
+                     f'Recommended: Q_min ≥ 3-5 × Q_box so the simulation '
+                     f'box (L = {cfg.box_size_A:.0f} Å) is large enough '
+                     f'to contain the longest features the data probes.\n\n'
+                     f'Either move the LEFT cursor to higher Q, or '
+                     f'increase the box size.\n\n'
+                     f'Calculate anyway?'),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if btn != QMessageBox.StandardButton.Yes:
+                    return
+
         # Show the busy banner and disable the button IMMEDIATELY so the
         # user gets visual feedback before the compute starts.
         self._calculating = True
@@ -1426,6 +1512,10 @@ class SaxsMorphPanel(QWidget):
         )
         self.graph.plot_model_iq(result.model_q, result.model_I)
         self.graph.set_qmax_marker(getattr(result, 'q_max_model_A', None))
+        # Q_box = 2π/box_size_A — model is invalid below this Q because
+        # the simulation box is smaller than the structure being probed.
+        if result.box_size_A and result.box_size_A > 0:
+            self.graph.set_qbox_marker(2.0 * np.pi / float(result.box_size_A))
         # Push the voxelgram to the 2D slice + 3D viewers.
         # 2D slice always gets the binary cube; 3D viewer gets optionally
         # smoothed for better isosurface rendering.

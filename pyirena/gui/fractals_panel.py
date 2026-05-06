@@ -919,27 +919,73 @@ class FractalsPanel(QWidget):
                     "color:#7f8c8d;font-size:10pt;font-style:italic;padding:2px;")
             return
         t = self._targets
+        # Sanity check on c (connectivity dimension): physically c MUST be
+        # ≥ 1 for any branched / fractal aggregate (chains have c=1, more
+        # connected branches have c>1).  Igor's code carries the same
+        # warning — when the Unified-fit numbers give c<1 the data simply
+        # cannot be modelled by a mass-fractal aggregate (Z, dmin, df all
+        # become non-physical too).  Show in RED so the user notices.
+        c = t.get('c_target')
+        c_invalid = (
+            isinstance(c, (int, float))
+            and math.isfinite(float(c))
+            and float(c) < 1.0
+        )
         # Top label (full detail) — visible at top of panel
-        msg = (f"<b>Detected fractal pair: levels {t['level_low']} + {t['level_high']}</b><br>"
-               f"<b>Z = {_fmt(t.get('z_target'))}</b>, "
-               f"<b>dmin = {_fmt(t.get('dmin_target'))}</b>, "
-               f"<b>c = {_fmt(t.get('c_target'))}</b>, "
-               f"<b>df = {_fmt(t.get('df'))}</b><br>"
-               f"Rg primary = {_fmt(t['rg_primary'])} Å, "
-               f"Rg aggregate = {_fmt(t['rg_aggregate'])} Å")
-        self.targets_label.setText(msg)
-        self.targets_label.setStyleSheet("color:#16a085;font-size:10pt;padding:4px;")
+        if c_invalid:
+            msg = (
+                f"<b>⚠ Detected fractal pair (levels {t['level_low']} + {t['level_high']}) "
+                f"is NOT a valid fractal:</b><br>"
+                f"connectivity dimension c = {_fmt(c)} &lt; 1.<br>"
+                f"This data cannot be modelled by a mass-fractal aggregate. "
+                f"Check the Unified-fit input or pick a different level pair.<br>"
+                f"<small>(c=1: linear chain; c≈1.1–1.4: branched fractal.  "
+                f"c&lt;1 implies non-physical Z, dmin, df.)</small>"
+            )
+            self.targets_label.setText(msg)
+            self.targets_label.setStyleSheet(
+                "color:#c0392b;font-size:10pt;padding:6px;"
+                "background-color:#fdecea;border:1px solid #c0392b;border-radius:4px;"
+            )
+        else:
+            msg = (
+                f"<b>Detected fractal pair: levels {t['level_low']} + {t['level_high']}</b><br>"
+                f"<b>Z = {_fmt(t.get('z_target'))}</b>, "
+                f"<b>dmin = {_fmt(t.get('dmin_target'))}</b>, "
+                f"<b>c = {_fmt(t.get('c_target'))}</b>, "
+                f"<b>df = {_fmt(t.get('df'))}</b><br>"
+                f"Rg primary = {_fmt(t['rg_primary'])} Å, "
+                f"Rg aggregate = {_fmt(t['rg_aggregate'])} Å"
+            )
+            self.targets_label.setText(msg)
+            self.targets_label.setStyleSheet(
+                "color:#16a085;font-size:10pt;padding:4px;"
+            )
         # Compact summary near "Active aggregate parameters" widget
         if hasattr(self, 'targets_summary_label'):
-            short = (f"<b>Targets — Z={_fmt(t.get('z_target'))}, "
-                     f"dmin={_fmt(t.get('dmin_target'))}, "
-                     f"c={_fmt(t.get('c_target'))}, "
-                     f"df={_fmt(t.get('df'))}, "
-                     f"Rg_p={_fmt(t['rg_primary'])} Å, "
-                     f"Rg_a={_fmt(t['rg_aggregate'])} Å</b>")
-            self.targets_summary_label.setText(short)
-            self.targets_summary_label.setStyleSheet(
-                "color:#16a085;font-size:10pt;padding:2px;")
+            if c_invalid:
+                short = (
+                    f"<b>⚠ Invalid fractal: c = {_fmt(c)} &lt; 1 — "
+                    f"this Unified-fit data is not modellable as a "
+                    f"mass-fractal aggregate.</b>"
+                )
+                self.targets_summary_label.setText(short)
+                self.targets_summary_label.setStyleSheet(
+                    "color:#c0392b;font-size:10pt;padding:2px;"
+                )
+            else:
+                short = (
+                    f"<b>Targets — Z={_fmt(t.get('z_target'))}, "
+                    f"dmin={_fmt(t.get('dmin_target'))}, "
+                    f"c={_fmt(t.get('c_target'))}, "
+                    f"df={_fmt(t.get('df'))}, "
+                    f"Rg_p={_fmt(t['rg_primary'])} Å, "
+                    f"Rg_a={_fmt(t['rg_aggregate'])} Å</b>"
+                )
+                self.targets_summary_label.setText(short)
+                self.targets_summary_label.setStyleSheet(
+                    "color:#16a085;font-size:10pt;padding:2px;"
+                )
 
     # ── Action handlers ──────────────────────────────────────────────────
 
