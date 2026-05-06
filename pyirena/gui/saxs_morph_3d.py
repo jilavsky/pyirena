@@ -631,11 +631,25 @@ class Slice2DViewer(QWidget):
             if ax is not None:
                 ax.setPen(pg.mkPen('k', width=1))
                 ax.setTextPen(pg.mkPen('k'))
-        # Bounding box around the data area.  ImageView's layout when
-        # created with view=PlotItem does not always render the
-        # PlotItem's top/right axes, so a thin ViewBox border is the
-        # robust way to draw a complete frame matching the 3D viewer.
-        plot_item.vb.setBorder(pg.mkPen('k', width=1))
+        # Bounding box around the data area.  Belt-and-braces: try BOTH
+        # known pyqtgraph ways to draw a frame around the ViewBox, plus
+        # showAxis on top/right with showValues=False as a fallback that
+        # adds tick marks completing the box.  Different pyqtgraph
+        # versions / ImageView wrappings respect different combinations.
+        _frame_pen = pg.mkPen('k', width=2)
+        try:
+            plot_item.getViewBox().setBorder(_frame_pen)
+        except Exception:
+            pass
+        for ax_name in ('top', 'right'):
+            try:
+                plot_item.showAxis(ax_name)
+                ax = plot_item.getAxis(ax_name)
+                ax.setStyle(showValues=False)
+                ax.setPen(_frame_pen)
+                ax.setTextPen(pg.mkPen('k'))
+            except Exception:
+                pass
         # Physical axis labels (updated when the slice plane changes).
         # ASCII units so they always render.
         self.image_view.view.setLabel('bottom', 'x [A]', size='9pt', color='k')
