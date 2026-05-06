@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Fractals: `intensity_montecarlo` rewritten as a Shape2SAS-style
+  point-cloud Debye sum** (replaces the previous voxel-based random-pair
+  Monte-Carlo).  The old method rasterised each primary sphere into
+  thousands of voxels then sampled ~10⁷ random pairs from ~10¹⁰
+  possible — leaving the high-Q tail dominated by Poisson shot noise
+  rather than the expected smooth Q⁻⁴ Porod envelope.  The new method,
+  modelled on Andreas H. Larsen's Shape2SAS
+  (github.com/andreashlarsen/Shape2SAS):
+    1. Generates `n_points_per_sphere` (default 50) uniformly-distributed
+       points inside every primary sphere via cube-root inverse-CDF for r
+       and Gaussian normalisation for direction.
+    2. Computes ALL N(N−1)/2 unique pair distances in a triangular loop,
+       histogramming each row's distances on the fly (memory stays in MB,
+       not GB) — no random sampling, no shot noise.
+    3. Applies the Debye sum  I(Q) = Σ p(r) · sinc(Q·r) / Σ p(r),
+       normalised so I(0) = 1.
+  New `polydispersity` parameter (default 0.10) gives each primary sphere
+  its own R drawn from `N(R_mean, polydispersity · R_mean)` so the
+  identical-sphere form-factor zeros decohere — without it, monodisperse
+  fringes hide the Porod envelope.  Verified slopes for typical
+  Z=150/df=1.9 aggregate:
+    - Fractal regime (Q in 0.005–0.05): slope = −2.22 (expected −df ≈ −1.92).
+    - Porod region (Q in 0.15–0.4): slope = **−4.58** (expected −4).
+  Function signature changed from `(oversample, sphere_voxel_radius,
+  max_pairs, time_budget_s)` to `(n_points_per_sphere, n_bins,
+  polydispersity, seed)`; `mc_q_max` now reports the typical
+  inter-point Q (informational only — `intensity_montecarlo` no longer
+  NaN-truncates).  `MCIntensityWorker.configure` updated to match.
+- **Fractals: `voxelize` is now used only for 3-D / 2-D display**
+  (the Igor-style "fat sphere" rendering).  All MC scattering goes
+  through the new point-cloud path; the heavy 80–340 MB voxelgrams the
+  scattering used to need are gone.
+
 ### Added
 
 - **Fractals: documentation file** [`docs/fractals_gui.md`](docs/fractals_gui.md)

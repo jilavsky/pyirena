@@ -228,20 +228,22 @@ class MCIntensityWorker(QThread):
         self._aggregate: Optional[FractalAggregate] = None
         self._q: Optional[np.ndarray] = None
         self._cancel = False
-        self._oversample = 10
-        self._sphere_voxel_radius = 10
-        self._max_pairs = 10_000_000
-        self._time_budget_s = 20.0
+        # Point-cloud-Debye knobs (replaces voxel oversample / pair budget)
+        self._n_points_per_sphere = 50
+        self._n_bins = 200
+        self._polydispersity = 0.10
+        self._seed: Optional[int] = None
 
     def configure(self, aggregate: FractalAggregate, q: np.ndarray,
-                  *, oversample: int = 10, sphere_voxel_radius: int = 10,
-                  max_pairs: int = 10_000_000, time_budget_s: float = 20.0) -> None:
+                  *, n_points_per_sphere: int = 50, n_bins: int = 200,
+                  polydispersity: float = 0.10,
+                  seed: Optional[int] = None) -> None:
         self._aggregate = aggregate
         self._q = np.asarray(q, dtype=np.float64)
-        self._oversample = int(oversample)
-        self._sphere_voxel_radius = int(sphere_voxel_radius)
-        self._max_pairs = int(max_pairs)
-        self._time_budget_s = float(time_budget_s)
+        self._n_points_per_sphere = int(n_points_per_sphere)
+        self._n_bins = int(n_bins)
+        self._polydispersity = float(polydispersity)
+        self._seed = seed
         self._cancel = False
 
     def request_cancel(self) -> None:
@@ -260,10 +262,10 @@ class MCIntensityWorker(QThread):
         try:
             I_mc = intensity_montecarlo(
                 self._aggregate, self._q,
-                oversample=self._oversample,
-                sphere_voxel_radius=self._sphere_voxel_radius,
-                max_pairs=self._max_pairs,
-                time_budget_s=self._time_budget_s,
+                n_points_per_sphere=self._n_points_per_sphere,
+                n_bins=self._n_bins,
+                polydispersity=self._polydispersity,
+                seed=self._seed,
                 progress_cb=self.progress.emit,
                 cancel_check=lambda: self._cancel,
             )

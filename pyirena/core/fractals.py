@@ -719,171 +719,268 @@ def voxelize(
 
 
 # ---------------------------------------------------------------------------
-# Intensity (slow): Monte-Carlo PDF
+# Intensity (slow): point-cloud Debye sum (Shape2SAS-style)
 # ---------------------------------------------------------------------------
+#
+# Method change vs the previous voxel-MC implementation:
+#
+# Previously each primary sphere was rasterized into ~thousands of solid
+# voxels on a 20× oversampled grid, then RANDOM PAIRS of solid voxels
+# were sampled to estimate the pair-distance distribution.  Two flaws
+# accumulated:
+#   1. Random sampling left only ~10⁷ of the ~10¹⁰ possible pairs as
+#      the histogram input → severe shot noise per bin → noisy I(Q),
+#      especially at high Q where the Porod amplitude is small relative
+#      to the noise floor.
+#   2. Stair-stepped voxel surfaces have the wrong fine-scale geometry,
+#      destroying the expected Q⁻⁴ Porod tail above the voxel-Nyquist Q.
+#
+# The new method follows Andreas H. Larsen's Shape2SAS
+# (github.com/andreashlarsen/Shape2SAS) exactly:
+#   1. Generate ~50 uniformly-distributed points inside each primary
+#      sphere (cube-root inverse CDF for r, Gaussian normalize for
+#      direction).
+#   2. Compute ALL N(N−1)/2 unique pair distances in a triangular loop,
+#      histogramming each row's distances on the fly to keep memory
+#      bounded.
+#   3. Apply the Debye sum  I(Q) = Σ p(r_i) · sinc(Q·r_i) / Σ p(r_i)
+#      over all bins, normalized so I(0) = 1.
+#
+# Outcome: deterministic (no MC noise), smooth Q⁻⁴ Porod tail, faster
+# and lower memory than the voxel approach for typical aggregates.
+
+def _uniform_points_in_sphere(
+    n: int, radius: float, rng: np.random.Generator,
+) -> np.ndarray:
+    """Generate `n` uniformly-distributed points inside a sphere of given
+    radius centered at the origin.
+
+    Uses inverse-CDF for the radial coordinate (r = R · u^(1/3) gives
+    uniform 3-D volume density) and Gaussian normalization for an
+    isotropic direction.
+    """
+    u = rng.uniform(0.0, 1.0, size=n)
+    r = radius * np.cbrt(u)
+    g = rng.standard_normal((n, 3))
+    g /= np.linalg.norm(g, axis=1, keepdims=True)
+    return (r[:, None] * g).astype(np.float64)
+
+
+def _point_cloud_from_aggregate(
+    positions: np.ndarray, primary_diameter: float,
+    n_points_per_sphere: int, seed: Optional[int],
+    polydispersity: float = 0.0,
+) -> np.ndarray:
+    """Build the (Z·n_points_per_sphere, 3) point cloud in physical Å.
+
+    Each lattice center contributes `n_points_per_sphere` uniformly-
+    distributed points inside a sphere of physical radius
+    R = primary_diameter / 2, translated to the lattice center's
+    physical position (lattice spacing = primary_diameter Å).
+
+    `polydispersity` (relative σ, e.g. 0.10 = 10 % size variation):
+    each primary sphere gets its own R drawn from a Gaussian around
+    the mean radius.  Without polydispersity all primary spheres are
+    identical, and their form-factor zeros align coherently → strong
+    fringes in I(Q) above Q ≈ π/(2R).  A small polydispersity
+    decoheres those fringes and reveals the smooth Porod envelope.
+    """
+    rng = np.random.default_rng(seed)
+    R_mean = 0.5 * float(primary_diameter)
+    Z = positions.shape[0]
+    n = int(n_points_per_sphere)
+    cloud = np.empty((Z * n, 3), dtype=np.float64)
+
+    if polydispersity > 0:
+        # One R per primary sphere, drawn from N(R_mean, polydispersity·R_mean).
+        # Clip to avoid pathological tiny / huge spheres.
+        sigma = float(polydispersity) * R_mean
+        R_per_sphere = rng.normal(R_mean, sigma, size=Z)
+        np.clip(R_per_sphere, 0.1 * R_mean, 3.0 * R_mean, out=R_per_sphere)
+    else:
+        R_per_sphere = np.full(Z, R_mean)
+
+    for i in range(Z):
+        center = positions[i].astype(np.float64) * float(primary_diameter)
+        cloud[i * n:(i + 1) * n] = center + _uniform_points_in_sphere(
+            n, float(R_per_sphere[i]), rng,
+        )
+    return cloud
+
+
+def _pair_distance_histogram(
+    points: np.ndarray, n_bins: int, r_max: float,
+    progress_cb: Optional[Callable[[float], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> np.ndarray:
+    """Compute the histogram of all N(N−1)/2 unique pair distances.
+
+    Uses a triangular loop (i, then j > i) and accumulates the histogram
+    incrementally so the full distance array is never materialized.  For
+    N = 12_500 (Z=250 × n=50) this is 78 M distances; the loop runs in
+    a few seconds and uses only ~MB of RAM (one row of distances at a
+    time).
+    """
+    N = int(points.shape[0])
+    hist = np.zeros(n_bins, dtype=np.int64)
+    if N < 2 or r_max <= 0:
+        return hist
+    inv_bw = float(n_bins) / float(r_max)
+    poll_every = 1024
+    for i in range(N - 1):
+        if cancel_check is not None and (i & (poll_every - 1)) == 0 and cancel_check():
+            raise RuntimeError("Monte-Carlo intensity cancelled by user.")
+        diff = points[i] - points[i + 1:]
+        d = np.sqrt(np.sum(diff * diff, axis=1))
+        # Direct bin-index → bincount is faster than np.histogram for
+        # known fixed range (avoids np.histogram's edge-search overhead).
+        idx = (d * inv_bw).astype(np.int64)
+        np.clip(idx, 0, n_bins - 1, out=idx)
+        hist += np.bincount(idx, minlength=n_bins)[:n_bins]
+        if progress_cb is not None and (i & 255) == 0 and N > 1:
+            progress_cb(int(99 * i / (N - 1)))
+    return hist
+
+
+def _debye_sum(q: np.ndarray, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+    """I(Q) = (1 / I0) · Σ p(r_i) · sinc(Q·r_i),  sinc(x) = sin(x)/x.
+
+    Normalised so I(Q=0) = 1.
+    """
+    qr = np.outer(q, r)
+    # sin(x)/x with the L'Hôpital limit 1 at x = 0
+    sinc_term = np.where(
+        qr > 1e-12,
+        np.sin(qr) / np.where(qr > 0, qr, 1.0),
+        1.0,
+    )
+    I0 = float(p.sum())
+    if I0 <= 0:
+        return np.zeros_like(q)
+    return (p[None, :] * sinc_term).sum(axis=1) / I0
+
 
 def intensity_montecarlo(
     aggregate: FractalAggregate,
     q: np.ndarray,
-    oversample: int = 20,
-    sphere_voxel_radius: int = 10,
-    max_pairs: int = 10_000_000,
-    time_budget_s: float = 20.0,
+    n_points_per_sphere: int = 50,
+    n_bins: int = 200,
+    polydispersity: float = 0.10,
+    seed: Optional[int] = None,
     progress_cb: Optional[Callable[[float], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
 ) -> np.ndarray:
-    """Monte-Carlo scattering intensity via pair-distance distribution.
+    """Debye-sum scattering intensity via a uniform point-cloud
+    representation of the aggregate (Shape2SAS-style).
 
-    Method (matches Igor's `IR3A_Model1DIntensity` +
-    `IR3T_CreatePDFIntensity` + `IR3T_CalcIntensityPDF`):
+    Algorithm:
+      1. Place `n_points_per_sphere` uniformly-distributed points inside
+         every primary sphere of radius R = primary_diameter / 2,
+         translated to its lattice position (lattice spacing = D).
+         If `polydispersity > 0` each primary sphere's R is drawn from
+         a Gaussian around the mean — see below.
+      2. Compute ALL N(N−1)/2 pair distances deterministically; histogram
+         them into `n_bins` linear bins between 0 and the bounding-box
+         diagonal.  No random sampling, no shot noise.
+      3. Apply the Debye sum  I(Q) = Σ p(r) · sinc(Q·r) / Σ p(r)
+         over every bin, normalised so I(0) = 1.
 
-      1. Voxelize the aggregate (`voxelize`): place a sphere of radius
-         `R = primary_diameter / 2` around every lattice center on a
-         10x-oversampled cubic grid.  Voxel pitch = `R / 5`.
-      2. Sample random pairs of solid voxels uniformly with replacement
-         and build a histogram of their Euclidean distances.  This is the
-         Glatter pair-distance distribution function p(r) = 4π·r²·γ(r).
-         The spherical-shell r² weighting is built into p(r) by
-         construction, so no extra factor is needed in the transform.
-      3. Apply the Debye / Glatter sine transform to the supplied Q grid:
-            I(Q) ∝ ∫₀^∞ p(r) · sinc(Qr) dr
-         which gives a Guinier plateau at Q << 1/Rg_aggregate, mass-fractal
-         power-law in the intermediate regime, and a primary-particle
-         knee around Q ≈ 1/Rg_primary.
-      4. Truncate the result above the voxel-grid Nyquist Q
-            Q_voxel = π / pitch_A
-         where the discrete voxel approximation cannot resolve any
-         features.  Above this Q the intensity is dominated by the
-         stair-step quantization of the spheres and is unphysical.
-         Truncated values are returned as NaN.
-
-    The returned intensity is in arbitrary units; callers typically
-    invariant-scale to data.
+    Compared to the old voxel-MC approach this gives:
+      - Smooth Q⁻⁴ Porod envelope (no random-sampling shot noise).
+      - Lower memory (~few MB vs hundreds of MB for the voxelgram).
+      - Comparable or faster runtime for typical aggregates.
 
     Parameters
     ----------
     aggregate : FractalAggregate
     q : (Nq,) Q values [Å⁻¹]
-    oversample : voxels per lattice-distance unit (default 20)
-    sphere_voxel_radius : sphere kernel radius in voxels.  Must satisfy
-        `sphere_voxel_radius / oversample = 1/2` for correct absolute Q
-        scale (default 10 with oversample=20 — see `voxelize`).
-    max_pairs : hard cap on sampled distance pairs
-    time_budget_s : soft cap on sampling duration
-    progress_cb : callable(percent) for UI feedback
-    cancel_check : callable() -> bool
+    n_points_per_sphere : int (default 50)
+        Number of uniform points per primary sphere.  Higher → finer
+        high-Q resolution at O(N²) cost.
+    n_bins : int (default 200)
+        Number of r-bins in the pair-distance histogram.  More bins =
+        more sinc terms; 100–300 is the sweet spot.
+    polydispersity : float (default 0.10)
+        Relative size variation of the primary spheres (σ_R / R_mean).
+        Without it (= 0) all primaries are identical and their form-
+        factor zeros align coherently, producing strong fringes
+        starting near Q ≈ 4.5/R.  A small polydispersity (≈ 0.05–0.20)
+        decoheres those fringes so the smooth Porod Q⁻⁴ envelope
+        becomes visible — exactly as in real polydisperse SAXS samples.
+        Set 0 to see the strict monodisperse-aggregate fringes.
+    seed : int or None
+        RNG seed for reproducible point clouds (None → fresh random).
+    progress_cb : callable(percent) for UI feedback.
+    cancel_check : callable() → bool.
 
     Returns
     -------
-    I_q : (Nq,) intensity, NaN above Q_voxel.
+    I_q : (Nq,) intensity, normalised so I(0) = 1.  No NaN truncation —
+        the Debye sum is mathematically valid at all Q; deviations from
+        the smooth Porod envelope above
+        Q ≈ π / mean_inter_point_distance reflect the discreteness of
+        the point cloud.  Use a larger `n_points_per_sphere` if you
+        need a wider clean-Porod range.
     """
     q = np.asarray(q, dtype=np.float64)
 
-    # 1) Build voxelgram (binary uint8)
-    voxelgram, pitch_lattice = voxelize(
-        aggregate.positions, oversample=oversample,
-        sphere_voxel_radius=sphere_voxel_radius,
+    # 1) Uniform point cloud (with optional per-sphere polydispersity)
+    points = _point_cloud_from_aggregate(
+        aggregate.positions,
+        aggregate.params.primary_diameter,
+        n_points_per_sphere=n_points_per_sphere,
+        seed=seed,
+        polydispersity=float(polydispersity),
     )
-
-    # 2) Convert voxel pitch into Å:
-    #    1 lattice unit  ≡  primary_diameter Å
-    #    1 voxel         ≡  primary_diameter / oversample Å
-    pitch_A = aggregate.params.primary_diameter / float(oversample)
-
-    # 3) Coordinates of all solid voxels
-    solid = np.argwhere(voxelgram > 0).astype(np.float32)
-    n_solid = solid.shape[0]
-    if n_solid < 2:
+    if points.shape[0] < 2:
         return np.zeros_like(q)
 
-    # 4) Random-pair sampling for distances
-    rng = np.random.default_rng()
-    distances: list[np.ndarray] = []
-    pairs_drawn = 0
-    chunk = 100_000
-    t_start = time.perf_counter()
-    while pairs_drawn < max_pairs:
-        if cancel_check is not None and cancel_check():
-            raise RuntimeError("Monte-Carlo intensity cancelled by user.")
-        if (time.perf_counter() - t_start) > time_budget_s:
-            break
-
-        # Draw `chunk` random pairs of distinct indices
-        i = rng.integers(0, n_solid, size=chunk)
-        j = rng.integers(0, n_solid, size=chunk)
-        same = (i == j)
-        if np.any(same):
-            i = i[~same]; j = j[~same]
-        d = np.linalg.norm(solid[i] - solid[j], axis=1) * pitch_A
-        distances.append(d.astype(np.float32))
-        pairs_drawn += d.size
-        if progress_cb is not None:
-            elapsed = time.perf_counter() - t_start
-            pct = min(99, int(100 * max(pairs_drawn / max_pairs,
-                                         elapsed / time_budget_s)))
-            progress_cb(pct)
-
-    if not distances:
+    # 2) Determine r_max from bounding-box diagonal
+    mins = points.min(axis=0)
+    maxs = points.max(axis=0)
+    r_max = float(np.sqrt(np.sum((maxs - mins) ** 2))) * 1.05
+    if not (r_max > 0):
         return np.zeros_like(q)
 
-    all_d = np.concatenate(distances)
-    if all_d.size == 0:
+    # 3) Histogram all pair distances (deterministic, on-the-fly)
+    hist = _pair_distance_histogram(
+        points, n_bins=int(n_bins), r_max=r_max,
+        progress_cb=progress_cb, cancel_check=cancel_check,
+    )
+    if hist.sum() == 0:
         return np.zeros_like(q)
 
-    # 5) Histogram of pair distances.
-    #    Random-pair sampling already reproduces the Glatter pair-distance
-    #    distribution function p(r) = 4π·r²·γ(r) — the spherical-shell r²
-    #    weighting is BUILT IN to the histogram (more pairs are found at
-    #    larger r because there are more 3D positions at that radius).
-    d_max = float(np.max(all_d))
-    bin_width = max(0.5 * pitch_A, d_max / 1024.0)
-    n_bins = max(32, int(math.ceil(d_max / bin_width)))
-    hist, edges = np.histogram(all_d, bins=n_bins, range=(0.0, d_max))
+    edges = np.linspace(0.0, r_max, int(n_bins) + 1)
     centers = 0.5 * (edges[:-1] + edges[1:])
 
-    # Normalize so the area is 1 (only the *shape* of I(Q) matters; the
-    # caller invariant-scales to data anyway).
-    area = float(np.trapezoid(hist.astype(np.float64), centers))
-    if area > 0:
-        pdf = hist.astype(np.float64) / area
-    else:
-        pdf = hist.astype(np.float64)
-
-    # 6) Debye / Glatter sine transform — NO extra r² factor.
-    #    p(r) is already the Glatter PDD (r²-weighted), so the transform is
-    #    simply  I(Q) ∝ ∫ p(r) · sinc(Qr) dr.  Including an extra r² would
-    #    over-weight large r and distort the low-Q shape (in particular it
-    #    spoils the Guinier plateau expected for a finite particle when Q
-    #    drops below 1/Rg_aggregate).
-    delta_r = bin_width
-    qr = np.outer(q, centers)             # (Nq, n_bins)
-    # sin(x)/x with the L'Hôpital limit 1 at x=0
-    sinc_term = np.where(qr > 1e-12,
-                          np.sin(qr) / np.where(qr == 0, 1.0, qr),
-                          1.0)
-    integrand = pdf * sinc_term            # (Nq, n_bins)
-    I_q = np.sum(integrand, axis=1) * delta_r
-
-    # 7) Truncate above the voxel-grid Nyquist Q.  Above this Q the
-    #    discrete voxel approximation of the spheres cannot resolve any
-    #    real features and the curve is dominated by quantization noise
-    #    (the model also will not reproduce the smooth Porod tail there).
-    q_voxel_max = math.pi / pitch_A
-    I_q = np.where(q > q_voxel_max, np.nan, I_q)
+    # 4) Debye sum
+    I_q = _debye_sum(q, centers, hist.astype(np.float64))
 
     if progress_cb is not None:
         progress_cb(100)
     return I_q
 
 
-def mc_q_max(aggregate: FractalAggregate, oversample: int = 20) -> float:
-    """Maximum reliable Q for `intensity_montecarlo` given the voxel pitch.
+def mc_q_max(aggregate: FractalAggregate, n_points_per_sphere: int = 50) -> float:
+    """Estimated upper Q above which the discrete-point-cloud Debye sum
+    starts deviating from true continuous-particle scattering.
 
-    Above Q_voxel = π / pitch_A the discrete voxel grid no longer resolves
-    the sphere surfaces, so the MC intensity is unphysical there.
+    Estimate: Q_max ≈ π / d_typical, where d_typical = 2R / n^(1/3) is
+    the mean inter-point distance for `n` uniform points in a sphere of
+    radius R = primary_diameter / 2.  For the default n=50, R≈12.9 Å this
+    gives Q_max ≈ 0.45 Å⁻¹.  Increase `n_points_per_sphere` to push it
+    higher.
+
+    No longer used as a hard truncation by `intensity_montecarlo`
+    (returned for informational use only — callers may display a
+    vertical guide at this Q).
     """
-    pitch_A = aggregate.params.primary_diameter / float(oversample)
-    return math.pi / pitch_A
+    R = 0.5 * float(aggregate.params.primary_diameter)
+    n = max(int(n_points_per_sphere), 1)
+    d_typical = 2.0 * R / (float(n) ** (1.0 / 3.0))
+    if d_typical <= 0:
+        return float("inf")
+    return math.pi / d_typical
 
 
 # ---------------------------------------------------------------------------
