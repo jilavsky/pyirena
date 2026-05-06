@@ -401,12 +401,13 @@ class SaxsMorphGraphWindow(QWidget):
         )
 
     def set_qmax_marker(self, q_max_A: Optional[float]):
-        """Vertical dashed line at the voxel Nyquist limit Q_max_model.
+        """Vertical dashed line at the voxel Nyquist limit Q_nyq.
 
-        Above this Q the discrete voxel grid cannot resolve features so
-        the structural part of the model is zero — only the fitted Porod
-        background continues.  The marker tells the user where that
-        transition happens.  Pass None to clear.
+        Above this Q the discrete voxel grid cannot resolve features.
+        The model now extends with an analytical Porod tail K/Q⁴ above
+        ~0.7·Q_nyq (K extracted from the FFT itself) so the curve
+        continues smoothly to the right of the marker — the marker is
+        informational, not a hard cutoff.  Pass None to clear.
         """
         if self._qmax_marker is not None:
             try:
@@ -419,7 +420,7 @@ class SaxsMorphGraphWindow(QWidget):
         self._qmax_marker = _SafeInfiniteLine(
             pos=float(np.log10(q_max_A)), angle=90, movable=False,
             pen=pg.mkPen('#7f8c8d', width=1, style=Qt.PenStyle.DashLine),
-            label='Q_max_model',
+            label='Q_nyq (Porod ext. above)',
             labelOpts={'position': 0.92, 'color': '#7f8c8d',
                        'fill': (255, 255, 255, 200)},
         )
@@ -1456,12 +1457,16 @@ class SaxsMorphPanel(QWidget):
                   else '—')
         qmax = getattr(result, 'q_max_model_A', float('nan'))
         qmax_str = f'{qmax:.4g} Å⁻¹' if np.isfinite(qmax) else '—'
+        sv = getattr(result, 'specific_surface_area_inv_A', float('nan'))
+        sv_str = (f'{sv:.4g} Å⁻¹  ({sv * 1e8:.3g} cm⁻¹)'
+                  if np.isfinite(sv) else '—')
         rows_right = [
             ('voxel size',   f'{result.voxel_size}³'),
             ('box size',     f'{result.box_size_A:.4g} Å'),
             ('voxel pitch',  f'{result.voxel_pitch_A:.4g} Å'),
             ('Rg (γ(r))',    rg_str),
-            ('Q_max_model',  qmax_str),
+            ('Q_nyq (vox.)', qmax_str),
+            ('S/V (Porod)',  sv_str),
             ('power-law B',  f'{cfg.power_law_B:.4g}'),
             ('power-law P',  f'{cfg.power_law_P:.4g}'),
             ('flat bg',      f'{cfg.background:.4g}'),

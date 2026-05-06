@@ -45,6 +45,7 @@ voxelgram is rendered at the user-selected ``voxel_size_render`` (up to 512).
 
 from __future__ import annotations
 
+import math
 import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -192,10 +193,24 @@ class SaxsMorphResult:
     rg_A: float = float('nan')
 
     # Voxel Nyquist limit Q_max_model = pi/(2*pitch_A).  Above this Q the
-    # discrete voxel grid cannot resolve features and the structural
-    # contribution to the model is set to 0; the user-supplied Porod
-    # background continues alone.  Marked as a vertical line in the GUI.
+    # discrete voxel grid cannot resolve features.  When the model is
+    # built with high_q_mode='porod' (the new default), the structural
+    # contribution above ~0.7·Q_max_model is the analytical Porod tail
+    # K/Q^4 extracted from the FFT; when high_q_mode='truncate' (legacy)
+    # it is zeroed out so the user-supplied Porod + flat background can
+    # take over.  Marked as a vertical line in the GUI.
     q_max_model_A: float = float('nan')
+
+    # Porod prefactor extracted from the upper reliable Q range of the
+    # FFT result (in I_struct units).  Drives the analytical Porod tail
+    # K/Q^4 used to extend the model above the voxel Nyquist Q.  NaN
+    # when the fit window is empty (e.g. very narrow Q range).
+    porod_K_struct: float = float('nan')
+
+    # Specific surface area S/V derived from porod_K_struct via
+    #   (S/V) [Å⁻¹] = K · 1e4 / (2π)
+    # In cm⁻¹, multiply by 1e8.  NaN when porod_K_struct is NaN.
+    specific_surface_area_inv_A: float = float('nan')
 
     # MC uncertainties (param_name -> std). Empty if not run.
     params_std: dict = field(default_factory=dict)
@@ -498,7 +513,8 @@ def generate_voxelgram(
 def voxelgram_to_iq(
     voxelgram: np.ndarray, voxel_pitch_A: float,
     q_target: np.ndarray,
-    truncate_above_nyquist: bool = True,
+    high_q_mode: str = 'porod',
+    truncate_above_nyquist: Optional[bool] = None,
 ) -> np.ndarray:
     """Compute spherically-averaged structure factor of a binary voxelgram.
 
@@ -513,19 +529,33 @@ def voxelgram_to_iq(
       3. Spherically average into 1-D bins of |k|.
       4. Convert to per-volume intensity: divide by N**3.
       5. Resample onto user q_target by log-log linear interpolation.
+      6. Treat the high-Q region according to ``high_q_mode`` (see below).
 
     Returns I_struct of shape q_target.shape.
 
-    High-Q truncation
-    -----------------
-    Above ``Q_max_model = pi / (2 * pitch_A)`` the discrete voxel grid
-    cannot resolve features (smallest representable feature is ~2 voxels).
-    The FFT in that range is dominated by aliasing, not by the underlying
-    structure.  When ``truncate_above_nyquist`` is True (default), I_struct
-    is set to 0 above this Q.  Combined with the user-supplied background
-    in the caller, the total model intensity above Q_max_model becomes
-    just ``B * Q^-P + flat`` — i.e. the fitted Porod tail naturally
-    extends to higher Q without any extra fitting.
+    High-Q treatment (``high_q_mode``)
+    ----------------------------------
+    Above ``Q_nyq = pi / (2 * pitch_A)`` the discrete voxel grid cannot
+    resolve features (smallest representable feature ~ 2 voxels) and the
+    raw FFT is dominated by aliasing rather than physical structure.
+
+    * ``'porod'`` (default, new) — extend with the analytical Porod tail
+      ``K / Q**4`` above ``0.7 * Q_nyq``.  ``K`` is extracted from the
+      FFT itself in the upper reliable Q range (median of I·Q^4 over
+      [0.5*Q_nyq, 0.9*Q_nyq]) so the extension is continuous with the
+      FFT result and uses no separate surface-area calculation.  The
+      model now spans the full requested Q range with a smooth, physical
+      Q^-4 tail that automatically reflects the structure's specific
+      surface area.  Use ``extract_porod_prefactor()`` to retrieve K
+      and convert to S/V if you want it as a diagnostic.
+    * ``'truncate'`` — old behaviour: set I_struct to 0 above Q_nyq.
+      Combined with the caller's user-supplied Porod + flat background
+      this lets a fitted background continue alone above Q_nyq.
+    * ``'raw'`` — leave the FFT result alone (aliasing-dominated above
+      Q_nyq).  For diagnostic / debugging use only.
+
+    The deprecated ``truncate_above_nyquist`` keyword (bool) is honoured
+    for back-compat: True → 'truncate', False → 'raw'.
     """
     N = voxelgram.shape[0]
     pitch = float(voxel_pitch_A)
@@ -630,14 +660,88 @@ def voxelgram_to_iq(
     log_It = np.interp(log_qt, log_k, log_I, left=log_I[0], right=log_I[-1])
     I_struct = np.exp(log_It)
 
-    if truncate_above_nyquist:
-        # Voxel Nyquist limit: smallest resolvable feature ≈ 2 voxels.
-        # Above this Q the FFT is aliasing, not structure → zero out so
-        # the caller's background (Porod + flat) takes over cleanly.
-        Q_max_model = np.pi / (2.0 * pitch)
-        I_struct = np.where(np.asarray(q_target) > Q_max_model, 0.0, I_struct)
+    # ── High-Q treatment ────────────────────────────────────────────────
+    # Resolve back-compat keyword, then dispatch on high_q_mode.
+    if truncate_above_nyquist is not None:
+        high_q_mode = 'truncate' if truncate_above_nyquist else 'raw'
+
+    Q_nyq = float(np.pi / (2.0 * pitch))
+    q_arr = np.asarray(q_target, dtype=np.float64)
+
+    if high_q_mode == 'truncate':
+        # Old behaviour: zero out above Nyquist so the caller's user-set
+        # Porod + flat background takes over cleanly.
+        I_struct = np.where(q_arr > Q_nyq, 0.0, I_struct)
+    elif high_q_mode == 'porod':
+        # Extend with analytical Porod K/Q^4 above 0.7·Q_nyq, where the
+        # FFT result is still in Porod regime but starting to be eaten
+        # by aliasing.  K is taken from the FFT itself (median of I·Q^4
+        # over [0.5·Q_nyq, 0.9·Q_nyq]) so the extension is continuous.
+        K = extract_porod_prefactor(I_struct, q_arr, Q_nyq)
+        if K is not None and K > 0:
+            Q_extension = 0.7 * Q_nyq
+            above = q_arr > Q_extension
+            I_struct = np.where(
+                above,
+                K / np.maximum(q_arr, 1e-30) ** 4,
+                I_struct,
+            )
+        # If K can't be extracted (no points in the fit window — very
+        # narrow Q range or all-zero spectrum), fall through and leave
+        # the raw FFT result.  Caller can still notice via the missing
+        # porod_K_struct on the result.
+    elif high_q_mode == 'raw':
+        pass  # leave I_struct alone
+    else:
+        raise ValueError(
+            f"unknown high_q_mode={high_q_mode!r}; "
+            f"expected 'porod' / 'truncate' / 'raw'"
+        )
 
     return I_struct
+
+
+def extract_porod_prefactor(
+    I_struct: np.ndarray, q: np.ndarray, Q_nyq: float,
+    q_lo_frac: float = 0.5, q_hi_frac: float = 0.9,
+) -> Optional[float]:
+    """Extract the Porod prefactor K from a structure-factor curve.
+
+    K is defined by the Porod tail  ``I_struct(Q) -> K / Q**4``  in the
+    Porod regime.  We compute it as the median of ``I_struct · Q^4``
+    over ``q in [q_lo_frac · Q_nyq, q_hi_frac · Q_nyq]``, where the FFT
+    is still reliable but Porod scattering dominates over the structure
+    factor.  The median is robust to residual fringes / spherical-
+    counting ripples.
+
+    Returns
+    -------
+    K : float or None
+        ``None`` when no usable points fall in the fit window or all
+        values are non-positive.
+
+    Convert to specific surface area via
+    ``(S/V) [Å⁻¹] = K · 1e4 / (2π)`` (see module docstring for the unit
+    derivation).  In ``cm⁻¹``, multiply by 1e8.
+    """
+    q = np.asarray(q, dtype=np.float64)
+    I = np.asarray(I_struct, dtype=np.float64)
+    mask = (q > q_lo_frac * Q_nyq) & (q < q_hi_frac * Q_nyq) & (I > 0)
+    if not np.any(mask):
+        return None
+    K_per_bin = I[mask] * q[mask] ** 4
+    K = float(np.median(K_per_bin))
+    if not (K > 0 and math.isfinite(K)):
+        return None
+    return K
+
+
+def specific_surface_area_from_K(K_struct: float) -> float:
+    """Convert a Porod prefactor (in I_struct units) to specific surface area.
+
+    Returns S/V in Å⁻¹.  Multiply by 1e8 to get cm⁻¹.
+    """
+    return K_struct * 1.0e4 / (2.0 * math.pi)
 
 
 def compute_invariant_extrapolated(
@@ -978,8 +1082,18 @@ class SaxsMorphEngine:
         rg_A = compute_rg_from_autocorr(r_grid, gamma_r_norm)
         q_max_model_A = float(np.pi / (2.0 * pitch))
 
-        # Model intensity (from binary voxelgram — correct physics)
+        # Model intensity (from binary voxelgram — correct physics).
+        # high_q_mode='porod' (default) extends with K/Q^4 above ~0.7·Q_nyq;
+        # extract K post-hoc from the SAME I_struct so the reported value
+        # matches what is plotted.
         I_struct = voxelgram_to_iq(voxelgram, pitch, q_fit)
+        Q_nyq_local = float(np.pi / (2.0 * pitch))
+        K_struct = extract_porod_prefactor(I_struct, q_fit, Q_nyq_local)
+        if K_struct is not None:
+            S_per_V_inv_A = specific_surface_area_from_K(K_struct)
+        else:
+            K_struct = float('nan')
+            S_per_V_inv_A = float('nan')
         I_model = add_background(
             q_fit, contrast * I_struct,
             config.power_law_B, config.power_law_P, config.background,
@@ -1024,6 +1138,8 @@ class SaxsMorphEngine:
             rng_seed_used=seed_used,
             rg_A=rg_A,
             q_max_model_A=q_max_model_A,
+            porod_K_struct=float(K_struct),
+            specific_surface_area_inv_A=float(S_per_V_inv_A),
         )
 
     # ----- fitting ---------------------------------------------------------

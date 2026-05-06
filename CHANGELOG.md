@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **saxsMorph: model now extends above the voxel-Nyquist Q with a clean
+  analytical Porod tail K/Q⁴.**  `voxelgram_to_iq` gains a
+  `high_q_mode` parameter with three settings:
+    - `'porod'` (new default) — extract Porod prefactor `K = median(I·Q⁴)`
+      from the FFT in `[0.5·Q_nyq, 0.9·Q_nyq]` (where the FFT is still
+      reliable but Porod scattering dominates), then continue as `K/Q⁴`
+      above `0.7·Q_nyq`.  No surface-area calculation needed; the
+      transition is continuous with the FFT result.
+    - `'truncate'` — old behaviour (zero above `Q_nyq`, leaving the
+      user-supplied Porod + flat background to take over).
+    - `'raw'` — leave the FFT result alone (aliasing-dominated above
+      `Q_nyq`); for diagnostic use only.
+  The deprecated `truncate_above_nyquist` keyword is honoured for
+  back-compat (True → `'truncate'`, False → `'raw'`).
+- **saxsMorph: `SaxsMorphResult` gains `porod_K_struct` and
+  `specific_surface_area_inv_A`** (the Porod prefactor in I_struct units
+  and the derived specific surface area S/V in Å⁻¹).  The GUI result
+  table now shows S/V both in Å⁻¹ and cm⁻¹ for a direct physical
+  comparison.  The "Q_max_model" row is renamed "Q_nyq (vox.)" with the
+  in-plot marker label "Q_nyq (Porod ext. above)" so users see the
+  transition rather than expecting a hard cutoff.
+- New helpers `extract_porod_prefactor(I_struct, q, Q_nyq)` and
+  `specific_surface_area_from_K(K)` exposed at the `pyirena.core.saxs_morph`
+  level for callers that want to compute these from a precomputed
+  I_struct / Result without re-running the engine.
+
 ### Fixed
 
 - **Fractals: spurious high-Q "intensity rises above plateau" with large
