@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **3D viewer: rich right-click menu for visual tuning.**  Applies to
+  ALL `Voxel3DViewer` instances — saxsMorph panel, Fractals panel, and
+  the standalone `VoxelViewerWindow` opened from Data Selector.  New
+  options on the right-click menu:
+    - **View ▶** — quick-set standard orientations
+      (XY top, XZ front, YZ side, Isometric) and **Perspective ↔
+      Orthographic** projection toggle.
+    - **Lighting ▶** — switch between **Default headlight** and
+      **3-point light kit** (key/fill/back rig — gives surfaces a
+      stronger sense of form).  Three independent post-processing
+      toggles, each composable on top of any lighting mode:
+        - **Eye-dome lighting (EDL)** — darkens silhouette edges so
+          features pop visually; massive readability boost for fractal
+          aggregates.
+        - **SSAO (depth shading in crevices)** — screen-space ambient
+          occlusion; darkens concavities to give a true 3-D-cavity
+          feel to porous saxsMorph volumes.
+        - **Cast shadows** — real cast shadows from positional lights
+          (most visible with the 3-point light kit).
+  All toggles default to OFF so the initial render matches the
+  previous behaviour; users opt in.  Each handler is wrapped in
+  `try/except` so an unsupported feature on an older VTK falls back
+  silently rather than crashing the viewer.
+
+### Added
+
 - **saxsMorph: "Save config to JSON…" button.**  Persists the current
   saxsMorph parameters (voxel grid, box, input-mode, φ / contrast,
   background pre-fit Q ranges + values, smoothing σ, RNG seed, fit Q

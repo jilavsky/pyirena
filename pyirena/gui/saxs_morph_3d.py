@@ -106,6 +106,16 @@ class Voxel3DViewer(QWidget):
         self._pitch_A = 1.0
         self._mesh = None
 
+        # ── Visual-tuning state ──────────────────────────────────────────
+        # All toggles default to OFF / "default" so the initial render
+        # matches the current behaviour; users opt in via the right-click
+        # menu.  State persists for the lifetime of the viewer instance.
+        self._lighting_mode = 'default'      # 'default' (headlight) | 'lightkit'
+        self._edl_on = False                 # eye-dome lighting
+        self._ssao_on = False                # screen-space ambient occlusion
+        self._shadows_on = False             # cast shadows from positional lights
+        self._parallel_projection = False    # False=perspective, True=orthographic
+
         if HAS_PYVISTA:
             self._build_ui()
         else:
@@ -127,10 +137,74 @@ class Voxel3DViewer(QWidget):
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
+
+        # ── Reset view ───────────────────────────────────────────────────
         a_reset = QAction('Reset view', self)
         a_reset.triggered.connect(self.reset_view)
         menu.addAction(a_reset)
 
+        menu.addSeparator()
+
+        # ── View submenu ─────────────────────────────────────────────────
+        view_menu = menu.addMenu('View')
+        for label, callback in (
+            ('XY plane (top)',   self._view_xy),
+            ('XZ plane (front)', self._view_xz),
+            ('YZ plane (side)',  self._view_yz),
+            ('Isometric',        self._view_isometric),
+        ):
+            a = QAction(label, self)
+            a.triggered.connect(callback)
+            view_menu.addAction(a)
+        view_menu.addSeparator()
+        a_persp = QAction('Perspective projection', self)
+        a_persp.setCheckable(True)
+        a_persp.setChecked(not self._parallel_projection)
+        a_persp.triggered.connect(lambda: self._set_projection(parallel=False))
+        view_menu.addAction(a_persp)
+        a_ortho = QAction('Orthographic projection', self)
+        a_ortho.setCheckable(True)
+        a_ortho.setChecked(self._parallel_projection)
+        a_ortho.triggered.connect(lambda: self._set_projection(parallel=True))
+        view_menu.addAction(a_ortho)
+
+        # ── Lighting submenu ─────────────────────────────────────────────
+        light_menu = menu.addMenu('Lighting')
+        a_default = QAction('Default headlight', self)
+        a_default.setCheckable(True)
+        a_default.setChecked(self._lighting_mode == 'default')
+        a_default.triggered.connect(lambda: self._set_lighting('default'))
+        light_menu.addAction(a_default)
+        a_kit = QAction('3-point light kit', self)
+        a_kit.setCheckable(True)
+        a_kit.setChecked(self._lighting_mode == 'lightkit')
+        a_kit.triggered.connect(lambda: self._set_lighting('lightkit'))
+        light_menu.addAction(a_kit)
+        light_menu.addSeparator()
+        a_edl = QAction('Eye-dome lighting (silhouette edges)', self)
+        a_edl.setCheckable(True)
+        a_edl.setChecked(self._edl_on)
+        a_edl.triggered.connect(self._toggle_edl)
+        light_menu.addAction(a_edl)
+        a_ssao = QAction('SSAO (depth shading in crevices)', self)
+        a_ssao.setCheckable(True)
+        a_ssao.setChecked(self._ssao_on)
+        a_ssao.triggered.connect(self._toggle_ssao)
+        light_menu.addAction(a_ssao)
+        a_shadows = QAction('Cast shadows', self)
+        a_shadows.setCheckable(True)
+        a_shadows.setChecked(self._shadows_on)
+        a_shadows.triggered.connect(self._toggle_shadows)
+        a_shadows.setToolTip(
+            'Shadows are most visible with the 3-point light kit.\n'
+            'With the default headlight (camera-position light) shadows\n'
+            'are usually invisible because the light follows the camera.'
+        )
+        light_menu.addAction(a_shadows)
+
+        menu.addSeparator()
+
+        # ── Existing actions ─────────────────────────────────────────────
         a_color = QAction('Pick isosurface color…', self)
         a_color.triggered.connect(self._pick_color)
         menu.addAction(a_color)
@@ -148,6 +222,131 @@ class Voxel3DViewer(QWidget):
         menu.addAction(a_shot)
 
         menu.exec(self.mapToGlobal(pos))
+
+    # ----- View handlers ---------------------------------------------------
+
+    def _view_xy(self):
+        if HAS_PYVISTA and self.plotter is not None:
+            try: self.plotter.view_xy()
+            except Exception: pass
+
+    def _view_xz(self):
+        if HAS_PYVISTA and self.plotter is not None:
+            try: self.plotter.view_xz()
+            except Exception: pass
+
+    def _view_yz(self):
+        if HAS_PYVISTA and self.plotter is not None:
+            try: self.plotter.view_yz()
+            except Exception: pass
+
+    def _view_isometric(self):
+        if HAS_PYVISTA and self.plotter is not None:
+            try: self.plotter.view_isometric()
+            except Exception: pass
+
+    def _set_projection(self, parallel: bool):
+        if not (HAS_PYVISTA and self.plotter is not None):
+            return
+        self._parallel_projection = bool(parallel)
+        try:
+            if parallel:
+                self.plotter.enable_parallel_projection()
+            else:
+                self.plotter.disable_parallel_projection()
+            self.plotter.render()
+        except Exception as exc:
+            print(f'[Voxel3DViewer] projection toggle failed: {exc}')
+
+    # ----- Lighting handlers -----------------------------------------------
+
+    def _set_lighting(self, mode: str):
+        """Switch between default headlight and 3-point lightkit.
+
+        Removes all existing lights first to keep the lighting setup
+        deterministic — calling ``enable_lightkit`` repeatedly without a
+        clean slate would stack additional lights on top.
+        """
+        if not (HAS_PYVISTA and self.plotter is not None):
+            return
+        self._lighting_mode = mode
+        try:
+            self.plotter.remove_all_lights()
+        except Exception:
+            pass
+        try:
+            if mode == 'lightkit':
+                # PyVista's enable_lightkit sets up a key/fill/back/headlight
+                # rig that gives surfaces a much stronger sense of form than
+                # the default single camera-mounted headlight.
+                self.plotter.enable_lightkit()
+            else:
+                # Single camera-mounted light (PyVista default)
+                light = pv.Light(light_type='headlight')
+                self.plotter.add_light(light)
+            self.plotter.render()
+        except Exception as exc:
+            print(f'[Voxel3DViewer] lighting "{mode}" failed: {exc}')
+
+    def _toggle_edl(self):
+        """Toggle Eye-dome lighting (post-process edge enhancement).
+
+        EDL darkens silhouette edges so concave / convex features pop
+        visually.  Massive readability boost for fractal aggregates and
+        any porous structure.  Composes on top of any lighting mode.
+        """
+        if not (HAS_PYVISTA and self.plotter is not None):
+            return
+        self._edl_on = not self._edl_on
+        try:
+            if self._edl_on:
+                self.plotter.enable_eye_dome_lighting()
+            else:
+                self.plotter.disable_eye_dome_lighting()
+            self.plotter.render()
+        except Exception as exc:
+            print(f'[Voxel3DViewer] EDL toggle failed: {exc}')
+            self._edl_on = not self._edl_on   # revert state on failure
+
+    def _toggle_ssao(self):
+        """Toggle Screen-Space Ambient Occlusion.
+
+        SSAO darkens crevices and concavities by sampling neighbour
+        depths.  Excellent for sponge-like saxsMorph volumes — gives a
+        true 3-D-cavity feel that flat shading can't.
+        """
+        if not (HAS_PYVISTA and self.plotter is not None):
+            return
+        self._ssao_on = not self._ssao_on
+        try:
+            if self._ssao_on:
+                self.plotter.enable_ssao()
+            else:
+                self.plotter.disable_ssao()
+            self.plotter.render()
+        except Exception as exc:
+            print(f'[Voxel3DViewer] SSAO toggle failed: {exc}')
+            self._ssao_on = not self._ssao_on
+
+    def _toggle_shadows(self):
+        """Toggle cast shadows from positional lights.
+
+        Most visible with the 3-point light kit; with the default
+        headlight (light moves with camera) shadows are usually
+        invisible because every visible surface gets directly lit.
+        """
+        if not (HAS_PYVISTA and self.plotter is not None):
+            return
+        self._shadows_on = not self._shadows_on
+        try:
+            if self._shadows_on:
+                self.plotter.enable_shadows()
+            else:
+                self.plotter.disable_shadows()
+            self.plotter.render()
+        except Exception as exc:
+            print(f'[Voxel3DViewer] shadows toggle failed: {exc}')
+            self._shadows_on = not self._shadows_on
 
     # ----- disabled UI -----------------------------------------------------
 
