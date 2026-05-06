@@ -427,6 +427,57 @@ class StateManager:
                 ],
             ],
         },
+        "fractals": {
+            "schema_version": 1,
+            "last_growth_params": {
+                "z": 250,
+                "sticking_prob": 75.0,
+                "num_test_paths": 2500,
+                "rg_primary": 10.0,
+                "allowed_near_dist": 3,
+                "attraction": "Neutral",
+                "seed": 0,
+            },
+            "q_range": {"q_min": 0.001, "q_max": 1.0, "n_points": 200},
+            "optimizer": {
+                "target_dmin": 2.0,
+                "target_c": 1.2,
+                "tolerance": 0.05,
+                "max_iter": 10,
+            },
+            "grow_many_n": 5,
+            "last_loaded_nexus_path": "",
+        },
+        "saxs_morph": {
+            # schema_version 2: workflow rework — background pre-fits with their
+            #                   own Q ranges + input_mode combo (no model fit).
+            "schema_version": 2,
+            # Modelling Q range (driven by main I(Q) cursors)
+            "q_min": None,
+            "q_max": None,
+            # Background pre-fit Q ranges (set via "Set from cursors" button)
+            "power_law_q_min":  None,
+            "power_law_q_max":  None,
+            "background_q_min": None,
+            "background_q_max": None,
+            # Voxel grid
+            "voxel_size_fit":    128,
+            "voxel_size_render": 256,
+            "box_size_A":        1000.0,
+            # Two-phase parameters
+            "input_mode":      "phi",   # 'phi' | 'contrast' | 'both'
+            "volume_fraction": 0.30,
+            "contrast":        1.0,
+            # Background values (populated by pre-fits)
+            "power_law_B":  0.0,
+            "power_law_P":  4.0,
+            "background":   0.0,
+            # Post-threshold Gaussian smoothing (in voxels) — knocks down
+            # per-voxel numerical noise.  0 = no smoothing.
+            "smooth_sigma": 1.0,
+            # Misc
+            "rng_seed": None,
+        },
     }
 
     def __init__(self, state_file: Optional[Path] = None):

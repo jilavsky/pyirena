@@ -586,7 +586,86 @@ materialises every dataset and group present), but the importer must
 read `@pop_type` first to know which fields to expect and how to
 interpret them.
 
-### 3.6 entry/data_merge_results/ — Data Merge (provenance only)
+### 3.6 entry/saxs_morph_results/ — SAXS Morph (3D voxelgram)
+
+Source: `pyirena/io/nxcansas_saxs_morph.py`.
+
+Generates a 3D binary voxelgram of a two-phase porous structure from
+experimental I(Q) using the Gaussian Random Fields method (Berk 1991,
+Roberts 1997, Levitz 2007), then refines parameters by fitting the
+model I(Q) — recomputed from the voxelgram — back to the data.
+
+The voxelgram itself is the heaviest payload: a 3-D `uint8` cube stored
+gzip-compressed and chunked `(N, N, 1)` so a single 2-D slice can be
+loaded without inflating the whole array.
+
+```
+entry/saxs_morph_results/                [NXprocess]
+├── @NX_class               = "NXprocess"
+├── @analysis_type          = "SAXS Morph"
+├── @program                = "pyirena"
+├── @timestamp              (ISO string)
+│
+├── chi_squared             (float64, scalar)
+├── reduced_chi_squared     (float64, scalar)
+├── dof                     (int64,  scalar)
+│
+├── q_min, q_max            (float64, scalar)        1/A
+│
+├── volume_fraction         (float64, scalar)        target φ
+│   ├── @fit                (bool)
+│   ├── @limit_lo
+│   └── @limit_hi
+├── contrast                (float64, scalar)        (Δρ)² in 10²⁰ cm⁻⁴
+│   ├── @fit
+│   ├── @limit_lo
+│   └── @limit_hi
+├── link_phi_contrast       (bool, scalar)
+├── power_law_B             (float64, scalar)        with @fit / @limit_*
+├── power_law_P             (float64, scalar)        with @fit / @limit_*
+├── background              (float64, scalar)        with @fit / @limit_*
+│
+├── voxel_size              (int64,  scalar)         N (cube side)
+├── box_size_A              (float64, scalar)        physical box edge [Å]
+├── voxel_pitch_A           (float64, scalar)        = box_size_A / N
+├── phi_actual              (float64, scalar)        realised φ of voxelgram
+├── rng_seed                (int64,  scalar)         seed used (reproducibility)
+│
+├── data_q                  (float64, Nq, units="1/angstrom")
+├── data_I                  (float64, Nq, units="1/cm")        raw data
+├── data_dI                 (float64, Nq, units="1/cm")        σ_I
+├── data_I_corr             (float64, Nq, units="1/cm")        data − background
+├── model_q                 (float64, Nq, units="1/angstrom")
+├── model_I                 (float64, Nq, units="1/cm")        full model
+│
+├── r_grid                  (float64, Nr, units="angstrom")
+├── gamma_r                 (float64, Nr, dimensionless)       Debye autocorr
+├── spectral_k              (float64, Nk, units="1/angstrom")
+├── spectral_F              (float64, Nk, units="angstrom**3") spectral density
+│
+├── voxelgram               (uint8, (N, N, N))
+│   ├── @pitch_A
+│   ├── @box_size_A
+│   ├── @phi_actual
+│   ├── @description        "Binary phase indicator: 0=phase A, 1=phase B"
+│   ├── chunks              (N, N, 1)         → cheap 2-D slice loads
+│   └── compression         "gzip", level 4
+│
+└── <param>_err             (float64 scalar, optional — MC σ)
+    e.g. volume_fraction_err, contrast_err, power_law_B_err, etc.
+```
+
+**Sizing**: a 256³ binary cube compresses to 1–10 MB on porous-media data
+(chunked gzip is highly effective on smooth fields); a 512³ cube to
+10–100 MB. Memory cost in RAM is the uncompressed size: 16 MB at 256³,
+125 MB at 512³.
+
+**Igor hint:** `HDF5LoadData /TYPE=1 /Z /N=voxelgram fileID, "/entry/saxs_morph_results/voxelgram"`
+loads the cube as an Igor 3-D wave (the HDF5 XOP transparently
+decompresses gzip-chunked datasets). For partial loads — e.g. one
+slice — use `HDF5LoadData /SLAB=...` to read only the chunk you need.
+
+### 3.7 entry/data_merge_results/ — Data Merge (provenance only)
 
 Source: `pyirena/io/nxcansas_data_merge.py`.
 
@@ -632,7 +711,7 @@ entry/data_manipulation_results
 
 Importers should not assume these groups persist across a merge.
 
-### 3.7 entry/data_manipulation_results/ — Data Manipulation (provenance only)
+### 3.8 entry/data_manipulation_results/ — Data Manipulation (provenance only)
 
 Source: `pyirena/io/nxcansas_data_manipulation.py`.
 
