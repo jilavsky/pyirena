@@ -615,10 +615,15 @@ class Slice2DViewer(QWidget):
         self.image_view.ui.menuBtn.hide()
         self.image_view.view.setAspectLocked(True)
         self.image_view.view.invertY(False)  # y increases upward (physical)
-        # White panel background so black axis labels stay readable
-        # outside the data area too (pyqtgraph default panel chrome is
-        # dark grey, which made the labels invisible after we switched
-        # to black axes).
+        # White background EVERYWHERE.  pyqtgraph's QGraphicsView has its
+        # own opaque background that ignores QWidget stylesheets, so we
+        # have to set it directly on the inner GraphicsView.  Belt-and-
+        # braces: also stylesheet the outer ImageView in case Qt paints
+        # any chrome around it.
+        try:
+            self.image_view.ui.graphicsView.setBackground('w')
+        except Exception:
+            pass
         self.image_view.setStyleSheet('background-color: white;')
         # Black axes against white background — match the 3D viewer style.
         for ax_name in ('left', 'bottom', 'top', 'right'):
@@ -626,17 +631,17 @@ class Slice2DViewer(QWidget):
             if ax is not None:
                 ax.setPen(pg.mkPen('k', width=1))
                 ax.setTextPen(pg.mkPen('k'))
-        # Show top + right axes (no tick values) so the plot has a
-        # complete bounding box, matching the 3D viewer's outline.
-        # Left + bottom are shown by default and carry the values.
-        for ax_name in ('top', 'right'):
-            plot_item.showAxis(ax_name)
-            plot_item.getAxis(ax_name).setStyle(showValues=False)
+        # Bounding box around the data area.  ImageView's layout when
+        # created with view=PlotItem does not always render the
+        # PlotItem's top/right axes, so a thin ViewBox border is the
+        # robust way to draw a complete frame matching the 3D viewer.
+        plot_item.vb.setBorder(pg.mkPen('k', width=1))
         # Physical axis labels (updated when the slice plane changes).
         # ASCII units so they always render.
         self.image_view.view.setLabel('bottom', 'x [A]', size='9pt', color='k')
         self.image_view.view.setLabel('left', 'y [A]', size='9pt', color='k')
-        # White-background canvas (was default dark grey of pyqtgraph)
+        # White-background canvas inside the axes area (was default dark
+        # grey of pyqtgraph).
         plot_item.getViewBox().setBackgroundColor('w')
         # 0 → white (void / minority);  1 → dark grey (solid / majority).
         bw_lut = np.array(
