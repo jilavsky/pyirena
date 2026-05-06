@@ -152,6 +152,21 @@ def save_saxs_morph_results(
         for name, std in result.params_std.items():
             grp.create_dataset(f'{name}_err', data=float(std))
 
+        # ── Morphology metrics (Tier A + B; minority-phase only) ─────────
+        # Saved as a flat set of scalars under a sub-group so they're
+        # browsable in HDF5 viewers and easy to read with read_group_to_dict.
+        mm = getattr(result, 'morphology_metrics', None)
+        if mm is not None:
+            mg = grp.create_group('morphology_metrics')
+            mg.attrs['description'] = (
+                'Topology / connectivity / pore-size descriptors of the '
+                'minority phase of the voxelgram, computed via '
+                'pyirena.core.morphology.compute_morphology_metrics.  '
+                'See `MorphologyMetrics` docstring for definitions.'
+            )
+            for k, v in mm.as_dict().items():
+                mg.create_dataset(k, data=_h5_scalar(v))
+
     print(f"Saved SAXS Morph results to {filepath}")
 
 
@@ -258,6 +273,26 @@ def load_saxs_morph_results(
                              for n in grp
                              if n.endswith('_err') and n != 'reduced_chi_squared'},
         }
+
+        # ── Morphology metrics (Tier A + B; minority-phase only) ─────────
+        if 'morphology_metrics' in grp:
+            mg = grp['morphology_metrics']
+            mm_dict = {}
+            for k in mg.keys():
+                v = mg[k][()]
+                if hasattr(v, 'item'):
+                    v = v.item()
+                mm_dict[k] = v
+            try:
+                from pyirena.core.morphology import MorphologyMetrics
+                out['morphology_metrics'] = MorphologyMetrics.from_dict(mm_dict)
+            except Exception as exc:
+                print(f"[load_saxs_morph_results] morphology metrics "
+                      f"could not be reconstructed: {exc}")
+                out['morphology_metrics'] = mm_dict   # raw fallback
+        else:
+            out['morphology_metrics'] = None
+
         return out
 
 
@@ -308,5 +343,6 @@ def result_from_loaded_dict(d: dict) -> SaxsMorphResult:
         rng_seed_used=int(d.get('rng_seed') or 0),
         rg_A=float(d.get('rg_A') if d.get('rg_A') is not None else float('nan')),
         q_max_model_A=float(d.get('q_max_model_A') if d.get('q_max_model_A') is not None else float('nan')),
+        morphology_metrics=d.get('morphology_metrics'),
         params_std=dict(d.get('params_std') or {}),
     )

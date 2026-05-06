@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **saxsMorph: morphology metrics for the minority phase.**  New
+  `pyirena.core.morphology` module computes connectivity / topology /
+  pore-size descriptors of the binary voxelgram, applied to the
+  minority (rarer-by-volume) phase by default.  Tier-A connectivity:
+  number of independent clusters, open vs closed porosity, percolation
+  flags along X / Y / Z.  Tier-B topology: Euler-Poincaré characteristic
+  χ, plus pore-radius percentiles (Q1 / median / Q3) extracted from the
+  Euclidean distance transform.  Compute is well under one second at
+  N≤256, uses only `scipy.ndimage` + `skimage.measure.euler_number`
+  (graceful degradation if skimage is missing — Euler reports 0).
+- **saxsMorph: morphology panel** to the right of the existing fit
+  result block in the GUI.  Shows the 11 metrics in a compact table
+  with a small "Single realisation — depends on RNG seed and voxel
+  pitch" footnote so users don't over-interpret single-shot values.
+- **saxsMorph results saved + reloaded with morphology metrics.**
+  `nxcansas_saxs_morph.save_saxs_morph_results` writes a
+  `morphology_metrics` sub-group under the SAXS Morph group in the
+  HDF5 file; `load_saxs_morph_results` reconstructs a
+  `MorphologyMetrics` dataclass.  Round-trip preserves all 12 fields.
+- **Data Selector: Tabulate Results extended for saxsMorph.**  Check
+  the "3D saxsMorph" checkbox and click Tabulate to add 19 SM_*
+  columns to the table for each selected file with stored saxsMorph
+  results: chi², φ, contrast, Rg, S/V, voxel size / box / pitch, plus
+  all 11 morphology metrics.  CSV-exportable like the existing
+  per-tool tables.
+- **Data Selector: Create Report extended for saxsMorph.**  The same
+  checkbox now also drives a "## SAXS Morph Results" section in the
+  per-file Markdown report, including a "### Morphology of minority
+  phase" sub-section with the 11 metrics in a single Markdown table.
+
 ### Changed
 
 - **2D slice viewer: full-white panel background + complete bounding

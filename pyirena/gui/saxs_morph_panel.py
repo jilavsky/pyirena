@@ -836,15 +836,35 @@ class SaxsMorphPanel(QWidget):
         act_row.addWidget(self.btn_calc)
         lay.addLayout(act_row)
 
-        # ── Result block ─────────────────────────────────────────────────
+        # ── Result block (two side-by-side panels) ───────────────────────
+        # Left: classic fit + voxel summary (chi², phi, voxel size, S/V…).
+        # Right: morphology metrics (cluster topology + percolation +
+        # pore-size summary) of the minority phase.  The two panels share
+        # the panel width via a horizontal layout; either can grow when
+        # the other is short.
         lay.addWidget(_sep())
+        results_row = QHBoxLayout()
+        results_row.setSpacing(6)
+
         self.result_lbl = QLabel('No model computed yet.')
         self.result_lbl.setWordWrap(True)
         self.result_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self.result_lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.result_lbl.setStyleSheet(
             'background:#fafafa;border:1px solid #ddd;border-radius:4px;'
             'padding:8px;font-size:11pt;')
-        lay.addWidget(self.result_lbl)
+        results_row.addWidget(self.result_lbl, stretch=1)
+
+        self.morph_lbl = QLabel('Morphology: not computed yet.')
+        self.morph_lbl.setWordWrap(True)
+        self.morph_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self.morph_lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.morph_lbl.setStyleSheet(
+            'background:#f4faf6;border:1px solid #ccd;border-radius:4px;'
+            'padding:8px;font-size:10pt;')
+        results_row.addWidget(self.morph_lbl, stretch=1)
+
+        lay.addLayout(results_row)
 
         # ── Save row ─────────────────────────────────────────────────────
         save_row = QHBoxLayout()
@@ -1594,7 +1614,72 @@ class SaxsMorphPanel(QWidget):
             )
         html.append('</table>')
         self.result_lbl.setText(''.join(html))
+
+        # ── Morphology metrics panel (right of result block) ─────────────
+        self._update_morph_label(result)
+
         self.btn_save.setEnabled(True)
+
+    def _update_morph_label(self, result):
+        """Populate the morphology metrics panel from result.morphology_metrics.
+
+        Shows topology / connectivity / pore-size descriptors of the
+        minority phase, computed by `pyirena.core.morphology.compute_morphology_metrics`.
+        """
+        mm = getattr(result, 'morphology_metrics', None)
+        if mm is None:
+            self.morph_lbl.setText(
+                '<b>Morphology metrics</b><br>'
+                '<small>(not computed)</small>')
+            return
+
+        # Helper formatters
+        def _f(v, fmt='.3g', unit=''):
+            if v is None or (isinstance(v, float) and not np.isfinite(v)):
+                return '—'
+            return f'{format(v, fmt)}{unit}'
+
+        def _bool(b):
+            return ('<span style="color:#27ae60;">●</span> yes'
+                    if b else '<span style="color:#c0392b;">○</span> no')
+
+        phase_label = (f'phase {mm.minority_phase_value} '
+                       f'(φ={_f(mm.minority_volume_fraction, ".3f")})')
+
+        rows = [
+            ('Minority phase',     phase_label),
+            ('# clusters',         _f(mm.n_clusters, "d")),
+            ('Open porosity',      _f(mm.open_porosity_fraction * 100,
+                                       ".1f", " %")),
+            ('Closed porosity',    _f(mm.closed_porosity_fraction * 100,
+                                       ".1f", " %")),
+            ('Percolating X',      _bool(mm.percolating_x)),
+            ('Percolating Y',      _bool(mm.percolating_y)),
+            ('Percolating Z',      _bool(mm.percolating_z)),
+            ('Euler χ',            _f(mm.euler_number, "d")),
+            ('Pore radius (Q1)',   _f(mm.pore_size_q25_A, ".3g", " Å")),
+            ('Pore radius (med.)', _f(mm.pore_size_median_A, ".3g", " Å")),
+            ('Pore radius (Q3)',   _f(mm.pore_size_q75_A, ".3g", " Å")),
+        ]
+        html = [
+            '<b>Morphology of minority phase</b>',
+            '<table cellpadding="2" cellspacing="0" '
+            'style="font-size:9pt;">',
+        ]
+        for label, value in rows:
+            html.append(
+                f'<tr>'
+                f'<td><b>{label}</b></td>'
+                f'<td style="padding-left:8px;">{value}</td>'
+                f'</tr>'
+            )
+        html.append('</table>')
+        html.append(
+            '<small style="color:#7f8c8d;">'
+            'Single realisation — depends on RNG seed and voxel pitch.'
+            '</small>'
+        )
+        self.morph_lbl.setText(''.join(html))
 
     # ── Save result ──────────────────────────────────────────────────────
 

@@ -212,6 +212,12 @@ class SaxsMorphResult:
     # In cm⁻¹, multiply by 1e8.  NaN when porod_K_struct is NaN.
     specific_surface_area_inv_A: float = float('nan')
 
+    # Topology / connectivity / pore-size descriptors of the *minority*
+    # phase of the voxelgram, computed with `compute_morphology_metrics`
+    # (see `pyirena.core.morphology`).  None when the engine ran before
+    # this feature existed or when the metrics could not be computed.
+    morphology_metrics: Optional['MorphologyMetrics'] = None  # noqa: F821 (forward-ref)
+
     # MC uncertainties (param_name -> std). Empty if not run.
     params_std: dict = field(default_factory=dict)
 
@@ -1094,6 +1100,17 @@ class SaxsMorphEngine:
         else:
             K_struct = float('nan')
             S_per_V_inv_A = float('nan')
+
+        # Topology / connectivity / pore-size metrics of the *minority*
+        # phase of the voxelgram (see `pyirena.core.morphology`).  Quick
+        # to compute (sub-second at N≤256 even with EDT + Euler).
+        try:
+            from pyirena.core.morphology import compute_morphology_metrics
+            morph_metrics = compute_morphology_metrics(voxelgram, pitch)
+        except Exception as exc:
+            print(f"[saxs_morph] morphology metrics skipped: {exc}")
+            morph_metrics = None
+
         I_model = add_background(
             q_fit, contrast * I_struct,
             config.power_law_B, config.power_law_P, config.background,
@@ -1140,6 +1157,7 @@ class SaxsMorphEngine:
             q_max_model_A=q_max_model_A,
             porod_K_struct=float(K_struct),
             specific_surface_area_inv_A=float(S_per_V_inv_A),
+            morphology_metrics=morph_metrics,
         )
 
     # ----- fitting ---------------------------------------------------------
