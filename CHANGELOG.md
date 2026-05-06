@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-06
+
+Major feature release.  Two brand-new visualisation tools (Fractals,
+SAXS Morph), comprehensive 3-D viewer enhancements, and a morphology-
+metrics module.  No breaking changes to existing tools.
+
+### Highlights
+
+- **NEW TOOL: SAXS Morph (3D voxelgram).**  Generates a 3-D voxelgram
+  of a two-phase porous structure from experimental I(Q) using the
+  Gaussian Random Fields (GRF) method (Berk / Roberts / Levitz),
+  computes the model I(Q) from that voxelgram, and shows it alongside
+  a 3-D PyVista isosurface and 2-D slice viewer.  Full GUI panel with
+  background pre-fits, save/append HDF5, save-config-to-JSON for
+  batch use, and Data Selector integration (button + checkbox +
+  tabulate + report + standalone viewer).
+- **NEW TOOL: Fractals (mass-fractal aggregate visualization).**
+  Grows random fractal aggregates by Monte-Carlo random walk on a
+  simple cubic lattice (port of Irena's IR3A_*).  Computes fractal
+  parameters (Z, dmin, c, df, Rg primary, Rg aggregate) and back-
+  calculates I(Q) by two paths: closed-form Beaucage Unified-fit
+  intensity (always) and Shape2SAS-style point-cloud Debye sum (on
+  demand).  Three growth modes (Grow One, Grow Many queue, Optimizer
+  bisection).  GUI-only, no batch entry.
+- **3-D viewer enhancements (applies to all 3-D viewers).**  Rich
+  right-click menu: View ▶ (XY/XZ/YZ/Isometric, Perspective ↔
+  Orthographic), Lighting ▶ (Headlight / 3-point Lightkit, EDL,
+  SSAO, cast shadows), explicit bounding box, white background, axis
+  units, default emerald-green colour.  VTK shader-error spam
+  silenced at module load.
+- **NEW MODULE: morphology metrics for the minority phase of binary
+  voxelgrams** (connectivity, percolation, Euler χ, pore-size
+  percentiles).  Used by SAXS Morph; saved to HDF5 + tabulated +
+  reported in Data Selector.
+
+For the detailed per-commit change log of this release, see
+git log v0.5.8..v0.6.0 .
+
 ### Added
 
 - **saxsMorph: morphology metrics for the minority phase.**  New
