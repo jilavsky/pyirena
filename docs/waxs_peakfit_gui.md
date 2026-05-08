@@ -229,12 +229,17 @@ or, if you use the conda environment shipped with pyirena:
 conda env update -f environment.yml
 ```
 
-### Wavelength
+### Wavelength and distance correction
 
 | Control | Description |
 |---------|-------------|
 | **λ (Å)** spinbox | X-ray wavelength used to convert d-spacings to Q (Q = 4π sin θ / λ).  Default 1.5406 Å (Cu Kα). |
 | **Auto from file** checkbox | When checked, the wavelength is read automatically from the loaded NXcanSAS file (`/entry/instrument/wavelength`).  Editing the spinbox manually unchecks this so the value is not overwritten when the next file loads. |
+| **ΔL (mm)** spinbox | **Sample-to-detector distance correction.** Range ±10 mm.  If your instrument's actual distance L_true differs from the calibration distance L_cal used during data reduction by ΔL mm, this shift moves the overlay sticks (and hkl labels) to where the peaks *actually* appear in your data without touching the data itself.  Uses the exact non-linear geometry `tan(2θ_app) = (L_true/L_cal) · tan(2θ_true)`, which is important at WAXS angles where a uniform Q-shift would be wrong.  **Default 0** (no correction). |
+| **L_cal (mm)** spinbox | **Calibration sample-to-detector distance** (the distance value used during the original I(Q) reduction).  Default 100 mm.  When **Auto from file** (checkbox below) is checked, this is read automatically from the NXcanSAS file's sample-to-detector distance metadata and updated live.  Manual override is always available. |
+| **Auto from file** checkbox (L_cal) | When checked, L_cal is auto-loaded from the NXcanSAS file's instrument metadata (tries several standard NeXus paths; honors units attributes; applies a metres↔mm heuristic if units are missing).  Falls back to the manual spinbox value if no metadata is found.  Mirrors the wavelength Auto behaviour. |
+
+**Calibrating ΔL at the beamline:**  Load a known sample with strong, well-resolved diffraction peaks.  Compare the tabulated peak positions (shown by the overlay sticks) to the measured peaks.  If peaks appear at higher Q than tabulated, increase ΔL (true distance is larger than L_cal); if lower Q, decrease ΔL (true distance is smaller).  When the sticks line up with the peaks, |ΔL| is your distance error.
 
 ### CIF files list
 
@@ -263,10 +268,10 @@ Each imported CIF appears as a row:
 ### Persistence
 
 All Diffraction Lines settings — CIF file paths, phase names, colors,
-visibility, scales, hkl-toggle state, wavelength, and the last folder used
-for the file picker — are saved automatically to the pyirena state file
-whenever a control changes.  They are restored the next time the WAXS Peak
-Fit tool is opened.
+visibility, scales, hkl-toggle state, wavelength, distance correction (ΔL
+and L_cal), and the last folder used for the file picker — are saved
+automatically to the pyirena state file whenever a control changes.  They are
+restored the next time the WAXS Peak Fit tool is opened.
 
 CIF files that have been moved or deleted since the last session are silently
 skipped on state restore.
