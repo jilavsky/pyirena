@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Diffraction Lines tab: distance correction (ΔL).**  New ΔL (mm) and
+  L_cal (mm) controls compensate for sample-to-detector distance
+  miscalibration without touching the data — overlay sticks (and HKL
+  labels) shift to where the peaks actually appear in mis-calibrated
+  reduced data.  Uses the exact non-linear arctan/sin geometry, which is
+  important at WAXS angles where a uniform Q-shift or Q-scale would be
+  wrong.  L_cal auto-loaded from NXcanSAS metadata when available
+  (mirrors the existing wavelength Auto behaviour); manual override
+  always available.  Persisted in state.
+
 ## [0.6.0] — 2026-05-06
 
 Major feature release.  Two brand-new visualisation tools (Fractals,

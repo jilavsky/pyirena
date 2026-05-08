@@ -254,6 +254,9 @@ class StateManager:
             "schema_version": 1,
             "wavelength_a": 1.5406,        # default Cu Kα; auto-replaced when file has /entry/instrument/wavelength
             "wavelength_auto": True,       # True = use file value when available
+            "delta_L_mm": 0.0,             # sample-to-detector distance correction (mm); shifts overlay sticks
+            "L_cal_mm": 100.0,             # calibration distance (mm); auto-replaced from NXcanSAS metadata when available
+            "L_cal_auto": True,            # True = take L_cal from file when available
             "last_folder": None,           # remembered CIF folder for file picker
             "cif_files": [],               # list of dicts: {path, name, color, visible, scale, show_hkl}
         },

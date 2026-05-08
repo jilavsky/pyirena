@@ -28,7 +28,11 @@ except ImportError:
     from PyQt6.QtCore import Qt, pyqtSignal as Signal
     from PyQt6.QtGui import QColor
 
-from pyirena.core.diffraction_lines import DiffractionPattern, compute_pattern
+from pyirena.core.diffraction_lines import (
+    DiffractionPattern,
+    compute_pattern,
+    shift_q_for_distance_error,
+)
 
 
 # ── colour palette: visually distinct phases ──────────────────────────────
@@ -215,6 +219,60 @@ class DiffractionLinesPanel(QWidget):
         wl_row.addStretch()
         outer.addLayout(wl_row)
 
+        # ── Distance correction row ──────────────────────────────────────
+        # Compensates for sample-to-detector distance miscalibration.
+        # Math: tan(2θ_app) = (L_true/L_cal) · tan(2θ_true). See
+        # pyirena.core.diffraction_lines.shift_q_for_distance_error().
+        dl_row = QHBoxLayout()
+        dl_row.addWidget(QLabel("ΔL (mm):"))
+        self._dl_spin = QDoubleSpinBox()
+        self._dl_spin.setRange(-10.0, 10.0)
+        self._dl_spin.setDecimals(2)
+        self._dl_spin.setSingleStep(0.1)
+        self._dl_spin.setValue(0.0)
+        self._dl_spin.setFixedWidth(80)
+        self._dl_spin.setToolTip(
+            "Sample-to-detector distance correction in mm. Positive ΔL means the "
+            "true distance is larger than the calibration value, which makes "
+            "peaks appear at higher Q than the tabulated Bragg positions."
+        )
+        self._dl_spin.valueChanged.connect(self._on_delta_L_changed)
+        dl_row.addWidget(self._dl_spin)
+
+        dl_row.addSpacing(10)
+        dl_row.addWidget(QLabel("L_cal (mm):"))
+        self._lcal_spin = QDoubleSpinBox()
+        self._lcal_spin.setRange(1.0, 10000.0)
+        self._lcal_spin.setDecimals(2)
+        self._lcal_spin.setSingleStep(1.0)
+        self._lcal_spin.setValue(100.0)
+        self._lcal_spin.setFixedWidth(90)
+        self._lcal_spin.setToolTip(
+            "Calibration sample-to-detector distance used during data reduction. "
+            "Auto-loaded from NXcanSAS metadata when available."
+        )
+        self._lcal_spin.valueChanged.connect(self._on_L_cal_changed)
+        dl_row.addWidget(self._lcal_spin)
+
+        self._lcal_auto_chk = QCheckBox("Auto from file")
+        self._lcal_auto_chk.setChecked(True)
+        self._lcal_auto_chk.setToolTip(
+            "When checked, L_cal is taken from the loaded NXcanSAS file's "
+            "sample-to-detector distance metadata when available."
+        )
+        self._lcal_auto_chk.stateChanged.connect(self._on_L_cal_auto_toggled)
+        dl_row.addWidget(self._lcal_auto_chk)
+        dl_row.addStretch()
+        outer.addLayout(dl_row)
+
+        # SDD-source / ratio status label (small, italic, grey)
+        self._ratio_lbl = QLabel("")
+        self._ratio_lbl.setStyleSheet("color:#7f8c8d;font-style:italic;padding:0 0 4px 4px;")
+        # Track most recent file SDD reading (None when no file or no metadata)
+        self._sdd_from_file: Optional[float] = None
+        self._update_ratio_label()
+        outer.addWidget(self._ratio_lbl)
+
         # ── CIF list (scrollable) ────────────────────────────────────────
         list_box = QGroupBox("CIF files")
         list_layout = QVBoxLayout(list_box)
@@ -311,6 +369,30 @@ class DiffractionLinesPanel(QWidget):
             self._pattern_cache.clear()
             self._recompute_and_emit()
 
+    def set_distance_from_data(self, sdd_mm: Optional[float]) -> None:
+        """Apply L_cal loaded from data file when 'Auto from file' is enabled.
+
+        Pass None when no sample-to-detector distance was found in the file.
+        """
+        self._sdd_from_file = float(sdd_mm) if (sdd_mm and sdd_mm > 0) else None
+        if self._sdd_from_file is None:
+            # No metadata — leave the spinbox under manual control. Disabling
+            # the Auto checkbox mirrors the wavelength path so the user can
+            # still see why the value didn't change.
+            self._lcal_auto_chk.setEnabled(False)
+            self._update_ratio_label()
+            return
+        self._lcal_auto_chk.setEnabled(True)
+        if self._lcal_auto_chk.isChecked():
+            self._lcal_spin.blockSignals(True)
+            self._lcal_spin.setValue(self._sdd_from_file)
+            self._lcal_spin.blockSignals(False)
+            self._update_ratio_label()
+            # Pattern cache is keyed by (path, λ) — only re-emit, not re-compute
+            self._recompute_and_emit()
+        else:
+            self._update_ratio_label()
+
     def clear_all(self) -> None:
         """Remove all CIF entries (used by WAXS panel reset-to-defaults)."""
         self._entries.clear()
@@ -329,6 +411,9 @@ class DiffractionLinesPanel(QWidget):
             "schema_version": 1,
             "wavelength_a": float(self._wl_spin.value()),
             "wavelength_auto": bool(self._wl_auto_chk.isChecked()),
+            "delta_L_mm": float(self._dl_spin.value()),
+            "L_cal_mm": float(self._lcal_spin.value()),
+            "L_cal_auto": bool(self._lcal_auto_chk.isChecked()),
             "last_folder": self._state_mgr.get("diffraction_lines", default={}).get(
                 "last_folder"
             ),
@@ -354,6 +439,22 @@ class DiffractionLinesPanel(QWidget):
             self._wl_auto_chk.blockSignals(True)
             self._wl_auto_chk.setChecked(bool(state["wavelength_auto"]))
             self._wl_auto_chk.blockSignals(False)
+
+        dl = state.get("delta_L_mm")
+        if dl is not None:
+            self._dl_spin.blockSignals(True)
+            self._dl_spin.setValue(float(dl))
+            self._dl_spin.blockSignals(False)
+        lc = state.get("L_cal_mm")
+        if lc is not None:
+            self._lcal_spin.blockSignals(True)
+            self._lcal_spin.setValue(float(lc))
+            self._lcal_spin.blockSignals(False)
+        if "L_cal_auto" in state:
+            self._lcal_auto_chk.blockSignals(True)
+            self._lcal_auto_chk.setChecked(bool(state["L_cal_auto"]))
+            self._lcal_auto_chk.blockSignals(False)
+        self._update_ratio_label()
 
         for cif_entry in state.get("cif_files", []) or []:
             path = cif_entry.get("path")
@@ -470,6 +571,50 @@ class DiffractionLinesPanel(QWidget):
         self._save_state()
         # If user just re-enabled auto, the next set_data() call will overwrite
 
+    def _on_delta_L_changed(self, _v: float) -> None:
+        self._update_ratio_label()
+        self._save_state()
+        # Cache untouched: distance shift is applied at emit time
+        self._recompute_and_emit()
+
+    def _on_L_cal_changed(self, _v: float) -> None:
+        # Manual edit → drop auto so the next file load doesn't overwrite it
+        if self._lcal_auto_chk.isChecked():
+            self._lcal_auto_chk.blockSignals(True)
+            self._lcal_auto_chk.setChecked(False)
+            self._lcal_auto_chk.blockSignals(False)
+        self._update_ratio_label()
+        self._save_state()
+        self._recompute_and_emit()
+
+    def _on_L_cal_auto_toggled(self, _state: int) -> None:
+        # If re-enabling auto and we have a recent file SDD, apply it now
+        if self._lcal_auto_chk.isChecked() and self._sdd_from_file is not None:
+            self._lcal_spin.blockSignals(True)
+            self._lcal_spin.setValue(self._sdd_from_file)
+            self._lcal_spin.blockSignals(False)
+            self._update_ratio_label()
+            self._save_state()
+            self._recompute_and_emit()
+        else:
+            self._update_ratio_label()
+            self._save_state()
+
+    def _update_ratio_label(self) -> None:
+        l_cal = float(self._lcal_spin.value())
+        delta = float(self._dl_spin.value())
+        if l_cal > 0:
+            ratio = (l_cal + delta) / l_cal
+        else:
+            ratio = 1.0
+        if self._lcal_auto_chk.isChecked() and self._sdd_from_file is not None:
+            src = f"from file SDD = {self._sdd_from_file:.1f} mm"
+        elif self._sdd_from_file is None and self._lcal_auto_chk.isChecked():
+            src = "no file SDD — using manual"
+        else:
+            src = "manual L_cal"
+        self._ratio_lbl.setText(f"ratio L_true/L_cal = {ratio:.4f}  ({src})")
+
     def _import_cif(self) -> None:
         st = self._state_mgr.get("diffraction_lines", default={})
         last_folder = st.get("last_folder") or str(Path.home())
@@ -522,6 +667,8 @@ class DiffractionLinesPanel(QWidget):
 
     def _recompute_and_emit(self) -> None:
         wl = float(self._wl_spin.value())
+        l_cal = float(self._lcal_spin.value())
+        delta_L = float(self._dl_spin.value())
         out: List[Dict] = []
         for entry in self._entries:
             if not entry.get("visible", True):
@@ -533,8 +680,12 @@ class DiffractionLinesPanel(QWidget):
                 continue
             if pat is None:
                 continue
+            # Apply distance correction at emit time so the pattern cache
+            # (keyed by path+λ) stays valid across ΔL / L_cal changes.
+            q_display = shift_q_for_distance_error(pat.q, wl, l_cal, delta_L)
             out.append({
                 "pattern": pat,
+                "q_display": q_display,
                 "color": entry["color"],
                 "scale": float(entry.get("scale", 1.0)),
                 "show_hkl": bool(entry.get("show_hkl", False)),

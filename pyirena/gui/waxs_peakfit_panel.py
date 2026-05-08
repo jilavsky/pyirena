@@ -432,6 +432,59 @@ def _read_nxcansas_wavelength(filepath: Optional[Path]) -> Optional[float]:
     return None
 
 
+def _read_nxcansas_distance_mm(filepath: Optional[Path]) -> Optional[float]:
+    """Best-effort read of sample-to-detector distance (mm) from NXcanSAS.
+
+    Tries common NXcanSAS / NeXus paths in priority order. Honours a `units`
+    attribute on the dataset when present (m → ×1000 to mm). When units are
+    missing, applies a heuristic: values < 50 are assumed to be metres
+    (typical SAXS/WAXS distances in mm are ≥ ~30 mm), otherwise mm.
+    Returns None if nothing usable is found.
+    """
+    if filepath is None:
+        return None
+    try:
+        import h5py
+    except ImportError:
+        return None
+    candidate_paths = [
+        "/entry/instrument/detector/distance",
+        "/entry/instrument/detector/sample_distance",
+        "/entry/instrument/detector/SDD",
+        "/entry/instrument/sas_detector/SDD",
+        "/entry/instrument/sample_distance",
+        "/entry/Metadata/detector_distance",
+    ]
+    try:
+        with h5py.File(str(filepath), "r") as f:
+            for path in candidate_paths:
+                if path not in f:
+                    continue
+                ds = f[path]
+                val = ds[()]
+                if hasattr(val, "item"):
+                    val = val.item()
+                val = float(val)
+                if val <= 0:
+                    continue
+                units = ds.attrs.get("units")
+                if isinstance(units, bytes):
+                    units = units.decode("utf-8", errors="ignore")
+                if units:
+                    u = str(units).strip().lower()
+                    if u in ("m", "meter", "metre", "meters", "metres"):
+                        return val * 1000.0
+                    if u in ("mm", "millimeter", "millimetre", "millimeters", "millimetres"):
+                        return val
+                    if u in ("cm", "centimeter", "centimetre"):
+                        return val * 10.0
+                # Unitless heuristic: small numbers ≈ metres, large ≈ mm
+                return val * 1000.0 if val < 50.0 else val
+    except Exception:
+        return None
+    return None
+
+
 # ===========================================================================
 # WAXSPeakFitGraphWindow
 # ===========================================================================
@@ -941,7 +994,10 @@ class WAXSPeakFitGraphWindow(QWidget):
             show_hkl = bool(p.get("show_hkl", False))
             name = p.get("name", pat.name)
 
-            q_arr = np.asarray(pat.q, float)
+            # q_display = pattern.q shifted for any sample-to-detector
+            # distance correction set in the Diffraction Lines tab. Falls
+            # back to raw Bragg Q for legacy callers / robustness.
+            q_arr = np.asarray(p.get("q_display", pat.q), float)
             i_arr = np.asarray(pat.intensity, float)
             if q_arr.size == 0:
                 self._diff_stick_items[i].setData(_ex, _ey)
@@ -2326,6 +2382,8 @@ class WAXSPeakFitPanel(QWidget):
                 )
             wl = _read_nxcansas_wavelength(self._filepath) if is_nxcansas else None
             self._diffraction_panel.set_wavelength_from_data(wl)
+            sdd = _read_nxcansas_distance_mm(self._filepath) if is_nxcansas else None
+            self._diffraction_panel.set_distance_from_data(sdd)
         except Exception:
             pass   # diffraction overlay is non-critical
 

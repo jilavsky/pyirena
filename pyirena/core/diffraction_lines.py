@@ -149,3 +149,53 @@ def hkl_label(hkl: Tuple[int, int, int]) -> str:
     def _one(i: int) -> str:
         return f"{i}" if i >= 0 else f"-{abs(i)}"
     return f"({_one(hkl[0])}{_one(hkl[1])}{_one(hkl[2])})"
+
+
+def shift_q_for_distance_error(
+    q: np.ndarray,
+    wavelength_a: float,
+    L_cal_mm: float,
+    delta_L_mm: float,
+) -> np.ndarray:
+    """Apparent Q seen in mis-calibrated data, given true Q from Bragg.
+
+    A reflection from a given d-spacing hits the detector at a fixed physical
+    radius r = L_true * tan(2θ_true), regardless of what distance was used
+    during data reduction. If reduction used L_cal instead of L_true, the
+    apparent angle is ``tan(2θ_apparent) = (L_true/L_cal) * tan(2θ_true)``,
+    yielding a Q-dependent apparent peak position.
+
+    Use this to shift tabulated peak positions so an overlay lines up with the
+    measured peaks in data reduced with an incorrect sample-to-detector
+    distance — the data itself is untouched.
+
+    Parameters
+    ----------
+    q
+        True Q values (Å⁻¹) from Bragg + wavelength.
+    wavelength_a
+        X-ray wavelength in Å. Must be positive; otherwise q is returned
+        unchanged.
+    L_cal_mm
+        Calibration distance (mm) actually used during data reduction. Must
+        be positive; otherwise q is returned unchanged.
+    delta_L_mm
+        Distance correction (mm) such that L_true = L_cal_mm + delta_L_mm.
+        ΔL = 0 returns q unchanged via fast path.
+
+    Returns
+    -------
+    np.ndarray
+        Apparent Q (Å⁻¹) at which each reflection appears in the
+        mis-calibrated data. Same shape and dtype as a float view of `q`.
+    """
+    q = np.asarray(q, float)
+    if wavelength_a <= 0 or L_cal_mm <= 0 or delta_L_mm == 0.0:
+        return q
+    ratio = (L_cal_mm + delta_L_mm) / L_cal_mm
+    if ratio <= 0:
+        return q
+    sin_theta = np.clip(q * wavelength_a / (4.0 * np.pi), -0.999999, 0.999999)
+    two_theta_true = 2.0 * np.arcsin(sin_theta)
+    two_theta_app = np.arctan(ratio * np.tan(two_theta_true))
+    return (4.0 * np.pi / wavelength_a) * np.sin(two_theta_app / 2.0)
