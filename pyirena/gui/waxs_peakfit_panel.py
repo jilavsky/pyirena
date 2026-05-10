@@ -1868,12 +1868,15 @@ class WAXSPeakFitPanel(QWidget):
         updated = copy.deepcopy(peaks)
 
         # ── Step 1: Cross-correlation global Q-shift ──────────────────────
+        # Only peaks whose Q0 is marked "Fit?" receive the shift; locked Q0s
+        # stay exactly where the user set them.
         if run_cc and updated:
             I_model = eval_model(q, bg_shape, bg_params, updated, I=I)
             shift   = cross_corr_q_shift(q, I, I_model, max_shift=window)
             if abs(shift) > 1e-6:
                 for pk in updated:
-                    pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
+                    if bool(pk.get("Q0", {}).get("fit", True)):
+                        pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
 
         # ── Step 2: Per-peak Q0 brute-force scan ──────────────────────────
         if run_scan and updated:

@@ -1457,8 +1457,11 @@ def fit_waxs_peaks(
             if abs(shift) > 1e-6:
                 import copy as _cp
                 peaks = _cp.deepcopy(peaks)
+                # Only shift Q0 of peaks where Q0['fit'] is True; locked
+                # Q0s stay where the user set them.
                 for pk in peaks:
-                    pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
+                    if bool(pk.get("Q0", {}).get("fit", True)):
+                        pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
                 if verbose:
                     print(f"  [fit_waxs_peaks] Cross-corr. shift applied: {shift:+.4f} Å⁻¹")
         if run_scan:

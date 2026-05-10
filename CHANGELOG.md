@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **WAXS Peak Fitting: Q0 pre-search now respects the per-peak "Fit?"
+  flag.**  Previously, even with `Q0 → Fit?` unchecked for a peak, the
+  Q0 pre-search step (cross-correlation global shift and per-peak
+  brute-force scan) would still move that peak's starting Q0 before
+  the scipy fit, so locked Q0s appeared to drift after fitting.  Both
+  pre-search steps now skip any peak whose `Q0['fit']` is False —
+  locked Q0 starting values are honoured exactly.  Affects both the
+  GUI panel and the `fit_waxs_peaks()` batch API.
+
 ### Added
 
 - **Diffraction Lines tab: distance correction (ΔL).**  New ΔL (mm) and

@@ -604,6 +604,9 @@ def presearch_q0_per_peak(
     minimises the total sum-of-squares residual against *I* is adopted as the
     new Q0 starting value.
 
+    Peaks whose ``Q0['fit']`` flag is False are skipped — their Q0 is left
+    untouched so the user's locked starting value is honoured.
+
     Parameters
     ----------
     q, I : ndarray
@@ -634,6 +637,9 @@ def presearch_q0_per_peak(
     updated = _copy.deepcopy(peaks)
 
     for i in range(len(updated)):
+        # Honour the per-peak Fit? flag for Q0 — skip locked peaks entirely.
+        if not bool(updated[i].get("Q0", {}).get("fit", True)):
+            continue
         q0_center = float(updated[i]["Q0"]["value"])
         q0_trials = np.linspace(
             q0_center - search_window,
