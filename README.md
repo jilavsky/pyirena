@@ -1,6 +1,6 @@
 # pyIrena
 
-> Coded by Claude from SAXS_IgorCode Irena. Planned, defined, debugged and validated by Jan Ilavsky.
+**Coded by Claude from SAXS_IgorCode Irena. Planned, defined, debugged, and validated by Jan Ilavsky.**
 
 Python tools for small-angle scattering (SAS) data analysis. A port of the Igor Pro
 [Irena](https://usaxs.xray.aps.anl.gov/software/irena) package. Includes interactive
