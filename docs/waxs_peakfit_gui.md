@@ -251,10 +251,13 @@ Each imported CIF appears as a row:
 | Color swatch button | Click to open a color-picker dialog and change the phase color. |
 | Phase name | Chemical formula or CIF filename stem read from the CIF on import.  Hover for full file path. |
 | Scale spinbox (0.01 – 10×) | Manual multiplier applied on top of the automatic scaling.  The automatic scaling sets the tallest stick to the measured data's peak intensity within the same Q span.  Adjust this spinbox to make sticks taller or shorter. |
+| **d×** spinbox (0.9000 – 1.1000) | **Per-CIF lattice / d-spacing scale (a/a₀).**  `1.0000` = use the tabulated CIF values exactly.  Use this to correct alloy lattice deviations from the nominal element values — for example, an Al-based alloy whose real lattice parameter is 0.5 % larger than pure Al would use `d× = 1.0050`.  All peak Q's are divided by this factor (since Q = 2π/d, scaling every d by a/a₀ scales every Q by a₀/a).  **Exact for cubic systems** (Al, Cu, Ni, FCC/BCC steels, …); **first-order accurate for non-cubic** crystals (it captures the dominant volumetric strain but ignores anisotropic strain).  Default `1.0000`.  Right-click the row → **Reset d× to 1.0** to clear. |
 | **hkl** checkbox | Show Miller-index labels (e.g. `(110)`) above each stick.  Off by default; only labels for reflections with intensity ≥ 5 % of the phase maximum are shown to avoid clutter. |
 | **×** button | Remove this CIF from the list. |
 
-**Right-click** any row for a **Delete** context-menu entry.
+**Right-click** any row for **Reset d× to 1.0** (when d× ≠ 1) and **Delete** context-menu entries.
+
+**d× vs ΔL — when to use which:**  d× is **per-CIF** and corrects an *intrinsic* property of the crystal (lattice parameter); ΔL is **global** and corrects an *instrument* property (sample-to-detector distance).  If only one phase is misaligned with the data, use d× on that phase.  If all phases are uniformly off in the same direction across the full Q range, suspect ΔL.  The two compose: d× is applied first, then ΔL.
 
 ### Buttons
 
@@ -268,10 +271,11 @@ Each imported CIF appears as a row:
 ### Persistence
 
 All Diffraction Lines settings — CIF file paths, phase names, colors,
-visibility, scales, hkl-toggle state, wavelength, distance correction (ΔL
-and L_cal), and the last folder used for the file picker — are saved
-automatically to the pyirena state file whenever a control changes.  They are
-restored the next time the WAXS Peak Fit tool is opened.
+visibility, intensity scales, per-CIF d×, hkl-toggle state, wavelength,
+distance correction (ΔL and L_cal), and the last folder used for the file
+picker — are saved automatically to the pyirena state file whenever a
+control changes.  They are restored the next time the WAXS Peak Fit tool
+is opened.
 
 CIF files that have been moved or deleted since the last session are silently
 skipped on state restore.

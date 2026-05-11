@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Diffraction Lines tab: per-CIF lattice / d-spacing scale (`d×`).**
+  New per-row spinbox (0.9000 – 1.1000, default 1.0000) lets the user
+  scale every reflection's d-spacing for that CIF independently — useful
+  when the real material is an alloy whose lattice parameter differs
+  from the tabulated nominal element (e.g. Al-based solid-solution
+  whose `a` is 0.5 % larger than pure Al → set `d× = 1.0050`).  All
+  peak Q's are divided by the factor (Q = 2π/d).  **Exact for cubic
+  systems** (Al, Cu, Ni, FCC/BCC steels …); first-order accurate for
+  non-cubic.  Per-CIF, so multiple phases on the same graph each get
+  their own correction.  Composes with the existing global ΔL distance
+  correction (d× applied first, ΔL second).  Right-click row →
+  **Reset d× to 1.0**.  Persisted in state (`diffraction_lines`
+  schema_version 2; old states default to 1.0).
+
 ### Fixed
 
 - **WAXS Peak Fitting: Q0 pre-search now respects the per-peak "Fit?"

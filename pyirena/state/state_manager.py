@@ -251,14 +251,15 @@ class StateManager:
             },
         },
         "diffraction_lines": {
-            "schema_version": 1,
+            # schema_version 2: per-CIF d_scale (lattice/d-spacing strain ratio); old states default to 1.0
+            "schema_version": 2,
             "wavelength_a": 1.5406,        # default Cu Kα; auto-replaced when file has /entry/instrument/wavelength
             "wavelength_auto": True,       # True = use file value when available
             "delta_L_mm": 0.0,             # sample-to-detector distance correction (mm); shifts overlay sticks
             "L_cal_mm": 100.0,             # calibration distance (mm); auto-replaced from NXcanSAS metadata when available
             "L_cal_auto": True,            # True = take L_cal from file when available
             "last_folder": None,           # remembered CIF folder for file picker
-            "cif_files": [],               # list of dicts: {path, name, color, visible, scale, show_hkl}
+            "cif_files": [],               # list of dicts: {path, name, color, visible, scale, show_hkl, d_scale}
         },
         "data_merge": {
             # schema_version 1: initial release

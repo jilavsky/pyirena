@@ -106,9 +106,30 @@ class _CifRowWidget(QFrame):
         self._scale_spin.setSingleStep(0.1)
         self._scale_spin.setValue(float(self.entry.get("scale", 1.0)))
         self._scale_spin.setFixedWidth(60)
-        self._scale_spin.setToolTip("Manual scale (× auto-scale to data peak)")
+        self._scale_spin.setToolTip("Manual intensity scale (× auto-scale to data peak)")
         self._scale_spin.valueChanged.connect(self._on_scale)
         row.addWidget(self._scale_spin)
+
+        # Per-CIF lattice/d-spacing scale (a/a₀). 1.0000 = tabulated CIF.
+        # Used to correct alloy lattice deviations from nominal element values:
+        # all peak Q's are divided by this factor (Q = 2π/d, d → a/a₀ · d).
+        # Exact for cubic systems; first-order accurate for non-cubic.
+        row.addWidget(QLabel("d×:"))
+        self._dscale_spin = QDoubleSpinBox()
+        self._dscale_spin.setRange(0.9000, 1.1000)
+        self._dscale_spin.setDecimals(4)
+        self._dscale_spin.setSingleStep(0.0010)
+        self._dscale_spin.setValue(float(self.entry.get("d_scale", 1.0)))
+        self._dscale_spin.setFixedWidth(75)
+        self._dscale_spin.setToolTip(
+            "Lattice / d-spacing scale (a/a₀). 1.0000 = tabulated CIF values.\n"
+            "Use to correct alloy lattice deviations from the nominal element\n"
+            "(e.g. solid-solution strain). All peak Q's are divided by this\n"
+            "factor. Exact for cubic systems; first-order for non-cubic.\n"
+            "Right-click row → Reset d× to 1.0 to clear."
+        )
+        self._dscale_spin.valueChanged.connect(self._on_dscale)
+        row.addWidget(self._dscale_spin)
 
         self._hkl_chk = QCheckBox("hkl")
         self._hkl_chk.setChecked(bool(self.entry.get("show_hkl", False)))
@@ -141,6 +162,13 @@ class _CifRowWidget(QFrame):
         self.entry["scale"] = float(v)
         self.changed.emit()
 
+    def _on_dscale(self, v: float) -> None:
+        self.entry["d_scale"] = float(v)
+        self.changed.emit()
+
+    def _reset_dscale(self) -> None:
+        self._dscale_spin.setValue(1.0)   # triggers _on_dscale → emit
+
     def _on_hkl(self) -> None:
         self.entry["show_hkl"] = self._hkl_chk.isChecked()
         self.changed.emit()
@@ -155,9 +183,14 @@ class _CifRowWidget(QFrame):
 
     def _on_context_menu(self, pos) -> None:
         menu = QMenu(self)
-        act = menu.addAction("Delete")
+        reset_act = menu.addAction("Reset d× to 1.0")
+        reset_act.setEnabled(abs(float(self._dscale_spin.value()) - 1.0) > 1e-9)
+        menu.addSeparator()
+        del_act = menu.addAction("Delete")
         chosen = menu.exec(self.mapToGlobal(pos))
-        if chosen is act:
+        if chosen is reset_act:
+            self._reset_dscale()
+        elif chosen is del_act:
             self.delete_requested.emit()
 
 
@@ -408,7 +441,8 @@ class DiffractionLinesPanel(QWidget):
     def collect_state(self) -> Dict:
         """Return current state dict for persistence."""
         return {
-            "schema_version": 1,
+            # schema_version 2: per-CIF d_scale field; old states default to 1.0
+            "schema_version": 2,
             "wavelength_a": float(self._wl_spin.value()),
             "wavelength_auto": bool(self._wl_auto_chk.isChecked()),
             "delta_L_mm": float(self._dl_spin.value()),
@@ -418,7 +452,15 @@ class DiffractionLinesPanel(QWidget):
                 "last_folder"
             ),
             "cif_files": [
-                {k: e[k] for k in ("path", "name", "color", "visible", "scale", "show_hkl")}
+                {
+                    "path":     e["path"],
+                    "name":     e["name"],
+                    "color":    e["color"],
+                    "visible":  e["visible"],
+                    "scale":    e["scale"],
+                    "show_hkl": e["show_hkl"],
+                    "d_scale":  e.get("d_scale", 1.0),
+                }
                 for e in self._entries
             ],
         }
@@ -467,6 +509,7 @@ class DiffractionLinesPanel(QWidget):
                 visible=bool(cif_entry.get("visible", True)),
                 scale=float(cif_entry.get("scale", 1.0)),
                 show_hkl=bool(cif_entry.get("show_hkl", False)),
+                d_scale=float(cif_entry.get("d_scale", 1.0)),
                 emit=False,
             )
         self._update_empty_label()
@@ -489,6 +532,7 @@ class DiffractionLinesPanel(QWidget):
         visible: bool = True,
         scale: float = 1.0,
         show_hkl: bool = False,
+        d_scale: float = 1.0,
         emit: bool = True,
     ) -> None:
         used_colors = [e["color"] for e in self._entries]
@@ -499,6 +543,7 @@ class DiffractionLinesPanel(QWidget):
             "visible": visible,
             "scale": scale,
             "show_hkl": show_hkl,
+            "d_scale": float(d_scale),
         }
         # If name not provided, try to use formula from CIF
         if name is None:
@@ -680,9 +725,15 @@ class DiffractionLinesPanel(QWidget):
                 continue
             if pat is None:
                 continue
-            # Apply distance correction at emit time so the pattern cache
-            # (keyed by path+λ) stays valid across ΔL / L_cal changes.
-            q_display = shift_q_for_distance_error(pat.q, wl, l_cal, delta_L)
+            # 1) Per-CIF lattice/d-spacing strain (a/a₀): Q = 2π/d, so a uniform
+            #    lattice scaling divides Q by the same factor. Applied first
+            #    because it is intrinsic to the crystal.
+            d_scale = float(entry.get("d_scale", 1.0))
+            q_after_strain = pat.q / d_scale if d_scale > 0 else pat.q
+            # 2) Sample-to-detector distance correction (instrument geometry).
+            #    Applied at emit time so the pattern cache (keyed by path+λ)
+            #    stays valid across ΔL / L_cal / d_scale changes.
+            q_display = shift_q_for_distance_error(q_after_strain, wl, l_cal, delta_L)
             out.append({
                 "pattern": pat,
                 "q_display": q_display,
