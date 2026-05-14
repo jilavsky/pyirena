@@ -25,7 +25,7 @@ from pyirena.io.hdf5 import find_matching_groups
 _PYIRENA_RESULT_GROUPS = [
     'entry/unified_fit_results',
     'entry/sizes_results',
-    'entry/simple_fits_results',
+    'entry/simple_fit_results',
     'entry/waxs_peakfit_results',
     'entry/data_merge_results',
     'entry/modeling_results',

@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3]
+
+### Added
+
+- **`pyirena/io/schema.py` — machine-readable HDF5 schema registry.**
+  New module `TOOL_REGISTRY` provides a single importable source of truth
+  for every pyirena result group: HDF5 path, `@analysis_type` tag,
+  available plot curves (X/Y names, units, plot type), extractable scalar
+  quantities (including per-subgroup paths for level_N, pop_N, peak_N),
+  and whether the group is stripped by Data Merge / Data Manipulation.
+  Includes convenience functions `tool_group_present()`, `available_tools()`,
+  `tool_key_for_group()`, `tool_key_for_analysis_type()`, plus lookup
+  tables `GROUP_TO_TOOL`, `ANALYSIS_TYPE_TO_TOOL`, `STRIPPED_GROUPS`.
+  This registry is the foundation for the upcoming HDF5 Extractor and
+  Plotter tools.
+
+- **`HDF5_Structure_Reference.md`: three missing SAXS Morph items documented.**
+  Section §3.6 now covers `rg_A` (Rg of scattering structure, Å),
+  `q_max_model_A` (Q upper bound for model, Å⁻¹), and the optional
+  `morphology_metrics/` sub-group with all 10 Tier A/B porous-media
+  descriptors (connectivity, percolation, Euler number, EDT pore-size
+  percentiles).
+
+### Fixed
+
+- **Strip-list bug: Simple Fit results now correctly stripped on merge/manipulation.**
+  `nxcansas_data_merge.py` and `nxcansas_data_manipulation.py` listed
+  `entry/simple_fits_results` (with trailing `s`) in their strip lists,
+  but the actual group path is `entry/simple_fit_results`.  The mismatch
+  silently caused Simple Fit results to survive Data Merge and Data
+  Manipulation operations instead of being stripped.  Both strip lists
+  and the corresponding note in `HDF5_Structure_Reference.md` §3.8 are
+  now corrected.
+
 ## [0.6.2]
 
 ### Added

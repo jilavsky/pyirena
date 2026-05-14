@@ -629,6 +629,8 @@ entry/saxs_morph_results/                [NXprocess]
 ├── voxel_pitch_A           (float64, scalar)        = box_size_A / N
 ├── phi_actual              (float64, scalar)        realised φ of voxelgram
 ├── rng_seed                (int64,  scalar)         seed used (reproducibility)
+├── rg_A                    (float64, scalar)        Rg of scattering structure [Å] (NaN if not computed)
+├── q_max_model_A           (float64, scalar)        Q upper bound used for model I(Q) [Å⁻¹] (NaN if not set)
 │
 ├── data_q                  (float64, Nq, units="1/angstrom")
 ├── data_I                  (float64, Nq, units="1/cm")        raw data
@@ -650,8 +652,30 @@ entry/saxs_morph_results/                [NXprocess]
 │   ├── chunks              (N, N, 1)         → cheap 2-D slice loads
 │   └── compression         "gzip", level 4
 │
-└── <param>_err             (float64 scalar, optional — MC σ)
-    e.g. volume_fraction_err, contrast_err, power_law_B_err, etc.
+├── <param>_err             (float64 scalar, optional — MC σ)
+│   e.g. volume_fraction_err, contrast_err, power_law_B_err, etc.
+│
+└── morphology_metrics/     [group, optional — present only when computed]
+    ├── @description        "Topology / connectivity / pore-size descriptors
+    │                        of the minority phase of the voxelgram"
+    │
+    ├── minority_phase_value       (int scalar)    0 or 1: which HDF5 phase value
+    ├── minority_volume_fraction   (float64)       φ or 1−φ, whichever is smaller
+    ├── voxel_pitch_A              (float64)       echoed from parent group
+    │
+    ├── n_clusters                 (int scalar)    disconnected components (6-conn)
+    ├── open_porosity_fraction     (float64)       fraction touching any box face
+    ├── closed_porosity_fraction   (float64)       = 1 − open_porosity_fraction
+    ├── percolating_x              (bool)          spans box −X → +X face
+    ├── percolating_y              (bool)          spans box −Y → +Y face
+    ├── percolating_z              (bool)          spans box −Z → +Z face
+    │
+    ├── euler_number               (int scalar)    χ = components − handles + cavities
+    │                                              χ < 0: spongy; χ > 0: isolated objects
+    │
+    ├── pore_size_median_A         (float64)       50th percentile inscribed-sphere radius, Å
+    ├── pore_size_q25_A            (float64)       25th percentile, Å
+    └── pore_size_q75_A            (float64)       75th percentile, Å
 ```
 
 **Sizing**: a 256³ binary cube compresses to 1–10 MB on porous-media data
@@ -788,7 +812,7 @@ file, it deletes any of the following result groups before writing the
 merged data:
 
 ```
-entry/unified_fit_results, entry/sizes_results, entry/simple_fits_results,
+entry/unified_fit_results, entry/sizes_results, entry/simple_fit_results,
 entry/waxs_peakfit_results, entry/data_merge_results, entry/modeling_results,
 entry/data_manipulation_results
 ```
