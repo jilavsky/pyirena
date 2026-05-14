@@ -348,12 +348,14 @@ def write_iq_data(
     q_arr  = np.asarray(q,         dtype=np.float64)
     I_arr  = np.asarray(intensity, dtype=np.float64)
 
-    _write_wave(grp, "Q", q_arr,  note_str)
-    _write_wave(grp, "R", I_arr,  note_str)
+    # Igor naming convention: lowercase letter + underscore + folder name
+    # e.g. folder "test1" → q_test1, r_test1, s_test1, dq_test1
+    _write_wave(grp, f"q_{folder_name}", q_arr,  note_str)
+    _write_wave(grp, f"r_{folder_name}", I_arr,  note_str)
     if error is not None:
-        _write_wave(grp, "S", np.asarray(error, dtype=np.float64), note_str)
+        _write_wave(grp, f"s_{folder_name}", np.asarray(error, dtype=np.float64), note_str)
     if dq is not None:
-        _write_wave(grp, "dQ", np.asarray(dq,    dtype=np.float64), note_str)
+        _write_wave(grp, f"dq_{folder_name}", np.asarray(dq, dtype=np.float64), note_str)
 
     return folder_path
 
@@ -398,7 +400,7 @@ def write_result_wave(
     grp = _ensure_group(f, folder_path)
 
     _write_wave(grp, igor_wave_name,        np.asarray(y, dtype=np.float64), note_str)
-    _write_wave(grp, igor_wave_name + "_X", np.asarray(x, dtype=np.float64), "")
+    _write_wave(grp, igor_wave_name + "_0", np.asarray(x, dtype=np.float64), "")
 
 
 # ---------------------------------------------------------------------------
