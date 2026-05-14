@@ -250,11 +250,40 @@ def _write_root_attrs(f: h5py.File) -> None:
 
 
 def _create_skeleton(f: h5py.File) -> None:
-    """Create the top-level groups that a valid h5xp must contain."""
+    """Create the top-level groups and required datasets that a valid h5xp must contain."""
     for grp in ("Packed Data", "History", "Miscellaneous",
                 "Packed Procedure Files", "Recreation", "Symbolic Paths"):
         if grp not in f:
             f.create_group(grp)
+
+    # History — scalar fixed-length bytes string (empty = no commands run yet)
+    if "History/History" not in f:
+        f.create_dataset("History/History",
+                         data=np.bytes_(b"\r"))
+
+    # Recreation Procedures — minimal header; Igor uses this to rebuild window layout
+    if "Recreation/Recreation Procedures" not in f:
+        rec = (
+            '// Platform=Windows, IGORVersion=9.050, architecture=Intel, '
+            'systemTextEncoding="UTF-8", historyTextEncoding="UTF-8", '
+            'procwinTextEncoding="UTF-8", recreationTextEncoding="UTF-8", build=0\r'
+            '#pragma TextEncoding = "UTF-8"\r'
+            'Silent 101 // use | as bitwise or -- not comment.\r'
+        )
+        f.create_dataset("Recreation/Recreation Procedures",
+                         data=np.bytes_(rec.encode("utf-8")))
+
+    # Packed Procedure Files — minimal Igor procedure window boilerplate
+    if "Packed Procedure Files/Procedure" not in f:
+        proc = (
+            '#pragma TextEncoding = "UTF-8"\r'
+            '#pragma rtGlobals=3\t\t// Use modern global access method and strict wave access\r'
+            '#pragma DefaultTab={3,20,4}\t// Set default tab width in Igor Pro 9 and later\r'
+        )
+        ds = f.create_dataset("Packed Procedure Files/Procedure",
+                              data=np.bytes_(proc.encode("utf-8")))
+        ds.attrs["IGORWindowType"]  = np.bytes_(b"Built-in Procedure Window")
+        ds.attrs["IGORWindowTitle"] = np.bytes_(b"Procedure")
 
 
 # ---------------------------------------------------------------------------
