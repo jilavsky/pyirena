@@ -157,7 +157,7 @@ def _write_wave(
     ds.attrs["IGORWaveCreationDateLocal"]    = ts
     ds.attrs["IGORWaveModificationDateLocal"] = ts
     if wave_note:
-        ds.attrs["IGORWaveNote"] = wave_note.encode("utf-8")
+        ds.attrs["IGORWaveNote"] = np.bytes_(wave_note)   # fixed-length; Igor rejects vlen strings
     return ds
 
 
