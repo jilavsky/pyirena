@@ -229,18 +229,24 @@ def open_h5xp(path: str | Path):
 
 
 def _write_root_attrs(f: h5py.File) -> None:
-    f.attrs["IGORPlatform"]              = "Windows"
-    f.attrs["IGORArchitecture"]          = "Intel"
-    f.attrs["IGORAppBits"]               = np.int32(64)
-    f.attrs["IGORFileVersion"]           = _FILE_VERSION
-    f.attrs["IGORVersion"]               = _FILE_VERSION
-    f.attrs["IGORRequiredVersion"]       = _REQUIRED_VERSION
-    f.attrs["IGORRequiredVersionReason"] = (
+    # String attributes must be fixed-length bytes (not Python str / variable-length).
+    # Version numbers are float64, not strings.
+    # This mirrors the exact HDF5 types written by Igor Pro 9.
+    f.attrs["IGORPlatform"]                 = np.bytes_("Windows")
+    f.attrs["IGORArchitecture"]             = np.bytes_("Intel")
+    f.attrs["IGORAppBits"]                  = np.int32(64)
+    f.attrs["IGORSystemTextEncodingName"]   = np.bytes_("UTF-8")
+    f.attrs["IGORSystemTextEncodingCode"]   = np.int32(4)   # 4 = UTF-8 on Windows
+    f.attrs["IGORFileVersion"]              = np.bytes_(_FILE_VERSION)
+    f.attrs["IGORVersion"]                  = np.float64(float(_FILE_VERSION))
+    f.attrs["IGORRequiredVersion"]          = np.float64(float(_REQUIRED_VERSION))
+    f.attrs["IGORRequiredVersionReason"]    = np.bytes_(
         "Versions of Igor Pro before 9.00 do not support loading experiments "
         "from HDF5 experiment files."
     )
-    f.attrs["IGORRequiredBuildNumber"]   = np.int32(0)
-    f.attrs["IGORDefaultFont"]           = "Arial"
+    f.attrs["IGORBuildNumber"]              = np.int32(0)
+    f.attrs["IGORRequiredBuildNumber"]      = np.int32(0)
+    f.attrs["IGORDefaultFont"]              = np.bytes_("Arial")
 
 
 def _create_skeleton(f: h5py.File) -> None:
