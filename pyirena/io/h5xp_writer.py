@@ -157,7 +157,9 @@ def _write_wave(
     ds.attrs["IGORWaveCreationDateLocal"]    = ts
     ds.attrs["IGORWaveModificationDateLocal"] = ts
     if wave_note:
-        ds.attrs["IGORWaveNote"] = np.bytes_(wave_note)   # fixed-length; Igor rejects vlen strings
+        # np.bytes_(str) uses ASCII; encode to UTF-8 first, then wrap so h5py
+        # stores a fixed-length |Sn attribute (Igor rejects variable-length strings)
+        ds.attrs["IGORWaveNote"] = np.bytes_(wave_note.encode("utf-8"))
     return ds
 
 
