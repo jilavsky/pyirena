@@ -66,6 +66,7 @@ Usage
 
 from __future__ import annotations
 
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -465,6 +466,86 @@ def write_results_table(
     note_str = make_wave_note({"units": units} if units else {})
     vals_arr = np.array(values, dtype=np.float64)
     _write_wave(grp, param_name, vals_arr, note_str)
+
+
+# ---------------------------------------------------------------------------
+# Public API — Igor Notebooks
+# ---------------------------------------------------------------------------
+
+_RE_INVALID_NAME_CHARS = re.compile(r"[^A-Za-z0-9_]")
+
+
+def igor_notebook_name(title: str, max_len: int = 31) -> str:
+    """Convert arbitrary text to a valid Igor window name.
+
+    Igor window names follow the same rules as wave names: start with a
+    letter, contain only letters / digits / underscores, max 31 characters.
+
+    Examples
+    --------
+    >>> igor_notebook_name("pyIrena Export Notes")
+    'pyIrena_Export_Notes'
+    >>> igor_notebook_name("2024 run log")
+    'N_2024_run_log'
+    """
+    name = _RE_INVALID_NAME_CHARS.sub("_", title.strip())
+    if not name:
+        name = "Notebook"
+    if not name[0].isalpha():
+        name = "N_" + name
+    return name[:max_len]
+
+
+def write_notebook(
+    f: h5py.File,
+    content: str,
+    window_name: str,
+    window_title: str | None = None,
+) -> None:
+    """Write a Plain Text Notebook into ``Packed Notebooks/`` in an h5xp file.
+
+    Igor Pro 9+ loads these as notebook windows when the experiment is opened.
+    The notebook persists on re-save because Igor recognises it as its own
+    content (identified by the ``IGORWindowType = "Plain Text Notebook"``
+    attribute).
+
+    Parameters
+    ----------
+    f:
+        Open h5py.File (from :func:`create_h5xp` or :func:`open_h5xp`).
+    content:
+        Notebook body text.  ``\\n`` newlines are converted to ``\\r``
+        (Igor's internal line-ending convention).
+    window_name:
+        Igor window name — letters / digits / underscores, max 31 chars,
+        must start with a letter.  Use :func:`igor_notebook_name` to
+        sanitise arbitrary strings.
+    window_title:
+        Title shown in the notebook window title bar.  Defaults to
+        *window_name*.  May contain spaces.
+    """
+    if window_title is None:
+        window_title = window_name
+
+    # Igor uses carriage-return (\r) as its line separator.
+    igor_text = content.replace("\r\n", "\r").replace("\n", "\r")
+
+    if "Packed Notebooks" not in f:
+        f.create_group("Packed Notebooks")
+    grp = f["Packed Notebooks"]
+
+    if window_name in grp:
+        del grp[window_name]
+
+    # Fixed-length UTF-8 string — Igor rejects variable-length (vlen) strings.
+    # np.bytes_(bytes_obj) produces a |Sn scalar dataset, exactly as required.
+    ds = grp.create_dataset(
+        window_name,
+        data=np.bytes_(igor_text.encode("utf-8")),
+    )
+    ds.attrs["IGORWindowName"]  = np.bytes_(window_name.encode("utf-8"))
+    ds.attrs["IGORWindowTitle"] = np.bytes_(window_title.encode("utf-8"))
+    ds.attrs["IGORWindowType"]  = np.bytes_(b"Plain Text Notebook")
 
 
 # ---------------------------------------------------------------------------

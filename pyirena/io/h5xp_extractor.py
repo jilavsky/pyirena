@@ -48,6 +48,8 @@ from pyirena.io.h5xp_writer import (
     write_iq_data,
     write_result_wave,
     write_results_table,
+    write_notebook,
+    igor_notebook_name,
 )
 from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE, TOOL_CROSS_REF
 from pyirena.io.schema import TOOL_REGISTRY
@@ -815,4 +817,60 @@ def batch_extract_to_h5xp(
                     write_results_table(h5xp, technique, wave_name,
                                         vals, sample_names, units)
 
+        # ── Processing notes notebook ─────────────────────────────────────
+        nb_content = _build_processing_notes(
+            list(source_paths), h5xp_p, summaries,
+            tools or list(_TOOL_EXTRACTORS.keys()),
+        )
+        write_notebook(
+            h5xp, nb_content,
+            window_name=igor_notebook_name("pyIrena_ExportNotes"),
+            window_title="pyIrena Export Notes",
+        )
+
     return summaries
+
+
+def _build_processing_notes(
+    source_paths: list,
+    h5xp_path: Path,
+    summaries: list[dict[str, Any]],
+    tools: list[str],
+) -> str:
+    """Return the text content for the Processing Notes notebook."""
+    from datetime import datetime
+
+    lines: list[str] = [
+        "pyIrena Export Notes",
+        "=" * 40,
+        f"Generated : {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Output    : {h5xp_path.name}",
+        "",
+        f"Files processed: {len(source_paths)}",
+        "-" * 40,
+    ]
+
+    for i, (src, info) in enumerate(zip(source_paths, summaries), 1):
+        src = Path(src)
+        iq   = "IQ ok" if info.get("iq_written") else "IQ MISSING"
+        ok   = info.get("tools_written", [])
+        skip = info.get("tools_skipped", [])
+        lines.append(f"[{i:3d}] {src.name}")
+        lines.append(f"       {iq}" + (f"  |  tools: {', '.join(ok)}" if ok else ""))
+        if skip:
+            lines.append(f"       skipped (no data): {', '.join(skip)}")
+        # Filename-encoded metadata
+        meta = _parse_filename_metadata(src.stem)
+        if meta:
+            meta_str = "  ".join(
+                f"{k.replace('_', ' ')} = {v}"
+                for k, v in sorted(meta.items())
+            )
+            lines.append(f"       {meta_str}")
+
+    lines += [
+        "",
+        "-" * 40,
+        f"Tools requested: {', '.join(tools)}",
+    ]
+    return "\n".join(lines)
