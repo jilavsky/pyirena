@@ -110,27 +110,31 @@ def _plot(x: str, y: str, x_units: str, y_units: str,
 # ---------------------------------------------------------------------------
 
 _LEVEL_SUBGROUP = {
-    "prefix":   "level_",
-    "attr_key": None,          # sub-groups are uniform, no type dispatch
-    "label":    "Level",
+    "prefix":        "level_",
+    "subgroup_fmt":  "d",       # level_1, level_2, …
+    "attr_key":      None,      # sub-groups are uniform, no type dispatch
+    "label":         "Level",
 }
 
 _POP_SUBGROUP = {
-    "prefix":    "pop_",
-    "attr_key":  "pop_type",   # dispatch on @pop_type: size_dist / unified_level / diffraction_peak
-    "label":     "Population",
+    "prefix":        "pop_",
+    "subgroup_fmt":  "02d",     # pop_01, pop_02, …
+    "attr_key":      "pop_type",
+    "label":         "Population",
 }
 
 _PEAK_SUBGROUP = {
-    "prefix":    "peak_",
-    "attr_key":  "shape",      # dispatch on @shape: Gauss / Lorentz / PseudoVoigt
-    "label":     "Peak",
+    "prefix":        "peak_",
+    "subgroup_fmt":  "02d",     # peak_01, peak_02, …
+    "attr_key":      "shape",
+    "label":         "Peak",
 }
 
 _AGGREGATE_SUBGROUP = {
-    "prefix":    "aggregate_",
-    "attr_key":  None,
-    "label":     "Aggregate",
+    "prefix":        "aggregate_",
+    "subgroup_fmt":  "d",       # aggregate_1, aggregate_2, …
+    "attr_key":      None,
+    "label":         "Aggregate",
 }
 
 

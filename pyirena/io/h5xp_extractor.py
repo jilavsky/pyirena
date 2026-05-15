@@ -56,6 +56,24 @@ from pyirena.io.schema import TOOL_REGISTRY
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Suffix convention for Results-table waves that come from numbered sub-groups.
+# These must produce unique, Igor-legal wave names.
+_SUBGROUP_SUFFIX: dict[str, str] = {
+    "unified_fit":  "L",   # Rg_L1, G_L1, B_L1, P_L1, …
+    "waxs_peakfit": "P",   # peak_Q0_P1, peak_A_P1, …
+    "modeling":     "",    # pop_Rg_1, pop_G_1, …
+    "fractals":     "",    # agg_Z_1, agg_df_1, …
+}
+
+
+def _subgroup_result_key(tool_key: str, sc_key: str, n: int) -> str:
+    """Build the Results-table wave name for a per-subgroup scalar."""
+    suffix = _SUBGROUP_SUFFIX.get(tool_key, "")
+    if suffix:
+        return f"{sc_key}_{suffix}{n}"   # e.g. Rg_L1, peak_Q0_P1
+    return f"{sc_key}_{n}"              # e.g. pop_Rg_1, agg_Z_1
+
+
 def _safe_str(val: Any) -> str:
     """Decode bytes or numpy string scalar to plain str."""
     if isinstance(val, (bytes, np.bytes_)):
@@ -135,30 +153,98 @@ def _read_iq(source: h5py.File) -> dict[str, np.ndarray | None]:
 # Metadata reader
 # ---------------------------------------------------------------------------
 
+_HPLANCK_EV_ANG = 12398.4   # h·c in eV·Å  (so E[keV] = 12.3984 / λ[Å])
+
+
+def _read_group_scalars(grp: h5py.Group, prefix: str, out: dict[str, Any],
+                        max_depth: int = 2) -> None:
+    """Recursively collect all scalar datasets from *grp* into *out*.
+
+    Keys are built as ``prefix + dataset_name`` (groups deepen the prefix with
+    ``prefix + group_name + "_"``).  Only scalars (shape == () or (1,)) and
+    short strings are collected; longer arrays are skipped.
+    """
+    for name, item in grp.items():
+        key = prefix + name
+        if isinstance(item, h5py.Dataset):
+            if item.shape == () or item.shape == (1,):
+                v = item[()]
+                if isinstance(v, np.ndarray):
+                    v = v.flat[0]
+                if isinstance(v, (bytes, np.bytes_)):
+                    s = v.decode("utf-8", errors="replace").strip()
+                    if s:
+                        out[key] = s
+                elif isinstance(v, (int, float, np.integer, np.floating)):
+                    out[key] = float(v)
+                elif isinstance(v, str) and v.strip():
+                    out[key] = v.strip()
+        elif isinstance(item, h5py.Group) and max_depth > 0:
+            _read_group_scalars(item, key + "_", out, max_depth - 1)
+
+
 def _read_metadata(source: h5py.File, folder_name: str) -> dict[str, Any]:
-    """Collect wave-note metadata from NXcanSAS entry group."""
+    """Collect comprehensive wave-note metadata from a NXcanSAS entry group.
+
+    Reads all scalar datasets from entry-level, sample/, instrument/ (depth 2)
+    and computes X-ray energy from wavelength when available.
+    """
     meta: dict[str, Any] = {"IgorFolder": folder_name}
     entry = source.get("entry")
     if entry is None:
         return meta
 
-    def _ds_str(path: str) -> str | None:
-        ds = entry.get(path)
-        if ds is None:
-            return None
-        v = ds[()]
-        return _safe_str(v) if v else None
-
+    # ── Top-level entry scalars ──────────────────────────────────────────────
     for key, path in [
-        ("SampleName",  "sample/name"),
-        ("Description", "sample/description"),
         ("Title",       "title"),
         ("StartTime",   "start_time"),
-        ("Instrument",  "instrument/name"),
+        ("EndTime",     "end_time"),
+        ("Definition",  "definition"),
+        ("RunCycle",    "run_cycle"),
     ]:
-        val = _ds_str(path)
-        if val:
-            meta[key] = val
+        ds = entry.get(path)
+        if ds is not None and ds.shape in ((), (1,)):
+            v = ds[()]
+            s = _safe_str(v).strip()
+            if s:
+                meta[key] = s
+
+    # ── Sample group ─────────────────────────────────────────────────────────
+    sample = entry.get("sample")
+    if sample is not None:
+        _read_group_scalars(sample, "sample_", meta, max_depth=1)
+        # Friendly aliases so the most-used fields have clean names too
+        for alias, raw_key in [
+            ("SampleName",        "sample_name"),
+            ("SampleDescription", "sample_description"),
+        ]:
+            if raw_key in meta and alias not in meta:
+                meta[alias] = meta[raw_key]
+
+    # ── Instrument group (depth 2: sub-groups are source/beam/detector/…) ───
+    instrument = entry.get("instrument")
+    if instrument is not None:
+        _read_group_scalars(instrument, "instrument_", meta, max_depth=2)
+
+    # ── Wavelength / energy ──────────────────────────────────────────────────
+    # Check common NXcanSAS wavelength paths; compute energy in keV.
+    wl: float | None = None
+    for wl_path in (
+        "instrument/beam/incident_wavelength",
+        "instrument/monochromator/wavelength",
+        "instrument/source/wavelength",
+    ):
+        ds = entry.get(wl_path)
+        if ds is not None and ds.shape in ((), (1,)):
+            v = ds[()]
+            if isinstance(v, np.ndarray):
+                v = float(v.flat[0])
+            if isinstance(v, (int, float, np.integer, np.floating)) and float(v) > 0:
+                wl = float(v)
+                break
+    if wl is not None:
+        meta["Wavelength_A"]  = round(wl, 6)
+        meta["Energy_keV"]    = round(_HPLANCK_EV_ANG / wl / 1000.0, 4)
 
     return meta
 
@@ -593,12 +679,36 @@ def batch_extract_to_h5xp(
                         continue
                     grp = f[grp_path]
                     tool_scalars = results_accum.setdefault(key, {})
+
                     for sc in schema["scalars"]:
-                        if sc["per_subgroup"]:
-                            continue  # skip per-subgroup scalars for the flat table
-                        sc_key = sc["key"]
-                        val = _scalar(grp, sc["path"])
-                        tool_scalars.setdefault(sc_key, []).append(val)
+                        if not sc["per_subgroup"]:
+                            # Flat scalar: one value per file
+                            val = _scalar(grp, sc["path"])
+                            tool_scalars.setdefault(sc["key"], []).append(val)
+                        else:
+                            # Per-subgroup: enumerate actual sub-groups
+                            sub_info = schema.get("sub_groups")
+                            if sub_info is None:
+                                continue
+                            prefix = sub_info["prefix"]
+                            fmt = sub_info.get("subgroup_fmt", "d")
+                            n = 1
+                            while True:
+                                sg_name = prefix + format(n, fmt)
+                                if sg_name not in grp:
+                                    break
+                                sg = grp[sg_name]
+                                # Build the scalar path for this sub-group
+                                # sc["path"] template uses "{n}" (bare int)
+                                sc_path = sc["path"].replace("{n}", str(n))
+                                # Strip the "prefix_{n}/" prefix that's already
+                                # inside the subgroup object
+                                sc_path_rel = sc_path.split("/", 1)[1] if "/" in sc_path else sc_path
+                                val = _scalar(sg, sc_path_rel)
+                                # Key name: append suffix for clarity
+                                result_key = _subgroup_result_key(key, sc["key"], n)
+                                tool_scalars.setdefault(result_key, []).append(val)
+                                n += 1
 
         if build_results_table:
             tool_label_map = {k: v["label"] for k, v in TOOL_REGISTRY.items()}
@@ -608,9 +718,10 @@ def batch_extract_to_h5xp(
                     # Pad missing entries with NaN so all waves have the same length
                     while len(values) < len(sample_names):
                         values.append(float("nan"))
+                    # Find units from schema (flat scalars first, then per-subgroup)
+                    schema_scalars = TOOL_REGISTRY[tool_key]["scalars"]
                     sc_spec = next(
-                        (s for s in TOOL_REGISTRY[tool_key]["scalars"]
-                         if s["key"] == param_key and not s["per_subgroup"]),
+                        (s for s in schema_scalars if s["key"] == param_key),
                         None,
                     )
                     units = sc_spec["units"] if sc_spec else ""
