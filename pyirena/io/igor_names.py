@@ -43,6 +43,8 @@ Notes
 
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # Simple Fits model name → Igor AllCurrentlyAllowedTypes wave name
 # ---------------------------------------------------------------------------
@@ -290,6 +292,71 @@ IGOR_ONLY: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 # Helper: resolve igor_name template at runtime
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Y-wave → X-wave lookup (ResultsDataTypesLookup from Igor/Irena)
+# ---------------------------------------------------------------------------
+# Static map: Y-wave name → canonical Igor X-wave name.
+# Per-n entries (Pop{n}, Peak{n}, …) are handled by _RESULT_X_PATTERNS below.
+
+RESULT_X_WAVE: dict[str, str] = {
+    # Size Distribution
+    "SizesFitIntensity":       "SizesFitQvector",
+    "SizesVolumeDistribution": "SizesDistDiameter",
+    "SizesNumberDistribution": "SizesDistDiameter",
+    "CumulativeSizeDist":      "CumulativeDistDiameters",
+    # Unified Fit
+    "UnifiedFitIntensity":     "UnifiedFitQvector",
+    # Modeling (total)
+    "ModelingIntensity":       "ModelingQvector",
+    # Fractals (total)
+    "FractFitIntensity":       "FractFitQvector",
+    # WAXS Peak Fit (total)
+    "SADModelIntensity":       "SADModelQ",
+    # Simple Fits — Igor AllCurrentlyAllowedTypes entries
+    "SimFitGuinierI":          "SimFitGuinierQ",
+    "SimFitGuinierRI":         "SimFitGuinierRQ",
+    "SimFitGuinierSII":        "SimFitGuinierSQ",
+    "SimFitSphereI":           "SimFitSphereQ",
+    "SimFitSpheroidI":         "SimFitSpheroidQ",
+    "SimFitPorodI":            "SimFitPorodQ",
+    "SimFitPwrLawI":           "SimFitPwrLawQ",
+    # SAXS Morph (pyirena-only wave names)
+    "SAXSMorphModelI":         "SAXSMorphModelQ",
+    "SAXSMorphDataI":          "SAXSMorphDataQ",
+    "SAXSMorphGammaR":         "SAXSMorphR",
+    "SAXSMorphSpectralF":      "SAXSMorphK",
+}
+
+# Regex patterns for per-n Y-waves.  Each tuple is (compiled pattern, replacement).
+# ``re.Match.expand(replacement)`` is used, so ``\1`` backreferences work.
+_RESULT_X_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^ModelingVolDist_Pop(\d+)$"),    r"ModelingDia_Pop\1"),
+    (re.compile(r"^ModelingNumDist_Pop(\d+)$"),    r"ModelingDia_Pop\1"),
+    (re.compile(r"^IntensityModelLSQF2pop(\d+)$"), r"ModelingQvector"),
+    (re.compile(r"^SADModelIntPeak(\d+)$"),         r"SADModelQPeak\1"),
+    (re.compile(r"^Mass(\d+)FractFitInt$"),         r"Mass\1FractFitQvec"),
+    (re.compile(r"^Surf(\d+)FractFitInt$"),         r"Surf\1FractFitQvec"),
+    # pyirena-only Simple Fits not in the static table: SimFit<Name>I → SimFit<Name>Q
+    (re.compile(r"^(SimFit\w+?)I$"),                r"\1Q"),
+]
+
+
+def result_x_wave_name(y_name: str) -> str:
+    """Return the canonical Igor X-wave name paired with *y_name*.
+
+    Checks the static :data:`RESULT_X_WAVE` dict first, then applies regex
+    patterns for per-n waves (e.g. ``ModelingVolDist_Pop3``).  Falls back to
+    ``y_name + "_X"`` for unknown wave types.
+    """
+    if y_name in RESULT_X_WAVE:
+        return RESULT_X_WAVE[y_name]
+    for pattern, replacement in _RESULT_X_PATTERNS:
+        m = pattern.match(y_name)
+        if m:
+            return m.expand(replacement)
+    return y_name + "_X"
+
 
 def resolve_igor_name(igor_name_template: str, n: int) -> str:
     """Substitute {n} in an Igor wave name template with the given 1-based index."""

@@ -74,6 +74,8 @@ from typing import Any, Sequence
 import h5py
 import numpy as np
 
+from pyirena.io.igor_names import result_x_wave_name
+
 # ---------------------------------------------------------------------------
 # Igor Pro constants
 # ---------------------------------------------------------------------------
@@ -375,8 +377,8 @@ def write_result_wave(
 ) -> None:
     """Write a model or result array as an Igor wave alongside the QRS data.
 
-    The X array is stored as ``<igor_wave_name>_X`` and the Y array as
-    ``<igor_wave_name>``.  Fit parameters (Rg, chi² …) go into the wave note
+    The Y array is stored as ``<igor_wave_name>`` and the X array as
+    ``<canonical_x_name>_0`` (looked up via :func:`result_x_wave_name`).  Fit parameters (Rg, chi² …) go into the wave note
     of the Y wave.
 
     Parameters
@@ -399,8 +401,9 @@ def write_result_wave(
     folder_path = _sample_folder(category, folder_name)
     grp = _ensure_group(f, folder_path)
 
-    _write_wave(grp, igor_wave_name,        np.asarray(y, dtype=np.float64), note_str)
-    _write_wave(grp, igor_wave_name + "_0", np.asarray(x, dtype=np.float64), "")
+    x_wave_name = result_x_wave_name(igor_wave_name)
+    _write_wave(grp, igor_wave_name,          np.asarray(y, dtype=np.float64), note_str)
+    _write_wave(grp, x_wave_name + "_0",      np.asarray(x, dtype=np.float64), "")
 
 
 # ---------------------------------------------------------------------------
