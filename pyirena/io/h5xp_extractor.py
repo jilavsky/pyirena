@@ -34,6 +34,7 @@ the stem is replaced with ``_``.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,72 @@ from pyirena.io.h5xp_writer import (
 )
 from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE, TOOL_CROSS_REF
 from pyirena.io.schema import TOOL_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# Filename metadata parser
+# ---------------------------------------------------------------------------
+
+# Recognised patterns (all case-insensitive, value must be preceded by "_"):
+#   temperature : _20degC   _20C      (°C; negative values allowed: _-10degC)
+#   time        : _34min    _3456sec  (minutes / seconds; stored separately)
+#   pressure    : _34psi              (PSI)
+#
+# Pattern rule: the numeric token ends at a letter, and the unit keyword must
+# be followed by "_", ".", or end-of-string so we don't match sub-strings
+# (e.g. "_3cm" must not match as Celsius).
+
+_RE_DEGC  = re.compile(r'_(-?\d+(?:\.\d+)?)degC(?=_|\.|$)',      re.IGNORECASE)
+_RE_C     = re.compile(r'_(-?\d+(?:\.\d+)?)C(?=_|\.|$)',         re.IGNORECASE)
+_RE_MIN   = re.compile(r'_(\d+(?:\.\d+)?)min(?=_|\.|$)',         re.IGNORECASE)
+_RE_SEC   = re.compile(r'_(\d+(?:\.\d+)?)sec(?=_|\.|$)',         re.IGNORECASE)
+_RE_PSI   = re.compile(r'_(\d+(?:\.\d+)?)psi(?=_|\.|$)',         re.IGNORECASE)
+
+
+def _parse_filename_metadata(stem: str) -> dict[str, float]:
+    """Extract encoded metadata from a filename stem.
+
+    Returns a dict with zero or more of these float keys:
+
+    * ``Temperature_C``  — heater temperature in °C
+    * ``Time_min``       — elapsed time in minutes
+    * ``Time_sec``       — elapsed time in seconds (kept separately so users
+                           can choose their preferred x-axis unit)
+    * ``Pressure_psi``   — pressure in PSI
+
+    Missing quantities are absent from the returned dict (not NaN), so callers
+    can decide whether to write those waves at all.
+    """
+    result: dict[str, float] = {}
+
+    # Temperature — try degC first, then bare C (stricter word-boundary)
+    m = _RE_DEGC.search(stem)
+    if m:
+        result["Temperature_C"] = float(m.group(1))
+    else:
+        m = _RE_C.search(stem)
+        if m:
+            result["Temperature_C"] = float(m.group(1))
+
+    # Time in minutes
+    m = _RE_MIN.search(stem)
+    if m:
+        result["Time_min"] = float(m.group(1))
+
+    # Time in seconds (stored as seconds; also compute minutes for convenience)
+    m = _RE_SEC.search(stem)
+    if m:
+        result["Time_sec"] = float(m.group(1))
+        # Only fill Time_min from seconds if no explicit _Xmin token found
+        if "Time_min" not in result:
+            result["Time_min"] = round(float(m.group(1)) / 60.0, 6)
+
+    # Pressure in PSI
+    m = _RE_PSI.search(stem)
+    if m:
+        result["Pressure_psi"] = float(m.group(1))
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -727,5 +794,25 @@ def batch_extract_to_h5xp(
                     units = sc_spec["units"] if sc_spec else ""
                     write_results_table(h5xp, technique, param_key,
                                         values, sample_names, units)
+
+            # ── Filename-encoded metadata waves ───────────────────────────
+            # Parse temperature / time / pressure from each sample name and
+            # write them alongside the scalar parameter waves so Igor users
+            # can immediately plot e.g. Rg vs Temperature_C without extra steps.
+            # Only waves for which at least one file has a recognised value
+            # are written (NaN-padded for files that lack the token).
+            _META_SPEC: list[tuple[str, str, str]] = [
+                ("Temperature_C", "Temperature_C", "degC"),
+                ("Time_min",      "Time_min",       "min"),
+                ("Time_sec",      "Time_sec",       "sec"),
+                ("Pressure_psi",  "Pressure_psi",   "psi"),
+            ]
+            parsed = [_parse_filename_metadata(n) for n in sample_names]
+            for meta_key, wave_name, units in _META_SPEC:
+                vals = [p.get(meta_key, float("nan")) for p in parsed]
+                # Only write if at least one value was actually found
+                if any(not (v != v) for v in vals):  # v != v is True only for NaN
+                    write_results_table(h5xp, technique, wave_name,
+                                        vals, sample_names, units)
 
     return summaries
