@@ -294,13 +294,6 @@ def _create_skeleton(f: h5py.File) -> None:
             'procwinTextEncoding="UTF-8", recreationTextEncoding="UTF-8", build=0\r'
             '#pragma TextEncoding = "UTF-8"\r'
             'Silent 101 // use | as bitwise or -- not comment.\r'
-            ' \r'
-            'DefaultFont "Arial"\r'
-            'MoveWindow/P 5,45,705,500\r'
-
-            'String/G root:gWMSetNextTextFilesTextEncoding = "UTF-8"	// Text encoding for pyIrena_ExportNotes. Used by Igor Pro 7.\r'
-            'OpenNotebook/N=pyIrena_ExportNotes/W=(5,45,705,500)/HDF5="/Packed Notebooks/pyIrena_ExportNotes"/V=1 "pyIrena Export Notes"\r'
-            'KillStrings/Z root:gWMSetNextTextFilesTextEncoding\r'
         )
         f.create_dataset("Recreation/Recreation Procedures",
                          data=np.bytes_(rec.encode("utf-8")))
@@ -530,16 +523,12 @@ def _notebook_recreation_macro(window_name: str, window_title: str) -> str:
         '#pragma TextEncoding = "UTF-8"',
         "Silent 101 // use | as bitwise or -- not comment.",
         "",
-        "",
-        "",
         'DefaultFont "Arial"',
         "",
         "MoveWindow/P 5,45,705,500",
         "",
         f'String/G root:gWMSetNextTextFilesTextEncoding = "UTF-8"\t// Text encoding for {window_name}. Used by Igor Pro 7.',
         f'OpenNotebook/N={window_name}/W=(5,45,705,500)/HDF5="/Packed Notebooks/{window_name}"/V=1 "{window_title}"',
-        "",
-        "MoveWindow/C 2,1685,3838,2097",
         "",
         "KillStrings/Z root:gWMSetNextTextFilesTextEncoding",
         "",
