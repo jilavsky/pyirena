@@ -96,6 +96,26 @@ _REQUIRED_VERSION = "9.0"
 _FILE_VERSION     = "9.05"
 
 # ---------------------------------------------------------------------------
+# Low-level UTF-8 string type helper (used for notebooks and their attributes)
+# ---------------------------------------------------------------------------
+
+def _make_utf8_str_dtype(data_bytes: bytes) -> h5py.Datatype:
+    """Return an h5py fixed-length UTF-8 string Datatype for *data_bytes*."""
+    t = h5py.h5t.C_S1.copy()
+    t.set_size(max(len(data_bytes), 1))
+    t.set_strpad(h5py.h5t.STR_NULLPAD)
+    t.set_cset(h5py.h5t.CSET_UTF8)
+    return h5py.Datatype(t)
+
+
+def _write_utf8_str_dataset(grp: h5py.Group, name: str, text: str) -> h5py.Dataset:
+    """Create a fixed-length UTF-8 string dataset in *grp* and return it."""
+    b = text.encode("utf-8")
+    ds = grp.create_dataset(name, data=np.bytes_(b), dtype=_make_utf8_str_dtype(b))
+    return ds
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -496,6 +516,31 @@ def igor_notebook_name(title: str, max_len: int = 31) -> str:
     return name[:max_len]
 
 
+def _notebook_recreation_macro(window_name: str, window_title: str) -> str:
+    """Return the Igor recreation macro that reopens a notebook on experiment load."""
+    lines = [
+        '// recreationTextEncoding="UTF-8"',
+        '#pragma TextEncoding = "UTF-8"',
+        "Silent 101 // use | as bitwise or -- not comment.",
+        "",
+        "",
+        "",
+        'DefaultFont "Arial"',
+        "",
+        "MoveWindow/P 5,45,705,500",
+        "",
+        f'String/G root:gWMSetNextTextFilesTextEncoding = "UTF-8"\t// Text encoding for {window_name}. Used by Igor Pro 7.',
+        f'OpenNotebook/N={window_name}/W=(5,45,705,500)/HDF5="/Packed Notebooks/{window_name}"/V=1 "{window_title}"',
+        "",
+        "MoveWindow/C 2,1685,3838,2097",
+        "",
+        "KillStrings/Z root:gWMSetNextTextFilesTextEncoding",
+        "",
+    ]
+    # Igor line endings
+    return "\r".join(lines)
+
+
 def write_notebook(
     f: h5py.File,
     content: str,
@@ -530,43 +575,32 @@ def write_notebook(
     # Igor uses carriage-return (\r) as its line separator.
     igor_text = content.replace("\r\n", "\r").replace("\n", "\r")
 
+    # ── Packed Notebooks/<window_name> ────────────────────────────────────────
     if "Packed Notebooks" not in f:
         f.create_group("Packed Notebooks")
     grp = f["Packed Notebooks"]
-
     if window_name in grp:
         del grp[window_name]
 
-    # Igor requires a fixed-length string with H5T_CSET_UTF8.
-    # np.bytes_() produces H5T_CSET_ASCII, so we build the type explicitly
-    # via h5py's low-level API and pass it as the dtype override.
-    data_bytes = igor_text.encode("utf-8")
-    n = max(len(data_bytes), 1)
-    _tid = h5py.h5t.C_S1.copy()
-    _tid.set_size(n)
-    _tid.set_strpad(h5py.h5t.STR_NULLPAD)   # H5T_STR_NULLPAD
-    _tid.set_cset(h5py.h5t.CSET_UTF8)       # H5T_CSET_UTF8
-    ds = grp.create_dataset(
-        window_name,
-        data=np.bytes_(data_bytes),
-        dtype=h5py.Datatype(_tid),
-    )
-
-    def _utf8_attr(s: str) -> h5py.Datatype:
-        b = s.encode("utf-8")
-        t = h5py.h5t.C_S1.copy()
-        t.set_size(max(len(b), 1))
-        t.set_strpad(h5py.h5t.STR_NULLPAD)
-        t.set_cset(h5py.h5t.CSET_UTF8)
-        return h5py.Datatype(t)
-
+    ds = _write_utf8_str_dataset(grp, window_name, igor_text)
     for attr_name, attr_val in [
         ("IGORWindowName",  window_name),
         ("IGORWindowTitle", window_title),
         ("IGORWindowType",  "Plain Text Notebook"),
     ]:
         b = attr_val.encode("utf-8")
-        ds.attrs.create(attr_name, data=np.bytes_(b), dtype=_utf8_attr(attr_val))
+        ds.attrs.create(attr_name, data=np.bytes_(b),
+                        dtype=_make_utf8_str_dtype(b))
+
+    # ── Recreation/<window_name> ──────────────────────────────────────────────
+    # Igor needs a recreation macro so it knows to re-open the notebook when
+    # the experiment is loaded.  The macro lives in Recreation/ as a UTF-8
+    # fixed-length string dataset named after the window.
+    macro = _notebook_recreation_macro(window_name, window_title)
+    if "Recreation" not in f:
+        f.create_group("Recreation")
+    rec_grp = f["Recreation"]
+    ds_rec = _write_utf8_str_dataset(rec_grp, "Recreation Procedure", macro)
 
 
 # ---------------------------------------------------------------------------
