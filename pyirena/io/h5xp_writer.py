@@ -537,11 +537,19 @@ def write_notebook(
     if window_name in grp:
         del grp[window_name]
 
-    # Fixed-length UTF-8 string — Igor rejects variable-length (vlen) strings.
-    # np.bytes_(bytes_obj) produces a |Sn scalar dataset, exactly as required.
+    # Igor requires a fixed-length string with H5T_CSET_UTF8.
+    # np.bytes_() produces H5T_CSET_ASCII, so we build the type explicitly
+    # via h5py's low-level API and pass it as the dtype override.
+    data_bytes = igor_text.encode("utf-8")
+    n = max(len(data_bytes), 1)
+    _tid = h5py.h5t.C_S1.copy()
+    _tid.set_size(n)
+    _tid.set_strpad(h5py.h5t.STR_NULLPAD)   # H5T_STR_NULLPAD
+    _tid.set_cset(h5py.h5t.CSET_UTF8)       # H5T_CSET_UTF8
     ds = grp.create_dataset(
         window_name,
-        data=np.bytes_(igor_text.encode("utf-8")),
+        data=np.bytes_(data_bytes),
+        dtype=h5py.Datatype(_tid),
     )
     ds.attrs["IGORWindowName"]  = np.bytes_(window_name.encode("utf-8"))
     ds.attrs["IGORWindowTitle"] = np.bytes_(window_title.encode("utf-8"))
