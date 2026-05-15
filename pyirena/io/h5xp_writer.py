@@ -377,8 +377,9 @@ def write_result_wave(
 ) -> None:
     """Write a model or result array as an Igor wave alongside the QRS data.
 
-    The Y array is stored as ``<igor_wave_name>`` and the X array as
-    ``<canonical_x_name>_0`` (looked up via :func:`result_x_wave_name`).  Fit parameters (Rg, chi² …) go into the wave note
+    Both arrays get an ``_0`` order suffix (Igor supports multiple runs _0/_1/…;
+    pyirena always writes run 0).  Y is stored as ``<igor_wave_name>_0`` and X
+    as ``<canonical_x_name>_0`` (looked up via :func:`result_x_wave_name`).  Fit parameters (Rg, chi² …) go into the wave note
     of the Y wave.
 
     Parameters
@@ -402,7 +403,7 @@ def write_result_wave(
     grp = _ensure_group(f, folder_path)
 
     x_wave_name = result_x_wave_name(igor_wave_name)
-    _write_wave(grp, igor_wave_name,          np.asarray(y, dtype=np.float64), note_str)
+    _write_wave(grp, igor_wave_name + "_0",   np.asarray(y, dtype=np.float64), note_str)
     _write_wave(grp, x_wave_name + "_0",      np.asarray(x, dtype=np.float64), "")
 
 
