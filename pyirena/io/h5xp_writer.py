@@ -551,9 +551,22 @@ def write_notebook(
         data=np.bytes_(data_bytes),
         dtype=h5py.Datatype(_tid),
     )
-    ds.attrs["IGORWindowName"]  = np.bytes_(window_name.encode("utf-8"))
-    ds.attrs["IGORWindowTitle"] = np.bytes_(window_title.encode("utf-8"))
-    ds.attrs["IGORWindowType"]  = np.bytes_(b"Plain Text Notebook")
+
+    def _utf8_attr(s: str) -> h5py.Datatype:
+        b = s.encode("utf-8")
+        t = h5py.h5t.C_S1.copy()
+        t.set_size(max(len(b), 1))
+        t.set_strpad(h5py.h5t.STR_NULLPAD)
+        t.set_cset(h5py.h5t.CSET_UTF8)
+        return h5py.Datatype(t)
+
+    for attr_name, attr_val in [
+        ("IGORWindowName",  window_name),
+        ("IGORWindowTitle", window_title),
+        ("IGORWindowType",  "Plain Text Notebook"),
+    ]:
+        b = attr_val.encode("utf-8")
+        ds.attrs.create(attr_name, data=np.bytes_(b), dtype=_utf8_attr(attr_val))
 
 
 # ---------------------------------------------------------------------------
