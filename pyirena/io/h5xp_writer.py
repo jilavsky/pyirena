@@ -518,23 +518,28 @@ def igor_notebook_name(title: str, max_len: int = 31) -> str:
 
 def _notebook_recreation_macro(window_name: str, window_title: str) -> str:
     """Return the Igor recreation macro that reopens a notebook on experiment load."""
-    lines = [
-        '// recreationTextEncoding="UTF-8"',
-        '#pragma TextEncoding = "UTF-8"',
-        "Silent 101 // use | as bitwise or -- not comment.",
-        "",
-        'DefaultFont "Arial"',
-        "",
-        "MoveWindow/P 5,45,705,500",
-        "",
-        f'String/G root:gWMSetNextTextFilesTextEncoding = "UTF-8"\t// Text encoding for {window_name}. Used by Igor Pro 7.',
-        f'OpenNotebook/N={window_name}/W=(5,45,705,500)/HDF5="/Packed Notebooks/{window_name}"/V=1 "{window_title}"',
-        "",
-        "KillStrings/Z root:gWMSetNextTextFilesTextEncoding",
-        "",
-    ]
-    # Igor line endings
-    return "\r".join(lines)
+    # Built as a single string with explicit \r (Igor line endings) so that
+    # linters cannot collapse the intentional blank lines or remove statements.
+    return (
+        '// recreationTextEncoding="UTF-8"\r'
+        '#pragma TextEncoding = "UTF-8"\r'
+        'Silent 101 // use | as bitwise or -- not comment.\r'
+        '\r'
+        '\r'
+        '\r'
+        'DefaultFont "Arial"\r'
+        '\r'
+        'MoveWindow/P 5,45,705,500\r'
+        '\r'
+        f'String/G root:gWMSetNextTextFilesTextEncoding = "UTF-8"\t'
+        f'// Text encoding for {window_name}. Used by Igor Pro 7.\r'
+        f'OpenNotebook/N={window_name}/W=(5,45,705,500)'
+        f'/HDF5="/Packed Notebooks/{window_name}"/V=1 "{window_title}"\r'
+        '\r'
+        'MoveWindow/C 2,1685,3838,2097\r'
+        '\r'
+        'KillStrings/Z root:gWMSetNextTextFilesTextEncoding\r'
+    )
 
 
 def write_notebook(
@@ -588,15 +593,19 @@ def write_notebook(
         ds.attrs.create(attr_name, data=np.bytes_(b),
                         dtype=_make_utf8_str_dtype(b))
 
-    # ── Recreation/<window_name> ──────────────────────────────────────────────
+    # ── Recreation/Recreation Procedures ─────────────────────────────────────
     # Igor needs a recreation macro so it knows to re-open the notebook when
-    # the experiment is loaded.  The macro lives in Recreation/ as a UTF-8
-    # fixed-length string dataset named after the window.
+    # the experiment is loaded.  _create_skeleton() already wrote a minimal
+    # placeholder; we must delete it before writing the full macro, because
+    # h5py raises an error (and the old content survives) if we create_dataset
+    # on an already-existing name.
     macro = _notebook_recreation_macro(window_name, window_title)
     if "Recreation" not in f:
         f.create_group("Recreation")
     rec_grp = f["Recreation"]
-    ds_rec = _write_utf8_str_dataset(rec_grp, "Recreation Procedures", macro)
+    if "Recreation Procedures" in rec_grp:
+        del rec_grp["Recreation Procedures"]
+    _write_utf8_str_dataset(rec_grp, "Recreation Procedures", macro)
 
 
 # ---------------------------------------------------------------------------
