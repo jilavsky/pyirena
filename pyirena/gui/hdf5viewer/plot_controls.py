@@ -1,5 +1,5 @@
 """
-PlotControlsPanel — tabbed control panel for the HDF5 Viewer.
+PlotControlsPanel — tabbed control panel for the Data Explorer.
 
 Tab 1 — "1D Graph":
   • Pyirena presets: checkboxes for known data types
@@ -40,6 +40,7 @@ except ImportError:
     from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
 
 from . import pyirena_readers as _readers
+from .export_to_igor_tab import ExportToIgorTab
 
 
 def _label(text: str, bold: bool = False) -> QLabel:
@@ -109,6 +110,10 @@ class PlotControlsPanel(QWidget):
         self._tabs.addTab(self._build_graph_tab(), "1D Graph")
         self._tabs.addTab(self._build_collect_tab(), "Collect Values")
         self._tabs.addTab(self._build_multi_collect_tab(), "Multi-Collect")
+
+        self._igor_tab = ExportToIgorTab()
+        self._igor_tab.status_message.connect(self.status_message)
+        self._tabs.addTab(self._igor_tab, "Export to Igor")
 
     def _build_graph_tab(self) -> QWidget:
         w = QWidget()
@@ -440,6 +445,7 @@ class PlotControlsPanel(QWidget):
 
     def set_selected_files(self, paths: list[str]) -> None:
         self._selected_files = list(paths)
+        self._igor_tab.set_selected_files(paths)
 
     def set_dataset_role(self, role: str, hdf5_path: str) -> None:
         """Called when the HDF5 browser emits add_dataset_requested."""
