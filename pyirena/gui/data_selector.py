@@ -2582,18 +2582,6 @@ class DataSelectorPanel(QWidget):
         self.export_ascii_button.clicked.connect(self.export_to_ascii)
         self.export_ascii_button.setEnabled(False)
 
-        _out_grid = QGridLayout()
-        _out_grid.setHorizontalSpacing(4)
-        _out_grid.setVerticalSpacing(4)
-        _out_grid.setColumnStretch(0, 1)
-        _out_grid.setColumnStretch(1, 1)
-        _out_grid.addWidget(self.plot_button,          0, 0)
-        _out_grid.addWidget(self.report_button,        0, 1)
-        _out_grid.addWidget(self.tabulate_button,      1, 0)
-        _out_grid.addWidget(self.export_ascii_button,  1, 1)
-        _out_grid.addWidget(self.hdf5_viewer_button,   2, 0)
-        grp_view_lay.addLayout(_out_grid)
-
         # Data Explorer — row 2 col 0 of the same grid (half-width); distinct
         # red colour signals it is a different kind of tool from the four above.
         _de_style = (
@@ -2609,6 +2597,18 @@ class DataSelectorPanel(QWidget):
             "from HDF5 files — including export to Igor Pro h5xp format."
         )
         self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
+
+        _out_grid = QGridLayout()
+        _out_grid.setHorizontalSpacing(4)
+        _out_grid.setVerticalSpacing(4)
+        _out_grid.setColumnStretch(0, 1)
+        _out_grid.setColumnStretch(1, 1)
+        _out_grid.addWidget(self.plot_button,          0, 0)
+        _out_grid.addWidget(self.report_button,        0, 1)
+        _out_grid.addWidget(self.tabulate_button,      1, 0)
+        _out_grid.addWidget(self.export_ascii_button,  1, 1)
+        _out_grid.addWidget(self.hdf5_viewer_button,   2, 0)
+        grp_view_lay.addLayout(_out_grid)
 
         right_layout.addWidget(grp_view)
 
