@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4]
+
+### Added
+
+- **Igor Pro h5xp export pipeline (`pyirena/io/h5xp_extractor.py`, `h5xp_writer.py`).**
+  `batch_extract_to_h5xp()` reads one or more pyirena NXcanSAS HDF5 files and
+  writes a single Igor Pro packed-experiment file (`.h5xp`) containing:
+  - I(Q) data waves (`Q_0`, `R_0`, `S_0`, `dQ_0`) with rich wave-note metadata
+    (sample name, energy, wavelength, temperature, time, pressure from filename tokens).
+  - Analysis result waves for all supported tools (Unified Fit, Size Distribution,
+    WAXS Peak Fit, Simple Fits, Modeling, SAXS Morph, Fractals) with canonical
+    Igor wave names and `_0` run-index suffix on both Y and X waves.
+  - Per-tool scalar Results table (one column per file) for Rg, G, B, P, χ², etc.
+  - Filename-derived metadata waves (Temperature_C, Time_min, Time_sec, Pressure_psi)
+    written only when at least one file contains the token.
+  - `Packed Notebooks/pyIrena_ExportNotes` plain-text notebook listing all processed
+    files, with correct `H5T_CSET_UTF8` encoding on dataset and all attributes so Igor
+    Pro recognises and reopens it.
+  - `Recreation/Recreation Procedures` macro so Igor reopens the notebook on next load.
+
+- **"Export to Igor" tab in the Data Explorer** (`pyirena/gui/hdf5viewer/export_to_igor_tab.py`).
+  New tab inside the Data Explorer window lets users select files, choose which
+  analysis tools to include, pick an output path, and run the export in a background
+  thread with a live log display.
+
+### Changed
+
+- **Data Selector GUI reorganised into three `QGroupBox` sections.**
+  - *View & Export*: checkboxes + four output buttons (Create Graph, Create Report,
+    Tabulate Results, Export to ASCII) + Data Explorer on its own half-width row.
+    Export to ASCII recoloured blue; Data Explorer recoloured red to distinguish it
+    from the checkbox-driven output tools.
+  - *Analysis Tools*: all six GUI + script button pairs.
+  - *Data Processing & Reference*: Data Merge, Data Manipulation, Scattering
+    Contrast Calculator, Fractals.
+  - **Manage Config** moved below the file list alongside Configure…
+
+- **"HDF5 Viewer" renamed "Data Explorer"** throughout: button, window title,
+  panel header, menu action, docstrings, README, and documentation pages.
+
 ## [0.6.3]
 
 ### Added
