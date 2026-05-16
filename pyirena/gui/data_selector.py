@@ -2531,9 +2531,9 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         _btn_sm_orange = (
-            "QPushButton { background:#d35400; color:white; font-size:11px; "
+            "QPushButton { background:#2980b9; color:white; font-size:11px; "
             "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#ba4a00; }"
+            "QPushButton:hover { background:#2471a3; }"
             "QPushButton:disabled { background:#bdc3c7; }"
         )
 
@@ -2591,13 +2591,15 @@ class DataSelectorPanel(QWidget):
         _out_grid.addWidget(self.report_button,        0, 1)
         _out_grid.addWidget(self.tabulate_button,      1, 0)
         _out_grid.addWidget(self.export_ascii_button,  1, 1)
+        _out_grid.addWidget(self.hdf5_viewer_button,   2, 0)
         grp_view_lay.addLayout(_out_grid)
 
-        # Data Explorer — its own row; does not use the checkboxes above
+        # Data Explorer — row 2 col 0 of the same grid (half-width); distinct
+        # red colour signals it is a different kind of tool from the four above.
         _de_style = (
-            "QPushButton { background:#16a085; color:white; font-size:11px; "
+            "QPushButton { background:#c0392b; color:white; font-size:11px; "
             "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#1abc9c; }"
+            "QPushButton:hover { background:#e74c3c; }"
         )
         self.hdf5_viewer_button = QPushButton("Data Explorer")
         self.hdf5_viewer_button.setMinimumHeight(28)
@@ -2607,10 +2609,6 @@ class DataSelectorPanel(QWidget):
             "from HDF5 files — including export to Igor Pro h5xp format."
         )
         self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
-        _de_row = QHBoxLayout()
-        _de_row.addWidget(self.hdf5_viewer_button)
-        _de_row.addStretch()
-        grp_view_lay.addLayout(_de_row)
 
         right_layout.addWidget(grp_view)
 
