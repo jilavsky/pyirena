@@ -441,7 +441,7 @@ entry/modeling_results/
 
 ## Integration with other tools
 
-### HDF5 Viewer
+### Data Explorer
 
 Files containing Modeling results are automatically detected. In the **1D Graph** tab:
 - Check **Modeling model** to overlay the total I(Q) model curve

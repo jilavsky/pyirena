@@ -1,5 +1,5 @@
 """
-HDF5ViewerWindow — main window for the HDF5 Viewer / Data Extractor tool.
+HDF5ViewerWindow — main window for the Data Explorer tool.
 
 Three-panel horizontal splitter:
   left   — FileTreeWidget  (folder/subfolder/file browser)
@@ -40,7 +40,7 @@ from . import pyirena_readers as _readers
 
 class HDF5ViewerWindow(QMainWindow):
     """
-    Main window for the HDF5 Viewer / Data Extractor tool.
+    Main window for the Data Explorer tool.
 
     Parameters
     ----------
@@ -58,7 +58,7 @@ class HDF5ViewerWindow(QMainWindow):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("HDF5 Viewer / Data Extractor")
+        self.setWindowTitle("Data Explorer")
         self.resize(1150, 700)
 
         # State
@@ -101,7 +101,7 @@ class HDF5ViewerWindow(QMainWindow):
         title_row = QHBoxLayout(title_w)
         title_row.setContentsMargins(0, 0, 6, 0)
         title_row.setSpacing(6)
-        title_lbl = QLabel("pyIrena HDF5 Viewer / Data Extractor")
+        title_lbl = QLabel("pyIrena Data Explorer")
         title_lbl.setStyleSheet(
             "font-size:13pt; font-weight:bold; color:#2c3e50;"
             "padding:6px 10px 5px 10px; background:transparent; border:none;"

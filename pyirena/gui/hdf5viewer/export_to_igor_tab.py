@@ -1,5 +1,5 @@
 """
-export_to_igor_tab.py — "Export to Igor" tab for the HDF5 Viewer.
+export_to_igor_tab.py — "Export to Igor" tab for the Data Explorer.
 
 Lets users select one or more pyirena HDF5 files from the viewer file list,
 choose which analysis tools to export, specify an output .h5xp path, and run

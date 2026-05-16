@@ -1131,7 +1131,7 @@ ViewBox right-click menu, alongside the existing "Save graph as JPEG…" action.
 - Works correctly for mixed-mode plots (e.g. size distribution: log-x / linear-y).
 - Covered tools: Data Selector raw viewer, all fit-result windows, Simple Fits,
   Unified Fit, Size Distribution, Modeling, WAXS Peak Fit, Data Manipulation,
-  HDF5 Viewer (already had ITX; menu entry unchanged).
+  Data Explorer (already had ITX; menu entry unchanged).
 
 #### Legend text color
 All legends across every tool now use **black text** (`labelTextColor='k'`), which

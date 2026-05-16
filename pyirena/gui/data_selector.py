@@ -2227,7 +2227,7 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_results_window = None # Graph of stored simple fit results
         self.waxs_peakfit_window = None        # WAXS Peak Fit panel
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
-        self.hdf5_viewer_window = None         # HDF5 Viewer / Data Extractor
+        self.hdf5_viewer_window = None         # Data Explorer window
         self.data_merge_window = None          # Data Merge panel
         self.data_manip_window = None          # Data Manipulation panel
         self.contrast_window = None            # Scattering Contrast Calculator
@@ -2392,14 +2392,29 @@ class DataSelectorPanel(QWidget):
         self.file_list.itemSelectionChanged.connect(self.update_plot_button_state)
         left_layout.addWidget(self.file_list)
 
-        # Configure button — small, sits below the file list
+        # Configure + Manage Config — small buttons below the file list
         configure_row = QHBoxLayout()
+        configure_row.setSpacing(4)
         self.configure_button = QPushButton("Configure...")
         self.configure_button.setMaximumWidth(110)
         self.configure_button.setMinimumHeight(24)
         self.configure_button.setToolTip("Configure data loading options")
         self.configure_button.clicked.connect(self.open_configure_dialog)
         configure_row.addWidget(self.configure_button)
+        _mc_style = (
+            "QPushButton { background:#7f8c8d; color:white; font-size:10px; "
+            "border-radius:3px; padding:2px 6px; }"
+            "QPushButton:hover { background:#95a5a6; }"
+        )
+        self.manage_config_button = QPushButton("Manage Config…")
+        self.manage_config_button.setMinimumHeight(24)
+        self.manage_config_button.setStyleSheet(_mc_style)
+        self.manage_config_button.setToolTip(
+            "Inspect and remove tool sections from pyirena_config.json.\n"
+            "Use this to prevent unwanted tools from running during batch fitting."
+        )
+        self.manage_config_button.clicked.connect(self.open_config_manager)
+        configure_row.addWidget(self.manage_config_button)
         configure_row.addStretch()
         left_layout.addLayout(configure_row)
 
@@ -2420,13 +2435,18 @@ class DataSelectorPanel(QWidget):
         )
         right_layout.addWidget(self.batch_status_label)
 
-        # ── Graph content checkboxes ───────────────────────────────────────
-        graph_content_label = QLabel("Show in graph/reports:")
-        graph_content_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        right_layout.addWidget(graph_content_label)
+        # ── GROUP 1: View & Export ─────────────────────────────────────────────
+        grp_view = QGroupBox("View & Export")
+        grp_view_lay = QVBoxLayout(grp_view)
+        grp_view_lay.setSpacing(4)
+
+        # Checkboxes — control what graph / reports show
+        _cb_lbl = QLabel("Show in graph / reports:")
+        _cb_lbl.setStyleSheet("font-weight:bold; color:#2c3e50; font-size:11px;")
+        grp_view_lay.addWidget(_cb_lbl)
 
         cb_row = QHBoxLayout()
-        cb_row.setSpacing(10)
+        cb_row.setSpacing(8)
         self.data_checkbox = QCheckBox("Data")
         self.data_checkbox.setChecked(True)
         self.data_checkbox.setToolTip("Plot experimental data for selected files")
@@ -2473,8 +2493,6 @@ class DataSelectorPanel(QWidget):
         )
         cb_row.addWidget(self.modeling_checkbox)
 
-        # 3D-only visualization tools (no I(Q) curves; on Create Graph,
-        # opens a viewer for the first selected file with stored results).
         self.saxs_morph_checkbox = QCheckBox("3D saxsMorph")
         self.saxs_morph_checkbox.setChecked(False)
         self.saxs_morph_checkbox.setToolTip(
@@ -2490,41 +2508,44 @@ class DataSelectorPanel(QWidget):
             "fractal aggregates (2D slice + 3D voxelgram + I(Q))."
         )
         cb_row.addWidget(self.fractals_checkbox)
-
         cb_row.addStretch()
-        right_layout.addLayout(cb_row)
+        grp_view_lay.addLayout(cb_row)
 
-        right_layout.addSpacing(4)
-
-        # ── Create Graph / Create Report side by side ──────────────────────
-        _btn_style_blue = """
-            QPushButton {
-                background-color: #3498db; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 5px 8px;
-            }
-            QPushButton:hover { background-color: #2980b9; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _btn_style_purple = """
-            QPushButton {
-                background-color: #8e44ad; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 5px 8px;
-            }
-            QPushButton:hover { background-color: #7d3c98; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        # 4 output buttons — smaller, 2×2 grid
+        _btn_sm_blue = (
+            "QPushButton { background:#3498db; color:white; font-size:11px; "
+            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
+            "QPushButton:hover { background:#2980b9; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _btn_sm_purple = (
+            "QPushButton { background:#8e44ad; color:white; font-size:11px; "
+            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
+            "QPushButton:hover { background:#7d3c98; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _btn_sm_teal = (
+            "QPushButton { background:#16a085; color:white; font-size:11px; "
+            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
+            "QPushButton:hover { background:#138d75; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _btn_sm_orange = (
+            "QPushButton { background:#d35400; color:white; font-size:11px; "
+            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
+            "QPushButton:hover { background:#ba4a00; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
 
         self.plot_button = QPushButton("Create Graph")
-        self.plot_button.setMinimumHeight(34)
-        self.plot_button.setStyleSheet(_btn_style_blue)
+        self.plot_button.setMinimumHeight(28)
+        self.plot_button.setStyleSheet(_btn_sm_blue)
         self.plot_button.clicked.connect(self.plot_selected_files)
         self.plot_button.setEnabled(False)
 
         self.report_button = QPushButton("Create Report")
-        self.report_button.setMinimumHeight(34)
-        self.report_button.setStyleSheet(_btn_style_purple)
+        self.report_button.setMinimumHeight(28)
+        self.report_button.setStyleSheet(_btn_sm_purple)
         self.report_button.setToolTip(
             "Generate a Markdown report (.md) summarising the Unified Fit\n"
             "results for each selected HDF5 file.  Files without stored\n"
@@ -2533,18 +2554,9 @@ class DataSelectorPanel(QWidget):
         self.report_button.clicked.connect(self.create_report)
         self.report_button.setEnabled(False)
 
-        _btn_style_teal = """
-            QPushButton {
-                background-color: #16a085; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 5px 8px;
-            }
-            QPushButton:hover { background-color: #138d75; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
         self.tabulate_button = QPushButton("Tabulate Results")
-        self.tabulate_button.setMinimumHeight(34)
-        self.tabulate_button.setStyleSheet(_btn_style_teal)
+        self.tabulate_button.setMinimumHeight(28)
+        self.tabulate_button.setStyleSheet(_btn_sm_teal)
         self.tabulate_button.setToolTip(
             "Build a table of fit results for selected files and display it.\n"
             "Results included depend on the checked checkboxes.\n"
@@ -2553,18 +2565,9 @@ class DataSelectorPanel(QWidget):
         self.tabulate_button.clicked.connect(self.tabulate_results)
         self.tabulate_button.setEnabled(False)
 
-        _btn_style_orange = """
-            QPushButton {
-                background-color: #d35400; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 5px 8px;
-            }
-            QPushButton:hover { background-color: #ba4a00; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
         self.export_ascii_button = QPushButton("Export to ASCII")
-        self.export_ascii_button.setMinimumHeight(34)
-        self.export_ascii_button.setStyleSheet(_btn_style_orange)
+        self.export_ascii_button.setMinimumHeight(28)
+        self.export_ascii_button.setStyleSheet(_btn_sm_orange)
         self.export_ascii_button.setToolTip(
             "Write space-separated .dat files into an 'ascii_export' subfolder\n"
             "next to each selected HDF5 file.  Three columns: Q  I  dI.\n"
@@ -2579,33 +2582,64 @@ class DataSelectorPanel(QWidget):
         self.export_ascii_button.clicked.connect(self.export_to_ascii)
         self.export_ascii_button.setEnabled(False)
 
-        right_layout.addSpacing(10)
+        _out_grid = QGridLayout()
+        _out_grid.setHorizontalSpacing(4)
+        _out_grid.setVerticalSpacing(4)
+        _out_grid.setColumnStretch(0, 1)
+        _out_grid.setColumnStretch(1, 1)
+        _out_grid.addWidget(self.plot_button,          0, 0)
+        _out_grid.addWidget(self.report_button,        0, 1)
+        _out_grid.addWidget(self.tabulate_button,      1, 0)
+        _out_grid.addWidget(self.export_ascii_button,  1, 1)
+        grp_view_lay.addLayout(_out_grid)
 
-        # ── Unified Fit: GUI button + Script batch button side by side ─────
-        _uf_gui_style = """
-            QPushButton {
-                background-color: #27ae60; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 6px 8px;
-            }
-            QPushButton:hover { background-color: #229954; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _uf_script_style = """
-            QPushButton {
-                background-color: #1e8449; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 6px 8px;
-            }
-            QPushButton:hover { background-color: #196f3d; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        # Data Explorer — its own row; does not use the checkboxes above
+        _de_style = (
+            "QPushButton { background:#16a085; color:white; font-size:11px; "
+            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
+            "QPushButton:hover { background:#1abc9c; }"
+        )
+        self.hdf5_viewer_button = QPushButton("Data Explorer")
+        self.hdf5_viewer_button.setMinimumHeight(28)
+        self.hdf5_viewer_button.setStyleSheet(_de_style)
+        self.hdf5_viewer_button.setToolTip(
+            "Open the Data Explorer to browse, plot, and export data\n"
+            "from HDF5 files — including export to Igor Pro h5xp format."
+        )
+        self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
+        _de_row = QHBoxLayout()
+        _de_row.addWidget(self.hdf5_viewer_button)
+        _de_row.addStretch()
+        grp_view_lay.addLayout(_de_row)
+
+        right_layout.addWidget(grp_view)
+
+        right_layout.addSpacing(4)
+
+        # ── GROUP 2: Analysis Tools ────────────────────────────────────────────
+        grp_analysis = QGroupBox("Analysis Tools")
+        analysis_grid = QGridLayout(grp_analysis)
+        analysis_grid.setHorizontalSpacing(4)
+        analysis_grid.setVerticalSpacing(4)
+        analysis_grid.setColumnStretch(0, 1)
+        analysis_grid.setColumnStretch(1, 1)
+
+        _uf_gui_style = (
+            "QPushButton { background:#27ae60; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
+            "QPushButton:hover { background:#229954; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _uf_script_style = (
+            "QPushButton { background:#1e8449; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
+            "QPushButton:hover { background:#196f3d; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
         self.unified_fit_button = QPushButton("Unified Fit (GUI)")
         self.unified_fit_button.setMinimumHeight(38)
         self.unified_fit_button.setStyleSheet(_uf_gui_style)
-        self.unified_fit_button.setToolTip(
-            "Open Unified Fit panel for the first selected file."
-        )
+        self.unified_fit_button.setToolTip("Open Unified Fit panel for the first selected file.")
         self.unified_fit_button.clicked.connect(self.launch_unified_fit)
         self.unified_fit_button.setEnabled(False)
 
@@ -2619,31 +2653,22 @@ class DataSelectorPanel(QWidget):
         self.unified_script_button.clicked.connect(self.run_unified_script)
         self.unified_script_button.setEnabled(False)
 
-        # ── Size Distribution: GUI button + Script batch button ────────────
-        _sz_gui_style = """
-            QPushButton {
-                background-color: #2980b9; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 6px 8px;
-            }
-            QPushButton:hover { background-color: #2471a3; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _sz_script_style = """
-            QPushButton {
-                background-color: #1f618d; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 6px 8px;
-            }
-            QPushButton:hover { background-color: #1a5276; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        _sz_gui_style = (
+            "QPushButton { background:#2980b9; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
+            "QPushButton:hover { background:#2471a3; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _sz_script_style = (
+            "QPushButton { background:#1f618d; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
+            "QPushButton:hover { background:#1a5276; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
         self.sizes_fit_button = QPushButton("Size Distribution (GUI)")
         self.sizes_fit_button.setMinimumHeight(38)
         self.sizes_fit_button.setStyleSheet(_sz_gui_style)
-        self.sizes_fit_button.setToolTip(
-            "Open Size Distribution panel for the first selected file."
-        )
+        self.sizes_fit_button.setToolTip("Open Size Distribution panel for the first selected file.")
         self.sizes_fit_button.clicked.connect(self.launch_sizes_fit)
         self.sizes_fit_button.setEnabled(False)
 
@@ -2657,33 +2682,22 @@ class DataSelectorPanel(QWidget):
         self.sizes_script_button.clicked.connect(self.run_sizes_script)
         self.sizes_script_button.setEnabled(False)
 
-        # ── Modeling: GUI button + Script batch button ────────────────────
-        _mod_gui_style = """
-            QPushButton {
-                background-color: #e67e22; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #ca6f1e; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _mod_script_style = """
-            QPushButton {
-                background-color: #d35400; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #ba4a00; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        _mod_gui_style = (
+            "QPushButton { background:#e67e22; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#ca6f1e; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _mod_script_style = (
+            "QPushButton { background:#d35400; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#ba4a00; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
         self.modeling_button = QPushButton("Modeling (GUI)")
         self.modeling_button.setMinimumHeight(38)
         self.modeling_button.setStyleSheet(_mod_gui_style)
-        self.modeling_button.setToolTip(
-            "Open Modeling panel for the first selected file."
-        )
+        self.modeling_button.setToolTip("Open Modeling panel for the first selected file.")
         self.modeling_button.clicked.connect(self.launch_modeling)
         self.modeling_button.setEnabled(False)
 
@@ -2697,66 +2711,22 @@ class DataSelectorPanel(QWidget):
         self.modeling_script_button.clicked.connect(self.run_modeling_script)
         self.modeling_script_button.setEnabled(False)
 
-        # ── Single grid so all buttons share equal column widths ───────────
-        # Row 0: Create Graph | Create Report
-        # Row 1: Tabulate Results | Export to ASCII
-        # Row 2: spacer
-        # Row 3: Unified Fit (GUI) | Unified Fit (script)
-        # Row 4: Modeling (GUI) | Modeling (script)
-        # Row 5: Size Distribution (GUI) | Size Distribution (script)
-        # Row 6: Simple Fits (GUI) | Simple Fits (script)
-        # Row 7: WAXS Peaks (GUI) | WAXS Peaks (script)
-        # Row 8: SAXS Morph (GUI) | SAXS Morph (script)
-        # Row 9: separator
-        # Row 10: "Support Tools" label
-        # Row 11: Scattering Contrast Calculator (full width)
-        # Row 12: separator
-        # Row 13: Data Merge | Data Manipulation
-        # Row 14: HDF5 Viewer | Manage Config
-        btn_grid = QGridLayout()
-        btn_grid.setHorizontalSpacing(4)
-        btn_grid.setVerticalSpacing(4)
-        btn_grid.setColumnStretch(0, 1)
-        btn_grid.setColumnStretch(1, 1)
-        btn_grid.addWidget(self.plot_button,            0, 0)
-        btn_grid.addWidget(self.report_button,          0, 1)
-        btn_grid.addWidget(self.tabulate_button,        1, 0)
-        btn_grid.addWidget(self.export_ascii_button,    1, 1)
-        btn_grid.setRowMinimumHeight(2, 10)                          # visual separator
-        btn_grid.addWidget(self.unified_fit_button,     3, 0)
-        btn_grid.addWidget(self.unified_script_button,  3, 1)
-        btn_grid.addWidget(self.modeling_button,        4, 0)
-        btn_grid.addWidget(self.modeling_script_button, 4, 1)
-        btn_grid.addWidget(self.sizes_fit_button,       5, 0)
-        btn_grid.addWidget(self.sizes_script_button,    5, 1)
-
-        # ── Simple Fits: GUI button + Script batch button ─────────────────
-        _sf_gui_style = """
-            QPushButton {
-                background-color: #27ae60; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #1e8449; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _sf_script_style = """
-            QPushButton {
-                background-color: #1e8449; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #196f3d; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        _sf_gui_style = (
+            "QPushButton { background:#27ae60; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#1e8449; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _sf_script_style = (
+            "QPushButton { background:#1e8449; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#196f3d; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
         self.simple_fits_button = QPushButton("Simple Fits (GUI)")
         self.simple_fits_button.setMinimumHeight(38)
         self.simple_fits_button.setStyleSheet(_sf_gui_style)
-        self.simple_fits_button.setToolTip(
-            "Open Simple Fits panel for the first selected file."
-        )
+        self.simple_fits_button.setToolTip("Open Simple Fits panel for the first selected file.")
         self.simple_fits_button.clicked.connect(self.launch_simple_fits)
         self.simple_fits_button.setEnabled(False)
 
@@ -2770,36 +2740,22 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_script_button.clicked.connect(self.run_simple_fits_script)
         self.simple_fits_script_button.setEnabled(False)
 
-        btn_grid.addWidget(self.simple_fits_button,        6, 0)
-        btn_grid.addWidget(self.simple_fits_script_button, 6, 1)
-
-        # ── WAXS Peak Fit: GUI button + Script batch button ───────────────
-        _waxs_gui_style = """
-            QPushButton {
-                background-color: #2980b9; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #1f618d; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _waxs_script_style = """
-            QPushButton {
-                background-color: #1f618d; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #1a5276; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        _waxs_gui_style = (
+            "QPushButton { background:#2980b9; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#1f618d; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _waxs_script_style = (
+            "QPushButton { background:#1f618d; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#1a5276; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
         self.waxs_peakfit_button = QPushButton("WAXS Peaks (GUI)")
         self.waxs_peakfit_button.setMinimumHeight(38)
         self.waxs_peakfit_button.setStyleSheet(_waxs_gui_style)
-        self.waxs_peakfit_button.setToolTip(
-            "Open WAXS Peak Fit panel for the first selected file."
-        )
+        self.waxs_peakfit_button.setToolTip("Open WAXS Peak Fit panel for the first selected file.")
         self.waxs_peakfit_button.clicked.connect(self.launch_waxs_peakfit)
         self.waxs_peakfit_button.setEnabled(False)
 
@@ -2813,30 +2769,18 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_script_button.clicked.connect(self.run_waxs_peakfit_script)
         self.waxs_peakfit_script_button.setEnabled(False)
 
-        btn_grid.addWidget(self.waxs_peakfit_button,        7, 0)
-        btn_grid.addWidget(self.waxs_peakfit_script_button, 7, 1)
-
-        # ── SAXS Morph: GUI button + Script batch button ──────────────────
-        _sm_gui_style = """
-            QPushButton {
-                background-color: #8e44ad; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #7d3c98; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
-        _sm_script_style = """
-            QPushButton {
-                background-color: #6c3483; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 4px;
-                border: none;
-            }
-            QPushButton:hover { background-color: #5b2c6f; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """
+        _sm_gui_style = (
+            "QPushButton { background:#8e44ad; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#7d3c98; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _sm_script_style = (
+            "QPushButton { background:#6c3483; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#5b2c6f; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
         self.saxs_morph_button = QPushButton("3D saxsMorph (GUI)")
         self.saxs_morph_button.setMinimumHeight(38)
         self.saxs_morph_button.setStyleSheet(_sm_gui_style)
@@ -2856,23 +2800,34 @@ class DataSelectorPanel(QWidget):
         self.saxs_morph_script_button.clicked.connect(self.run_saxs_morph_script)
         self.saxs_morph_script_button.setEnabled(False)
 
-        btn_grid.addWidget(self.saxs_morph_button,        8, 0)
-        btn_grid.addWidget(self.saxs_morph_script_button, 8, 1)
+        analysis_grid.addWidget(self.unified_fit_button,         0, 0)
+        analysis_grid.addWidget(self.unified_script_button,      0, 1)
+        analysis_grid.addWidget(self.modeling_button,            1, 0)
+        analysis_grid.addWidget(self.modeling_script_button,     1, 1)
+        analysis_grid.addWidget(self.sizes_fit_button,           2, 0)
+        analysis_grid.addWidget(self.sizes_script_button,        2, 1)
+        analysis_grid.addWidget(self.simple_fits_button,         3, 0)
+        analysis_grid.addWidget(self.simple_fits_script_button,  3, 1)
+        analysis_grid.addWidget(self.waxs_peakfit_button,        4, 0)
+        analysis_grid.addWidget(self.waxs_peakfit_script_button, 4, 1)
+        analysis_grid.addWidget(self.saxs_morph_button,          5, 0)
+        analysis_grid.addWidget(self.saxs_morph_script_button,   5, 1)
+        right_layout.addWidget(grp_analysis)
+
+        # ── GROUP 3: Data Processing & Reference ──────────────────────────────
+        grp_proc = QGroupBox("Data Processing & Reference")
+        proc_grid = QGridLayout(grp_proc)
+        proc_grid.setHorizontalSpacing(4)
+        proc_grid.setVerticalSpacing(4)
+        proc_grid.setColumnStretch(0, 1)
+        proc_grid.setColumnStretch(1, 1)
 
         _utility_style = (
-            "QPushButton { background: #16a085; color: white; "
-            "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
-            "QPushButton:hover { background: #1abc9c; }"
-            "QPushButton:disabled { background: #95a5a6; }"
+            "QPushButton { background:#16a085; color:white; "
+            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
+            "QPushButton:hover { background:#1abc9c; }"
+            "QPushButton:disabled { background:#95a5a6; }"
         )
-        self.hdf5_viewer_button = QPushButton("HDF5 Viewer")
-        self.hdf5_viewer_button.setMinimumHeight(38)
-        self.hdf5_viewer_button.setStyleSheet(_utility_style)
-        self.hdf5_viewer_button.setToolTip(
-            "Open the HDF5 Viewer / Data Extractor for the current folder."
-        )
-        self.hdf5_viewer_button.clicked.connect(self.launch_hdf5_viewer)
-
         self.data_merge_button = QPushButton("Data Merge")
         self.data_merge_button.setMinimumHeight(38)
         self.data_merge_button.setStyleSheet(_utility_style)
@@ -2890,42 +2845,15 @@ class DataSelectorPanel(QWidget):
         )
         self.data_manip_button.clicked.connect(self.launch_data_manipulation)
 
-        self.manage_config_button = QPushButton("Manage Config...")
-        self.manage_config_button.setMinimumHeight(38)
-        self.manage_config_button.setStyleSheet(_utility_style)
-        self.manage_config_button.setToolTip(
-            "Inspect and remove tool sections from pyirena_config.json.\n"
-            "Use this to prevent unwanted tools from running during batch fitting."
-        )
-        self.manage_config_button.clicked.connect(self.open_config_manager)
-
-        # ── Support Tools section — kept inside btn_grid so all rows compress
-        # equally when the window is made small (avoids the bug where direct
-        # right_layout children are Fixed-policy and resist shrinking while the
-        # nested QGridLayout is Preferred-policy and absorbs all compression).
-        # Row 9: separator
-        _util_sep = QFrame()
-        _util_sep.setFrameShape(QFrame.Shape.HLine)
-        _util_sep.setFrameShadow(QFrame.Shadow.Sunken)
-        _util_sep.setStyleSheet("color: #bdc3c7;")
-        btn_grid.addWidget(_util_sep, 9, 0, 1, 2)
-
-        # Row 10: "Support Tools" label
-        _support_sep_lbl = QLabel("Support Tools")
-        _support_sep_lbl.setStyleSheet(
-            "color:#7f8c8d; font-size:10px; font-weight:bold; padding:1px 0px;"
-        )
-        btn_grid.addWidget(_support_sep_lbl, 10, 0, 1, 2)
-
-        _contrast_style = (
-            "QPushButton { background: #16a085; color: white; "
-            "font-weight: bold; border-radius: 4px; padding: 4px 8px; }"
-            "QPushButton:hover { background: #138d75; }"
-            "QPushButton:disabled { background: #95a5a6; }"
+        _ref_style = (
+            "QPushButton { background:#16a085; color:white; "
+            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
+            "QPushButton:hover { background:#138d75; }"
+            "QPushButton:disabled { background:#95a5a6; }"
         )
         self.contrast_button = QPushButton("Scattering Contrast Calculator")
         self.contrast_button.setMinimumHeight(38)
-        self.contrast_button.setStyleSheet(_contrast_style)
+        self.contrast_button.setStyleSheet(_ref_style)
         self.contrast_button.setToolTip(
             "Open the Scattering Contrast Calculator.\n"
             "Computes X-ray and neutron SLDs and contrast for two compounds\n"
@@ -2933,11 +2861,9 @@ class DataSelectorPanel(QWidget):
         )
         self.contrast_button.clicked.connect(self.launch_contrast)
 
-        # Fractals (mass fractal aggregate visualization tool) — same color as
-        # other Support Tools.  GUI-only; no scripting / batch entry.
         self.fractals_button = QPushButton("Fractals")
         self.fractals_button.setMinimumHeight(38)
-        self.fractals_button.setStyleSheet(_contrast_style)
+        self.fractals_button.setStyleSheet(_ref_style)
         self.fractals_button.setToolTip(
             "Open the Fractals tool: grow random mass-fractal aggregates by\n"
             "Monte-Carlo on a simple cubic lattice, compute their fractal\n"
@@ -2947,26 +2873,12 @@ class DataSelectorPanel(QWidget):
         )
         self.fractals_button.clicked.connect(self.launch_fractals)
 
-        # Row 11: Scattering Contrast Calculator | Fractals (split row)
-        btn_grid.addWidget(self.contrast_button, 11, 0)
-        btn_grid.addWidget(self.fractals_button, 11, 1)
+        proc_grid.addWidget(self.data_merge_button, 0, 0)
+        proc_grid.addWidget(self.data_manip_button, 0, 1)
+        proc_grid.addWidget(self.contrast_button,   1, 0)
+        proc_grid.addWidget(self.fractals_button,   1, 1)
+        right_layout.addWidget(grp_proc)
 
-        # Row 12: separator
-        _util_sep2 = QFrame()
-        _util_sep2.setFrameShape(QFrame.Shape.HLine)
-        _util_sep2.setFrameShadow(QFrame.Shadow.Sunken)
-        _util_sep2.setStyleSheet("color: #bdc3c7;")
-        btn_grid.addWidget(_util_sep2, 12, 0, 1, 2)
-
-        # Row 13: Data Merge | Data Manipulation
-        btn_grid.addWidget(self.data_merge_button, 13, 0)
-        btn_grid.addWidget(self.data_manip_button, 13, 1)
-
-        # Row 14: HDF5 Viewer | Manage Config
-        btn_grid.addWidget(self.hdf5_viewer_button, 14, 0)
-        btn_grid.addWidget(self.manage_config_button, 14, 1)
-
-        right_layout.addLayout(btn_grid)
         right_layout.addStretch()
         file_area_layout.addLayout(right_layout, stretch=1)
 
@@ -3055,8 +2967,8 @@ class DataSelectorPanel(QWidget):
         data_manip_action.triggered.connect(self.launch_data_manipulation)
         tools_menu.addAction(data_manip_action)
         tools_menu.addSeparator()
-        hdf5_viewer_action = QAction("&HDF5 Viewer", self)
-        hdf5_viewer_action.setStatusTip("Open HDF5 Viewer / Data Extractor")
+        hdf5_viewer_action = QAction("&Data Explorer", self)
+        hdf5_viewer_action.setStatusTip("Open Data Explorer (browse, plot, and export HDF5 data)")
         hdf5_viewer_action.triggered.connect(self.launch_hdf5_viewer)
         tools_menu.addAction(hdf5_viewer_action)
         tools_menu.addSeparator()
@@ -4652,7 +4564,7 @@ class DataSelectorPanel(QWidget):
         return len(items)
 
     def launch_hdf5_viewer(self):
-        """Open the HDF5 Viewer / Data Extractor for the current folder."""
+        """Open the Data Explorer for the current folder."""
         from pyirena.gui.hdf5viewer import HDF5ViewerWindow
 
         if self.hdf5_viewer_window is None:
@@ -4664,7 +4576,7 @@ class DataSelectorPanel(QWidget):
         self.hdf5_viewer_window.show()
         self.hdf5_viewer_window.raise_()
         self.hdf5_viewer_window.activateWindow()
-        self.status_label.setText("HDF5 Viewer opened.")
+        self.status_label.setText("Data Explorer opened.")
 
     def open_config_manager(self):
         """Open the Config Manager dialog for the current folder's pyirena_config.json."""

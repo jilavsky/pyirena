@@ -6,7 +6,7 @@ Python tools for small-angle scattering (SAS) data analysis. A port of the Igor 
 [Irena](https://usaxs.xray.aps.anl.gov/software/irena) package. Includes interactive
 GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/USAXS data.
 
-**Current release: v0.6.0 (public beta)**
+**Current release: v0.6.1 (public beta)**
 
 [![PyPI version](https://img.shields.io/pypi/v/pyirena.svg)](https://pypi.org/project/pyirena/)
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -60,7 +60,7 @@ Individual tools can also be launched directly:
 | Command | Tool |
 |---------|------|
 | `pyirena-gui` | Data Selector (main entry point) |
-| `pyirena-viewer` | HDF5 Viewer / Data Extractor |
+| `pyirena-viewer` | Data Explorer |
 | `pyirena-modeling` | Modeling tool (standalone) |
 | `pyirena-datamerge` | Data Merge tool (standalone) |
 | `pyirena-contrast` | Scattering Contrast Calculator |
@@ -114,12 +114,12 @@ factor, flat background, and optional Q-shift using Nelder-Mead.
 
 - [Data Merge GUI guide](docs/data_merge_gui.md)
 
-### HDF5 Viewer / Data Extractor
+### Data Explorer
 Browse NXcanSAS HDF5 files, inspect raw data and analysis results, extract and plot
-datasets. Supports all pyIrena result types (Unified Fit, Sizes, Simple Fits, WAXS
-Peaks, Modeling).
+datasets, and export to Igor Pro h5xp format. Supports all pyIrena result types
+(Unified Fit, Sizes, Simple Fits, WAXS Peaks, Modeling).
 
-- [HDF5 Viewer guide](docs/hdf5_viewer_gui.md)
+- [Data Explorer guide](docs/hdf5_viewer_gui.md)
 
 ### Scattering Contrast Calculator
 Look up X-ray and neutron scattering length densities for materials by chemical
@@ -176,7 +176,7 @@ alongside raw data, making files self-contained and shareable.
 | Simple Fits GUI guide | [docs/simple_fits_gui.md](docs/simple_fits_gui.md) |
 | WAXS Peak Fit GUI guide | [docs/waxs_peakfit_gui.md](docs/waxs_peakfit_gui.md) |
 | Data Merge GUI guide | [docs/data_merge_gui.md](docs/data_merge_gui.md) |
-| HDF5 Viewer guide | [docs/hdf5_viewer_gui.md](docs/hdf5_viewer_gui.md) |
+| Data Explorer guide | [docs/hdf5_viewer_gui.md](docs/hdf5_viewer_gui.md) |
 | Contrast Calculator guide | [docs/scattering_contrast_gui.md](docs/scattering_contrast_gui.md) |
 | NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
 | Batch fitting API | [docs/batch_api.md](docs/batch_api.md) |

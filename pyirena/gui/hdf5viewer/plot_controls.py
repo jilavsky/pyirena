@@ -1,5 +1,5 @@
 """
-PlotControlsPanel — tabbed control panel for the HDF5 Viewer.
+PlotControlsPanel — tabbed control panel for the Data Explorer.
 
 Tab 1 — "1D Graph":
   • Pyirena presets: checkboxes for known data types

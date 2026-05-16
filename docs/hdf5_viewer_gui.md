@@ -1,6 +1,6 @@
-# HDF5 Viewer / Data Extractor — GUI Guide
+# Data Explorer — GUI Guide
 
-The **HDF5 Viewer / Data Extractor** lets you browse HDF5 files produced by
+The **Data Explorer** lets you browse HDF5 files produced by
 pyirena (and compatible software), plot 1D data such as I(Q) curves and fit
 models, and collect scalar parameters (e.g., Rg, peak Q₀, χ²) across a series
 of files into a table and scatter plot.
@@ -31,7 +31,7 @@ use **Select Folder** in the left panel to load a directory.
 
 ### From the Data Selector
 
-Click **HDF5 Viewer** in the tool-launch row of the Data Selector.  The viewer
+Click **Data Explorer** in the Data Selector.  The viewer
 opens pre-loaded with the folder that is currently active in the Data Selector.
 
 ---
@@ -40,7 +40,7 @@ opens pre-loaded with the folder that is currently active in the Data Selector.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  pyIrena HDF5 Viewer / Data Extractor                                    │
+│  pyIrena Data Explorer                                    │
 ├────────────────────┬───────────────────────┬─────────────────────────────┤
 │  File Select       │  Data Select          │  Plot Controls              │
 │  (left panel)      │  (centre panel)       │  (right panel)              │
