@@ -107,8 +107,21 @@ def _interp_loglog(q_ref: np.ndarray, q_src: np.ndarray, I_src: np.ndarray) -> n
 def _compare_pair(
     q1: np.ndarray, I1: np.ndarray,
     q2: np.ndarray, I2: np.ndarray,
+    normalize_scale: bool = True,
 ) -> tuple[int, int, float]:
     """Compare two SAXS curves with CorMap on their common Q range.
+
+    Parameters
+    ----------
+    normalize_scale:
+        When True (default), I2 is rescaled so that the geometric-median
+        intensity ratio I2/I1 equals 1 before comparing.  This removes overall
+        amplitude differences caused by flux drift or absorption variation so
+        that CorMap tests for *shape* differences only — the relevant signature
+        of radiation damage.  Without this, even a 0.1% systematic scale
+        difference between perfectly similar frames produces a run of length N
+        and p ≈ 0.  Disable only when the data are already on an absolute,
+        identically-normalised scale and you want to detect scale changes too.
 
     Returns (N, C, p_value).
     """
@@ -124,8 +137,16 @@ def _compare_pair(
         return 0, 0, 1.0
 
     I2_ref = _interp_loglog(q_ref, q2, I2)
-    diff = I2_ref - I1_ref
 
+    if normalize_scale:
+        valid = np.isfinite(I2_ref) & (I1_ref > 0) & (I2_ref > 0)
+        if valid.sum() >= 2:
+            log_ratio = np.log(I2_ref[valid]) - np.log(I1_ref[valid])
+            scale = math.exp(float(np.median(log_ratio)))
+            if scale > 0:
+                I2_ref = I2_ref / scale
+
+    diff = I2_ref - I1_ref
     C = _longest_run(diff)
     N = int(np.sum(np.isfinite(diff)))
     return N, C, _cormap_p_value(N, C)
@@ -161,29 +182,15 @@ def _run_cormap(
     filenames: list[str],
     reference: str,
     p_min: float,
+    normalize_scale: bool = True,
 ) -> list[SimilarityResult]:
-    """Run CorMap similarity check on *datasets*.
-
-    Parameters
-    ----------
-    datasets:
-        List of ``(q, I, dI, dQ)`` tuples (same format as
-        ``DataManipulation.average()``).
-    filenames:
-        Display names, parallel to *datasets*.
-    reference:
-        ``'first'`` — compare every frame against frame 0 (frame 0 always
-        accepted with p=1.0); ``'majority'`` — compare every frame against the
-        mean of all frames (frame 0 is also tested).
-    p_min:
-        Rejection threshold; frame rejected when ``p_value < p_min``.
-    """
+    """Run CorMap similarity check on *datasets*."""
     results: list[SimilarityResult] = []
 
     if reference == 'majority':
         q_ref, I_ref = _build_majority_reference(datasets)
         for i, (q, I, *_) in enumerate(datasets):
-            N, C, p = _compare_pair(q_ref, I_ref, q, I)
+            N, C, p = _compare_pair(q_ref, I_ref, q, I, normalize_scale)
             results.append(SimilarityResult(
                 idx=i, filename=filenames[i],
                 p_value=p, longest_run=C, n_points=N,
@@ -198,7 +205,7 @@ def _run_cormap(
             accepted=True,
         ))
         for i, (q, I, *_) in enumerate(datasets[1:], start=1):
-            N, C, p = _compare_pair(q0, I0, q, I)
+            N, C, p = _compare_pair(q0, I0, q, I, normalize_scale)
             results.append(SimilarityResult(
                 idx=i, filename=filenames[i],
                 p_value=p, longest_run=C, n_points=N,
@@ -233,6 +240,7 @@ def check_similarity(
     method: str = 'cormap',
     reference: str = 'first',
     p_min: float = 0.01,
+    normalize_scale: bool = True,
 ) -> list[SimilarityResult]:
     """Assess pairwise similarity of SAXS datasets and flag outliers.
 
@@ -247,10 +255,16 @@ def check_similarity(
         Key into :data:`SIMILARITY_METHODS`.  Currently ``'cormap'``.
     reference:
         ``'first'`` (compare each frame vs. frame 0; frame 0 always accepted)
-        or ``'majority'`` (compare each frame vs. the mean of all frames).
+        or ``'majority'`` (compare each frame vs. the median of all frames).
     p_min:
         P-value threshold.  Frames with ``p_value < p_min`` are marked as
         rejected (``accepted=False``).  Typical range: 0.001–0.05.
+    normalize_scale:
+        When True (default), each dataset is rescaled to the reference before
+        comparing signs.  This removes flux-drift and absorption differences
+        so that CorMap detects *shape* changes only.  Set to False only when
+        data are already on a perfectly calibrated absolute scale and scale
+        changes are themselves a damage signature.
 
     Returns
     -------
@@ -276,4 +290,4 @@ def check_similarity(
             accepted=True,
         )]
 
-    return SIMILARITY_METHODS[method](datasets, filenames, reference, p_min)
+    return SIMILARITY_METHODS[method](datasets, filenames, reference, p_min, normalize_scale)

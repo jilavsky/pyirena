@@ -2172,6 +2172,7 @@ def average_data(
     similarity_p_min: float = 0.01,
     similarity_method: str = 'cormap',
     similarity_reference: str = 'first',
+    similarity_normalize_scale: bool = True,
 ) -> Optional[Dict]:
     """Average multiple SAS datasets.
 
@@ -2193,7 +2194,11 @@ def average_data(
         Similarity algorithm.  Currently ``'cormap'`` (Franke 2015).
     similarity_reference : str
         ``'first'`` — compare each frame vs. frame 0 (frame 0 always kept);
-        ``'majority'`` — compare each frame vs. the mean of all frames.
+        ``'majority'`` — compare each frame vs. the median of all frames.
+    similarity_normalize_scale : bool
+        When True (default), rescale each frame to match the reference before
+        comparing.  Removes flux-drift / absorption differences so that only
+        shape differences are detected.
 
     Returns
     -------
@@ -2237,6 +2242,7 @@ def average_data(
             method=similarity_method,
             reference=similarity_reference,
             p_min=similarity_p_min,
+            normalize_scale=similarity_normalize_scale,
         )
         if verbose:
             for r in sim_results:

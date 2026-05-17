@@ -308,6 +308,7 @@ class StateManager:
             "similarity_method": "cormap",
             "similarity_reference": "first",   # 'first' | 'majority'
             "similarity_p_min": 0.01,
+            "similarity_normalize_scale": True,
         },
         "modeling": {
             "schema_version": 2,

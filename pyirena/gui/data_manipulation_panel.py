@@ -792,7 +792,7 @@ class DataManipulationPanel(QWidget):
         sim_layout.setContentsMargins(8, 6, 8, 6)
         sim_layout.setSpacing(5)
 
-        # Row 1: method, reference, p-value
+        # Row 1: method, reference, p-value, normalize checkbox
         ctrl_row = QHBoxLayout()
         ctrl_row.setSpacing(6)
 
@@ -802,6 +802,12 @@ class DataManipulationPanel(QWidget):
             label = SIMILARITY_METHOD_LABELS.get(key, key)
             self._sim_method_combo.addItem(label, userData=key)
         self._sim_method_combo.setMaximumWidth(200)
+        self._sim_method_combo.setToolTip(
+            "Similarity test algorithm.\n"
+            "CorMap (Franke et al., Nature Methods 2015) detects whether the\n"
+            "longest run of same-sign residuals between two curves is longer\n"
+            "than expected by chance from random noise."
+        )
         ctrl_row.addWidget(self._sim_method_combo)
 
         ctrl_row.addSpacing(10)
@@ -810,6 +816,13 @@ class DataManipulationPanel(QWidget):
         self._sim_ref_combo.addItem("First frame", userData='first')
         self._sim_ref_combo.addItem("Majority vote", userData='majority')
         self._sim_ref_combo.setMaximumWidth(130)
+        self._sim_ref_combo.setToolTip(
+            "First frame: compare every dataset against dataset #1.\n"
+            "Dataset #1 is always accepted (use when you know the first\n"
+            "exposure is clean — the standard bioSAXS approach).\n\n"
+            "Majority vote: compare each dataset against the median of all\n"
+            "datasets. More robust when the first frame may itself be damaged."
+        )
         ctrl_row.addWidget(self._sim_ref_combo)
 
         ctrl_row.addSpacing(10)
@@ -820,7 +833,34 @@ class DataManipulationPanel(QWidget):
         self._sim_p_spin.setSingleStep(0.001)
         self._sim_p_spin.setValue(0.01)
         self._sim_p_spin.setMaximumWidth(90)
+        self._sim_p_spin.setToolTip(
+            "Datasets with p-value below this threshold are flagged as outliers.\n\n"
+            "p-value = probability that two truly identical curves would produce\n"
+            "a run of same-sign differences at least this long by random chance.\n"
+            "Low p → curves differ beyond noise → likely radiation damaged.\n\n"
+            "Typical values:\n"
+            "  0.001 — strict (reject only severe outliers)\n"
+            "  0.010 — moderate (recommended starting point)\n"
+            "  0.050 — loose (reject more; cleaner average but fewer frames)\n\n"
+            "Experiment on test data: looser threshold = better statistics\n"
+            "but potentially contaminated by bad frames."
+        )
         ctrl_row.addWidget(self._sim_p_spin)
+
+        ctrl_row.addSpacing(10)
+        self._sim_normalize_chk = QCheckBox("Normalize scale")
+        self._sim_normalize_chk.setChecked(True)
+        self._sim_normalize_chk.setToolTip(
+            "Recommended: ON for most SAXS data.\n\n"
+            "Before comparing, rescales each dataset to match the reference\n"
+            "intensity (using the geometric-median amplitude ratio). This removes\n"
+            "differences due to flux drift, absorption, or normalization variation\n"
+            "so CorMap tests for shape differences only — the relevant signature\n"
+            "of radiation damage.\n\n"
+            "Turn OFF only if data are already on identical absolute scale and\n"
+            "you want to detect pure intensity changes (scale damage) too."
+        )
+        ctrl_row.addWidget(self._sim_normalize_chk)
 
         ctrl_row.addStretch()
         sim_layout.addLayout(ctrl_row)
@@ -833,6 +873,11 @@ class DataManipulationPanel(QWidget):
             "background-color: #2980b9; color: white; font-weight: bold;"
         )
         self._sim_check_btn.setFixedHeight(26)
+        self._sim_check_btn.setToolTip(
+            "Run the selected similarity test on all currently selected files.\n"
+            "Results appear in the table below: green = accepted, red = rejected.\n"
+            "Results are cleared automatically when the file selection changes."
+        )
         self._sim_check_btn.clicked.connect(self._on_similarity_check)
         btn_row.addWidget(self._sim_check_btn)
 
@@ -842,15 +887,21 @@ class DataManipulationPanel(QWidget):
         )
         self._sim_reject_btn.setFixedHeight(26)
         self._sim_reject_btn.setEnabled(False)
+        self._sim_reject_btn.setToolTip(
+            "Remove all rejected (red) datasets from the selection and\n"
+            "re-compute the average preview with the remaining frames."
+        )
         self._sim_reject_btn.clicked.connect(self._on_similarity_auto_reject)
         btn_row.addWidget(self._sim_reject_btn)
 
         btn_row.addStretch()
         sim_layout.addLayout(btn_row)
 
-        # Results table (hidden until a check is run)
-        self._sim_results_table = QTableWidget(0, 3)
-        self._sim_results_table.setHorizontalHeaderLabels(["File", "p-value", "Status"])
+        # Results table (hidden until a check is run; scrollable, no max height)
+        self._sim_results_table = QTableWidget(0, 4)
+        self._sim_results_table.setHorizontalHeaderLabels(
+            ["File", "p-value", "Run / N pts", "Status"]
+        )
         self._sim_results_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -860,9 +911,12 @@ class DataManipulationPanel(QWidget):
         self._sim_results_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.ResizeToContents
         )
+        self._sim_results_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
         self._sim_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._sim_results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self._sim_results_table.setMaximumHeight(160)
+        self._sim_results_table.setMinimumHeight(80)
         self._sim_results_table.setVisible(False)
         sim_layout.addWidget(self._sim_results_table)
 
@@ -1576,11 +1630,13 @@ class DataManipulationPanel(QWidget):
         method_key = self._sim_method_combo.currentData()
         ref_key = self._sim_ref_combo.currentData()
         p_min = self._sim_p_spin.value()
+        normalize = self._sim_normalize_chk.isChecked()
 
         try:
             self._sim_results = check_similarity(
                 datasets, filenames=filenames,
                 method=method_key, reference=ref_key, p_min=p_min,
+                normalize_scale=normalize,
             )
         except Exception as exc:
             self._status.setText(f"Similarity check error: {exc}")
@@ -1612,7 +1668,12 @@ class DataManipulationPanel(QWidget):
             row = self._sim_results_table.rowCount()
             self._sim_results_table.insertRow(row)
 
-            p_text = f"{r.p_value:.4f}" if r.n_points > 0 else "—"
+            if r.n_points > 0:
+                p_text = f"{r.p_value:.4f}"
+                run_text = f"{r.longest_run} / {r.n_points}"
+            else:
+                p_text = "— (ref)"
+                run_text = "—"
 
             if r.accepted:
                 status_text, fg, bg = "Accepted", QColor("#196f3d"), QColor("#d5f5e3")
@@ -1622,11 +1683,12 @@ class DataManipulationPanel(QWidget):
             cells = [
                 QTableWidgetItem(r.filename),
                 QTableWidgetItem(p_text),
+                QTableWidgetItem(run_text),
                 QTableWidgetItem(status_text),
             ]
-            cells[1].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            cells[2].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            cells[2].setForeground(fg)
+            for col in (1, 2, 3):
+                cells[col].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            cells[3].setForeground(fg)
             for col, item in enumerate(cells):
                 item.setBackground(bg)
                 self._sim_results_table.setItem(row, col, item)
@@ -2096,6 +2158,7 @@ class DataManipulationPanel(QWidget):
         saved_ref = s.get('similarity_reference', 'first')
         self._sim_ref_combo.setCurrentIndex(0 if saved_ref == 'first' else 1)
         self._sim_p_spin.setValue(float(s.get('similarity_p_min', 0.01)))
+        self._sim_normalize_chk.setChecked(bool(s.get('similarity_normalize_scale', True)))
 
     def save_state(self) -> None:
         su_text = self._scale_unc_edit.text().strip()
@@ -2128,6 +2191,7 @@ class DataManipulationPanel(QWidget):
             'similarity_method': self._sim_method_combo.currentData(),
             'similarity_reference': self._sim_ref_combo.currentData(),
             'similarity_p_min': self._sim_p_spin.value(),
+            'similarity_normalize_scale': self._sim_normalize_chk.isChecked(),
         })
         self._sm.save()
 
