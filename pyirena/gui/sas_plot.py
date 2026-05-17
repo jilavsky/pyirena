@@ -553,14 +553,27 @@ class SlopeLine(pg.GraphicsObject):
         self.update()
 
     # ------------------------------------------------------------------
-    # Right-click context menu on the line itself
+    # Right-click — use pyqtgraph's getContextMenus() hook rather than
+    # Qt's contextMenuEvent().  GraphicsScene calls getContextMenus() on
+    # items found near the click and combines results; returning [] lets
+    # the normal ViewBox menu show through unmodified.
     # ------------------------------------------------------------------
 
-    def contextMenuEvent(self, ev) -> None:
+    def getContextMenus(self, ev):
+        """Return slope-line actions when right-clicking near the line.
+
+        Called by pyqtgraph's GraphicsScene.contextMenuEvent.  Returning []
+        when the click is away from the line passes control to the ViewBox
+        so the standard graph menu is unaffected.
+        """
+        if not self.shape().contains(ev.pos()):
+            return []
+
         try:
             from PySide6.QtWidgets import QMenu
         except ImportError:
             from PyQt6.QtWidgets import QMenu
+
         menu = QMenu()
         hdr = menu.addAction(f'Slope line  n = {self.slope:g}  — drag to reposition')
         hdr.setEnabled(False)
@@ -568,13 +581,7 @@ class SlopeLine(pg.GraphicsObject):
         change_act = menu.addAction('Change slope…')
         remove_act = menu.addAction('Remove this slope line')
 
-        # screenPos() returns QPoint in PySide6 (already integer coords)
-        chosen = menu.exec(ev.screenPos())
-        if chosen == remove_act:
-            vb = self.getViewBox()
-            if vb is not None:
-                vb.removeItem(self)
-        elif chosen == change_act:
+        def _change():
             val, ok = QInputDialog.getDouble(
                 None, 'Change slope',
                 'Power-law exponent  n  (e.g. −4 for Porod):',
@@ -586,7 +593,15 @@ class SlopeLine(pg.GraphicsObject):
                 self._reposition_label()
                 self.prepareGeometryChange()
                 self.update()
-        ev.accept()
+
+        def _remove():
+            vb = self.getViewBox()
+            if vb is not None:
+                vb.removeItem(self)
+
+        change_act.triggered.connect(_change)
+        remove_act.triggered.connect(_remove)
+        return [menu]
 
 
 # ---------------------------------------------------------------------------
