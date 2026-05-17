@@ -1631,6 +1631,7 @@ class ModelingPanel(QWidget):
         help_btn.setFixedSize(60, 22)
         help_btn.setStyleSheet(
             'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
+        help_btn.setToolTip("Open the pyIrena Modeling tool documentation in a browser.")
         help_btn.clicked.connect(self._open_help)
         title_row.addWidget(help_btn)
         lay.addLayout(title_row)
@@ -1645,6 +1646,7 @@ class ModelingPanel(QWidget):
         file_row.addWidget(self.file_edit)
         btn_open = QPushButton('Open…')
         btn_open.setFixedWidth(60)
+        btn_open.setToolTip("Open an NXcanSAS/HDF5 file to load I(Q) data for modeling.")
         btn_open.clicked.connect(self._open_file)
         file_row.addWidget(btn_open)
         lay.addLayout(file_row)
@@ -1714,6 +1716,10 @@ class ModelingPanel(QWidget):
             'QPushButton:hover {background: #42b86a;}'
             'QPushButton:disabled {background: #bdc3c7;}'
         )
+        self.btn_graph.setToolTip(
+            "Compute and display the current model curve without fitting.\n"
+            "Use this to preview the model before running a fit."
+        )
         self.btn_graph.clicked.connect(self.graph_model)
         self.btn_graph.setEnabled(False)
 
@@ -1724,6 +1730,10 @@ class ModelingPanel(QWidget):
             ' border-radius: 4px;}'
             'QPushButton:hover {background: #229954;}'
             'QPushButton:disabled {background: #bdc3c7;}'
+        )
+        self.btn_fit.setToolTip(
+            "Fit the population model to the loaded data using the current parameters.\n"
+            "Checked parameters are varied; unchecked parameters are held fixed."
         )
         self.btn_fit.clicked.connect(self.run_fit)
         self.btn_fit.setEnabled(False)
@@ -1760,6 +1770,10 @@ class ModelingPanel(QWidget):
             ' border-radius: 4px;}'
             'QPushButton:hover {background: #1abc9c;}'
             'QPushButton:disabled {background: #bdc3c7;}'
+        )
+        self.btn_mc.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
         )
         self.btn_mc.clicked.connect(self.calc_uncertainty_mc)
         self.btn_mc.setEnabled(False)
@@ -1824,10 +1838,12 @@ class ModelingPanel(QWidget):
 
         # Row 3: Export Parameters + Import Parameters
         out3 = QHBoxLayout()
-        out3.addWidget(_mkbtn('Export Parameters', 'lgreen', self.export_json,
-                              'Export current parameters to a pyIrena JSON config file.'))
-        out3.addWidget(_mkbtn('Import Parameters', 'lgreen', self._import_parameters,
-                              'Import parameters from a pyIrena JSON config file.'))
+        out3.addWidget(_mkbtn('Save params to JSON', 'lgreen', self.export_json,
+                              'Save current Modeling parameters to a pyIrena JSON file.\n'
+                              "Use 'Load params from JSON' to restore them later."))
+        out3.addWidget(_mkbtn('Load params from JSON', 'lgreen', self._import_parameters,
+                              'Load Modeling parameters from a previously saved pyIrena JSON file.\n'
+                              "Use 'Save params to JSON' to create a compatible file."))
         lay.addLayout(out3)
 
         scroll.setWidget(inner)

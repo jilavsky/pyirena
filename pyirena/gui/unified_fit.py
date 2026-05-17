@@ -565,12 +565,12 @@ class UnifiedFitGraphWindow(QWidget):
             ax.setTextPen('k')
             ax.enableAutoSIPrefix(False)
 
-        # Show top and right axes (without labels) to create a box
+        # Show top axis (RadiusAxisItem) with values and right axis as a box border
         self.main_plot.showAxis('top')
         self.main_plot.showAxis('right')
         self.main_plot.getAxis('top').setPen('k')
+        self.main_plot.getAxis('top').setTextPen('#888')
         self.main_plot.getAxis('right').setPen('k')
-        self.main_plot.getAxis('top').setStyle(showValues=False)
         self.main_plot.getAxis('right').setStyle(showValues=False)
 
         # Enable auto-range
@@ -1141,6 +1141,7 @@ class LevelParametersWidget(QWidget):
     def __init__(self, level_number: int, parent=None):
         super().__init__(parent)
         self.level_number = level_number
+        self._limits_visible = True  # tracks current state of "No limits?" (True = limits shown)
         self.init_ui()
 
     def init_ui(self):
@@ -1253,6 +1254,10 @@ class LevelParametersWidget(QWidget):
         # Calculate width to align with high limit field (roughly 35% of total width)
         button_width = 140  # Approximate width for 35%
         self.fit_rg_g_button.setMaximumWidth(button_width)
+        self.fit_rg_g_button.setToolTip(
+            "Fit Rg and G for this level using data between the two cursors.\n"
+            "Results are applied as starting values for the full Unified Fit."
+        )
         fit_rg_g_layout.addWidget(self.fit_rg_g_button)
         layout.addLayout(fit_rg_g_layout)
 
@@ -1332,6 +1337,10 @@ class LevelParametersWidget(QWidget):
         self.fit_p_b_button = QPushButton("Fit P/B btwn cursors")
         self.fit_p_b_button.setMinimumHeight(24)
         self.fit_p_b_button.setMaximumWidth(button_width)
+        self.fit_p_b_button.setToolTip(
+            "Fit power-law exponent P and prefactor B using data between the two cursors.\n"
+            "Results are applied as starting values for the full Unified Fit."
+        )
         fit_p_b_layout.addWidget(self.fit_p_b_button)
         layout.addLayout(fit_p_b_layout)
 
@@ -1422,6 +1431,10 @@ class LevelParametersWidget(QWidget):
         # Copy/Swap button
         self.copy_move_button = QPushButton("Copy/Swap level")
         self.copy_move_button.setMinimumHeight(24)
+        self.copy_move_button.setToolTip(
+            "Copy or swap parameters between this level and another level.\n"
+            "Useful for reorganizing levels or duplicating a good starting guess."
+        )
         layout.addWidget(self.copy_move_button)
 
         # Calculated values display - Sv and Invariant
@@ -1480,6 +1493,7 @@ class LevelParametersWidget(QWidget):
 
     def toggle_limits_visibility(self, show: bool):
         """Show or hide all limit fields and headers."""
+        self._limits_visible = show
         for field in self.limit_fields:
             # Don't show B limits if estimate_B is checked
             if field in [self.b_low, self.b_high] and self.estimate_b_check.isChecked():
@@ -1619,10 +1633,9 @@ class LevelParametersWidget(QWidget):
             # Re-enable B fit checkbox
             self.b_fit.setEnabled(True)
 
-            # Show B limit fields (unless "No limits?" is checked globally)
-            # This will be handled by the parent's toggle_limits_visibility if needed
-            self.b_low.setVisible(True)
-            self.b_high.setVisible(True)
+            # Show B limit fields only if limits are currently visible ("No limits?" unchecked)
+            self.b_low.setVisible(self._limits_visible)
+            self.b_high.setVisible(self._limits_visible)
 
         self.parameter_changed.emit()
 
@@ -2209,6 +2222,10 @@ class UnifiedFitPanel(QWidget):
                 background-color: #3eb56a;
             }
         """)
+        self.graph_unified_button.setToolTip(
+            "Compute and display the current Unified Fit model without fitting.\n"
+            "Use this to preview the model before running a fit."
+        )
         self.graph_unified_button.clicked.connect(self.graph_unified)
         fit_buttons.addWidget(self.graph_unified_button)
         fit_buttons.addStretch()
@@ -2227,6 +2244,10 @@ class UnifiedFitPanel(QWidget):
                 background-color: #1e8449;
             }
         """)
+        self.fit_button.setToolTip(
+            "Fit the Unified Fit model to the loaded data using the current parameters.\n"
+            "Results are displayed in the graph and the Results section below."
+        )
         self.fit_button.clicked.connect(self.run_fit)
         fit_buttons.addWidget(self.fit_button)
 
@@ -2243,6 +2264,10 @@ class UnifiedFitPanel(QWidget):
                 background-color: #f39c12;
             }
         """)
+        self.revert_button.setToolTip(
+            "Restore all parameters to the values they had before the last fit.\n"
+            "Useful if a fit diverged or gave unreasonable results."
+        )
         self.revert_button.clicked.connect(self.revert_to_backup)
         fit_buttons.addWidget(self.revert_button)
 
@@ -2259,6 +2284,10 @@ class UnifiedFitPanel(QWidget):
                 background-color: #2ecc71;
             }
         """)
+        self.fix_limits_button.setToolTip(
+            "Set all fit limits to ±5× the current parameter values.\n"
+            "Convenient starting point before running a constrained fit."
+        )
         self.fix_limits_button.clicked.connect(self.fix_all_limits)
         fit_buttons.addWidget(self.fix_limits_button)
 
@@ -2279,6 +2308,10 @@ class UnifiedFitPanel(QWidget):
                 background-color: #d35400;
             }
         """)
+        self.reset_button.setToolTip(
+            "Reset all parameters to their factory default values.\n"
+            "This cannot be undone — use 'Revert back' to undo only the last fit."
+        )
         self.reset_button.clicked.connect(self.reset_to_defaults)
         additional_buttons.addWidget(self.reset_button)
 
@@ -2311,12 +2344,20 @@ class UnifiedFitPanel(QWidget):
                 background-color: #2980b9;
             }
         """)
+        self.save_state_button.setToolTip(
+            "Save current parameters and settings to the pyIrena state file.\n"
+            "State is restored automatically when the file is reopened."
+        )
         self.save_state_button.clicked.connect(self.save_state)
         results_buttons1.addWidget(self.save_state_button)
 
         self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
         self.store_data_button.setStyleSheet("background-color: lightgreen;")
+        self.store_data_button.setToolTip(
+            "Save fit results (parameters and model curve) into the source HDF5/NXcanSAS file.\n"
+            "Results are appended as a pyirena NXprocess group."
+        )
         self.store_data_button.clicked.connect(self.store_results_to_file)
         results_buttons1.addWidget(self.store_data_button)
 
@@ -2332,6 +2373,10 @@ class UnifiedFitPanel(QWidget):
                 background-color: #66bb6a;
             }
         """)
+        self.results_graphs_button.setToolTip(
+            "Plot fit results for all selected files in the data selector.\n"
+            "Useful for comparing parameters across a dataset."
+        )
         self.results_graphs_button.clicked.connect(self.display_results_on_graph)
         results_buttons1.addWidget(self.results_graphs_button)
 
@@ -2340,15 +2385,23 @@ class UnifiedFitPanel(QWidget):
         # Results buttons row 2
         results_buttons2 = QHBoxLayout()
 
-        self.export_params_button = QPushButton("Export Parameters")
+        self.export_params_button = QPushButton("Save params to JSON")
         self.export_params_button.setMinimumHeight(26)
         self.export_params_button.setStyleSheet("background-color: lightgreen;")
+        self.export_params_button.setToolTip(
+            "Save current Unified Fit parameters to a pyIrena JSON file.\n"
+            "Use 'Load params from JSON' to restore them later."
+        )
         self.export_params_button.clicked.connect(self.export_parameters)
         results_buttons2.addWidget(self.export_params_button)
 
-        self.import_params_button = QPushButton("Import Parameters")
+        self.import_params_button = QPushButton("Load params from JSON")
         self.import_params_button.setMinimumHeight(26)
         self.import_params_button.setStyleSheet("background-color: lightgreen;")
+        self.import_params_button.setToolTip(
+            "Load Unified Fit parameters from a previously saved pyIrena JSON file.\n"
+            "Use 'Save params to JSON' to create a compatible file."
+        )
         self.import_params_button.clicked.connect(self.import_parameters)
         results_buttons2.addWidget(self.import_params_button)
 
@@ -2370,6 +2423,10 @@ class UnifiedFitPanel(QWidget):
             QPushButton { background-color: #16a085; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #1abc9c; }
         """)
+        self.analyze_results_button.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
         self.analyze_results_button.clicked.connect(self.analyze_results)
         results_buttons3.addWidget(self.analyze_results_button)
 

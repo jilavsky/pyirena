@@ -151,6 +151,66 @@ class RadiusAxisItem(pg.AxisItem):
 
 
 # ===========================================================================
+# DSpacingAxisItem — top axis showing d = 2π/Q for WAXS lin-lin plots
+# ===========================================================================
+
+class DSpacingAxisItem(pg.AxisItem):
+    """Top axis for WAXS I(Q) lin-lin plots showing d-spacing d = 2π/Q [Å].
+
+    The ViewBox x-coordinates are physical Q [Å⁻¹] (linear scale).
+    This axis picks nice round d values (1, 2, 5, 10, 20, 50, … Å),
+    converts them to Q = 2π/d positions, and labels them.  Labels
+    decrease from left to right because d ∝ 1/Q.
+    """
+
+    _NICE_MULTIPLIERS = (1, 2, 5)
+    _MAX_TICKS = 8
+
+    def tickValues(self, minVal, maxVal, size):
+        import math
+        TWO_PI = 2.0 * math.pi
+        if minVal <= 0:
+            minVal = 1e-9
+        d_min = TWO_PI / maxVal   # smallest d visible (at largest Q)
+        d_max = TWO_PI / minVal   # largest d visible (at smallest Q)
+        if d_min <= 0 or d_max <= 0 or d_min >= d_max:
+            return []
+        decade_lo = math.floor(math.log10(d_min)) - 1
+        decade_hi = math.ceil(math.log10(d_max)) + 1
+        positions = []
+        for exp in range(int(decade_lo), int(decade_hi) + 1):
+            for mult in self._NICE_MULTIPLIERS:
+                d = mult * (10.0 ** exp)
+                if d_min <= d <= d_max:
+                    q_pos = TWO_PI / d
+                    if minVal <= q_pos <= maxVal:
+                        positions.append(q_pos)
+        if not positions:
+            return []
+        if len(positions) > self._MAX_TICKS:
+            step = max(1, len(positions) // self._MAX_TICKS)
+            positions = positions[::step]
+        return [(1.0, positions)]
+
+    def tickStrings(self, values, scale, spacing):
+        import math
+        TWO_PI = 2.0 * math.pi
+        strings = []
+        for v in values:
+            if v > 0:
+                d = TWO_PI / v
+                if d >= 10:
+                    strings.append(f'{d:.0f}')
+                elif d >= 1:
+                    strings.append(f'{d:.1f}')
+                else:
+                    strings.append(f'{d:.2f}')
+            else:
+                strings.append('')
+        return strings
+
+
+# ===========================================================================
 # _LimitedAxisItem — caps tick-label density on log/linear axes
 # ===========================================================================
 
@@ -326,6 +386,7 @@ def make_sas_plot(
     x_link=None,
     log_x: bool = True,
     log_y: bool = True,
+    d_spacing_axis: bool = False,
     parent_widget=None,
     jpeg_default_name: str = 'pyirena_graph',
 ) -> pg.PlotItem:
@@ -362,12 +423,16 @@ def make_sas_plot(
     axis_items = {}
     if log_x:
         axis_items['top'] = RadiusAxisItem(orientation='top')
+    elif d_spacing_axis:
+        axis_items['top'] = DSpacingAxisItem(orientation='top')
     plot = graphics_layout.addPlot(row=row, col=col, axisItems=axis_items)
     plot.setLogMode(x=log_x, y=log_y)
     plot.setLabel('left',   y_label)
     plot.setLabel('bottom', x_label)
     if log_x and 'top' in axis_items:
         plot.getAxis('top').setLabel('R = π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
+    elif d_spacing_axis and 'top' in axis_items:
+        plot.getAxis('top').setLabel('d = 2π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
     plot.showGrid(x=True, y=True, alpha=SASPlotStyle.GRID_ALPHA)
     plot.getAxis('left').enableAutoSIPrefix(False)
     plot.getAxis('bottom').enableAutoSIPrefix(False)

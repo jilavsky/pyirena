@@ -170,6 +170,7 @@ class _ManipFileBrowser(QWidget):
         fld_row = QHBoxLayout()
         self.folder_btn = QPushButton("Select Folder\u2026")
         self.folder_btn.setMinimumHeight(28)
+        self.folder_btn.setToolTip("Browse to the folder containing the data files to manipulate.")
         self.folder_btn.clicked.connect(self._select_folder)
         fld_row.addWidget(self.folder_btn)
         layout.addLayout(fld_row)
@@ -908,6 +909,7 @@ class DataManipulationPanel(QWidget):
         select_btn = QPushButton("Select Existing Folder\u2026")
         select_btn.setMinimumHeight(28)
         select_btn.setStyleSheet(_BTN_GREY)
+        select_btn.setToolTip("Choose an existing folder to save manipulated output files.")
         select_btn.clicked.connect(self._select_output_folder)
         layout.addWidget(select_btn)
 
@@ -917,6 +919,10 @@ class DataManipulationPanel(QWidget):
         self._save_btn.setMinimumHeight(34)
         self._save_btn.setStyleSheet(_BTN_GREEN)
         self._save_btn.setEnabled(False)
+        self._save_btn.setToolTip(
+            "Apply the current operation to the selected file(s) and save the result.\n"
+            "Output is written to the configured output folder with a suffix in the filename."
+        )
         self._save_btn.clicked.connect(self._apply_and_save)
         layout.addWidget(self._save_btn)
 
@@ -926,6 +932,10 @@ class DataManipulationPanel(QWidget):
         self._batch_btn.setMinimumHeight(34)
         self._batch_btn.setStyleSheet(_BTN_BLUE)
         self._batch_btn.setEnabled(False)
+        self._batch_btn.setToolTip(
+            "Apply the current operation to all selected files in the list and save all results.\n"
+            "Each file is processed independently using the current settings."
+        )
         self._batch_btn.clicked.connect(self._batch_run)
         layout.addWidget(self._batch_btn)
 

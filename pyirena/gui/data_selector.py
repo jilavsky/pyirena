@@ -2088,6 +2088,7 @@ class TabulateResultsWindow(QWidget):
             QPushButton:hover { background-color: #138d75; }
             QPushButton:disabled { background-color: #bdc3c7; }
         """)
+        self.save_btn.setToolTip("Save the current results table to a CSV file for use in spreadsheets.")
         self.save_btn.clicked.connect(self._save_csv)
         self.save_btn.setEnabled(False)
 
@@ -2311,12 +2312,17 @@ class DataSelectorPanel(QWidget):
         folder_layout = QHBoxLayout()
         self.folder_button = QPushButton("Select Data Folder")
         self.folder_button.setMinimumHeight(40)
+        self.folder_button.setToolTip("Browse to a folder containing NXcanSAS/HDF5 data files.")
         self.folder_button.clicked.connect(self.select_folder)
         folder_layout.addWidget(self.folder_button)
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setMinimumHeight(40)
         self.refresh_button.setMaximumWidth(100)
+        self.refresh_button.setToolTip(
+            "Re-scan the current folder and update the file list.\n"
+            "Use after adding or removing files from the folder."
+        )
         self.refresh_button.clicked.connect(self.refresh_file_list)
         self.refresh_button.setEnabled(False)
         folder_layout.addWidget(self.refresh_button)
@@ -2540,6 +2546,10 @@ class DataSelectorPanel(QWidget):
         self.plot_button = QPushButton("Create Graph")
         self.plot_button.setMinimumHeight(28)
         self.plot_button.setStyleSheet(_btn_sm_blue)
+        self.plot_button.setToolTip(
+            "Plot I(Q) for all selected files in a new graph window.\n"
+            "Select files in the list above, then click this button."
+        )
         self.plot_button.clicked.connect(self.plot_selected_files)
         self.plot_button.setEnabled(False)
 

@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Unified Fit top axis now shows R = π/Q numerical labels.**
+  The `setStyle(showValues=False)` call that suppressed tick values on the
+  `RadiusAxisItem` was removed; axis behaviour now matches Simple Fits.
+
+- **Unified Fit: B limits correctly hidden when "No limits?" is checked after
+  unchecking "Estimate B from G/Rg/P".**
+  `UnifiedFitLevelWidget` now tracks the current limits-visibility state in
+  `_limits_visible` and consults it in `_on_estimate_b_changed`, so unchecking
+  "Estimate B" no longer re-shows B limit fields when "No limits?" is active.
+
+### Added
+
+- **d-spacing top axis (d = 2π/Q [Å]) on all WAXS plots.**
+  - New `DSpacingAxisItem` class in `pyirena/gui/sas_plot.py`.
+  - `make_sas_plot()` accepts a new `d_spacing_axis=True` keyword; when set and
+    `log_x=False`, the top axis shows d-spacing tick labels instead of R = π/Q.
+  - `DataMergeGraphWindow` passes `d_spacing_axis=True` in WAXS mode.
+  - `WAXSPeakFitGraphWindow` now includes the d-spacing top axis on its main plot.
+
+- **Clearer Save/Load parameter button labels across all tools.**
+  "Export Parameters" renamed to **"Save params to JSON"** and "Import Parameters"
+  renamed to **"Load params from JSON"** in Simple Fits, Sizes, Unified Fit,
+  Modeling, and WAXS Peak Fit panels to make the JSON-file destination explicit.
+
+- **Tooltips added to all main action buttons across all GUI panels.**
+  Buttons that previously had no tooltip now show a 1–2 line description of what
+  the button does, covering Unified Fit, Simple Fits, Sizes, Modeling, WAXS Peak
+  Fit, Data Merge, Data Manipulation, and Data Selector panels.
+
 ## [0.6.4]
 
 ### Added

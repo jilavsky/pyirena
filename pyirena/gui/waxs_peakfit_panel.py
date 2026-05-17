@@ -47,7 +47,7 @@ from pyirena.core.waxs_peakfit import (
     compute_adaptive_background,
     find_peaks_in_data, WAXSPeakFitModel,
 )
-from pyirena.gui.sas_plot import save_itx_from_plot
+from pyirena.gui.sas_plot import save_itx_from_plot, DSpacingAxisItem
 
 
 # ── colour palette for peaks ──────────────────────────────────────────────
@@ -513,10 +513,15 @@ class WAXSPeakFitGraphWindow(QWidget):
         self.gl.setBackground('w')
 
         # ── Top plot: data + model ────────────────────────────────────────
-        self.main_plot = self.gl.addPlot(row=0, col=0)
+        self.main_plot = self.gl.addPlot(
+            row=0, col=0,
+            axisItems={'top': DSpacingAxisItem(orientation='top')},
+        )
         self.main_plot.setLogMode(False, False)
         self.main_plot.setLabel('left',   'Intensity')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.main_plot.getAxis('top').setLabel('d = 2π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
+        self.main_plot.getAxis('top').setTextPen('#888')
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self._legend = self.main_plot.addLegend(offset=(-10, 10), labelTextSize='13pt', labelTextColor='k')
         self._style_axes(self.main_plot)
@@ -1300,6 +1305,10 @@ class WAXSPeakFitPanel(QWidget):
         self._find_btn = QPushButton("Find Peaks")
         self._find_btn.setStyleSheet(_BTN_FIND)
         self._find_btn.setMinimumHeight(28)
+        self._find_btn.setToolTip(
+            "Automatically locate peaks in the data using the threshold and width settings above.\n"
+            "Found peaks are added to the peak list and shown on the graph."
+        )
         self._find_btn.clicked.connect(self._find_peaks)
         pf_layout.addWidget(self._find_btn, len(rows), 0, 1, 2)
         ll.addWidget(pf_box)
@@ -1324,12 +1333,17 @@ class WAXSPeakFitPanel(QWidget):
         add_btn = QPushButton("Add Peak Manually")
         add_btn.setStyleSheet(_BTN_ADD)
         add_btn.setMinimumHeight(26)
+        add_btn.setToolTip(
+            "Add a new peak entry at a default Q position.\n"
+            "Edit the Q₀ and FWHM values, then click Fit."
+        )
         add_btn.clicked.connect(lambda: self._add_peak_at_q(None, None))
         peak_btn_row.addWidget(add_btn)
 
         sort_btn = QPushButton("Sort by Q")
         sort_btn.setStyleSheet(_BTN_SAVE)
         sort_btn.setMinimumHeight(26)
+        sort_btn.setToolTip("Sort all peaks in the list by ascending Q₀ position.")
         sort_btn.clicked.connect(self._sort_peaks_by_q)
         peak_btn_row.addWidget(sort_btn)
         peaks_outer_layout.addLayout(peak_btn_row)
@@ -1341,6 +1355,10 @@ class WAXSPeakFitPanel(QWidget):
         self._graph_btn.setStyleSheet(_BTN_GRAPH)
         self._graph_btn.setMinimumHeight(28)
         self._graph_btn.setMaximumWidth(120)
+        self._graph_btn.setToolTip(
+            "Compute and display the current peak model without fitting.\n"
+            "Use this to preview the model before running a fit."
+        )
         self._graph_btn.clicked.connect(self._graph_model)
         fit_row.addWidget(self._graph_btn)
         fit_row.addStretch()
@@ -1349,6 +1367,10 @@ class WAXSPeakFitPanel(QWidget):
         self._fit_btn.setStyleSheet(_BTN_FIT)
         self._fit_btn.setMinimumHeight(28)
         self._fit_btn.setMaximumWidth(90)
+        self._fit_btn.setToolTip(
+            "Fit all active peaks to the data within the Q range.\n"
+            "Checked parameters per peak are varied; unchecked are held fixed."
+        )
         self._fit_btn.clicked.connect(self._run_fit)
         fit_row.addWidget(self._fit_btn)
 
@@ -1357,6 +1379,10 @@ class WAXSPeakFitPanel(QWidget):
         self._revert_btn.setMinimumHeight(28)
         self._revert_btn.setMaximumWidth(90)
         self._revert_btn.setEnabled(False)
+        self._revert_btn.setToolTip(
+            "Restore all peak parameters to their values before the last fit.\n"
+            "Useful if a fit diverged or gave unreasonable results."
+        )
         self._revert_btn.clicked.connect(self._revert)
         fit_row.addWidget(self._revert_btn)
         ll.addLayout(fit_row)
@@ -1454,12 +1480,20 @@ class WAXSPeakFitPanel(QWidget):
         fix_limits_btn = QPushButton("Fix Limits")
         fix_limits_btn.setStyleSheet(_BTN_FIXLIM)
         fix_limits_btn.setMinimumHeight(28)
+        fix_limits_btn.setToolTip(
+            "Set all fit limits to ±5× the current peak parameter values.\n"
+            "Convenient starting point before running a constrained fit."
+        )
         fix_limits_btn.clicked.connect(self._fix_limits)
         extra_row.addWidget(fix_limits_btn)
 
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.setStyleSheet(_BTN_RESET)
         reset_btn.setMinimumHeight(28)
+        reset_btn.setToolTip(
+            "Reset all peak parameters to their factory default values.\n"
+            "This cannot be undone — use 'Revert' to undo only the last fit."
+        )
         reset_btn.clicked.connect(self._reset_defaults)
         extra_row.addWidget(reset_btn)
         ll.addLayout(extra_row)
@@ -1483,13 +1517,18 @@ class WAXSPeakFitPanel(QWidget):
         ll.addLayout(row1)
 
         row2 = QHBoxLayout()
-        for txt, style, slot in [
-            ("Export Parameters", _BTN_EXPORT, self._export_params),
-            ("Import Parameters", _BTN_EXPORT, self._import_params),
+        for txt, style, slot, tip in [
+            ("Save params to JSON", _BTN_EXPORT, self._export_params,
+             "Save current peak fit parameters to a pyIrena JSON file.\n"
+             "Use 'Load params from JSON' to restore them later."),
+            ("Load params from JSON", _BTN_EXPORT, self._import_params,
+             "Load peak fit parameters from a previously saved pyIrena JSON file.\n"
+             "Use 'Save params to JSON' to create a compatible file."),
         ]:
             b = QPushButton(txt)
             b.setStyleSheet(style)
             b.setMinimumHeight(26)
+            b.setToolTip(tip)
             b.clicked.connect(slot)
             row2.addWidget(b)
         ll.addLayout(row2)
