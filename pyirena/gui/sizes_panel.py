@@ -34,7 +34,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
-from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot
+from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot, add_slope_line_menu
 from pyirena.state.state_manager import StateManager
 
 
@@ -205,6 +205,7 @@ class SizesFitGraphWindow(QWidget):
 
         # ── Main I(Q) plot  (log-log) ────────────────────────────────────────
         self.main_plot.setLogMode(x=True, y=True)
+        add_slope_line_menu(self.main_plot)
         # Use units IN the label string — avoids pyqtgraph's SI-prefix auto-scaling
         self.main_plot.setLabel('left',   'I  (cm⁻¹)')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')

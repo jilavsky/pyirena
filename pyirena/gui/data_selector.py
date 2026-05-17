@@ -40,7 +40,7 @@ except ImportError:
 import re
 import numpy as np
 import pyqtgraph as pg
-from pyirena.gui.sas_plot import save_itx_from_plot
+from pyirena.gui.sas_plot import save_itx_from_plot, add_slope_line_menu
 
 # ── Shared colour palette for multi-file graphs ────────────────────────────
 def _gen_colors(n: int) -> list:
@@ -1241,6 +1241,7 @@ class GraphWindow(QWidget):
         self.plot.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.plot)
         _add_jpeg_export(self, self.plot)
+        add_slope_line_menu(self.plot)
 
         # ── Per-session state for right-click toggles ──────────────────────
         self._plot_cache: list = []          # list of dicts, one per file
@@ -1429,6 +1430,7 @@ class UnifiedFitResultsWindow(QWidget):
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
         self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
+        add_slope_line_menu(self.ax_main)
 
         # ── Bottom panel: residuals ────────────────────────────────────────
         self.ax_resid = self.gl.addPlot(
@@ -1587,6 +1589,7 @@ class SizeDistResultsWindow(QWidget):
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
         self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
+        add_slope_line_menu(self.ax_main)
 
         # ── Middle: residuals ──────────────────────────────────────────────
         self.ax_resid = self.gl.addPlot(
@@ -1782,6 +1785,7 @@ class SimpleFitResultsWindow(QWidget):
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
         self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
+        add_slope_line_menu(self.ax_main)
 
         # ── Bottom: residuals ──────────────────────────────────────────────
         self.ax_resid = self.gl.addPlot(

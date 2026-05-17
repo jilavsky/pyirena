@@ -62,7 +62,7 @@ from pyirena.core.modeling import (
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
-    RadiusAxisItem, save_itx_from_plot,
+    RadiusAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
@@ -1217,6 +1217,7 @@ class ModelingGraphWindow(QWidget):
         self.iq_plot.setTitle('Modeling — I(Q)', size='12pt', color='k')
         self.iq_plot.addLegend(offset=(-10, 10), labelTextSize='9pt', labelTextColor='k')
         self._style_axes(self.iq_plot, show_top_values=True)
+        add_slope_line_menu(self.iq_plot)
 
         # ── Residuals plot ────────────────────────────────────────────────
         self.resid_plot = self.gl.addPlot(row=1, col=0)

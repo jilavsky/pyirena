@@ -43,6 +43,7 @@ except ImportError:
     from PyQt6.QtGui import QColor, QIcon, QAction              # type: ignore[no-redef]
 
 from . import export as _export
+from pyirena.gui.sas_plot import add_slope_line_menu
 
 # ── Default color cycle (distinct, colorblind-friendly palette) ────────────
 _COLOR_CYCLE = [
@@ -215,6 +216,8 @@ class GraphWindow(QWidget):
         act_mpl = QAction("Open as matplotlib figure…", self)
         act_mpl.triggered.connect(lambda: _export.open_matplotlib(self))
         vb.menu.addAction(act_mpl)
+
+        add_slope_line_menu(self._plot)
 
     # ── Public API ─────────────────────────────────────────────────────────
 

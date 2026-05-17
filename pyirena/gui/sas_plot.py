@@ -731,6 +731,8 @@ def make_sas_plot(
     if parent_widget is not None:
         _add_jpeg_export(plot, parent_widget, jpeg_default_name,
                          x_label=x_label, y_label=y_label, title=title or '')
+    if log_x and log_y:
+        add_slope_line_menu(plot)
     return plot
 
 
