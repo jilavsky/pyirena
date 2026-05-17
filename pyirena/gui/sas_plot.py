@@ -456,12 +456,32 @@ class SlopeLine(pg.GraphicsObject):
         self.update()
 
     def _reposition_label(self) -> None:
-        """Place the TextItem label at 75 % of the way along the visible x range."""
+        """Place the TextItem label at the midpoint of the visible line segment.
+
+        The line may enter/exit the view through the top or bottom edges.
+        Computing the visible segment prevents the label from being placed
+        outside the ViewBox clip region (where it would be invisible).
+        """
         vb = self.getViewBox()
         if vb is None or not hasattr(vb, 'viewRange'):
             return
-        [[x0, x1], _] = vb.viewRange()
-        xp = x0 + 0.75 * (x1 - x0)
+        [[x0, x1], [y0, y1]] = vb.viewRange()
+        y_lo, y_hi = min(y0, y1), max(y0, y1)
+
+        # Find the x range over which the line is within the visible y band.
+        # y = slope*x + offset  →  x = (y - offset) / slope
+        if abs(self.slope) > 1e-10:
+            x_at_ylo = (y_lo - self.log10_offset) / self.slope
+            x_at_yhi = (y_hi - self.log10_offset) / self.slope
+            x_lo_clip = max(x0, min(x_at_ylo, x_at_yhi))
+            x_hi_clip = min(x1, max(x_at_ylo, x_at_yhi))
+        else:
+            x_lo_clip, x_hi_clip = x0, x1
+
+        if x_lo_clip >= x_hi_clip:
+            return  # line is entirely outside the visible area
+
+        xp = (x_lo_clip + x_hi_clip) / 2.0
         yp = self.slope * xp + self.log10_offset
         self._label.setPos(xp, yp)
 
@@ -548,7 +568,8 @@ class SlopeLine(pg.GraphicsObject):
         change_act = menu.addAction('Change slope…')
         remove_act = menu.addAction('Remove this slope line')
 
-        chosen = menu.exec(ev.screenPos().toPoint())
+        # screenPos() returns QPoint in PySide6 (already integer coords)
+        chosen = menu.exec(ev.screenPos())
         if chosen == remove_act:
             vb = self.getViewBox()
             if vb is not None:
