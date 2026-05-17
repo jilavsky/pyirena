@@ -916,12 +916,15 @@ class DataManipulationPanel(QWidget):
         )
         self._sim_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._sim_results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self._sim_results_table.setMinimumHeight(80)
+        self._sim_results_table.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
         self._sim_results_table.setVisible(False)
         sim_layout.addWidget(self._sim_results_table)
 
         layout.addWidget(sim_group)
-        layout.addStretch()
+        # No addStretch() here — let sim_group fill available height so the
+        # table is not squished when it becomes visible.
         self._tabs.addTab(tab, "Average")
 
     # ------------------------------------------------------------------ #
@@ -1643,13 +1646,26 @@ class DataManipulationPanel(QWidget):
             return
 
         self._populate_sim_table()
+        n_results = len(self._sim_results)
         n_rejected = sum(1 for r in self._sim_results if not r.accepted)
+
+        # Size the table to show all rows without scrolling (cap at 300px)
+        self._sim_results_table.resizeRowsToContents()
+        hh = self._sim_results_table.horizontalHeader().height()
+        rows_h = sum(
+            self._sim_results_table.rowHeight(i)
+            for i in range(self._sim_results_table.rowCount())
+        )
+        table_h = min(hh + rows_h + 4, 300)
+        self._sim_results_table.setFixedHeight(table_h)
+
         self._sim_reject_btn.setText(f"Auto-reject {n_rejected} below threshold")
         self._sim_reject_btn.setEnabled(n_rejected > 0)
         self._sim_results_table.setVisible(True)
         self._status.setText(
-            f"Similarity check: {len(self._sim_results) - n_rejected} accepted, "
-            f"{n_rejected} rejected (p < {p_min:.4f})."
+            f"Similarity check: {n_results} results for {len(filenames)} files — "
+            f"{n_results - n_rejected} accepted, {n_rejected} rejected "
+            f"(p < {p_min:.4f})."
         )
 
     def _on_similarity_auto_reject(self) -> None:
@@ -1699,6 +1715,9 @@ class DataManipulationPanel(QWidget):
         """Invalidate stale similarity results when selection changes."""
         self._sim_results = []
         self._sim_results_table.setRowCount(0)
+        # Release the fixed height set by _on_similarity_check
+        self._sim_results_table.setMinimumHeight(0)
+        self._sim_results_table.setMaximumHeight(16777215)  # Qt QWIDGETSIZE_MAX
         self._sim_results_table.setVisible(False)
         self._sim_reject_btn.setText("Auto-reject 0 below threshold")
         self._sim_reject_btn.setEnabled(False)
