@@ -410,13 +410,25 @@ class SlopeLine(pg.GraphicsObject):
         self._pen = pg.mkPen(color, width=1.8, style=Qt.PenStyle.DashLine)
         self._hover_pen = pg.mkPen(color, width=3.0, style=Qt.PenStyle.DashLine)
         self._active_pen = self._pen
-        self._font = QFont('Arial', 9)
         self._drag_offset0 = None   # log10_offset at start of current drag
 
+        # Label — a TextItem child so it always renders at screen pixel size
+        # and follows the line during pan/zoom/drag automatically.
+        self._label = pg.TextItem(
+            text=f'n = {slope:g}',
+            color=color,
+            anchor=(0.5, 1),            # centre-bottom of text box at the set position
+            fill=pg.mkBrush(255, 255, 255, 180),   # semi-transparent white backing
+        )
+        self._label.setFont(QFont('Arial', 9, QFont.Weight.Bold))
+        self._label.setParentItem(self)
+        # Temporary initial position; updated by viewRangeChanged() once added to a ViewBox.
+        self._label.setPos(0.0, log10_offset)
+
         self.setAcceptHoverEvents(True)
-        # Do NOT call setCursor() here — it would apply to the full
-        # boundingRect() and permanently hijack the cursor over the entire
-        # viewport.  Set/unset it only in the hover callbacks instead.
+        # Do NOT call setCursor() here — applying it in __init__ would affect
+        # the full boundingRect() and permanently hijack the cursor everywhere.
+        # We set/unset it inside hoverEvent() instead.
         self.setZValue(10)          # draw above data
 
     # ------------------------------------------------------------------
@@ -440,7 +452,18 @@ class SlopeLine(pg.GraphicsObject):
     def viewRangeChanged(self) -> None:
         """Called by pyqtgraph when the ViewBox is panned or zoomed."""
         self.prepareGeometryChange()
+        self._reposition_label()
         self.update()
+
+    def _reposition_label(self) -> None:
+        """Place the TextItem label at 75 % of the way along the visible x range."""
+        vb = self.getViewBox()
+        if vb is None:
+            return
+        [[x0, x1], _] = vb.viewRange()
+        xp = x0 + 0.75 * (x1 - x0)
+        yp = self.slope * xp + self.log10_offset
+        self._label.setPos(xp, yp)
 
     def shape(self) -> QPainterPath:
         """Hit-test path: a band of ~8 pixels around the line.
@@ -471,37 +494,23 @@ class SlopeLine(pg.GraphicsObject):
         [[x0, x1], _] = vb.viewRange()
         ya = self.slope * x0 + self.log10_offset
         yb = self.slope * x1 + self.log10_offset
-
         p.setPen(self._active_pen)
         p.drawLine(QPointF(x0, ya), QPointF(x1, yb))
-
-        # ── Label at the right-hand end, drawn in screen pixels ──────────
-        # p.transform() maps item (= ViewBox) coords → device pixels.
-        # After resetTransform() the painter is in screen-pixel space.
-        screen_p2 = p.transform().map(QPointF(x1, yb))
-        label = f'n = {self.slope:g}'
-        p.save()
-        p.resetTransform()
-        p.setFont(self._font)
-        p.setPen(pg.mkPen(self._color))
-        p.drawText(QPointF(screen_p2.x() + 4, screen_p2.y() - 4), label)
-        p.restore()
+        # Label is drawn by the TextItem child — no label code here.
 
     # ------------------------------------------------------------------
-    # Hover — set / restore cursor only when near the line
+    # Hover — use pyqtgraph's hoverEvent (has reliable isExit()) rather
+    # than Qt's hoverEnterEvent / hoverLeaveEvent which can stay "stuck".
     # ------------------------------------------------------------------
 
-    def hoverEnterEvent(self, ev) -> None:
-        self._active_pen = self._hover_pen
-        self.setCursor(Qt.CursorShape.SizeVerCursor)
+    def hoverEvent(self, ev) -> None:
+        if ev.isExit():
+            self._active_pen = self._pen
+            self.unsetCursor()
+        else:
+            self._active_pen = self._hover_pen
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
         self.update()
-        ev.accept()
-
-    def hoverLeaveEvent(self, ev) -> None:
-        self._active_pen = self._pen
-        self.unsetCursor()
-        self.update()
-        ev.accept()
 
     # ------------------------------------------------------------------
     # Drag — use pyqtgraph's mouseDragEvent, NOT Qt's mouseMoveEvent.
@@ -519,6 +528,7 @@ class SlopeLine(pg.GraphicsObject):
         # ev.pos() and ev.buttonDownPos() are in item (= ViewBox) coordinates
         dy = ev.pos().y() - ev.buttonDownPos().y()
         self.log10_offset = self._drag_offset0 + dy
+        self._reposition_label()
         self.prepareGeometryChange()
         self.update()
 
@@ -551,6 +561,8 @@ class SlopeLine(pg.GraphicsObject):
             )
             if ok:
                 self.slope = val
+                self._label.setText(f'n = {val:g}')
+                self._reposition_label()
                 self.prepareGeometryChange()
                 self.update()
         ev.accept()
