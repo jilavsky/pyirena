@@ -26,7 +26,7 @@ try:
         QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
         QAbstractItemView, QSizePolicy, QListWidgetItem,
         QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
-        QTableWidget, QTableWidgetItem, QHeaderView,
+        QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
     )
     from PySide6.QtCore import Qt, QUrl, QTimer
     from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
@@ -38,7 +38,7 @@ except ImportError:
             QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
             QAbstractItemView, QSizePolicy, QListWidgetItem,
             QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
-            QTableWidget, QTableWidgetItem, QHeaderView,
+            QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
         )
         from PyQt6.QtCore import Qt, QUrl, QTimer
         from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
@@ -767,8 +767,23 @@ class DataManipulationPanel(QWidget):
     def _build_average_tab(self) -> None:
         from pyirena.core.similarity import SIMILARITY_METHODS, SIMILARITY_METHOD_LABELS
 
+        # The tab itself is just a container for the scroll area.
+        # All visible content goes into `content_widget` inside the scroll area
+        # so that if the panel is small the user can scroll rather than losing
+        # controls to clipping.
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        tab_outer = QVBoxLayout(tab)
+        tab_outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        tab_outer.addWidget(scroll)
+
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+
+        layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
 
@@ -916,15 +931,13 @@ class DataManipulationPanel(QWidget):
         )
         self._sim_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._sim_results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self._sim_results_table.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
+        # No fixed/minimum height — table sizes to its content inside the
+        # scroll area; setFixedHeight() is called after each populate().
         self._sim_results_table.setVisible(False)
         sim_layout.addWidget(self._sim_results_table)
 
         layout.addWidget(sim_group)
-        # No addStretch() here — let sim_group fill available height so the
-        # table is not squished when it becomes visible.
+        layout.addStretch()   # pushes group to top inside scroll canvas
         self._tabs.addTab(tab, "Average")
 
     # ------------------------------------------------------------------ #
