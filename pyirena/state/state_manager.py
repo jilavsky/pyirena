@@ -282,7 +282,7 @@ class StateManager:
             "match_files": False,
         },
         "data_manipulation": {
-            "schema_version": 1,
+            "schema_version": 2,
             "folder": None,
             "file_type": "HDF5 Nexus",
             "filter": "",
@@ -304,6 +304,10 @@ class StateManager:
             # Divide tab
             "divide_denominator_scale": 1.0,
             "divide_denominator_background": 0.0,
+            # Average tab — similarity analysis
+            "similarity_method": "cormap",
+            "similarity_reference": "first",   # 'first' | 'majority'
+            "similarity_p_min": 0.01,
         },
         "modeling": {
             "schema_version": 2,

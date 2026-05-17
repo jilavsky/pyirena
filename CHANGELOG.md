@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Similarity-based outlier rejection in the Data Manipulation Average tab.**
+  Detects radiation-damaged frames before averaging using the CorMap test
+  (Franke et al., *Nature Methods* 12, 419–422, 2015).
+  - Pure NumPy/Python implementation in `pyirena/core/similarity.py` — no
+    silx or freesas dependency.
+  - Two reference modes: **First frame** (compare each frame vs. frame 0;
+    frame 0 is always accepted — standard bioSAXS approach) and **Majority
+    vote** (compare each frame vs. the median of all frames; more robust when
+    the first frame itself may be damaged).
+  - P-value threshold is user-adjustable (default 0.01).  Lower threshold =
+    stricter acceptance (fewer frames kept); higher = looser.
+  - Results table with colour-coded rows (green = accepted, red = rejected)
+    appears after clicking **Check Similarity**; **Auto-reject** button
+    removes outliers from the selection in one click.
+  - Similarity settings (method, reference, p-value) are persisted in the
+    application state.
+  - Extensible registry (`SIMILARITY_METHODS` dict in `similarity.py`): add a
+    new method by registering a function — the GUI dropdown updates
+    automatically.
+
+- **`average_data()` headless API gains similarity filtering.**
+  New keyword arguments: `similarity_check=False`, `similarity_p_min=0.01`,
+  `similarity_method='cormap'`, `similarity_reference='first'`.  When
+  `similarity_check=True`, frames failing the p-value test are discarded
+  before averaging and reported in the return dict (`'rejected'` list).
+
 ### Added (continued)
 
 - **Draggable power-law slope guide lines in the Unified Fit I(Q) graph.**
