@@ -443,7 +443,7 @@ class SlopeLine(pg.GraphicsObject):
         calls prepareGeometryChange() so Qt re-queries this when zoom changes.
         """
         vb = self.getViewBox()
-        if vb is None:
+        if vb is None or not hasattr(vb, 'viewRange'):
             return QRectF(-1e9, -1e9, 2e9, 2e9)
         [[x0, x1], [y0, y1]] = vb.viewRange()
         return QRectF(QPointF(x0, min(y0, y1)),
@@ -458,7 +458,7 @@ class SlopeLine(pg.GraphicsObject):
     def _reposition_label(self) -> None:
         """Place the TextItem label at 75 % of the way along the visible x range."""
         vb = self.getViewBox()
-        if vb is None:
+        if vb is None or not hasattr(vb, 'viewRange'):
             return
         [[x0, x1], _] = vb.viewRange()
         xp = x0 + 0.75 * (x1 - x0)
@@ -472,12 +472,12 @@ class SlopeLine(pg.GraphicsObject):
         so this restricts interactivity to a narrow strip around the line.
         """
         vb = self.getViewBox()
-        if vb is None:
+        if vb is None or not hasattr(vb, 'viewRange'):
             return QPainterPath()
         [[x0, x1], _] = vb.viewRange()
         ya = self.slope * x0 + self.log10_offset
         yb = self.slope * x1 + self.log10_offset
-        _, py = vb.viewPixelSize()
+        _, py = vb.viewPixelSize() if hasattr(vb, 'viewPixelSize') else (0, 0)
         band = 8.0 * abs(py) if py else 0.05
         path = QPainterPath()
         path.moveTo(QPointF(x0, ya - band))
@@ -489,7 +489,7 @@ class SlopeLine(pg.GraphicsObject):
 
     def paint(self, p, *args) -> None:
         vb = self.getViewBox()
-        if vb is None:
+        if vb is None or not hasattr(vb, 'viewRange'):
             return
         [[x0, x1], _] = vb.viewRange()
         ya = self.slope * x0 + self.log10_offset
