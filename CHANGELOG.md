@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (continued)
+
+- **Draggable power-law slope guide lines in the Unified Fit I(Q) graph.**
+  Right-click the graph → *Add slope guide line* submenu.  Presets: n = −2, −3,
+  −4 (Porod), −5, −6; a *Custom slope…* entry accepts any value in [−8, −0.5].
+  - Lines are drawn as dashed colored lines with a label (*n = −4*) at the right
+    end.  Each successive line cycles through a distinct colour palette.
+  - Drag any line vertically to slide it along the intensity axis and align it
+    with your data.  The line stays geometrically exact at every zoom level.
+  - Right-click a single line to *Change slope…* or *Remove*.
+  - Right-click the background → *Remove all slope lines* to clear all at once.
+  - Implemented as `SlopeLine` (`pg.GraphicsObject` subclass) and
+    `add_slope_line_menu()` helper in `pyirena/gui/sas_plot.py` — ready to be
+    added to other tools once the Unified Fit implementation is validated.
+
 ### Fixed
 
 - **Unified Fit top axis now shows R = π/Q numerical labels.**

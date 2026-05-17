@@ -47,11 +47,13 @@ from pathlib import Path
 import pyqtgraph as pg
 
 try:
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
+    from PySide6.QtCore import Qt, QPointF, QRectF
+    from PySide6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
 except ImportError:
-    from PyQt6.QtWidgets import QFileDialog, QMessageBox
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
+    from PyQt6.QtCore import Qt, QPointF, QRectF
+    from PyQt6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
 
 
 # ===========================================================================
@@ -370,6 +372,242 @@ try:
     _install_sendDragEvent_safeguard()
 except Exception:
     pass
+
+
+# ===========================================================================
+# SlopeLine — draggable power-law slope guide line for log-log I(Q) plots
+# ===========================================================================
+
+class SlopeLine(pg.GraphicsObject):
+    """Draggable power-law slope guide line for log-log I(Q) vs Q plots.
+
+    In log-log ViewBox coordinates the power law I ∝ Q^n appears as a
+    straight line  log10(I) = n · log10(Q) + b.  This item works entirely
+    in ViewBox space (log10 on both axes), so it stays geometrically correct
+    at every zoom level without any range-change callbacks.
+
+    Drag vertically to shift the line up/down (changes *b*).
+    Right-click the line to remove it.
+    """
+
+    # Palette of distinguishable colours so multiple lines are easy to tell apart
+    _COLORS = ['#e67e22', '#8e44ad', '#2980b9', '#27ae60', '#c0392b',
+               '#16a085', '#f39c12', '#7f8c8d']
+    _color_index = 0  # class-level counter; cycles through _COLORS
+
+    def __init__(self, slope: float = -4.0, log10_offset: float = 0.0,
+                 color: str | None = None):
+        super().__init__()
+
+        self.slope = float(slope)
+        self.log10_offset = float(log10_offset)
+
+        if color is None:
+            color = SlopeLine._COLORS[SlopeLine._color_index % len(SlopeLine._COLORS)]
+            SlopeLine._color_index += 1
+
+        self._color = color
+        self._pen = pg.mkPen(color, width=1.8, style=Qt.PenStyle.DashLine)
+        self._hover_pen = pg.mkPen(color, width=3.0, style=Qt.PenStyle.DashLine)
+        self._active_pen = self._pen
+        self._font = QFont('Arial', 9)
+
+        # Drag state
+        self._dragging = False
+        self._drag_view_y0 = None       # ViewBox y coord at drag start
+        self._drag_offset0 = None       # log10_offset at drag start
+
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setZValue(10)              # draw above data
+
+    # ------------------------------------------------------------------
+    # GraphicsObject protocol
+    # ------------------------------------------------------------------
+
+    def boundingRect(self) -> QRectF:
+        # Must fully encompass the painted region; use an enormous rect so
+        # pyqtgraph never culls it, regardless of the current view range.
+        return QRectF(-1e9, -1e9, 2e9, 2e9)
+
+    def viewRangeChanged(self) -> None:
+        """Called by pyqtgraph when the ViewBox is panned or zoomed."""
+        self.prepareGeometryChange()
+        self.update()
+
+    def shape(self) -> QPainterPath:
+        """Hit-test path: a band of ~8 pixels around the line."""
+        vb = self.getViewBox()
+        if vb is None:
+            return QPainterPath()
+        [[x0, x1], _] = vb.viewRange()
+        ya = self.slope * x0 + self.log10_offset
+        yb = self.slope * x1 + self.log10_offset
+        # Width of 8 pixels expressed in y ViewBox units
+        _, py = vb.viewPixelSize()
+        band = 8.0 * abs(py)
+        # Build a thin parallelogram around the line
+        path = QPainterPath()
+        path.moveTo(QPointF(x0, ya - band))
+        path.lineTo(QPointF(x1, yb - band))
+        path.lineTo(QPointF(x1, yb + band))
+        path.lineTo(QPointF(x0, ya + band))
+        path.closeSubpath()
+        return path
+
+    def paint(self, p, *args) -> None:
+        vb = self.getViewBox()
+        if vb is None:
+            return
+        [[x0, x1], _] = vb.viewRange()
+        ya = self.slope * x0 + self.log10_offset
+        yb = self.slope * x1 + self.log10_offset
+
+        p1 = QPointF(x0, ya)   # already in ViewBox / item coords
+        p2 = QPointF(x1, yb)
+
+        p.setPen(self._active_pen)
+        p.drawLine(p1, p2)
+
+        # ── Label at the right-hand end, drawn in screen pixels ──────────
+        # p.transform() maps item coords → device (screen) pixels
+        screen_p2 = p.transform().map(p2)
+        label = f'n = {self.slope:g}'
+        p.save()
+        p.resetTransform()      # switch painter to screen-pixel coordinates
+        p.setFont(self._font)
+        p.setPen(pg.mkPen(self._color))
+        p.drawText(QPointF(screen_p2.x() + 4, screen_p2.y() - 4), label)
+        p.restore()
+
+    # ------------------------------------------------------------------
+    # Mouse interaction — drag vertically to shift offset
+    # ------------------------------------------------------------------
+
+    def hoverEnterEvent(self, ev) -> None:
+        self._active_pen = self._hover_pen
+        self.update()
+        ev.accept()
+
+    def hoverLeaveEvent(self, ev) -> None:
+        self._active_pen = self._pen
+        self.update()
+        ev.accept()
+
+    def mousePressEvent(self, ev) -> None:
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            vb = self.getViewBox()
+            # ev.pos() is in item (= ViewBox) coords
+            self._drag_view_y0 = ev.pos().y()
+            self._drag_offset0 = self.log10_offset
+            ev.accept()
+        else:
+            ev.ignore()
+
+    def mouseMoveEvent(self, ev) -> None:
+        if self._dragging:
+            dy = ev.pos().y() - self._drag_view_y0
+            self.log10_offset = self._drag_offset0 + dy
+            self.update()
+            ev.accept()
+        else:
+            ev.ignore()
+
+    def mouseReleaseEvent(self, ev) -> None:
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            ev.accept()
+        else:
+            ev.ignore()
+
+    def contextMenuEvent(self, ev) -> None:
+        """Right-click on the line → change slope or remove."""
+        try:
+            from PySide6.QtWidgets import QMenu
+        except ImportError:
+            from PyQt6.QtWidgets import QMenu
+        menu = QMenu()
+        lbl = menu.addAction(f'Slope line  n = {self.slope:g}  (drag to reposition)')
+        lbl.setEnabled(False)
+        menu.addSeparator()
+
+        change_act = menu.addAction('Change slope…')
+        remove_act = menu.addAction('Remove this slope line')
+
+        chosen = menu.exec(ev.screenPos().toPoint())
+        if chosen == remove_act:
+            vb = self.getViewBox()
+            if vb is not None:
+                vb.removeItem(self)
+        elif chosen == change_act:
+            val, ok = QInputDialog.getDouble(
+                None, 'Change slope',
+                'Power-law exponent  n  (e.g. −4 for Porod):',
+                self.slope, -8.0, -0.5, 2,
+            )
+            if ok:
+                self.slope = val
+                self.update()
+        ev.accept()
+
+
+# ---------------------------------------------------------------------------
+
+def add_slope_line_menu(plot: pg.PlotItem, default_slope: float = -4.0) -> None:
+    """Attach a 'Slope guide line' submenu to a PlotItem's ViewBox right-click menu.
+
+    Slope lines are guide lines with a fixed power-law slope drawn in log-log
+    ViewBox space.  They are geometrically correct at any zoom level and can be
+    dragged vertically to align with the data.
+
+    Parameters
+    ----------
+    plot : pg.PlotItem
+        The target plot (must be in log-log mode for the lines to be meaningful).
+    default_slope : float
+        Slope used when the user clicks "Add slope line (default)".
+    """
+    vb = plot.getViewBox()
+    menu = vb.menu
+
+    def _add(slope: float) -> None:
+        # Position the line at the vertical centre of the current view
+        _, [y0, y1] = vb.viewRange()
+        offset = (y0 + y1) / 2.0
+        line = SlopeLine(slope=slope, log10_offset=offset)
+        vb.addItem(line)
+
+    def _remove_all() -> None:
+        # Collect items to remove (can't mutate the list while iterating)
+        to_remove = [it for it in vb.addedItems if isinstance(it, SlopeLine)]
+        for it in to_remove:
+            vb.removeItem(it)
+
+    def _custom() -> None:
+        val, ok = QInputDialog.getDouble(
+            None, 'Add slope line',
+            'Power-law exponent  n  (e.g. −4 for Porod):',
+            default_slope, -8.0, -0.5, 2,
+        )
+        if ok:
+            _add(val)
+
+    menu.addSeparator()
+    slope_menu = menu.addMenu('Add slope guide line')
+
+    presets = [(-2, 'n = −2'), (-3, 'n = −3'), (-4, 'n = −4  (Porod)'),
+               (-5, 'n = −5'), (-6, 'n = −6')]
+    for n, label in presets:
+        act = slope_menu.addAction(label)
+        act.triggered.connect(lambda checked=False, s=n: _add(s))
+
+    slope_menu.addSeparator()
+    custom_act = slope_menu.addAction('Custom slope…')
+    custom_act.triggered.connect(_custom)
+
+    remove_act = menu.addAction('Remove all slope lines')
+    remove_act.triggered.connect(_remove_all)
 
 
 # ===========================================================================

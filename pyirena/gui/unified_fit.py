@@ -42,7 +42,9 @@ except ImportError:
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
-from pyirena.gui.sas_plot import RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot
+from pyirena.gui.sas_plot import (
+    RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot, add_slope_line_menu,
+)
 from pyirena.state import StateManager
 
 
@@ -572,6 +574,9 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.getAxis('top').setTextPen('#888')
         self.main_plot.getAxis('right').setPen('k')
         self.main_plot.getAxis('right').setStyle(showValues=False)
+
+        # Slope guide lines (right-click submenu)
+        add_slope_line_menu(self.main_plot)
 
         # Enable auto-range
         self.main_plot.enableAutoRange()
