@@ -1786,7 +1786,7 @@ def fit_modeling(
             pop = MassFractalPopulation()
             pop.enabled = bool(pd.get('enabled', True))
             pop.label = pd.get('label', '')
-            for key in ['Phi', 'Radius', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+            for key in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
                 setattr(pop, key, float(pd.get(key, getattr(pop, key))))
                 setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
                 lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))

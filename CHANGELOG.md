@@ -43,9 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     non-dilute scatterers (Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
     Parameters: G, Rg1, s1, P, Rg2, s2, RgCO; optional Born-Green correlations (ETA, PACK).
     Setting Rg2 = 1e10 (default) gives single-level behaviour identical to standard GP.
-  - **Mass Fractal** (`mass_fractal`) — fractal aggregate scattering with sphere primary
-    particles (Teixeira 1988, *J. Appl. Cryst.* **21**, 781–785).
-    Parameters: Phi, Radius, Dv (fractal dimension), Ksi (correlation length), Eta, Contrast.
+  - **Mass Fractal** (`mass_fractal`) — fractal aggregate scattering (Teixeira 1988,
+    *J. Appl. Cryst.* **21**, 781–785).  Primary particles are spheroids with aspect ratio
+    β (1 = sphere).  β ≠ 1 uses the orientation-averaged spheroid form factor (Gauss-Legendre
+    quadrature over particle orientation) which eliminates the unphysical Bessel oscillations
+    present in the monodisperse sphere form factor.
+    Parameters: Phi, Radius, Beta, Dv, Ksi, Eta, Contrast.
   - **Surface Fractal** (`surface_fractal`) — scattering from a surface with fractal roughness
     (Teixeira 1988).  Parameters: Surface, Ds (2–3), Ksi, Contrast; optional smooth Porod
     transition to Q⁻⁴ above Qc.

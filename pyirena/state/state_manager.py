@@ -389,6 +389,7 @@ class StateManager:
                     "mf": {
                         "Phi": 0.001,    "fit_Phi": True,     "Phi_limits": [1e-8, 1.0],
                         "Radius": 50.0,  "fit_Radius": True,  "Radius_limits": [0.1, 1e6],
+                        "Beta": 1.0,     "fit_Beta": False,   "Beta_limits": [0.01, 100.0],
                         "Dv": 2.5,       "fit_Dv": True,      "Dv_limits": [1.0, 3.0],
                         "Ksi": 500.0,    "fit_Ksi": True,     "Ksi_limits": [1.0, 1e7],
                         "Eta": 0.5,      "fit_Eta": False,    "Eta_limits": [0.3, 0.8],

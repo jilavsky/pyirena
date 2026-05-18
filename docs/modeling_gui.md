@@ -233,7 +233,10 @@ Optional Born-Green correlations: `I /= (1 + PACK · F(Q, ETA))`.
 
 Implements the Teixeira (1988) mass fractal aggregate scattering model
 (*J. Appl. Cryst.* **21**, 781–785).
-Primary particles are spheres; the fractal aggregate structure is described analytically.
+Primary particles are spheroids with aspect ratio β; the fractal aggregate structure is described analytically.
+β = 1 gives the monodisperse sphere form factor (Bessel function oscillations in the Porod region);
+β ≠ 1 uses the orientation-averaged spheroid form factor which eliminates those oscillations.
+A modest β ≈ 0.5–2 is often sufficient to obtain a physically smooth I(Q).
 
 **Formula:**
 ```
@@ -255,7 +258,8 @@ The factor `1e-4` is the Igor-convention contrast unit conversion
 | Parameter | Default | Limits | Fitted | Description |
 |-----------|---------|--------|--------|-------------|
 | Phi | 0.001 | 1e-8 … 1 | Yes | Volume fraction of primary particles |
-| Radius [Å] | 50.0 | 0.1 … 1e6 | Yes | Primary particle radius |
+| Radius [Å] | 50.0 | 0.1 … 1e6 | Yes | Primary particle equatorial radius |
+| Aspect ratio β | 1.0 | 0.01 … 100 | No | Spheroid aspect ratio (1 = sphere, < 1 = oblate, > 1 = prolate) |
 | Fractal dim. Dv | 2.5 | 1 … 3 | Yes | Mass fractal dimension |
 | Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Fractal correlation length (aggregate size) |
 | Eta | 0.5 | 0.3 … 0.8 | No | Volume filling factor within the aggregate |

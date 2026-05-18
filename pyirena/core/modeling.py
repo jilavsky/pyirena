@@ -244,6 +244,9 @@ class MassFractalPopulation:
     Radius:   float = 50.0
     fit_Radius: bool = True
     Radius_limits: tuple = (0.1, 1e6)
+    Beta:     float = 1.0    # aspect ratio (1=sphere, <1=oblate, >1=prolate)
+    fit_Beta: bool = False
+    Beta_limits: tuple = (0.01, 100.0)
     Dv:       float = 2.5
     fit_Dv: bool = True
     Dv_limits: tuple = (1.0, 3.0)
@@ -492,39 +495,98 @@ def _guinier_porod_intensity(
     return I
 
 
+def _chi_s_mf(Beta: float) -> float:
+    """CHiS factor for a spheroid (IR1V_CaculateChiS from IR1_Fractals.ipf)."""
+    if Beta < 1.0 - 1e-6:
+        return (1.0 / (2.0 * Beta)) * (
+            1.0 + (Beta ** 2 / np.sqrt(1.0 - Beta ** 2))
+            * np.log((1.0 + np.sqrt(1.0 - Beta ** 2)) / Beta)
+        )
+    if Beta > 1.0 + 1e-6:
+        return (1.0 / (2.0 * Beta)) * (
+            1.0 + (Beta ** 2 / np.sqrt(Beta ** 2 - 1.0))
+            * np.arcsin(np.sqrt(Beta ** 2 - 1.0) / Beta)
+        )
+    return 1.0   # sphere
+
+
+def _spheroid_ff2_avg(
+    q: np.ndarray, R: float, Beta: float, n_pts: int = 50,
+) -> np.ndarray:
+    """Orientation-averaged spheroid |F(q)|² via Gauss-Legendre quadrature.
+
+    Ports IR1V_CalculateFSquared from IR1_Fractals.ipf.
+    Integration variable x = cos(theta), 0..1.
+    P(q) = 9 * [∫₀¹ h(qR√(1+(β²-1)x²)) dx]²  where h(z) = (sin z - z cos z)/z³
+    """
+    from scipy.special import roots_legendre
+    xi, wi = roots_legendre(n_pts)
+    x = (xi + 1.0) / 2.0          # map [-1,1] → [0,1]
+    w = wi / 2.0                   # Jacobian
+
+    # effective radius factor u = sqrt(1 + (Beta²-1)·x²), shape (n_pts,)
+    u = np.sqrt(np.maximum(1.0 + (Beta ** 2 - 1.0) * x ** 2, 0.0))
+
+    # qRu: shape (n_q, n_pts)
+    qRu = np.outer(q, R * u)
+
+    # h(z) = (sin z - z cos z)/z³,  h(0) = 1/3
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        h = np.where(
+            qRu < 1e-6,
+            1.0 / 3.0,
+            (np.sin(qRu) - qRu * np.cos(qRu)) / np.maximum(qRu ** 3, 1e-200),
+        )
+
+    integral = h @ w          # (n_q, n_pts) @ (n_pts,) → (n_q,)
+    return 9.0 * integral ** 2
+
+
 def _mass_fractal_intensity(
     q: np.ndarray, pop: 'MassFractalPopulation',
 ) -> np.ndarray:
     """Mass fractal aggregate scattering (Teixeira 1988).
 
-    Sphere primary particles (Beta=1 → ChiS=1, RC=2·Radius).
+    Primary particles are spheroids with aspect ratio Beta (1 = sphere).
+    For Beta ≠ 1 uses orientation-averaged spheroid form factor via GL quadrature.
     """
-    R   = max(pop.Radius, 1e-10)
-    Dv  = float(np.clip(pop.Dv, 1.001, 2.999))   # avoid singularities at exact integers
-    Ksi = max(pop.Ksi, 1e-10)
+    R    = max(pop.Radius, 1e-10)
+    Dv   = float(np.clip(pop.Dv, 1.001, 2.999))
+    Ksi  = max(pop.Ksi, 1e-10)
+    Beta = max(getattr(pop, 'Beta', 1.0), 1e-3)
 
-    V  = (4.0 / 3.0) * np.pi * R ** 3
-    # For sphere Beta=1: ChiS=1, RC=2R
-    RC      = 2.0 * R
-    Bracket = pop.Eta * RC ** 3 / R ** 3 * (Ksi / RC) ** Dv   # = Eta*8*(Ksi/2R)^Dv
+    # Spheroid volume (4/3)·π·R²·(Beta·R) = (4/3)·π·R³·Beta
+    V = (4.0 / 3.0) * np.pi * R ** 3 * Beta
+
+    # CHiS and RC generalise the sphere case (Beta=1 → ChiS=1, RC=2R)
+    ChiS = _chi_s_mf(Beta)
+    RC   = R * np.sqrt(2.0) / ChiS * np.sqrt(1.0 + ((2.0 + Beta ** 2) / 3.0) * ChiS ** 2)
+    RC   = max(RC, 1e-10)
+
+    Bracket = pop.Eta * RC ** 3 / (Beta * R ** 3) * (Ksi / RC) ** Dv
 
     qKsi = q * Ksi
-    # Fractal structure factor: sin((Dv-1)*atan(qKsi)) / ((Dv-1)*qKsi*(1+(qKsi)^2)^((Dv-1)/2))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sf_num   = np.sin((Dv - 1.0) * np.arctan(qKsi))
         sf_denom = (Dv - 1.0) * qKsi * (1.0 + qKsi ** 2) ** ((Dv - 1.0) / 2.0)
         frac_sf  = np.where(qKsi < 1e-6, 1.0, sf_num / np.maximum(sf_denom, 1e-100))
 
+    # Form factor: sphere path avoids integration overhead for Beta ≈ 1
+    if abs(Beta - 1.0) < 0.01:
         qR  = q * R
-        ff2 = np.where(
-            qR < 1e-6,
-            1.0,
-            (3.0 * (np.sin(qR) - qR * np.cos(qR)) / np.maximum(qR ** 3, 1e-100)) ** 2,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ff2 = np.where(
+                qR < 1e-6,
+                1.0,
+                (3.0 * (np.sin(qR) - qR * np.cos(qR)) / np.maximum(qR ** 3, 1e-100)) ** 2,
+            )
+    else:
+        ff2 = _spheroid_ff2_avg(q, R, Beta)
 
-    I = pop.Phi * pop.Contrast * 1e-4 * V * (Bracket * frac_sf + (1.0 - pop.Eta) ** 2) * ff2
-    return I
+    return pop.Phi * pop.Contrast * 1e-4 * V * (Bracket * frac_sf + (1.0 - pop.Eta) ** 2) * ff2
 
 
 def _surface_fractal_intensity(
@@ -684,8 +746,9 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
         return {'G': pop.G, 'Rg1': pop.Rg1, 's1': pop.s1, 'P': pop.P,
                 'Rg2': pop.Rg2, 's2': pop.s2}
     if pop_type == 'mass_fractal':
-        return {'Phi': pop.Phi, 'Radius': pop.Radius, 'Dv': pop.Dv,
-                'Ksi': pop.Ksi, 'Eta': pop.Eta}
+        return {'Phi': pop.Phi, 'Radius': pop.Radius,
+                'Beta': getattr(pop, 'Beta', 1.0),
+                'Dv': pop.Dv, 'Ksi': pop.Ksi, 'Eta': pop.Eta}
     if pop_type == 'surface_fractal':
         return {'Surface': pop.Surface, 'Ds': pop.Ds, 'Ksi': pop.Ksi}
     # size_dist
@@ -1101,7 +1164,7 @@ class ModelingEngine:
                 continue
 
             if pop_type == 'mass_fractal':
-                for name in ['Phi', 'Radius', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                for name in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
                     if getattr(pop, f'fit_{name}', False):
                         lim = getattr(pop, f'{name}_limits')
                         x0.append(getattr(pop, name))

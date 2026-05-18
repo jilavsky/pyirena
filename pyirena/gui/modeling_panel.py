@@ -166,6 +166,7 @@ GP_CORR_PARAMS = [
 MF_PARAMS = [
     ('Phi',      'Phi (vol. frac.)',   0.001, 1e-8, 1.0,   True),
     ('Radius',   'Radius [Å]',        50.0,  0.1,  1e6,   True),
+    ('Beta',     'Aspect ratio β',     1.0,  0.01, 100.0, False),
     ('Dv',       'Fractal dim. Dv',    2.5,  1.0,  3.0,   True),
     ('Ksi',      'Ksi [Å]',          500.0,  1.0,  1e7,   True),
     ('Eta',      'Eta (fill factor)',  0.5,  0.3,  0.8,   False),

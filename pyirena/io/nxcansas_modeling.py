@@ -148,7 +148,7 @@ def save_modeling_results(
 
             elif pop_type == 'mass_fractal':
                 # Mass Fractal parameters
-                for pn in ['Phi', 'Radius', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                for pn in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
                     pg.create_dataset(pn, data=float(getattr(pop, pn)))
                     pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
                     lim = getattr(pop, f'{pn}_limits')
@@ -328,7 +328,7 @@ def load_modeling_results(
                 pop_dict['correlations'] = bool(pg['correlations'][()]) if 'correlations' in pg else False
 
             elif pop_type == 'mass_fractal':
-                for pn in ['Phi', 'Radius', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                for pn in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
                     pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
 
             elif pop_type == 'surface_fractal':
