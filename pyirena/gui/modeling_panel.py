@@ -989,7 +989,10 @@ class PopulationTab(QWidget):
     def set_no_limits(self, no_limits: bool):
         """Show/hide min/max columns based on global 'No limits' checkbox."""
         for store in (self._row_widgets, self._ff_rows, self._sf_rows,
-                      self._uf_rows, self._uf_corr_rows, self._peak_rows):
+                      self._uf_rows, self._uf_corr_rows, self._peak_rows,
+                      self._gp_rows, self._gp_corr_rows,
+                      self._mf_rows,
+                      self._sf2_rows, self._sf2_porod_rows):
             for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in store.items():
                 lo_edit.setVisible(not no_limits)
                 hi_edit.setVisible(not no_limits)
