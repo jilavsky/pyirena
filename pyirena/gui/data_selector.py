@@ -700,6 +700,28 @@ def _build_report(file_path: str,
                         ("Amplitude [cm⁻¹]", pop.get("amplitude")),
                         ("Width σ [Å⁻¹]", pop.get("width")),
                         ("η (Voigt)", pop.get("eta_voigt"))]
+            elif pt == 'guinier_porod':
+                rows = [("G [cm⁻¹]", pop.get("G")), ("Rg1 [Å]", pop.get("Rg1")),
+                        ("Slope s1", pop.get("s1")), ("Power P", pop.get("P")),
+                        ("Rg2 [Å]", pop.get("Rg2")), ("Slope s2", pop.get("s2")),
+                        ("RgCO [Å]", pop.get("RgCO") or None),
+                        ("ETA [Å]", pop.get("ETA") if pop.get("correlations") else None),
+                        ("PACK", pop.get("PACK") if pop.get("correlations") else None)]
+                rows = [(k, v) for k, v in rows if v is not None]
+            elif pt == 'mass_fractal':
+                rows = [("Phi (vol. frac.)", pop.get("Phi")),
+                        ("Radius [Å]", pop.get("Radius")),
+                        ("Fractal dim. Dv", pop.get("Dv")),
+                        ("Ksi [Å]", pop.get("Ksi")),
+                        ("Eta", pop.get("Eta")),
+                        ("Contrast", pop.get("Contrast"))]
+            elif pt == 'surface_fractal':
+                rows = [("Surface [cm⁻¹]", pop.get("Surface")),
+                        ("Fractal dim. Ds", pop.get("Ds")),
+                        ("Ksi [Å]", pop.get("Ksi")),
+                        ("Contrast", pop.get("Contrast")),
+                        ("Qc [Å⁻¹]", pop.get("Qc") if pop.get("use_porod_transition") else None)]
+                rows = [(k, v) for k, v in rows if v is not None]
             else:  # size_dist
                 rows = [("Distribution", pop.get("dist_type")),
                         ("Scale", pop.get("scale")),

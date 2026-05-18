@@ -37,6 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (continued)
 
+- **Modeling tool: three new population types.**
+  The Modeling tool now supports six population types (up from three).
+  - **Guinier-Porod Level** (`guinier_porod`) — piecewise analytical model for non-spherical or
+    non-dilute scatterers (Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
+    Parameters: G, Rg1, s1, P, Rg2, s2, RgCO; optional Born-Green correlations (ETA, PACK).
+    Setting Rg2 = 1e10 (default) gives single-level behaviour identical to standard GP.
+  - **Mass Fractal** (`mass_fractal`) — fractal aggregate scattering with sphere primary
+    particles (Teixeira 1988, *J. Appl. Cryst.* **21**, 781–785).
+    Parameters: Phi, Radius, Dv (fractal dimension), Ksi (correlation length), Eta, Contrast.
+  - **Surface Fractal** (`surface_fractal`) — scattering from a surface with fractal roughness
+    (Teixeira 1988).  Parameters: Surface, Ds (2–3), Ksi, Contrast; optional smooth Porod
+    transition to Q⁻⁴ above Qc.
+  All three types support fitting with bounds, MC uncertainty, HDF5/NXcanSAS output,
+  JSON state persistence, and headless batch use via `fit_modeling()`.
+
 - **Draggable power-law slope guide lines in the Unified Fit I(Q) graph.**
   Right-click the graph → *Add slope guide line* submenu.  Presets: n = −2, −3,
   −4 (Porod), −5, −6; a *Custom slope…* entry accepts any value in [−8, −0.5].

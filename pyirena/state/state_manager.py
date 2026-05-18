@@ -373,6 +373,35 @@ class StateManager:
                         "amplitude": 1.0, "fit_amplitude": True,  "amplitude_limits": [0.0, 1e10],
                         "width": 0.01,    "fit_width": True,      "width_limits": [1e-6, 10.0],
                         "eta_voigt": 0.5, "fit_eta_voigt": False, "eta_voigt_limits": [0.0, 1.0]
+                    },
+                    "gp": {
+                        "G": 1.0,    "fit_G": True,    "G_limits": [1e-10, 1e10],
+                        "Rg1": 10.0, "fit_Rg1": True,  "Rg1_limits": [0.1, 1e6],
+                        "s1": 0.0,   "fit_s1": False,  "s1_limits": [0.0, 3.0],
+                        "P": 4.0,    "fit_P": False,   "P_limits": [0.0, 6.0],
+                        "Rg2": 1e10, "fit_Rg2": False, "Rg2_limits": [0.1, 1e12],
+                        "s2": 0.0,   "fit_s2": False,  "s2_limits": [0.0, 3.0],
+                        "RgCO": 0.0, "fit_RgCO": False,"RgCO_limits": [0.0, 1e6],
+                        "correlations": False,
+                        "ETA": 10.0, "fit_ETA": False,  "ETA_limits": [0.1, 1e6],
+                        "PACK": 0.0, "fit_PACK": False, "PACK_limits": [0.0, 16.0]
+                    },
+                    "mf": {
+                        "Phi": 0.001,    "fit_Phi": True,     "Phi_limits": [1e-8, 1.0],
+                        "Radius": 50.0,  "fit_Radius": True,  "Radius_limits": [0.1, 1e6],
+                        "Dv": 2.5,       "fit_Dv": True,      "Dv_limits": [1.0, 3.0],
+                        "Ksi": 500.0,    "fit_Ksi": True,     "Ksi_limits": [1.0, 1e7],
+                        "Eta": 0.5,      "fit_Eta": False,    "Eta_limits": [0.3, 0.8],
+                        "Contrast": 1.0, "fit_Contrast": False,"Contrast_limits": [0.0, 1e10]
+                    },
+                    "sf2": {
+                        "Surface": 1e4,  "fit_Surface": True, "Surface_limits": [1.0, 1e12],
+                        "Ds": 2.5,       "fit_Ds": True,      "Ds_limits": [2.0, 3.0],
+                        "Ksi": 500.0,    "fit_Ksi": True,     "Ksi_limits": [1.0, 1e7],
+                        "Contrast": 1.0, "fit_Contrast": False,"Contrast_limits": [0.0, 1e10],
+                        "use_porod_transition": False,
+                        "Qc": 0.1,       "fit_Qc": False,     "Qc_limits": [0.001, 10.0],
+                        "QcWidth": 0.1,  "fit_QcWidth": False,"QcWidth_limits": [0.01, 1.0]
                     }
                 },
                 # Populations 1-9 — disabled by default (same structure, enabled=False)
@@ -430,6 +459,35 @@ class StateManager:
                             "amplitude": 1.0, "fit_amplitude": True,  "amplitude_limits": [0.0, 1e10],
                             "width": 0.01,    "fit_width": True,      "width_limits": [1e-6, 10.0],
                             "eta_voigt": 0.5, "fit_eta_voigt": False, "eta_voigt_limits": [0.0, 1.0]
+                        },
+                        "gp": {
+                            "G": 1.0,    "fit_G": True,    "G_limits": [1e-10, 1e10],
+                            "Rg1": 10.0, "fit_Rg1": True,  "Rg1_limits": [0.1, 1e6],
+                            "s1": 0.0,   "fit_s1": False,  "s1_limits": [0.0, 3.0],
+                            "P": 4.0,    "fit_P": False,   "P_limits": [0.0, 6.0],
+                            "Rg2": 1e10, "fit_Rg2": False, "Rg2_limits": [0.1, 1e12],
+                            "s2": 0.0,   "fit_s2": False,  "s2_limits": [0.0, 3.0],
+                            "RgCO": 0.0, "fit_RgCO": False,"RgCO_limits": [0.0, 1e6],
+                            "correlations": False,
+                            "ETA": 10.0, "fit_ETA": False,  "ETA_limits": [0.1, 1e6],
+                            "PACK": 0.0, "fit_PACK": False, "PACK_limits": [0.0, 16.0]
+                        },
+                        "mf": {
+                            "Phi": 0.001,    "fit_Phi": True,     "Phi_limits": [1e-8, 1.0],
+                            "Radius": 50.0,  "fit_Radius": True,  "Radius_limits": [0.1, 1e6],
+                            "Dv": 2.5,       "fit_Dv": True,      "Dv_limits": [1.0, 3.0],
+                            "Ksi": 500.0,    "fit_Ksi": True,     "Ksi_limits": [1.0, 1e7],
+                            "Eta": 0.5,      "fit_Eta": False,    "Eta_limits": [0.3, 0.8],
+                            "Contrast": 1.0, "fit_Contrast": False,"Contrast_limits": [0.0, 1e10]
+                        },
+                        "sf2": {
+                            "Surface": 1e4,  "fit_Surface": True, "Surface_limits": [1.0, 1e12],
+                            "Ds": 2.5,       "fit_Ds": True,      "Ds_limits": [2.0, 3.0],
+                            "Ksi": 500.0,    "fit_Ksi": True,     "Ksi_limits": [1.0, 1e7],
+                            "Contrast": 1.0, "fit_Contrast": False,"Contrast_limits": [0.0, 1e10],
+                            "use_porod_transition": False,
+                            "Qc": 0.1,       "fit_Qc": False,     "Qc_limits": [0.001, 10.0],
+                            "QcWidth": 0.1,  "fit_QcWidth": False,"QcWidth_limits": [0.01, 1.0]
                         }
                     }
                     for _ in range(9)

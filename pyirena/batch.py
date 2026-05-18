@@ -1732,6 +1732,7 @@ def fit_modeling(
     from pyirena.core.modeling import (
         ModelingEngine, ModelingConfig,
         SizeDistPopulation, UnifiedLevelPopulation, DiffractionPeakPopulation,
+        GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
     )
     from pyirena.io.nxcansas_modeling import save_modeling_results
 
@@ -1764,6 +1765,43 @@ def fit_modeling(
                 setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
                 lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
                 setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'guinier_porod':
+            pop = GuinierPorodPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            pop.correlations = bool(pd.get('correlations', False))
+            for key in ['ETA', 'PACK']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'mass_fractal':
+            pop = MassFractalPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['Phi', 'Radius', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'surface_fractal':
+            pop = SurfaceFractalPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['Surface', 'Ds', 'Ksi', 'Contrast', 'Qc', 'QcWidth']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            pop.use_porod_transition = bool(pd.get('use_porod_transition', False))
             return pop
         # default: size_dist
         return SizeDistPopulation(

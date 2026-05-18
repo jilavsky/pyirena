@@ -483,8 +483,7 @@ result = fit_modeling(
 2. **Loads data** — same format detection as `fit_unified` (`.h5`/`.hdf5` via
    NXcanSAS, `.dat`/`.txt` via text reader).
 3. **Builds populations** — deserializes each population dict from the config into
-   the appropriate dataclass (`SizeDistPopulation`, `UnifiedLevelPopulation`, or
-   `DiffractionPeakPopulation`) based on the `pop_type` field.
+   the appropriate dataclass based on the `pop_type` field.
 4. **Runs the fit** — `ModelingEngine.fit()` using `scipy.optimize.least_squares`
    (TRF with bounds) or Nelder-Mead when `no_limits=True`.
 5. **MC uncertainty** *(if `with_uncertainty=True`)* — re-fits `n_mc_runs` noise-perturbed
@@ -505,7 +504,7 @@ result = fit_modeling(
 
 ### Population types
 
-The Modeling tool supports three population types, each stored in the config with
+The Modeling tool supports six population types, each stored in the config with
 a `pop_type` field:
 
 | `pop_type` | Dataclass | Description |
@@ -513,8 +512,11 @@ a `pop_type` field:
 | `size_dist` | `SizeDistPopulation` | Parametric size distribution (Gauss, LogNormal, LSW, Schulz-Zimm, Ardell) convolved with a form factor and optional structure factor |
 | `unified_level` | `UnifiedLevelPopulation` | Beaucage Unified Fit level: G·exp(−q²Rg²/3) + B·Q*⁻ᴾ + optional Born-Green correlations |
 | `diffraction_peak` | `DiffractionPeakPopulation` | Gaussian, Lorentzian, or pseudo-Voigt peak at Q₀ |
+| `guinier_porod` | `GuinierPorodPopulation` | Piecewise Guinier-Porod model (Hammouda 2010); 6 shape params G, Rg1, s1, P, Rg2, s2 + optional RgCO and Born-Green correlations |
+| `mass_fractal` | `MassFractalPopulation` | Mass fractal aggregate (Teixeira 1988); sphere primary particles; params Phi, Radius, Dv, Ksi, Eta, Contrast |
+| `surface_fractal` | `SurfaceFractalPopulation` | Surface fractal (Teixeira 1988); params Surface, Ds, Ksi, Contrast + optional Porod transition at Qc |
 
-Up to 5 populations of any type can be combined in a single fit.
+Up to 10 populations of any type can be combined in a single fit.
 
 ### Returns
 
