@@ -182,6 +182,155 @@ def eval_peak(q: np.ndarray, shape: str, params: Dict) -> np.ndarray:
     raise ValueError(f"Unknown peak shape: {shape!r}")
 
 
+# Closed-form integrals of the supported peak shapes (∫ peak(q) dq from
+# −∞ to +∞, in the same units as I·Q — typically cm⁻¹·Å⁻¹).
+#
+#   Gauss   : A·FWHM·√(π/(4·ln2))      = A·FWHM·_GAUSS_AREA_K
+#   Lorentz : A·FWHM·π/2               = A·FWHM·_LORENTZ_AREA_K
+#   PVoigt  : A·FWHM·(η·π/2 + (1−η)·√(π/(4·ln2)))
+#   LogNorm : A·Q0·σ_ln·√(2π)·exp(σ_ln²/2)
+#             where σ_ln = arcsinh(FWHM/(2·Q0))/√(2·ln2)
+#             (because the GUI normalises the curve so height-at-mode = A)
+_GAUSS_AREA_K   = float(np.sqrt(np.pi / (4.0 * _LN2)))    # ≈ 1.0644670
+_LORENTZ_AREA_K = float(np.pi / 2.0)                       # ≈ 1.5707963
+
+
+def peak_area(shape: str, params: Dict) -> float:
+    """Return the analytic integral of one peak (area under the curve).
+
+    Parameters
+    ----------
+    shape : str
+        One of ``PEAK_SHAPES``.
+    params : dict
+        Either the GUI nested form ``{name: {"value": x, ...}}`` or the
+        flat form ``{name: x}``.  Required keys: ``A``, ``Q0``, ``FWHM``
+        plus ``eta`` for Pseudo-Voigt.
+
+    Returns
+    -------
+    float
+        Area in (intensity-units · Å⁻¹).  Returns NaN if the parameters are
+        non-physical (e.g. LogNormal with Q0 ≤ 0).
+    """
+    def _v(name, default=None):
+        if name not in params:
+            return default
+        v = params[name]
+        return float(v["value"]) if isinstance(v, dict) else float(v)
+
+    A    = _v("A",    0.0)
+    Q0   = _v("Q0",   0.0)
+    FWHM = _v("FWHM", 0.0)
+    if not (np.isfinite(A) and np.isfinite(FWHM)) or FWHM <= 0:
+        return float("nan")
+
+    if shape == "Gauss":
+        return A * FWHM * _GAUSS_AREA_K
+    if shape == "Lorentz":
+        return A * FWHM * _LORENTZ_AREA_K
+    if shape == "Pseudo-Voigt":
+        eta = float(np.clip(_v("eta", 0.5), 0.0, 1.0))
+        K   = eta * _LORENTZ_AREA_K + (1.0 - eta) * _GAUSS_AREA_K
+        return A * FWHM * K
+    if shape == "LogNormal":
+        if not np.isfinite(Q0) or Q0 <= 0:
+            return float("nan")
+        sigma_ln = float(np.arcsinh(FWHM / (2.0 * Q0)) / np.sqrt(2.0 * _LN2))
+        if sigma_ln <= 0:
+            return float("nan")
+        return A * Q0 * sigma_ln * np.sqrt(2.0 * np.pi) * np.exp(0.5 * sigma_ln ** 2)
+    raise ValueError(f"Unknown peak shape: {shape!r}")
+
+
+def peak_area_std(shape: str, params: Dict, params_std: Dict) -> float:
+    """Linearised 1-σ uncertainty on ``peak_area`` (error propagation).
+
+    Treats the per-parameter uncertainties as independent (no covariances) —
+    the same simplification already used elsewhere in this module when the
+    GUI presents fit results.
+
+    Parameters
+    ----------
+    shape : str
+        Peak shape name.
+    params : dict
+        Parameter dict (GUI or flat form), as for ``peak_area``.
+    params_std : dict
+        Per-parameter standard deviations, ``{name: float}``.  Missing or
+        non-finite entries contribute zero variance.
+
+    Returns
+    -------
+    float
+        1-σ uncertainty on the area, or NaN if the area itself is NaN.
+    """
+    def _v(name, default=0.0):
+        if name not in params:
+            return default
+        v = params[name]
+        return float(v["value"]) if isinstance(v, dict) else float(v)
+
+    def _s(name):
+        v = params_std.get(name, 0.0) if params_std else 0.0
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return 0.0
+        return v if np.isfinite(v) and v > 0 else 0.0
+
+    A      = _v("A")
+    Q0     = _v("Q0")
+    FWHM   = _v("FWHM")
+    sA     = _s("A")
+    sFWHM  = _s("FWHM")
+    if not (np.isfinite(A) and np.isfinite(FWHM)) or FWHM <= 0:
+        return float("nan")
+
+    if shape == "Gauss":
+        # area = A * FWHM * K  →  σ² = (FWHM·K·σ_A)² + (A·K·σ_FWHM)²
+        K = _GAUSS_AREA_K
+        return float(np.sqrt((FWHM * K * sA) ** 2 + (A * K * sFWHM) ** 2))
+    if shape == "Lorentz":
+        K = _LORENTZ_AREA_K
+        return float(np.sqrt((FWHM * K * sA) ** 2 + (A * K * sFWHM) ** 2))
+    if shape == "Pseudo-Voigt":
+        eta  = float(np.clip(_v("eta", 0.5), 0.0, 1.0))
+        sEta = _s("eta")
+        K    = eta * _LORENTZ_AREA_K + (1.0 - eta) * _GAUSS_AREA_K
+        dK_deta = _LORENTZ_AREA_K - _GAUSS_AREA_K
+        var = (FWHM * K * sA) ** 2 + (A * K * sFWHM) ** 2 \
+            + (A * FWHM * dK_deta * sEta) ** 2
+        return float(np.sqrt(var))
+    if shape == "LogNormal":
+        sQ0 = _s("Q0")
+        if not np.isfinite(Q0) or Q0 <= 0:
+            return float("nan")
+        # area(A, Q0, FWHM) = A · Q0 · σ_ln · √(2π) · exp(σ_ln²/2)
+        # with σ_ln = arcsinh(u)/√(2·ln2),  u = FWHM/(2·Q0).
+        s2ln2   = float(np.sqrt(2.0 * _LN2))
+        u       = FWHM / (2.0 * Q0)
+        sigma_ln = float(np.arcsinh(u) / s2ln2)
+        if sigma_ln <= 0:
+            return float("nan")
+        area    = A * Q0 * sigma_ln * np.sqrt(2.0 * np.pi) * np.exp(0.5 * sigma_ln ** 2)
+        # ∂σ_ln/∂u = 1 / (√(1+u²)·√(2·ln2))
+        dsigma_du = 1.0 / (np.sqrt(1.0 + u * u) * s2ln2)
+        # ∂u/∂FWHM = 1/(2·Q0);  ∂u/∂Q0 = −FWHM/(2·Q0²)
+        # Let f(σ) = σ·exp(σ²/2); f'(σ) = (1 + σ²)·exp(σ²/2)
+        f       = sigma_ln * np.exp(0.5 * sigma_ln ** 2)
+        df      = (1.0 + sigma_ln ** 2) * np.exp(0.5 * sigma_ln ** 2)
+        s2pi    = np.sqrt(2.0 * np.pi)
+        dA_dA    = Q0 * f * s2pi
+        # ∂area/∂FWHM = A·Q0·√(2π)·df·dσ/du·∂u/∂FWHM
+        dA_dFWHM = A * Q0 * s2pi * df * dsigma_du * (1.0 / (2.0 * Q0))
+        # ∂area/∂Q0  = A·√(2π)·[f + Q0·df·dσ/du·∂u/∂Q0]
+        dA_dQ0   = A * s2pi * (f + Q0 * df * dsigma_du * (-FWHM / (2.0 * Q0 ** 2)))
+        var = (dA_dA * sA) ** 2 + (dA_dFWHM * sFWHM) ** 2 + (dA_dQ0 * sQ0) ** 2
+        return float(np.sqrt(var))
+    raise ValueError(f"Unknown peak shape: {shape!r}")
+
+
 # ===========================================================================
 # Background functions
 # ===========================================================================

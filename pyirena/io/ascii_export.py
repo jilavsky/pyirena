@@ -606,7 +606,9 @@ def _hdr_waxs(wp: dict) -> list:
                 bg_strs.append(f"{name}={_format_scalar_for_header(val)}")
         lines.append("# Background: " + " ".join(bg_strs))
 
-    # Per-peak parameters (one line each)
+    # Per-peak parameters (one line each).  Trailing Area=… is the closed-form
+    # integral under the peak profile; +/- value is the linearised 1-σ
+    # uncertainty propagated from the fitted A/FWHM[/eta/Q0] uncertainties.
     peaks = wp.get("peaks", []) or []
     peaks_std = wp.get("peaks_std", []) or [{} for _ in peaks]
     for i, peak in enumerate(peaks, start=1):
@@ -623,6 +625,20 @@ def _hdr_waxs(wp: dict) -> list:
                                        f"{_format_scalar_for_header(err)}")
                 else:
                     params_strs.append(f"{pn}={_format_scalar_for_header(val)}")
+        # Area (derived).  Prefer stored scalar; recompute for older HDF5 files
+        # that predate the area dataset so the ASCII output always includes it.
+        area_v = peak.get("area")
+        area_s = peak.get("area_std")
+        if area_v is None:
+            from pyirena.core.waxs_peakfit import peak_area, peak_area_std
+            area_v = peak_area(peak.get("shape", "Gauss"), peak)
+            area_s = peak_area_std(peak.get("shape", "Gauss"), peak, pstd)
+        if area_v is not None and np.isfinite(area_v):
+            if area_s is not None and np.isfinite(area_s) and area_s > 0:
+                params_strs.append(f"Area={_format_scalar_for_header(area_v)}+/-"
+                                   f"{_format_scalar_for_header(area_s)}")
+            else:
+                params_strs.append(f"Area={_format_scalar_for_header(area_v)}")
         lines.append(f"# Peak {i} [{shape}]: " + " ".join(params_strs))
     return lines
 

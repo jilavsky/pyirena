@@ -650,6 +650,17 @@ def _build_report(file_path: str,
                 unit = ' Å⁻¹' if pname in ('Q0', 'FWHM') else ''
                 std_str = f"± {_wp_fmt(std_v, '.3g')}" if std_v is not None else "—"
                 L.append(f"| {pname}{unit} | {_wp_fmt(val_v, '.6g')} | {std_str} |")
+            # Derived: integral under the peak (area)
+            area_v = pk.get('area')
+            area_s = pk.get('area_std')
+            if area_v is None:
+                # Older HDF5 files (pre-Area) — compute on the fly so reports
+                # always carry the derived value.
+                from pyirena.core.waxs_peakfit import peak_area, peak_area_std
+                area_v = peak_area(shape, pk)
+                area_s = peak_area_std(shape, pk, pstd)
+            area_std_str = f"± {_wp_fmt(area_s, '.3g')}" if area_s is not None else "—"
+            L.append(f"| Area (∫ peak dq) | {_wp_fmt(area_v, '.6g')} | {area_std_str} |")
             L.append("")
 
     if modeling_results is not None:
@@ -3612,6 +3623,7 @@ class DataSelectorPanel(QWidget):
                     f'WP_peak{pk}_A',  f'WP_peak{pk}_A_std',
                     f'WP_peak{pk}_FWHM', f'WP_peak{pk}_FWHM_std',
                     f'WP_peak{pk}_eta', f'WP_peak{pk}_eta_std',
+                    f'WP_peak{pk}_area', f'WP_peak{pk}_area_std',
                 ]
 
         _mod_pop_cols = [
@@ -3661,7 +3673,8 @@ class DataSelectorPanel(QWidget):
             return v
 
         _wp_n_fixed_cols = 7  # WP_n_peaks … WP_q_max
-        _wp_peak_cols    = 9  # shape, Q0, Q0_std, A, A_std, FWHM, FWHM_std, eta, eta_std
+        _wp_peak_cols    = 11  # shape, Q0, Q0_std, A, A_std, FWHM, FWHM_std,
+                               # eta, eta_std, area, area_std
 
         rows = []
         for fname, uf, sz, sf, wp, mod, sm in loaded:
@@ -3765,6 +3778,16 @@ class DataSelectorPanel(QWidget):
                         if pk_idx < len(peaks_list):
                             pk   = peaks_list[pk_idx]
                             pstd = peaks_std[pk_idx] if pk_idx < len(peaks_std) else {}
+                            # Area: prefer stored scalar; recompute for older files
+                            area_v = pk.get('area')
+                            area_s = pk.get('area_std')
+                            if area_v is None:
+                                from pyirena.core.waxs_peakfit import (
+                                    peak_area, peak_area_std,
+                                )
+                                area_v = peak_area(pk.get('shape', 'Gauss'), pk)
+                                area_s = peak_area_std(pk.get('shape', 'Gauss'),
+                                                       pk, pstd)
                             row += [
                                 pk.get('shape'),
                                 _fmt(pk.get('Q0',   {}).get('value')),
@@ -3775,6 +3798,8 @@ class DataSelectorPanel(QWidget):
                                 _fmt(pstd.get('FWHM')),
                                 _fmt(pk.get('eta',  {}).get('value') if 'eta' in pk else None),
                                 _fmt(pstd.get('eta')),
+                                _fmt(area_v),
+                                _fmt(area_s),
                             ]
                         else:
                             row += [None] * _wp_peak_cols

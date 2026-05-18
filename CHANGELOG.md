@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-peak Area reported in the WAXS Peak Fit tool.**  Added a derived
+  *Area* (integral under each peak profile, ∫I_peak(q)dq) alongside the
+  existing A / Q0 / FWHM / η parameters.  Computed in closed form for all
+  four supported shapes (Gauss, Lorentz, Pseudo-Voigt, LogNormal).
+  Linearised 1-σ uncertainty is propagated from the fitted-parameter
+  uncertainties.
+  - New helpers `peak_area()` and `peak_area_std()` in
+    [pyirena/core/waxs_peakfit.py](pyirena/core/waxs_peakfit.py).
+  - Saved as `area` + `area_std` scalar datasets in each
+    `entry/waxs_peakfit_results/peak_NN/` group of the HDF5 output
+    ([pyirena/io/nxcansas_waxs_peakfit.py](pyirena/io/nxcansas_waxs_peakfit.py)).
+    Older HDF5 files lacking these datasets are handled by recomputing the
+    area on load.
+  - Included in the Data Selector **Create Report** Markdown output
+    (per-peak table) and in the **Tabulate Results** CSV
+    (`WP_peak{N}_area`, `WP_peak{N}_area_std` columns).
+  - Included in the per-peak header line of the ASCII (`_waxs.dat`)
+    export written by [pyirena/io/ascii_export.py](pyirena/io/ascii_export.py).
+
 - **Similarity-based outlier rejection in the Data Manipulation Average tab.**
   Detects radiation-damaged frames before averaging using the CorMap test
   (Franke et al., *Nature Methods* 12, 419–422, 2015).
