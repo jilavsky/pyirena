@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-05-19
+
+### Added
+
+- **`pyirena.api` — AI-friendly facade over the HDF5 readers.** A new top-level
+  package that wraps the existing `pyirena.io.nxcansas_*` loaders and the
+  TOOL_REGISTRY schema in a stable, documented surface intended for non-GUI
+  consumers (control agents, automation scripts, LLM tools). Every function
+  returns a JSON-serializable dict; numpy arrays are decimated to a bounded
+  length and NaN/inf are replaced with None so output is strict-JSON-safe.
+  Categories:
+  - **Discovery** — `list_files`, `summarize_folder`, `inspect_file`.
+  - **Reading** — `read_reduced_data`, `read_metadata`, plus
+    `read_<tool>()` for each of the 9 supported analyses (simple_fits,
+    unified_fit, size_distribution, modeling, saxs_morph, waxs_peakfit,
+    fractals, data_merge, data_manipulation).
+  - **Aggregation** — `tabulate_parameter`, `summarize_sample`
+    (cross-file parameter trends + per-sample condensation).
+  - **Plotting** — headless matplotlib `plot_iq` and `plot_parameter_trend`,
+    each returning the saved PNG path and optional base64.
+  - **Safety** — optional `PYIRENA_DATA_ROOT` env var restricts all file
+    access to a configured subtree; `PYIRENA_MAX_ARRAY_POINTS` (default 500)
+    tunes the array decimation cap; `PYIRENA_PLOT_CACHE` selects where PNGs
+    are written.
+  - **Zero new core dependencies.** Uses stdlib `dataclasses` only.
+
+- **`pyirena.mcp` — Model Context Protocol server.** Optional package
+  (`pip install pyirena[mcp]`) that exposes the `pyirena.api` surface to
+  any MCP-compatible client — Claude Desktop, Claude Code, custom AI
+  agents. Stdio transport. New entry point `pyirena-mcp`. Plot tools
+  return inline images so the LLM sees what the user sees.
+
+  Example Claude Desktop config:
+  ```json
+  {"mcpServers": {"pyirena": {"command": "pyirena-mcp",
+                              "env": {"PYIRENA_DATA_ROOT": "/data"}}}}
+  ```
+
 ## [0.6.5] — 2026-05-19
 
 ### Added

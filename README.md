@@ -6,7 +6,7 @@ Python tools for small-angle scattering (SAS) data analysis. A port of the Igor 
 [Irena](https://usaxs.xray.aps.anl.gov/software/irena) package. Includes interactive
 GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/USAXS data.
 
-**Current release: v0.6.5 (public beta)**
+**Current release: v0.7.0 (public beta)**
 
 [![PyPI version](https://img.shields.io/pypi/v/pyirena.svg)](https://pypi.org/project/pyirena/)
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -160,6 +160,40 @@ All data and results are stored in HDF5 files using the
 alongside raw data, making files self-contained and shareable.
 
 - [NXcanSAS format details](docs/NXcanSAS_UnifiedFit_Format.md)
+
+---
+
+## AI integration (MCP)
+
+pyirena ships a [Model Context Protocol](https://modelcontextprotocol.io/) server
+that exposes its HDF5 readers, parameter aggregation, and headless plotting to any
+MCP client — Claude Desktop, Claude Code, custom AI agents.
+
+```bash
+pip install pyirena[mcp]
+```
+
+Add to `claude_desktop_config.json` (or your client's MCP server config):
+
+```json
+{
+  "mcpServers": {
+    "pyirena": {
+      "command": "pyirena-mcp",
+      "env": {
+        "PYIRENA_DATA_ROOT": "/path/to/your/data",
+        "PYIRENA_PLOT_CACHE": "/tmp/pyirena-plots",
+        "PYIRENA_MAX_ARRAY_POINTS": "500"
+      }
+    }
+  }
+}
+```
+
+The agent can then call tools like `summarize_folder`, `tabulate_parameter`,
+`plot_iq`, `read_modeling` etc. to answer questions about analysis results in
+plain language. The underlying `pyirena.api` module is also usable as a regular
+Python library (no MCP needed).
 
 ---
 
