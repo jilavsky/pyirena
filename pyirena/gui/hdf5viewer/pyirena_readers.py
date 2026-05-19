@@ -490,6 +490,19 @@ def _collect_waxs(filepath, item: str, peak: int) -> float | tuple | None:
                 return _read_scalar_value(grp, "chi_squared")
             peak_name = f"peak_{peak+1:02d}"
             pk_grp = grp[peak_name]
+            # ── Derived area (lives directly on the peak group, not in
+            #    pk_grp["params"]) ─────────────────────────────────────────
+            if item == "Area":
+                val = _waxs_peak_area(pk_grp)
+                if val is None or not np.isfinite(val):
+                    return None
+                err = _waxs_peak_area_std(pk_grp)
+                if err is not None and np.isfinite(err):
+                    return (float(val), float(err))
+                return float(val)
+            if item == "Area_err":
+                err = _waxs_peak_area_std(pk_grp)
+                return float(err) if (err is not None and np.isfinite(err)) else None
             # Explicit std request (e.g. "Q0_err")
             if item.endswith("_err"):
                 base = item[:-4]
@@ -504,6 +517,55 @@ def _collect_waxs(filepath, item: str, peak: int) -> float | tuple | None:
                 if np.isfinite(std):
                     return (val, std)
             return val
+    except Exception:
+        return None
+
+
+def _waxs_peak_area(pk_grp) -> float | None:
+    """Return the peak area for an open peak_NN h5py group.
+
+    Prefers the stored ``area`` scalar; falls back to computing it from the
+    fitted parameters for HDF5 files written before that dataset existed.
+    """
+    if "area" in pk_grp and isinstance(pk_grp["area"], h5py.Dataset):
+        try:
+            return float(pk_grp["area"][()])
+        except Exception:
+            pass
+    return _waxs_recompute_area(pk_grp, with_std=False)
+
+
+def _waxs_peak_area_std(pk_grp) -> float | None:
+    if "area_std" in pk_grp and isinstance(pk_grp["area_std"], h5py.Dataset):
+        try:
+            return float(pk_grp["area_std"][()])
+        except Exception:
+            pass
+    return _waxs_recompute_area(pk_grp, with_std=True)
+
+
+def _waxs_recompute_area(pk_grp, with_std: bool):
+    """Fallback for older HDF5 files lacking the ``area`` / ``area_std`` datasets."""
+    try:
+        from pyirena.core.waxs_peakfit import peak_area, peak_area_std
+        shape = str(pk_grp.attrs.get("shape", "Gauss"))
+        if isinstance(shape, bytes):
+            shape = shape.decode("utf-8", errors="ignore")
+        params: dict = {}
+        if "params" in pk_grp:
+            for pn in ("A", "Q0", "FWHM", "eta"):
+                if pn in pk_grp["params"]:
+                    params[pn] = float(pk_grp["params"][pn][()])
+        params_std: dict = {}
+        if "params_std" in pk_grp:
+            for pn, ds in pk_grp["params_std"].items():
+                try:
+                    params_std[pn] = float(ds[()])
+                except Exception:
+                    pass
+        if with_std:
+            return float(peak_area_std(shape, params, params_std))
+        return float(peak_area(shape, params))
     except Exception:
         return None
 

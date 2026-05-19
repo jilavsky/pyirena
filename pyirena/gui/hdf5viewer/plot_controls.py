@@ -970,7 +970,8 @@ class PlotControlsPanel(QWidget):
             self._collect_index.setEnabled(False)
 
         elif type_text == "WAXS Peak Fit":
-            items = ["Q0", "A", "FWHM", "Q0_err", "A_err", "FWHM_err", "chi2"]
+            items = ["Q0", "A", "FWHM", "Area",
+                     "Q0_err", "A_err", "FWHM_err", "Area_err", "chi2"]
             self._collect_item.addItems(items)
             self._collect_index.setPrefix("Peak ")
             self._collect_index.setRange(1, 20)

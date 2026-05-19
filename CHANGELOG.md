@@ -27,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`WP_peak{N}_area`, `WP_peak{N}_area_std` columns).
   - Included in the per-peak header line of the ASCII (`_waxs.dat`)
     export written by [pyirena/io/ascii_export.py](pyirena/io/ascii_export.py).
+  - **HDF5 Viewer → Collect Values** pulldown now lists `Area` and
+    `Area_err` (in addition to the existing Q0/A/FWHM/η entries) when
+    *Type* = *WAXS Peak Fit*
+    ([pyirena/gui/hdf5viewer/plot_controls.py](pyirena/gui/hdf5viewer/plot_controls.py),
+    [pyirena/gui/hdf5viewer/pyirena_readers.py](pyirena/gui/hdf5viewer/pyirena_readers.py)).
+  - **HDF5 Viewer → Export to Igor → Build results table** writes a
+    `peak_Area_P{n}` wave for every peak in addition to the existing
+    Q0/A/FWHM/η waves, via a new per-subgroup scalar entry in
+    [pyirena/io/schema.py](pyirena/io/schema.py).  The per-peak
+    `SADModelIntPeak{n}` wave note also gains `Area` and `Area_err`
+    fields ([pyirena/io/h5xp_extractor.py](pyirena/io/h5xp_extractor.py)).
+  - Older HDF5 files written before the `area` dataset existed are
+    handled transparently in all readers by recomputing the value from
+    the stored A / Q0 / FWHM / η parameters.
 
 - **Similarity-based outlier rejection in the Data Manipulation Average tab.**
   Detects radiation-damaged frames before averaging using the CorMap test
