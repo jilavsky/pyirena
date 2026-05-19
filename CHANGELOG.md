@@ -5,42 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.5] — 2026-05-19
 
 ### Added
 
-- **Per-peak Area reported in the WAXS Peak Fit tool.**  Added a derived
-  *Area* (integral under each peak profile, ∫I_peak(q)dq) alongside the
-  existing A / Q0 / FWHM / η parameters.  Computed in closed form for all
-  four supported shapes (Gauss, Lorentz, Pseudo-Voigt, LogNormal).
-  Linearised 1-σ uncertainty is propagated from the fitted-parameter
-  uncertainties.
-  - New helpers `peak_area()` and `peak_area_std()` in
-    [pyirena/core/waxs_peakfit.py](pyirena/core/waxs_peakfit.py).
-  - Saved as `area` + `area_std` scalar datasets in each
-    `entry/waxs_peakfit_results/peak_NN/` group of the HDF5 output
-    ([pyirena/io/nxcansas_waxs_peakfit.py](pyirena/io/nxcansas_waxs_peakfit.py)).
-    Older HDF5 files lacking these datasets are handled by recomputing the
-    area on load.
-  - Included in the Data Selector **Create Report** Markdown output
-    (per-peak table) and in the **Tabulate Results** CSV
-    (`WP_peak{N}_area`, `WP_peak{N}_area_std` columns).
-  - Included in the per-peak header line of the ASCII (`_waxs.dat`)
-    export written by [pyirena/io/ascii_export.py](pyirena/io/ascii_export.py).
-  - **HDF5 Viewer → Collect Values** pulldown now lists `Area` and
-    `Area_err` (in addition to the existing Q0/A/FWHM/η entries) when
-    *Type* = *WAXS Peak Fit*
-    ([pyirena/gui/hdf5viewer/plot_controls.py](pyirena/gui/hdf5viewer/plot_controls.py),
-    [pyirena/gui/hdf5viewer/pyirena_readers.py](pyirena/gui/hdf5viewer/pyirena_readers.py)).
-  - **HDF5 Viewer → Export to Igor → Build results table** writes a
-    `peak_Area_P{n}` wave for every peak in addition to the existing
-    Q0/A/FWHM/η waves, via a new per-subgroup scalar entry in
-    [pyirena/io/schema.py](pyirena/io/schema.py).  The per-peak
-    `SADModelIntPeak{n}` wave note also gains `Area` and `Area_err`
-    fields ([pyirena/io/h5xp_extractor.py](pyirena/io/h5xp_extractor.py)).
-  - Older HDF5 files written before the `area` dataset existed are
-    handled transparently in all readers by recomputing the value from
-    the stored A / Q0 / FWHM / η parameters.
+- **Modeling tool: three new population types** (Modeling tool grows from 3 to 6 types).
+  All three types support fitting with bounds, MC uncertainty, HDF5/NXcanSAS output,
+  JSON state persistence, and headless batch use via `fit_modeling()`.
+  - **Guinier-Porod Level** (`guinier_porod`) — piecewise analytical model for non-spherical
+    or non-dilute scatterers (Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
+    Parameters: G, Rg1, s1, P, Rg2, s2, RgCO; optional Born-Green correlations (ETA, PACK).
+    Default Rg2 = 1e10 gives single-level behaviour; a finite Rg2 activates the low-Q regime.
+  - **Mass Fractal** (`mass_fractal`) — fractal aggregate scattering (Teixeira 1988,
+    *J. Appl. Cryst.* **21**, 781–785).  Primary particles are spheroids with aspect ratio
+    β (default 1 = sphere).  β ≠ 1 uses the orientation-averaged spheroid form factor
+    (50-point Gauss-Legendre quadrature over particle orientation), eliminating the
+    unphysical Bessel-function oscillations of the monodisperse sphere.
+    Parameters: Phi, Radius, Beta, Dv, Ksi, Eta, Contrast.
+  - **Surface Fractal** (`surface_fractal`) — scattering from a surface with fractal
+    roughness (Teixeira 1988).  Parameters: Surface, Ds (2–3), Ksi, Contrast;
+    optional smooth Porod transition to Q⁻⁴ above Qc via error-function blending.
 
 - **Similarity-based outlier rejection in the Data Manipulation Average tab.**
   Detects radiation-damaged frames before averaging using the CorMap test
@@ -51,16 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     frame 0 is always accepted — standard bioSAXS approach) and **Majority
     vote** (compare each frame vs. the median of all frames; more robust when
     the first frame itself may be damaged).
-  - P-value threshold is user-adjustable (default 0.01).  Lower threshold =
-    stricter acceptance (fewer frames kept); higher = looser.
+  - P-value threshold is user-adjustable (default 0.01).
   - Results table with colour-coded rows (green = accepted, red = rejected)
     appears after clicking **Check Similarity**; **Auto-reject** button
     removes outliers from the selection in one click.
-  - Similarity settings (method, reference, p-value) are persisted in the
-    application state.
-  - Extensible registry (`SIMILARITY_METHODS` dict in `similarity.py`): add a
-    new method by registering a function — the GUI dropdown updates
-    automatically.
+  - Similarity settings (method, reference, p-value) are persisted in state.
+  - Extensible registry (`SIMILARITY_METHODS` dict): add a new method by
+    registering a function — the GUI dropdown updates automatically.
 
 - **`average_data()` headless API gains similarity filtering.**
   New keyword arguments: `similarity_check=False`, `similarity_p_min=0.01`,
@@ -68,69 +49,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `similarity_check=True`, frames failing the p-value test are discarded
   before averaging and reported in the return dict (`'rejected'` list).
 
-### Added (continued)
+- **Per-peak Area reported in the WAXS Peak Fit tool.**  Integral under each
+  peak profile (∫I_peak(q)dq) computed in closed form for all four peak shapes
+  (Gauss, Lorentz, Pseudo-Voigt, LogNormal); linearised 1-σ uncertainty propagated
+  from fitted-parameter uncertainties.
+  - Saved as `area` + `area_std` in HDF5; older files recomputed transparently on load.
+  - Included in Data Selector report, Tabulate Results CSV, and ASCII export.
+  - **Data Explorer → Collect Values** pulldown lists `Area` and `Area_err` for WAXS Peak Fit.
+  - **Data Explorer → Export to Igor** writes a `peak_Area_P{n}` wave for every peak.
 
-- **Modeling tool: three new population types.**
-  The Modeling tool now supports six population types (up from three).
-  - **Guinier-Porod Level** (`guinier_porod`) — piecewise analytical model for non-spherical or
-    non-dilute scatterers (Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
-    Parameters: G, Rg1, s1, P, Rg2, s2, RgCO; optional Born-Green correlations (ETA, PACK).
-    Setting Rg2 = 1e10 (default) gives single-level behaviour identical to standard GP.
-  - **Mass Fractal** (`mass_fractal`) — fractal aggregate scattering (Teixeira 1988,
-    *J. Appl. Cryst.* **21**, 781–785).  Primary particles are spheroids with aspect ratio
-    β (1 = sphere).  β ≠ 1 uses the orientation-averaged spheroid form factor (Gauss-Legendre
-    quadrature over particle orientation) which eliminates the unphysical Bessel oscillations
-    present in the monodisperse sphere form factor.
-    Parameters: Phi, Radius, Beta, Dv, Ksi, Eta, Contrast.
-  - **Surface Fractal** (`surface_fractal`) — scattering from a surface with fractal roughness
-    (Teixeira 1988).  Parameters: Surface, Ds (2–3), Ksi, Contrast; optional smooth Porod
-    transition to Q⁻⁴ above Qc.
-  All three types support fitting with bounds, MC uncertainty, HDF5/NXcanSAS output,
-  JSON state persistence, and headless batch use via `fit_modeling()`.
+- **d-spacing top axis (d = 2π/Q [Å]) on all WAXS linear-scale plots.**
+  New `DSpacingAxisItem` in `sas_plot.py`; `make_sas_plot()` gains a `d_spacing_axis=True`
+  keyword.  Active on the Data Merge WAXS plot and the WAXS Peak Fit main plot.
 
 - **Draggable power-law slope guide lines in the Unified Fit I(Q) graph.**
   Right-click the graph → *Add slope guide line* submenu.  Presets: n = −2, −3,
-  −4 (Porod), −5, −6; a *Custom slope…* entry accepts any value in [−8, −0.5].
-  - Lines are drawn as dashed colored lines with a label (*n = −4*) at the right
-    end.  Each successive line cycles through a distinct colour palette.
-  - Drag any line vertically to slide it along the intensity axis and align it
-    with your data.  The line stays geometrically exact at every zoom level.
-  - Right-click a single line to *Change slope…* or *Remove*.
-  - Right-click the background → *Remove all slope lines* to clear all at once.
-  - Implemented as `SlopeLine` (`pg.GraphicsObject` subclass) and
-    `add_slope_line_menu()` helper in `pyirena/gui/sas_plot.py` — ready to be
-    added to other tools once the Unified Fit implementation is validated.
+  −4 (Porod), −5, −6; *Custom slope…* accepts any value in [−8, −0.5].
+  Lines carry a label, cycle through a colour palette, drag vertically, and can be
+  individually removed or cleared in bulk.  Implemented as `SlopeLine` in `sas_plot.py`.
+
+- **Clearer Save/Load parameter button labels across all tools.**
+  "Export Parameters" → **"Save params to JSON"**; "Import Parameters" →
+  **"Load params from JSON"** in Simple Fits, Sizes, Unified Fit, Modeling, and
+  WAXS Peak Fit.
+
+- **Tooltips added to all main action buttons across all GUI panels.**
+  Covers Unified Fit, Simple Fits, Sizes, Modeling, WAXS Peak Fit, Data Merge,
+  Data Manipulation, and Data Selector.
 
 ### Fixed
 
+- **Modeling: "No limits?" checkbox now hides Min/Max columns for Guinier-Porod,
+  Mass Fractal, and Surface Fractal populations.**  `set_no_limits()` was missing
+  the five new row-store dicts; the fitting engine already applied unconstrained
+  Nelder-Mead for all types — this was a GUI-only gap.
+
 - **Unified Fit top axis now shows R = π/Q numerical labels.**
-  The `setStyle(showValues=False)` call that suppressed tick values on the
-  `RadiusAxisItem` was removed; axis behaviour now matches Simple Fits.
+  `setStyle(showValues=False)` on the `RadiusAxisItem` was removed; behaviour
+  now matches Simple Fits.
 
 - **Unified Fit: B limits correctly hidden when "No limits?" is checked after
-  unchecking "Estimate B from G/Rg/P".**
-  `UnifiedFitLevelWidget` now tracks the current limits-visibility state in
-  `_limits_visible` and consults it in `_on_estimate_b_changed`, so unchecking
-  "Estimate B" no longer re-shows B limit fields when "No limits?" is active.
-
-### Added
-
-- **d-spacing top axis (d = 2π/Q [Å]) on all WAXS plots.**
-  - New `DSpacingAxisItem` class in `pyirena/gui/sas_plot.py`.
-  - `make_sas_plot()` accepts a new `d_spacing_axis=True` keyword; when set and
-    `log_x=False`, the top axis shows d-spacing tick labels instead of R = π/Q.
-  - `DataMergeGraphWindow` passes `d_spacing_axis=True` in WAXS mode.
-  - `WAXSPeakFitGraphWindow` now includes the d-spacing top axis on its main plot.
-
-- **Clearer Save/Load parameter button labels across all tools.**
-  "Export Parameters" renamed to **"Save params to JSON"** and "Import Parameters"
-  renamed to **"Load params from JSON"** in Simple Fits, Sizes, Unified Fit,
-  Modeling, and WAXS Peak Fit panels to make the JSON-file destination explicit.
-
-- **Tooltips added to all main action buttons across all GUI panels.**
-  Buttons that previously had no tooltip now show a 1–2 line description of what
-  the button does, covering Unified Fit, Simple Fits, Sizes, Modeling, WAXS Peak
-  Fit, Data Merge, Data Manipulation, and Data Selector panels.
+  unchecking "Estimate B from G/Rg/P".**  `UnifiedFitLevelWidget` now tracks
+  the limits-visibility state in `_limits_visible` and consults it in
+  `_on_estimate_b_changed`.
 
 ## [0.6.4]
 
