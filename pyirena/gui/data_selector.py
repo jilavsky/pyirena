@@ -4831,7 +4831,7 @@ class DataSelectorPanel(QWidget):
             "About pyIrena",
             """<h3>pyIrena</h3>
             <p><b>Python tools for small-angle scattering data analysis</b></p>
-            <p>Version: 0.6.4</p>
+            <p>Version: 0.6.5</p>
             <p>pyIrena provides tools for analyzing SAXS/SANS/USAXS data,
             including the Unified Fit model for hierarchical structures.</p>
             <p>Based on Irena SAS package for Igor Pro by Jan Ilavsky</p>
