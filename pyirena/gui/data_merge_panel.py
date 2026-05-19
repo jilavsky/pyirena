@@ -135,6 +135,7 @@ class _DatasetSelectorWidget(QWidget):
         fld_row = QHBoxLayout()
         self.folder_btn = QPushButton("Select Folder…")
         self.folder_btn.setMinimumHeight(28)
+        self.folder_btn.setToolTip("Browse to the folder containing this dataset's data files.")
         self.folder_btn.clicked.connect(self._select_folder)
         fld_row.addWidget(self.folder_btn)
         layout.addLayout(fld_row)
@@ -308,6 +309,7 @@ class DataMergeGraphWindow(QWidget):
             y_label='I  (cm⁻¹)',
             log_x=self._log_mode,
             log_y=self._log_mode,
+            d_spacing_axis=not self._log_mode,
             parent_widget=self,
             jpeg_default_name='data_merge',
         )
@@ -342,6 +344,7 @@ class DataMergeGraphWindow(QWidget):
             y_label='I  (cm⁻¹)',
             log_x=self._log_mode,
             log_y=self._log_mode,
+            d_spacing_axis=not self._log_mode,
             parent_widget=self,
             jpeg_default_name='data_merge',
         )
@@ -788,6 +791,10 @@ class DataMergePanel(QWidget):
         self._optimize_btn.setMinimumHeight(30)
         self._optimize_btn.setStyleSheet(_BTN_GREEN)
         self._optimize_btn.setEnabled(False)
+        self._optimize_btn.setToolTip(
+            "Optimize scale (and optionally Q-shift) to minimise the residual in the overlap region.\n"
+            "Results are previewed on the graph; use 'Save Merged Data' to write the output file."
+        )
         self._optimize_btn.clicked.connect(self._optimize_merge)
         row2.addWidget(self._optimize_btn)
 
@@ -867,6 +874,10 @@ class DataMergePanel(QWidget):
         self._save_btn.setMinimumHeight(34)
         self._save_btn.setStyleSheet(_BTN_GREEN)
         self._save_btn.setEnabled(False)
+        self._save_btn.setToolTip(
+            "Save the merged dataset to an NXcanSAS/HDF5 file in the output folder.\n"
+            "Run 'Optimize Merge' first to scale and align the datasets."
+        )
         self._save_btn.clicked.connect(self._save_merged)
         layout.addWidget(self._save_btn)
 
@@ -876,6 +887,10 @@ class DataMergePanel(QWidget):
         self._batch_btn.setMinimumHeight(34)
         self._batch_btn.setStyleSheet(_BTN_BLUE)
         self._batch_btn.setEnabled(False)
+        self._batch_btn.setToolTip(
+            "Automatically merge all matched file pairs from the two dataset folders.\n"
+            "Files are matched by name prefix and saved to the output folder."
+        )
         self._batch_btn.clicked.connect(self._batch_merge)
         layout.addWidget(self._batch_btn)
 
@@ -884,12 +899,20 @@ class DataMergePanel(QWidget):
         save_cfg_btn = QPushButton("Save JSON Config…")
         save_cfg_btn.setMinimumHeight(28)
         save_cfg_btn.setStyleSheet(_BTN_GREY)
+        save_cfg_btn.setToolTip(
+            "Save the current merge settings (folders, Q range, scale mode) to a JSON file.\n"
+            "Use 'Load JSON Config…' to restore them in a future session."
+        )
         save_cfg_btn.clicked.connect(self._save_json_config)
         layout.addWidget(save_cfg_btn)
 
         load_cfg_btn = QPushButton("Load JSON Config…")
         load_cfg_btn.setMinimumHeight(28)
         load_cfg_btn.setStyleSheet(_BTN_GREY)
+        load_cfg_btn.setToolTip(
+            "Load merge settings from a previously saved JSON config file.\n"
+            "Use 'Save JSON Config…' to create a compatible file."
+        )
         load_cfg_btn.clicked.connect(self._load_json_config)
         layout.addWidget(load_cfg_btn)
 

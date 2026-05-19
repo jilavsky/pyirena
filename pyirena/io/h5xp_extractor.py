@@ -385,6 +385,38 @@ def _extract_size_distribution(grp: h5py.Group, h5xp: h5py.File,
     return wrote_any
 
 
+def _waxs_recompute_peak_area(pk_grp, with_std: bool):
+    """Fallback peak-area computation for HDF5 files written before the
+    ``area`` / ``area_std`` datasets were added to ``peak_NN/``.
+
+    Mirrors the same logic in ``pyirena.gui.hdf5viewer.pyirena_readers`` so
+    the Igor Results table and the HDF5 Viewer's Collect Values stay in
+    lock-step on old files.  Returns float or None.
+    """
+    try:
+        from pyirena.core.waxs_peakfit import peak_area, peak_area_std
+        shape = str(pk_grp.attrs.get("shape", "Gauss"))
+        if isinstance(shape, bytes):
+            shape = shape.decode("utf-8", errors="ignore")
+        params: dict = {}
+        if "params" in pk_grp:
+            for pn in ("A", "Q0", "FWHM", "eta"):
+                if pn in pk_grp["params"]:
+                    params[pn] = float(pk_grp["params"][pn][()])
+        params_std: dict = {}
+        if "params_std" in pk_grp:
+            for pn, ds in pk_grp["params_std"].items():
+                try:
+                    params_std[pn] = float(ds[()])
+                except Exception:
+                    pass
+        if with_std:
+            return float(peak_area_std(shape, params, params_std))
+        return float(peak_area(shape, params))
+    except Exception:
+        return None
+
+
 def _extract_waxs_peakfit(grp: h5py.Group, h5xp: h5py.File,
                            folder: str, category: str) -> bool:
     """Write SADModelIntensity and per-peak SADModelIntPeak{n} waves."""
@@ -417,6 +449,19 @@ def _extract_waxs_peakfit(grp: h5py.Group, h5xp: h5py.File,
                     v = _scalar(pk["params"], pname)
                     if not np.isnan(v):
                         pk_params[pname] = v
+            # Derived: integral under the peak profile.  Stored directly on
+            # the peak group (not inside params/).  Falls back to recompute
+            # from params for older HDF5 files that predate the dataset.
+            area_v = _scalar(pk, "area")
+            if np.isnan(area_v):
+                area_v = _waxs_recompute_peak_area(pk, with_std=False)
+            if area_v is not None and np.isfinite(area_v):
+                pk_params["Area"] = float(area_v)
+            area_s = _scalar(pk, "area_std")
+            if np.isnan(area_s):
+                area_s = _waxs_recompute_peak_area(pk, with_std=True)
+            if area_s is not None and np.isfinite(area_s):
+                pk_params["Area_err"] = float(area_s)
             write_result_wave(h5xp, folder, f"SADModelIntPeak{n}",
                               q_pk, I_pk, pk_params, category)
             wrote_any = True

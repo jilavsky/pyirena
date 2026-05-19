@@ -2,7 +2,8 @@
 
 The Modeling tool performs parametric forward-modeling of small-angle scattering data.
 It sums contributions from up to 10 independent **populations**, each of which can be a
-Size Distribution, a Unified Fit Level (Beaucage equation), or a Diffraction Peak.
+Size Distribution, a Unified Fit Level (Beaucage equation), a Diffraction Peak,
+a Guinier-Porod Level, a Mass Fractal, or a Surface Fractal.
 The total model I(Q) is fitted to experimental data using non-linear least squares.
 
 ---
@@ -16,6 +17,9 @@ The total model I(Q) is fitted to experimental data using non-linear least squar
    - [Size Distribution](#41-size-distribution)
    - [Unified Fit Level](#42-unified-fit-level)
    - [Diffraction Peak](#43-diffraction-peak)
+   - [Guinier-Porod Level](#44-guinier-porod-level)
+   - [Mass Fractal](#45-mass-fractal)
+   - [Surface Fractal](#46-surface-fractal)
 5. [Distributions](#distributions)
 6. [Form Factors](#form-factors)
 7. [Structure Factors](#structure-factors)
@@ -96,15 +100,18 @@ python -m pyirena.gui.modeling_panel path/to/file.h5
 
 ## Population types
 
-Each population tab has a **Population type** combo at the top with three options:
+Each population tab has a **Population type** combo at the top with six options:
 
 | Type | Description |
 |------|-------------|
 | **Size Distribution** | Parametric size distribution convolved with a form factor G-matrix |
 | **Unified Fit Level** | Single Beaucage level: Guinier + power-law (+ optional Born-Green correlations) |
 | **Diffraction Peak** | Gaussian, Lorentzian, or pseudo-Voigt peak at a chosen Q₀ |
+| **Guinier-Porod Level** | Piecewise Guinier-Porod model for non-spherical / non-dilute systems |
+| **Mass Fractal** | Fractal aggregate scattering (sphere primary particles + fractal S(Q)) |
+| **Surface Fractal** | Scattering from a surface with fractal roughness |
 
-Switching population type preserves the parameters of all three types independently —
+Switching population type preserves the parameters of all six types independently —
 switching back restores the values from before.
 
 ### 4.1 Size Distribution
@@ -184,6 +191,107 @@ Models a single scattering peak at position Q₀.
 | Amplitude [cm⁻¹] | Peak height | Yes |
 | Width σ [Å⁻¹] | Gaussian/Lorentzian width | Yes |
 | η (mixing) | Voigt mixing ratio (0=Gaussian, 1=Lorentzian) | No |
+
+### 4.4 Guinier-Porod Level
+
+Implements the Guinier-Porod piecewise scattering model
+(Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
+Suitable for non-spherical or elongated scatterers, and for systems where the low-Q
+slope deviates from the Guinier-regime flat behaviour.
+
+**Formula:** Three regimes joined at crossover Q values:
+```
+Q1 = sqrt((P − s1)(3 − s1)/2) / Rg1
+D  = G · exp(−(P−s1)/2) · ((3−s1)(P−s1)/2)^((P−s1)/2) / Rg1^(P−s1)
+Q2 = sqrt((1 − s2) / (2Rg2²/(3−s2) − 2Rg1²/(3−s1)))  [0 if non-finite]
+G2 = G · exp(−Q2²·(Rg1²/(3−s1) − Rg2²/(3−s2))) · Q2^(s2−s1)
+
+I(Q) = G2/Q^s2 · exp(−Q²Rg2²/(3−s2))   Q < Q2  (active only if Q2 > 0)
+I(Q) = G/Q^s1 · exp(−Q²Rg1²/(3−s1))    Q2 ≤ Q < Q1
+I(Q) = D/Q^P                             Q ≥ Q1
+```
+Setting Rg2 = 1e10 (default) collapses Q2 to zero — single-level behaviour.
+
+Optional: `I *= exp(−RgCO²·Q²/3)` (RgCO > 0).
+Optional Born-Green correlations: `I /= (1 + PACK · F(Q, ETA))`.
+
+**Parameters:**
+
+| Parameter | Default | Limits | Fitted | Description |
+|-----------|---------|--------|--------|-------------|
+| G [cm⁻¹] | 1.0 | 1e-10 … 1e10 | Yes | Guinier amplitude |
+| Rg1 [Å] | 10.0 | 0.1 … 1e6 | Yes | Radius of gyration (high-Q level) |
+| Slope s1 | 0.0 | 0 … 3 | No | Low-Q slope (0=sphere, 1=rod, 2=lamella) |
+| Power P | 4.0 | 0 … 6 | No | Porod exponent at high Q |
+| Rg2 [Å] | 1e10 | 0.1 … 1e12 | No | Rg of second (lower-Q) level; 1e10=inactive |
+| Slope s2 | 0.0 | 0 … 3 | No | Low-Q slope of second level |
+| RgCO [Å] | 0.0 | 0 … 1e6 | No | Cutoff Rg (0 = no cutoff) |
+| ETA [Å] | 10.0 | 0.1 … 1e6 | No | Born-Green correlation length |
+| PACK | 0.0 | 0 … 16 | No | Born-Green packing factor |
+
+### 4.5 Mass Fractal
+
+Implements the Teixeira (1988) mass fractal aggregate scattering model
+(*J. Appl. Cryst.* **21**, 781–785).
+Primary particles are spheroids with aspect ratio β; the fractal aggregate structure is described analytically.
+β = 1 gives the monodisperse sphere form factor (Bessel function oscillations in the Porod region);
+β ≠ 1 uses the orientation-averaged spheroid form factor which eliminates those oscillations.
+A modest β ≈ 0.5–2 is often sufficient to obtain a physically smooth I(Q).
+
+**Formula:**
+```
+V  = (4/3)·π·Radius³
+P(Q) = (3·(sin(qR) − qR·cos(qR)) / (qR)³)²        sphere form factor
+
+Bracket = Eta · 8 · (Ksi / (2·Radius))^Dv
+
+I(Q) = Phi · Contrast · 1e-4 · V
+       · [Bracket · sin((Dv−1)·atan(Q·Ksi)) / ((Dv−1)·Q·Ksi·(1+(Q·Ksi)²)^((Dv−1)/2))
+          + (1−Eta)²]
+       · P(Q)
+```
+The factor `1e-4` is the Igor-convention contrast unit conversion
+(contrast in Å⁻⁴ units → cm⁻⁴ scale). Eta (volume filling factor) is typically 0.3–0.8.
+
+**Parameters:**
+
+| Parameter | Default | Limits | Fitted | Description |
+|-----------|---------|--------|--------|-------------|
+| Phi | 0.001 | 1e-8 … 1 | Yes | Volume fraction of primary particles |
+| Radius [Å] | 50.0 | 0.1 … 1e6 | Yes | Primary particle equatorial radius |
+| Aspect ratio β | 1.0 | 0.01 … 100 | No | Spheroid aspect ratio (1 = sphere, < 1 = oblate, > 1 = prolate) |
+| Fractal dim. Dv | 2.5 | 1 … 3 | Yes | Mass fractal dimension |
+| Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Fractal correlation length (aggregate size) |
+| Eta | 0.5 | 0.3 … 0.8 | No | Volume filling factor within the aggregate |
+| Contrast | 1.0 | 0 … 1e10 | No | Scattering contrast (Δρ)² |
+
+### 4.6 Surface Fractal
+
+Implements the Teixeira (1988) surface fractal scattering model
+(*J. Appl. Cryst.* **21**, 781–785).
+Describes scattering from a surface with fractal roughness (2 ≤ Ds ≤ 3).
+
+**Formula:**
+```
+I(Q) = π · Contrast · 1e20 · Ksi⁴ · 1e-32 · Surface · Γ(5−Ds)
+       · sin((3−Ds)·atan(Q·Ksi))
+       / ((1+(Q·Ksi)²)^((5−Ds)/2) · Q·Ksi)
+```
+Limiting slopes: `I(Q) ~ Q^(Ds−6)` for Q·Ksi >> 1 (fractal regime, slope −3 to −4).
+
+**Optional Porod transition:** Above Qc, smoothly blends to `A·Q⁻⁴` using an error-function
+step, with continuity condition `A = I(Qc)·Qc⁴`.
+
+**Parameters:**
+
+| Parameter | Default | Limits | Fitted | Description |
+|-----------|---------|--------|--------|-------------|
+| Surface [cm⁻¹] | 1e4 | 1 … 1e12 | Yes | Surface area per unit volume |
+| Fractal dim. Ds | 2.5 | 2 … 3 | Yes | Surface fractal dimension |
+| Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Correlation length (upper cutoff of fractal regime) |
+| Contrast | 1.0 | 0 … 1e10 | No | Scattering contrast |
+| Qc [Å⁻¹] | 0.1 | 0.001 … 10 | No | Crossover to Porod Q⁻⁴ (enabled by checkbox) |
+| QcWidth | 0.1 | 0.01 … 1 | No | Width of erf blending as fraction of Qc |
 
 ---
 

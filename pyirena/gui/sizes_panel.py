@@ -34,7 +34,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
-from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot
+from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot, add_slope_line_menu
 from pyirena.state.state_manager import StateManager
 
 
@@ -205,6 +205,7 @@ class SizesFitGraphWindow(QWidget):
 
         # ── Main I(Q) plot  (log-log) ────────────────────────────────────────
         self.main_plot.setLogMode(x=True, y=True)
+        add_slope_line_menu(self.main_plot)
         # Use units IN the label string — avoids pyqtgraph's SI-prefix auto-scaling
         self.main_plot.setLabel('left',   'I  (cm⁻¹)')
         self.main_plot.setLabel('bottom', 'Q  (Å⁻¹)')
@@ -1078,6 +1079,8 @@ class SizesFitPanel(QWidget):
                 btn.setMaximumWidth(36)
                 btn.setMaximumHeight(22)
                 btn.setStyleSheet("font-size:10px; padding:1px 3px;")
+            btn_div.setToolTip("Divide this parameter value by 10.")
+            btn_mul.setToolTip("Multiply this parameter value by 10.")
             btn_div.clicked.connect(lambda _=False, e=edit: self._scale_edit(e, 0.1))
             btn_mul.clicked.connect(lambda _=False, e=edit: self._scale_edit(e, 10.0))
             row.addWidget(btn_div)
@@ -1321,6 +1324,7 @@ class SizesFitPanel(QWidget):
         pl_cursor_btn = QPushButton("Set Q from cursors")
         pl_cursor_btn.setMaximumHeight(22)
         pl_cursor_btn.setStyleSheet("font-size:10px; padding:1px 4px;")
+        pl_cursor_btn.setToolTip("Set the power-law Q range from the current cursor positions.")
         pl_cursor_btn.clicked.connect(self._set_pl_q_from_cursors)
         pl_cursor_row.addWidget(pl_cursor_btn)
         pl_cursor_row.addStretch()
@@ -1332,6 +1336,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #8e44ad; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #7d3c98; }
         """)
+        self.fit_pl_button.setToolTip(
+            "Fit a power-law B·Q⁻ᴾ to the data within the Q range above.\n"
+            "Result sets P and B starting values for the size distribution fit."
+        )
         self.fit_pl_button.clicked.connect(self.fit_power_law_action)
         pl_layout.addWidget(self.fit_pl_button)
 
@@ -1383,6 +1391,7 @@ class SizesFitPanel(QWidget):
         bg_cursor_btn = QPushButton("Set Q from cursors")
         bg_cursor_btn.setMaximumHeight(22)
         bg_cursor_btn.setStyleSheet("font-size:10px; padding:1px 4px;")
+        bg_cursor_btn.setToolTip("Set the background Q range from the current cursor positions.")
         bg_cursor_btn.clicked.connect(self._set_bg_q_from_cursors)
         bg_cursor_row.addWidget(bg_cursor_btn)
         bg_cursor_row.addStretch()
@@ -1394,6 +1403,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #8e44ad; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #7d3c98; }
         """)
+        self.fit_bg_button.setToolTip(
+            "Fit a flat background constant to data within the Q range above.\n"
+            "Result sets the Background starting value for the size distribution fit."
+        )
         self.fit_bg_button.clicked.connect(self.fit_background_action)
         flat_layout.addWidget(self.fit_bg_button)
 
@@ -1413,6 +1426,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #52c77a; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #3eb56a; }
         """)
+        self.graph_button.setToolTip(
+            "Compute and display the current size distribution model without fitting.\n"
+            "Use this to preview the model before running a fit."
+        )
         self.graph_button.clicked.connect(self.compute_model)
         btn_row1.addWidget(self.graph_button)
 
@@ -1422,6 +1439,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #27ae60; color: white; font-weight: bold; font-size: 12px; }
             QPushButton:hover { background-color: #1e8449; }
         """)
+        self.fit_button.setToolTip(
+            "Fit the size distribution model to the loaded data.\n"
+            "Uses the Q range defined by the cursors."
+        )
         self.fit_button.clicked.connect(self.run_fit)
         btn_row1.addWidget(self.fit_button)
 
@@ -1431,6 +1452,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #2980b9; color: white; font-weight: bold; font-size: 12px; }
             QPushButton:hover { background-color: #1f618d; }
         """)
+        self.fit_all_button.setToolTip(
+            "Fit all selected files sequentially using the current parameters.\n"
+            "Results are stored to each file automatically."
+        )
         self.fit_all_button.clicked.connect(self.fit_all_action)
         btn_row1.addWidget(self.fit_all_button)
 
@@ -1451,6 +1476,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #16a085; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #1abc9c; }
         """)
+        self.uncertainty_button.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
         self.uncertainty_button.clicked.connect(self.calculate_uncertainty)
         btn_row_unc.addWidget(self.uncertainty_button)
         layout.addLayout(btn_row_unc)
@@ -1463,6 +1492,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #f39c12; }
         """)
+        self.revert_button.setToolTip(
+            "Restore all parameters to the values they had before the last fit.\n"
+            "Useful if a fit diverged or gave unreasonable results."
+        )
         self.revert_button.clicked.connect(self._revert)
         btn_row2.addWidget(self.revert_button)
 
@@ -1472,6 +1505,10 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #d35400; }
         """)
+        self.reset_button.setToolTip(
+            "Reset all parameters to their factory default values.\n"
+            "This cannot be undone — use 'Revert' to undo only the last fit."
+        )
         self.reset_button.clicked.connect(self.reset_to_defaults)
         btn_row2.addWidget(self.reset_button)
 
@@ -1538,12 +1575,20 @@ class SizesFitPanel(QWidget):
             QPushButton { background-color: #3498db; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #2980b9; }
         """)
+        self.save_state_button.setToolTip(
+            "Save current parameters and settings to the pyIrena state file.\n"
+            "State is restored automatically when the file is reopened."
+        )
         self.save_state_button.clicked.connect(self.save_state)
         store_row.addWidget(self.save_state_button)
 
         self.store_file_button = QPushButton("Store in File")
         self.store_file_button.setMinimumHeight(26)
         self.store_file_button.setStyleSheet("background-color: lightgreen;")
+        self.store_file_button.setToolTip(
+            "Save fit results (parameters and model curves) into the source HDF5/NXcanSAS file.\n"
+            "Results are appended as a pyirena NXprocess group."
+        )
         self.store_file_button.clicked.connect(self.store_results_to_file)
         store_row.addWidget(self.store_file_button)
 
@@ -1552,20 +1597,22 @@ class SizesFitPanel(QWidget):
         # ── Export / Import Parameters buttons ───────────────────────────────
         params_row = QHBoxLayout()
 
-        self.export_params_button = QPushButton("Export Parameters")
+        self.export_params_button = QPushButton("Save params to JSON")
         self.export_params_button.setMinimumHeight(26)
         self.export_params_button.setStyleSheet("background-color: lightgreen;")
         self.export_params_button.setToolTip(
-            "Export current Sizes parameters to a pyIrena JSON config file."
+            "Save current Sizes parameters to a pyIrena JSON file.\n"
+            "Use 'Load params from JSON' to restore them later."
         )
         self.export_params_button.clicked.connect(self.export_parameters)
         params_row.addWidget(self.export_params_button)
 
-        self.import_params_button = QPushButton("Import Parameters")
+        self.import_params_button = QPushButton("Load params from JSON")
         self.import_params_button.setMinimumHeight(26)
         self.import_params_button.setStyleSheet("background-color: lightgreen;")
         self.import_params_button.setToolTip(
-            "Load Sizes parameters from a pyIrena JSON config file."
+            "Load Sizes parameters from a previously saved pyIrena JSON file.\n"
+            "Use 'Save params to JSON' to create a compatible file."
         )
         self.import_params_button.clicked.connect(self.import_parameters)
         params_row.addWidget(self.import_params_button)

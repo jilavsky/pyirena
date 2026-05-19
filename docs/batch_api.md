@@ -18,11 +18,12 @@ is no need to write configuration code by hand.
 7. [API reference — `fit_modeling`](#fit_modeling)
 8. [API reference — `fit_saxs_morph`](#fit_saxs_morph)
 9. [API reference — `merge_data`](#merge_data)
-10. [API reference — `fit_pyirena`](#fit_pyirena)
-11. [Return structures](#return-structures)
-12. [Error handling](#error-handling)
-13. [Batch processing patterns](#batch-processing-patterns)
-14. [Extending with new tools](#extending-with-new-tools)
+10. [API reference — `average_data`](#average_data)
+11. [API reference — `fit_pyirena`](#fit_pyirena)
+12. [Return structures](#return-structures)
+13. [Error handling](#error-handling)
+14. [Batch processing patterns](#batch-processing-patterns)
+15. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
@@ -482,8 +483,7 @@ result = fit_modeling(
 2. **Loads data** — same format detection as `fit_unified` (`.h5`/`.hdf5` via
    NXcanSAS, `.dat`/`.txt` via text reader).
 3. **Builds populations** — deserializes each population dict from the config into
-   the appropriate dataclass (`SizeDistPopulation`, `UnifiedLevelPopulation`, or
-   `DiffractionPeakPopulation`) based on the `pop_type` field.
+   the appropriate dataclass based on the `pop_type` field.
 4. **Runs the fit** — `ModelingEngine.fit()` using `scipy.optimize.least_squares`
    (TRF with bounds) or Nelder-Mead when `no_limits=True`.
 5. **MC uncertainty** *(if `with_uncertainty=True`)* — re-fits `n_mc_runs` noise-perturbed
@@ -504,7 +504,7 @@ result = fit_modeling(
 
 ### Population types
 
-The Modeling tool supports three population types, each stored in the config with
+The Modeling tool supports six population types, each stored in the config with
 a `pop_type` field:
 
 | `pop_type` | Dataclass | Description |
@@ -512,8 +512,11 @@ a `pop_type` field:
 | `size_dist` | `SizeDistPopulation` | Parametric size distribution (Gauss, LogNormal, LSW, Schulz-Zimm, Ardell) convolved with a form factor and optional structure factor |
 | `unified_level` | `UnifiedLevelPopulation` | Beaucage Unified Fit level: G·exp(−q²Rg²/3) + B·Q*⁻ᴾ + optional Born-Green correlations |
 | `diffraction_peak` | `DiffractionPeakPopulation` | Gaussian, Lorentzian, or pseudo-Voigt peak at Q₀ |
+| `guinier_porod` | `GuinierPorodPopulation` | Piecewise Guinier-Porod model (Hammouda 2010); 6 shape params G, Rg1, s1, P, Rg2, s2 + optional RgCO and Born-Green correlations |
+| `mass_fractal` | `MassFractalPopulation` | Mass fractal aggregate (Teixeira 1988); sphere primary particles; params Phi, Radius, Dv, Ksi, Eta, Contrast |
+| `surface_fractal` | `SurfaceFractalPopulation` | Surface fractal (Teixeira 1988); params Surface, Ds, Ksi, Contrast + optional Porod transition at Qc |
 
-Up to 5 populations of any type can be combined in a single fit.
+Up to 10 populations of any type can be combined in a single fit.
 
 ### Returns
 
@@ -900,6 +903,222 @@ python scripts/batch_merge.py \
 ```
 
 Run `python scripts/batch_merge.py --help` for full option reference.
+
+---
+
+## `average_data`
+
+```python
+from pyirena.batch import average_data
+
+result = average_data(
+    data_files,                         # list[str | Path] — files to average
+    output_folder=None,                 # str | Path | None — where to save
+    verbose=True,                       # bool — print progress to stdout
+    similarity_check=False,             # bool — run similarity filter first
+    similarity_p_min=0.01,              # float — rejection threshold (0–1)
+    similarity_method='cormap',         # str — test algorithm (see below)
+    similarity_reference='first',       # str — 'first' or 'majority'
+    similarity_normalize_scale=True,    # bool — normalise amplitude before comparing
+)
+```
+
+`average_data` does **not** use a JSON config file.  All parameters are
+passed directly.  The GUI saves its similarity settings to pyIrena's internal
+state file (auto-restored on next launch) but those settings are not read
+by the batch function — pipeline scripts should hard-code or compute the
+values they want, or read them from a user-defined config dict.
+
+### What it does, step by step
+
+1. **Loads** each file in `data_files` — accepts `.h5`/`.hdf5`/`.hdf`
+   (NXcanSAS or generic HDF5) and `.dat`/`.txt` (column-delimited text).
+   Files that fail to load are skipped with a warning.
+2. **Similarity filter** *(if `similarity_check=True`)* — runs the CorMap
+   test (or another registered method) on all loaded datasets and marks
+   frames with `p_value < similarity_p_min` as rejected.  Rejected frames
+   are logged (when `verbose=True`) and excluded before averaging.
+   If fewer than 2 frames remain, the function returns `None`.
+3. **Averages** — interpolates every dataset onto the first accepted frame's
+   Q grid (log-log), then computes:
+   ```
+   I_avg   = mean(I_i)
+   dI_avg  = max( sqrt(sum(dI_i^2)) / N,  std(I_i) )  per Q point
+   ```
+   Only Q points valid in **all** datasets contribute to the result.
+4. **Saves** to a NXcanSAS HDF5 file in `output_folder` (created if absent).
+   The file includes an `entry/data_manipulation_results` NXprocess provenance
+   group recording the operation, number of datasets, and timestamp.
+5. **Returns** a result dict (see below).
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_files` | `list[str \| Path]` | required | Ordered list of files to average.  Order matters only when `similarity_reference='first'`. |
+| `output_folder` | `str`, `Path`, or `None` | `None` | Output directory.  If `None`, a folder `{first_file_folder}_manip/` is created next to the first input file. |
+| `verbose` | `bool` | `True` | Print per-frame similarity results and final summary to stdout. |
+| `similarity_check` | `bool` | `False` | Enable similarity filtering.  When `True`, frames with p < `similarity_p_min` are excluded before averaging. |
+| `similarity_p_min` | `float` | `0.01` | P-value rejection threshold.  Frames with p below this are discarded.  Typical range: 0.001 (strict) – 0.05 (loose). |
+| `similarity_method` | `str` | `'cormap'` | Test algorithm.  Currently only `'cormap'` (Franke et al., 2015) is registered.  Additional methods can be added to `pyirena/core/similarity.py`. |
+| `similarity_reference` | `str` | `'first'` | `'first'` — compare each frame vs. frame #1, which is always kept.  Standard bioSAXS approach when the first exposure is known clean.  `'majority'` — compare each frame vs. the **median** of all frames; more robust when the first frame may also be damaged or when damage is not monotonically increasing. |
+| `similarity_normalize_scale` | `bool` | `True` | Recommended: `True`.  Before comparing, rescales each frame to match the reference amplitude using the geometric-median intensity ratio.  This removes flux-drift and absorption differences so that CorMap detects *shape* changes only — the relevant signature of radiation damage.  Set `False` only when data are on a perfectly calibrated absolute scale and you want amplitude changes to count as damage. |
+
+### Returns
+
+`dict` on success, `None` on fatal error (no files loaded, fewer than 2
+frames survive similarity filtering, save error, etc.).
+
+```python
+{
+    'success':    bool,              # True when result was saved
+    'operation':  'avg',
+    'output_file': Path,            # full path to the written NXcanSAS file
+    'message':    str,              # human-readable summary line
+    'n_datasets': int,              # number of frames that were averaged
+    'rejected':   list[tuple],      # [(filename, p_value), ...] — frames
+                                    # discarded by similarity filter; [] when
+                                    # similarity_check=False
+}
+```
+
+### Examples
+
+#### Simple average, no filtering
+
+```python
+from pathlib import Path
+from pyirena.batch import average_data
+
+files = sorted(Path("frames/").glob("sample_*.h5"))
+result = average_data(files, output_folder="averaged/")
+if result:
+    print(f"Averaged {result['n_datasets']} frames → {result['output_file'].name}")
+```
+
+#### Automatic radiation-damage rejection
+
+```python
+from pathlib import Path
+from pyirena.batch import average_data
+
+files = sorted(Path("frames/").glob("sample_*.h5"))
+
+result = average_data(
+    files,
+    output_folder="averaged/",
+    similarity_check=True,
+    similarity_p_min=0.01,
+    similarity_reference='first',   # first frame known clean
+    similarity_normalize_scale=True,
+    verbose=True,                   # prints [OK] / [REJECT] per frame
+)
+
+if result:
+    print(f"Averaged {result['n_datasets']} of {len(files)} frames")
+    for fname, p in result['rejected']:
+        print(f"  REJECTED  {fname}  (p={p:.4f})")
+```
+
+#### Majority-vote reference (robust when first frame may be damaged)
+
+```python
+result = average_data(
+    files,
+    output_folder="averaged/",
+    similarity_check=True,
+    similarity_p_min=0.01,
+    similarity_reference='majority',  # compare each vs. median of all
+    similarity_normalize_scale=True,
+)
+```
+
+#### Pipeline: process many sample folders
+
+```python
+from pathlib import Path
+from pyirena.batch import average_data
+
+# Each sub-folder contains sequential exposures for one sample
+data_root = Path("raw/")
+out_root  = Path("averaged/")
+
+# Similarity settings determined empirically on test data
+SIM_PARAMS = dict(
+    similarity_check=True,
+    similarity_p_min=0.01,
+    similarity_reference='first',
+    similarity_normalize_scale=True,
+)
+
+for sample_dir in sorted(data_root.iterdir()):
+    if not sample_dir.is_dir():
+        continue
+    frames = sorted(sample_dir.glob("*.h5"))
+    if len(frames) < 2:
+        continue
+
+    out_dir = out_root / sample_dir.name
+    result = average_data(frames, output_folder=out_dir, **SIM_PARAMS)
+
+    if result is None:
+        print(f"FAILED  {sample_dir.name}")
+    else:
+        n_kept = result['n_datasets']
+        n_total = len(frames)
+        n_rej = len(result['rejected'])
+        print(f"OK  {sample_dir.name}: {n_kept}/{n_total} frames "
+              f"({n_rej} rejected)")
+```
+
+#### In-memory usage (no file written, just get the averaged arrays)
+
+```python
+from pyirena.batch import _load_data
+from pyirena.core.data_manipulation import DataManipulation
+from pyirena.core.similarity import check_similarity
+from pathlib import Path
+
+files = sorted(Path("frames/").glob("*.h5"))
+
+# Load data
+datasets, names = [], []
+for fp in files:
+    d = _load_data(fp)
+    if d is None:
+        continue
+    datasets.append((d['Q'], d['Intensity'], d.get('Error', d['Intensity']*0.05), d.get('dQ')))
+    names.append(fp.name)
+
+# Check similarity
+results = check_similarity(datasets, filenames=names,
+                           reference='first', p_min=0.01)
+accepted = [datasets[r.idx] for r in results if r.accepted]
+
+# Average accepted frames
+avg = DataManipulation.average(accepted, reference_index=0)
+q, I, dI = avg.q, avg.I, avg.dI
+```
+
+### Choosing a p-value threshold
+
+The p-value is the probability that two truly identical curves would
+produce a run of same-sign residuals at least as long as the observed one
+by random chance alone.  Low p → curves differ → likely damaged.
+
+| Threshold | Effect |
+|-----------|--------|
+| 0.001 | Strict: only reject severe outliers (large, obvious damage) |
+| 0.010 | Moderate: good default starting point |
+| 0.050 | Loose: rejects borderline frames; cleaner average but fewer frames used |
+
+**Recommended calibration workflow:**
+
+1. Run with `verbose=True` on a clean sample (known undamaged exposures).
+   Note the lowest p-value observed.  Set `similarity_p_min` just below that.
+2. Run on a sample known to contain damaged frames.  Raise the threshold
+   until the damaged frames appear in `result['rejected']`.
+3. Fix the threshold in your pipeline configuration.
 
 ---
 

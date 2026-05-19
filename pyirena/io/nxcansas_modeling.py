@@ -130,6 +130,47 @@ def save_modeling_results(
                     pg[pn].attrs['limit_lo'] = float(lim[0])
                     pg[pn].attrs['limit_hi'] = float(lim[1])
 
+            elif pop_type == 'guinier_porod':
+                # Guinier-Porod Level parameters
+                for pn in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
+                pg.create_dataset('correlations', data=bool(pop.correlations))
+                for pn in ['ETA', 'PACK']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
+
+            elif pop_type == 'mass_fractal':
+                # Mass Fractal parameters
+                for pn in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
+
+            elif pop_type == 'surface_fractal':
+                # Surface Fractal parameters
+                for pn in ['Surface', 'Ds', 'Ksi', 'Contrast']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
+                pg.create_dataset('use_porod_transition', data=bool(pop.use_porod_transition))
+                for pn in ['Qc', 'QcWidth']:
+                    pg.create_dataset(pn, data=float(getattr(pop, pn)))
+                    pg[pn].attrs['fit'] = bool(getattr(pop, f'fit_{pn}'))
+                    lim = getattr(pop, f'{pn}_limits')
+                    pg[pn].attrs['limit_lo'] = float(lim[0])
+                    pg[pn].attrs['limit_hi'] = float(lim[1])
+
             else:
                 # Size Distribution parameters
                 pg.attrs['dist_type'] = pop.dist_type
@@ -280,6 +321,20 @@ def load_modeling_results(
                 pop_dict['peak_type'] = pg.attrs.get('peak_type', 'gaussian')
                 for pn in ['position', 'amplitude', 'width', 'eta_voigt']:
                     pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
+
+            elif pop_type == 'guinier_porod':
+                for pn in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO', 'ETA', 'PACK']:
+                    pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
+                pop_dict['correlations'] = bool(pg['correlations'][()]) if 'correlations' in pg else False
+
+            elif pop_type == 'mass_fractal':
+                for pn in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                    pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
+
+            elif pop_type == 'surface_fractal':
+                for pn in ['Surface', 'Ds', 'Ksi', 'Contrast', 'Qc', 'QcWidth']:
+                    pop_dict[pn] = float(pg[pn][()]) if pn in pg else None
+                pop_dict['use_porod_transition'] = bool(pg['use_porod_transition'][()]) if 'use_porod_transition' in pg else False
 
             else:
                 # size_dist

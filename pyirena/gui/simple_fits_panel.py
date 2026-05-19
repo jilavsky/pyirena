@@ -548,6 +548,10 @@ class SimpleFitsPanel(QWidget):
             QPushButton { background-color: #27ae60; color: white; font-weight: bold; font-size: 13px; }
             QPushButton:hover { background-color: #1e8449; }
         """)
+        self.fit_btn.setToolTip(
+            "Fit the selected model to the loaded data using the current Q range.\n"
+            "Checked parameters are varied; unchecked parameters are held fixed."
+        )
         self.fit_btn.clicked.connect(self._run_fit)
         btn_row1.addWidget(self.fit_btn)
         layout.addLayout(btn_row1)
@@ -568,6 +572,10 @@ class SimpleFitsPanel(QWidget):
             QPushButton { background-color: #16a085; color: white; font-weight: bold; }
             QPushButton:hover { background-color: #1abc9c; }
         """)
+        self.unc_btn.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
         self.unc_btn.clicked.connect(self._calculate_uncertainty)
         btn_row_unc.addWidget(self.unc_btn)
         layout.addLayout(btn_row_unc)
@@ -638,20 +646,22 @@ class SimpleFitsPanel(QWidget):
 
         # Row 3: Export | Import parameters
         row_out3 = QHBoxLayout()
-        self.export_btn = QPushButton('Export parameters')
+        self.export_btn = QPushButton('Save params to JSON')
         self.export_btn.setMinimumHeight(26)
         self.export_btn.setStyleSheet('background-color: lightgreen;')
         self.export_btn.setToolTip(
-            'Export current parameters to a pyIrena JSON configuration file.'
+            'Save current fit parameters to a pyIrena JSON file.\n'
+            'Use "Load params from JSON" to restore them later.'
         )
         self.export_btn.clicked.connect(self._export_parameters)
         row_out3.addWidget(self.export_btn)
 
-        self.import_btn = QPushButton('Import parameters')
+        self.import_btn = QPushButton('Load params from JSON')
         self.import_btn.setMinimumHeight(26)
         self.import_btn.setStyleSheet('background-color: lightgreen;')
         self.import_btn.setToolTip(
-            'Import parameters from a pyIrena JSON configuration file.'
+            'Load fit parameters from a previously saved pyIrena JSON file.\n'
+            'Use "Save params to JSON" to create a compatible file.'
         )
         self.import_btn.clicked.connect(self._import_parameters)
         row_out3.addWidget(self.import_btn)

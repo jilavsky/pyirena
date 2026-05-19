@@ -24,6 +24,9 @@ waxs_peakfit_results/
         (attrs)     shape
         Q_peak      — 1-D float64, Q range ±5×FWHM around Q0
         I_peak      — 1-D float64, individual peak curve on Q_peak
+        area        — float64 scalar, ∫peak(q)dq (integral under the curve,
+                       derived from fitted A/FWHM[/eta/Q0], not fitted)
+        area_std    — float64 scalar, 1-σ uncertainty on area
         params/
             A, Q0, FWHM[, eta]  — float64 scalar each
             (attrs on each) limit_low, limit_high
@@ -48,6 +51,8 @@ from pyirena.core.waxs_peakfit import (
     _PEAK_PARAM_NAMES,
     bg_param_names,
     eval_peak,
+    peak_area,
+    peak_area_std,
 )
 
 _GROUP = "entry/waxs_peakfit_results"
@@ -186,6 +191,15 @@ def save_waxs_peakfit_results(
             pk_grp.create_dataset("I_peak", data=I_peak, dtype="float64")
             pk_grp["I_peak"].attrs["units"] = "arb"
 
+            # Derived: integral under the peak curve (closed-form analytic)
+            area_val = peak_area(shape, peak)
+            area_err = peak_area_std(shape, peak, p_std)
+            ds_area = pk_grp.create_dataset("area", data=float(area_val), dtype="float64")
+            ds_area.attrs["units"]       = "arb/angstrom"
+            ds_area.attrs["description"] = "Integral of peak profile, ∫I_peak(q)dq"
+            pk_grp.create_dataset("area_std", data=float(area_err), dtype="float64")
+            pk_grp["area_std"].attrs["units"] = "arb/angstrom"
+
             # Fitted parameters
             p_grp   = pk_grp.create_group("params")
             ps_grp  = pk_grp.create_group("params_std")
@@ -322,6 +336,20 @@ def load_waxs_peakfit_results(filepath: Path) -> Dict:
 
             q_pk  = np.array(pk_grp["Q_peak"], float) if "Q_peak" in pk_grp else None
             I_pk  = np.array(pk_grp["I_peak"], float) if "I_peak" in pk_grp else None
+
+            # Derived: peak area + uncertainty.  Older files predate these
+            # datasets — recompute on the fly from the loaded params so callers
+            # can rely on the value being present.
+            if "area" in pk_grp and isinstance(pk_grp["area"], h5py.Dataset):
+                area_v = float(pk_grp["area"][()])
+            else:
+                area_v = float(peak_area(shape, peak_d))
+            if "area_std" in pk_grp and isinstance(pk_grp["area_std"], h5py.Dataset):
+                area_s = float(pk_grp["area_std"][()])
+            else:
+                area_s = float(peak_area_std(shape, peak_d, p_std_d))
+            peak_d["area"]     = area_v
+            peak_d["area_std"] = area_s
 
             peaks_list.append(peak_d)
             peaks_std.append(p_std_d)

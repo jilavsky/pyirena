@@ -25,7 +25,8 @@ try:
         QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
         QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
         QAbstractItemView, QSizePolicy, QListWidgetItem,
-        QTabWidget, QSpinBox, QMenu,
+        QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
+        QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
     )
     from PySide6.QtCore import Qt, QUrl, QTimer
     from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
@@ -36,7 +37,8 @@ except ImportError:
             QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
             QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
             QAbstractItemView, QSizePolicy, QListWidgetItem,
-            QTabWidget, QSpinBox, QMenu,
+            QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
+            QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
         )
         from PyQt6.QtCore import Qt, QUrl, QTimer
         from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
@@ -170,6 +172,7 @@ class _ManipFileBrowser(QWidget):
         fld_row = QHBoxLayout()
         self.folder_btn = QPushButton("Select Folder\u2026")
         self.folder_btn.setMinimumHeight(28)
+        self.folder_btn.setToolTip("Browse to the folder containing the data files to manipulate.")
         self.folder_btn.clicked.connect(self._select_folder)
         fld_row.addWidget(self.folder_btn)
         layout.addLayout(fld_row)
@@ -557,6 +560,9 @@ class DataManipulationPanel(QWidget):
         self._denominator_file: Optional[str] = None  # for Divide tab
         self._out_folder: Optional[str] = None
 
+        # Similarity analysis results for Average tab (populated by _on_similarity_check)
+        self._sim_results: list = []
+
         # Throttle timer for auto-recalculate (500 ms)
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
@@ -759,23 +765,179 @@ class DataManipulationPanel(QWidget):
     # ------------------------------------------------------------------ #
 
     def _build_average_tab(self) -> None:
-        tab = QWidget()
-        layout = QHBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(12)
+        from pyirena.core.similarity import SIMILARITY_METHODS, SIMILARITY_METHOD_LABELS
 
+        # The tab itself is just a container for the scroll area.
+        # All visible content goes into `content_widget` inside the scroll area
+        # so that if the panel is small the user can scroll rather than losing
+        # controls to clipping.
+        tab = QWidget()
+        tab_outer = QVBoxLayout(tab)
+        tab_outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        tab_outer.addWidget(scroll)
+
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+
+        # --- Top row: info + count ---
+        top_row = QHBoxLayout()
         info = QLabel(
-            "Select multiple files to average.\n"
+            "Select multiple files to average. "
             "Right-click on graph to remove bad datasets."
         )
         info.setStyleSheet("color: #555;")
-        layout.addWidget(info)
-
+        top_row.addWidget(info)
+        top_row.addStretch()
         self._avg_count_label = QLabel("0 files selected")
         self._avg_count_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        layout.addWidget(self._avg_count_label)
+        top_row.addWidget(self._avg_count_label)
+        layout.addLayout(top_row)
 
-        layout.addStretch()
+        # --- Similarity analysis group ---
+        sim_group = QGroupBox("Similarity analysis (radiation damage detection)")
+        sim_layout = QVBoxLayout(sim_group)
+        sim_layout.setContentsMargins(8, 6, 8, 6)
+        sim_layout.setSpacing(5)
+
+        # Row 1: method, reference, p-value, normalize checkbox
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setSpacing(6)
+
+        ctrl_row.addWidget(QLabel("Method:"))
+        self._sim_method_combo = QComboBox()
+        for key in SIMILARITY_METHODS:
+            label = SIMILARITY_METHOD_LABELS.get(key, key)
+            self._sim_method_combo.addItem(label, userData=key)
+        self._sim_method_combo.setMaximumWidth(200)
+        self._sim_method_combo.setToolTip(
+            "Similarity test algorithm.\n"
+            "CorMap (Franke et al., Nature Methods 2015) detects whether the\n"
+            "longest run of same-sign residuals between two curves is longer\n"
+            "than expected by chance from random noise."
+        )
+        ctrl_row.addWidget(self._sim_method_combo)
+
+        ctrl_row.addSpacing(10)
+        ctrl_row.addWidget(QLabel("Reference:"))
+        self._sim_ref_combo = QComboBox()
+        self._sim_ref_combo.addItem("First frame", userData='first')
+        self._sim_ref_combo.addItem("Majority vote", userData='majority')
+        self._sim_ref_combo.setMaximumWidth(130)
+        self._sim_ref_combo.setToolTip(
+            "First frame: compare every dataset against dataset #1.\n"
+            "Dataset #1 is always accepted (use when you know the first\n"
+            "exposure is clean — the standard bioSAXS approach).\n\n"
+            "Majority vote: compare each dataset against the median of all\n"
+            "datasets. More robust when the first frame may itself be damaged."
+        )
+        ctrl_row.addWidget(self._sim_ref_combo)
+
+        ctrl_row.addSpacing(10)
+        ctrl_row.addWidget(QLabel("P-value threshold:"))
+        self._sim_p_spin = QDoubleSpinBox()
+        self._sim_p_spin.setRange(1e-6, 1.0)
+        self._sim_p_spin.setDecimals(4)
+        self._sim_p_spin.setSingleStep(0.001)
+        self._sim_p_spin.setValue(0.01)
+        self._sim_p_spin.setMaximumWidth(90)
+        self._sim_p_spin.setToolTip(
+            "Datasets with p-value below this threshold are flagged as outliers.\n\n"
+            "p-value = probability that two truly identical curves would produce\n"
+            "a run of same-sign differences at least this long by random chance.\n"
+            "Low p → curves differ beyond noise → likely radiation damaged.\n\n"
+            "Typical values:\n"
+            "  0.001 — strict (reject only severe outliers)\n"
+            "  0.010 — moderate (recommended starting point)\n"
+            "  0.050 — loose (reject more; cleaner average but fewer frames)\n\n"
+            "Experiment on test data: looser threshold = better statistics\n"
+            "but potentially contaminated by bad frames."
+        )
+        ctrl_row.addWidget(self._sim_p_spin)
+
+        ctrl_row.addSpacing(10)
+        self._sim_normalize_chk = QCheckBox("Normalize scale")
+        self._sim_normalize_chk.setChecked(True)
+        self._sim_normalize_chk.setToolTip(
+            "Recommended: ON for most SAXS data.\n\n"
+            "Before comparing, rescales each dataset to match the reference\n"
+            "intensity (using the geometric-median amplitude ratio). This removes\n"
+            "differences due to flux drift, absorption, or normalization variation\n"
+            "so CorMap tests for shape differences only — the relevant signature\n"
+            "of radiation damage.\n\n"
+            "Turn OFF only if data are already on identical absolute scale and\n"
+            "you want to detect pure intensity changes (scale damage) too."
+        )
+        ctrl_row.addWidget(self._sim_normalize_chk)
+
+        ctrl_row.addStretch()
+        sim_layout.addLayout(ctrl_row)
+
+        # Row 2: action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self._sim_check_btn = QPushButton("Check Similarity")
+        self._sim_check_btn.setStyleSheet(
+            "background-color: #2980b9; color: white; font-weight: bold;"
+        )
+        self._sim_check_btn.setFixedHeight(26)
+        self._sim_check_btn.setToolTip(
+            "Run the selected similarity test on all currently selected files.\n"
+            "Results appear in the table below: green = accepted, red = rejected.\n"
+            "Results are cleared automatically when the file selection changes."
+        )
+        self._sim_check_btn.clicked.connect(self._on_similarity_check)
+        btn_row.addWidget(self._sim_check_btn)
+
+        self._sim_reject_btn = QPushButton("Auto-reject 0 below threshold")
+        self._sim_reject_btn.setStyleSheet(
+            "background-color: #c0392b; color: white; font-weight: bold;"
+        )
+        self._sim_reject_btn.setFixedHeight(26)
+        self._sim_reject_btn.setEnabled(False)
+        self._sim_reject_btn.setToolTip(
+            "Remove all rejected (red) datasets from the selection and\n"
+            "re-compute the average preview with the remaining frames."
+        )
+        self._sim_reject_btn.clicked.connect(self._on_similarity_auto_reject)
+        btn_row.addWidget(self._sim_reject_btn)
+
+        btn_row.addStretch()
+        sim_layout.addLayout(btn_row)
+
+        # Results table (hidden until a check is run; scrollable, no max height)
+        self._sim_results_table = QTableWidget(0, 4)
+        self._sim_results_table.setHorizontalHeaderLabels(
+            ["File", "p-value", "Run / N pts", "Status"]
+        )
+        self._sim_results_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._sim_results_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._sim_results_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._sim_results_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._sim_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._sim_results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # No fixed/minimum height — table sizes to its content inside the
+        # scroll area; setFixedHeight() is called after each populate().
+        self._sim_results_table.setVisible(False)
+        sim_layout.addWidget(self._sim_results_table)
+
+        layout.addWidget(sim_group)
+        layout.addStretch()   # pushes group to top inside scroll canvas
         self._tabs.addTab(tab, "Average")
 
     # ------------------------------------------------------------------ #
@@ -908,6 +1070,7 @@ class DataManipulationPanel(QWidget):
         select_btn = QPushButton("Select Existing Folder\u2026")
         select_btn.setMinimumHeight(28)
         select_btn.setStyleSheet(_BTN_GREY)
+        select_btn.setToolTip("Choose an existing folder to save manipulated output files.")
         select_btn.clicked.connect(self._select_output_folder)
         layout.addWidget(select_btn)
 
@@ -917,6 +1080,10 @@ class DataManipulationPanel(QWidget):
         self._save_btn.setMinimumHeight(34)
         self._save_btn.setStyleSheet(_BTN_GREEN)
         self._save_btn.setEnabled(False)
+        self._save_btn.setToolTip(
+            "Apply the current operation to the selected file(s) and save the result.\n"
+            "Output is written to the configured output folder with a suffix in the filename."
+        )
         self._save_btn.clicked.connect(self._apply_and_save)
         layout.addWidget(self._save_btn)
 
@@ -926,6 +1093,10 @@ class DataManipulationPanel(QWidget):
         self._batch_btn.setMinimumHeight(34)
         self._batch_btn.setStyleSheet(_BTN_BLUE)
         self._batch_btn.setEnabled(False)
+        self._batch_btn.setToolTip(
+            "Apply the current operation to all selected files in the list and save all results.\n"
+            "Each file is processed independently using the current settings."
+        )
         self._batch_btn.clicked.connect(self._batch_run)
         layout.addWidget(self._batch_btn)
 
@@ -1048,6 +1219,7 @@ class DataManipulationPanel(QWidget):
         if tab == _TAB_AVERAGE:
             n = len(self._fb.get_selected_filenames())
             self._avg_count_label.setText(f"{n} file(s) selected")
+            self._clear_similarity_results()
             self._schedule_auto_update()
         elif tab == _TAB_SUBTRACT:
             self._update_sub_labels()
@@ -1441,6 +1613,127 @@ class DataManipulationPanel(QWidget):
                 item.setSelected(False)
         self._on_selection_changed()
         self._preview_average(auto_triggered=True)
+
+    # ------------------------------------------------------------------ #
+    #  Average tab — similarity analysis                                   #
+    # ------------------------------------------------------------------ #
+
+    def _on_similarity_check(self) -> None:
+        """Run CorMap similarity analysis on the current Average selection."""
+        from pyirena.core.similarity import check_similarity, SIMILARITY_METHODS
+
+        selected = self._fb.get_selected_filenames()
+        if len(selected) < 2:
+            self._status.setText("Select at least 2 files to check similarity.")
+            return
+
+        datasets, filenames = [], []
+        for fname in selected:
+            data = self._get_or_load(fname)
+            if data is None:
+                continue
+            q = data['Q']
+            I = data['Intensity']
+            dI = data.get('Error', I * 0.05)
+            dQ = data.get('dQ')
+            datasets.append((q, I, dI, dQ))
+            filenames.append(fname)
+
+        if len(datasets) < 2:
+            self._status.setText("Could not load enough files for similarity check.")
+            return
+
+        method_key = self._sim_method_combo.currentData()
+        ref_key = self._sim_ref_combo.currentData()
+        p_min = self._sim_p_spin.value()
+        normalize = self._sim_normalize_chk.isChecked()
+
+        try:
+            self._sim_results = check_similarity(
+                datasets, filenames=filenames,
+                method=method_key, reference=ref_key, p_min=p_min,
+                normalize_scale=normalize,
+            )
+        except Exception as exc:
+            self._status.setText(f"Similarity check error: {exc}")
+            return
+
+        self._populate_sim_table()
+        n_results = len(self._sim_results)
+        n_rejected = sum(1 for r in self._sim_results if not r.accepted)
+
+        # Size the table to show all rows without scrolling (cap at 300px)
+        self._sim_results_table.resizeRowsToContents()
+        hh = self._sim_results_table.horizontalHeader().height()
+        rows_h = sum(
+            self._sim_results_table.rowHeight(i)
+            for i in range(self._sim_results_table.rowCount())
+        )
+        table_h = min(hh + rows_h + 4, 300)
+        self._sim_results_table.setFixedHeight(table_h)
+
+        self._sim_reject_btn.setText(f"Auto-reject {n_rejected} below threshold")
+        self._sim_reject_btn.setEnabled(n_rejected > 0)
+        self._sim_results_table.setVisible(True)
+        self._status.setText(
+            f"Similarity check: {n_results} results for {len(filenames)} files — "
+            f"{n_results - n_rejected} accepted, {n_rejected} rejected "
+            f"(p < {p_min:.4f})."
+        )
+
+    def _on_similarity_auto_reject(self) -> None:
+        """Deselect all rejected datasets and re-run the average preview."""
+        for r in self._sim_results:
+            if not r.accepted:
+                self._avg_remove_dataset(r.filename)
+        self._sim_results = []
+        self._sim_results_table.setVisible(False)
+        self._sim_reject_btn.setEnabled(False)
+
+    def _populate_sim_table(self) -> None:
+        """Fill the results QTableWidget from self._sim_results."""
+        self._sim_results_table.setRowCount(0)
+        for r in self._sim_results:
+            row = self._sim_results_table.rowCount()
+            self._sim_results_table.insertRow(row)
+
+            if r.n_points > 0:
+                p_text = f"{r.p_value:.4f}"
+                run_text = f"{r.longest_run} / {r.n_points}"
+            else:
+                p_text = "— (ref)"
+                run_text = "—"
+
+            if r.accepted:
+                status_text, fg, bg = "Accepted", QColor("#196f3d"), QColor("#d5f5e3")
+            else:
+                status_text, fg, bg = "Rejected", QColor("#922b21"), QColor("#fde8e8")
+
+            cells = [
+                QTableWidgetItem(r.filename),
+                QTableWidgetItem(p_text),
+                QTableWidgetItem(run_text),
+                QTableWidgetItem(status_text),
+            ]
+            for col in (1, 2, 3):
+                cells[col].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            cells[3].setForeground(fg)
+            for col, item in enumerate(cells):
+                item.setBackground(bg)
+                self._sim_results_table.setItem(row, col, item)
+
+        self._sim_results_table.resizeRowsToContents()
+
+    def _clear_similarity_results(self) -> None:
+        """Invalidate stale similarity results when selection changes."""
+        self._sim_results = []
+        self._sim_results_table.setRowCount(0)
+        # Release the fixed height set by _on_similarity_check
+        self._sim_results_table.setMinimumHeight(0)
+        self._sim_results_table.setMaximumHeight(16777215)  # Qt QWIDGETSIZE_MAX
+        self._sim_results_table.setVisible(False)
+        self._sim_reject_btn.setText("Auto-reject 0 below threshold")
+        self._sim_reject_btn.setEnabled(False)
 
     def _preview_subtract(self) -> None:
         selected = self._fb.get_selected_filenames()
@@ -1888,6 +2181,17 @@ class DataManipulationPanel(QWidget):
         self._div_scale_edit.setText(str(s.get('divide_denominator_scale', 1.0)))
         self._div_bg_edit.setText(str(s.get('divide_denominator_background', 0.0)))
 
+        # Average tab — similarity settings
+        from pyirena.core.similarity import SIMILARITY_METHODS
+        method_keys = list(SIMILARITY_METHODS.keys())
+        saved_method = s.get('similarity_method', 'cormap')
+        method_idx = method_keys.index(saved_method) if saved_method in method_keys else 0
+        self._sim_method_combo.setCurrentIndex(method_idx)
+        saved_ref = s.get('similarity_reference', 'first')
+        self._sim_ref_combo.setCurrentIndex(0 if saved_ref == 'first' else 1)
+        self._sim_p_spin.setValue(float(s.get('similarity_p_min', 0.01)))
+        self._sim_normalize_chk.setChecked(bool(s.get('similarity_normalize_scale', True)))
+
     def save_state(self) -> None:
         su_text = self._scale_unc_edit.text().strip()
         rqmin_text = self._rebin_qmin.text().strip()
@@ -1915,6 +2219,11 @@ class DataManipulationPanel(QWidget):
             # Divide
             'divide_denominator_scale': float(self._div_scale_edit.text() or 1),
             'divide_denominator_background': float(self._div_bg_edit.text() or 0),
+            # Average — similarity
+            'similarity_method': self._sim_method_combo.currentData(),
+            'similarity_reference': self._sim_ref_combo.currentData(),
+            'similarity_p_min': self._sim_p_spin.value(),
+            'similarity_normalize_scale': self._sim_normalize_chk.isChecked(),
         })
         self._sm.save()
 

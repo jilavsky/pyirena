@@ -138,21 +138,24 @@ Rebinning uses log-log interpolation with relative-uncertainty propagation.
 
 ### Average
 
-Average multiple datasets to improve statistics.  Common in bioSAXS where
-users collect sequential exposures and discard radiation-damaged frames.
+Average multiple datasets to improve statistics.  Common in any experiment
+where sequential exposures are collected and radiation-damaged frames must
+be identified and discarded before averaging.
 
 **Workflow:**
 
 1. Select multiple files in the file list (Ctrl+click or Shift+click).
 2. All selected datasets are plotted with distinct colours and averaged
    automatically.
-3. **Right-click on the graph** to access:
+3. Optionally run the **Similarity analysis** to flag damaged frames
+   automatically (see below).
+4. **Right-click on the graph** for manual removal:
    - **Remove dataset** --- submenu with colour-coded entries matching the plot.
    - **Remove all after** --- remove a dataset and everything measured after it.
-4. The average recomputes automatically after each removal.
+5. The average recomputes automatically after each removal.
 
 The average is computed on the first selected file's Q grid.  Other datasets
-are log-log interpolated onto that grid.
+are log-log interpolated onto that grid before averaging.
 
 **Uncertainty:** the larger of propagated error and sample spread:
 
@@ -164,6 +167,38 @@ This is robust: propagated error dominates for consistent data, while the
 spread correctly reflects systematic drift (e.g. radiation damage).
 
 **Output suffix:** `_avg`
+
+#### Similarity analysis — automatic radiation damage detection
+
+The **Similarity analysis** group inside the Average tab uses the
+**CorMap test** (Franke et al., *Nature Methods* 12, 419–422, 2015) to
+compute a p-value for each frame.  A low p-value means the frame differs
+from the reference beyond what random noise alone can explain — the
+hallmark of radiation damage or a transient contamination event (e.g. a
+bubble in the beam path).
+
+| Control | Description |
+|---------|-------------|
+| **Method** | Test algorithm.  Currently *CorMap (Franke 2015)*.  Additional methods can be registered in `pyirena/core/similarity.py`. |
+| **Reference** | *First frame* — each dataset is compared to dataset #1, which is always accepted.  Standard bioSAXS approach.  Use when the first exposure is known to be clean.  *Majority vote* — each dataset is compared to the **median** of all datasets; more robust when the first frame may itself be damaged or when damage is not monotonically increasing. |
+| **P-value threshold** | Frames with p-value below this are flagged as *Rejected* (default 0.01).  Lower threshold = stricter (fewer rejections); higher = looser (more rejections but cleaner average). |
+| **Normalize scale** | Recommended: **on**.  Rescales each frame to match the reference amplitude before comparing, removing flux-drift and absorption differences so that CorMap detects *shape* changes only.  Turn off only when data are on an identical absolute scale and you want scale changes to count as damage. |
+
+**Check Similarity** runs the test and shows a colour-coded results table:
+green rows are accepted, red rows are rejected.
+The status bar reports `N results for M files` — if N < M, some files
+could not be loaded.
+
+**Auto-reject N below threshold** deselects all rejected frames in one
+click and re-computes the average.  Manual right-click removal on the
+graph still works independently.
+
+> **How to choose a p-value threshold**
+> Run the tool on a clean test dataset (frames you know are undamaged) and
+> note the lowest p-value you see.  Set the threshold just below that value
+> so good frames are accepted.  Then test on a dataset known to contain
+> damaged frames and raise the threshold until they are rejected.  Typical
+> starting values: 0.001 (strict) or 0.010 (moderate).
 
 ### Subtract (buffer)
 
@@ -252,16 +287,27 @@ result = manipulate_data(
 ### `average_data()`
 
 ```python
-from pyirena import average_data
+from pyirena.batch import average_data
 
 result = average_data(
     data_files=["frame_001.h5", "frame_002.h5", "frame_003.h5"],
     output_folder="./output",
+    # optional similarity filtering:
+    similarity_check=True,
+    similarity_p_min=0.01,
+    similarity_reference='first',      # 'first' or 'majority'
+    similarity_normalize_scale=True,
 )
 ```
 
-Both functions return a dict with keys `success`, `operation`, `output_file`,
-and `message`, or `None` on fatal errors.
+See the [full `average_data` API reference](batch_api.md#average_data) in
+`batch_api.md` for all parameters, return value structure, and pipeline
+examples.
+
+`manipulate_data()` returns a dict with keys `success`, `operation`,
+`output_file`, and `message`, or `None` on fatal errors.  `average_data()`
+returns the same plus `rejected` (list of `(filename, p_value)` pairs for
+frames discarded by the similarity filter).
 
 ---
 

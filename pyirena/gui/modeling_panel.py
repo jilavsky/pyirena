@@ -59,10 +59,11 @@ from pyirena.core.distributions import DIST_PARAM_NAMES, DIST_LABELS, DIST_DEFAU
 from pyirena.core.modeling import (
     ModelingEngine, ModelingConfig, SizeDistPopulation, ModelingResult,
     UnifiedLevelPopulation, DiffractionPeakPopulation,
+    GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
-    RadiusAxisItem, save_itx_from_plot,
+    RadiusAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
@@ -146,6 +147,44 @@ PEAK_PARAMS = [
     ('eta_voigt', 'η (mixing)',         0.5,  0.0,   1.0,   False),
 ]
 
+# Guinier-Porod Level parameter definitions: (key, display_label, default, lo, hi, fit_default)
+GP_PARAMS = [
+    ('G',    'G [cm⁻¹]',       1.0,  1e-10, 1e10,  True),
+    ('Rg1',  'Rg1 [Å]',       10.0,  0.1,   1e6,   True),
+    ('s1',   'Slope s1',        0.0,  0.0,   3.0,   False),
+    ('P',    'Power P',         4.0,  0.0,   6.0,   False),
+    ('Rg2',  'Rg2 [Å]',       1e10,  0.1,   1e12,  False),
+    ('s2',   'Slope s2',        0.0,  0.0,   3.0,   False),
+    ('RgCO', 'RgCO [Å]',       0.0,  0.0,   1e6,   False),
+]
+GP_CORR_PARAMS = [
+    ('ETA',  'ETA [Å]',       10.0,  0.1,   1e6,   False),
+    ('PACK', 'Packing factor',  0.0,  0.0,   16.0,  False),
+]
+
+# Mass Fractal parameter definitions
+MF_PARAMS = [
+    ('Phi',      'Phi (vol. frac.)',   0.001, 1e-8, 1.0,   True),
+    ('Radius',   'Radius [Å]',        50.0,  0.1,  1e6,   True),
+    ('Beta',     'Aspect ratio β',     1.0,  0.01, 100.0, False),
+    ('Dv',       'Fractal dim. Dv',    2.5,  1.0,  3.0,   True),
+    ('Ksi',      'Ksi [Å]',          500.0,  1.0,  1e7,   True),
+    ('Eta',      'Eta (fill factor)',  0.5,  0.3,  0.8,   False),
+    ('Contrast', 'Contrast',           1.0,  0.0,  1e10,  False),
+]
+
+# Surface Fractal parameter definitions
+SF_PARAMS = [
+    ('Surface',  'Surface [cm⁻¹]',    1e4,  1.0,  1e12,  True),
+    ('Ds',       'Fractal dim. Ds',    2.5,  2.0,  3.0,   True),
+    ('Ksi',      'Ksi [Å]',          500.0, 1.0,  1e7,   True),
+    ('Contrast', 'Contrast',           1.0,  0.0,  1e10,  False),
+]
+SF_POROD_PARAMS = [
+    ('Qc',      'Qc [Å⁻¹]',          0.1,  0.001, 10.0,  False),
+    ('QcWidth', 'Qc width (frac.)',    0.1,  0.01,  1.0,   False),
+]
+
 # All possible derived-quantity rows (shown in Derived Results panel)
 _ALL_DERIVED_ROWS = [
     ('vol_mean_r',      'Vol-mean radius (Å)'),
@@ -160,6 +199,17 @@ _ALL_DERIVED_ROWS = [
     ('amplitude',       'Amplitude [cm⁻¹]'),
     ('width',           'Width σ [Å⁻¹]'),
     ('invariant',       'Invariant [cm⁻⁴]'),
+    # GP
+    ('Rg1',             'Rg1 [Å]'),
+    ('s1',              'Slope s1'),
+    # MF
+    ('Phi',             'Phi (vol. frac.)'),
+    ('Radius',          'Radius [Å]'),
+    ('Dv',              'Fractal dim. Dv'),
+    ('Ksi',             'Ksi [Å]'),
+    # SF
+    ('Surface',         'Surface [cm⁻¹]'),
+    ('Ds',              'Fractal dim. Ds'),
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -216,6 +266,11 @@ class PopulationTab(QWidget):
         self._uf_rows: dict = {}
         self._uf_corr_rows: dict = {}
         self._peak_rows: dict = {}
+        self._gp_rows: dict = {}
+        self._gp_corr_rows: dict = {}
+        self._mf_rows: dict = {}
+        self._sf2_rows: dict = {}        # surface fractal main rows
+        self._sf2_porod_rows: dict = {}  # surface fractal Porod transition rows
         self._dist_param_cache: dict = {}   # {dist_type: {key: (val, fit, lo, hi)}}
         self._last_dist_type: str = 'lognormal'
 
@@ -254,9 +309,12 @@ class PopulationTab(QWidget):
         type_row = QHBoxLayout()
         type_row.addWidget(QLabel('Population type:'))
         self.pop_type_combo = QComboBox()
-        for key, label in [('size_dist', 'Size Distribution'),
-                            ('unified_level', 'Unified Fit Level'),
-                            ('diffraction_peak', 'Diffraction Peak')]:
+        for key, label in [('size_dist',       'Size Distribution'),
+                            ('unified_level',   'Unified Fit Level'),
+                            ('diffraction_peak','Diffraction Peak'),
+                            ('guinier_porod',   'Guinier-Porod Level'),
+                            ('mass_fractal',    'Mass Fractal'),
+                            ('surface_fractal', 'Surface Fractal')]:
             self.pop_type_combo.addItem(label, key)
         self.pop_type_combo.currentIndexChanged.connect(self._on_pop_type_changed)
         type_row.addWidget(self.pop_type_combo)
@@ -280,6 +338,24 @@ class PopulationTab(QWidget):
         self._build_peak_panel()
         self._peak_panel.setVisible(False)
         c.addWidget(self._peak_panel)
+
+        # ── Guinier-Porod Level panel ──────────────────────────────────────
+        self._gp_panel = QWidget()
+        self._build_gp_panel()
+        self._gp_panel.setVisible(False)
+        c.addWidget(self._gp_panel)
+
+        # ── Mass Fractal panel ─────────────────────────────────────────────
+        self._mf_panel = QWidget()
+        self._build_mf_panel()
+        self._mf_panel.setVisible(False)
+        c.addWidget(self._mf_panel)
+
+        # ── Surface Fractal panel ──────────────────────────────────────────
+        self._sf2_panel = QWidget()
+        self._build_sf2_panel()
+        self._sf2_panel.setVisible(False)
+        c.addWidget(self._sf2_panel)
 
         # ── Derived results (read-only, filled after fit) ───────────────────
         self._derived_group = QGroupBox('Derived Results')
@@ -531,6 +607,98 @@ class PopulationTab(QWidget):
         # eta_voigt is hidden unless pseudo-Voigt
         self._update_peak_eta_visibility()
 
+    def _build_gp_panel(self):
+        """Build Guinier-Porod Level controls inside self._gp_panel."""
+        c = QVBoxLayout(self._gp_panel)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(4)
+
+        gp_group = QGroupBox('Guinier-Porod Level Parameters')
+        gp_lay = QVBoxLayout(gp_group)
+        gp_grid = QGridLayout()
+        gp_grid.setSpacing(2)
+        self._build_param_header(gp_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(GP_PARAMS, start=1):
+            self._add_param_row(gp_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._gp_rows)
+        gp_lay.addLayout(gp_grid)
+        c.addWidget(gp_group)
+
+        corr_row = QHBoxLayout()
+        self.gp_corr_cb = QCheckBox('Correlations (Born-Green)')
+        self.gp_corr_cb.stateChanged.connect(self._on_gp_corr_changed)
+        corr_row.addWidget(self.gp_corr_cb)
+        corr_row.addStretch()
+        c.addLayout(corr_row)
+
+        self._gp_corr_group = QGroupBox('Correlation Parameters')
+        corr_lay = QVBoxLayout(self._gp_corr_group)
+        corr_grid = QGridLayout()
+        corr_grid.setSpacing(2)
+        self._build_param_header(corr_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(GP_CORR_PARAMS, start=1):
+            self._add_param_row(corr_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._gp_corr_rows)
+        corr_lay.addLayout(corr_grid)
+        self._gp_corr_group.setVisible(False)
+        c.addWidget(self._gp_corr_group)
+        c.addStretch()
+
+    def _build_mf_panel(self):
+        """Build Mass Fractal controls inside self._mf_panel."""
+        c = QVBoxLayout(self._mf_panel)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(4)
+
+        mf_group = QGroupBox('Mass Fractal Parameters')
+        mf_lay = QVBoxLayout(mf_group)
+        mf_grid = QGridLayout()
+        mf_grid.setSpacing(2)
+        self._build_param_header(mf_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(MF_PARAMS, start=1):
+            self._add_param_row(mf_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._mf_rows)
+        mf_lay.addLayout(mf_grid)
+        c.addWidget(mf_group)
+        c.addStretch()
+
+    def _build_sf2_panel(self):
+        """Build Surface Fractal controls inside self._sf2_panel."""
+        c = QVBoxLayout(self._sf2_panel)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(4)
+
+        sf_group = QGroupBox('Surface Fractal Parameters')
+        sf_lay = QVBoxLayout(sf_group)
+        sf_grid = QGridLayout()
+        sf_grid.setSpacing(2)
+        self._build_param_header(sf_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(SF_PARAMS, start=1):
+            self._add_param_row(sf_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._sf2_rows)
+        sf_lay.addLayout(sf_grid)
+        c.addWidget(sf_group)
+
+        porod_row = QHBoxLayout()
+        self.sf2_porod_cb = QCheckBox('Porod transition at Qc')
+        self.sf2_porod_cb.stateChanged.connect(self._on_sf2_porod_changed)
+        porod_row.addWidget(self.sf2_porod_cb)
+        porod_row.addStretch()
+        c.addLayout(porod_row)
+
+        self._sf2_porod_group = QGroupBox('Porod Transition Parameters')
+        porod_lay = QVBoxLayout(self._sf2_porod_group)
+        porod_grid = QGridLayout()
+        porod_grid.setSpacing(2)
+        self._build_param_header(porod_grid, 0)
+        for row_i, (key, label, default, lo, hi, fit_default) in enumerate(SF_POROD_PARAMS, start=1):
+            self._add_param_row(porod_grid, row_i, key, label,
+                                default, fit_default, lo, hi, self._sf2_porod_rows)
+        porod_lay.addLayout(porod_grid)
+        self._sf2_porod_group.setVisible(False)
+        c.addWidget(self._sf2_porod_group)
+        c.addStretch()
+
     def _build_param_header(self, grid: QGridLayout, start_row: int):
         hdr_style = 'font-weight: bold; font-size: 10px;'
         for col, text in enumerate(['Parameter', 'Value', 'Fit?', 'Min', 'Max']):
@@ -667,12 +835,27 @@ class PopulationTab(QWidget):
         self._size_dist_panel.setVisible(pt == 'size_dist')
         self._uf_panel.setVisible(pt == 'unified_level')
         self._peak_panel.setVisible(pt == 'diffraction_peak')
+        self._gp_panel.setVisible(pt == 'guinier_porod')
+        self._mf_panel.setVisible(pt == 'mass_fractal')
+        self._sf2_panel.setVisible(pt == 'surface_fractal')
         self._emit_changed()
 
     def _on_uf_corr_changed(self, _=None):
         if self._building:
             return
         self._uf_corr_group.setVisible(self.uf_corr_cb.isChecked())
+        self._emit_changed()
+
+    def _on_gp_corr_changed(self, _=None):
+        if self._building:
+            return
+        self._gp_corr_group.setVisible(self.gp_corr_cb.isChecked())
+        self._emit_changed()
+
+    def _on_sf2_porod_changed(self, _=None):
+        if self._building:
+            return
+        self._sf2_porod_group.setVisible(self.sf2_porod_cb.isChecked())
         self._emit_changed()
 
     def _on_peak_type_changed(self, _=None):
@@ -807,7 +990,10 @@ class PopulationTab(QWidget):
     def set_no_limits(self, no_limits: bool):
         """Show/hide min/max columns based on global 'No limits' checkbox."""
         for store in (self._row_widgets, self._ff_rows, self._sf_rows,
-                      self._uf_rows, self._uf_corr_rows, self._peak_rows):
+                      self._uf_rows, self._uf_corr_rows, self._peak_rows,
+                      self._gp_rows, self._gp_corr_rows,
+                      self._mf_rows,
+                      self._sf2_rows, self._sf2_porod_rows):
             for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in store.items():
                 lo_edit.setVisible(not no_limits)
                 hi_edit.setVisible(not no_limits)
@@ -821,6 +1007,12 @@ class PopulationTab(QWidget):
             return self._read_uf_population()
         if pt == 'diffraction_peak':
             return self._read_peak_population()
+        if pt == 'guinier_porod':
+            return self._read_gp_population()
+        if pt == 'mass_fractal':
+            return self._read_mf_population()
+        if pt == 'surface_fractal':
+            return self._read_sf2_population()
         return self._read_size_dist_population()
 
     def _read_size_dist_population(self) -> SizeDistPopulation:
@@ -925,11 +1117,20 @@ class PopulationTab(QWidget):
             self._size_dist_panel.setVisible(pt == 'size_dist')
             self._uf_panel.setVisible(pt == 'unified_level')
             self._peak_panel.setVisible(pt == 'diffraction_peak')
+            self._gp_panel.setVisible(pt == 'guinier_porod')
+            self._mf_panel.setVisible(pt == 'mass_fractal')
+            self._sf2_panel.setVisible(pt == 'surface_fractal')
 
             if pt == 'unified_level':
                 self._load_uf_population(pop)
             elif pt == 'diffraction_peak':
                 self._load_peak_population(pop)
+            elif pt == 'guinier_porod':
+                self._load_gp_population(pop)
+            elif pt == 'mass_fractal':
+                self._load_mf_population(pop)
+            elif pt == 'surface_fractal':
+                self._load_sf2_population(pop)
             else:
                 self._load_size_dist_population(pop)
         finally:
@@ -1026,6 +1227,117 @@ class PopulationTab(QWidget):
             hi_edit.setText(_fmt(lim[1]))
         self.label_edit.setText(pop.label)
 
+    # ── Guinier-Porod read/load ───────────────────────────────────────────────
+
+    def _read_gp_population(self) -> GuinierPorodPopulation:
+        """Read GP widgets → GuinierPorodPopulation dataclass."""
+        pop = GuinierPorodPopulation()
+        pop.enabled = self.use_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        pop.correlations = self.gp_corr_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_corr_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        pop.label = self.label_edit.text().strip()
+        return pop
+
+    def _load_gp_population(self, pop: GuinierPorodPopulation):
+        """Load GP dataclass into widgets (caller manages _building)."""
+        self.use_cb.setChecked(pop.enabled)
+        self._content.setEnabled(pop.enabled)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', False))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        self.gp_corr_cb.setChecked(pop.correlations)
+        self._gp_corr_group.setVisible(pop.correlations)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_corr_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', False))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        self.label_edit.setText(pop.label)
+
+    # ── Mass Fractal read/load ────────────────────────────────────────────────
+
+    def _read_mf_population(self) -> MassFractalPopulation:
+        """Read MF widgets → MassFractalPopulation dataclass."""
+        pop = MassFractalPopulation()
+        pop.enabled = self.use_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._mf_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        pop.label = self.label_edit.text().strip()
+        return pop
+
+    def _load_mf_population(self, pop: MassFractalPopulation):
+        """Load MF dataclass into widgets (caller manages _building)."""
+        self.use_cb.setChecked(pop.enabled)
+        self._content.setEnabled(pop.enabled)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._mf_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', False))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        self.label_edit.setText(pop.label)
+
+    # ── Surface Fractal read/load ─────────────────────────────────────────────
+
+    def _read_sf2_population(self) -> SurfaceFractalPopulation:
+        """Read surface fractal widgets → SurfaceFractalPopulation dataclass."""
+        pop = SurfaceFractalPopulation()
+        pop.enabled = self.use_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        pop.use_porod_transition = self.sf2_porod_cb.isChecked()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_porod_rows.items():
+            setattr(pop, key, _parse(val_edit.text(), getattr(pop, key)))
+            setattr(pop, f'fit_{key}', fit_cb.isChecked())
+            lo = _parse(lo_edit.text(), 0.0)
+            hi = _parse(hi_edit.text(), 1e10)
+            setattr(pop, f'{key}_limits', (lo, hi))
+        pop.label = self.label_edit.text().strip()
+        return pop
+
+    def _load_sf2_population(self, pop: SurfaceFractalPopulation):
+        """Load surface fractal dataclass into widgets (caller manages _building)."""
+        self.use_cb.setChecked(pop.enabled)
+        self._content.setEnabled(pop.enabled)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 1.0)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', False))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        self.sf2_porod_cb.setChecked(pop.use_porod_transition)
+        self._sf2_porod_group.setVisible(pop.use_porod_transition)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_porod_rows.items():
+            val_edit.setText(_fmt(getattr(pop, key, 0.1)))
+            fit_cb.setChecked(getattr(pop, f'fit_{key}', False))
+            lim = getattr(pop, f'{key}_limits', (0.0, 1e10))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        self.label_edit.setText(pop.label)
+
     # ── UF / Peak panel state dicts (for full state preservation) ────────────
 
     def _read_uf_state_dict(self) -> dict:
@@ -1087,7 +1399,89 @@ class PopulationTab(QWidget):
             lo_edit.setText(_fmt(lim[0]))
             hi_edit.setText(_fmt(lim[1]))
 
-    # ── Full state (all three panels) for state persistence ──────────────────
+    # ── GP / MF / SF panel state dicts ──────────────────────────────────────
+
+    def _read_gp_state_dict(self) -> dict:
+        _gp0 = GuinierPorodPopulation()
+        d = {'correlations': self.gp_corr_cb.isChecked()}
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_gp0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_corr_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_gp0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        return d
+
+    def _load_gp_state(self, d: dict):
+        _gp0 = GuinierPorodPopulation()
+        corr = d.get('correlations', False)
+        self.gp_corr_cb.setChecked(corr)
+        self._gp_corr_group.setVisible(corr)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_gp0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_gp0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_gp0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._gp_corr_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_gp0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_gp0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_gp0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    def _read_mf_state_dict(self) -> dict:
+        _mf0 = MassFractalPopulation()
+        d = {}
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._mf_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_mf0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        return d
+
+    def _load_mf_state(self, d: dict):
+        _mf0 = MassFractalPopulation()
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._mf_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_mf0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_mf0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_mf0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    def _read_sf2_state_dict(self) -> dict:
+        _sf0 = SurfaceFractalPopulation()
+        d = {'use_porod_transition': self.sf2_porod_cb.isChecked()}
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_sf0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_porod_rows.items():
+            d[key] = _parse(val_edit.text(), getattr(_sf0, key))
+            d[f'fit_{key}'] = fit_cb.isChecked()
+            d[f'{key}_limits'] = [_parse(lo_edit.text(), 0.0), _parse(hi_edit.text(), 1e10)]
+        return d
+
+    def _load_sf2_state(self, d: dict):
+        _sf0 = SurfaceFractalPopulation()
+        porod = d.get('use_porod_transition', False)
+        self.sf2_porod_cb.setChecked(porod)
+        self._sf2_porod_group.setVisible(porod)
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_sf0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_sf0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_sf0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+        for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in self._sf2_porod_rows.items():
+            val_edit.setText(_fmt(d.get(key, getattr(_sf0, key))))
+            fit_cb.setChecked(d.get(f'fit_{key}', getattr(_sf0, f'fit_{key}')))
+            lim = d.get(f'{key}_limits', list(getattr(_sf0, f'{key}_limits')))
+            lo_edit.setText(_fmt(lim[0]))
+            hi_edit.setText(_fmt(lim[1]))
+
+    # ── Full state (all panels) for state persistence ─────────────────────────
 
     def to_full_dict(self) -> dict:
         """Serialize all three panels for state persistence (used by _save_state)."""
@@ -1119,6 +1513,9 @@ class PopulationTab(QWidget):
             'n_bins': sd.n_bins,
             'uf': self._read_uf_state_dict(),
             'peak': self._read_peak_state_dict(),
+            'gp': self._read_gp_state_dict(),
+            'mf': self._read_mf_state_dict(),
+            'sf2': self._read_sf2_state_dict(),
             'label': self.label_edit.text().strip(),
         }
         return d
@@ -1140,16 +1537,25 @@ class PopulationTab(QWidget):
             self._size_dist_panel.setVisible(pt == 'size_dist')
             self._uf_panel.setVisible(pt == 'unified_level')
             self._peak_panel.setVisible(pt == 'diffraction_peak')
+            self._gp_panel.setVisible(pt == 'guinier_porod')
+            self._mf_panel.setVisible(pt == 'mass_fractal')
+            self._sf2_panel.setVisible(pt == 'surface_fractal')
 
             # Always load size-dist state (for state preservation when switching types)
             sd_pop = _pop_from_dict_size_dist(d)
             self._load_size_dist_population(sd_pop)
 
-            # Load UF and peak states too
+            # Load all panel states (graceful no-op if key absent = old state file)
             if 'uf' in d:
                 self._load_uf_state(d['uf'])
             if 'peak' in d:
                 self._load_peak_state(d['peak'])
+            if 'gp' in d:
+                self._load_gp_state(d['gp'])
+            if 'mf' in d:
+                self._load_mf_state(d['mf'])
+            if 'sf2' in d:
+                self._load_sf2_state(d['sf2'])
             self.label_edit.setText(d.get('label', ''))
         finally:
             self._building = False
@@ -1217,6 +1623,7 @@ class ModelingGraphWindow(QWidget):
         self.iq_plot.setTitle('Modeling — I(Q)', size='12pt', color='k')
         self.iq_plot.addLegend(offset=(-10, 10), labelTextSize='9pt', labelTextColor='k')
         self._style_axes(self.iq_plot, show_top_values=True)
+        add_slope_line_menu(self.iq_plot)
 
         # ── Residuals plot ────────────────────────────────────────────────
         self.resid_plot = self.gl.addPlot(row=1, col=0)
@@ -1631,6 +2038,7 @@ class ModelingPanel(QWidget):
         help_btn.setFixedSize(60, 22)
         help_btn.setStyleSheet(
             'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
+        help_btn.setToolTip("Open the pyIrena Modeling tool documentation in a browser.")
         help_btn.clicked.connect(self._open_help)
         title_row.addWidget(help_btn)
         lay.addLayout(title_row)
@@ -1645,6 +2053,7 @@ class ModelingPanel(QWidget):
         file_row.addWidget(self.file_edit)
         btn_open = QPushButton('Open…')
         btn_open.setFixedWidth(60)
+        btn_open.setToolTip("Open an NXcanSAS/HDF5 file to load I(Q) data for modeling.")
         btn_open.clicked.connect(self._open_file)
         file_row.addWidget(btn_open)
         lay.addLayout(file_row)
@@ -1714,6 +2123,10 @@ class ModelingPanel(QWidget):
             'QPushButton:hover {background: #42b86a;}'
             'QPushButton:disabled {background: #bdc3c7;}'
         )
+        self.btn_graph.setToolTip(
+            "Compute and display the current model curve without fitting.\n"
+            "Use this to preview the model before running a fit."
+        )
         self.btn_graph.clicked.connect(self.graph_model)
         self.btn_graph.setEnabled(False)
 
@@ -1724,6 +2137,10 @@ class ModelingPanel(QWidget):
             ' border-radius: 4px;}'
             'QPushButton:hover {background: #229954;}'
             'QPushButton:disabled {background: #bdc3c7;}'
+        )
+        self.btn_fit.setToolTip(
+            "Fit the population model to the loaded data using the current parameters.\n"
+            "Checked parameters are varied; unchecked parameters are held fixed."
         )
         self.btn_fit.clicked.connect(self.run_fit)
         self.btn_fit.setEnabled(False)
@@ -1760,6 +2177,10 @@ class ModelingPanel(QWidget):
             ' border-radius: 4px;}'
             'QPushButton:hover {background: #1abc9c;}'
             'QPushButton:disabled {background: #bdc3c7;}'
+        )
+        self.btn_mc.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
         )
         self.btn_mc.clicked.connect(self.calc_uncertainty_mc)
         self.btn_mc.setEnabled(False)
@@ -1824,10 +2245,12 @@ class ModelingPanel(QWidget):
 
         # Row 3: Export Parameters + Import Parameters
         out3 = QHBoxLayout()
-        out3.addWidget(_mkbtn('Export Parameters', 'lgreen', self.export_json,
-                              'Export current parameters to a pyIrena JSON config file.'))
-        out3.addWidget(_mkbtn('Import Parameters', 'lgreen', self._import_parameters,
-                              'Import parameters from a pyIrena JSON config file.'))
+        out3.addWidget(_mkbtn('Save params to JSON', 'lgreen', self.export_json,
+                              'Save current Modeling parameters to a pyIrena JSON file.\n'
+                              "Use 'Load params from JSON' to restore them later."))
+        out3.addWidget(_mkbtn('Load params from JSON', 'lgreen', self._import_parameters,
+                              'Load Modeling parameters from a previously saved pyIrena JSON file.\n'
+                              "Use 'Save params to JSON' to create a compatible file."))
         lay.addLayout(out3)
 
         scroll.setWidget(inner)

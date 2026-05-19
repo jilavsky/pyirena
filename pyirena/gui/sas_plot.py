@@ -47,11 +47,13 @@ from pathlib import Path
 import pyqtgraph as pg
 
 try:
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
+    from PySide6.QtCore import Qt, QPointF, QRectF
+    from PySide6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
 except ImportError:
-    from PyQt6.QtWidgets import QFileDialog, QMessageBox
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
+    from PyQt6.QtCore import Qt, QPointF, QRectF
+    from PyQt6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
 
 
 # ===========================================================================
@@ -147,6 +149,66 @@ class RadiusAxisItem(pg.AxisItem):
                 strings.append(f'{R:.1f}')
             else:
                 strings.append(f'{R:.2f}')
+        return strings
+
+
+# ===========================================================================
+# DSpacingAxisItem — top axis showing d = 2π/Q for WAXS lin-lin plots
+# ===========================================================================
+
+class DSpacingAxisItem(pg.AxisItem):
+    """Top axis for WAXS I(Q) lin-lin plots showing d-spacing d = 2π/Q [Å].
+
+    The ViewBox x-coordinates are physical Q [Å⁻¹] (linear scale).
+    This axis picks nice round d values (1, 2, 5, 10, 20, 50, … Å),
+    converts them to Q = 2π/d positions, and labels them.  Labels
+    decrease from left to right because d ∝ 1/Q.
+    """
+
+    _NICE_MULTIPLIERS = (1, 2, 5)
+    _MAX_TICKS = 8
+
+    def tickValues(self, minVal, maxVal, size):
+        import math
+        TWO_PI = 2.0 * math.pi
+        if minVal <= 0:
+            minVal = 1e-9
+        d_min = TWO_PI / maxVal   # smallest d visible (at largest Q)
+        d_max = TWO_PI / minVal   # largest d visible (at smallest Q)
+        if d_min <= 0 or d_max <= 0 or d_min >= d_max:
+            return []
+        decade_lo = math.floor(math.log10(d_min)) - 1
+        decade_hi = math.ceil(math.log10(d_max)) + 1
+        positions = []
+        for exp in range(int(decade_lo), int(decade_hi) + 1):
+            for mult in self._NICE_MULTIPLIERS:
+                d = mult * (10.0 ** exp)
+                if d_min <= d <= d_max:
+                    q_pos = TWO_PI / d
+                    if minVal <= q_pos <= maxVal:
+                        positions.append(q_pos)
+        if not positions:
+            return []
+        if len(positions) > self._MAX_TICKS:
+            step = max(1, len(positions) // self._MAX_TICKS)
+            positions = positions[::step]
+        return [(1.0, positions)]
+
+    def tickStrings(self, values, scale, spacing):
+        import math
+        TWO_PI = 2.0 * math.pi
+        strings = []
+        for v in values:
+            if v > 0:
+                d = TWO_PI / v
+                if d >= 10:
+                    strings.append(f'{d:.0f}')
+                elif d >= 1:
+                    strings.append(f'{d:.1f}')
+                else:
+                    strings.append(f'{d:.2f}')
+            else:
+                strings.append('')
         return strings
 
 
@@ -313,6 +375,292 @@ except Exception:
 
 
 # ===========================================================================
+# SlopeLine — draggable power-law slope guide line for log-log I(Q) plots
+# ===========================================================================
+
+class SlopeLine(pg.GraphicsObject):
+    """Draggable power-law slope guide line for log-log I(Q) vs Q plots.
+
+    In log-log ViewBox coordinates the power law I ∝ Q^n appears as a
+    straight line  log10(I) = n · log10(Q) + b.  This item works entirely
+    in ViewBox space (log10 on both axes), so it stays geometrically correct
+    at every zoom level.
+
+    Drag vertically to shift the line up/down (changes *b*).
+    Right-click the line to change slope or remove it.
+    """
+
+    # Palette of distinguishable colours so multiple lines are easy to tell apart
+    _COLORS = ['#e67e22', '#8e44ad', '#2980b9', '#27ae60', '#c0392b',
+               '#16a085', '#f39c12', '#7f8c8d']
+    _color_index = 0  # class-level counter; cycles through _COLORS
+
+    def __init__(self, slope: float = -4.0, log10_offset: float = 0.0,
+                 color: str | None = None):
+        super().__init__()
+
+        self.slope = float(slope)
+        self.log10_offset = float(log10_offset)
+
+        if color is None:
+            color = SlopeLine._COLORS[SlopeLine._color_index % len(SlopeLine._COLORS)]
+            SlopeLine._color_index += 1
+
+        self._color = color
+        self._pen = pg.mkPen(color, width=1.8, style=Qt.PenStyle.DashLine)
+        self._hover_pen = pg.mkPen(color, width=3.0, style=Qt.PenStyle.DashLine)
+        self._active_pen = self._pen
+        self._drag_offset0 = None   # log10_offset at start of current drag
+
+        # Label — a TextItem child so it always renders at screen pixel size
+        # and follows the line during pan/zoom/drag automatically.
+        self._label = pg.TextItem(
+            text=f'n = {slope:g}',
+            color=color,
+            anchor=(0.5, 1),            # centre-bottom of text box at the set position
+            fill=pg.mkBrush(255, 255, 255, 180),   # semi-transparent white backing
+        )
+        self._label.setFont(QFont('Arial', 9, QFont.Weight.Bold))
+        self._label.setParentItem(self)
+        # Temporary initial position; updated by viewRangeChanged() once added to a ViewBox.
+        self._label.setPos(0.0, log10_offset)
+
+        self.setAcceptHoverEvents(True)
+        # Do NOT call setCursor() here — applying it in __init__ would affect
+        # the full boundingRect() and permanently hijack the cursor everywhere.
+        # We set/unset it inside hoverEvent() instead.
+        self.setZValue(10)          # draw above data
+
+    # ------------------------------------------------------------------
+    # GraphicsObject protocol
+    # ------------------------------------------------------------------
+
+    def boundingRect(self) -> QRectF:
+        """Return a rect covering the current ViewBox range.
+
+        Returning the view rect (rather than an enormous fixed rect) keeps
+        the cursor scope limited to the actual plot area.  viewRangeChanged()
+        calls prepareGeometryChange() so Qt re-queries this when zoom changes.
+        """
+        vb = self.getViewBox()
+        if vb is None or not hasattr(vb, 'viewRange'):
+            return QRectF(-1e9, -1e9, 2e9, 2e9)
+        [[x0, x1], [y0, y1]] = vb.viewRange()
+        return QRectF(QPointF(x0, min(y0, y1)),
+                      QPointF(x1, max(y0, y1))).normalized()
+
+    def viewRangeChanged(self) -> None:
+        """Called by pyqtgraph when the ViewBox is panned or zoomed."""
+        self.prepareGeometryChange()
+        self._reposition_label()
+        self.update()
+
+    def _reposition_label(self) -> None:
+        """Place the TextItem label at the midpoint of the visible line segment.
+
+        The line may enter/exit the view through the top or bottom edges.
+        Computing the visible segment prevents the label from being placed
+        outside the ViewBox clip region (where it would be invisible).
+        """
+        vb = self.getViewBox()
+        if vb is None or not hasattr(vb, 'viewRange'):
+            return
+        [[x0, x1], [y0, y1]] = vb.viewRange()
+        y_lo, y_hi = min(y0, y1), max(y0, y1)
+
+        # Find the x range over which the line is within the visible y band.
+        # y = slope*x + offset  →  x = (y - offset) / slope
+        if abs(self.slope) > 1e-10:
+            x_at_ylo = (y_lo - self.log10_offset) / self.slope
+            x_at_yhi = (y_hi - self.log10_offset) / self.slope
+            x_lo_clip = max(x0, min(x_at_ylo, x_at_yhi))
+            x_hi_clip = min(x1, max(x_at_ylo, x_at_yhi))
+        else:
+            x_lo_clip, x_hi_clip = x0, x1
+
+        if x_lo_clip >= x_hi_clip:
+            return  # line is entirely outside the visible area
+
+        xp = (x_lo_clip + x_hi_clip) / 2.0
+        yp = self.slope * xp + self.log10_offset
+        self._label.setPos(xp, yp)
+
+    def shape(self) -> QPainterPath:
+        """Hit-test path: a band of ~8 pixels around the line.
+
+        Qt uses shape() (via contains()) for hover and cursor dispatch,
+        so this restricts interactivity to a narrow strip around the line.
+        """
+        vb = self.getViewBox()
+        if vb is None or not hasattr(vb, 'viewRange'):
+            return QPainterPath()
+        [[x0, x1], _] = vb.viewRange()
+        ya = self.slope * x0 + self.log10_offset
+        yb = self.slope * x1 + self.log10_offset
+        _, py = vb.viewPixelSize() if hasattr(vb, 'viewPixelSize') else (0, 0)
+        band = 8.0 * abs(py) if py else 0.05
+        path = QPainterPath()
+        path.moveTo(QPointF(x0, ya - band))
+        path.lineTo(QPointF(x1, yb - band))
+        path.lineTo(QPointF(x1, yb + band))
+        path.lineTo(QPointF(x0, ya + band))
+        path.closeSubpath()
+        return path
+
+    def paint(self, p, *args) -> None:
+        vb = self.getViewBox()
+        if vb is None or not hasattr(vb, 'viewRange'):
+            return
+        [[x0, x1], _] = vb.viewRange()
+        ya = self.slope * x0 + self.log10_offset
+        yb = self.slope * x1 + self.log10_offset
+        p.setPen(self._active_pen)
+        p.drawLine(QPointF(x0, ya), QPointF(x1, yb))
+        # Label is drawn by the TextItem child — no label code here.
+
+    # ------------------------------------------------------------------
+    # Hover — use pyqtgraph's hoverEvent (has reliable isExit()) rather
+    # than Qt's hoverEnterEvent / hoverLeaveEvent which can stay "stuck".
+    # ------------------------------------------------------------------
+
+    def hoverEvent(self, ev) -> None:
+        if ev.isExit():
+            self._active_pen = self._pen
+            self.unsetCursor()
+        else:
+            self._active_pen = self._hover_pen
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.update()
+
+    # ------------------------------------------------------------------
+    # Drag — use pyqtgraph's mouseDragEvent, NOT Qt's mouseMoveEvent.
+    # pyqtgraph intercepts press+move and routes them through mouseDragEvent;
+    # mouseMoveEvent is only called when no button is held.
+    # ------------------------------------------------------------------
+
+    def mouseDragEvent(self, ev) -> None:
+        if ev.button() != Qt.MouseButton.LeftButton:
+            ev.ignore()
+            return
+        ev.accept()
+        if ev.isStart():
+            self._drag_offset0 = self.log10_offset
+        # ev.pos() and ev.buttonDownPos() are in item (= ViewBox) coordinates
+        dy = ev.pos().y() - ev.buttonDownPos().y()
+        self.log10_offset = self._drag_offset0 + dy
+        self._reposition_label()
+        self.prepareGeometryChange()
+        self.update()
+
+    # ------------------------------------------------------------------
+    # Right-click — use pyqtgraph's getContextMenus() hook rather than
+    # Qt's contextMenuEvent().  GraphicsScene calls getContextMenus() on
+    # items found near the click and combines results; returning [] lets
+    # the normal ViewBox menu show through unmodified.
+    # ------------------------------------------------------------------
+
+    def getContextMenus(self, ev):
+        """Return slope-line actions when right-clicking near the line.
+
+        Called by pyqtgraph's GraphicsScene.contextMenuEvent.  Returning []
+        when the click is away from the line passes control to the ViewBox
+        so the standard graph menu is unaffected.
+        """
+        if not self.shape().contains(ev.pos()):
+            return []
+
+        try:
+            from PySide6.QtWidgets import QMenu
+        except ImportError:
+            from PyQt6.QtWidgets import QMenu
+
+        menu = QMenu()
+        hdr = menu.addAction(f'Slope line  n = {self.slope:g}  — drag to reposition')
+        hdr.setEnabled(False)
+        menu.addSeparator()
+        change_act = menu.addAction('Change slope…')
+        remove_act = menu.addAction('Remove this slope line')
+
+        def _change():
+            val, ok = QInputDialog.getDouble(
+                None, 'Change slope',
+                'Power-law exponent  n  (e.g. −4 for Porod):',
+                self.slope, -8.0, -0.5, 2,
+            )
+            if ok:
+                self.slope = val
+                self._label.setText(f'n = {val:g}')
+                self._reposition_label()
+                self.prepareGeometryChange()
+                self.update()
+
+        def _remove():
+            vb = self.getViewBox()
+            if vb is not None:
+                vb.removeItem(self)
+
+        change_act.triggered.connect(_change)
+        remove_act.triggered.connect(_remove)
+        return [menu]
+
+
+# ---------------------------------------------------------------------------
+
+def add_slope_line_menu(plot: pg.PlotItem, default_slope: float = -4.0) -> None:
+    """Attach a 'Slope guide line' submenu to a PlotItem's ViewBox right-click menu.
+
+    Slope lines are guide lines with a fixed power-law slope drawn in log-log
+    ViewBox space.  They are geometrically correct at any zoom level and can be
+    dragged vertically to align with the data.
+
+    Parameters
+    ----------
+    plot : pg.PlotItem
+        The target plot (must be in log-log mode for the lines to be meaningful).
+    default_slope : float
+        Slope inserted by the 'Custom slope…' dialog as the initial value.
+    """
+    vb = plot.getViewBox()
+    menu = vb.menu
+
+    def _add(slope: float) -> None:
+        # Place the line so it passes through the visual centre of the
+        # current view: offset = yc - slope * xc
+        [[x0, x1], [y0, y1]] = vb.viewRange()
+        xc = (x0 + x1) / 2.0
+        yc = (y0 + y1) / 2.0
+        offset = yc - slope * xc
+        line = SlopeLine(slope=slope, log10_offset=offset)
+        vb.addItem(line)
+
+    def _remove_all() -> None:
+        to_remove = [it for it in vb.addedItems if isinstance(it, SlopeLine)]
+        for it in to_remove:
+            vb.removeItem(it)
+
+    def _custom() -> None:
+        val, ok = QInputDialog.getDouble(
+            None, 'Add slope line',
+            'Power-law exponent  n  (e.g. −4 for Porod):',
+            default_slope, -8.0, -0.5, 2,
+        )
+        if ok:
+            _add(val)
+
+    menu.addSeparator()
+    slope_menu = menu.addMenu('Add slope guide line')
+    presets = [(-2, 'n = −2'), (-3, 'n = −3'), (-4, 'n = −4  (Porod)'),
+               (-5, 'n = −5'), (-6, 'n = −6')]
+    for n, label in presets:
+        act = slope_menu.addAction(label)
+        act.triggered.connect(lambda checked=False, s=n: _add(s))
+    slope_menu.addSeparator()
+    slope_menu.addAction('Custom slope…').triggered.connect(_custom)
+
+    menu.addAction('Remove all slope lines').triggered.connect(_remove_all)
+
+
+# ===========================================================================
 # Plot factory
 # ===========================================================================
 
@@ -326,6 +674,7 @@ def make_sas_plot(
     x_link=None,
     log_x: bool = True,
     log_y: bool = True,
+    d_spacing_axis: bool = False,
     parent_widget=None,
     jpeg_default_name: str = 'pyirena_graph',
 ) -> pg.PlotItem:
@@ -362,12 +711,16 @@ def make_sas_plot(
     axis_items = {}
     if log_x:
         axis_items['top'] = RadiusAxisItem(orientation='top')
+    elif d_spacing_axis:
+        axis_items['top'] = DSpacingAxisItem(orientation='top')
     plot = graphics_layout.addPlot(row=row, col=col, axisItems=axis_items)
     plot.setLogMode(x=log_x, y=log_y)
     plot.setLabel('left',   y_label)
     plot.setLabel('bottom', x_label)
     if log_x and 'top' in axis_items:
         plot.getAxis('top').setLabel('R = π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
+    elif d_spacing_axis and 'top' in axis_items:
+        plot.getAxis('top').setLabel('d = 2π/Q  (Å)', **{'color': '#888', 'font-size': '9pt'})
     plot.showGrid(x=True, y=True, alpha=SASPlotStyle.GRID_ALPHA)
     plot.getAxis('left').enableAutoSIPrefix(False)
     plot.getAxis('bottom').enableAutoSIPrefix(False)
@@ -378,6 +731,8 @@ def make_sas_plot(
     if parent_widget is not None:
         _add_jpeg_export(plot, parent_widget, jpeg_default_name,
                          x_label=x_label, y_label=y_label, title=title or '')
+    if log_x and log_y:
+        add_slope_line_menu(plot)
     return plot
 
 

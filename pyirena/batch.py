@@ -1732,6 +1732,7 @@ def fit_modeling(
     from pyirena.core.modeling import (
         ModelingEngine, ModelingConfig,
         SizeDistPopulation, UnifiedLevelPopulation, DiffractionPeakPopulation,
+        GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
     )
     from pyirena.io.nxcansas_modeling import save_modeling_results
 
@@ -1764,6 +1765,43 @@ def fit_modeling(
                 setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
                 lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
                 setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'guinier_porod':
+            pop = GuinierPorodPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            pop.correlations = bool(pd.get('correlations', False))
+            for key in ['ETA', 'PACK']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'mass_fractal':
+            pop = MassFractalPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            return pop
+        if pt == 'surface_fractal':
+            pop = SurfaceFractalPopulation()
+            pop.enabled = bool(pd.get('enabled', True))
+            pop.label = pd.get('label', '')
+            for key in ['Surface', 'Ds', 'Ksi', 'Contrast', 'Qc', 'QcWidth']:
+                setattr(pop, key, float(pd.get(key, getattr(pop, key))))
+                setattr(pop, f'fit_{key}', bool(pd.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+                lim = pd.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+                setattr(pop, f'{key}_limits', tuple(lim))
+            pop.use_porod_transition = bool(pd.get('use_porod_transition', False))
             return pop
         # default: size_dist
         return SizeDistPopulation(
@@ -2168,6 +2206,11 @@ def average_data(
     data_files,
     output_folder=None,
     verbose: bool = True,
+    similarity_check: bool = False,
+    similarity_p_min: float = 0.01,
+    similarity_method: str = 'cormap',
+    similarity_reference: str = 'first',
+    similarity_normalize_scale: bool = True,
 ) -> Optional[Dict]:
     """Average multiple SAS datasets.
 
@@ -2179,10 +2222,27 @@ def average_data(
         Where to save.  If None, uses ``{first_file_folder}_manip``.
     verbose : bool
         Print progress.
+    similarity_check : bool
+        When True, run a similarity analysis before averaging and discard
+        outliers (likely radiation-damaged frames).
+    similarity_p_min : float
+        P-value threshold for rejection (0–1).  Frames with p < threshold are
+        discarded.  Typical range: 0.001–0.05.
+    similarity_method : str
+        Similarity algorithm.  Currently ``'cormap'`` (Franke 2015).
+    similarity_reference : str
+        ``'first'`` — compare each frame vs. frame 0 (frame 0 always kept);
+        ``'majority'`` — compare each frame vs. the median of all frames.
+    similarity_normalize_scale : bool
+        When True (default), rescale each frame to match the reference before
+        comparing.  Removes flux-drift / absorption differences so that only
+        shape differences are detected.
 
     Returns
     -------
     dict or None
+        On success includes ``'rejected'``: list of ``(filename, p_value)``
+        pairs for frames that were discarded by the similarity filter.
     """
     from pyirena.core.data_manipulation import DataManipulation
     from pyirena.io.nxcansas_data_manipulation import save_manipulated_data
@@ -2192,33 +2252,61 @@ def average_data(
         return None
 
     datasets = []
-    first_data = None
+    loaded_files = []   # Path objects parallel to datasets
+    loaded_data = []    # raw dicts parallel to datasets
     for fp in files:
         d = _load_data(fp)
         if d is None:
             continue
-        if first_data is None:
-            first_data = d
         q, I = d['Q'], d['Intensity']
         dI = d.get('Error', I * 0.05)
         dQ = d.get('dQ')
         datasets.append((q, I, dI, dQ))
+        loaded_files.append(fp)
+        loaded_data.append(d)
 
     if len(datasets) < 2:
         print("[pyirena.batch] Need at least 2 datasets to average")
         return None
 
+    # --- Optional similarity filter ---
+    rejected_pairs: list[tuple[str, float]] = []
+    if similarity_check:
+        from pyirena.core.similarity import check_similarity
+        filenames = [fp.name for fp in loaded_files]
+        sim_results = check_similarity(
+            datasets,
+            filenames=filenames,
+            method=similarity_method,
+            reference=similarity_reference,
+            p_min=similarity_p_min,
+            normalize_scale=similarity_normalize_scale,
+        )
+        if verbose:
+            for r in sim_results:
+                tag = "OK    " if r.accepted else "REJECT"
+                print(f"  [{tag}] {r.filename}  p={r.p_value:.4f}"
+                      f"  C={r.longest_run}  N={r.n_points}")
+        accepted_idx = [r.idx for r in sim_results if r.accepted]
+        rejected_pairs = [(r.filename, r.p_value) for r in sim_results if not r.accepted]
+        datasets = [datasets[i] for i in accepted_idx]
+        loaded_files = [loaded_files[i] for i in accepted_idx]
+        loaded_data = [loaded_data[i] for i in accepted_idx]
+        if len(datasets) < 2:
+            print("[pyirena.batch] Too few datasets remain after similarity filtering.")
+            return None
+
     result = DataManipulation.average(datasets, reference_index=0)
 
     if output_folder is None:
-        output_folder = str(files[0].parent) + '_manip'
+        output_folder = str(loaded_files[0].parent) + '_manip'
     output_folder = Path(output_folder)
 
     try:
         out_path = save_manipulated_data(
             output_folder=output_folder,
-            source_path=files[0],
-            source_is_nxcansas=first_data.get('is_nxcansas', False),
+            source_path=loaded_files[0],
+            source_is_nxcansas=loaded_data[0].get('is_nxcansas', False),
             q=result.q, I=result.I, dI=result.dI, dQ=result.dQ,
             operation=result.operation,
             provenance=result.metadata,
@@ -2237,4 +2325,5 @@ def average_data(
         'output_file': out_path,
         'message': msg,
         'n_datasets': len(datasets),
+        'rejected': rejected_pairs,
     }

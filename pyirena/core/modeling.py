@@ -189,6 +189,112 @@ class DiffractionPeakPopulation:
 
 
 @dataclass
+class GuinierPorodPopulation:
+    """Guinier-Porod piecewise scattering model (Hammouda 2010, J. Appl. Cryst. 43, 716).
+
+    Always 6 shape parameters: G, Rg1, s1, P, Rg2, s2.
+    Default Rg2=1e10 collapses the low-Q regime (single-level behaviour).
+    Optional: RgCO cutoff; Born-Green correlations (ETA, PACK).
+    """
+    pop_type: str = 'guinier_porod'
+    enabled: bool = True
+    G:   float = 1.0
+    fit_G: bool = True
+    G_limits: tuple = (1e-10, 1e10)
+    Rg1: float = 10.0
+    fit_Rg1: bool = True
+    Rg1_limits: tuple = (0.1, 1e6)
+    s1:  float = 0.0
+    fit_s1: bool = False
+    s1_limits: tuple = (0.0, 3.0)
+    P:   float = 4.0
+    fit_P: bool = False
+    P_limits: tuple = (0.0, 6.0)
+    Rg2: float = 1e10
+    fit_Rg2: bool = False
+    Rg2_limits: tuple = (0.1, 1e12)
+    s2:  float = 0.0
+    fit_s2: bool = False
+    s2_limits: tuple = (0.0, 3.0)
+    RgCO: float = 0.0
+    fit_RgCO: bool = False
+    RgCO_limits: tuple = (0.0, 1e6)
+    correlations: bool = False
+    ETA:  float = 10.0
+    fit_ETA: bool = False
+    ETA_limits: tuple = (0.1, 1e6)
+    PACK: float = 0.0
+    fit_PACK: bool = False
+    PACK_limits: tuple = (0.0, 16.0)
+    label: str = ''
+
+
+@dataclass
+class MassFractalPopulation:
+    """Mass fractal aggregate scattering (Teixeira 1988, J. Appl. Cryst. 21, 781).
+
+    Sphere primary particles (Beta=1) with a fractal structure factor.
+    Phi · Contrast · V · [S_fractal(Q) + (1-Eta)²] · |F(qR)|²
+    """
+    pop_type: str = 'mass_fractal'
+    enabled: bool = True
+    Phi:      float = 0.001
+    fit_Phi: bool = True
+    Phi_limits: tuple = (1e-8, 1.0)
+    Radius:   float = 50.0
+    fit_Radius: bool = True
+    Radius_limits: tuple = (0.1, 1e6)
+    Beta:     float = 1.0    # aspect ratio (1=sphere, <1=oblate, >1=prolate)
+    fit_Beta: bool = False
+    Beta_limits: tuple = (0.01, 100.0)
+    Dv:       float = 2.5
+    fit_Dv: bool = True
+    Dv_limits: tuple = (1.0, 3.0)
+    Ksi:      float = 500.0
+    fit_Ksi: bool = True
+    Ksi_limits: tuple = (1.0, 1e7)
+    Eta:      float = 0.5
+    fit_Eta: bool = False
+    Eta_limits: tuple = (0.3, 0.8)
+    Contrast: float = 1.0
+    fit_Contrast: bool = False
+    Contrast_limits: tuple = (0.0, 1e10)
+    label: str = ''
+
+
+@dataclass
+class SurfaceFractalPopulation:
+    """Surface fractal scattering (Teixeira 1988, J. Appl. Cryst. 21, 781).
+
+    π · Contrast · Ksi⁴ · Surface · Γ(5-Ds) · sin((3-Ds)·atan(Q·Ksi))
+      / ((1+(Q·Ksi)²)^((5-Ds)/2) · Q·Ksi)
+    Optional smooth Porod transition to Q⁻⁴ above Qc.
+    """
+    pop_type: str = 'surface_fractal'
+    enabled: bool = True
+    Surface:  float = 1e4
+    fit_Surface: bool = True
+    Surface_limits: tuple = (1.0, 1e12)
+    Ds:       float = 2.5
+    fit_Ds: bool = True
+    Ds_limits: tuple = (2.0, 3.0)
+    Ksi:      float = 500.0
+    fit_Ksi: bool = True
+    Ksi_limits: tuple = (1.0, 1e7)
+    Contrast: float = 1.0
+    fit_Contrast: bool = False
+    Contrast_limits: tuple = (0.0, 1e10)
+    use_porod_transition: bool = False
+    Qc:       float = 0.1
+    fit_Qc: bool = False
+    Qc_limits: tuple = (0.001, 10.0)
+    QcWidth:  float = 0.1
+    fit_QcWidth: bool = False
+    QcWidth_limits: tuple = (0.01, 1.0)
+    label: str = ''
+
+
+@dataclass
 class ModelingConfig:
     """Global configuration for a Modeling fit."""
     populations: list = field(default_factory=list)   # list of SizeDistPopulation
@@ -339,6 +445,186 @@ def _diffraction_peak_intensity(
     return pop.amplitude * (eta * l + (1.0 - eta) * g)
 
 
+def _guinier_porod_intensity(
+    q: np.ndarray, pop: 'GuinierPorodPopulation',
+) -> np.ndarray:
+    """Guinier-Porod piecewise model (Hammouda 2010).
+
+    6 shape params: G, Rg1, s1, P, Rg2, s2.
+    Rg2=1e10 default collapses the Q2 crossover (single-level behaviour).
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Rg1 = max(pop.Rg1, 1e-10)
+        # Guard against s1 == P (D→0/0) or P <= s1
+        P_eff = pop.P if pop.P > pop.s1 + 1e-6 else pop.s1 + 1e-6
+
+        Q1 = np.sqrt((P_eff - pop.s1) * (3.0 - pop.s1) / 2.0) / Rg1
+        Q1 = max(Q1, 1e-30)
+        D  = (pop.G * np.exp(-(P_eff - pop.s1) / 2.0)
+              * ((3.0 - pop.s1) * (P_eff - pop.s1) / 2.0) ** ((P_eff - pop.s1) / 2.0)
+              / Rg1 ** (P_eff - pop.s1))
+
+        # Build middle + high-Q regime
+        q_s1 = np.where(q < 1e-20, 1.0, q ** pop.s1)
+        guinier1  = pop.G / np.maximum(q_s1, 1e-100) * np.exp(-q ** 2 * Rg1 ** 2 / (3.0 - pop.s1))
+        powerlaw  = D / np.maximum(q, 1e-100) ** P_eff
+        I = np.where(q < Q1, guinier1, powerlaw)
+
+        # Second Guinier-Porod regime (active only when Q2 > 0 and Q2 < Q1)
+        Rg2 = max(pop.Rg2, 1e-10)
+        denom = 2.0 / (3.0 - pop.s2) * Rg2 ** 2 - 2.0 / (3.0 - pop.s1) * Rg1 ** 2
+        if abs(denom) > 1e-30:
+            Q2sq = (1.0 - pop.s2) / denom
+            if Q2sq > 0:
+                Q2 = np.sqrt(Q2sq)
+                if 0 < Q2 < Q1:
+                    G2 = (pop.G
+                          * np.exp(-Q2 ** 2 * (Rg1 ** 2 / (3.0 - pop.s1)
+                                               - Rg2 ** 2 / (3.0 - pop.s2)))
+                          * Q2 ** (pop.s2 - pop.s1))
+                    q_s2 = np.where(q < 1e-20, 1.0, q ** pop.s2)
+                    guinier2 = G2 / np.maximum(q_s2, 1e-100) * np.exp(
+                        -q ** 2 * Rg2 ** 2 / (3.0 - pop.s2))
+                    I = np.where(q < Q2, guinier2, I)
+
+    if pop.RgCO > 0:
+        I = I * np.exp(-pop.RgCO ** 2 * q ** 2 / 3.0)
+    if pop.correlations and pop.PACK > 0:
+        I = I / (1.0 + pop.PACK * _sphere_amplitude(q, pop.ETA))
+    return I
+
+
+def _chi_s_mf(Beta: float) -> float:
+    """CHiS factor for a spheroid (IR1V_CaculateChiS from IR1_Fractals.ipf)."""
+    if Beta < 1.0 - 1e-6:
+        return (1.0 / (2.0 * Beta)) * (
+            1.0 + (Beta ** 2 / np.sqrt(1.0 - Beta ** 2))
+            * np.log((1.0 + np.sqrt(1.0 - Beta ** 2)) / Beta)
+        )
+    if Beta > 1.0 + 1e-6:
+        return (1.0 / (2.0 * Beta)) * (
+            1.0 + (Beta ** 2 / np.sqrt(Beta ** 2 - 1.0))
+            * np.arcsin(np.sqrt(Beta ** 2 - 1.0) / Beta)
+        )
+    return 1.0   # sphere
+
+
+def _spheroid_ff2_avg(
+    q: np.ndarray, R: float, Beta: float, n_pts: int = 50,
+) -> np.ndarray:
+    """Orientation-averaged spheroid |F(q)|² via Gauss-Legendre quadrature.
+
+    Ports IR1V_CalculateFSquared from IR1_Fractals.ipf.
+    Integration variable x = cos(theta), 0..1.
+    P(q) = 9 * [∫₀¹ h(qR√(1+(β²-1)x²)) dx]²  where h(z) = (sin z - z cos z)/z³
+    """
+    from scipy.special import roots_legendre
+    xi, wi = roots_legendre(n_pts)
+    x = (xi + 1.0) / 2.0          # map [-1,1] → [0,1]
+    w = wi / 2.0                   # Jacobian
+
+    # effective radius factor u = sqrt(1 + (Beta²-1)·x²), shape (n_pts,)
+    u = np.sqrt(np.maximum(1.0 + (Beta ** 2 - 1.0) * x ** 2, 0.0))
+
+    # qRu: shape (n_q, n_pts)
+    qRu = np.outer(q, R * u)
+
+    # h(z) = (sin z - z cos z)/z³,  h(0) = 1/3
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        h = np.where(
+            qRu < 1e-6,
+            1.0 / 3.0,
+            (np.sin(qRu) - qRu * np.cos(qRu)) / np.maximum(qRu ** 3, 1e-200),
+        )
+
+    integral = h @ w          # (n_q, n_pts) @ (n_pts,) → (n_q,)
+    return 9.0 * integral ** 2
+
+
+def _mass_fractal_intensity(
+    q: np.ndarray, pop: 'MassFractalPopulation',
+) -> np.ndarray:
+    """Mass fractal aggregate scattering (Teixeira 1988).
+
+    Primary particles are spheroids with aspect ratio Beta (1 = sphere).
+    For Beta ≠ 1 uses orientation-averaged spheroid form factor via GL quadrature.
+    """
+    R    = max(pop.Radius, 1e-10)
+    Dv   = float(np.clip(pop.Dv, 1.001, 2.999))
+    Ksi  = max(pop.Ksi, 1e-10)
+    Beta = max(getattr(pop, 'Beta', 1.0), 1e-3)
+
+    # Spheroid volume (4/3)·π·R²·(Beta·R) = (4/3)·π·R³·Beta
+    V = (4.0 / 3.0) * np.pi * R ** 3 * Beta
+
+    # CHiS and RC generalise the sphere case (Beta=1 → ChiS=1, RC=2R)
+    ChiS = _chi_s_mf(Beta)
+    RC   = R * np.sqrt(2.0) / ChiS * np.sqrt(1.0 + ((2.0 + Beta ** 2) / 3.0) * ChiS ** 2)
+    RC   = max(RC, 1e-10)
+
+    Bracket = pop.Eta * RC ** 3 / (Beta * R ** 3) * (Ksi / RC) ** Dv
+
+    qKsi = q * Ksi
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sf_num   = np.sin((Dv - 1.0) * np.arctan(qKsi))
+        sf_denom = (Dv - 1.0) * qKsi * (1.0 + qKsi ** 2) ** ((Dv - 1.0) / 2.0)
+        frac_sf  = np.where(qKsi < 1e-6, 1.0, sf_num / np.maximum(sf_denom, 1e-100))
+
+    # Form factor: sphere path avoids integration overhead for Beta ≈ 1
+    if abs(Beta - 1.0) < 0.01:
+        qR  = q * R
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ff2 = np.where(
+                qR < 1e-6,
+                1.0,
+                (3.0 * (np.sin(qR) - qR * np.cos(qR)) / np.maximum(qR ** 3, 1e-100)) ** 2,
+            )
+    else:
+        ff2 = _spheroid_ff2_avg(q, R, Beta)
+
+    return pop.Phi * pop.Contrast * 1e-4 * V * (Bracket * frac_sf + (1.0 - pop.Eta) ** 2) * ff2
+
+
+def _surface_fractal_intensity(
+    q: np.ndarray, pop: 'SurfaceFractalPopulation',
+) -> np.ndarray:
+    """Surface fractal scattering (Teixeira 1988).
+
+    Uses gammaln for numerical stability near Ds→3.
+    Optional smooth Porod transition above Qc (erf blending).
+    """
+    from scipy.special import gammaln, erf as scipy_erf
+
+    Ksi = max(pop.Ksi, 1e-10)
+    Ds  = float(np.clip(pop.Ds, 2.001, 2.999))
+
+    qKsi = q * Ksi
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sf_num   = np.sin((3.0 - Ds) * np.arctan(qKsi))
+        sf_denom = (1.0 + qKsi ** 2) ** ((5.0 - Ds) / 2.0) * qKsi
+        gamma_val = np.exp(gammaln(5.0 - Ds))
+        I = (np.pi * pop.Contrast * 1e20 * Ksi ** 4 * 1e-32
+             * pop.Surface * gamma_val
+             * np.where(qKsi < 1e-6, 0.0,
+                        sf_num / np.maximum(sf_denom, 1e-100)))
+
+    if pop.use_porod_transition and pop.Qc > 0:
+        sigma = pop.Qc * pop.QcWidth / 2.3548
+        if sigma > 1e-10:
+            step1 = 0.5 * (1.0 + scipy_erf((pop.Qc - q) / (np.sqrt(2.0) * sigma)))
+            # Continuity: A = I(Qc) * Qc^4
+            i_qc  = np.interp(pop.Qc, q, I)
+            A_por = i_qc * pop.Qc ** 4
+            I = I * step1 + A_por * np.maximum(q, 1e-30) ** -4 * (1.0 - step1)
+
+    return I
+
+
 def apply_structure_factor(
     I_raw: np.ndarray,
     q: np.ndarray,
@@ -456,6 +742,15 @@ def compute_derived(radius_grid, vol_dist, num_dist, pop) -> dict:
             'amplitude': pop.amplitude,
             'width': pop.width,
         }
+    if pop_type == 'guinier_porod':
+        return {'G': pop.G, 'Rg1': pop.Rg1, 's1': pop.s1, 'P': pop.P,
+                'Rg2': pop.Rg2, 's2': pop.s2}
+    if pop_type == 'mass_fractal':
+        return {'Phi': pop.Phi, 'Radius': pop.Radius,
+                'Beta': getattr(pop, 'Beta', 1.0),
+                'Dv': pop.Dv, 'Ksi': pop.Ksi, 'Eta': pop.Eta}
+    if pop_type == 'surface_fractal':
+        return {'Surface': pop.Surface, 'Ds': pop.Ds, 'Ksi': pop.Ksi}
     # size_dist
     dr = bin_widths(radius_grid)
     vol_tot = np.sum(vol_dist * dr)
@@ -777,6 +1072,15 @@ class ModelingEngine:
                 elif pop_type == 'diffraction_peak':
                     I_pop = _diffraction_peak_intensity(q, pop)
                     rg, vd, nd = None, None, None
+                elif pop_type == 'guinier_porod':
+                    I_pop = _guinier_porod_intensity(q, pop)
+                    rg, vd, nd = None, None, None
+                elif pop_type == 'mass_fractal':
+                    I_pop = _mass_fractal_intensity(q, pop)
+                    rg, vd, nd = None, None, None
+                elif pop_type == 'surface_fractal':
+                    I_pop = _surface_fractal_intensity(q, pop)
+                    rg, vd, nd = None, None, None
                 else:  # size_dist
                     I_pop, vd, nd = self.calculate_pop_intensity(
                         pop, q,
@@ -843,6 +1147,47 @@ class ModelingEngine:
                     keys.append(('pop', i, 'peak', 'eta_voigt'))
                 continue
 
+            if pop_type == 'guinier_porod':
+                for name in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO']:
+                    if getattr(pop, f'fit_{name}', False):
+                        lim = getattr(pop, f'{name}_limits')
+                        x0.append(getattr(pop, name))
+                        lo.append(lim[0]); hi.append(lim[1])
+                        keys.append(('pop', i, 'gp', name))
+                if pop.correlations:
+                    for name in ['ETA', 'PACK']:
+                        if getattr(pop, f'fit_{name}', False):
+                            lim = getattr(pop, f'{name}_limits')
+                            x0.append(getattr(pop, name))
+                            lo.append(lim[0]); hi.append(lim[1])
+                            keys.append(('pop', i, 'gp', name))
+                continue
+
+            if pop_type == 'mass_fractal':
+                for name in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+                    if getattr(pop, f'fit_{name}', False):
+                        lim = getattr(pop, f'{name}_limits')
+                        x0.append(getattr(pop, name))
+                        lo.append(lim[0]); hi.append(lim[1])
+                        keys.append(('pop', i, 'mf', name))
+                continue
+
+            if pop_type == 'surface_fractal':
+                for name in ['Surface', 'Ds', 'Ksi', 'Contrast']:
+                    if getattr(pop, f'fit_{name}', False):
+                        lim = getattr(pop, f'{name}_limits')
+                        x0.append(getattr(pop, name))
+                        lo.append(lim[0]); hi.append(lim[1])
+                        keys.append(('pop', i, 'sf', name))
+                if pop.use_porod_transition:
+                    for name in ['Qc', 'QcWidth']:
+                        if getattr(pop, f'fit_{name}', False):
+                            lim = getattr(pop, f'{name}_limits')
+                            x0.append(getattr(pop, name))
+                            lo.append(lim[0]); hi.append(lim[1])
+                            keys.append(('pop', i, 'sf', name))
+                continue
+
             # size_dist — Distribution params
             for name in D.DIST_PARAM_NAMES.get(pop.dist_type, []):
                 if pop.dist_params_fit.get(name, False):
@@ -901,9 +1246,7 @@ class ModelingEngine:
             else:
                 _, i, group, name = key
                 pop = config.populations[i]
-                if group == 'uf':
-                    setattr(pop, name, float(val))
-                elif group == 'peak':
+                if group in ('uf', 'gp', 'mf', 'sf', 'peak'):
                     setattr(pop, name, float(val))
                 elif group == 'dist':
                     pop.dist_params[name] = float(val)

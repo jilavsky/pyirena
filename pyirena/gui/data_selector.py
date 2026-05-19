@@ -40,7 +40,7 @@ except ImportError:
 import re
 import numpy as np
 import pyqtgraph as pg
-from pyirena.gui.sas_plot import save_itx_from_plot
+from pyirena.gui.sas_plot import save_itx_from_plot, add_slope_line_menu
 
 # ── Shared colour palette for multi-file graphs ────────────────────────────
 def _gen_colors(n: int) -> list:
@@ -650,6 +650,17 @@ def _build_report(file_path: str,
                 unit = ' Å⁻¹' if pname in ('Q0', 'FWHM') else ''
                 std_str = f"± {_wp_fmt(std_v, '.3g')}" if std_v is not None else "—"
                 L.append(f"| {pname}{unit} | {_wp_fmt(val_v, '.6g')} | {std_str} |")
+            # Derived: integral under the peak (area)
+            area_v = pk.get('area')
+            area_s = pk.get('area_std')
+            if area_v is None:
+                # Older HDF5 files (pre-Area) — compute on the fly so reports
+                # always carry the derived value.
+                from pyirena.core.waxs_peakfit import peak_area, peak_area_std
+                area_v = peak_area(shape, pk)
+                area_s = peak_area_std(shape, pk, pstd)
+            area_std_str = f"± {_wp_fmt(area_s, '.3g')}" if area_s is not None else "—"
+            L.append(f"| Area (∫ peak dq) | {_wp_fmt(area_v, '.6g')} | {area_std_str} |")
             L.append("")
 
     if modeling_results is not None:
@@ -700,6 +711,28 @@ def _build_report(file_path: str,
                         ("Amplitude [cm⁻¹]", pop.get("amplitude")),
                         ("Width σ [Å⁻¹]", pop.get("width")),
                         ("η (Voigt)", pop.get("eta_voigt"))]
+            elif pt == 'guinier_porod':
+                rows = [("G [cm⁻¹]", pop.get("G")), ("Rg1 [Å]", pop.get("Rg1")),
+                        ("Slope s1", pop.get("s1")), ("Power P", pop.get("P")),
+                        ("Rg2 [Å]", pop.get("Rg2")), ("Slope s2", pop.get("s2")),
+                        ("RgCO [Å]", pop.get("RgCO") or None),
+                        ("ETA [Å]", pop.get("ETA") if pop.get("correlations") else None),
+                        ("PACK", pop.get("PACK") if pop.get("correlations") else None)]
+                rows = [(k, v) for k, v in rows if v is not None]
+            elif pt == 'mass_fractal':
+                rows = [("Phi (vol. frac.)", pop.get("Phi")),
+                        ("Radius [Å]", pop.get("Radius")),
+                        ("Fractal dim. Dv", pop.get("Dv")),
+                        ("Ksi [Å]", pop.get("Ksi")),
+                        ("Eta", pop.get("Eta")),
+                        ("Contrast", pop.get("Contrast"))]
+            elif pt == 'surface_fractal':
+                rows = [("Surface [cm⁻¹]", pop.get("Surface")),
+                        ("Fractal dim. Ds", pop.get("Ds")),
+                        ("Ksi [Å]", pop.get("Ksi")),
+                        ("Contrast", pop.get("Contrast")),
+                        ("Qc [Å⁻¹]", pop.get("Qc") if pop.get("use_porod_transition") else None)]
+                rows = [(k, v) for k, v in rows if v is not None]
             else:  # size_dist
                 rows = [("Distribution", pop.get("dist_type")),
                         ("Scale", pop.get("scale")),
@@ -1241,6 +1274,7 @@ class GraphWindow(QWidget):
         self.plot.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.plot)
         _add_jpeg_export(self, self.plot)
+        add_slope_line_menu(self.plot)
 
         # ── Per-session state for right-click toggles ──────────────────────
         self._plot_cache: list = []          # list of dicts, one per file
@@ -1429,6 +1463,7 @@ class UnifiedFitResultsWindow(QWidget):
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
         self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
+        add_slope_line_menu(self.ax_main)
 
         # ── Bottom panel: residuals ────────────────────────────────────────
         self.ax_resid = self.gl.addPlot(
@@ -1587,6 +1622,7 @@ class SizeDistResultsWindow(QWidget):
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
         self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
+        add_slope_line_menu(self.ax_main)
 
         # ── Middle: residuals ──────────────────────────────────────────────
         self.ax_resid = self.gl.addPlot(
@@ -1782,6 +1818,7 @@ class SimpleFitResultsWindow(QWidget):
         self.ax_main.showGrid(x=True, y=True, alpha=0.3)
         self.ax_main.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_main)
+        add_slope_line_menu(self.ax_main)
 
         # ── Bottom: residuals ──────────────────────────────────────────────
         self.ax_resid = self.gl.addPlot(
@@ -2088,6 +2125,7 @@ class TabulateResultsWindow(QWidget):
             QPushButton:hover { background-color: #138d75; }
             QPushButton:disabled { background-color: #bdc3c7; }
         """)
+        self.save_btn.setToolTip("Save the current results table to a CSV file for use in spreadsheets.")
         self.save_btn.clicked.connect(self._save_csv)
         self.save_btn.setEnabled(False)
 
@@ -2311,12 +2349,17 @@ class DataSelectorPanel(QWidget):
         folder_layout = QHBoxLayout()
         self.folder_button = QPushButton("Select Data Folder")
         self.folder_button.setMinimumHeight(40)
+        self.folder_button.setToolTip("Browse to a folder containing NXcanSAS/HDF5 data files.")
         self.folder_button.clicked.connect(self.select_folder)
         folder_layout.addWidget(self.folder_button)
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setMinimumHeight(40)
         self.refresh_button.setMaximumWidth(100)
+        self.refresh_button.setToolTip(
+            "Re-scan the current folder and update the file list.\n"
+            "Use after adding or removing files from the folder."
+        )
         self.refresh_button.clicked.connect(self.refresh_file_list)
         self.refresh_button.setEnabled(False)
         folder_layout.addWidget(self.refresh_button)
@@ -2540,6 +2583,10 @@ class DataSelectorPanel(QWidget):
         self.plot_button = QPushButton("Create Graph")
         self.plot_button.setMinimumHeight(28)
         self.plot_button.setStyleSheet(_btn_sm_blue)
+        self.plot_button.setToolTip(
+            "Plot I(Q) for all selected files in a new graph window.\n"
+            "Select files in the list above, then click this button."
+        )
         self.plot_button.clicked.connect(self.plot_selected_files)
         self.plot_button.setEnabled(False)
 
@@ -3576,6 +3623,7 @@ class DataSelectorPanel(QWidget):
                     f'WP_peak{pk}_A',  f'WP_peak{pk}_A_std',
                     f'WP_peak{pk}_FWHM', f'WP_peak{pk}_FWHM_std',
                     f'WP_peak{pk}_eta', f'WP_peak{pk}_eta_std',
+                    f'WP_peak{pk}_area', f'WP_peak{pk}_area_std',
                 ]
 
         _mod_pop_cols = [
@@ -3625,7 +3673,8 @@ class DataSelectorPanel(QWidget):
             return v
 
         _wp_n_fixed_cols = 7  # WP_n_peaks … WP_q_max
-        _wp_peak_cols    = 9  # shape, Q0, Q0_std, A, A_std, FWHM, FWHM_std, eta, eta_std
+        _wp_peak_cols    = 11  # shape, Q0, Q0_std, A, A_std, FWHM, FWHM_std,
+                               # eta, eta_std, area, area_std
 
         rows = []
         for fname, uf, sz, sf, wp, mod, sm in loaded:
@@ -3729,6 +3778,16 @@ class DataSelectorPanel(QWidget):
                         if pk_idx < len(peaks_list):
                             pk   = peaks_list[pk_idx]
                             pstd = peaks_std[pk_idx] if pk_idx < len(peaks_std) else {}
+                            # Area: prefer stored scalar; recompute for older files
+                            area_v = pk.get('area')
+                            area_s = pk.get('area_std')
+                            if area_v is None:
+                                from pyirena.core.waxs_peakfit import (
+                                    peak_area, peak_area_std,
+                                )
+                                area_v = peak_area(pk.get('shape', 'Gauss'), pk)
+                                area_s = peak_area_std(pk.get('shape', 'Gauss'),
+                                                       pk, pstd)
                             row += [
                                 pk.get('shape'),
                                 _fmt(pk.get('Q0',   {}).get('value')),
@@ -3739,6 +3798,8 @@ class DataSelectorPanel(QWidget):
                                 _fmt(pstd.get('FWHM')),
                                 _fmt(pk.get('eta',  {}).get('value') if 'eta' in pk else None),
                                 _fmt(pstd.get('eta')),
+                                _fmt(area_v),
+                                _fmt(area_s),
                             ]
                         else:
                             row += [None] * _wp_peak_cols
