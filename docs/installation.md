@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.10 or higher
+- Python 3.10 – 3.13 (Python 3.14 is not yet recommended — many compiled-binding wheels are still flaky)
 - conda (Anaconda or Miniconda) **or** pip
 
 ## Recommended: Conda Environment (one command)
@@ -22,8 +22,27 @@ conda env create -f environment.yml
 conda activate pyirena
 ```
 
-That's it. The environment file installs Python, all scientific packages,
-PySide6, pyqtgraph, and pyirena itself (editable/development mode).
+That's it. The environment file installs Python and the scientific stack
+via conda, then uses pip (inside conda) to install pyirena editable plus
+the entire Qt6/GUI stack (PySide6, pyqtgraph, etc.) from PyPI. This
+"conda for science, pip for Qt" split is intentional — see the warning
+below.
+
+### ⚠️ Do not mix conda-installed and pip-installed Qt
+
+Never run `conda install pyside6` (or `pyqtgraph`) inside the pyirena env,
+and do not add Qt packages to `environment.yml`'s conda dependencies. If
+conda's `pyside6` and pip's `PySide6` end up coexisting, Windows will
+fail at GUI launch with:
+
+```
+ImportError: DLL load failed while importing QtCore:
+The specified procedure could not be found.
+```
+
+This is because `shiboken6` from one version pairs with Qt6 DLLs from the
+other — the binaries don't match. Always let pip install the Qt stack
+into a pyirena env. If you suspect a mix, see Troubleshooting below.
 
 ### Updating an existing environment
 
@@ -137,6 +156,45 @@ Make sure the `pyirena` conda environment is active:
 conda activate pyirena
 python -c "import pyirena"
 ```
+
+### "DLL load failed while importing QtCore" (Windows)
+
+Symptom — `pyirena-gui` prints:
+
+```
+Error: GUI dependencies not installed.
+Details: Neither PySide6 nor PyQt6 found.
+```
+
+But `pip show PySide6` reports it is installed. Confirm with:
+
+```bash
+python -c "from PySide6 import QtCore"
+```
+
+If that gives `DLL load failed ... The specified procedure could not be
+found`, you have a mixed conda + pip Qt install. Easiest fix is to
+recreate the env so pip is the only Qt installer:
+
+```bash
+conda deactivate
+conda env remove -n pyirena -y
+conda env create -f environment.yml
+conda activate pyirena
+pyirena-gui
+```
+
+(The current `environment.yml` already routes the GUI stack through pip
+to prevent this — older envs created before that change are the ones at
+risk.)
+
+### Python 3.14 wheels are flaky
+
+Python 3.14 was released October 2025. Several scientific Python wheels
+(including PySide6 on Windows) advertise cp314 support but in practice
+fail with DLL or symbol-resolution errors. Stick with Python 3.10 – 3.13
+until your stack of choice has caught up. The `environment.yml` caps
+Python at `<3.14` for this reason.
 
 ---
 

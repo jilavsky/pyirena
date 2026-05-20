@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-05-19
+
+### Fixed
+
+- **Conda + pip Qt mix breaks GUI on Windows.** `environment.yml` previously
+  installed `pyside6` and `pyqtgraph` from conda-forge, but `pyproject.toml`
+  (and `pip install pyirena[gui]`) pulls PySide6 from PyPI. Users who ran
+  both — e.g. `conda env create -f environment.yml` followed by
+  `pip install -e ".[gui]"` to pick up a new dep — ended up with conda's
+  PySide6 and pip's PySide6 coexisting. On Windows this produces
+  `ImportError: DLL load failed while importing QtCore: The specified
+  procedure could not be found` because `shiboken6` from one version
+  pairs with `Qt6*.dll` from the other. The launcher's broad
+  `except ImportError` then misreports it as "Neither PySide6 nor PyQt6
+  found", masking the real cause.
+
+  `environment.yml` now installs Python + the heavy scientific stack
+  (numpy/scipy/h5py/matplotlib) via conda and the **entire Qt6/GUI stack
+  via pip** (`pip: - -e ".[gui]"`). One installer owns Qt = no mix
+  possible. Python is also capped at `<3.14` because Python 3.14 wheels
+  for several compiled bindings (PySide6 included) are still flaky.
+
+  Existing broken envs: `conda env remove -n pyirena -y` then
+  `conda env create -f environment.yml`.
+
+### Changed
+
+- `docs/installation.md` and `README.md` updated to describe the new
+  install architecture, warn against `conda install pyside6` inside the
+  pyirena env, and add a dedicated troubleshooting entry for the
+  "DLL load failed" error.
+
 ## [0.7.0] — 2026-05-19
 
 ### Added

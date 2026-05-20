@@ -1,31 +1,44 @@
 name: pyirena
 
+# IMPORTANT — install architecture
+#
+# conda installs Python + the heavy compiled scientific stack only.
+# pip (via the `-e ".[gui]"` line below) installs PySide6, shiboken6,
+# pyqtgraph, and the other GUI-side dependencies.
+#
+# Do NOT add `pyside6`, `shiboken6`, or `pyqtgraph` as conda dependencies
+# here. Mixing conda-built and pip-built Qt6 binaries in one env produces
+# `ImportError: DLL load failed ... The specified procedure could not be
+# found` on Windows when shiboken6 from one version meets Qt6 DLLs from
+# another. Letting pip install the entire Qt stack guarantees matched
+# binaries.
+#
+# Python is capped <3.14 because Python 3.14 (released Oct 2025) is still
+# bleeding edge for compiled binding wheels. Bump the cap once the
+# ecosystem catches up.
+
 channels:
   - conda-forge
   - defaults
 
 dependencies:
-  # Python
-  - python>=3.10
+  # Python (cap below 3.14 — see note above)
+  - python>=3.10,<3.14
 
-  # Core scientific stack
+  # Core scientific stack — conda gives faster, pre-built binaries than pip
   - numpy>=1.20
   - scipy>=1.7
   - h5py>=3.0
   - matplotlib>=3.3
 
-  # GUI
-  - pyside6>=6.4
-  - pyqtgraph>=0.13
-  - xraydb>=4.5
-  - periodictable>=1.7
-
   # Development / testing (optional — remove if not needed)
   - pytest>=7.0
   - pytest-cov
 
-  # pyirena itself — installed in editable mode from local source
+  # Everything GUI- and Qt-related comes via pip below
   - pip
   - pip:
-      - Dans-Diffraction>=3.0
-      - -e .
+      # `-e ".[gui]"` installs pyirena in editable mode and pulls
+      # PySide6, pyqtgraph, xraydb, periodictable, Dans-Diffraction
+      # from PyPI — see `gui` extras in pyproject.toml.
+      - -e ".[gui]"

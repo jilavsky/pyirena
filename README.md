@@ -42,6 +42,11 @@ conda env create -f environment.yml
 conda activate pyirena
 ```
 
+`environment.yml` uses conda for Python + scientific stack and pip (inside
+conda) for the entire Qt6/GUI stack — this split is deliberate. Do **not**
+run `conda install pyside6` in this env, and use Python 3.10 – 3.13
+(Python 3.14 wheels are still flaky for compiled bindings).
+
 See [docs/installation.md](docs/installation.md) for full details, troubleshooting, and platform notes.
 
 ---
