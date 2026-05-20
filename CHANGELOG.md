@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-05-20
+
+### Fixed
+
+- **`api.tabulate_parameter` silently returned `null` for model-specific
+  Simple-Fit parameters.** The schema enumerates only the most common
+  Simple-Fits parameters (I0, Rg, B, P, BG_G, BG_P), but actual fits
+  often use model-specific names (e.g. Porod `Kp`, Debye-Bueche `Lc`).
+  `_extract_scalar` did a strict spec lookup and returned `None` for
+  anything not on the list, even though `read_simple_fit()` returned
+  the same value correctly. Reported by an AI consumer hitting the
+  pyirena MCP server.
+
+  Fix: when no schema spec matches, `_extract_scalar` now falls back
+  to probing `params/<leaf>` (with sibling `params_std/<leaf>`),
+  `<leaf>` as a top-level dataset, and `<leaf>` as a group attribute,
+  where *leaf* = parameter name with optional `param_` prefix stripped.
+  Both `tabulate_parameter(tool="simple_fits", parameter="Kp")` and
+  `parameter="param_Kp"` now resolve correctly for any model-specific
+  parameter, without requiring `TOOL_REGISTRY` updates. A truly absent
+  parameter still returns `value=None` rather than raising — matches
+  the rest of the api's missing-data convention. New regression tests
+  in `pyirena/tests/api/test_aggregate.py`.
+
 ## [0.7.1] — 2026-05-19
 
 ### Fixed
@@ -29,26 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Existing broken envs: `conda env remove -n pyirena -y` then
   `conda env create -f environment.yml`.
-
-- **`api.tabulate_parameter` silently returned `null` for model-specific
-  Simple-Fit parameters.** The schema enumerates only the most common
-  Simple-Fits parameters (I0, Rg, B, P, BG_G, BG_P), but actual fits
-  often use model-specific names (e.g. Porod `Kp`, Debye-Bueche `Lc`).
-  `_extract_scalar` did a strict spec lookup and returned `None` for
-  anything not on the list, even though `read_simple_fit()` returned
-  the same value correctly. Reported by an AI consumer hitting the
-  pyirena MCP server.
-
-  Fix: when no schema spec matches, `_extract_scalar` now falls back
-  to probing `params/<leaf>` (with sibling `params_std/<leaf>`),
-  `<leaf>` as a top-level dataset, and `<leaf>` as a group attribute,
-  where *leaf* = parameter name with optional `param_` prefix stripped.
-  Both `tabulate_parameter(tool="simple_fits", parameter="Kp")` and
-  `parameter="param_Kp"` now resolve correctly for any model-specific
-  parameter, without requiring `TOOL_REGISTRY` updates. A truly absent
-  parameter still returns `value=None` rather than raising — matches
-  the rest of the api's missing-data convention. New regression tests
-  in `pyirena/tests/api/test_aggregate.py`.
 
 ### Changed
 
