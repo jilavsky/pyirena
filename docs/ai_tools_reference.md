@@ -1,0 +1,308 @@
+# pyirena MCP Tools — Reference for AI Agents
+
+This document is written for AI assistants and the humans who craft
+system prompts for them. It explains every tool the `pyirena-mcp` server
+exposes, when to use which, and recommended call patterns.
+
+If you are an AI assistant with access to pyirena tools, read this
+document — or have it inlined into your system prompt — before asking
+questions about a user's analysis data.
+
+---
+
+## What pyirena gives you
+
+pyirena reads small-angle X-ray scattering (SAXS / USAXS) analysis
+results stored in NXcanSAS HDF5 files. The user has typically run one or
+more analyses on each file:
+
+- **Reduced data** — the raw I(Q) curve, plus measurement uncertainties.
+- **Unified Fit** — Beaucage multi-level model with parameters G, Rg, B,
+  P, ETA, PACK, RgCutoff (up to 5 levels per file).
+- **Simple Fits** — single-model fits (Guinier, Porod, Debye-Bueche…).
+- **Size Distribution** — particle size distribution P(r), with bulk
+  volume fraction.
+- **Modeling** — parametric forward model with multiple populations:
+  size-distribution, unified-level, diffraction-peak, Guinier-Porod,
+  mass-fractal, surface-fractal.
+- **SAXS Morph** — voxelgram-based forward modeling.
+- **WAXS Peak Fit** — per-peak position, FWHM, amplitude, area.
+- **Fractals** — grown mass-fractal aggregates (Z, df, dmin, c, Rg).
+- **Data Merge / Data Manipulation** — provenance for combined or
+  transformed datasets.
+
+Your job is to help the user understand what's in their data and what it
+means physically.
+
+---
+
+## Recommended discovery workflow
+
+Almost every interaction should start with cheap orientation calls:
+
+1. **`summarize_folder(folder)`** — get a one-shot snapshot: how many
+   files, which samples, which analyses are present per file. Use this
+   first whenever the user mentions a folder.
+2. **`list_files(folder, sort="mtime_desc", limit=20)`** — when you need
+   to identify specific files. The newest are usually most relevant.
+3. **`inspect_file(path)`** — drill into one file: sample name, exact
+   list of analyses present, Q range, number of points.
+4. **`read_<tool>(path)`** — only now load the actual results.
+
+Do not call `read_*` functions until you know which analyses exist —
+otherwise you'll get `{"found": false}` and waste a turn.
+
+---
+
+## Common conventions
+
+- **Every call returns a dict.** Never a raw array, never an object.
+  All values are JSON-safe (NaN and inf are converted to `null`).
+- **Missing data returns `{"found": false}`** — never an exception. You
+  can defensively check `result["found"]` before using fields.
+- **Arrays are decimated by default** to about 500 points so responses
+  stay small. To get the full curve, pass `include_arrays=True` on
+  per-tool readers or `include_full=True` on `read_reduced_data`. Only
+  do this when you specifically need the high-resolution shape.
+- **File paths must be absolute** (or relative to `PYIRENA_DATA_ROOT` if
+  that env var is set by the operator).
+- **`PYIRENA_DATA_ROOT` may restrict access.** If a file path is rejected
+  with a security error, tell the user to widen `PYIRENA_DATA_ROOT` or
+  put the file inside the configured root.
+
+---
+
+## Tool reference (grouped)
+
+### Discovery — call these first
+
+#### `summarize_folder(folder, sample_filter=None)`
+Aggregate snapshot. Returns total file count, distinct sample names, per-
+analysis file counts (e.g. `{"unified_fit": 30, "modeling": 12}`), and
+mtime range. Optional `sample_filter` is a case-insensitive substring.
+
+When to use: first call when the user mentions a folder or "all my data".
+
+#### `list_files(folder, pattern="*.h5,...", sort="mtime_desc", limit=100, deep=True)`
+One row per file. Sort keys: `name_asc/desc`, `mtime_asc/desc`,
+`size_asc/desc`. Use `deep=False` for a faster shallow listing if you
+only need paths/sizes/mtime.
+
+When to use: you need to identify specific files (latest 3, oldest,
+matching a name pattern).
+
+#### `inspect_file(path)`
+Single-file deep look. Returns sample, scan number, mtime, list of
+`analyses_present`, Q range, number of points.
+
+When to use: before any `read_*` call, to confirm what's in the file.
+
+---
+
+### Reading reduced data
+
+#### `read_reduced_data(path, decimate=500, include_full=False)`
+The raw measured I(Q). Default decimation keeps response small. Set
+`include_full=True` only if you need the actual point density (rare for
+question-answering).
+
+#### `read_metadata(path)`
+Sample name, label, thickness, blank file, instrument, timestamp.
+
+---
+
+### Reading per-tool results
+
+All take `(path, include_arrays=False, max_points=500)` unless noted.
+Arrays are **omitted by default** to keep responses compact — pass
+`include_arrays=True` only when you specifically need the curves.
+
+#### `read_simple_fit(path)`
+Returns `{model, success, chi_squared, reduced_chi_squared, dof, q_min,
+q_max, params{}, params_std{}, derived{}, ...}`. Single model per file.
+
+#### `read_unified_fit(path)`
+Returns `{num_levels, background, chi_squared, levels: [...]}` where each
+level has `{G, Rg, B, P, RgCutoff, ETA, PACK, correlations,
+G_err, Rg_err, ...}`. Use this for the most common question:
+hierarchical structure with multiple Rg's.
+
+#### `read_size_distribution(path)`
+Returns `{method, shape, volume_fraction, rg, chi_squared, n_iterations,
+q_power, r_min, r_max, n_bins, ...}`. With `include_arrays=True`:
+`r_grid`, `distribution` (volume-weighted P(r)), `number_dist`,
+`cumul_vol_dist`.
+
+#### `read_modeling(path)`
+Returns `{chi_squared, background, populations: [...]}` where each
+population has `{pop_type, label, parameters{}, derived{}}`. `pop_type`
+is one of: `size_dist`, `unified_level`, `diffraction_peak`,
+`guinier_porod`, `mass_fractal`, `surface_fractal`. Population
+parameters vary by type — refer to the `parameters` dict for what's
+present.
+
+#### `read_saxs_morph(path)`
+Returns `{chi_squared, volume_fraction, contrast, rg_A, phi_actual,
+voxel_size, box_size_A, morphology_metrics: {...}, ...}`. The 3-D
+voxelgram itself is intentionally not exposed (too large). Morphology
+metrics include pore-size statistics, Euler number, open/closed
+porosity.
+
+#### `read_waxs_peakfit(path)`
+Returns `{n_peaks, bg_shape, chi_squared, bg_params{}, peaks: [...]}`
+where each peak has `{shape, params{Q0, A, FWHM, eta, ...},
+params_std{}, area, area_std}`.
+
+#### `read_fractals(path)`
+Returns metadata for each grown fractal aggregate in the file:
+`{aggregates: [{Z, df, dmin, c, RgPrimary, RgAggregate, ...}]}`. Full
+intensity arrays per aggregate are not exposed via this tool — they
+require direct HDF5 access.
+
+#### `read_merge_provenance(path)`
+Returns `{scale, q_shift, background, chi_squared, q_overlap_min,
+q_overlap_max, ds1_file, ds2_file}`. Tells you how a merged file was
+constructed.
+
+#### `read_manipulation_provenance(path)`
+Returns `{operation, source_file, parameters{...}}`. Tells you whether a
+file was scaled, trimmed, rebinned, subtracted, divided, or averaged.
+
+---
+
+### Cross-file aggregation
+
+#### `tabulate_parameter(folder, tool, parameter, x_axis="scan_number", subgroup_index=None, sample_filter=None)`
+The workhorse for trend questions. Extracts ONE scalar across every file
+in `folder` that contains the requested tool's results.
+
+- `tool` is one of: `unified_fit, simple_fits, size_distribution,
+  modeling, saxs_morph, waxs_peakfit, fractals, data_merge,
+  data_manipulation`.
+- `parameter` is a scalar key from that tool's schema. Common ones:
+  - unified_fit: `background`, `chi_squared`, `Rg` (per-level →
+    `subgroup_index=1` for level 1)
+  - simple_fits: `chi_squared`, `param_Rg`, `param_I0`, `param_B`
+  - size_distribution: `volume_fraction`, `rg`, `chi_squared`, `q_power`
+  - modeling: `chi_squared`, `background`
+  - waxs_peakfit: `peak_Q0`, `peak_FWHM`, `peak_A`, `peak_Area` (each
+    requires `subgroup_index` = peak number, 1-based)
+- `x_axis` controls row ordering: `scan_number` (from filename),
+  `mtime`, or `name`.
+
+Returns `{n_rows, rows: [{path, name, sample, scan_number, mtime, value,
+stddev}], units, label}`. Use `value` for the plot and `stddev` for
+error bars when available.
+
+#### `summarize_sample(folder, sample)`
+Condenses one sample's history across the folder: how many files,
+analyses run, and min/max/n of every top-level scalar parameter. Use
+when the user asks "tell me everything about sample_X".
+
+---
+
+### Plotting (returns inline images)
+
+#### `plot_iq(paths, overlay=True, log_x=True, log_y=True, output_path=None)`
+Plots I(Q) for one or more files. Returns the PNG inline (the AI client
+displays it) AND saves to disk under `PYIRENA_PLOT_CACHE`.
+
+- `overlay=True` (default): one axes, all curves overlaid (colour-coded
+  by file).
+- `overlay=False`: a grid, one subplot per file. Use when there are
+  many curves and overlay would be unreadable.
+- WAXS data: pass `log_x=False, log_y=False` for the standard
+  linear-linear WAXS view.
+
+#### `plot_parameter_trend(folder, tool, parameter, x_axis="scan_number", subgroup_index=None, sample_filter=None, output_path=None)`
+Internally calls `tabulate_parameter` then renders the result as a
+line+marker plot with error bars (when `stddev` is available). Returns
+the PNG inline.
+
+Use for the very common request: "plot how Rg evolved across all my
+scans for sample X."
+
+---
+
+## Example interactions
+
+### "What's in this folder?"
+```
+1. summarize_folder("/data/run42")
+   → {"n_files": 47, "samples": ["catalyst_A", "catalyst_B"],
+       "analyses_count": {"unified_fit": 47, "size_distribution": 47,
+                          "modeling": 12}}
+2. Tell the user in plain language.
+```
+
+### "Show me the last three I(Q) curves for catalyst_A."
+```
+1. list_files("/data/run42", sort="mtime_desc", limit=3)
+   → filter rows where sample == "catalyst_A"
+2. plot_iq([row["path"] for row in rows], overlay=True)
+3. The image appears inline.
+```
+
+### "Is Rg trending across this batch?"
+```
+1. summarize_folder(...) — confirm unified_fit results are present.
+2. plot_parameter_trend(folder, tool="unified_fit", parameter="Rg",
+                         subgroup_index=1)
+3. Describe the trend in words (slope direction, scatter, any plateau).
+```
+
+### "Compare the two most recent fits in detail."
+```
+1. list_files(..., limit=2)
+2. For each of the two paths:
+   - inspect_file(path) to see which analyses are present
+   - read_unified_fit(path) — get parameters
+3. Present the parameters side by side and comment on differences.
+```
+
+### "Why might Rg jump at scan 17?"
+```
+1. tabulate_parameter(..., tool="unified_fit", parameter="Rg",
+                       subgroup_index=1)
+2. Identify the jump in the rows.
+3. For scan 17 specifically:
+   - inspect_file → confirm what data is there
+   - read_metadata → sample notes, thickness, blank
+   - read_reduced_data(include_full=True) — get the actual curve to
+     comment on changes in slope / Guinier region
+4. Hypothesise (changed sample? exposure? beam intensity?
+   contamination?). Always frame as hypotheses, not certainties.
+```
+
+---
+
+## Things to avoid
+
+- **Don't call `read_*` blindly.** Use `inspect_file` first to confirm
+  the analysis is there. Otherwise you'll get `{"found": false}` and
+  burn a turn.
+- **Don't request full arrays unless necessary.** `include_arrays=True`
+  / `include_full=True` make responses much larger and consume your
+  context budget. For most questions, the scalar summary is enough.
+- **Don't fabricate parameter values.** If `value` is `null`, say so. Do
+  not interpolate or invent.
+- **Don't speculate beyond the data.** Physical interpretations (e.g.
+  "this Rg means …") should be framed as "consistent with…" and tied to
+  what the user has told you about their sample.
+- **Don't try to write or modify files.** v0.7 is read-only. There are
+  no `save_*`, `update_*`, or `run_*` tools.
+
+---
+
+## When pyirena tools aren't enough
+
+If a user asks a question that pyirena's surface cannot answer (running
+a new fit, modifying a file, doing instrument control), say so
+explicitly. Suggest:
+
+- For new fits / data manipulation: the pyirena GUI tools (
+  `pyirena-gui`, `pyirena-modeling`, `pyirena-datamerge`, etc.) or the
+  headless batch API (`pyirena.batch.fit_unified`,
+  `pyirena.batch.merge_data`, etc.).
+- For instrument / beamline control: the user's instrument-control
+  agent (e.g. the EPICS / pyepics tool), not pyirena.

@@ -33,15 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`pyirena.mcp` — Model Context Protocol server.** Optional package
   (`pip install pyirena[mcp]`) that exposes the `pyirena.api` surface to
-  any MCP-compatible client — Claude Desktop, Claude Code, custom AI
-  agents. Stdio transport. New entry point `pyirena-mcp`. Plot tools
-  return inline images so the LLM sees what the user sees.
+  any MCP-compatible client — Claude Desktop, Claude Code, AnythingLLM,
+  custom AI agents. Stdio transport. New entry point `pyirena-mcp`. Plot
+  tools return inline images so the LLM sees what the user sees.
 
   Example Claude Desktop config:
   ```json
   {"mcpServers": {"pyirena": {"command": "pyirena-mcp",
                               "env": {"PYIRENA_DATA_ROOT": "/data"}}}}
   ```
+
+- **Documentation:**
+  [docs/ai_integration.md](docs/ai_integration.md) — install &
+  configuration walk-through with Claude Desktop / Claude Code /
+  AnythingLLM configs, env-var reference, verification steps,
+  troubleshooting table, and security notes.
+  [docs/ai_tools_reference.md](docs/ai_tools_reference.md) — tool-by-tool
+  reference written for AI agents (usable as system-prompt material) and
+  for humans authoring agent prompts: discovery workflow, recommended
+  call patterns, example interactions, things to avoid.
 
 ## [0.6.5] — 2026-05-19
 

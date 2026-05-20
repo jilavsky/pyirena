@@ -195,6 +195,12 @@ The agent can then call tools like `summarize_folder`, `tabulate_parameter`,
 plain language. The underlying `pyirena.api` module is also usable as a regular
 Python library (no MCP needed).
 
+Full instructions, including configs for **Claude Desktop**, **Claude Code**,
+and **AnythingLLM**:
+
+- [docs/ai_integration.md](docs/ai_integration.md) — install & configure
+- [docs/ai_tools_reference.md](docs/ai_tools_reference.md) — tool reference for AI agents (system-prompt material)
+
 ---
 
 ## Documentation
@@ -215,6 +221,8 @@ Python library (no MCP needed).
 | NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
 | Batch fitting API | [docs/batch_api.md](docs/batch_api.md) |
 | Usage guide (scripting) | [docs/usage_guide.md](docs/usage_guide.md) |
+| AI integration (MCP) — install & configure | [docs/ai_integration.md](docs/ai_integration.md) |
+| AI integration (MCP) — tool reference for agents | [docs/ai_tools_reference.md](docs/ai_tools_reference.md) |
 | Developer: adding form factors | [docs/developer_adding_form_factors.md](docs/developer_adding_form_factors.md) |
 | Developer: adding structure factors | [docs/developer_adding_structure_factors.md](docs/developer_adding_structure_factors.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
