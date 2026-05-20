@@ -94,9 +94,13 @@ def synth_nxcansas_file(tmp_path_factory) -> Path:
         pgrp = sfg.create_group("params")
         pgrp.create_dataset("I0", data=0.01)
         pgrp.create_dataset("Rg", data=50.0)
+        # Kp is a model-specific Porod param NOT enumerated in TOOL_REGISTRY —
+        # tests use it to exercise the runtime-fallback parameter resolution.
+        pgrp.create_dataset("Kp", data=3.7e-5)
         psg = sfg.create_group("params_std")
         psg.create_dataset("I0", data=0.0005)
         psg.create_dataset("Rg", data=1.2)
+        psg.create_dataset("Kp", data=2.1e-6)
         dg = sfg.create_group("derived")
         dg.create_dataset("Q_min_used", data=float(q.min()))
 

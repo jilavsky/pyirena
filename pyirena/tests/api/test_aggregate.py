@@ -41,6 +41,49 @@ def test_tabulate_parameter_unknown_tool_raises(synth_folder_multi):
                             tool="bogus_tool", parameter="x")
 
 
+def test_tabulate_parameter_runtime_simple_fits_param(synth_folder_multi):
+    """Regression: simple_fits has model-specific param names (Kp, Lc, ...)
+    not enumerated in TOOL_REGISTRY. _extract_scalar must fall back to
+    probing params/<leaf> directly. Reported by the AI consumer."""
+    # 'Kp' is in the fixture's params/ but NOT in the static scalar list
+    tab = tabulate_parameter(
+        folder=str(synth_folder_multi),
+        tool="simple_fits",
+        parameter="Kp",
+    )
+    assert tab["n_rows"] == 3
+    for row in tab["rows"]:
+        assert row["value"] == 3.7e-5
+        assert row["stddev"] == 2.1e-6
+
+
+def test_tabulate_parameter_runtime_param_with_prefix(synth_folder_multi):
+    """The fallback strips an optional 'param_' prefix, so 'param_Kp'
+    resolves to the same params/Kp as bare 'Kp'."""
+    tab = tabulate_parameter(
+        folder=str(synth_folder_multi),
+        tool="simple_fits",
+        parameter="param_Kp",
+    )
+    assert tab["n_rows"] == 3
+    for row in tab["rows"]:
+        assert row["value"] == 3.7e-5
+
+
+def test_tabulate_parameter_truly_missing_returns_null(synth_folder_multi):
+    """A name that exists in NO schema spec and NO params/ entry still
+    returns rows with value=None (it does not raise)."""
+    tab = tabulate_parameter(
+        folder=str(synth_folder_multi),
+        tool="simple_fits",
+        parameter="DoesNotExistAnywhere",
+    )
+    assert tab["n_rows"] == 3
+    for row in tab["rows"]:
+        assert row["value"] is None
+        assert row["stddev"] is None
+
+
 def test_summarize_sample(synth_folder_multi):
     s = summarize_sample(folder=str(synth_folder_multi), sample="sample_A")
     assert s["n_files"] == 3

@@ -41,6 +41,43 @@ def _read_scalar_attr(grp: h5py.Group, name: str) -> Optional[float]:
     return None
 
 
+def _fallback_lookup(
+    grp: h5py.Group, parameter: str,
+) -> tuple[Optional[float], Optional[float], Optional[str]]:
+    """Resolve *parameter* against a tool group when no schema spec matched.
+
+    Tries, in order:
+      1. ``params/<leaf>`` (with sibling ``params_std/<leaf>`` for stddev)
+      2. ``<leaf>`` as a scalar dataset on the group root
+      3. ``<leaf>`` as a group attribute
+
+    where *leaf* = parameter with optional ``param_`` prefix stripped, so both
+    ``Kp`` and ``param_Kp`` resolve to ``params/Kp``. Returns (None, None,
+    None) when nothing is found. Units are always None for fallback hits
+    because they aren't enumerated in the schema.
+    """
+    leaf = parameter[6:] if parameter.startswith("param_") else parameter
+
+    # 1) params/<leaf> + params_std/<leaf>
+    val = _read_scalar_dataset(grp, f"params/{leaf}")
+    if val is not None:
+        std_val = _read_scalar_dataset(grp, f"params_std/{leaf}")
+        return val, std_val, None
+
+    # 2) Top-level scalar dataset on the group
+    val = _read_scalar_dataset(grp, leaf)
+    if val is not None:
+        std_val = _read_scalar_dataset(grp, f"{leaf}_std")
+        return val, std_val, None
+
+    # 3) Group attribute
+    val = _read_scalar_attr(grp, leaf)
+    if val is not None:
+        return val, None, None
+
+    return None, None, None
+
+
 def _extract_scalar(f: h5py.File, tool: str, parameter: str,
                     subgroup_index: Optional[int] = None) -> tuple[Optional[float], Optional[float], Optional[str]]:
     """Extract (value, stddev, units) for *parameter* in *tool* from open file.
@@ -49,6 +86,14 @@ def _extract_scalar(f: h5py.File, tool: str, parameter: str,
     parameters, *subgroup_index* selects the 1-based occurrence (e.g. level 1,
     pop_01, peak_01). Stddev is searched at sibling path with '_std' suffix.
     Returns (None, None, None) if not found.
+
+    Runtime fallback: tools like simple_fits store model-dependent parameter
+    names under ``params/<name>``. The schema only enumerates the most common
+    ones, so if the spec lookup fails we also probe ``params/<leaf>`` and
+    ``<leaf>`` directly on the group, where *leaf* is the parameter name with
+    an optional ``param_`` prefix stripped. This lets the AI surface read
+    parameters specific to a model (Porod Kp, Debye-Bueche Lc, etc.) without
+    requiring a schema entry for every possibility.
     """
     schema = TOOL_REGISTRY.get(tool)
     if schema is None:
@@ -65,7 +110,7 @@ def _extract_scalar(f: h5py.File, tool: str, parameter: str,
             spec = sc
             break
     if spec is None:
-        return None, None, None
+        return _fallback_lookup(grp, parameter)
     units = spec.get("units") or None
 
     rel_path = spec["path"]
