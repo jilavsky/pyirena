@@ -195,10 +195,11 @@ Add to `claude_desktop_config.json` (or your client's MCP server config):
 }
 ```
 
-The agent can then call tools like `summarize_folder`, `tabulate_parameter`,
-`plot_iq`, `read_modeling` etc. to answer questions about analysis results in
-plain language. The underlying `pyirena.api` module is also usable as a regular
-Python library (no MCP needed).
+The agent can then call tools like `pyirena_summarize_folder`,
+`pyirena_tabulate_parameter`, `pyirena_plot_iq`, `pyirena_read_modeling` etc.
+to answer questions about analysis results in plain language. The underlying
+`pyirena.api` module is also usable as a regular Python library, with unprefixed
+names (`api.summarize_folder`, `api.plot_iq`, …) — no MCP needed.
 
 Full instructions, including configs for **Claude Desktop**, **Claude Code**,
 and **AnythingLLM**:

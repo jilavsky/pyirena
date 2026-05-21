@@ -43,7 +43,8 @@ AI summarises in plain language.
 
 The MCP server is a small process that the AI client spawns on demand. It
 exposes 18 tools (discovery, per-tool result reading, parameter
-aggregation across files, headless plotting) — see
+aggregation across files, headless plotting), all prefixed `pyirena_`
+(e.g. `pyirena_summarize_folder`, `pyirena_list_files`) — see
 [ai_tools_reference.md](ai_tools_reference.md).
 
 ---

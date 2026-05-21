@@ -3,6 +3,10 @@
 Run via:    pyirena-mcp
 Or in code: python -m pyirena.mcp.server
 
+All MCP tools are prefixed ``pyirena_`` so they are globally unambiguous
+when the client connects to multiple MCP servers and so small LLMs are
+not confused by clients that render ``server-tool`` with a dash.
+
 Environment overrides (see also pyirena.api):
     PYIRENA_DATA_ROOT       restrict file access to this subtree
     PYIRENA_MAX_ARRAY_POINTS default decimation cap (default 500)
@@ -28,10 +32,11 @@ mcp = FastMCP(
     "pyirena",
     instructions=(
         "Tools for reading pyirena SAXS/USAXS analysis results from NXcanSAS "
-        "HDF5 files. Start with summarize_folder() or list_files() to "
-        "discover what is available, then drill in with inspect_file() or "
-        "one of the read_<tool>() functions. Use plot_iq() / "
-        "plot_parameter_trend() to visualize."
+        "HDF5 files. All tool names are prefixed 'pyirena_'. Start with "
+        "pyirena_summarize_folder() or pyirena_list_files() to discover what "
+        "is available, then drill in with pyirena_inspect_file() or one of "
+        "the pyirena_read_<tool>() functions. Use pyirena_plot_iq() / "
+        "pyirena_plot_parameter_trend() to visualize."
     ),
 )
 
@@ -41,7 +46,7 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def list_files(
+def pyirena_list_files(
     folder: str,
     pattern: str = "*.h5,*.hdf5,*.hdf,*.nx,*.nxs",
     sort: str = "mtime_desc",
@@ -59,7 +64,7 @@ def list_files(
 
 
 @mcp.tool()
-def summarize_folder(folder: str, sample_filter: Optional[str] = None) -> dict:
+def pyirena_summarize_folder(folder: str, sample_filter: Optional[str] = None) -> dict:
     """Get an aggregate snapshot of a folder of SAS data.
 
     Returns file count, unique samples, per-analysis file counts, and mtime
@@ -70,7 +75,7 @@ def summarize_folder(folder: str, sample_filter: Optional[str] = None) -> dict:
 
 
 @mcp.tool()
-def inspect_file(path: str) -> dict:
+def pyirena_inspect_file(path: str) -> dict:
     """Inspect a single file: sample name, analyses present, Q range, n_points."""
     return papi.inspect_file(path)
 
@@ -80,8 +85,8 @@ def inspect_file(path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def read_reduced_data(path: str, decimate: int = 500,
-                      include_full: bool = False) -> dict:
+def pyirena_read_reduced_data(path: str, decimate: int = 500,
+                              include_full: bool = False) -> dict:
     """Read the raw reduced I(Q) curve from a SAS file.
 
     Arrays are decimated to ~*decimate* points by default to keep the
@@ -93,7 +98,7 @@ def read_reduced_data(path: str, decimate: int = 500,
 
 
 @mcp.tool()
-def read_metadata(path: str) -> dict:
+def pyirena_read_metadata(path: str) -> dict:
     """Read sample / experiment metadata from a SAS file."""
     return papi.read_metadata(path)
 
@@ -103,8 +108,8 @@ def read_metadata(path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def read_simple_fit(path: str, include_arrays: bool = False,
-                    max_points: int = 500) -> dict:
+def pyirena_read_simple_fit(path: str, include_arrays: bool = False,
+                            max_points: int = 500) -> dict:
     """Read Simple Fits results (Guinier, Porod, etc.).
 
     Arrays (Q, I_model, residuals) are omitted by default. Set
@@ -115,32 +120,32 @@ def read_simple_fit(path: str, include_arrays: bool = False,
 
 
 @mcp.tool()
-def read_unified_fit(path: str, include_arrays: bool = False,
-                     max_points: int = 500) -> dict:
+def pyirena_read_unified_fit(path: str, include_arrays: bool = False,
+                             max_points: int = 500) -> dict:
     """Read Unified Fit (Beaucage) results — multi-level Rg/G/B/P + correlations."""
     return papi.read_unified_fit(path=path, include_arrays=include_arrays,
                                   max_points=max_points)
 
 
 @mcp.tool()
-def read_size_distribution(path: str, include_arrays: bool = False,
-                           max_points: int = 500) -> dict:
+def pyirena_read_size_distribution(path: str, include_arrays: bool = False,
+                                   max_points: int = 500) -> dict:
     """Read Size Distribution fit results — Vf, Rg, r_grid, distribution."""
     return papi.read_size_distribution(path=path, include_arrays=include_arrays,
                                         max_points=max_points)
 
 
 @mcp.tool()
-def read_modeling(path: str, include_arrays: bool = False,
-                  max_points: int = 500) -> dict:
+def pyirena_read_modeling(path: str, include_arrays: bool = False,
+                          max_points: int = 500) -> dict:
     """Read parametric Modeling results (size_dist / unified_level / diff_peak / fractal pops)."""
     return papi.read_modeling(path=path, include_arrays=include_arrays,
                                max_points=max_points)
 
 
 @mcp.tool()
-def read_saxs_morph(path: str, include_arrays: bool = False,
-                    max_points: int = 500) -> dict:
+def pyirena_read_saxs_morph(path: str, include_arrays: bool = False,
+                            max_points: int = 500) -> dict:
     """Read SAXS Morph results — voxelgram-based forward modeling output.
 
     Note: the 3-D voxelgram itself is intentionally not returned; only
@@ -151,27 +156,27 @@ def read_saxs_morph(path: str, include_arrays: bool = False,
 
 
 @mcp.tool()
-def read_waxs_peakfit(path: str, include_arrays: bool = False,
-                      max_points: int = 500) -> dict:
+def pyirena_read_waxs_peakfit(path: str, include_arrays: bool = False,
+                              max_points: int = 500) -> dict:
     """Read WAXS Peak Fit results — per-peak Q0, FWHM, A, eta, area."""
     return papi.read_waxs_peakfit(path=path, include_arrays=include_arrays,
                                    max_points=max_points)
 
 
 @mcp.tool()
-def read_fractals(path: str) -> dict:
+def pyirena_read_fractals(path: str) -> dict:
     """List fractal aggregates stored in a file (Z, df, dmin, c, Rg per aggregate)."""
     return papi.read_fractals(path)
 
 
 @mcp.tool()
-def read_merge_provenance(path: str) -> dict:
+def pyirena_read_merge_provenance(path: str) -> dict:
     """Read Data Merge provenance: scale, q_shift, background, source files."""
     return papi.read_merge_provenance(path)
 
 
 @mcp.tool()
-def read_manipulation_provenance(path: str) -> dict:
+def pyirena_read_manipulation_provenance(path: str) -> dict:
     """Read Data Manipulation provenance: operation, parameters, source file."""
     return papi.read_manipulation_provenance(path)
 
@@ -181,7 +186,7 @@ def read_manipulation_provenance(path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def tabulate_parameter(
+def pyirena_tabulate_parameter(
     folder: str,
     tool: str,
     parameter: str,
@@ -204,7 +209,7 @@ def tabulate_parameter(
 
 
 @mcp.tool()
-def summarize_sample(folder: str, sample: str) -> dict:
+def pyirena_summarize_sample(folder: str, sample: str) -> dict:
     """Condense everything known about one sample across a folder.
 
     File list, per-analysis file count, and min/max/n of every top-level
@@ -218,7 +223,7 @@ def summarize_sample(folder: str, sample: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def plot_iq(
+def pyirena_plot_iq(
     paths: list[str],
     overlay: bool = True,
     log_x: bool = True,
@@ -240,7 +245,7 @@ def plot_iq(
 
 
 @mcp.tool()
-def plot_parameter_trend(
+def pyirena_plot_parameter_trend(
     folder: str,
     tool: str,
     parameter: str,
@@ -251,9 +256,9 @@ def plot_parameter_trend(
 ) -> Image:
     """Plot a parameter trend across many files; returns the PNG inline.
 
-    See tabulate_parameter() for the *tool* / *parameter* / *subgroup_index*
-    semantics. Useful for time-series questions like "how is Rg evolving
-    across the latest 30 scans?"
+    See pyirena_tabulate_parameter() for the *tool* / *parameter* /
+    *subgroup_index* semantics. Useful for time-series questions like
+    "how is Rg evolving across the latest 30 scans?"
     """
     result = papi.plot_parameter_trend(
         folder=folder, tool=tool, parameter=parameter, x_axis=x_axis,
