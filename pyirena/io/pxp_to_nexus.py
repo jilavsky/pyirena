@@ -256,8 +256,17 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
     header_struct = setup_packed_file_record_header()
     skipped = 0
 
+    # Hard upper bound on a single record. No legitimate Igor wave or
+    # procedure-file record approaches this; anything larger means we
+    # drifted out of alignment (e.g. on a record type we don't handle)
+    # and the next 4 bytes are misread as a record size. Bail rather
+    # than allocate gigabytes and OOM.
+    file_size = pxp_path.stat().st_size
+    _MAX_RECORD_BYTES = 256 * 1024 * 1024  # 256 MB
+
     with open(pxp_path, "rb") as f:
         while True:
+            pos = f.tell()
             b = f.read(header_struct.size)
             if len(b) == 0:
                 break
@@ -270,8 +279,25 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
                 if need:
                     header_struct = setup_packed_file_record_header(byte_order=byte_order)
                     header = header_struct.unpack_from(b)
-            data = bytes(f.read(header["numDataBytes"]))
-            if len(data) < header["numDataBytes"]:
+
+            num_bytes = header["numDataBytes"]
+            # Sanity-check the record-size field. A negative or absurdly
+            # large value almost always means the loop is out of
+            # alignment (we read past the end of a record type we don't
+            # handle). Stop cleanly so we don't OOM trying to allocate
+            # gigabytes of garbage.
+            if (num_bytes < 0
+                    or num_bytes > _MAX_RECORD_BYTES
+                    or pos + header_struct.size + num_bytes > file_size):
+                logger.warning(
+                    "%s: implausible record size %d at offset 0x%x "
+                    "(file is %d bytes). Stopping load; %d records read so far.",
+                    pxp_path.name, num_bytes, pos, file_size, len(records),
+                )
+                break
+
+            data = bytes(f.read(num_bytes))
+            if len(data) < num_bytes:
                 logger.warning("truncated record in %s — stopping", pxp_path)
                 break
             rtype_id = header["recordType"] & PACKEDRECTYPE_MASK
