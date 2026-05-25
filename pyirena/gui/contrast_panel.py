@@ -160,10 +160,8 @@ def _fmt(val: Any, sig: int = 4) -> str:
             return str(v)
         if v == 0:
             return "0"
-        mag = abs(v)
-        if 0.001 <= mag < 1e5:
-            return f"{v:.{sig}g}"
-        return f"{v:.{sig - 1}e}"
+        from pyirena.gui.fmt_utils import eng_fmt
+        return eng_fmt(v, sig=sig)
     except Exception:
         return str(val)
 

@@ -139,18 +139,8 @@ class ScrubbableLineEdit(QLineEdit):
             # No validator, enforce >= 0
             new_value = max(minimum_value, new_value)
 
-        # Update the text field
-        # Determine appropriate precision
-        if abs(new_value) < 0.001:
-            text = f"{new_value:.2e}"
-        elif abs(new_value) < 1:
-            text = f"{new_value:.6f}".rstrip('0').rstrip('.')
-        elif abs(new_value) < 1000:
-            text = f"{new_value:.4f}".rstrip('0').rstrip('.')
-        else:
-            text = f"{new_value:.2e}"
-
-        self.setText(text)
+        from pyirena.gui.fmt_utils import eng_fmt_edit
+        self.setText(eng_fmt_edit(new_value, sig=4))
         self.editingFinished.emit()
 
         # Accept the event so it doesn't propagate
@@ -1487,14 +1477,8 @@ class LevelParametersWidget(QWidget):
 
     def _format_value(self, value: float) -> str:
         """Format a value to 3 significant digits."""
-        if value == 0:
-            return "0"
-        # Use scientific notation for very small or very large numbers
-        if abs(value) < 0.001 or abs(value) >= 10000:
-            return f"{value:.2e}"
-        else:
-            # Use fixed decimal for normal range numbers
-            return f"{value:.3g}"
+        from pyirena.gui.fmt_utils import eng_fmt_edit
+        return eng_fmt_edit(value, sig=3)
 
     def toggle_limits_visibility(self, show: bool):
         """Show or hide all limit fields and headers."""
@@ -2074,14 +2058,8 @@ class UnifiedFitPanel(QWidget):
 
     def format_value_3sig(self, value: float) -> str:
         """Format a value to 3 significant digits for display."""
-        if value == 0:
-            return "0"
-        # Use scientific notation with 2 decimal places (3 sig figs total)
-        if abs(value) < 0.01 or abs(value) >= 1000:
-            return f"{value:.2e}"
-        else:
-            # For values in normal range, use 3 significant figures
-            return f"{value:.3g}"
+        from pyirena.gui.fmt_utils import eng_fmt
+        return eng_fmt(value, sig=3)
 
     def create_control_panel(self) -> QWidget:
         """Create the left control panel."""
@@ -2798,14 +2776,15 @@ class UnifiedFitPanel(QWidget):
             chi2 = result.get('chi_squared', 0.0)
             reduced_chi2 = result.get('reduced_chi_squared', 0.0)
 
+            from pyirena.gui.fmt_utils import eng_fmt as _efmt
             if cursor_range is not None:
                 self.status_label.setText(
-                    f"Fit complete: {num_levels} level(s), {num_points} pts (Q: {q_min:.3e} - {q_max:.3e}), χ² = {chi2:.4f}"
+                    f"Fit complete: {num_levels} level(s), {num_points} pts (Q: {_efmt(q_min)} - {_efmt(q_max)}), χ² = {chi2:.4f}"
                 )
             else:
                 self.status_label.setText(f"Fit complete: {num_levels} level(s), χ² = {chi2:.4f}")
 
-            cursor_info = f" | Q: {q_min:.3e} - {q_max:.3e} ({num_points} pts)" if cursor_range else ""
+            cursor_info = f" | Q: {_efmt(q_min)} - {_efmt(q_max)} ({num_points} pts)" if cursor_range else ""
 
             self.graph_window.show_success_message(
                 f"Fit completed successfully! "
@@ -2956,16 +2935,17 @@ class UnifiedFitPanel(QWidget):
                 self.graph_unified()
 
             # Show success message
+            from pyirena.gui.fmt_utils import eng_fmt as _efmt
             self.status_label.setText(
                 f"Local Guinier fit complete for Level {level}: "
-                f"G = {fitted_g:.3e}, Rg = {fitted_rg:.3e} "
-                f"(Q: {q_min:.3e} - {q_max:.3e}, {len(q_fit)} pts)"
+                f"G = {_efmt(fitted_g)}, Rg = {_efmt(fitted_rg)} "
+                f"(Q: {_efmt(q_min)} - {_efmt(q_max)}, {len(q_fit)} pts)"
             )
 
             self.graph_window.show_success_message(
                 f"Local Guinier fit completed for Level {level}! "
-                f"G = {fitted_g:.4e}, Rg = {fitted_rg:.4e} | "
-                f"Q: {q_min:.3e} - {q_max:.3e} ({len(q_fit)} pts) | "
+                f"G = {_efmt(fitted_g)}, Rg = {_efmt(fitted_rg)} | "
+                f"Q: {_efmt(q_min)} - {_efmt(q_max)} ({len(q_fit)} pts) | "
                 f"Limits updated automatically."
             )
 
@@ -3116,16 +3096,17 @@ class UnifiedFitPanel(QWidget):
                 self.graph_unified()
 
             # Show success message
+            from pyirena.gui.fmt_utils import eng_fmt as _efmt
             self.status_label.setText(
                 f"Local Porod fit complete for Level {level}: "
-                f"B = {fitted_b:.3e}, P = {fitted_p:.3e} "
-                f"(Q: {q_min:.3e} - {q_max:.3e}, {len(q_fit)} pts)"
+                f"B = {_efmt(fitted_b)}, P = {_efmt(fitted_p)} "
+                f"(Q: {_efmt(q_min)} - {_efmt(q_max)}, {len(q_fit)} pts)"
             )
 
             self.graph_window.show_success_message(
                 f"Local Porod fit completed for Level {level}! "
-                f"B = {fitted_b:.4e}, P = {fitted_p:.4e} | "
-                f"Q: {q_min:.3e} - {q_max:.3e} ({len(q_fit)} pts) | "
+                f"B = {_efmt(fitted_b)}, P = {_efmt(fitted_p)} | "
+                f"Q: {_efmt(q_min)} - {_efmt(q_max)} ({len(q_fit)} pts) | "
                 f"Limits updated automatically."
             )
 
@@ -3731,11 +3712,13 @@ class UnifiedFitPanel(QWidget):
         If Monte Carlo uncertainties are available (from Analyze Results), each
         fitted parameter is shown as  value ± std_dev.
         """
+        from pyirena.gui.fmt_utils import eng_fmt
+
         def _fmt(val, err=0.0, fmt='e'):
             """Format a value with optional ±uncertainty."""
-            v_str = f"{val:.3{fmt}}"
+            v_str = eng_fmt(val, sig=4)
             if err > 0.0:
-                return f"{v_str} ± {err:.2e}"
+                return f"{v_str} ± {eng_fmt(err, sig=3)}"
             return v_str
 
         try:
@@ -3772,7 +3755,7 @@ class UnifiedFitPanel(QWidget):
                 text_lines.append(f"P  = {_fmt(params['P'],  ud['P'], fmt='f')}")
 
                 if params['RgCutoff'] > 0.01:
-                    text_lines.append(f"RgCO = {params['RgCutoff']:.3e}")
+                    text_lines.append(f"RgCO = {eng_fmt(params['RgCutoff'])}")
 
                 if params['correlated']:
                     text_lines.append(f"ETA  = {_fmt(params['ETA'],  ud['ETA'])}")

@@ -230,13 +230,8 @@ def _sep(orientation='h') -> QFrame:
 
 def _fmt(v: float) -> str:
     """Format float for display in parameter fields."""
-    if v == 0.0:
-        return '0'
-    if abs(v) < 0.01 or abs(v) >= 1e5:
-        return f'{v:.3e}'
-    if abs(v) < 10:
-        return f'{v:.4g}'
-    return f'{v:.4g}'
+    from pyirena.gui.fmt_utils import eng_fmt_edit
+    return eng_fmt_edit(v, sig=4)
 
 
 def _parse(text: str, default: float = 0.0) -> float:
@@ -976,9 +971,10 @@ class PopulationTab(QWidget):
         if not derived:
             self._derived_group.setVisible(False)
             return
+        from pyirena.gui.fmt_utils import eng_fmt
         for key, lbl in self._dr_labels.items():
             val = derived.get(key)
-            lbl.setText(f'{val:.5g}' if val is not None else '—')
+            lbl.setText(eng_fmt(val, sig=5) if val is not None else '—')
         self._derived_group.setVisible(True)
 
     def clear_derived(self):
@@ -2702,7 +2698,8 @@ class ModelingPanel(QWidget):
         self.graph.set_status('MC uncertainty estimation complete.', 'success')
 
         if stds:
-            lines = [f'  {k}: ± {v:.4g}' for k, v in sorted(stds.items())]
+            from pyirena.gui.fmt_utils import eng_fmt
+            lines = [f'  {k}: ± {eng_fmt(v)}' for k, v in sorted(stds.items())]
             QMessageBox.information(
                 self, 'MC Uncertainties',
                 'Parameter standard deviations:\n' + '\n'.join(lines),
@@ -2818,8 +2815,9 @@ class ModelingPanel(QWidget):
             QMessageBox.warning(self, 'No fit results',
                                 'Run a fit first to generate results.')
             return
+        from pyirena.gui.fmt_utils import eng_fmt
         result = self._last_result
-        lines = [f'χ²/dof = {result.reduced_chi_squared:.4g}']
+        lines = [f'χ²/dof = {eng_fmt(result.reduced_chi_squared)}']
         stds = result.params_std or {}
         for k, d in enumerate(result.derived):
             pi = result.pop_indices[k]
@@ -2831,9 +2829,9 @@ class ModelingPanel(QWidget):
                 std_key = f'pop{pi+1}_derived_{name}'
                 std = stds.get(std_key)
                 if std is not None and np.isfinite(std) and std > 0:
-                    lines.append(f'{pop_label}: {name} = {val:.4g} ± {std:.3g}')
+                    lines.append(f'{pop_label}: {name} = {eng_fmt(val)} ± {eng_fmt(std, sig=3)}')
                 else:
-                    lines.append(f'{pop_label}: {name} = {val:.4g}')
+                    lines.append(f'{pop_label}: {name} = {eng_fmt(val)}')
         self.graph.clear_result_annotations()
         self.graph.add_result_annotation('\n'.join(lines))
         self.graph.set_status('Results annotated on graph.', 'success')

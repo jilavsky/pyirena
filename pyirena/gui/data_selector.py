@@ -287,6 +287,7 @@ def _build_report(file_path: str,
     L.append("")
 
     # ── Data summary ─────────────────────────────────────────────────────────
+    from pyirena.gui.fmt_utils import eng_fmt as _ef
     if data_info is not None:
         Q = data_info['Q']
         I = data_info['I']
@@ -296,13 +297,13 @@ def _build_report(file_path: str,
             "",
             "| Parameter | Value |",
             "|-----------|-------|",
-            f"| Q range | {Q.min():.4g} – {Q.max():.4g} Å⁻¹ |",
-            f"| Intensity range | {I.min():.4e} – {I.max():.4e} cm⁻¹ |",
+            f"| Q range | {_ef(Q.min())} – {_ef(Q.max())} Å⁻¹ |",
+            f"| Intensity range | {_ef(I.min())} – {_ef(I.max())} cm⁻¹ |",
             f"| Data points | {len(Q)} |",
         ]
         if I_error is not None:
             L.append(
-                f"| Uncertainty range | {I_error.min():.4e} – {I_error.max():.4e} cm⁻¹ |"
+                f"| Uncertainty range | {_ef(I_error.min())} – {_ef(I_error.max())} cm⁻¹ |"
             )
         L.append("")
 
@@ -322,8 +323,8 @@ def _build_report(file_path: str,
             "|-----------|-------|",
             f"| Chi-squared (χ²) | {chi2:.4f} |",
             f"| Number of levels | {n_levels} |",
-            f"| Background | {bg:.4e} cm⁻¹ |",
-            f"| Q range (fit) | {Q_fit.min():.4g} – {Q_fit.max():.4g} Å⁻¹ |",
+            f"| Background | {_ef(bg)} cm⁻¹ |",
+            f"| Q range (fit) | {_ef(Q_fit.min())} – {_ef(Q_fit.max())} Å⁻¹ |",
             f"| Data points (fit) | {len(Q_fit)} |",
             f"| Residuals mean | {np.mean(residuals):.4f} |",
             f"| Residuals std dev | {np.std(residuals):.4f} |",
@@ -349,10 +350,16 @@ def _build_report(file_path: str,
                 val = level.get(key)
                 if val is None:
                     return
-                val_str = f"{val:{fmt}}{unit}"
+                if fmt.endswith('f'):
+                    val_str = f"{val:{fmt}}{unit}"
+                else:
+                    val_str = f"{_ef(float(val))}{unit}"
                 if has_mc:
                     err = level.get(f'{key}_err', 0.0)
-                    err_str = f"± {err:{fmt}}{unit}" if err > 0 else "—"
+                    if fmt.endswith('f'):
+                        err_str = f"± {err:{fmt}}{unit}" if err > 0 else "—"
+                    else:
+                        err_str = f"± {_ef(float(err))}{unit}" if err > 0 else "—"
                     L.append(f"| {label} | {val_str} | {err_str} |")
                 else:
                     L.append(f"| {label} | {val_str} |")
@@ -416,12 +423,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}{suffix}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}{suffix}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig) + suffix
             except (TypeError, ValueError):
                 return str(v)
 
@@ -548,12 +559,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}{suffix}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}{suffix}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig) + suffix
             except (TypeError, ValueError):
                 return str(v)
 
@@ -607,12 +622,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig)
             except (TypeError, ValueError):
                 return str(v)
 
@@ -670,12 +689,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig)
             except (TypeError, ValueError):
                 return str(v)
 
@@ -754,12 +777,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig)
             except (TypeError, ValueError):
                 return str(v)
 
