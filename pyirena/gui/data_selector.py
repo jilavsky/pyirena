@@ -9,7 +9,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 try:
     from PySide6.QtWidgets import (
@@ -2266,6 +2266,100 @@ class BatchWorker(QThread):
         self.finished.emit(n_ok, n_fail, messages)
 
 
+class _IgorImportDialog(QDialog):
+    """Modal dialog asking the user where to send extracted NeXus files and
+    which techniques to keep, before the actual pxp → NeXus import runs.
+
+    Used only by :meth:`DataSelectorPanel.launch_igor_import`. The dialog is
+    short and purely a settings prompt; the real work happens in
+    :func:`pyirena.batch.pxp_to_nexus`.
+    """
+
+    def __init__(self, pxp_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Import Igor Experiment")
+        self.pxp_path = Path(pxp_path)
+        self.setMinimumWidth(540)
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            f"<b>Source:</b> {self.pxp_path.name}<br>"
+            f"<b>Folder:</b> {self.pxp_path.parent}"
+        )
+        info.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(info)
+
+        layout.addSpacing(8)
+
+        # Output folder row
+        form = QFormLayout()
+        default_out = self.pxp_path.with_name(f"{self.pxp_path.stem}_data")
+        self._out_edit = QLineEdit(str(default_out))
+        out_row = QHBoxLayout()
+        out_row.addWidget(self._out_edit, stretch=1)
+        out_browse = QPushButton("Browse…")
+        out_browse.clicked.connect(self._browse_output)
+        out_row.addWidget(out_browse)
+        out_w = QWidget(); out_w.setLayout(out_row)
+        form.addRow("Output folder:", out_w)
+        layout.addLayout(form)
+
+        layout.addSpacing(4)
+
+        # Techniques group
+        grp = QGroupBox("Techniques to export")
+        gv = QVBoxLayout(grp)
+        self._cb_usaxs = QCheckBox("USAXS  (desmeared DSM_* waves)")
+        self._cb_saxs  = QCheckBox("SAXS   (R_Qvec / R_Int / R_Error)")
+        self._cb_waxs  = QCheckBox("WAXS   (R_Qvec / R_Int / R_Error)")
+        for cb in (self._cb_usaxs, self._cb_saxs, self._cb_waxs):
+            cb.setChecked(True)
+            gv.addWidget(cb)
+        layout.addWidget(grp)
+
+        # Overwrite option
+        self._cb_overwrite = QCheckBox(
+            "Overwrite existing files  (off = append _2, _3, … to keep both)"
+        )
+        layout.addWidget(self._cb_overwrite)
+
+        layout.addStretch()
+
+        # Buttons
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText("Import")
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _browse_output(self):
+        start = self._out_edit.text() or str(self.pxp_path.parent)
+        folder = QFileDialog.getExistingDirectory(
+            self, "Output folder", start, QFileDialog.Option.ShowDirsOnly
+        )
+        if folder:
+            self._out_edit.setText(folder)
+
+    def options(self) -> Dict:
+        """Return a dict of the user's choices."""
+        techs: List[str] = []
+        if self._cb_usaxs.isChecked():
+            techs.append("USAXS")
+        if self._cb_saxs.isChecked():
+            techs.append("SAXS")
+        if self._cb_waxs.isChecked():
+            techs.append("WAXS")
+        return {
+            'output_folder': self._out_edit.text().strip() or None,
+            'techniques':    techs if techs else None,
+            'overwrite':     self._cb_overwrite.isChecked(),
+        }
+
+
 class DataSelectorPanel(QWidget):
     """
     Main data selector panel for pyIrena.
@@ -2945,10 +3039,27 @@ class DataSelectorPanel(QWidget):
         )
         self.fractals_button.clicked.connect(self.launch_fractals)
 
+        _igor_import_style = (
+            "QPushButton { background:#8e44ad; color:white; "
+            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
+            "QPushButton:hover { background:#6c3483; }"
+            "QPushButton:disabled { background:#95a5a6; }"
+        )
+        self.igor_import_button = QPushButton("Import Igor Experiment…")
+        self.igor_import_button.setMinimumHeight(38)
+        self.igor_import_button.setStyleSheet(_igor_import_style)
+        self.igor_import_button.setToolTip(
+            "Open an Igor Pro packed experiment (.pxp) and export each\n"
+            "reduced USAXS/SAXS/WAXS sample into a NeXus (.h5) file.\n"
+            "Use this to bring legacy Igor data into pyIrena for analysis."
+        )
+        self.igor_import_button.clicked.connect(self.launch_igor_import)
+
         proc_grid.addWidget(self.data_merge_button, 0, 0)
         proc_grid.addWidget(self.data_manip_button, 0, 1)
         proc_grid.addWidget(self.contrast_button,   1, 0)
         proc_grid.addWidget(self.fractals_button,   1, 1)
+        proc_grid.addWidget(self.igor_import_button, 2, 0, 1, 2)  # span both cols
         right_layout.addWidget(grp_proc)
 
         right_layout.addStretch()
@@ -4539,6 +4650,132 @@ class DataSelectorPanel(QWidget):
         the underlying widget (triggered by WA_DeleteOnClose).
         """
         self.fractals_window = None
+
+    # ── Igor packed experiment import ──────────────────────────────────────
+    def launch_igor_import(self):
+        """Pick a .pxp file, extract its USAXS/SAXS/WAXS data to NeXus files,
+        and offer to load the output folder as the current data folder.
+        """
+        from pyirena.batch import pxp_to_nexus
+
+        start_dir = self.last_folder if self.last_folder else QDir.homePath()
+        pxp_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Igor Packed Experiment",
+            start_dir,
+            "Igor Packed Experiment (*.pxp);;All Files (*)",
+        )
+        if not pxp_path:
+            return
+
+        pxp_path = Path(pxp_path)
+        # Show the import options dialog.
+        dlg = _IgorImportDialog(pxp_path, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        opts = dlg.options()
+        # Run extraction synchronously — these files are small (~100s of KB
+        # each) and the parse is fast even for 16 MB pxp inputs. If users
+        # report 100+ MB experiments hanging the UI, move this to a
+        # QThread; for now keep it simple.
+        try:
+            self.status_label.setText(f"Importing {pxp_path.name}…")
+            QApplication.processEvents()
+            result = pxp_to_nexus(
+                pxp_file=str(pxp_path),
+                output_folder=opts['output_folder'],
+                techniques=opts['techniques'],
+                overwrite=opts['overwrite'],
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Import error",
+                f"Failed to import {pxp_path.name}:\n\n{exc}",
+            )
+            self.status_label.setText("Import failed.")
+            return
+
+        if result is None:
+            QMessageBox.warning(
+                self, "Import returned no result",
+                f"No data was extracted from {pxp_path.name}.",
+            )
+            return
+
+        # Summarise
+        msg_lines = [
+            f"Imported {pxp_path.name}",
+            "",
+            f"Output folder: {result['output_folder']}",
+            f"Files written: {result['n_written']}",
+            f"Skipped:       {result['n_skipped']}  (folders with no recognised wave triple)",
+            f"Errors:        {result['n_errors']}",
+        ]
+        if result.get('n_unparseable_records'):
+            msg_lines.append(
+                f"Note: {result['n_unparseable_records']} wave record(s) in the "
+                f"pxp could not be parsed (skipped)."
+            )
+
+        # Per-technique tally
+        tech_count: Dict[str, int] = {}
+        for fr in result['files']:
+            if fr['status'] == 'ok':
+                tech_count[fr['technique']] = tech_count.get(fr['technique'], 0) + 1
+        if tech_count:
+            msg_lines.append("")
+            msg_lines.append("By technique:")
+            for t in sorted(tech_count):
+                msg_lines.append(f"  {t}: {tech_count[t]}")
+
+        self.status_label.setText(
+            f"Imported {result['n_written']} files to {Path(result['output_folder']).name}"
+        )
+
+        # Offer to load the output folder
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setWindowTitle("Import complete")
+        msg_box.setText("\n".join(msg_lines))
+        if result['n_written'] > 0:
+            load_btn = msg_box.addButton(
+                "Load output folder",
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+            tech_subdirs = sorted(tech_count)
+            if len(tech_subdirs) == 1:
+                load_btn.setText(f"Load {tech_subdirs[0]} folder")
+        msg_box.addButton(QMessageBox.StandardButton.Close)
+        msg_box.exec()
+
+        if (msg_box.clickedButton() is not None
+                and msg_box.clickedButton().text().startswith("Load")):
+            # If exactly one technique was written, jump directly into it
+            # so the file list shows files immediately. Otherwise open the
+            # parent output folder and let the user pick.
+            target = Path(result['output_folder'])
+            if len(tech_count) == 1:
+                only_tech = next(iter(tech_count))
+                tech_dir = target / only_tech
+                if tech_dir.is_dir():
+                    target = tech_dir
+            self._load_folder(str(target))
+
+    def _load_folder(self, folder: str) -> None:
+        """Set *folder* as the current data folder and refresh the file list.
+
+        Same effect as a successful ``select_folder`` dialog, but accepts a
+        path string directly. Used by import workflows.
+        """
+        self.current_folder = folder
+        self.last_folder = folder
+        self.save_last_folder(folder)
+        self.folder_label.setText(folder)
+        self.folder_label.setStyleSheet("color: #2c3e50;")
+        self.refresh_button.setEnabled(True)
+        self.refresh_file_list()
+        self.status_label.setText(f"Folder: {os.path.basename(folder)}")
 
     # ── Visualization for "Create Graph" with 3D-tool checkboxes ─────────
     #

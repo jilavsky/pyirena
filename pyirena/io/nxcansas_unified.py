@@ -15,7 +15,9 @@ from typing import Dict, List, Optional, Tuple
 
 def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
                          error: Optional[np.ndarray] = None,
-                         sample_name: str = "data") -> None:
+                         sample_name: str = "data",
+                         dq: Optional[np.ndarray] = None,
+                         metadata: Optional[Dict] = None) -> None:
     """
     Create a new NXcanSAS HDF5 file with experimental data.
 
@@ -25,8 +27,25 @@ def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
         intensity: Intensity data (1/cm)
         error: Error/uncertainty data (1/cm)
         sample_name: Name for the data entry
+        dq: Optional Q resolution / Q uncertainty (1/Angstrom). Written as the
+            `Qdev` dataset per the NXcanSAS standard.
+        metadata: Optional dict of provenance / instrument / sample metadata.
+            Recognised keys (all optional):
+              - ``title`` → ``entry/title``
+              - ``start_time`` / ``end_time`` → ``entry/start_time`` etc.
+              - ``run`` → overrides the default ``"pyirena_run"`` run string
+              - ``sample.<key>`` → datasets under ``entry/sample/<key>``
+                (e.g. ``sample.name``, ``sample.thickness``, ``sample.temperature``)
+              - ``instrument.<key>`` → datasets under ``entry/instrument/<key>``
+                (e.g. ``instrument.name``, ``instrument.wavelength``)
+              - ``source.<sub>`` → entry/raw_note/<sub>  (free-text provenance)
+
+            Numeric values become float64 datasets; strings become UTF-8
+            text datasets. Unknown top-level keys go into ``entry/notes/``
+            as text datasets so nothing is lost in translation.
     """
     timestamp = datetime.now().isoformat()
+    metadata = metadata or {}
 
     with h5py.File(filepath, "w") as f:
         # Root attributes
@@ -45,16 +64,63 @@ def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
         nxentry.attrs['default'] = sample_name
         nxentry.create_dataset('definition', data='NXsas')
 
+        # Entry-level scalar metadata (title / times / run)
+        title_val = metadata.get('title', sample_name)
+        run_val = metadata.get('run', 'pyirena_run')
+
         # Create subentry for data
         data_path = f"entry/{sample_name}"
         nxdata_entry = f.create_group(data_path)
         nxdata_entry.attrs['NX_class'] = 'NXsubentry'
         nxdata_entry.attrs['canSAS_class'] = 'SASentry'
         nxdata_entry.attrs['default'] = 'sasdata'
-        nxdata_entry.attrs['title'] = sample_name
+        nxdata_entry.attrs['title'] = str(title_val)
         nxdata_entry.create_dataset('definition', data='NXcanSAS')
-        nxdata_entry.create_dataset('title', data=sample_name)
-        nxdata_entry.create_dataset('run', data='pyirena_run')
+        nxdata_entry.create_dataset('title', data=str(title_val))
+        nxdata_entry.create_dataset('run', data=str(run_val))
+
+        # Optional entry-level timestamps
+        for k in ('start_time', 'end_time'):
+            if k in metadata and metadata[k] is not None:
+                nxentry.create_dataset(k, data=str(metadata[k]))
+
+        # ── sample / instrument groups ─────────────────────────────────────
+        sample_meta = {k[len('sample.'):]: v for k, v in metadata.items()
+                       if k.startswith('sample.')}
+        if sample_meta:
+            sample_grp = nxentry.create_group('sample')
+            sample_grp.attrs['NX_class'] = 'NXsample'
+            sample_grp.attrs['canSAS_class'] = 'SASsample'
+            _write_meta_items(sample_grp, sample_meta)
+
+        instr_meta = {k[len('instrument.'):]: v for k, v in metadata.items()
+                      if k.startswith('instrument.')}
+        if instr_meta:
+            instr_grp = nxentry.create_group('instrument')
+            instr_grp.attrs['NX_class'] = 'NXinstrument'
+            instr_grp.attrs['canSAS_class'] = 'SASinstrument'
+            _write_meta_items(instr_grp, instr_meta)
+            # Hoist wavelength into a beam sub-group so canSAS readers can
+            # find it at the expected NXcanSAS path.
+            wl = instr_meta.get('wavelength', instr_meta.get('incident_wavelength'))
+            if wl is not None:
+                try:
+                    wl_f = float(wl)
+                    beam = instr_grp.create_group('beam')
+                    beam.attrs['NX_class'] = 'NXbeam'
+                    ds_wl = beam.create_dataset('incident_wavelength', data=wl_f)
+                    ds_wl.attrs['units'] = 'angstrom'
+                except (TypeError, ValueError):
+                    pass
+
+        # ── catch-all: anything not recognised goes into entry/notes ──────
+        leftover = {k: v for k, v in metadata.items()
+                    if not k.startswith(('sample.', 'instrument.'))
+                    and k not in ('title', 'start_time', 'end_time', 'run')}
+        if leftover:
+            notes_grp = nxentry.create_group('notes')
+            notes_grp.attrs['NX_class'] = 'NXnote'
+            _write_meta_items(notes_grp, leftover)
 
         # Create sasdata group
         sasdata = nxdata_entry.create_group('sasdata')
@@ -74,12 +140,41 @@ def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
         ds_q = sasdata.create_dataset('Q', data=q)
         ds_q.attrs['units'] = '1/angstrom'
         ds_q.attrs['long_name'] = 'Q'
+        if dq is not None:
+            ds_q.attrs['resolutions'] = 'Qdev'
 
         # Store error data if provided
         if error is not None:
             ds_err = sasdata.create_dataset('Idev', data=error)
             ds_err.attrs['units'] = '1/cm'
             ds_err.attrs['long_name'] = 'Uncertainties'
+
+        # Store Q resolution if provided
+        if dq is not None:
+            ds_dq = sasdata.create_dataset('Qdev', data=dq)
+            ds_dq.attrs['units'] = '1/angstrom'
+            ds_dq.attrs['long_name'] = 'Q resolution'
+
+
+def _write_meta_items(group: 'h5py.Group', items: Dict) -> None:
+    """Write a flat dict of metadata into an HDF5 group.
+
+    Numeric values become scalar float64 datasets; everything else is stored
+    as a UTF-8 text dataset. Keys that contain dots are flattened with `_`
+    so they map to legal HDF5 dataset names.
+    """
+    for key, val in items.items():
+        if val is None:
+            continue
+        safe_key = key.replace('.', '_').replace('/', '_')
+        if isinstance(val, (bool, np.bool_)):
+            group.create_dataset(safe_key, data=int(val))
+        elif isinstance(val, (int, np.integer)):
+            group.create_dataset(safe_key, data=int(val))
+        elif isinstance(val, (float, np.floating)):
+            group.create_dataset(safe_key, data=float(val))
+        else:
+            group.create_dataset(safe_key, data=str(val))
 
 
 def save_unified_fit_results(filepath: Path,

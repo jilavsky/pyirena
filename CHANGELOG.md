@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-05-25
+
+### Added
+
+- **Import Igor Pro packed experiments (`.pxp`) → per-sample NeXus files.**
+  Users with legacy Igor data can now bring it into pyIrena for analysis
+  without re-reducing from raw detector files. The importer walks the
+  experiment's USAXS / SAXS / WAXS folder hierarchy, picks the
+  standard wave triples (`DSM_Qvec`/`DSM_Int`/`DSM_Error`(+`DSM_dQ`)
+  for USAXS, `R_Qvec`/`R_Int`/`R_Error` for SAXS and WAXS), and
+  writes one NXcanSAS `.h5` per sample into a sibling `<pxp>_data/`
+  folder organised as `USAXS/`, `SAXS/`, `WAXS/`.
+
+  Rich wave-note metadata produced by the APS USAXS pipeline (sample
+  name, thickness, temperature, wavelength, plus the full instrument
+  state) is parsed from the `NXSampleStart`/`End`, `NXInstrumentStart`/
+  `End`, `NXMetadataStart`/`End` sentinel blocks and lands in the
+  canonical NXcanSAS locations (`entry/sample/`, `entry/instrument/`,
+  `entry/notes/`). The Q resolution column `Qdev` is written when
+  the source wave has `DSM_dQ` (per the NXcanSAS optional-array spec).
+
+  Entry points:
+  - GUI: **Data Processing & Reference → Import Igor Experiment…**
+    (purple button in the Data Selector). A modal dialog lets users
+    pick output folder, technique subset, and overwrite policy; on
+    success the output folder loads automatically as the current
+    data folder.
+  - Headless: `pyirena.batch.pxp_to_nexus("legacy.pxp", techniques=["USAXS"])`
+  - CLI: `python -m pyirena.io.pxp_to_nexus legacy.pxp -v`
+
+  New dependency: `igor2 >= 0.5.13` (pure Python, numpy-only).
+
+  Implementation notes:
+  - Files: `pyirena/io/pxp_to_nexus.py` (reader + writer engine),
+    `pyirena/io/nxcansas_unified.py` (extended `create_nxcansas_file`
+    with `dq=` and `metadata=` parameters), `pyirena/batch.py`
+    (`pxp_to_nexus` entry point), `pyirena/gui/data_selector.py`
+    (button + `_IgorImportDialog`), `pyirena/tests/test_pxp_to_nexus.py`
+    (11 tests).
+  - The wave-name picker (`WAVE_PICKERS`) and folder-name classifier
+    (`TECHNIQUE_FOLDERS`) are data-driven dicts at the top of
+    `pxp_to_nexus.py`; users with non-standard pipelines can extend
+    them without touching extractor logic.
+  - The reader is defensive: a single corrupt wave record (real Igor
+    files occasionally have them) is skipped and reported in the
+    summary rather than aborting the whole import.
+
 ## [0.7.2] — 2026-05-20
 
 ### Fixed

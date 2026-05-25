@@ -126,6 +126,14 @@ datasets, and export to Igor Pro h5xp format. Supports all pyIrena result types
 
 - [Data Explorer guide](docs/hdf5_viewer_gui.md)
 
+### Import Igor Experiment
+Open a legacy Igor Pro packed experiment (`.pxp`) and export each
+reduced USAXS/SAXS/WAXS sample as a stand-alone NXcanSAS `.h5` file.
+Brings older Igor-only data into pyIrena's analysis tools without
+re-reducing from raw detector files.
+
+- [Import Igor Experiment guide](docs/igor_pxp_import.md)
+
 ### Scattering Contrast Calculator
 Look up X-ray and neutron scattering length densities for materials by chemical
 formula. Computes contrast (Delta-rho-squared) between two materials.
@@ -223,6 +231,7 @@ and **AnythingLLM**:
 | WAXS Peak Fit GUI guide | [docs/waxs_peakfit_gui.md](docs/waxs_peakfit_gui.md) |
 | Data Merge GUI guide | [docs/data_merge_gui.md](docs/data_merge_gui.md) |
 | Data Explorer guide | [docs/hdf5_viewer_gui.md](docs/hdf5_viewer_gui.md) |
+| Import Igor Experiment (.pxp → NeXus) | [docs/igor_pxp_import.md](docs/igor_pxp_import.md) |
 | Contrast Calculator guide | [docs/scattering_contrast_gui.md](docs/scattering_contrast_gui.md) |
 | NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
 | Batch fitting API | [docs/batch_api.md](docs/batch_api.md) |

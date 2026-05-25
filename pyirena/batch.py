@@ -2327,3 +2327,94 @@ def average_data(
         'n_datasets': len(datasets),
         'rejected': rejected_pairs,
     }
+
+
+# ---------------------------------------------------------------------------
+# Igor packed experiment (.pxp) import
+# ---------------------------------------------------------------------------
+
+def pxp_to_nexus(
+    pxp_file: Union[str, Path],
+    output_folder: Optional[Union[str, Path]] = None,
+    techniques: Optional[List[str]] = None,
+    overwrite: bool = False,
+    verbose: bool = False,
+) -> Optional[Dict]:
+    """Import an Igor Pro packed experiment (.pxp) and export reduced data as NeXus files.
+
+    Walks the experiment's USAXS / SAXS / WAXS folder hierarchy and writes one
+    NXcanSAS ``.h5`` file per sample. See
+    :func:`pyirena.io.pxp_to_nexus.extract_pxp_to_nexus` for details of the
+    folder and wave-name conventions recognised.
+
+    Args:
+        pxp_file: Path to the input ``.pxp`` file.
+        output_folder: Destination directory. Defaults to ``<pxp_stem>_data``
+            next to the input file. Created if it does not exist.
+        techniques: List of techniques to export, e.g. ``["USAXS", "SAXS"]``.
+            ``None`` (default) exports every technique present in the file.
+        overwrite: If True, existing files in the destination are overwritten.
+            If False (default), an unused suffix is appended.
+        verbose: Print per-file summary to stdout.
+
+    Returns:
+        Dict with keys ``success`` (always True if the function returns),
+        ``output_folder``, ``n_written``, ``n_skipped``, ``n_errors``,
+        ``files`` (list of per-file dicts: ``source``, ``output``,
+        ``technique``, ``n_points``, ``status``, ``message``).
+        Returns ``None`` only if the input file cannot be located.
+
+    Example::
+
+        from pyirena.batch import pxp_to_nexus
+        result = pxp_to_nexus("legacy_experiment.pxp", techniques=["USAXS"])
+        print(f"Wrote {result['n_written']} files to {result['output_folder']}")
+    """
+    from pyirena.io.pxp_to_nexus import extract_pxp_to_nexus
+
+    pxp_path = Path(pxp_file)
+    if not pxp_path.is_file():
+        print(f"[pyirena.batch.pxp_to_nexus] File not found: {pxp_path}")
+        return None
+
+    try:
+        res = extract_pxp_to_nexus(
+            pxp_path=pxp_path,
+            output_root=output_folder,
+            techniques=techniques,
+            overwrite=overwrite,
+        )
+    except Exception:
+        print(f"[pyirena.batch.pxp_to_nexus] Error:\n{traceback.format_exc()}")
+        return None
+
+    files_list = [
+        {
+            'source':    f.source_path,
+            'output':    str(f.output_path) if f.output_path else None,
+            'technique': f.technique,
+            'n_points':  f.n_points,
+            'status':    f.status,
+            'message':   f.message,
+        }
+        for f in res.files
+    ]
+
+    if verbose:
+        print(f"[pyirena.batch.pxp_to_nexus] {res.pxp_path}")
+        print(f"  output:   {res.output_root}")
+        print(f"  written:  {res.n_written}")
+        print(f"  skipped:  {res.n_skipped}")
+        print(f"  errors:   {res.n_errors}")
+        if res.n_unparseable_records:
+            print(f"  note:     {res.n_unparseable_records} wave record(s) could not be parsed")
+
+    return {
+        'success':     True,
+        'output_folder': str(res.output_root),
+        'n_written':   res.n_written,
+        'n_skipped':   res.n_skipped,
+        'n_errors':    res.n_errors,
+        'n_unparseable_records': res.n_unparseable_records,
+        'files':       files_list,
+    }
