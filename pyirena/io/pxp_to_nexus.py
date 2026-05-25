@@ -90,10 +90,14 @@ from pyirena.io.nxcansas_unified import create_nxcansas_file
 
 __all__ = [
     "extract_pxp_to_nexus",
+    "extract_h5xp_to_nexus",
+    "extract_igor_experiment",
     "ExtractedFile",
     "ExtractionResult",
     "TECHNIQUE_FOLDERS",
     "WAVE_PICKERS",
+    "WAVE_PICKERS_H5XP",
+    "parse_wave_note",
 ]
 
 
@@ -117,11 +121,11 @@ TECHNIQUE_FOLDERS: dict[str, str] = {
 }
 
 
-#: Wave-name picker per technique. Each entry is a list of ``(Q_name, I_name,
-#: Err_name, dQ_name_or_None)`` tuples tried in order. The first tuple whose
-#: Q, I, and Err waves all exist in a sample folder wins. dQ is optional —
-#: if its name is None or not present, the resulting file will not contain
-#: a Qdev dataset.
+#: Wave-name picker per technique for **.pxp** experiments. Each entry is a
+#: list of ``(Q_name, I_name, Err_name, dQ_name_or_None)`` tuples tried in
+#: order. The first tuple whose Q, I, and Err waves all exist in a sample
+#: folder wins. dQ is optional — if its name is None or not present, the
+#: resulting file will not contain a Qdev dataset.
 WAVE_PICKERS: dict[str, list[tuple[str, str, str, str | None]]] = {
     "USAXS": [
         # Desmeared primary: matches the chosen "DSM_* only" policy.
@@ -133,6 +137,35 @@ WAVE_PICKERS: dict[str, list[tuple[str, str, str, str | None]]] = {
     ],
     "WAXS": [
         ("R_Qvec", "R_Int", "R_Error", None),
+    ],
+}
+
+
+#: Wave-name picker per technique for **.h5xp** files (Wavemetrics' HDF5
+#: packed-experiment format). Same tuple shape as :data:`WAVE_PICKERS`,
+#: but the literal token ``"<folder>"`` inside a name is substituted with
+#: the actual sample folder name at lookup time. This matches the two
+#: conventions produced by :mod:`pyirena.io.h5xp_writer`:
+#:
+#: * lowercase ``q_<folder>`` / ``r_<folder>`` / ``s_<folder>`` /
+#:   ``dq_<folder>`` — the per-sample-folder default of
+#:   :func:`pyirena.io.h5xp_writer.write_iq_data`
+#: * uppercase ``Q`` / ``R`` / ``S`` / ``dQ`` — older Igor-side export
+#:   helpers and some hand-built h5xp files
+#:
+#: Both are tried in order; the first match wins.
+WAVE_PICKERS_H5XP: dict[str, list[tuple[str, str, str, str | None]]] = {
+    "USAXS": [
+        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        ("Q", "R", "S", "dQ"),
+    ],
+    "SAXS": [
+        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        ("Q", "R", "S", "dQ"),
+    ],
+    "WAXS": [
+        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        ("Q", "R", "S", "dQ"),
     ],
 }
 
@@ -321,23 +354,74 @@ _NOTE_SECTIONS: list[tuple[str, str, str]] = [
 ]
 
 
-def _parse_kv_pairs(text: str) -> dict[str, str]:
-    """Parse Igor-style ``key=value;key=value;`` into a dict.
+def _parse_kv_pairs(text: str, sep: str = "=") -> dict[str, str]:
+    """Parse Igor-style ``key<sep>value;key<sep>value;`` into a dict.
 
-    Values are stripped; trailing empty entries are dropped. Values that
-    look numeric are left as strings — the caller decides what to coerce.
+    The two flavours seen in the wild:
+
+    * **.pxp files** (Igor itself + APS USAXS reduction) → ``key=value;``
+    * **.h5xp files** (Wavemetrics-documented HDF5 export format, and
+      what :mod:`pyirena.io.h5xp_writer` emits) → ``key:value;``
+
+    Pass ``sep=":"`` for h5xp notes. Quoted values
+    (``key:"some;string;with;semicolons"``) are honoured for h5xp,
+    matching what :func:`pyirena.io.h5xp_writer.make_wave_note` writes.
+
+    Values are stripped of surrounding whitespace and matching outer
+    double-quotes; trailing empty chunks are dropped. Numeric coercion is
+    the caller's job (see :func:`_coerce`).
     """
     out: dict[str, str] = {}
-    for chunk in text.split(";"):
+    # Split on ";" but respect double-quoted segments so a quoted value
+    # containing a semicolon is not chopped in half.
+    chunks: list[str] = []
+    buf: list[str] = []
+    in_quote = False
+    for ch in text:
+        if ch == '"':
+            in_quote = not in_quote
+            buf.append(ch)
+        elif ch == ";" and not in_quote:
+            chunks.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        chunks.append("".join(buf))
+
+    for chunk in chunks:
         chunk = chunk.strip()
-        if not chunk or "=" not in chunk:
+        if not chunk or sep not in chunk:
             continue
-        k, _, v = chunk.partition("=")
+        k, _, v = chunk.partition(sep)
         k = k.strip()
         v = v.strip()
+        # Strip matching outer double-quotes
+        if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+            v = v[1:-1]
         if k:
             out[k] = v
     return out
+
+
+def _detect_kv_separator(note: str) -> str:
+    """Return ``"="`` or ``":"`` for a given note. Defaults to ``"="``.
+
+    Decision rule: count delimiters at the top level (outside quotes).
+    Whichever wins is the format. Ties go to ``"="`` because that's the
+    pxp default and the historical case.
+    """
+    n_eq = n_co = 0
+    in_quote = False
+    for ch in note:
+        if ch == '"':
+            in_quote = not in_quote
+        elif not in_quote:
+            if ch == "=":
+                n_eq += 1
+            elif ch == ":":
+                n_co += 1
+    return ":" if n_co > n_eq else "="
 
 
 def _coerce(val: str) -> Any:
@@ -370,8 +454,12 @@ def parse_wave_note(note: str) -> dict[str, Any]:
        these are wave-level annotations, not sample metadata, so they are
        dropped from the output dict.
     """
-    if not note or "=" not in note:
+    if not note or ("=" not in note and ":" not in note):
         return {}
+
+    # h5xp notes use "key:value;", pxp notes use "key=value;". Auto-detect
+    # so callers can stay agnostic.
+    sep = _detect_kv_separator(note)
 
     meta: dict[str, Any] = {}
 
@@ -389,7 +477,7 @@ def parse_wave_note(note: str) -> dict[str, Any]:
         section_body = remainder[i_start + len(start): i_end]
         # Strip leading/trailing semicolons that bracket the section.
         section_body = section_body.strip(";").strip()
-        section_kv = _parse_kv_pairs(section_body)
+        section_kv = _parse_kv_pairs(section_body, sep=sep)
         for k, v in section_kv.items():
             meta[f"{prefix}{k}" if prefix else k] = _coerce(v)
         # Remove the entire ``StartMarker..EndMarker`` chunk including
@@ -404,13 +492,13 @@ def parse_wave_note(note: str) -> dict[str, Any]:
     for marker in ("Nexus_attributesStartHere", "Nexus_attributesEndHere"):
         remainder = remainder.replace(marker, "")
 
-    # Now parse what's left as flat key=value pairs. Map a few well-known
+    # Now parse what's left as flat key/value pairs. Map a few well-known
     # keys to NXcanSAS-canonical names; route everything else into
     # ``notes/<key>`` to preserve provenance without polluting sample/.
-    flat = _parse_kv_pairs(remainder)
+    flat = _parse_kv_pairs(remainder, sep=sep)
 
     # Wave-level annotation keys that should not become entry-level metadata.
-    _IGNORE = {"units", "long_name", "Units", "Wname"}
+    _IGNORE = {"units", "long_name", "Units", "Wname", "IgorFolder"}
 
     for k, v in flat.items():
         if k in _IGNORE:
@@ -472,11 +560,34 @@ def _classify_folder(folder_name: str) -> str | None:
     return None
 
 
-def _pick_waves(folder: dict, technique: str
+def _pick_waves(folder: dict, technique: str,
+                pickers_table: dict | None = None,
+                folder_name: str | None = None,
                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, str] | None:
-    """Try each picker for *technique*; return (Q, I, err, dq, note) on first hit."""
-    pickers = WAVE_PICKERS.get(technique, [])
-    for q_name, i_name, e_name, dq_name in pickers:
+    """Try each picker for *technique*; return (Q, I, err, dq, note) on first hit.
+
+    *pickers_table* defaults to :data:`WAVE_PICKERS` (pxp conventions).
+    Pass :data:`WAVE_PICKERS_H5XP` for h5xp imports.
+
+    The literal token ``"<folder>"`` inside any picker entry is replaced
+    with *folder_name* before lookup (used by the h5xp picker to match
+    the ``q_<folder>``/``r_<folder>``/``s_<folder>`` naming produced by
+    :func:`pyirena.io.h5xp_writer.write_iq_data`).
+    """
+    if pickers_table is None:
+        pickers_table = WAVE_PICKERS
+    pickers = pickers_table.get(technique, [])
+
+    def _resolve(name: str | None) -> str | None:
+        if name is None or folder_name is None:
+            return name
+        return name.replace("<folder>", folder_name)
+
+    for q_name_raw, i_name_raw, e_name_raw, dq_name_raw in pickers:
+        q_name  = _resolve(q_name_raw)
+        i_name  = _resolve(i_name_raw)
+        e_name  = _resolve(e_name_raw)
+        dq_name = _resolve(dq_name_raw)
         if q_name not in folder or i_name not in folder or e_name not in folder:
             continue
         q_rec = folder[q_name]
@@ -537,6 +648,210 @@ def _walk_tree(node: dict, parent_technique: str | None, rel_path: tuple[str, ..
 
         # Recurse — children may hold more samples (in-situ sub-runs, etc.)
         yield from _walk_tree(child, new_technique, new_rel)
+
+
+# ---------------------------------------------------------------------------
+# h5xp loader
+# ---------------------------------------------------------------------------
+
+class _H5Wave:
+    """Wave adapter that quacks like an igor2 ``WaveRecord`` for the
+    extractor pipeline.
+
+    Wraps an open ``h5py.Dataset`` so :func:`_wave_array` and
+    :func:`_wave_note` can treat both pxp wave records and h5xp datasets
+    uniformly. Reads the data eagerly (small 1-D arrays) so we don't have
+    to keep file handles open during traversal.
+    """
+
+    __slots__ = ("wave",)
+
+    def __init__(self, dataset: "h5py.Dataset"):
+        # Mirror the nested dict shape that igor2.record.wave.WaveRecord
+        # exposes, so _wave_array / _wave_note work without branching.
+        try:
+            data = np.asarray(dataset[()])
+        except Exception:
+            data = None
+        note_attr = dataset.attrs.get("IGORWaveNote", b"")
+        if isinstance(note_attr, np.ndarray):
+            note_attr = note_attr.item() if note_attr.size else b""
+        if isinstance(note_attr, bytes):
+            note_attr = note_attr.decode("utf-8", errors="replace")
+        else:
+            note_attr = str(note_attr)
+        bname = dataset.name.rsplit("/", 1)[-1]
+        self.wave = {
+            "wave": {
+                "wave_header": {"bname": bname},
+                "wData": data,
+                "note": note_attr,
+            }
+        }
+
+
+def _load_h5xp_filesystem(h5xp_path: Path) -> tuple[dict, int]:
+    """Load the ``/Packed Data/`` tree from an h5xp file as the same
+    nested-dict structure that :func:`_load_pxp_filesystem` produces.
+
+    Only the ``Packed Data/`` subtree is walked — ``History``,
+    ``Recreation``, ``Symbolic Paths`` etc. are ignored because they
+    never contain reduced 1-D scattering data. The ``Packed Data/Results/``
+    subtree (collected scalar tables written by the h5xp batch extractor)
+    is also skipped: it holds per-parameter waves indexed by sample,
+    which don't match the per-sample-folder shape this extractor expects.
+
+    Returns ``(filesystem, 0)`` — h5xp uses standard HDF5 so there is no
+    "unparseable record" failure mode equivalent to the pxp one.
+    """
+    import h5py
+
+    filesystem: dict = {"root": {}}
+
+    with h5py.File(h5xp_path, "r") as f:
+        if "Packed Data" not in f:
+            return filesystem, 0
+        packed = f["Packed Data"]
+        for tech_name in packed:
+            tech_grp = packed[tech_name]
+            if not isinstance(tech_grp, h5py.Group):
+                continue
+            if tech_name == "Results":
+                continue   # scalar collection — not per-sample data
+
+            tech_dict: dict = {}
+            _h5xp_collect_into(tech_grp, tech_dict)
+            if tech_dict:
+                filesystem["root"][tech_name] = tech_dict
+
+    return filesystem, 0
+
+
+def _h5xp_collect_into(group: "h5py.Group", out: dict) -> None:
+    """Recurse into *group*, mirroring the h5py group/dataset tree into
+    a nested dict of dicts/_H5Wave objects that the extractor pipeline
+    can consume.
+    """
+    import h5py
+
+    for name, item in group.items():
+        if isinstance(item, h5py.Group):
+            child: dict = {}
+            _h5xp_collect_into(item, child)
+            out[name] = child
+        elif isinstance(item, h5py.Dataset):
+            # Skip non-numeric / scalar datasets that aren't waves
+            # (e.g. text waves carrying SampleNames). The picker drops
+            # anything that isn't a 1-D numeric array anyway.
+            out[name] = _H5Wave(item)
+
+
+# ---------------------------------------------------------------------------
+# Shared extraction engine
+# ---------------------------------------------------------------------------
+
+def _extract_filesystem_to_nexus(
+    source_path: Path,
+    filesystem: dict,
+    output_root: Path,
+    keep_techniques: set[str] | None,
+    overwrite: bool,
+    pickers_table: dict,
+    n_unparseable_records: int = 0,
+) -> ExtractionResult:
+    """Walk an already-loaded *filesystem* dict and write per-sample NeXus
+    files. Shared by both :func:`extract_pxp_to_nexus` and
+    :func:`extract_h5xp_to_nexus` — the only difference between them is
+    how the filesystem dict was built and which picker table to use.
+    """
+    result = ExtractionResult(
+        pxp_path=source_path,
+        output_root=output_root,
+        n_unparseable_records=n_unparseable_records,
+    )
+
+    for rel_path, technique, folder in _walk_tree(filesystem["root"], None, ()):
+        if keep_techniques and technique.upper() not in keep_techniques:
+            continue
+
+        igor_path = "root:" + ":".join(rel_path)
+        # The last component of rel_path is the sample folder name, used
+        # by h5xp pickers for <folder> substitution.
+        sample_folder_name = rel_path[-1] if rel_path else None
+
+        picked = _pick_waves(folder, technique,
+                              pickers_table=pickers_table,
+                              folder_name=sample_folder_name)
+        if picked is None:
+            # Folder is in a known technique subtree but lacks the
+            # expected wave triple. Only record a skip row for "leaf-ish"
+            # folders (those containing waves) to keep the summary
+            # readable for deeply nested trees.
+            has_any_wave = any(not isinstance(v, dict) for v in folder.values())
+            if has_any_wave:
+                result.files.append(ExtractedFile(
+                    source_path=igor_path,
+                    output_path=None,
+                    technique=technique,
+                    n_points=0,
+                    status="skipped",
+                    message=f"no recognised {technique} wave triple in folder",
+                ))
+            continue
+
+        q, intensity, err, dq, note = picked
+        meta = parse_wave_note(note)
+
+        # Build the output path: <root>/<technique>/<rel_path_without_root_tech>/<sample>.h5
+        # rel_path is e.g. ('SAXS', 'Sa10_brRigNP_05mg__0013')  or
+        #                 ('SAXS', 'heater_run', 'step03', 'Sa1')
+        # The first element is the technique-root folder; strip it.
+        sub_components = [_safe_filename(c) for c in rel_path[1:]]
+        if not sub_components:
+            sub_components = ["unnamed"]
+        sample_name = sub_components[-1]
+        sample_dir = output_root / technique
+        if len(sub_components) > 1:
+            sample_dir = sample_dir.joinpath(*sub_components[:-1])
+        sample_dir.mkdir(parents=True, exist_ok=True)
+
+        out_path = sample_dir / f"{sample_name}.h5"
+        if not overwrite:
+            out_path = _unique_path(out_path)
+
+        try:
+            create_nxcansas_file(
+                filepath=out_path,
+                q=q,
+                intensity=intensity,
+                error=err,
+                dq=dq,
+                sample_name=sample_name,
+                metadata=meta,
+            )
+        except Exception as exc:
+            result.files.append(ExtractedFile(
+                source_path=igor_path,
+                output_path=out_path,
+                technique=technique,
+                n_points=len(q),
+                status="error",
+                message=str(exc),
+            ))
+            logger.exception("Failed to write %s", out_path)
+            continue
+
+        result.files.append(ExtractedFile(
+            source_path=igor_path,
+            output_path=out_path,
+            technique=technique,
+            n_points=len(q),
+            status="ok",
+        ))
+
+    logger.info("Extraction finished: %d written, %d skipped, %d errors",
+                result.n_written, result.n_skipped, result.n_errors)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -607,93 +922,121 @@ def extract_pxp_to_nexus(
     logger.info("Loaded %d folders; %d wave records were unparseable",
                 _count_folders(filesystem["root"]), n_skipped_records)
 
-    result = ExtractionResult(
-        pxp_path=pxp_path,
+    return _extract_filesystem_to_nexus(
+        source_path=pxp_path,
+        filesystem=filesystem,
         output_root=output_root,
+        keep_techniques=keep_techniques,
+        overwrite=overwrite,
+        pickers_table=WAVE_PICKERS,
         n_unparseable_records=n_skipped_records,
     )
 
-    # Walk and write
-    for rel_path, technique, folder in _walk_tree(filesystem["root"], None, ()):
-        if keep_techniques and technique.upper() not in keep_techniques:
-            continue
 
-        igor_path = "root:" + ":".join(rel_path)
+def extract_h5xp_to_nexus(
+    h5xp_path: str | Path,
+    output_root: str | Path | None = None,
+    techniques: Sequence[str] | None = None,
+    overwrite: bool = False,
+) -> ExtractionResult:
+    """Extract reduced 1-D SAS data from an Igor h5xp packed experiment
+    into per-sample NeXus files.
 
-        picked = _pick_waves(folder, technique)
-        if picked is None:
-            # This folder is in a known technique subtree but doesn't carry
-            # the expected wave triple. Skip silently (probably an
-            # intermediate / blank folder).
-            #
-            # Don't emit a skipped row for nested non-leaf folders (would
-            # spam the summary). Only record skips for the leaf-looking
-            # ones: folders that contain at least one wave.
-            has_any_wave = any(not isinstance(v, dict) for v in folder.values())
-            if has_any_wave:
-                result.files.append(ExtractedFile(
-                    source_path=igor_path,
-                    output_path=None,
-                    technique=technique,
-                    n_points=0,
-                    status="skipped",
-                    message=f"no recognised {technique} wave triple in folder",
-                ))
-            continue
+    Same shape and contract as :func:`extract_pxp_to_nexus`, but reads
+    the Wavemetrics HDF5 packed-experiment format (``.h5xp``) instead of
+    the legacy binary ``.pxp`` format. h5xp is what pyirena's own
+    :mod:`pyirena.io.h5xp_writer` produces and what modern Igor 9+
+    exports — so this is the natural import path for files that already
+    came from Python or were saved in the new format.
 
-        q, intensity, err, dq, note = picked
-        meta = parse_wave_note(note)
+    Parameters
+    ----------
+    h5xp_path:
+        Path to the input ``.h5xp`` file.
+    output_root, techniques, overwrite:
+        See :func:`extract_pxp_to_nexus`.
 
-        # Build the output path: <root>/<technique>/<rel_path_without_root_tech>/<sample>.h5
-        # rel_path is e.g. ('SAXS', 'Sa10_brRigNP_05mg__0013')  or
-        #                 ('SAXS', 'heater_run', 'step03', 'Sa1')
-        # The first element is the technique-root folder; strip it.
-        sub_components = [_safe_filename(c) for c in rel_path[1:]]
-        if not sub_components:
-            sub_components = ["unnamed"]
-        sample_name = sub_components[-1]
-        sample_dir = output_root / technique
-        if len(sub_components) > 1:
-            sample_dir = sample_dir.joinpath(*sub_components[:-1])
-        sample_dir.mkdir(parents=True, exist_ok=True)
+    Returns
+    -------
+    ExtractionResult
+        Same container type, but ``n_unparseable_records`` will always
+        be 0 because h5xp uses standard HDF5 and never fails per-record.
 
-        out_path = sample_dir / f"{sample_name}.h5"
-        if not overwrite:
-            out_path = _unique_path(out_path)
+    Notes
+    -----
+    Only the ``/Packed Data/`` subtree is walked. h5xp metadata
+    sections (``History``, ``Recreation``, ``Symbolic Paths``,
+    ``Packed Procedure Files``) are ignored — they never contain
+    reduced 1-D data. The ``Packed Data/Results/`` group (per-parameter
+    collected-value waves) is also skipped because it doesn't follow
+    the per-sample-folder shape this extractor needs.
 
+    The wave-name convention is ``Q``/``R``/``S``(+``dQ``) per
+    :data:`WAVE_PICKERS_H5XP` — matches what
+    :func:`pyirena.io.h5xp_writer.write_iq_data` emits.
+    """
+    h5xp_path = Path(h5xp_path)
+    if not h5xp_path.is_file():
+        raise FileNotFoundError(f"h5xp file not found: {h5xp_path}")
+
+    if output_root is None:
+        output_root = h5xp_path.with_name(f"{h5xp_path.stem}_data")
+    output_root = Path(output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    keep_techniques: set[str] | None = None
+    if techniques is not None:
+        keep_techniques = {t.upper() for t in techniques}
+
+    logger.info("Loading %s…", h5xp_path)
+    filesystem, _ = _load_h5xp_filesystem(h5xp_path)
+    logger.info("Loaded %d folders from h5xp", _count_folders(filesystem["root"]))
+
+    return _extract_filesystem_to_nexus(
+        source_path=h5xp_path,
+        filesystem=filesystem,
+        output_root=output_root,
+        keep_techniques=keep_techniques,
+        overwrite=overwrite,
+        pickers_table=WAVE_PICKERS_H5XP,
+    )
+
+
+def extract_igor_experiment(
+    path: str | Path,
+    output_root: str | Path | None = None,
+    techniques: Sequence[str] | None = None,
+    overwrite: bool = False,
+) -> ExtractionResult:
+    """Auto-dispatch to :func:`extract_pxp_to_nexus` or
+    :func:`extract_h5xp_to_nexus` based on the file extension.
+
+    Use this from GUIs / CLIs where the caller doesn't want to care
+    which Igor format the user picked.
+
+    Recognised extensions (case-insensitive): ``.pxp``, ``.pxt``
+    (Igor packed binary) → pxp route; ``.h5xp``, ``.hxp``, ``.h5`` whose
+    root contains a ``/Packed Data/`` group → h5xp route.
+    """
+    p = Path(path)
+    ext = p.suffix.lower()
+    if ext in (".pxp", ".pxt"):
+        return extract_pxp_to_nexus(p, output_root, techniques, overwrite)
+    if ext in (".h5xp", ".hxp"):
+        return extract_h5xp_to_nexus(p, output_root, techniques, overwrite)
+    # .h5 fallback: peek at the structure
+    if ext in (".h5", ".hdf5"):
         try:
-            create_nxcansas_file(
-                filepath=out_path,
-                q=q,
-                intensity=intensity,
-                error=err,
-                dq=dq,
-                sample_name=sample_name,
-                metadata=meta,
-            )
-        except Exception as exc:
-            result.files.append(ExtractedFile(
-                source_path=igor_path,
-                output_path=out_path,
-                technique=technique,
-                n_points=len(q),
-                status="error",
-                message=str(exc),
-            ))
-            logger.exception("Failed to write %s", out_path)
-            continue
-
-        result.files.append(ExtractedFile(
-            source_path=igor_path,
-            output_path=out_path,
-            technique=technique,
-            n_points=len(q),
-            status="ok",
-        ))
-
-    logger.info("Extraction finished: %d written, %d skipped, %d errors",
-                result.n_written, result.n_skipped, result.n_errors)
-    return result
+            import h5py
+            with h5py.File(p, "r") as f:
+                if "Packed Data" in f:
+                    return extract_h5xp_to_nexus(p, output_root, techniques, overwrite)
+        except Exception:
+            pass
+    raise ValueError(
+        f"{p.name}: unsupported Igor experiment format. "
+        f"Expected .pxp, .pxt, .h5xp, or .hxp."
+    )
 
 
 def _count_folders(node: dict) -> int:
@@ -710,15 +1053,20 @@ def _count_folders(node: dict) -> int:
 # ---------------------------------------------------------------------------
 
 def _main(argv: Sequence[str] | None = None) -> int:
-    """``python -m pyirena.io.pxp_to_nexus <file.pxp> [output_dir] [TECH ...]``"""
+    """``python -m pyirena.io.pxp_to_nexus <file.pxp|.h5xp> [-o DIR] [-t TECH ...]``
+
+    Accepts both ``.pxp`` (binary Igor packed) and ``.h5xp`` (Wavemetrics
+    HDF5 packed-experiment) inputs; the format is dispatched automatically
+    on the file extension.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(
         description="Extract reduced SAS data from an Igor packed experiment "
-                    "into per-sample NXcanSAS HDF5 files.",
+                    "(.pxp or .h5xp) into per-sample NXcanSAS HDF5 files.",
     )
-    parser.add_argument("pxp", help="Path to the .pxp file")
-    parser.add_argument("-o", "--output", help="Output folder (default: <pxp>_data)")
+    parser.add_argument("input", help="Path to the .pxp or .h5xp file")
+    parser.add_argument("-o", "--output", help="Output folder (default: <input>_data)")
     parser.add_argument("-t", "--technique", action="append",
                         help="Only export this technique (USAXS/SAXS/WAXS). "
                              "Repeat for multiple; omit for all.")
@@ -734,8 +1082,8 @@ def _main(argv: Sequence[str] | None = None) -> int:
         format="%(levelname)s  %(message)s",
     )
 
-    result = extract_pxp_to_nexus(
-        args.pxp,
+    result = extract_igor_experiment(
+        args.input,
         output_root=args.output,
         techniques=args.technique,
         overwrite=args.overwrite,

@@ -243,6 +243,186 @@ def test_real_legacy_pxp_technique_filter(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# h5xp tests — use pyirena's own writer to synthesise fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def synthetic_h5xp(tmp_path: Path) -> Path:
+    """Create a small .h5xp containing one USAXS, one SAXS, one WAXS sample.
+
+    Uses :func:`pyirena.io.h5xp_writer.create_h5xp` + ``write_iq_data``,
+    which is the same code path Igor users hit via the Data Explorer's
+    "Export to Igor" — guarantees the fixture matches what the importer
+    will encounter in the wild.
+    """
+    import numpy as np
+    from pyirena.io.h5xp_writer import create_h5xp, write_iq_data
+
+    pxp_path = tmp_path / "synthetic.h5xp"
+    n = 32
+    q = np.logspace(-3, 0, n)
+    intensity = 1.0 / (1.0 + (q * 30) ** 2)
+    err = 0.1 * intensity
+    dq = 0.05 * q
+
+    with create_h5xp(pxp_path) as f:
+        write_iq_data(f, "Sample_U", q, intensity, error=err, dq=dq,
+                      wave_note={"SampleName": "Sample_U", "Title": "USAXS sample",
+                                 "Wavelength_A": 0.5904},
+                      category="USAXS")
+        write_iq_data(f, "Sample_S", q, intensity, error=err,
+                      wave_note={"SampleName": "Sample_S"},
+                      category="SAXS")
+        write_iq_data(f, "Sample_W", q, intensity, error=err,
+                      wave_note={"SampleName": "Sample_W"},
+                      category="WAXS")
+    return pxp_path
+
+
+def test_h5xp_extract_writes_one_file_per_sample(synthetic_h5xp, tmp_path):
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+
+    out_dir = tmp_path / "out"
+    result = extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir)
+
+    assert result.n_written == 3
+    assert result.n_errors == 0
+    assert result.n_unparseable_records == 0
+    written = {f.output_path for f in result.files if f.status == "ok"}
+    assert (out_dir / "USAXS" / "Sample_U.h5") in written
+    assert (out_dir / "SAXS"  / "Sample_S.h5") in written
+    assert (out_dir / "WAXS"  / "Sample_W.h5") in written
+
+
+def test_h5xp_extracted_file_has_q_i_idev_qdev(synthetic_h5xp, tmp_path):
+    """USAXS sample written with `dq=` should produce a Qdev column."""
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+
+    out_dir = tmp_path / "out"
+    extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir)
+
+    with h5py.File(out_dir / "USAXS" / "Sample_U.h5", "r") as f:
+        sas = f["entry/Sample_U/sasdata"]
+        assert "Q" in sas and "I" in sas and "Idev" in sas
+        assert "Qdev" in sas
+
+    # SAXS sample had no dq → no Qdev
+    with h5py.File(out_dir / "SAXS" / "Sample_S.h5", "r") as f:
+        sas = f["entry/Sample_S/sasdata"]
+        assert "Qdev" not in sas
+
+
+def test_h5xp_wave_note_parsed_into_metadata(synthetic_h5xp, tmp_path):
+    """SampleName from the h5xp wave note must reach entry/notes/SampleName
+    (h5xp writer uses the literal ``SampleName`` key, not the prefixed
+    ``sample.name`` form)."""
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+
+    out_dir = tmp_path / "out"
+    extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir)
+
+    with h5py.File(out_dir / "USAXS" / "Sample_U.h5", "r") as f:
+        # h5xp writer puts SampleName as a top-level note key (not in a
+        # section block), so it lands under entry/notes/SampleName.
+        assert "entry/notes" in f
+        # The wavelength key from the wave-note dict
+        notes = f["entry/notes"]
+        note_keys = list(notes.keys())
+        # SampleName should be present somewhere in notes
+        assert any("SampleName" in k for k in note_keys)
+
+
+def test_h5xp_round_trips_through_pyirena_reader(synthetic_h5xp, tmp_path):
+    """Every NeXus file the importer writes must be discoverable by
+    pyirena's own NXcanSAS locator."""
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+    from pyirena.io.hdf5 import find_matching_groups
+
+    out_dir = tmp_path / "out"
+    result = extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir)
+    n_checked = 0
+    for fr in result.files:
+        if fr.status != "ok" or fr.output_path is None:
+            continue
+        with h5py.File(fr.output_path, "r") as f:
+            paths = find_matching_groups(f, {"canSAS_class": "SASdata"}, {})
+            assert paths, f"no SASdata group in {fr.output_path}"
+            sas = f[paths[0]]
+            assert sas["I"].shape == (32,)
+        n_checked += 1
+    assert n_checked == 3
+
+
+def test_h5xp_technique_filter(synthetic_h5xp, tmp_path):
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+
+    out_dir = tmp_path / "out"
+    result = extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir,
+                                   techniques=["USAXS"])
+    assert result.n_written == 1
+    assert (out_dir / "USAXS").exists()
+    assert not (out_dir / "SAXS").exists()
+    assert not (out_dir / "WAXS").exists()
+
+
+def test_h5xp_overwrite_false_appends_suffix(synthetic_h5xp, tmp_path):
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+
+    out_dir = tmp_path / "out"
+    extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir)
+    extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir, overwrite=False)
+
+    usaxs_files = sorted((out_dir / "USAXS").glob("*.h5"))
+    assert len(usaxs_files) == 2
+    assert usaxs_files[1].name == "Sample_U_2.h5"
+
+
+def test_extract_igor_experiment_dispatches_on_extension(synthetic_h5xp, tmp_path):
+    """The dispatcher must route .h5xp to the h5xp reader without the
+    caller specifying which one to use."""
+    from pyirena.io.pxp_to_nexus import extract_igor_experiment
+
+    out_dir = tmp_path / "out"
+    result = extract_igor_experiment(synthetic_h5xp, output_root=out_dir)
+    assert result.n_written == 3
+    assert (out_dir / "USAXS" / "Sample_U.h5").is_file()
+
+
+def test_extract_igor_experiment_rejects_unknown_extension(tmp_path):
+    """A random .csv or .txt file must raise ValueError, not silently
+    do nothing."""
+    from pyirena.io.pxp_to_nexus import extract_igor_experiment
+
+    junk = tmp_path / "not_an_igor_file.csv"
+    junk.write_text("not igor\n")
+    with pytest.raises(ValueError, match="unsupported Igor experiment format"):
+        extract_igor_experiment(junk)
+
+
+def test_parse_wave_note_handles_h5xp_colon_format():
+    """h5xp notes use ``key:value;`` instead of pxp's ``key=value;``.
+    The parser must detect the separator and produce the same output."""
+    from pyirena.io.pxp_to_nexus import parse_wave_note
+
+    h5xp_note = (
+        "DATAFILE:foo.dat;DATE:2026-05-25;"
+        "NXSampleStart;name:Bar;thickness:4;NXSampleEnd;"
+        "NXInstrumentStart;wavelength:0.6;NXInstrumentEnd;"
+        "IgorFolder:my_folder;Wname:DSM_Int;Units:cm2/cm3;"
+    )
+    meta = parse_wave_note(h5xp_note)
+    assert meta["sample.name"] == "Bar"
+    assert meta["sample.thickness"] == 4
+    assert meta["instrument.wavelength"] == pytest.approx(0.6)
+    assert meta["title"] == "foo.dat"
+    assert meta["start_time"] == "2026-05-25"
+    # IgorFolder / Wname / Units are wave-level, should not appear
+    assert "notes.IgorFolder" not in meta
+    assert "notes.Wname" not in meta
+    assert "notes.Units" not in meta
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

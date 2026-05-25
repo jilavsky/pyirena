@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-05-25
+
+### Added
+
+- **Import Igor Pro `.h5xp` packed experiments** (Wavemetrics' HDF5
+  packed-experiment format), completing the Igor import story. The
+  GUI button, batch API, and CLI now all accept `.h5xp` alongside
+  the existing `.pxp`. Format is auto-detected from the file extension.
+
+  New entry points:
+  - `pyirena.batch.igor_to_nexus("file.pxp"|"file.h5xp", …)` — single
+    function for both formats; the old `pxp_to_nexus` is kept as a
+    deprecated alias for back-compat.
+  - `pyirena.io.pxp_to_nexus.extract_igor_experiment(...)` — dispatcher
+    used by the GUI and CLI; also exposes the format-specific
+    `extract_h5xp_to_nexus()` for explicit calls.
+  - GUI file dialog filter now includes `*.h5xp`.
+
+  Implementation notes:
+  - h5xp tree is walked with `h5py.File(...).visit()` over the
+    `/Packed Data/` subtree; no special parser needed (HDF5 is
+    well-defined). The `/Packed Data/Results/` group is intentionally
+    skipped — its per-parameter collected-value waves don't match the
+    per-sample-folder shape this importer expects.
+  - h5xp wave notes use `key:value;` (colon) while pxp uses
+    `key=value;` (equals); the parser auto-detects the separator
+    per-note so the same metadata extraction code handles both.
+  - h5xp wave names use either the literal triple `Q`/`R`/`S`/`dQ` or
+    the suffixed `q_<folder>`/`r_<folder>`/`s_<folder>`/`dq_<folder>`
+    convention emitted by `pyirena.io.h5xp_writer.write_iq_data`. Both
+    patterns are recognised via the new `<folder>` substitution token in
+    `WAVE_PICKERS_H5XP`.
+  - 9 new tests use `h5xp_writer` to synthesise fixtures, so they
+    don't depend on any external data files and run on every CI build.
+
+  Files: `pyirena/io/pxp_to_nexus.py` (added `_load_h5xp_filesystem`,
+  `_H5Wave` adapter, `extract_h5xp_to_nexus`, `extract_igor_experiment`
+  dispatcher, `WAVE_PICKERS_H5XP`); `pyirena/batch.py`
+  (added `igor_to_nexus`, kept `pxp_to_nexus` as alias);
+  `pyirena/gui/data_selector.py` (extended file dialog filter);
+  `pyirena/tests/test_pxp_to_nexus.py` (+9 tests).
+
 ## [0.8.0] — 2026-05-25
 
 ### Added

@@ -1,18 +1,22 @@
-# Importing Igor Pro Packed Experiments (.pxp)
+# Importing Igor Pro Packed Experiments (.pxp / .h5xp)
 
-The **Import Igor Experiment** tool lets you bring data from a legacy Igor
-Pro packed experiment (`.pxp`) into pyIrena for analysis. Each USAXS, SAXS,
-or WAXS sample in the experiment becomes a stand-alone NXcanSAS `.h5`
-file that any pyIrena tool (Unified Fit, Size Distribution, Modeling,
-…) can open directly.
+The **Import Igor Experiment** tool lets you bring data from an Igor Pro
+packed experiment (`.pxp` — legacy binary, or `.h5xp` — modern HDF5
+packed-experiment) into pyIrena for analysis. Each USAXS, SAXS, or WAXS
+sample in the experiment becomes a stand-alone NXcanSAS `.h5` file that
+any pyIrena tool (Unified Fit, Size Distribution, Modeling, …) can open
+directly.
 
 The tool is available three ways:
 
 | Mode             | How to launch                                                          |
 |------------------|------------------------------------------------------------------------|
 | Interactive GUI  | **Data Processing & Reference → Import Igor Experiment…** in the Data Selector |
-| Python API       | `from pyirena.batch import pxp_to_nexus`                                |
+| Python API       | `from pyirena.batch import igor_to_nexus`                              |
 | CLI              | `python -m pyirena.io.pxp_to_nexus legacy.pxp -v`                       |
+
+The format is detected from the file extension; the same interface
+handles both `.pxp` and `.h5xp`.
 
 ---
 
@@ -125,13 +129,13 @@ the folder names encode experimental conditions you care about.
 ## Python API
 
 ```python
-from pyirena.batch import pxp_to_nexus
+from pyirena.batch import igor_to_nexus
 
-result = pxp_to_nexus(
-    pxp_file="legacy.pxp",
-    output_folder=None,         # default: <pxp_stem>_data next to input
-    techniques=["USAXS"],       # default: None = all present
-    overwrite=False,            # default: append _2, _3, …
+result = igor_to_nexus(
+    igor_file="legacy.pxp",       # or "modern.h5xp" — format auto-detected
+    output_folder=None,           # default: <stem>_data next to input
+    techniques=["USAXS"],         # default: None = all present
+    overwrite=False,              # default: append _2, _3, …
     verbose=True,
 )
 
@@ -140,6 +144,10 @@ for f in result['files']:
     if f['status'] != 'ok':
         print(f"  {f['status']}: {f['source']} — {f['message']}")
 ```
+
+> **Deprecated alias**: `pyirena.batch.pxp_to_nexus()` is kept as a
+> thin wrapper around `igor_to_nexus()` so existing scripts continue
+> to work. New code should prefer `igor_to_nexus`.
 
 Returned dict:
 
@@ -194,7 +202,7 @@ TECHNIQUE_FOLDERS = {
 Matching is case-insensitive. The folder name **inside** Igor (e.g.
 `root:Imported SAXS:...`) is what's checked.
 
-### Per-technique wave triples
+### Per-technique wave triples (.pxp)
 
 ```python
 WAVE_PICKERS = {
@@ -209,6 +217,29 @@ importer tries the entries in order; the first one whose Q, I, and
 Err waves all exist in a sample folder wins. dQ is optional — if the
 named wave isn't there, `Qdev` is simply omitted from the NeXus file.
 
+### Per-technique wave triples (.h5xp)
+
+```python
+WAVE_PICKERS_H5XP = {
+    "USAXS": [
+        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        ("Q",          "R",          "S",          "dQ"),
+    ],
+    "SAXS":  [ ... same shape ... ],
+    "WAXS":  [ ... same shape ... ],
+}
+```
+
+The literal token `<folder>` is replaced with the sample folder name at
+lookup time, matching the two conventions emitted by
+`pyirena.io.h5xp_writer.write_iq_data`:
+
+- lowercase suffixed: `q_<folder>`/`r_<folder>`/`s_<folder>`/`dq_<folder>`
+  — the per-sample-folder default
+- uppercase plain: `Q`/`R`/`S`/`dQ` — older Igor-side exports
+
+### Extending the pickers
+
 To add a new pattern (e.g. exporting slit-smeared USAXS as well), append
 a tuple:
 
@@ -220,8 +251,17 @@ WAVE_PICKERS["USAXS"].append(
 
 ## Wave-note metadata
 
-Igor wave notes use the convention `key=value;key=value;`. The APS USAXS
-pipeline wraps NeXus-style metadata in sentinel markers:
+Igor wave notes carry per-wave metadata as `key`/`value` pairs. The
+separator depends on format:
+
+- **.pxp** files use `key=value;` (equals sign)
+- **.h5xp** files use `key:value;` (colon)
+
+The parser auto-detects the separator on a per-note basis, so the same
+metadata extraction code handles both formats identically.
+
+The APS USAXS pipeline (.pxp) wraps NeXus-style metadata in sentinel
+markers:
 
 ```
 DATAFILE=03_31_run.dat;DATE=2026-03-31 12:22:05;COMMENT=Sample01;

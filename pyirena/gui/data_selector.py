@@ -2268,11 +2268,12 @@ class BatchWorker(QThread):
 
 class _IgorImportDialog(QDialog):
     """Modal dialog asking the user where to send extracted NeXus files and
-    which techniques to keep, before the actual pxp → NeXus import runs.
+    which techniques to keep, before the actual Igor → NeXus import runs.
 
     Used only by :meth:`DataSelectorPanel.launch_igor_import`. The dialog is
     short and purely a settings prompt; the real work happens in
-    :func:`pyirena.batch.pxp_to_nexus`.
+    :func:`pyirena.batch.igor_to_nexus`, which dispatches to either the
+    .pxp or .h5xp reader based on the input extension.
     """
 
     def __init__(self, pxp_path, parent=None):
@@ -2310,9 +2311,9 @@ class _IgorImportDialog(QDialog):
         # Techniques group
         grp = QGroupBox("Techniques to export")
         gv = QVBoxLayout(grp)
-        self._cb_usaxs = QCheckBox("USAXS  (desmeared DSM_* waves)")
-        self._cb_saxs  = QCheckBox("SAXS   (R_Qvec / R_Int / R_Error)")
-        self._cb_waxs  = QCheckBox("WAXS   (R_Qvec / R_Int / R_Error)")
+        self._cb_usaxs = QCheckBox("USAXS")
+        self._cb_saxs  = QCheckBox("SAXS")
+        self._cb_waxs  = QCheckBox("WAXS")
         for cb in (self._cb_usaxs, self._cb_saxs, self._cb_waxs):
             cb.setChecked(True)
             gv.addWidget(cb)
@@ -3049,8 +3050,8 @@ class DataSelectorPanel(QWidget):
         self.igor_import_button.setMinimumHeight(38)
         self.igor_import_button.setStyleSheet(_igor_import_style)
         self.igor_import_button.setToolTip(
-            "Open an Igor Pro packed experiment (.pxp) and export each\n"
-            "reduced USAXS/SAXS/WAXS sample into a NeXus (.h5) file.\n"
+            "Open an Igor Pro packed experiment (.pxp or .h5xp) and export\n"
+            "each reduced USAXS/SAXS/WAXS sample into a NeXus (.h5) file.\n"
             "Use this to bring legacy Igor data into pyIrena for analysis."
         )
         self.igor_import_button.clicked.connect(self.launch_igor_import)
@@ -4653,17 +4654,21 @@ class DataSelectorPanel(QWidget):
 
     # ── Igor packed experiment import ──────────────────────────────────────
     def launch_igor_import(self):
-        """Pick a .pxp file, extract its USAXS/SAXS/WAXS data to NeXus files,
-        and offer to load the output folder as the current data folder.
+        """Pick an Igor experiment (.pxp or .h5xp), extract its
+        USAXS/SAXS/WAXS data to NeXus files, and offer to load the
+        output folder as the current data folder.
         """
-        from pyirena.batch import pxp_to_nexus
+        from pyirena.batch import igor_to_nexus
 
         start_dir = self.last_folder if self.last_folder else QDir.homePath()
         pxp_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Open Igor Packed Experiment",
+            "Open Igor Experiment",
             start_dir,
-            "Igor Packed Experiment (*.pxp);;All Files (*)",
+            "Igor Experiment (*.pxp *.h5xp);;"
+            "Igor Packed Experiment (*.pxp);;"
+            "Igor HDF5 Packed Experiment (*.h5xp);;"
+            "All Files (*)",
         )
         if not pxp_path:
             return
@@ -4682,8 +4687,8 @@ class DataSelectorPanel(QWidget):
         try:
             self.status_label.setText(f"Importing {pxp_path.name}…")
             QApplication.processEvents()
-            result = pxp_to_nexus(
-                pxp_file=str(pxp_path),
+            result = igor_to_nexus(
+                igor_file=str(pxp_path),
                 output_folder=opts['output_folder'],
                 techniques=opts['techniques'],
                 overwrite=opts['overwrite'],

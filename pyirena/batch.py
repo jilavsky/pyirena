@@ -2333,23 +2333,27 @@ def average_data(
 # Igor packed experiment (.pxp) import
 # ---------------------------------------------------------------------------
 
-def pxp_to_nexus(
-    pxp_file: Union[str, Path],
+def igor_to_nexus(
+    igor_file: Union[str, Path],
     output_folder: Optional[Union[str, Path]] = None,
     techniques: Optional[List[str]] = None,
     overwrite: bool = False,
     verbose: bool = False,
 ) -> Optional[Dict]:
-    """Import an Igor Pro packed experiment (.pxp) and export reduced data as NeXus files.
+    """Import an Igor Pro packed experiment (.pxp **or** .h5xp) and export
+    its reduced data as per-sample NeXus files.
 
-    Walks the experiment's USAXS / SAXS / WAXS folder hierarchy and writes one
-    NXcanSAS ``.h5`` file per sample. See
-    :func:`pyirena.io.pxp_to_nexus.extract_pxp_to_nexus` for details of the
-    folder and wave-name conventions recognised.
+    Auto-detects the format from the file extension and dispatches to the
+    appropriate reader. Both formats produce the same output: one
+    NXcanSAS ``.h5`` per sample under
+    ``<output>/<technique>/<sample>.h5`` (see
+    :func:`pyirena.io.pxp_to_nexus.extract_igor_experiment` for the
+    folder and wave-name conventions recognised).
 
     Args:
-        pxp_file: Path to the input ``.pxp`` file.
-        output_folder: Destination directory. Defaults to ``<pxp_stem>_data``
+        igor_file: Path to the input ``.pxp`` (binary Igor packed) or
+            ``.h5xp`` (Wavemetrics HDF5 packed) experiment.
+        output_folder: Destination directory. Defaults to ``<stem>_data``
             next to the input file. Created if it does not exist.
         techniques: List of techniques to export, e.g. ``["USAXS", "SAXS"]``.
             ``None`` (default) exports every technique present in the file.
@@ -2362,30 +2366,39 @@ def pxp_to_nexus(
         ``output_folder``, ``n_written``, ``n_skipped``, ``n_errors``,
         ``files`` (list of per-file dicts: ``source``, ``output``,
         ``technique``, ``n_points``, ``status``, ``message``).
-        Returns ``None`` only if the input file cannot be located.
+        Returns ``None`` only if the input file cannot be located or its
+        extension is unrecognised.
 
     Example::
 
-        from pyirena.batch import pxp_to_nexus
-        result = pxp_to_nexus("legacy_experiment.pxp", techniques=["USAXS"])
+        from pyirena.batch import igor_to_nexus
+        result = igor_to_nexus("legacy_experiment.pxp", techniques=["USAXS"])
         print(f"Wrote {result['n_written']} files to {result['output_folder']}")
-    """
-    from pyirena.io.pxp_to_nexus import extract_pxp_to_nexus
 
-    pxp_path = Path(pxp_file)
-    if not pxp_path.is_file():
-        print(f"[pyirena.batch.pxp_to_nexus] File not found: {pxp_path}")
+        # h5xp works the same way
+        igor_to_nexus("modern_export.h5xp")
+    """
+    from pyirena.io.pxp_to_nexus import extract_igor_experiment
+
+    src_path = Path(igor_file)
+    if not src_path.is_file():
+        print(f"[pyirena.batch.igor_to_nexus] File not found: {src_path}")
         return None
 
     try:
-        res = extract_pxp_to_nexus(
-            pxp_path=pxp_path,
+        res = extract_igor_experiment(
+            path=src_path,
             output_root=output_folder,
             techniques=techniques,
             overwrite=overwrite,
         )
+    except ValueError as exc:
+        # Unsupported extension — translate to None-return per the
+        # batch-API convention (caller already prints the path).
+        print(f"[pyirena.batch.igor_to_nexus] {exc}")
+        return None
     except Exception:
-        print(f"[pyirena.batch.pxp_to_nexus] Error:\n{traceback.format_exc()}")
+        print(f"[pyirena.batch.igor_to_nexus] Error:\n{traceback.format_exc()}")
         return None
 
     files_list = [
@@ -2401,7 +2414,7 @@ def pxp_to_nexus(
     ]
 
     if verbose:
-        print(f"[pyirena.batch.pxp_to_nexus] {res.pxp_path}")
+        print(f"[pyirena.batch.igor_to_nexus] {res.pxp_path}")
         print(f"  output:   {res.output_root}")
         print(f"  written:  {res.n_written}")
         print(f"  skipped:  {res.n_skipped}")
@@ -2418,3 +2431,26 @@ def pxp_to_nexus(
         'n_unparseable_records': res.n_unparseable_records,
         'files':       files_list,
     }
+
+
+def pxp_to_nexus(
+    pxp_file: Union[str, Path],
+    output_folder: Optional[Union[str, Path]] = None,
+    techniques: Optional[List[str]] = None,
+    overwrite: bool = False,
+    verbose: bool = False,
+) -> Optional[Dict]:
+    """Backwards-compatible alias for :func:`igor_to_nexus`.
+
+    .. deprecated:: 0.8.1
+       Renamed to :func:`igor_to_nexus` now that .h5xp is also supported.
+       The old name is kept so existing scripts continue to work; new
+       code should prefer ``igor_to_nexus``.
+    """
+    return igor_to_nexus(
+        igor_file=pxp_file,
+        output_folder=output_folder,
+        techniques=techniques,
+        overwrite=overwrite,
+        verbose=verbose,
+    )

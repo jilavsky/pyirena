@@ -19,7 +19,7 @@ is no need to write configuration code by hand.
 8. [API reference — `fit_saxs_morph`](#fit_saxs_morph)
 9. [API reference — `merge_data`](#merge_data)
 10. [API reference — `average_data`](#average_data)
-11. [API reference — `pxp_to_nexus`](#pxp_to_nexus)
+11. [API reference — `igor_to_nexus`](#igor_to_nexus)
 12. [API reference — `fit_pyirena`](#fit_pyirena)
 13. [Return structures](#return-structures)
 14. [Error handling](#error-handling)
@@ -1123,13 +1123,13 @@ by random chance alone.  Low p → curves differ → likely damaged.
 
 ---
 
-## `pxp_to_nexus`
+## `igor_to_nexus`  *(formerly `pxp_to_nexus`)*
 
 ```python
-from pyirena.batch import pxp_to_nexus
+from pyirena.batch import igor_to_nexus
 
-result = pxp_to_nexus(
-    pxp_file,                    # str or Path — input .pxp
+result = igor_to_nexus(
+    igor_file,                   # str or Path — input .pxp OR .h5xp
     output_folder=None,          # str/Path/None — default: <stem>_data
     techniques=None,             # list[str]/None — e.g. ["USAXS", "SAXS"]
     overwrite=False,             # bool — append _2,_3,… if False
@@ -1137,10 +1137,13 @@ result = pxp_to_nexus(
 )
 ```
 
-Import a legacy Igor Pro packed experiment (`.pxp`) and export each
-reduced USAXS / SAXS / WAXS sample as a stand-alone NXcanSAS HDF5 file.
-This is the headless counterpart of the GUI's
-**Import Igor Experiment…** button.
+Import an Igor Pro packed experiment and export each reduced USAXS /
+SAXS / WAXS sample as a stand-alone NXcanSAS HDF5 file. Accepts both
+`.pxp` (legacy binary) and `.h5xp` (modern HDF5) — the format is
+auto-detected from the file extension. This is the headless counterpart
+of the GUI's **Import Igor Experiment…** button.
+
+> `pxp_to_nexus(...)` remains as a deprecated alias for back-compat.
 
 ### What it does
 
@@ -1183,11 +1186,11 @@ Returns `None` only if the input `.pxp` cannot be found.
 ### Example
 
 ```python
-from pyirena.batch import pxp_to_nexus, fit_pyirena
+from pyirena.batch import igor_to_nexus, fit_pyirena
 from pathlib import Path
 
 # 1. Bring legacy Igor data into NeXus.
-imported = pxp_to_nexus("2020_beamtime.pxp", techniques=["USAXS"])
+imported = igor_to_nexus("2020_beamtime.pxp", techniques=["USAXS"])
 print(f"Got {imported['n_written']} USAXS files")
 
 # 2. Fit each one with the standard pyirena config.
