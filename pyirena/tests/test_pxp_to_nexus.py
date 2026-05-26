@@ -142,6 +142,55 @@ def test_wave_pickers_table_lists_dsm_for_usaxs():
     assert any(t[:3] == ("R_Qvec", "R_Int", "R_Error") for t in saxs)
 
 
+def test_walk_tree_yields_root_level_wave_folders_as_multi_technique():
+    """Folders that sit at root level (no USAXS/SAXS/WAXS parent) and
+    contain at least one wave should be yielded with all three
+    techniques as candidates. This is the 'per-sample' layout used by
+    in-situ time-series experiments where one folder per timepoint
+    holds USAXS, SAXS, and WAXS waves side by side.
+    """
+    from pyirena.io.pxp_to_nexus import _walk_tree
+
+    # Simulate a filesystem dict: one sample-by-sample folder at root,
+    # one technique-organised structure alongside it.
+    fake_wave = object()  # any non-dict value counts as a "wave"
+    fs = {
+        "AMC_3min_0033": {
+            "DSM_Int": fake_wave,
+            "R_Int": fake_wave,
+        },
+        "USAXS": {
+            "Sample01": {
+                "DSM_Int": fake_wave,
+            },
+        },
+        "Packages": {"junk": {}},   # should be skipped as infrastructure
+    }
+    yielded = list(_walk_tree(fs, None, ()))
+    paths = {rp: techs for rp, techs, _ in yielded}
+
+    assert ("AMC_3min_0033",) in paths
+    assert paths[("AMC_3min_0033",)] == ["USAXS", "SAXS", "WAXS"]
+    assert ("USAXS", "Sample01") in paths
+    assert paths[("USAXS", "Sample01")] == ["USAXS"]
+    # Packages/* must not appear at all
+    assert not any("Packages" in rp for rp in paths)
+
+
+def test_infrastructure_folders_skipped():
+    """Igor's own Packages/, SavedSampleSets/ etc. must be ignored at
+    root level so they don't pollute the summary with skip rows."""
+    from pyirena.io.pxp_to_nexus import _walk_tree, INFRASTRUCTURE_FOLDERS
+
+    assert "Packages" in INFRASTRUCTURE_FOLDERS
+    assert "SavedSampleSets" in INFRASTRUCTURE_FOLDERS
+
+    fake_wave = object()
+    fs = {"Packages": {"AMC_sample": {"R_Int": fake_wave}}}
+    yielded = list(_walk_tree(fs, None, ()))
+    assert yielded == []
+
+
 def test_safe_filename_strips_illegal_chars():
     from pyirena.io.pxp_to_nexus import _safe_filename
 

@@ -108,6 +108,17 @@ logger = logging.getLogger(__name__)
 # Configuration tables (data-driven, easy to extend)
 # ---------------------------------------------------------------------------
 
+#: Top-level Igor folder names that are infrastructure / configuration
+#: and never carry sample data. Skipped entirely (their subtrees are not
+#: walked). Add here if your experiment uses other reserved folders.
+INFRASTRUCTURE_FOLDERS: frozenset[str] = frozenset({
+    "Packages",          # Igor's own package data — never sample data
+    "SavedSampleSets",   # Indra/Irena sample-set bookkeeping
+    "WindowMacros",
+    "WMTemp",
+})
+
+
 #: Map of Igor folder name → canonical technique string. Folder name matching
 #: is case-insensitive and exact. Add aliases here when users follow other
 #: conventions (e.g. importing ASCII into a folder called ``"Imported SAXS"``).
@@ -719,32 +730,59 @@ def _pick_waves(folder: dict, technique: str,
 
 
 def _walk_tree(node: dict, parent_technique: str | None, rel_path: tuple[str, ...]
-               ) -> Iterable[tuple[tuple[str, ...], str, dict]]:
-    """Yield ``(rel_path, technique, folder_dict)`` for each sample-bearing folder.
+               ) -> Iterable[tuple[tuple[str, ...], list[str], dict]]:
+    """Yield ``(rel_path, candidate_techniques, folder_dict)`` for each
+    sample-bearing folder discovered in *node*.
 
-    Walks *node* depth-first. At each folder, attempts wave extraction with
-    the inherited technique. Folders that don't yield data are still walked
-    into (their children may). Top-level folders that match
-    ``TECHNIQUE_FOLDERS`` set/override the inherited technique for the
-    subtree.
+    *candidate_techniques* is a list because some Igor experiments
+    organise data by sample rather than by technique — a single folder
+    at root level can contain USAXS, SAXS, **and** WAXS wave triples
+    side by side (the per-sample layout seen e.g. when in-situ time
+    series are saved as one folder per timepoint). In that case the
+    caller must try every technique's picker against the folder and
+    emit one output file per technique whose triple is present.
+
+    Walking rules:
+      * Inside a known technique subtree → yield with
+        ``[parent_technique]`` so only that one picker is tried.
+      * At root level (no parent technique) for a folder that holds at
+        least one wave → yield with ``["USAXS", "SAXS", "WAXS"]``.
+      * Technique-root folders (``root:USAXS:`` etc.) are not yielded
+        themselves; only their children are.
+
+    Top-level folder names matching :data:`TECHNIQUE_FOLDERS` set the
+    technique for the subtree (case-insensitive). Re-declaring a
+    technique mid-tree is also accepted, for files that nest e.g.
+    ``root:Custom:USAXS:Sample``.
     """
     for name, child in node.items():
         if not isinstance(child, dict):
             continue
-        # Top-level folders set the technique. (Also accept re-declaration
-        # mid-tree, e.g. root:Custom:USAXS:..., for robustness.)
+
+        # Skip known infrastructure folders entirely (and don't descend
+        # into them) so their sub-folders don't pollute the summary with
+        # "no wave triple" skip rows.
+        if parent_technique is None and name in INFRASTRUCTURE_FOLDERS:
+            continue
+
         own_tech = _classify_folder(name)
         new_technique = own_tech if own_tech is not None else parent_technique
         new_rel = rel_path + (name,)
 
-        # Try wave extraction here (only meaningful if we know the technique).
         if new_technique is not None and parent_technique is not None:
-            # Already inside a technique subtree — try to harvest waves
-            yield (new_rel, new_technique, child)
-        elif new_technique is not None and own_tech is not None:
-            # Entered a technique-root folder; do NOT yield the folder itself
-            # (it holds sample sub-folders, not waves). Just descend.
+            # Already inside a technique subtree — exactly one candidate.
+            yield (new_rel, [new_technique], child)
+        elif own_tech is not None:
+            # Entered a technique-root folder; do not yield the folder
+            # itself (it holds sample sub-folders). Just descend.
             pass
+        elif parent_technique is None:
+            # Root-level folder with no technique parent. If it contains
+            # any waves, treat it as a sample-by-sample folder that may
+            # carry up to three technique-specific wave triples.
+            has_any_wave = any(not isinstance(v, dict) for v in child.values())
+            if has_any_wave:
+                yield (new_rel, ["USAXS", "SAXS", "WAXS"], child)
 
         # Recurse — children may hold more samples (in-situ sub-runs, etc.)
         yield from _walk_tree(child, new_technique, new_rel)
@@ -870,84 +908,107 @@ def _extract_filesystem_to_nexus(
         n_unparseable_records=n_unparseable_records,
     )
 
-    for rel_path, technique, folder in _walk_tree(filesystem["root"], None, ()):
-        if keep_techniques and technique.upper() not in keep_techniques:
-            continue
-
+    for rel_path, candidate_techniques, folder in _walk_tree(
+        filesystem["root"], None, ()
+    ):
         igor_path = "root:" + ":".join(rel_path)
-        # The last component of rel_path is the sample folder name, used
-        # by h5xp pickers for <folder> substitution.
         sample_folder_name = rel_path[-1] if rel_path else None
 
-        picked = _pick_waves(folder, technique,
-                              pickers_table=pickers_table,
-                              folder_name=sample_folder_name)
-        if picked is None:
-            # Folder is in a known technique subtree but lacks the
-            # expected wave triple. Only record a skip row for "leaf-ish"
-            # folders (those containing waves) to keep the summary
-            # readable for deeply nested trees.
-            has_any_wave = any(not isinstance(v, dict) for v in folder.values())
-            if has_any_wave:
+        # Determine whether the first path component is a technique
+        # root (USAXS / SAXS / WAXS) so we know which path components
+        # are "sample subfolders" for output-path mirroring.
+        first_is_technique_root = (
+            len(rel_path) > 0 and _classify_folder(rel_path[0]) is not None
+        )
+
+        any_matched = False
+        for technique in candidate_techniques:
+            if keep_techniques and technique.upper() not in keep_techniques:
+                continue
+            picked = _pick_waves(folder, technique,
+                                  pickers_table=pickers_table,
+                                  folder_name=sample_folder_name)
+            if picked is None:
+                continue
+            any_matched = True
+
+            q, intensity, err, dq, note = picked
+            meta = parse_wave_note(note)
+
+            # Output path layout:
+            #   <root>/<technique>/<sub_components>/<sample_name>.h5
+            #
+            # If the folder was found *inside* a technique-root parent
+            # (rel_path = ('USAXS', 'Sample01')), drop the technique
+            # element and mirror the remaining path. Otherwise (root
+            # level, e.g. ('AMC_..._0033',)), mirror the whole path
+            # under the matched technique.
+            if first_is_technique_root:
+                source_components = rel_path[1:]
+            else:
+                source_components = rel_path
+            sub_components = [_safe_filename(c) for c in source_components]
+            if not sub_components:
+                sub_components = ["unnamed"]
+            sample_name = sub_components[-1]
+            sample_dir = output_root / technique
+            if len(sub_components) > 1:
+                sample_dir = sample_dir.joinpath(*sub_components[:-1])
+            sample_dir.mkdir(parents=True, exist_ok=True)
+
+            out_path = sample_dir / f"{sample_name}.h5"
+            if not overwrite:
+                out_path = _unique_path(out_path)
+
+            try:
+                create_nxcansas_file(
+                    filepath=out_path,
+                    q=q,
+                    intensity=intensity,
+                    error=err,
+                    dq=dq,
+                    sample_name=sample_name,
+                    metadata=meta,
+                )
+            except Exception as exc:
                 result.files.append(ExtractedFile(
                     source_path=igor_path,
-                    output_path=None,
+                    output_path=out_path,
                     technique=technique,
-                    n_points=0,
-                    status="skipped",
-                    message=f"no recognised {technique} wave triple in folder",
+                    n_points=len(q),
+                    status="error",
+                    message=str(exc),
                 ))
-            continue
+                logger.exception("Failed to write %s", out_path)
+                continue
 
-        q, intensity, err, dq, note = picked
-        meta = parse_wave_note(note)
-
-        # Build the output path: <root>/<technique>/<rel_path_without_root_tech>/<sample>.h5
-        # rel_path is e.g. ('SAXS', 'Sa10_brRigNP_05mg__0013')  or
-        #                 ('SAXS', 'heater_run', 'step03', 'Sa1')
-        # The first element is the technique-root folder; strip it.
-        sub_components = [_safe_filename(c) for c in rel_path[1:]]
-        if not sub_components:
-            sub_components = ["unnamed"]
-        sample_name = sub_components[-1]
-        sample_dir = output_root / technique
-        if len(sub_components) > 1:
-            sample_dir = sample_dir.joinpath(*sub_components[:-1])
-        sample_dir.mkdir(parents=True, exist_ok=True)
-
-        out_path = sample_dir / f"{sample_name}.h5"
-        if not overwrite:
-            out_path = _unique_path(out_path)
-
-        try:
-            create_nxcansas_file(
-                filepath=out_path,
-                q=q,
-                intensity=intensity,
-                error=err,
-                dq=dq,
-                sample_name=sample_name,
-                metadata=meta,
-            )
-        except Exception as exc:
             result.files.append(ExtractedFile(
                 source_path=igor_path,
                 output_path=out_path,
                 technique=technique,
                 n_points=len(q),
-                status="error",
-                message=str(exc),
+                status="ok",
             ))
-            logger.exception("Failed to write %s", out_path)
-            continue
 
-        result.files.append(ExtractedFile(
-            source_path=igor_path,
-            output_path=out_path,
-            technique=technique,
-            n_points=len(q),
-            status="ok",
-        ))
+        if not any_matched:
+            # Folder had waves but none of the candidate techniques' wave
+            # triples matched. Only record skips for "leaf-ish" folders
+            # (those that contain waves) to keep the summary readable
+            # for deeply nested trees that don't carry data.
+            has_any_wave = any(not isinstance(v, dict) for v in folder.values())
+            if has_any_wave:
+                tech_label = (candidate_techniques[0]
+                              if len(candidate_techniques) == 1
+                              else "/".join(candidate_techniques))
+                result.files.append(ExtractedFile(
+                    source_path=igor_path,
+                    output_path=None,
+                    technique=tech_label,
+                    n_points=0,
+                    status="skipped",
+                    message=f"no recognised wave triple in folder "
+                            f"(tried {', '.join(candidate_techniques)})",
+                ))
 
     logger.info("Extraction finished: %d written, %d skipped, %d errors",
                 result.n_written, result.n_skipped, result.n_errors)
