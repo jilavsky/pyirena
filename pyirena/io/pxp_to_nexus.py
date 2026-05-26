@@ -252,9 +252,28 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
         ) from e
 
     records: list[Any] = []
-    byte_order: str | None = None
-    header_struct = setup_packed_file_record_header()
     skipped = 0
+
+    # Always force an explicit byte order on the record header. The
+    # default ``setup_packed_file_record_header()`` (no argument) uses
+    # native byte order *with native alignment padding*, which on some
+    # platforms (notably macOS Python builds) inflates the 8-byte logical
+    # header to 16 bytes — and immediately misreads numDataBytes from
+    # what it thinks is the trailing pad of a record that doesn't have
+    # one. Probe the first two bytes to choose endianness, then build
+    # the struct with explicit byte order so size is reliably 8 and
+    # there's no alignment padding.
+    with open(pxp_path, "rb") as f:
+        peek = f.read(2)
+    if len(peek) < 2:
+        return {"root": {}}, 0
+    # Igor packed file records start with `short recordType`. Valid
+    # record-type IDs are 1..11 (plus high bits), so the first byte is
+    # always small; on little-endian it occupies byte 0, on big-endian
+    # byte 1. peek[0] != 0 → little-endian; peek[0] == 0 → big-endian.
+    initial_byte_order = "<" if peek[0] != 0 else ">"
+    header_struct = setup_packed_file_record_header(byte_order=initial_byte_order)
+    byte_order: str = initial_byte_order
 
     # Hard upper bound on a single record. No legitimate Igor wave or
     # procedure-file record approaches this; anything larger means we
@@ -273,10 +292,13 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
             if len(b) < header_struct.size:
                 break
             header = header_struct.unpack_from(b)
-            if header["version"] and not byte_order:
+            # Refine byte-order detection if the first record carries a
+            # non-zero version field (matches upstream igor2 behaviour).
+            if header["version"]:
                 need = _need_to_reorder_bytes(header["version"])
-                byte_order = _byte_order(need)
-                if need:
+                refined = _byte_order(need)
+                if refined != byte_order:
+                    byte_order = refined
                     header_struct = setup_packed_file_record_header(byte_order=byte_order)
                     header = header_struct.unpack_from(b)
 
