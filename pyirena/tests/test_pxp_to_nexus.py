@@ -110,6 +110,27 @@ def test_technique_folders_table_is_data_driven():
     assert _classify_folder("Saxs") == "SAXS"
 
 
+def test_patch_v7_wave_to_v5_rewrites_version_byte():
+    """The v7→v5 patcher must swap the leading version short from 7 to 5
+    in-place, leaving the rest of the payload untouched. v7 waves are
+    binary-identical to v5 in their numeric data section."""
+    import struct
+    from pyirena.io.pxp_to_nexus import _patch_v7_wave_to_v5
+
+    v7_payload = struct.pack("<h", 7) + b"\xff" * 100
+    patched = _patch_v7_wave_to_v5(v7_payload, byte_order="<")
+    assert struct.unpack("<h", patched[:2])[0] == 5
+    assert patched[2:] == v7_payload[2:]
+
+    # v5 input should pass through unchanged (same bytes returned).
+    v5_payload = struct.pack("<h", 5) + b"\xaa" * 50
+    assert _patch_v7_wave_to_v5(v5_payload, byte_order="<") is v5_payload
+
+    # Empty / truncated input should not crash.
+    assert _patch_v7_wave_to_v5(b"", byte_order="<") == b""
+    assert _patch_v7_wave_to_v5(b"\x05", byte_order="<") == b"\x05"
+
+
 def test_wave_pickers_table_lists_dsm_for_usaxs():
     """USAXS picker is DSM_* (per design choice)."""
     from pyirena.io.pxp_to_nexus import WAVE_PICKERS

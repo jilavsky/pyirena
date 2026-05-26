@@ -227,6 +227,43 @@ class ExtractionResult:
 # Defensive .pxp loader
 # ---------------------------------------------------------------------------
 
+#: Igor binary-wave version that igor2 0.5.x doesn't recognise. v7 was added
+#: in Igor Pro 8 to support wave names / dimension labels longer than 31
+#: bytes; binary layout is identical to v5 up to the optional sections, so
+#: a v7 wave can be parsed as v5 if we patch the version field and ignore
+#: the trailing long-name block.
+_IGOR_WAVE_VERSION_V5 = 5
+_IGOR_WAVE_VERSION_V7 = 7
+
+
+def _patch_v7_wave_to_v5(data: bytes, byte_order: str) -> bytes:
+    """Rewrite the leading version field of a binary-wave payload from
+    7 to 5 so igor2 0.5.x will accept it.
+
+    A v7 wave has the same BinHeader5 + WaveHeader5 + wave-data layout as
+    v5; the only additions are:
+    - ``optionsSize1`` (4 bytes at offset 60) is reinterpreted as
+      ``longWaveNameSize`` (2 bytes) + ``optionsSize1`` (2 bytes)
+    - a long-wave-name block is appended after the string-indices section
+    The numeric wave data — which is all we need for SAS extraction —
+    sits at the same offset as in v5 and reads identically. The trailing
+    long-name section is harmless because BinHeader5's recorded wfmSize
+    tells igor2 when to stop reading the wave data, and our caller never
+    inspects what's after the wData section.
+    """
+    if len(data) < 2:
+        return data
+    import struct
+    ver_fmt = "<h" if byte_order in ("<", "=") else ">h"
+    try:
+        version = struct.unpack_from(ver_fmt, data, 0)[0]
+    except struct.error:
+        return data
+    if version != _IGOR_WAVE_VERSION_V7:
+        return data
+    return struct.pack(ver_fmt, _IGOR_WAVE_VERSION_V5) + data[2:]
+
+
 def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
     """Load a .pxp file and return ``(filesystem, n_skipped_records)``.
 
@@ -328,6 +365,21 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
                 rec = rtype(header, data, byte_order=byte_order)
                 records.append(rec)
             except Exception as exc:
+                # If this looks like a v7 wave (long-name format from
+                # Igor Pro 8/10), patch the version field to 5 and retry.
+                # igor2 0.5.x doesn't know about v7 even though the
+                # binary layout is identical up to the trailing
+                # long-name block.
+                if rtype is WaveRecord:
+                    patched = _patch_v7_wave_to_v5(data, byte_order)
+                    if patched is not data:
+                        try:
+                            rec = WaveRecord(header, patched, byte_order=byte_order)
+                            records.append(rec)
+                            continue
+                        except Exception as exc2:
+                            exc = exc2  # fall through to "skipped" path below
+
                 skipped += 1
                 records.append(None)
                 logger.debug("skipped %s record (rtype_id=%s): %s",
