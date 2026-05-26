@@ -4723,6 +4723,26 @@ class DataSelectorPanel(QWidget):
                 f"pxp could not be parsed (skipped)."
             )
 
+        # Igor 8/10 long-name records (folders/waves > 31 chars) —
+        # igor2 cannot decode these, so samples are silently missing
+        # from the output. Surface this prominently so the user knows
+        # to re-save the experiment as .h5xp.
+        n_longname = result.get('n_igor8_longname_markers') or 0
+        if n_longname > 0:
+            msg_lines.append("")
+            msg_lines.append(
+                f"⚠ WARNING: this .pxp contains {n_longname} Igor-8 long-name "
+                f"record(s) (folders or waves with names > 31 chars)."
+            )
+            msg_lines.append(
+                "  igor2 cannot decode these, so SOME SAMPLES ARE MISSING "
+                "from the output above."
+            )
+            msg_lines.append(
+                "  Workaround: in Igor Pro, save the experiment as .h5xp "
+                "instead and re-import here."
+            )
+
         # Per-technique tally
         tech_count: Dict[str, int] = {}
         for fr in result['files']:
@@ -4740,8 +4760,14 @@ class DataSelectorPanel(QWidget):
 
         # Offer to load the output folder
         msg_box = QMessageBox(self)
-        msg_box.setIcon(QMessageBox.Icon.Information)
-        msg_box.setWindowTitle("Import complete")
+        # Warning icon when long-name markers were seen, since the
+        # user almost certainly has missing samples.
+        if n_longname > 0:
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+            msg_box.setWindowTitle("Import complete — some samples missing")
+        else:
+            msg_box.setIcon(QMessageBox.Icon.Information)
+            msg_box.setWindowTitle("Import complete")
         msg_box.setText("\n".join(msg_lines))
         if result['n_written'] > 0:
             load_btn = msg_box.addButton(

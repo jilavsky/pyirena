@@ -305,12 +305,50 @@ instrument.
   Distribution, etc.) are *not* parsed. Re-fit them in pyIrena using
   the imported NeXus files — that way the results are stored in the
   pyIrena schema and can be browsed by the HDF5 Viewer.
-- **One known igor2 quirk.** The upstream `igor2` package occasionally
-  fails to decode a single wave record in older Igor experiments
-  (typically a text or dependency-formula wave). The importer is
-  defensive — it skips that record and reports it in
-  `n_unparseable_records` rather than aborting, so the rest of the
-  experiment still extracts cleanly.
+
+### Long folder/wave names in `.pxp` (Igor 8+ format) — use `.h5xp` instead
+
+Igor Pro 8 introduced a new on-disk format for folders and waves whose
+names exceed **31 characters**. The format uses record types that
+`igor2` (the underlying parser) does not understand, so those folders
+are invisible to the `.pxp` importer. A typical symptom is that an
+experiment containing ~700 time-series samples imports only the
+samples whose folder names fit in 31 characters (e.g.
+`AMC_04_07_26_3min_0033` works; `AMC_25_crystalline_04_07_26_10min_0036`
+is silently skipped).
+
+**The fix is straightforward in Igor**: save the experiment as
+`.h5xp` instead of `.pxp`, then import the `.h5xp` into pyIrena.
+The HDF5-based `.h5xp` format has no name-length restriction, and
+pyIrena reads it directly:
+
+1. In Igor Pro, choose **Data → Save Data → Save Experiment As Packed HDF5
+   Experiment...** (or `SaveExperiment /P=path "Filename.h5xp"` from
+   the command line).
+2. Import the resulting `.h5xp` in pyIrena exactly as you would a
+   `.pxp` — same button, same API, same output.
+
+We deliberately do not attempt to reverse-engineer Igor 8's new `.pxp`
+encoding for long names: the format is undocumented, the `.h5xp` route
+is officially supported by Wavemetrics, and a future `igor2` release
+may add `.pxp` long-name support upstream. When that happens we'll
+pick it up automatically by bumping the `igor2` minimum version.
+
+### Other quirks
+
+- **One unparseable record per file is normal.** Wavemetrics' `igor2`
+  parser occasionally fails on a single text or dependency-formula
+  wave per experiment. These never carry I(Q) data, so the result is
+  cosmetic: a `Note: 1 wave record(s) could not be parsed` line in
+  the summary. Safe to ignore.
+- **Per-sample vs per-technique layouts both work.** If your samples
+  live under `root:USAXS:`, `root:SAXS:`, `root:WAXS:`, the importer
+  produces one file per sample under the matching technique folder.
+  If your samples instead live at root level (`root:Sample01/...`)
+  with USAXS/SAXS/WAXS waves all inside the same folder — common for
+  in-situ time series — the importer recognises this and emits up to
+  three files per sample, one per technique whose wave triple is
+  present.
 
 ## Troubleshooting
 

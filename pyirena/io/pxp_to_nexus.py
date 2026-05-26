@@ -215,11 +215,26 @@ class ExtractedFile:
 
 @dataclass
 class ExtractionResult:
-    """Overall result of an :func:`extract_pxp_to_nexus` call."""
+    """Overall result of an :func:`extract_pxp_to_nexus` call.
+
+    Attributes
+    ----------
+    pxp_path, output_root, files, n_unparseable_records:
+        Self-explanatory.
+    n_igor8_longname_markers:
+        Count of Igor-8-only record types (26 and 33) seen in the
+        ``.pxp``. A non-zero value means the experiment contains folder
+        or wave names longer than 31 characters that ``igor2`` cannot
+        decode — and therefore the importer probably missed entire
+        samples whose folder names are too long. Callers should warn
+        the user and suggest re-saving the experiment as ``.h5xp``.
+        Always 0 for h5xp imports (which have no such limitation).
+    """
     pxp_path: Path
     output_root: Path
     files: list[ExtractedFile] = field(default_factory=list)
     n_unparseable_records: int = 0
+    n_igor8_longname_markers: int = 0
 
     @property
     def n_written(self) -> int:
@@ -275,8 +290,18 @@ def _patch_v7_wave_to_v5(data: bytes, byte_order: str) -> bytes:
     return struct.pack(ver_fmt, _IGOR_WAVE_VERSION_V5) + data[2:]
 
 
-def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
-    """Load a .pxp file and return ``(filesystem, n_skipped_records)``.
+#: Packed record-type IDs introduced by Igor Pro 8 to support folder/
+#: wave names longer than 31 chars. ``igor2 0.5.x`` doesn't know what
+#: they are, so it treats them as ``_UnknownRecord`` and skips them.
+#: We just count them so the importer can warn the user that the
+#: experiment likely has folders we can't see, and recommend re-saving
+#: as ``.h5xp`` (which has no name-length limit).
+_IGOR8_LONGNAME_RECORD_TYPES: frozenset[int] = frozenset({26, 33})
+
+
+def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
+    """Load a .pxp file and return
+    ``(filesystem, n_skipped_records, n_igor8_longname_markers)``.
 
     Unlike :func:`igor2.packed.load`, this never aborts on a single bad
     wave record: the offending record is skipped (counted) and traversal
@@ -284,6 +309,14 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
     fully usable folder tree. Folder structure depends only on
     ``FolderStartRecord`` / ``FolderEndRecord`` records, which parse
     cheaply and reliably.
+
+    The third return value counts how many ``Unknown`` records of the
+    Igor-8 long-name marker types (26, 33) were seen. A non-zero count
+    means the experiment was saved by Igor Pro 8 or later **and**
+    contains folder or wave names longer than 31 characters, which
+    ``igor2 0.5.x`` cannot decode. The high-level summary uses this to
+    tell the user to re-save the experiment as ``.h5xp`` (which has no
+    such limit).
     """
     try:
         from igor2.packed import (
@@ -301,6 +334,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
 
     records: list[Any] = []
     skipped = 0
+    igor8_longname_markers = 0
 
     # Always force an explicit byte order on the record header. The
     # default ``setup_packed_file_record_header()`` (no argument) uses
@@ -314,7 +348,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
     with open(pxp_path, "rb") as f:
         peek = f.read(2)
     if len(peek) < 2:
-        return {"root": {}}, 0
+        return {"root": {}}, 0, 0
     # Igor packed file records start with `short recordType`. Valid
     # record-type IDs are 1..11 (plus high bits), so the first byte is
     # always small; on little-endian it occupies byte 0, on big-endian
@@ -371,6 +405,8 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
                 logger.warning("truncated record in %s — stopping", pxp_path)
                 break
             rtype_id = header["recordType"] & PACKEDRECTYPE_MASK
+            if rtype_id in _IGOR8_LONGNAME_RECORD_TYPES:
+                igor8_longname_markers += 1
             rtype = _RECORD_TYPE.get(rtype_id, _UnknownRecord)
             try:
                 rec = rtype(header, data, byte_order=byte_order)
@@ -423,7 +459,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
                 # Unreadable wave name — drop silently; structure is the priority.
                 pass
 
-    return filesystem, skipped
+    return filesystem, skipped, igor8_longname_markers
 
 
 def _wave_array(wave_rec) -> np.ndarray | None:
@@ -896,6 +932,7 @@ def _extract_filesystem_to_nexus(
     overwrite: bool,
     pickers_table: dict,
     n_unparseable_records: int = 0,
+    n_igor8_longname_markers: int = 0,
 ) -> ExtractionResult:
     """Walk an already-loaded *filesystem* dict and write per-sample NeXus
     files. Shared by both :func:`extract_pxp_to_nexus` and
@@ -906,6 +943,7 @@ def _extract_filesystem_to_nexus(
         pxp_path=source_path,
         output_root=output_root,
         n_unparseable_records=n_unparseable_records,
+        n_igor8_longname_markers=n_igor8_longname_markers,
     )
 
     for rel_path, candidate_techniques, folder in _walk_tree(
@@ -1079,9 +1117,20 @@ def extract_pxp_to_nexus(
         keep_techniques = {t.upper() for t in techniques}
 
     logger.info("Loading %s…", pxp_path)
-    filesystem, n_skipped_records = _load_pxp_filesystem(pxp_path)
-    logger.info("Loaded %d folders; %d wave records were unparseable",
-                _count_folders(filesystem["root"]), n_skipped_records)
+    filesystem, n_skipped_records, n_igor8_markers = _load_pxp_filesystem(pxp_path)
+    logger.info(
+        "Loaded %d folders; %d wave records were unparseable; "
+        "%d Igor-8 long-name marker(s) seen",
+        _count_folders(filesystem["root"]), n_skipped_records, n_igor8_markers,
+    )
+    if n_igor8_markers > 0:
+        logger.warning(
+            "%s contains %d Igor-8 long-name record(s) (folders/waves with "
+            "names > 31 chars). igor2 cannot decode these, so some samples "
+            "will be missing from the output. Re-save the experiment as "
+            ".h5xp from Igor and re-import to capture them.",
+            pxp_path.name, n_igor8_markers,
+        )
 
     return _extract_filesystem_to_nexus(
         source_path=pxp_path,
@@ -1091,6 +1140,7 @@ def extract_pxp_to_nexus(
         overwrite=overwrite,
         pickers_table=WAVE_PICKERS,
         n_unparseable_records=n_skipped_records,
+        n_igor8_longname_markers=n_igor8_markers,
     )
 
 
@@ -1257,6 +1307,16 @@ def _main(argv: Sequence[str] | None = None) -> int:
     print(f"Errors:   {result.n_errors}")
     if result.n_unparseable_records:
         print(f"Note:     {result.n_unparseable_records} wave record(s) could not be parsed")
+    if result.n_igor8_longname_markers:
+        print(
+            f"\n*** WARNING: this .pxp contains "
+            f"{result.n_igor8_longname_markers} Igor-8 long-name record(s) "
+            f"(folders or waves with names > 31 chars).\n"
+            f"  igor2 cannot decode these, so some samples are MISSING from "
+            f"the output above.\n"
+            f"  Workaround: in Igor Pro, save the experiment as .h5xp instead "
+            f"and re-import."
+        )
 
     if args.verbose:
         print("\nPer-file summary:")

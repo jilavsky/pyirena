@@ -2421,6 +2421,10 @@ def igor_to_nexus(
         print(f"  errors:   {res.n_errors}")
         if res.n_unparseable_records:
             print(f"  note:     {res.n_unparseable_records} wave record(s) could not be parsed")
+        if res.n_igor8_longname_markers:
+            print(f"  WARNING:  {res.n_igor8_longname_markers} Igor-8 long-name "
+                  f"record(s) seen — some samples likely missing. "
+                  f"Re-save as .h5xp from Igor.")
 
     return {
         'success':     True,
@@ -2429,6 +2433,7 @@ def igor_to_nexus(
         'n_skipped':   res.n_skipped,
         'n_errors':    res.n_errors,
         'n_unparseable_records': res.n_unparseable_records,
+        'n_igor8_longname_markers': res.n_igor8_longname_markers,
         'files':       files_list,
     }
 

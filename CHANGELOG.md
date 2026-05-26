@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-05-25
+
+### Fixed
+
+- **`.pxp` importer: many small fixes from end-to-end testing on real
+  legacy USAXS experiments**. Aggregating one release because each
+  fix on its own was small and they were diagnosed in a single session:
+
+  1. **macOS native-alignment bug** (`fix 61333a3`). The igor2 packed
+     record-header struct was being built with native alignment on
+     macOS Python builds, inflating the 8-byte logical header to 16
+     bytes and immediately misreading `numDataBytes` as a giant
+     garbage int. Force explicit `<`/`>` byte order to disable
+     alignment padding — header is now reliably 8 bytes everywhere.
+  2. **OOM-safety on malformed records** (`fix 3cfd756`). Added a
+     256 MB sanity ceiling on `numDataBytes` plus a file-size check,
+     so a corrupt or unhandled record type can't make us preallocate
+     gigabytes of garbage.
+  3. **Igor 8/10 v7 wave format** (`fix 63a38a5`). `igor2 0.5.x`
+     rejects binary-wave version 7 (Igor 8's long-name format) even
+     though its numeric data layout is identical to v5. The loader
+     now patches the leading version field from 7→5 and retries —
+     recovering hundreds of waves per file in real experiments.
+  4. **Per-sample (root-level) folder layout** (`fix 35eec97`). Some
+     experiments organise data by sample rather than by technique —
+     one folder per sample at root level, with USAXS/SAXS/WAXS waves
+     all inside the same folder. The walker now recognises this and
+     yields up to three output files per such folder, one per
+     technique whose wave triple is present. Infrastructure folders
+     (`Packages/`, `SavedSampleSets/`) are skipped explicitly so
+     they don't pollute the summary.
+  5. **Igor 8 long-name records that we can't decode are now
+     surfaced explicitly**. Igor Pro 8 introduced new packed-record
+     types (26 and 33) used when folder or wave names exceed 31
+     characters. `igor2 0.5.x` skips these as unknown, so any
+     sample whose folder name is > 31 chars is silently invisible
+     to the importer. The loader now counts these markers and
+     reports `n_igor8_longname_markers` on `ExtractionResult`; the
+     CLI prints a `*** WARNING ***` block, the batch API surfaces
+     it via the result dict, and the GUI shows a Warning-icon
+     dialog with the recommendation to re-save the experiment as
+     `.h5xp` (which has no such limit and which pyirena reads
+     perfectly). See `docs/igor_pxp_import.md` for details.
+
+  Net effect: a real 22 MB legacy experiment went from "crashes with
+  MemoryError" to "imports cleanly, with a clear warning if any
+  samples are missing due to Igor 8 long names". A 125 MB
+  time-series experiment with ~700 samples went from "imports 22
+  samples" to "imports every sample whose folder name fits, with
+  warning that the rest need .h5xp re-save".
+
+  +4 new unit tests (23 total).
+
 ## [0.8.1] — 2026-05-25
 
 ### Added
