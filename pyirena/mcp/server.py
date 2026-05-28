@@ -198,9 +198,12 @@ def pyirena_tabulate_parameter(
 
     *tool* is a pyirena tool key (e.g. 'unified_fit', 'modeling',
     'size_distribution'). *parameter* is a scalar key declared by that
-    tool's schema (e.g. 'Rg', 'background', 'volume_fraction'). For
-    per-subgroup parameters (Unified Fit levels, modeling populations,
-    WAXS peaks) supply subgroup_index (1-based, default 1).
+    tool's schema. Parameter names are case-insensitive. Common examples:
+      - size_distribution: 'rg', 'volume_fraction', 'chi_squared', 'q_power'
+      - unified_fit:       'Rg', 'G', 'B', 'P' (per-level; use subgroup_index)
+      - modeling:          'pop_Rg', 'background', 'chi_squared'
+      - waxs_peakfit:      'peak_Q0', 'peak_FWHM', 'peak_A' (per-peak)
+    For per-subgroup parameters supply subgroup_index (1-based, default 1).
     """
     return papi.tabulate_parameter(
         folder=folder, tool=tool, parameter=parameter, x_axis=x_axis,
