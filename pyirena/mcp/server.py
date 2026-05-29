@@ -15,7 +15,8 @@ Environment overrides (see also pyirena.api):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
+
 
 try:
     from mcp.server.fastmcp import FastMCP, Image
@@ -225,6 +226,22 @@ def pyirena_summarize_sample(folder: str, sample: str) -> dict:
 # Plotting — returns inline images
 # ---------------------------------------------------------------------------
 
+def _plot_result_as_mcp_content(result: dict) -> list[Any]:
+    """Return plot output as mixed MCP content for clients such as AnythingLLM.
+
+    AnythingLLM's MCP image renderer looks for image-bearing items in the
+    MCP tool result content array. Returning a short text item followed by a
+    FastMCP Image keeps the saved file path visible while still allowing
+    FastMCP to serialize the PNG as:
+        {"type": "image", "data": "...base64...", "mimeType": "image/png"}
+    """
+    path = Path(result["path"])
+    return [
+        f"Plot saved to: {path}",
+        Image(data=path.read_bytes(), format="png"),
+    ]
+
+
 @mcp.tool()
 def pyirena_plot_iq(
     paths: list[str],
@@ -232,7 +249,7 @@ def pyirena_plot_iq(
     log_x: bool = True,
     log_y: bool = True,
     output_path: Optional[str] = None,
-) -> Image:
+) -> list[Any]:
     """Plot I(Q) for one or more files; returns the PNG inline.
 
     overlay=True puts all curves on one axes; False uses a grid.
@@ -244,7 +261,7 @@ def pyirena_plot_iq(
         paths=paths, overlay=overlay, log_x=log_x, log_y=log_y,
         output_path=output_path, return_base64=False,
     )
-    return Image(data=Path(result["path"]).read_bytes(), format="png")
+    return _plot_result_as_mcp_content(result)
 
 
 @mcp.tool()
@@ -256,7 +273,7 @@ def pyirena_plot_parameter_trend(
     subgroup_index: Optional[int] = None,
     sample_filter: Optional[str] = None,
     output_path: Optional[str] = None,
-) -> Image:
+) -> list[Any]:
     """Plot a parameter trend across many files; returns the PNG inline.
 
     See pyirena_tabulate_parameter() for the *tool* / *parameter* /
@@ -268,7 +285,7 @@ def pyirena_plot_parameter_trend(
         subgroup_index=subgroup_index, sample_filter=sample_filter,
         output_path=output_path, return_base64=False,
     )
-    return Image(data=Path(result["path"]).read_bytes(), format="png")
+    return _plot_result_as_mcp_content(result)
 
 
 # ---------------------------------------------------------------------------
