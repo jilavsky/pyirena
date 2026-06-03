@@ -211,11 +211,40 @@ when the user asks "tell me everything about sample_X".
 
 ---
 
-### Plotting (returns inline images)
+### Plotting (returns mixed text + image content)
+
+Both plotting tools return a **two-item content list**, not a single
+value. You must handle both items by content type:
+
+| Index | `type` | What it contains |
+|-------|--------|-----------------|
+| 0 | `text` | `"Plot saved to: /abs/path/to/file.png"` — the on-disk location |
+| 1 | `image` | The PNG encoded as base64; `mimeType` is `"image/png"` |
+
+**Critical: never print or forward item 1 as a string.** It is raw
+base64 binary data. If your client or agent loop iterates over content
+items without checking `type`, it will dump thousands of characters of
+garbled text to the user. Always branch on `content[i].type`:
+
+```python
+for item in tool_result.content:
+    if item.type == "text":
+        print(item.text)          # file path — safe to show
+    elif item.type == "image":
+        display_image(item.data)  # base64 PNG — render, don't print
+```
+
+If the AI client renders content items by type natively (Claude Desktop,
+Claude Code, MCP Inspector), the image appears inline automatically and
+you do not need to handle it manually.
+
+If the client does not render images (AnythingLLM in some modes, custom
+pipelines), skip the image item entirely and tell the user the file path
+from item 0 so they can open the PNG manually.
 
 #### `pyirena_plot_iq(paths, overlay=True, log_x=True, log_y=True, output_path=None)`
-Plots I(Q) for one or more files. Returns the PNG inline (the AI client
-displays it) AND saves to disk under `PYIRENA_PLOT_CACHE`.
+Plots I(Q) for one or more files. Saves PNG to `PYIRENA_PLOT_CACHE`
+(or `output_path`) and returns both items described above.
 
 - `overlay=True` (default): one axes, all curves overlaid (colour-coded
   by file).
@@ -226,8 +255,8 @@ displays it) AND saves to disk under `PYIRENA_PLOT_CACHE`.
 
 #### `pyirena_plot_parameter_trend(folder, tool, parameter, x_axis="scan_number", subgroup_index=None, sample_filter=None, output_path=None)`
 Internally calls `pyirena_tabulate_parameter` then renders the result as
-a line+marker plot with error bars (when `stddev` is available). Returns
-the PNG inline.
+a line+marker plot with error bars (when `stddev` is available). Saves
+PNG and returns both items described above.
 
 Use for the very common request: "plot how Rg evolved across all my
 scans for sample X."
@@ -250,7 +279,9 @@ scans for sample X."
 1. pyirena_list_files("/data/run42", sort="mtime_desc", limit=3)
    → filter rows where sample == "catalyst_A"
 2. pyirena_plot_iq([row["path"] for row in rows], overlay=True)
-3. The image appears inline.
+   → content[0]: text — "Plot saved to: /tmp/.../iq_xxxxx.png"
+     content[1]: image — base64 PNG (render inline; do NOT print as text)
+3. Display the image; mention the saved path.
 ```
 
 ### "Is Rg trending across this batch?"
@@ -258,6 +289,8 @@ scans for sample X."
 1. pyirena_summarize_folder(...) — confirm unified_fit results are present.
 2. pyirena_plot_parameter_trend(folder, tool="unified_fit",
                                  parameter="Rg", subgroup_index=1)
+   → content[0]: text — file path
+     content[1]: image — base64 PNG (render inline; do NOT print as text)
 3. Describe the trend in words (slope direction, scatter, any plateau).
 ```
 
