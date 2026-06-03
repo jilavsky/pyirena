@@ -5,6 +5,148 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-05-25
+
+### Fixed
+
+- **`.pxp` importer: many small fixes from end-to-end testing on real
+  legacy USAXS experiments**. Aggregating one release because each
+  fix on its own was small and they were diagnosed in a single session:
+
+  1. **macOS native-alignment bug** (`fix 61333a3`). The igor2 packed
+     record-header struct was being built with native alignment on
+     macOS Python builds, inflating the 8-byte logical header to 16
+     bytes and immediately misreading `numDataBytes` as a giant
+     garbage int. Force explicit `<`/`>` byte order to disable
+     alignment padding — header is now reliably 8 bytes everywhere.
+  2. **OOM-safety on malformed records** (`fix 3cfd756`). Added a
+     256 MB sanity ceiling on `numDataBytes` plus a file-size check,
+     so a corrupt or unhandled record type can't make us preallocate
+     gigabytes of garbage.
+  3. **Igor 8/10 v7 wave format** (`fix 63a38a5`). `igor2 0.5.x`
+     rejects binary-wave version 7 (Igor 8's long-name format) even
+     though its numeric data layout is identical to v5. The loader
+     now patches the leading version field from 7→5 and retries —
+     recovering hundreds of waves per file in real experiments.
+  4. **Per-sample (root-level) folder layout** (`fix 35eec97`). Some
+     experiments organise data by sample rather than by technique —
+     one folder per sample at root level, with USAXS/SAXS/WAXS waves
+     all inside the same folder. The walker now recognises this and
+     yields up to three output files per such folder, one per
+     technique whose wave triple is present. Infrastructure folders
+     (`Packages/`, `SavedSampleSets/`) are skipped explicitly so
+     they don't pollute the summary.
+  5. **Igor 8 long-name records that we can't decode are now
+     surfaced explicitly**. Igor Pro 8 introduced new packed-record
+     types (26 and 33) used when folder or wave names exceed 31
+     characters. `igor2 0.5.x` skips these as unknown, so any
+     sample whose folder name is > 31 chars is silently invisible
+     to the importer. The loader now counts these markers and
+     reports `n_igor8_longname_markers` on `ExtractionResult`; the
+     CLI prints a `*** WARNING ***` block, the batch API surfaces
+     it via the result dict, and the GUI shows a Warning-icon
+     dialog with the recommendation to re-save the experiment as
+     `.h5xp` (which has no such limit and which pyirena reads
+     perfectly). See `docs/igor_pxp_import.md` for details.
+
+  Net effect: a real 22 MB legacy experiment went from "crashes with
+  MemoryError" to "imports cleanly, with a clear warning if any
+  samples are missing due to Igor 8 long names". A 125 MB
+  time-series experiment with ~700 samples went from "imports 22
+  samples" to "imports every sample whose folder name fits, with
+  warning that the rest need .h5xp re-save".
+
+  +4 new unit tests (23 total).
+
+## [0.8.1] — 2026-05-25
+
+### Added
+
+- **Import Igor Pro `.h5xp` packed experiments** (Wavemetrics' HDF5
+  packed-experiment format), completing the Igor import story. The
+  GUI button, batch API, and CLI now all accept `.h5xp` alongside
+  the existing `.pxp`. Format is auto-detected from the file extension.
+
+  New entry points:
+  - `pyirena.batch.igor_to_nexus("file.pxp"|"file.h5xp", …)` — single
+    function for both formats; the old `pxp_to_nexus` is kept as a
+    deprecated alias for back-compat.
+  - `pyirena.io.pxp_to_nexus.extract_igor_experiment(...)` — dispatcher
+    used by the GUI and CLI; also exposes the format-specific
+    `extract_h5xp_to_nexus()` for explicit calls.
+  - GUI file dialog filter now includes `*.h5xp`.
+
+  Implementation notes:
+  - h5xp tree is walked with `h5py.File(...).visit()` over the
+    `/Packed Data/` subtree; no special parser needed (HDF5 is
+    well-defined). The `/Packed Data/Results/` group is intentionally
+    skipped — its per-parameter collected-value waves don't match the
+    per-sample-folder shape this importer expects.
+  - h5xp wave notes use `key:value;` (colon) while pxp uses
+    `key=value;` (equals); the parser auto-detects the separator
+    per-note so the same metadata extraction code handles both.
+  - h5xp wave names use either the literal triple `Q`/`R`/`S`/`dQ` or
+    the suffixed `q_<folder>`/`r_<folder>`/`s_<folder>`/`dq_<folder>`
+    convention emitted by `pyirena.io.h5xp_writer.write_iq_data`. Both
+    patterns are recognised via the new `<folder>` substitution token in
+    `WAVE_PICKERS_H5XP`.
+  - 9 new tests use `h5xp_writer` to synthesise fixtures, so they
+    don't depend on any external data files and run on every CI build.
+
+  Files: `pyirena/io/pxp_to_nexus.py` (added `_load_h5xp_filesystem`,
+  `_H5Wave` adapter, `extract_h5xp_to_nexus`, `extract_igor_experiment`
+  dispatcher, `WAVE_PICKERS_H5XP`); `pyirena/batch.py`
+  (added `igor_to_nexus`, kept `pxp_to_nexus` as alias);
+  `pyirena/gui/data_selector.py` (extended file dialog filter);
+  `pyirena/tests/test_pxp_to_nexus.py` (+9 tests).
+
+## [0.8.0] — 2026-05-25
+
+### Added
+
+- **Import Igor Pro packed experiments (`.pxp`) → per-sample NeXus files.**
+  Users with legacy Igor data can now bring it into pyIrena for analysis
+  without re-reducing from raw detector files. The importer walks the
+  experiment's USAXS / SAXS / WAXS folder hierarchy, picks the
+  standard wave triples (`DSM_Qvec`/`DSM_Int`/`DSM_Error`(+`DSM_dQ`)
+  for USAXS, `R_Qvec`/`R_Int`/`R_Error` for SAXS and WAXS), and
+  writes one NXcanSAS `.h5` per sample into a sibling `<pxp>_data/`
+  folder organised as `USAXS/`, `SAXS/`, `WAXS/`.
+
+  Rich wave-note metadata produced by the APS USAXS pipeline (sample
+  name, thickness, temperature, wavelength, plus the full instrument
+  state) is parsed from the `NXSampleStart`/`End`, `NXInstrumentStart`/
+  `End`, `NXMetadataStart`/`End` sentinel blocks and lands in the
+  canonical NXcanSAS locations (`entry/sample/`, `entry/instrument/`,
+  `entry/notes/`). The Q resolution column `Qdev` is written when
+  the source wave has `DSM_dQ` (per the NXcanSAS optional-array spec).
+
+  Entry points:
+  - GUI: **Data Processing & Reference → Import Igor Experiment…**
+    (purple button in the Data Selector). A modal dialog lets users
+    pick output folder, technique subset, and overwrite policy; on
+    success the output folder loads automatically as the current
+    data folder.
+  - Headless: `pyirena.batch.pxp_to_nexus("legacy.pxp", techniques=["USAXS"])`
+  - CLI: `python -m pyirena.io.pxp_to_nexus legacy.pxp -v`
+
+  New dependency: `igor2 >= 0.5.13` (pure Python, numpy-only).
+
+  Implementation notes:
+  - Files: `pyirena/io/pxp_to_nexus.py` (reader + writer engine),
+    `pyirena/io/nxcansas_unified.py` (extended `create_nxcansas_file`
+    with `dq=` and `metadata=` parameters), `pyirena/batch.py`
+    (`pxp_to_nexus` entry point), `pyirena/gui/data_selector.py`
+    (button + `_IgorImportDialog`), `pyirena/tests/test_pxp_to_nexus.py`
+    (11 tests).
+  - The wave-name picker (`WAVE_PICKERS`) and folder-name classifier
+    (`TECHNIQUE_FOLDERS`) are data-driven dicts at the top of
+    `pxp_to_nexus.py`; users with non-standard pipelines can extend
+    them without touching extractor logic.
+  - The reader is defensive: a single corrupt wave record (real Igor
+    files occasionally have them) is skipped and reported in the
+    summary rather than aborting the whole import.
+
 ## [0.7.2] — 2026-05-20
 
 ### Fixed

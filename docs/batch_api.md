@@ -19,11 +19,12 @@ is no need to write configuration code by hand.
 8. [API reference — `fit_saxs_morph`](#fit_saxs_morph)
 9. [API reference — `merge_data`](#merge_data)
 10. [API reference — `average_data`](#average_data)
-11. [API reference — `fit_pyirena`](#fit_pyirena)
-12. [Return structures](#return-structures)
-13. [Error handling](#error-handling)
-14. [Batch processing patterns](#batch-processing-patterns)
-15. [Extending with new tools](#extending-with-new-tools)
+11. [API reference — `igor_to_nexus`](#igor_to_nexus)
+12. [API reference — `fit_pyirena`](#fit_pyirena)
+13. [Return structures](#return-structures)
+14. [Error handling](#error-handling)
+15. [Batch processing patterns](#batch-processing-patterns)
+16. [Extending with new tools](#extending-with-new-tools)
 
 ---
 
@@ -1119,6 +1120,88 @@ by random chance alone.  Low p → curves differ → likely damaged.
 2. Run on a sample known to contain damaged frames.  Raise the threshold
    until the damaged frames appear in `result['rejected']`.
 3. Fix the threshold in your pipeline configuration.
+
+---
+
+## `igor_to_nexus`  *(formerly `pxp_to_nexus`)*
+
+```python
+from pyirena.batch import igor_to_nexus
+
+result = igor_to_nexus(
+    igor_file,                   # str or Path — input .pxp OR .h5xp
+    output_folder=None,          # str/Path/None — default: <stem>_data
+    techniques=None,             # list[str]/None — e.g. ["USAXS", "SAXS"]
+    overwrite=False,             # bool — append _2,_3,… if False
+    verbose=False,               # bool — print per-file summary
+)
+```
+
+Import an Igor Pro packed experiment and export each reduced USAXS /
+SAXS / WAXS sample as a stand-alone NXcanSAS HDF5 file. Accepts both
+`.pxp` (legacy binary) and `.h5xp` (modern HDF5) — the format is
+auto-detected from the file extension. This is the headless counterpart
+of the GUI's **Import Igor Experiment…** button.
+
+> `pxp_to_nexus(...)` remains as a deprecated alias for back-compat.
+
+### What it does
+
+1. Walks the experiment's folder tree (`root:USAXS:...`, `root:SAXS:...`,
+   `root:WAXS:...`).
+2. For each sample folder, picks the documented wave triple
+   (`DSM_*` for USAXS, `R_*` for SAXS/WAXS).
+3. Parses the wave note — including APS USAXS's `NXSampleStart`/`End`
+   and `NXInstrumentStart`/`End` sentinel blocks — into NXcanSAS
+   sample/instrument metadata.
+4. Writes one `.h5` per sample into
+   `<output_folder>/<technique>/<sample>.h5`.
+
+### Returns
+
+```python
+{
+    'success': True,
+    'output_folder': str,
+    'n_written': int,
+    'n_skipped': int,
+    'n_errors':  int,
+    'n_unparseable_records': int,
+    'files': [
+        {
+            'source':    str,   # Igor folder path, e.g. "root:SAXS:Sample01"
+            'output':    str,   # absolute path to the .h5 file (or None)
+            'technique': str,   # "USAXS" | "SAXS" | "WAXS"
+            'n_points':  int,
+            'status':    str,   # "ok" | "skipped" | "error"
+            'message':   str,   # explanation for skipped/error rows
+        },
+        ...
+    ],
+}
+```
+
+Returns `None` only if the input `.pxp` cannot be found.
+
+### Example
+
+```python
+from pyirena.batch import igor_to_nexus, fit_pyirena
+from pathlib import Path
+
+# 1. Bring legacy Igor data into NeXus.
+imported = igor_to_nexus("2020_beamtime.pxp", techniques=["USAXS"])
+print(f"Got {imported['n_written']} USAXS files")
+
+# 2. Fit each one with the standard pyirena config.
+out_dir = Path(imported['output_folder']) / "USAXS"
+for h5 in sorted(out_dir.glob("*.h5")):
+    fit_pyirena(str(h5), "pyirena_config.json")
+```
+
+See the [Import Igor Experiment guide](igor_pxp_import.md) for the
+wave-name and folder-name conventions, and how to extend them for
+non-standard reduction pipelines.
 
 ---
 

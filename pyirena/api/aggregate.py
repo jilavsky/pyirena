@@ -103,10 +103,11 @@ def _extract_scalar(f: h5py.File, tool: str, parameter: str,
         return None, None, None
     grp = f[group_path]
 
-    # Find matching scalar spec
+    # Find matching scalar spec (case-insensitive so AI can pass 'Rg' or 'rg')
     spec = None
+    parameter_lc = parameter.lower()
     for sc in schema["scalars"]:
-        if sc["key"] == parameter:
+        if sc["key"].lower() == parameter_lc:
             spec = sc
             break
     if spec is None:

@@ -43,7 +43,8 @@ AI summarises in plain language.
 
 The MCP server is a small process that the AI client spawns on demand. It
 exposes 18 tools (discovery, per-tool result reading, parameter
-aggregation across files, headless plotting) — see
+aggregation across files, headless plotting), all prefixed `pyirena_`
+(e.g. `pyirena_summarize_folder`, `pyirena_list_files`) — see
 [ai_tools_reference.md](ai_tools_reference.md).
 
 ---
@@ -238,7 +239,8 @@ fetched on the fly.
 | `command not found` in client logs | macOS GUI apps don't inherit shell `PATH` | Same — absolute path |
 | Tool calls fail with `PathSecurityError` | File is outside `PYIRENA_DATA_ROOT` | Either widen the root or remove the env var while debugging |
 | File-read tools return `{"found": false, ...}` | Group not present in the file, or wrong path | Use `inspect_file()` first to see which analyses are present |
-| Plots don't render inline in the AI client | Client doesn't support inline image content from this tool | The PNG is still on disk under `PYIRENA_PLOT_CACHE` — ask the agent to give you the path |
+| Plots don't render inline in the AI client | Client doesn't support MCP `ImageContent` blocks | The PNG is on disk under `PYIRENA_PLOT_CACHE` — ask the agent for the path from the text item (content[0]) |
+| Agent prints a wall of garbled characters when a plot is requested | Agent/pipeline iterated over tool content items without checking `type`, stringifying the raw base64 PNG data | Instruct the agent: plot tools return **two content items** — `text` (file path) and `image` (base64 PNG). It must branch on `item.type`; never print or forward an `image` item as text. See [ai_tools_reference.md § Plotting](ai_tools_reference.md#plotting-returns-mixed-text--image-content) |
 | Wrong python is used | `pyirena-mcp` resolves to a different env | `head -1 $(which pyirena-mcp)` should show the python interpreter; if wrong, prepend the conda env's `bin/` to `PATH` or use a different absolute path |
 | AI calls succeed but answers are wrong | Model is the bottleneck (limited tool-use training) | Try a model trained for tool use: Claude, GPT-4, Llama 3.1+ Instruct, Qwen 2.5+, Gemma 2 Instruct |
 

@@ -99,5 +99,9 @@ dmypy.json
 *.bak
 *~
 
+# Local developer fixtures (e.g. legacy .pxp test files too large for git)
+/temp/
+
+
 # Claude memory
 .claude/

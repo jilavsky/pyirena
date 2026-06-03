@@ -9,7 +9,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 try:
     from PySide6.QtWidgets import (
@@ -287,6 +287,7 @@ def _build_report(file_path: str,
     L.append("")
 
     # ── Data summary ─────────────────────────────────────────────────────────
+    from pyirena.gui.fmt_utils import eng_fmt as _ef
     if data_info is not None:
         Q = data_info['Q']
         I = data_info['I']
@@ -296,13 +297,13 @@ def _build_report(file_path: str,
             "",
             "| Parameter | Value |",
             "|-----------|-------|",
-            f"| Q range | {Q.min():.4g} – {Q.max():.4g} Å⁻¹ |",
-            f"| Intensity range | {I.min():.4e} – {I.max():.4e} cm⁻¹ |",
+            f"| Q range | {_ef(Q.min())} – {_ef(Q.max())} Å⁻¹ |",
+            f"| Intensity range | {_ef(I.min())} – {_ef(I.max())} cm⁻¹ |",
             f"| Data points | {len(Q)} |",
         ]
         if I_error is not None:
             L.append(
-                f"| Uncertainty range | {I_error.min():.4e} – {I_error.max():.4e} cm⁻¹ |"
+                f"| Uncertainty range | {_ef(I_error.min())} – {_ef(I_error.max())} cm⁻¹ |"
             )
         L.append("")
 
@@ -322,8 +323,8 @@ def _build_report(file_path: str,
             "|-----------|-------|",
             f"| Chi-squared (χ²) | {chi2:.4f} |",
             f"| Number of levels | {n_levels} |",
-            f"| Background | {bg:.4e} cm⁻¹ |",
-            f"| Q range (fit) | {Q_fit.min():.4g} – {Q_fit.max():.4g} Å⁻¹ |",
+            f"| Background | {_ef(bg)} cm⁻¹ |",
+            f"| Q range (fit) | {_ef(Q_fit.min())} – {_ef(Q_fit.max())} Å⁻¹ |",
             f"| Data points (fit) | {len(Q_fit)} |",
             f"| Residuals mean | {np.mean(residuals):.4f} |",
             f"| Residuals std dev | {np.std(residuals):.4f} |",
@@ -349,10 +350,16 @@ def _build_report(file_path: str,
                 val = level.get(key)
                 if val is None:
                     return
-                val_str = f"{val:{fmt}}{unit}"
+                if fmt.endswith('f'):
+                    val_str = f"{val:{fmt}}{unit}"
+                else:
+                    val_str = f"{_ef(float(val))}{unit}"
                 if has_mc:
                     err = level.get(f'{key}_err', 0.0)
-                    err_str = f"± {err:{fmt}}{unit}" if err > 0 else "—"
+                    if fmt.endswith('f'):
+                        err_str = f"± {err:{fmt}}{unit}" if err > 0 else "—"
+                    else:
+                        err_str = f"± {_ef(float(err))}{unit}" if err > 0 else "—"
                     L.append(f"| {label} | {val_str} | {err_str} |")
                 else:
                     L.append(f"| {label} | {val_str} |")
@@ -416,12 +423,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}{suffix}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}{suffix}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig) + suffix
             except (TypeError, ValueError):
                 return str(v)
 
@@ -548,12 +559,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}{suffix}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}{suffix}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig) + suffix
             except (TypeError, ValueError):
                 return str(v)
 
@@ -607,12 +622,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig)
             except (TypeError, ValueError):
                 return str(v)
 
@@ -670,12 +689,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig)
             except (TypeError, ValueError):
                 return str(v)
 
@@ -754,12 +777,16 @@ def _build_report(file_path: str,
             if v is None:
                 return 'N/A'
             try:
-                if np.isnan(float(v)):
+                fv = float(v)
+                if np.isnan(fv):
                     return 'N/A'
             except (TypeError, ValueError):
-                pass
+                return str(v)
             try:
-                return f"{v:{spec}}"
+                if spec.endswith('f'):
+                    return f"{fv:{spec}}"
+                sig = int(spec[1:-1]) if len(spec) > 2 else 4
+                return _ef(fv, sig=sig)
             except (TypeError, ValueError):
                 return str(v)
 
@@ -2239,6 +2266,101 @@ class BatchWorker(QThread):
         self.finished.emit(n_ok, n_fail, messages)
 
 
+class _IgorImportDialog(QDialog):
+    """Modal dialog asking the user where to send extracted NeXus files and
+    which techniques to keep, before the actual Igor → NeXus import runs.
+
+    Used only by :meth:`DataSelectorPanel.launch_igor_import`. The dialog is
+    short and purely a settings prompt; the real work happens in
+    :func:`pyirena.batch.igor_to_nexus`, which dispatches to either the
+    .pxp or .h5xp reader based on the input extension.
+    """
+
+    def __init__(self, pxp_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Import Igor Experiment")
+        self.pxp_path = Path(pxp_path)
+        self.setMinimumWidth(540)
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            f"<b>Source:</b> {self.pxp_path.name}<br>"
+            f"<b>Folder:</b> {self.pxp_path.parent}"
+        )
+        info.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(info)
+
+        layout.addSpacing(8)
+
+        # Output folder row
+        form = QFormLayout()
+        default_out = self.pxp_path.with_name(f"{self.pxp_path.stem}_data")
+        self._out_edit = QLineEdit(str(default_out))
+        out_row = QHBoxLayout()
+        out_row.addWidget(self._out_edit, stretch=1)
+        out_browse = QPushButton("Browse…")
+        out_browse.clicked.connect(self._browse_output)
+        out_row.addWidget(out_browse)
+        out_w = QWidget(); out_w.setLayout(out_row)
+        form.addRow("Output folder:", out_w)
+        layout.addLayout(form)
+
+        layout.addSpacing(4)
+
+        # Techniques group
+        grp = QGroupBox("Techniques to export")
+        gv = QVBoxLayout(grp)
+        self._cb_usaxs = QCheckBox("USAXS")
+        self._cb_saxs  = QCheckBox("SAXS")
+        self._cb_waxs  = QCheckBox("WAXS")
+        for cb in (self._cb_usaxs, self._cb_saxs, self._cb_waxs):
+            cb.setChecked(True)
+            gv.addWidget(cb)
+        layout.addWidget(grp)
+
+        # Overwrite option
+        self._cb_overwrite = QCheckBox(
+            "Overwrite existing files  (off = append _2, _3, … to keep both)"
+        )
+        layout.addWidget(self._cb_overwrite)
+
+        layout.addStretch()
+
+        # Buttons
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText("Import")
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _browse_output(self):
+        start = self._out_edit.text() or str(self.pxp_path.parent)
+        folder = QFileDialog.getExistingDirectory(
+            self, "Output folder", start, QFileDialog.Option.ShowDirsOnly
+        )
+        if folder:
+            self._out_edit.setText(folder)
+
+    def options(self) -> Dict:
+        """Return a dict of the user's choices."""
+        techs: List[str] = []
+        if self._cb_usaxs.isChecked():
+            techs.append("USAXS")
+        if self._cb_saxs.isChecked():
+            techs.append("SAXS")
+        if self._cb_waxs.isChecked():
+            techs.append("WAXS")
+        return {
+            'output_folder': self._out_edit.text().strip() or None,
+            'techniques':    techs if techs else None,
+            'overwrite':     self._cb_overwrite.isChecked(),
+        }
+
+
 class DataSelectorPanel(QWidget):
     """
     Main data selector panel for pyIrena.
@@ -2918,10 +3040,27 @@ class DataSelectorPanel(QWidget):
         )
         self.fractals_button.clicked.connect(self.launch_fractals)
 
+        _igor_import_style = (
+            "QPushButton { background:#8e44ad; color:white; "
+            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
+            "QPushButton:hover { background:#6c3483; }"
+            "QPushButton:disabled { background:#95a5a6; }"
+        )
+        self.igor_import_button = QPushButton("Import Igor Experiment…")
+        self.igor_import_button.setMinimumHeight(38)
+        self.igor_import_button.setStyleSheet(_igor_import_style)
+        self.igor_import_button.setToolTip(
+            "Open an Igor Pro packed experiment (.pxp or .h5xp) and export\n"
+            "each reduced USAXS/SAXS/WAXS sample into a NeXus (.h5) file.\n"
+            "Use this to bring legacy Igor data into pyIrena for analysis."
+        )
+        self.igor_import_button.clicked.connect(self.launch_igor_import)
+
         proc_grid.addWidget(self.data_merge_button, 0, 0)
         proc_grid.addWidget(self.data_manip_button, 0, 1)
         proc_grid.addWidget(self.contrast_button,   1, 0)
         proc_grid.addWidget(self.fractals_button,   1, 1)
+        proc_grid.addWidget(self.igor_import_button, 2, 0, 1, 2)  # span both cols
         right_layout.addWidget(grp_proc)
 
         right_layout.addStretch()
@@ -4512,6 +4651,162 @@ class DataSelectorPanel(QWidget):
         the underlying widget (triggered by WA_DeleteOnClose).
         """
         self.fractals_window = None
+
+    # ── Igor packed experiment import ──────────────────────────────────────
+    def launch_igor_import(self):
+        """Pick an Igor experiment (.pxp or .h5xp), extract its
+        USAXS/SAXS/WAXS data to NeXus files, and offer to load the
+        output folder as the current data folder.
+        """
+        from pyirena.batch import igor_to_nexus
+
+        start_dir = self.last_folder if self.last_folder else QDir.homePath()
+        pxp_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Igor Experiment",
+            start_dir,
+            "Igor Experiment (*.pxp *.h5xp);;"
+            "Igor Packed Experiment (*.pxp);;"
+            "Igor HDF5 Packed Experiment (*.h5xp);;"
+            "All Files (*)",
+        )
+        if not pxp_path:
+            return
+
+        pxp_path = Path(pxp_path)
+        # Show the import options dialog.
+        dlg = _IgorImportDialog(pxp_path, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        opts = dlg.options()
+        # Run extraction synchronously — these files are small (~100s of KB
+        # each) and the parse is fast even for 16 MB pxp inputs. If users
+        # report 100+ MB experiments hanging the UI, move this to a
+        # QThread; for now keep it simple.
+        try:
+            self.status_label.setText(f"Importing {pxp_path.name}…")
+            QApplication.processEvents()
+            result = igor_to_nexus(
+                igor_file=str(pxp_path),
+                output_folder=opts['output_folder'],
+                techniques=opts['techniques'],
+                overwrite=opts['overwrite'],
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Import error",
+                f"Failed to import {pxp_path.name}:\n\n{exc}",
+            )
+            self.status_label.setText("Import failed.")
+            return
+
+        if result is None:
+            QMessageBox.warning(
+                self, "Import returned no result",
+                f"No data was extracted from {pxp_path.name}.",
+            )
+            return
+
+        # Summarise
+        msg_lines = [
+            f"Imported {pxp_path.name}",
+            "",
+            f"Output folder: {result['output_folder']}",
+            f"Files written: {result['n_written']}",
+            f"Skipped:       {result['n_skipped']}  (folders with no recognised wave triple)",
+            f"Errors:        {result['n_errors']}",
+        ]
+        if result.get('n_unparseable_records'):
+            msg_lines.append(
+                f"Note: {result['n_unparseable_records']} wave record(s) in the "
+                f"pxp could not be parsed (skipped)."
+            )
+
+        # Igor 8/10 long-name records (folders/waves > 31 chars) —
+        # igor2 cannot decode these, so samples are silently missing
+        # from the output. Surface this prominently so the user knows
+        # to re-save the experiment as .h5xp.
+        n_longname = result.get('n_igor8_longname_markers') or 0
+        if n_longname > 0:
+            msg_lines.append("")
+            msg_lines.append(
+                f"⚠ WARNING: this .pxp contains {n_longname} Igor-8 long-name "
+                f"record(s) (folders or waves with names > 31 chars)."
+            )
+            msg_lines.append(
+                "  igor2 cannot decode these, so SOME SAMPLES ARE MISSING "
+                "from the output above."
+            )
+            msg_lines.append(
+                "  Workaround: in Igor Pro, save the experiment as .h5xp "
+                "instead and re-import here."
+            )
+
+        # Per-technique tally
+        tech_count: Dict[str, int] = {}
+        for fr in result['files']:
+            if fr['status'] == 'ok':
+                tech_count[fr['technique']] = tech_count.get(fr['technique'], 0) + 1
+        if tech_count:
+            msg_lines.append("")
+            msg_lines.append("By technique:")
+            for t in sorted(tech_count):
+                msg_lines.append(f"  {t}: {tech_count[t]}")
+
+        self.status_label.setText(
+            f"Imported {result['n_written']} files to {Path(result['output_folder']).name}"
+        )
+
+        # Offer to load the output folder
+        msg_box = QMessageBox(self)
+        # Warning icon when long-name markers were seen, since the
+        # user almost certainly has missing samples.
+        if n_longname > 0:
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+            msg_box.setWindowTitle("Import complete — some samples missing")
+        else:
+            msg_box.setIcon(QMessageBox.Icon.Information)
+            msg_box.setWindowTitle("Import complete")
+        msg_box.setText("\n".join(msg_lines))
+        if result['n_written'] > 0:
+            load_btn = msg_box.addButton(
+                "Load output folder",
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+            tech_subdirs = sorted(tech_count)
+            if len(tech_subdirs) == 1:
+                load_btn.setText(f"Load {tech_subdirs[0]} folder")
+        msg_box.addButton(QMessageBox.StandardButton.Close)
+        msg_box.exec()
+
+        if (msg_box.clickedButton() is not None
+                and msg_box.clickedButton().text().startswith("Load")):
+            # If exactly one technique was written, jump directly into it
+            # so the file list shows files immediately. Otherwise open the
+            # parent output folder and let the user pick.
+            target = Path(result['output_folder'])
+            if len(tech_count) == 1:
+                only_tech = next(iter(tech_count))
+                tech_dir = target / only_tech
+                if tech_dir.is_dir():
+                    target = tech_dir
+            self._load_folder(str(target))
+
+    def _load_folder(self, folder: str) -> None:
+        """Set *folder* as the current data folder and refresh the file list.
+
+        Same effect as a successful ``select_folder`` dialog, but accepts a
+        path string directly. Used by import workflows.
+        """
+        self.current_folder = folder
+        self.last_folder = folder
+        self.save_last_folder(folder)
+        self.folder_label.setText(folder)
+        self.folder_label.setStyleSheet("color: #2c3e50;")
+        self.refresh_button.setEnabled(True)
+        self.refresh_file_list()
+        self.status_label.setText(f"Folder: {os.path.basename(folder)}")
 
     # ── Visualization for "Create Graph" with 3D-tool checkboxes ─────────
     #

@@ -29,14 +29,18 @@ References:
     Beaucage, G. (1996). J. Appl. Cryst. 29, 134-146
 """
 
-__version__ = "0.7.2"
+__version__ = "0.8.2"
 __author__ = "Jan Ilavsky"
 __email__ = "ilavsky@aps.anl.gov"
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, load_data_from_nxcansas
 from pyirena.core.sizes import SizesDistribution
 from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY, MODEL_NAMES
-from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_pyirena, manipulate_data, average_data, fit_saxs_morph
+from pyirena.batch import (
+    fit_unified, fit_sizes, fit_simple, fit_pyirena,
+    manipulate_data, average_data, fit_saxs_morph,
+    igor_to_nexus, pxp_to_nexus,
+)
 from pyirena.io.results import load_result, SUPPORTED_ANALYSES
 
 try:
@@ -59,6 +63,8 @@ __all__ = [
     "fit_saxs_morph",
     "manipulate_data",
     "average_data",
+    "igor_to_nexus",
+    "pxp_to_nexus",
     "load_result",
     "SUPPORTED_ANALYSES",
     "plot_saxs",

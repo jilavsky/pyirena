@@ -1061,10 +1061,11 @@ class SimpleFitsPanel(QWidget):
         self.fit_result = result
 
         # Update chi² display
+        from pyirena.gui.fmt_utils import eng_fmt
         chi2 = result.get('chi2', float('nan'))
         rchi2 = result.get('reduced_chi2', float('nan'))
-        self.chi2_label.setText(f'{chi2:.4g}')
-        self.rchi2_label.setText(f'{rchi2:.4g}')
+        self.chi2_label.setText(eng_fmt(chi2))
+        self.rchi2_label.setText(eng_fmt(rchi2))
 
         # Write fitted values back to widgets
         self._apply_result_to_widgets(result)
@@ -1072,10 +1073,10 @@ class SimpleFitsPanel(QWidget):
         # Update derived quantities if any
         derived = result.get('derived', {})
         if derived:
-            derived_txt = '   '.join(f'{k}={v:.4g}' for k, v in derived.items())
-            self.status_label.setText(f'Fit OK | χ²_red={rchi2:.3g} | {derived_txt}')
+            derived_txt = '   '.join(f'{k}={eng_fmt(v)}' for k, v in derived.items())
+            self.status_label.setText(f'Fit OK | χ²_red={eng_fmt(rchi2, sig=3)} | {derived_txt}')
         else:
-            self.status_label.setText(f'Fit OK | Reduced χ² = {rchi2:.4g}')
+            self.status_label.setText(f'Fit OK | Reduced χ² = {eng_fmt(rchi2)}')
 
         # Update all plots
         self._update_plots(result)

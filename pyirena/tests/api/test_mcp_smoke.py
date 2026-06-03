@@ -14,14 +14,16 @@ def test_mcp_module_imports_and_registers_tools():
     # FastMCP stores tools in a _tools dict or similar (depends on version);
     # safest is to introspect the public interface if it exists.
     expected = {
-        "list_files", "summarize_folder", "inspect_file",
-        "read_reduced_data", "read_metadata",
-        "read_simple_fit", "read_unified_fit", "read_size_distribution",
-        "read_modeling", "read_saxs_morph", "read_waxs_peakfit",
-        "read_fractals", "read_merge_provenance",
-        "read_manipulation_provenance",
-        "tabulate_parameter", "summarize_sample",
-        "plot_iq", "plot_parameter_trend",
+        "pyirena_list_files", "pyirena_summarize_folder", "pyirena_inspect_file",
+        "pyirena_read_reduced_data", "pyirena_read_metadata",
+        "pyirena_read_simple_fit", "pyirena_read_unified_fit",
+        "pyirena_read_size_distribution",
+        "pyirena_read_modeling", "pyirena_read_saxs_morph",
+        "pyirena_read_waxs_peakfit",
+        "pyirena_read_fractals", "pyirena_read_merge_provenance",
+        "pyirena_read_manipulation_provenance",
+        "pyirena_tabulate_parameter", "pyirena_summarize_sample",
+        "pyirena_plot_iq", "pyirena_plot_parameter_trend",
     }
     # Try the documented public method first
     if hasattr(mcp, "list_tools"):

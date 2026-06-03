@@ -75,11 +75,8 @@ class ScrubbableLineEdit(QLineEdit):
                 magnitude = 10 ** math.floor(math.log10(abs(value)))
                 step = magnitude * self._step_factor
                 value += direction * step
-            # Format nicely
-            if abs(value) < 0.01 or abs(value) >= 10000:
-                self.setText(f"{value:.3e}")
-            else:
-                self.setText(f"{value:.4g}")
+            from pyirena.gui.fmt_utils import eng_fmt_edit
+            self.setText(eng_fmt_edit(value, sig=4))
             self.editingFinished.emit()
             event.accept()   # stop the enclosing QScrollArea from also scrolling
         except (ValueError, OverflowError):
@@ -1658,7 +1655,8 @@ class SizesFitPanel(QWidget):
         """Multiply the numeric value in *edit* by *factor* (for ÷10 / ×10 buttons)."""
         try:
             val = float(edit.text()) * factor
-            edit.setText(f"{val:.3e}" if (abs(val) < 0.01 or abs(val) >= 10000) else f"{val:.4g}")
+            from pyirena.gui.fmt_utils import eng_fmt_edit
+            edit.setText(eng_fmt_edit(val, sig=4))
             edit.editingFinished.emit()
         except ValueError:
             pass
@@ -1772,8 +1770,9 @@ class SizesFitPanel(QWidget):
         if cursor_range is not None:
             q_min, q_max = cursor_range
             # Update Q range display
-            self.qmin_display.setText(f"{q_min:.4e}")
-            self.qmax_display.setText(f"{q_max:.4e}")
+            from pyirena.gui.fmt_utils import eng_fmt
+            self.qmin_display.setText(eng_fmt(q_min))
+            self.qmax_display.setText(eng_fmt(q_max))
             # D = 2π/Q: larger Q → smaller D, so D_min comes from Q_max
             self.rmax_display.setText(f"{np.pi/q_min:.1f}")
             self.rmin_display.setText(f"{np.pi/q_max:.1f}")
