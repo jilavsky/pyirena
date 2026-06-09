@@ -547,12 +547,15 @@ class StateManager:
             "rng_seed": None,
         },
         "ai_advisor": {
-            # schema_version 1: initial release
-            "schema_version": 1,
+            # schema_version 2: added anthropic_base_url
+            "schema_version": 2,
             # Provider: "anthropic" | "local" (OpenAI-compatible endpoint)
             "provider": "anthropic",
             # Anthropic model name
             "model": "claude-opus-4-7",
+            # Custom base URL for Anthropic API (empty = use Anthropic default).
+            # Useful for proxies, enterprise gateways, or VPN-tunneled endpoints.
+            "anthropic_base_url": "",
             # Local endpoint URL (LM Studio default; Ollama uses :11434)
             "local_endpoint": "http://localhost:1234/v1",
             # Local model name (used only when provider="local")

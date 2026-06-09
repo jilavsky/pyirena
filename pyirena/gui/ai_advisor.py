@@ -171,23 +171,25 @@ class AiAdvisorThread(QThread):
 
     def __init__(
         self,
-        provider:     str,
-        api_key:      str,
-        model:        str,
-        endpoint:     str,
-        system_prompt: str,
-        param_text:   str,
-        img_b64:      str,
+        provider:          str,
+        api_key:           str,
+        model:             str,
+        endpoint:          str,
+        system_prompt:     str,
+        param_text:        str,
+        img_b64:           str,
+        anthropic_base_url: str = "",
         parent=None,
     ):
         super().__init__(parent)
-        self.provider      = provider
-        self.api_key       = api_key
-        self.model         = model
-        self.endpoint      = endpoint.rstrip("/")
-        self.system_prompt = system_prompt
-        self.param_text    = param_text
-        self.img_b64       = img_b64
+        self.provider           = provider
+        self.api_key            = api_key
+        self.model              = model
+        self.endpoint           = endpoint.rstrip("/")
+        self.system_prompt      = system_prompt
+        self.param_text         = param_text
+        self.img_b64            = img_b64
+        self.anthropic_base_url = anthropic_base_url.strip()
 
     def run(self):
         try:
@@ -201,7 +203,10 @@ class AiAdvisorThread(QThread):
 
     def _call_anthropic(self) -> str:
         import anthropic  # noqa: PLC0415 — optional dep, imported on use
-        client = anthropic.Anthropic(api_key=self.api_key)
+        kwargs = {"api_key": self.api_key}
+        if self.anthropic_base_url:
+            kwargs["base_url"] = self.anthropic_base_url
+        client = anthropic.Anthropic(**kwargs)
         content = []
         if self.img_b64:
             content.append({
@@ -353,6 +358,13 @@ class AiAdvisorConfigDialog(QDialog):
         self._model_edit.setPlaceholderText("e.g. claude-opus-4-7")
         form.addRow("Model name:", self._model_edit)
 
+        self._base_url_edit = QLineEdit()
+        self._base_url_edit.setPlaceholderText(
+            "Leave blank for default (https://api.anthropic.com)"
+        )
+        self._base_url_label = QLabel("Custom API URL:")
+        form.addRow(self._base_url_label, self._base_url_edit)
+
         self._endpoint_edit = QLineEdit()
         self._endpoint_edit.setPlaceholderText("http://localhost:1234/v1")
         self._endpoint_label = QLabel("Endpoint URL:")
@@ -412,8 +424,12 @@ class AiAdvisorConfigDialog(QDialog):
 
     def _update_endpoint_visibility(self):
         local = self._radio_local.isChecked()
+        # Local endpoint — shown for local provider only
         self._endpoint_label.setVisible(local)
         self._endpoint_edit.setVisible(local)
+        # Custom Anthropic base URL — shown for Anthropic only
+        self._base_url_label.setVisible(not local)
+        self._base_url_edit.setVisible(not local)
 
     def _load_state(self):
         cfg = self.state_manager.get("ai_advisor") or {}
@@ -425,6 +441,7 @@ class AiAdvisorConfigDialog(QDialog):
         self._update_endpoint_visibility()
 
         self._model_edit.setText(cfg.get("model", "claude-opus-4-7"))
+        self._base_url_edit.setText(cfg.get("anthropic_base_url", ""))
         self._endpoint_edit.setText(cfg.get("local_endpoint", "http://localhost:1234/v1"))
         self._key_edit.setText(_get_api_key(provider))
         self._general_edit.setPlainText(cfg.get("user_instructions", ""))
@@ -436,9 +453,10 @@ class AiAdvisorConfigDialog(QDialog):
         if api_key:
             _set_api_key(provider, api_key)
 
-        self.state_manager.set("ai_advisor", "provider",          provider)
-        self.state_manager.set("ai_advisor", "model",             self._model_edit.text().strip())
-        self.state_manager.set("ai_advisor", "local_endpoint",    self._endpoint_edit.text().strip())
+        self.state_manager.set("ai_advisor", "provider",             provider)
+        self.state_manager.set("ai_advisor", "model",              self._model_edit.text().strip())
+        self.state_manager.set("ai_advisor", "anthropic_base_url", self._base_url_edit.text().strip())
+        self.state_manager.set("ai_advisor", "local_endpoint",     self._endpoint_edit.text().strip())
         self.state_manager.set("ai_advisor", "user_instructions", self._general_edit.toPlainText())
         self.state_manager.set("ai_advisor", "project_context",   self._context_edit.toPlainText())
         self.state_manager.save()
@@ -532,12 +550,13 @@ def launch_unified_fit_advisor(panel) -> None:
 
     # --- LLM config from state_manager ---
     cfg = panel.state_manager.get("ai_advisor") or {}
-    provider  = cfg.get("provider", "anthropic")
-    model     = cfg.get("model", "claude-opus-4-7")
-    endpoint  = cfg.get("local_endpoint", "http://localhost:1234/v1")
-    user_inst = cfg.get("user_instructions", "")
-    proj_ctx  = cfg.get("project_context", "")
-    api_key   = _get_api_key(provider)
+    provider         = cfg.get("provider", "anthropic")
+    model            = cfg.get("model", "claude-opus-4-7")
+    endpoint         = cfg.get("local_endpoint", "http://localhost:1234/v1")
+    anthropic_base_url = cfg.get("anthropic_base_url", "")
+    user_inst        = cfg.get("user_instructions", "")
+    proj_ctx         = cfg.get("project_context", "")
+    api_key          = _get_api_key(provider)
 
     if not api_key and provider == "anthropic":
         from PySide6.QtWidgets import QMessageBox
@@ -563,6 +582,7 @@ def launch_unified_fit_advisor(panel) -> None:
         system_prompt=system_prompt,
         param_text=param_text,
         img_b64=img_b64,
+        anthropic_base_url=anthropic_base_url,
         parent=panel,
     )
 
