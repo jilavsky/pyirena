@@ -16,7 +16,9 @@ Fallback: ANTHROPIC_API_KEY / OPENAI_API_KEY environment variables.
 from __future__ import annotations
 
 import base64
+import html as _html_mod
 import os
+import re
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -25,9 +27,10 @@ try:
     from PySide6.QtCore import Qt, QThread, QTimer, Signal
     from PySide6.QtGui import QFont
     from PySide6.QtWidgets import (
-        QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
-        QLabel, QLineEdit, QPlainTextEdit, QPushButton, QRadioButton,
-        QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+        QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+        QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+        QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
+        QWidget,
     )
     from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 except ImportError:
@@ -35,20 +38,133 @@ except ImportError:
         from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal as Signal
         from PyQt6.QtGui import QFont
         from PyQt6.QtWidgets import (
-            QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
-            QLabel, QLineEdit, QPlainTextEdit, QPushButton, QRadioButton,
-            QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+            QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+            QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+            QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
+            QWidget,
         )
         from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
     except ImportError:
         from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal as Signal
         from PyQt5.QtGui import QFont
         from PyQt5.QtWidgets import (
-            QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
-            QLabel, QLineEdit, QPlainTextEdit, QPushButton, QRadioButton,
-            QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+            QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+            QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+            QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
+            QWidget,
         )
         from PyQt5.QtCore import QBuffer, QByteArray, QIODevice
+
+
+# ---------------------------------------------------------------------------
+# Response formatting: LaTeX math → Unicode + Markdown → HTML
+# ---------------------------------------------------------------------------
+
+_SUP = str.maketrans("0123456789+-nxi", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿˣⁱ")
+_SUB = str.maketrans("0123456789+-", "₀₁₂₃₄₅₆₇₈₉₊₋")
+
+_LATEX_SYMBOLS = [
+    # Angstrom (must come before generic \text{} rule)
+    (r"\\text\{\\AA\}", "Å"), (r"\\text\{Å\}", "Å"), (r"\\AA\b", "Å"),
+    # Remove \text{} wrapper, keep content
+    (r"\\text\{([^}]+)\}", r"\1"),
+    # Math operators
+    (r"\\approx\b", "≈"), (r"\\times\b", "×"), (r"\\cdot\b", "·"),
+    (r"\\leq\b", "≤"),    (r"\\geq\b", "≥"),   (r"\\neq\b", "≠"),
+    (r"\\pm\b", "±"),     (r"\\infty\b", "∞"),
+    # Greek lower
+    (r"\\alpha\b", "α"), (r"\\beta\b", "β"),  (r"\\gamma\b", "γ"),
+    (r"\\delta\b", "δ"), (r"\\epsilon\b", "ε"),(r"\\zeta\b", "ζ"),
+    (r"\\eta\b", "η"),   (r"\\theta\b", "θ"),  (r"\\kappa\b", "κ"),
+    (r"\\lambda\b", "λ"),(r"\\mu\b", "μ"),     (r"\\nu\b", "ν"),
+    (r"\\xi\b", "ξ"),    (r"\\pi\b", "π"),     (r"\\rho\b", "ρ"),
+    (r"\\sigma\b", "σ"), (r"\\tau\b", "τ"),    (r"\\phi\b", "φ"),
+    (r"\\psi\b", "ψ"),   (r"\\omega\b", "ω"),  (r"\\chi\b", "χ"),
+    # Greek upper
+    (r"\\Gamma\b", "Γ"), (r"\\Delta\b", "Δ"),  (r"\\Sigma\b", "Σ"),
+    (r"\\Omega\b", "Ω"), (r"\\Lambda\b", "Λ"),
+]
+
+
+def _convert_latex(s: str) -> str:
+    """Convert common LaTeX math notation to plain Unicode."""
+    for pattern, repl in _LATEX_SYMBOLS:
+        s = re.sub(pattern, repl, s)
+
+    # Superscripts: ^{...}  or  ^digit/sign
+    def _sup_block(m):
+        t = m.group(1).translate(_SUP)
+        return t if t != m.group(1) else f"^{m.group(1)}"
+    s = re.sub(r"\^\{([^}]+)\}", _sup_block, s)
+    s = re.sub(r"\^([0-9+\-nxi])", lambda m: m.group(1).translate(_SUP), s)
+
+    # Subscripts: _{...}  or  _digit/sign
+    def _sub_block(m):
+        t = m.group(1).translate(_SUB)
+        return t if t != m.group(1) else f"_{m.group(1)}"
+    s = re.sub(r"_\{([^}]+)\}", _sub_block, s)
+    s = re.sub(r"_([0-9+\-])", lambda m: m.group(1).translate(_SUB), s)
+
+    return s
+
+
+def _format_response(text: str) -> str:
+    """Convert LLM response (Markdown + inline LaTeX) to HTML for QTextBrowser.
+
+    Handles:
+    - $...$ and $$...$$ inline math  → Unicode italic span
+    - **bold** and *italic* markdown
+    - Unordered bullet lists (* item or - item)
+    - Plain paragraphs
+    """
+    # Split into alternating [plain, math, plain, math, ...] segments.
+    # Match $$...$$ before $...$ so double-dollar is not consumed as two singles.
+    segments = re.split(r"(\$\$[^$]+\$\$|\$[^$\n]+\$)", text)
+
+    parts: list[str] = []
+    for i, seg in enumerate(segments):
+        if i % 2 == 1:  # math segment
+            is_display = seg.startswith("$$")
+            content = seg[2:-2] if is_display else seg[1:-1]
+            content = _convert_latex(content)
+            parts.append(f'<i style="color:#1a5276;">{_html_mod.escape(content)}</i>')
+        else:
+            parts.append(_html_mod.escape(seg))
+
+    processed = "".join(parts)
+
+    # Bold **...**  (may contain already-HTML math spans — use non-greedy)
+    processed = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", processed, flags=re.DOTALL)
+    # Italic *...*  (avoid matching ** that bold already consumed)
+    processed = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", processed)
+
+    # Build HTML from lines
+    lines = processed.split("\n")
+    html_parts: list[str] = []
+    in_list = False
+
+    for line in lines:
+        stripped = line.strip()
+        is_bullet = stripped.startswith("* ") or stripped.startswith("- ")
+
+        if is_bullet:
+            if not in_list:
+                html_parts.append('<ul style="margin:4px 0 4px 0;padding-left:20px;">')
+                in_list = True
+            html_parts.append(
+                f'<li style="margin-bottom:5px;">{stripped[2:]}</li>'
+            )
+        else:
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            if stripped:
+                html_parts.append(f'<p style="margin:4px 0;">{line}</p>')
+
+    if in_list:
+        html_parts.append("</ul>")
+
+    return "".join(html_parts)
 
 
 # ---------------------------------------------------------------------------
@@ -273,12 +389,17 @@ class AiAdvisorResultPanel(QDialog):
         self._status_label.setFont(status_font)
         layout.addWidget(self._status_label)
 
-        # Response area
-        self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(True)
-        mono = QFont("Courier New", 10)
-        self._text_edit.setFont(mono)
-        self._text_edit.setPlaceholderText("Response will appear here…")
+        # Response area — QTextBrowser renders HTML (bold, italic, lists)
+        self._text_edit = QTextBrowser()
+        self._text_edit.setOpenExternalLinks(False)
+        # Match the application's default font (same as the rest of the GUI)
+        app_font = QApplication.font()
+        self._text_edit.setFont(app_font)
+        self._text_edit.document().setDefaultStyleSheet(
+            "p { margin: 4px 0; } "
+            "ul { margin: 4px 0; padding-left: 20px; } "
+            "li { margin-bottom: 5px; }"
+        )
         layout.addWidget(self._text_edit)
 
         # Close button
@@ -308,7 +429,7 @@ class AiAdvisorResultPanel(QDialog):
     def _on_result(self, text: str):
         self._timer.stop()
         self._status_label.setText("AI advisor response:")
-        self._text_edit.setPlainText(text)
+        self._text_edit.setHtml(_format_response(text))
 
     def _on_error(self, msg: str):
         self._timer.stop()
