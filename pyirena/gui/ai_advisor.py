@@ -665,8 +665,10 @@ class AiAdvisorConfigDialog(QDialog):
     def _on_provider_radio(self, checked: bool, provider: str):
         if not checked:
             return
-        self._save_active_to_cache()
-        self._active_provider = provider
+        if self._active_provider != provider:
+            # True provider switch — save current fields before changing
+            self._save_active_to_cache()
+            self._active_provider = provider
         self._populate_fields_from_cache(provider)
 
     def _load_state(self):
