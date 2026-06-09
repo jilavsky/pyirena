@@ -6,6 +6,20 @@ smallest to largest scale. Level 1 is the **small-scale** structure;
 higher-numbered levels describe progressively larger features. Each level
 has a Guinier term (G, Rg) and a power-law term (B, P).
 
+## Level interpretation
+Level 1 (highest Q, smallest Rg) represents primary particles or scatterers
+in the sample. Higher levels represent larger features. If a higher level's
+RgCO is non-zero, it should be linked to the lower level's Rg value; in that
+case the two levels together represent one system of scatterers — a fractal
+or a particle with two main dimensions (rod, cylinder, disk).
+
+The highest-numbered level commonly represents scattering from features too
+large to be fully characterised by the measured data. It typically has only a
+power-law slope (G = 0, Rg = 10¹⁰). This may arise from powder grain
+particles, scratches on sample surfaces (if the sample is cut and not
+polished), large aggregates, voids, precipitates, or any other structure too
+large for its Guinier region to fall within the measured Q range.
+
 ## Parameter interpretation
 
 **Rg** — radius of gyration in Å. The Guinier knee in the data (where log-log
@@ -18,9 +32,16 @@ inappropriately. For a single-level fit, G ≈ I(Q→0).
 
 **P** — power-law exponent (slope in log-log space at high Q for this level).
 - P = 4: smooth surface (Porod law)
-- 3 < P < 4: rough surface (fractal surface)
-- P = 3: mass fractal surface
-- P < 3: mass fractal interior
+- 3 < P < 4: rough surface (fractal surface) or size distribution of particles
+- P = 3: collapsed polymer globule (poor solvent) or size distribution of particles
+- P < 3: mass fractal interior, size distribution of particles, or polymer internal structures
+
+For particle scattering in higher levels that use RgCO: a slope near −1
+indicates a rigid rod or cylinder; near −2 indicates a disk; between −1 and
+−3 indicates a mass fractal interior. For polymer systems, the P value of
+level 1 (smallest features) depends on polymer structure and solvent:
+Gaussian coils give a slope around −2, polymer chains in a good solvent give
+around −1.67, and other slopes carry their own physical interpretations.
 
 Start with P = 4 fixed; free it only if residuals show a systematic slope
 mismatch in the power-law region of the affected level.
@@ -42,8 +63,7 @@ the higher level represents the disk radius (the larger dimension).
 
 **ETA, PACK** — correlation length and packing factor for the Born-Green
 liquid-like ordering correction. Only meaningful for concentrated,
-interacting systems. Leave at zero unless there is a clear interference
-peak.
+interacting systems. Leave at zero unless there is a clear interference peak.
 
 ## Staged fitting strategy
 1. Fix everything except background; fit background to correct the baseline
@@ -62,11 +82,14 @@ peak.
    (hierarchy principle). Free only Rg and G of the new level first.
 6. Do not free B and Rg simultaneously without a good starting estimate for
    B; the correlation is strong and the fit may diverge.
-7. The highest-numbered level (largest features) often has only a power-law
+7. If a new level is needed between two existing levels, use the Copy/Swap
+   Level button to make room while keeping level sizes in the correct order
+   (smallest Rg at level 1, increasing with level number).
+8. The highest-numbered level (largest features) may have only a power-law
    slope because its Guinier region falls outside the measured Q range (below
    the minimum Q). In this case set G = 0 and Rg = 10¹⁰ for that level,
-   leaving only the power-law slope. This is the normal way to fit a level
-   when the data show a low-Q power-law slope without an obvious Guinier knee.
+   leaving only the power-law slope. This is normal when the data show a
+   low-Q power-law slope without an obvious Guinier knee.
 
 ## Residual pattern recognition
 - **Horizontal band around zero, random scatter** → good fit.
@@ -76,17 +99,23 @@ peak.
 - **Monotone slope in residuals** → P is wrong; free P.
 - **Bump or dip near a specific Q** → a structural feature at that scale is
   not modelled; consider adding a level or enabling correlations.
+- **Systematic bump over a broader Q range** → a missing level representing
+  scatterers at that size scale.
 - **High residuals only at very low Q** → beam-stop artifact or missing
-  large-scale level; restrict Q range or add a Guinier level for the large-scale
-  structure.
+  large-scale level; restrict Q range or add a Guinier level for the
+  large-scale structure.
 - **High residuals only at very high Q** → background is too low or there is
   an incoherent baseline; increase background or restrict Q range.
-- **High-frequency noise on residuals** → the uncertainty estimates for the
-  measured data are too small. This is a relatively common problem. Do not
-  focus on the absolute value of χ²; look for systematic low-frequency
-  variations instead. High-frequency residual structure cannot be described by
-  the Unified Fit model and is either measurement noise, underestimated
-  uncertainties, or diffraction peaks or other features in the data.
+- **High-frequency noise on residuals** → uncertainty estimates for the
+  measured data are too small, or the data contain features the Unified Fit
+  model cannot describe (diffraction peaks or other sharp features). Data
+  uncertainties are commonly under- or over-estimated.
+- **χ²** → The acceptable range varies widely due to common under- or
+  over-estimation of data uncertainties. Do not focus on the absolute value of
+  χ²; look instead for the absence of systematic low-frequency variations as
+  the indicator of a good fit. A fit with χ² = 10 can be as good as one with
+  χ² = 0.1 if the model represents the data well and the residuals show only
+  higher-frequency noise than the Guinier and Porod approximations can capture.
 
 ## Common mistakes
 - **Fitting with too many free parameters at once** — parameters are strongly
@@ -101,7 +130,7 @@ peak.
 - **G of a level fixed at zero** — that level contributes no Guinier term and
   is effectively a power-law-only level, which is physically unusual. Only
   do this intentionally for the highest-numbered level when its Guinier
-  region is outside the measured Q range (see item 7 in Staged fitting).
+  region is outside the measured Q range (see step 8 in Staged fitting).
 
 ## Q-range advice
 Always check whether the full Q range is appropriate before fitting:
