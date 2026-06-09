@@ -585,23 +585,29 @@ class AiAdvisorConfigDialog(QDialog):
 
     def _test_connection(self):
         self._test_label.setText("Testing…")
-        provider = "local" if self._radio_local.isChecked() else "anthropic"
-        api_key  = self._key_edit.text().strip() or _get_api_key(provider)
-        model    = self._model_edit.text().strip()
-        endpoint = self._endpoint_edit.text().strip()
+        provider         = "local" if self._radio_local.isChecked() else "anthropic"
+        api_key          = self._key_edit.text().strip() or _get_api_key(provider)
+        model            = self._model_edit.text().strip()
+        endpoint         = self._endpoint_edit.text().strip()
+        anthropic_base_url = self._base_url_edit.text().strip()
 
         class _TestThread(QThread):
             done = Signal(str)
 
-            def __init__(self, provider, api_key, model, endpoint, parent=None):
+            def __init__(self, provider, api_key, model, endpoint,
+                         anthropic_base_url, parent=None):
                 super().__init__(parent)
-                self._p, self._k, self._m, self._e = provider, api_key, model, endpoint
+                self._p, self._k, self._m = provider, api_key, model
+                self._e, self._base = endpoint, anthropic_base_url
 
             def run(self):
                 try:
                     if self._p == "anthropic":
                         import anthropic
-                        c = anthropic.Anthropic(api_key=self._k)
+                        kwargs = {"api_key": self._k}
+                        if self._base:
+                            kwargs["base_url"] = self._base
+                        c = anthropic.Anthropic(**kwargs)
                         r = c.messages.create(
                             model=self._m, max_tokens=10,
                             messages=[{"role": "user", "content": "Hi"}],
@@ -622,7 +628,9 @@ class AiAdvisorConfigDialog(QDialog):
                 except Exception as exc:
                     self.done.emit(f"Error: {exc}")
 
-        self._test_thread = _TestThread(provider, api_key, model, endpoint, self)
+        self._test_thread = _TestThread(
+            provider, api_key, model, endpoint, anthropic_base_url, self
+        )
         self._test_thread.done.connect(self._test_label.setText)
         self._test_thread.start()
 
