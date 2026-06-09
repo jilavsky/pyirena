@@ -547,19 +547,23 @@ class StateManager:
             "rng_seed": None,
         },
         "ai_advisor": {
-            # schema_version 2: added anthropic_base_url
-            "schema_version": 2,
-            # Provider: "anthropic" | "local" (OpenAI-compatible endpoint)
+            # schema_version 3: per-provider nested config (model + url per provider)
+            "schema_version": 3,
+            # Active provider: "anthropic" | "openai" | "local"
             "provider": "anthropic",
-            # Anthropic model name
-            "model": "claude-opus-4-7",
-            # Custom base URL for Anthropic API (empty = use Anthropic default).
-            # Useful for proxies, enterprise gateways, or VPN-tunneled endpoints.
-            "anthropic_base_url": "",
-            # Local endpoint URL (LM Studio default; Ollama uses :11434)
-            "local_endpoint": "http://localhost:1234/v1",
-            # Local model name (used only when provider="local")
-            "local_model": "gemma-3-27b-it",
+            # Per-provider settings (model + url); API keys live in OS keyring only
+            "anthropic": {
+                "model":    "claude-opus-4-7",
+                "base_url": "",          # blank = SDK default api.anthropic.com
+            },
+            "openai": {
+                "model":    "gpt-4o",
+                "base_url": "https://api.openai.com/v1",
+            },
+            "local": {
+                "model":    "gemma-3-27b-it",
+                "endpoint": "http://localhost:1234/v1",
+            },
             # User-editable instruction layers (API key is stored in OS keyring)
             "user_instructions": "",   # personal preferences for all fits
             "project_context":   "",   # sample/material-specific framing

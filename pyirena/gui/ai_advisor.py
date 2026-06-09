@@ -174,6 +174,7 @@ def _format_response(text: str) -> str:
 _KEYRING_SERVICE = "pyirena-ai"
 _KEYRING_KEYS = {
     "anthropic": "anthropic_api_key",
+    "openai":    "openai_api_key",
     "local":     "local_api_key",
 }
 
@@ -190,7 +191,9 @@ def _get_api_key(provider: str) -> str:
     # env-var fallback
     if provider == "anthropic":
         return os.environ.get("ANTHROPIC_API_KEY", "")
-    return os.environ.get("OPENAI_API_KEY", "")
+    if provider == "openai":
+        return os.environ.get("OPENAI_API_KEY", "")
+    return ""
 
 
 def _set_api_key(provider: str, key: str) -> None:
@@ -200,6 +203,32 @@ def _set_api_key(provider: str, key: str) -> None:
         keyring.set_password(_KEYRING_SERVICE, _KEYRING_KEYS.get(provider, provider), key)
     except Exception:
         pass  # silently fall back to env var usage
+
+
+# ---------------------------------------------------------------------------
+# Skills file loading (expert fitting guidance, per tool)
+# ---------------------------------------------------------------------------
+
+def _load_skills(tool_key: str) -> str:
+    """Load expert fitting guidance for a tool.
+
+    Search order:
+    1. ~/.pyirena/ai_skills/<tool_key>.md  (user override)
+    2. pyirena/gui/ai_skills/<tool_key>.md (bundled default)
+    """
+    user_path = Path.home() / ".pyirena" / "ai_skills" / f"{tool_key}.md"
+    if user_path.exists():
+        try:
+            return user_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    pkg_path = Path(__file__).parent / "ai_skills" / f"{tool_key}.md"
+    if pkg_path.exists():
+        try:
+            return pkg_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +255,32 @@ bullet points. Reference specific parameter names (e.g. "try freeing P_1", \
 "Rg_1 appears too large given the Guinier knee position"). Do not give \
 generic fitting advice that ignores the specific values shown."""
 
+# Approximate token costs ($/million tokens): (input, output)
+_COST_PER_1M: dict[str, tuple[float, float]] = {
+    "claude-opus-4-7":          (15.0,  75.0),
+    "claude-sonnet-4-6":        ( 3.0,  15.0),
+    "claude-haiku-4-5-20251001":( 0.8,   4.0),
+    "gpt-4o":                   ( 2.5,  10.0),
+    "gpt-4o-mini":              ( 0.15,  0.60),
+    "o3":                       (10.0,  40.0),
+    "o4-mini":                  ( 1.1,   4.4),
+}
 
-def _build_system_prompt(user_instructions: str, project_context: str) -> str:
+
+def _estimate_cost(model: str, input_tok: int, output_tok: int) -> Optional[float]:
+    key = model.lower()
+    for k, (ci, co) in _COST_PER_1M.items():
+        if k in key:
+            return (input_tok * ci + output_tok * co) / 1_000_000
+    return None  # unknown model — don't show estimate
+
+
+def _build_system_prompt(tool_key: str, user_instructions: str,
+                          project_context: str) -> str:
     parts = [_TOOL_SYSTEM_PROMPT]
+    skills = _load_skills(tool_key)
+    if skills.strip():
+        parts.append("\n## Expert fitting guidance for this tool\n" + skills.strip())
     if user_instructions.strip():
         parts.append("\nAdditional user preferences:\n" + user_instructions.strip())
     if project_context.strip():
@@ -280,73 +332,74 @@ def _format_param_table(levels: list[dict], background: float,
 
 
 class AiAdvisorThread(QThread):
-    """Background thread that calls the LLM and emits the response."""
+    """Background thread that calls the LLM and emits the response + usage."""
 
-    result_ready   = Signal(str)
+    # (response_text, usage_dict) where usage_dict has input_tokens, output_tokens
+    result_ready   = Signal(str, dict)
     error_occurred = Signal(str)
 
     def __init__(
         self,
-        provider:          str,
-        api_key:           str,
-        model:             str,
-        endpoint:          str,
-        system_prompt:     str,
-        param_text:        str,
-        img_b64:           str,
-        anthropic_base_url: str = "",
+        provider:      str,
+        api_key:       str,
+        model:         str,
+        endpoint:      str,   # base URL for all providers
+        system_prompt: str,
+        param_text:    str,
+        img_b64:       str,
         parent=None,
     ):
         super().__init__(parent)
-        self.provider           = provider
-        self.api_key            = api_key
-        self.model              = model
-        self.endpoint           = endpoint.rstrip("/")
-        self.system_prompt      = system_prompt
-        self.param_text         = param_text
-        self.img_b64            = img_b64
-        self.anthropic_base_url = anthropic_base_url.strip()
+        self.provider      = provider
+        self.api_key       = api_key
+        self.model         = model
+        self.endpoint      = endpoint.rstrip("/")
+        self.system_prompt = system_prompt
+        self.param_text    = param_text
+        self.img_b64       = img_b64
 
     def run(self):
         try:
             if self.provider == "anthropic":
-                response_text = self._call_anthropic()
-            else:
-                response_text = self._call_local()
-            self.result_ready.emit(response_text)
+                text, usage = self._call_anthropic()
+            else:  # "openai" or "local" — both use OpenAI-compatible format
+                text, usage = self._call_openai_compat()
+            self.result_ready.emit(text, usage)
         except Exception as exc:
             self.error_occurred.emit(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
-    def _call_anthropic(self) -> str:
-        import anthropic  # noqa: PLC0415 — optional dep, imported on use
-        kwargs = {"api_key": self.api_key}
-        if self.anthropic_base_url:
-            kwargs["base_url"] = self.anthropic_base_url
+    def _call_anthropic(self) -> tuple[str, dict]:
+        import anthropic  # noqa: PLC0415
+        kwargs: dict = {"api_key": self.api_key}
+        if self.endpoint:
+            kwargs["base_url"] = self.endpoint
         client = anthropic.Anthropic(**kwargs)
         content = []
         if self.img_b64:
             content.append({
                 "type": "image",
-                "source": {
-                    "type":       "base64",
-                    "media_type": "image/png",
-                    "data":       self.img_b64,
-                },
+                "source": {"type": "base64", "media_type": "image/png",
+                           "data": self.img_b64},
             })
         content.append({"type": "text", "text": self.param_text})
         msg = client.messages.create(
-            model=self.model,
-            max_tokens=1024,
+            model=self.model, max_tokens=1024,
             system=self.system_prompt,
             messages=[{"role": "user", "content": content}],
         )
-        return msg.content[0].text
+        usage = {
+            "input_tokens":  msg.usage.input_tokens,
+            "output_tokens": msg.usage.output_tokens,
+        }
+        return msg.content[0].text, usage
 
-    def _call_local(self) -> str:
-        """Call an OpenAI-compatible local endpoint (LM Studio / Ollama)."""
+    def _call_openai_compat(self) -> tuple[str, dict]:
+        """Call an OpenAI-compatible endpoint (OpenAI, LM Studio, Ollama)."""
         import httpx  # noqa: PLC0415
+        if not self.endpoint:
+            raise ValueError("No endpoint URL configured for this provider.")
         messages = [{"role": "system", "content": self.system_prompt}]
-        user_parts = []
+        user_parts: list = []
         if self.img_b64:
             user_parts.append({
                 "type":      "image_url",
@@ -354,15 +407,22 @@ class AiAdvisorThread(QThread):
             })
         user_parts.append({"type": "text", "text": self.param_text})
         messages.append({"role": "user", "content": user_parts})
-
         resp = httpx.post(
             f"{self.endpoint}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key or 'local'}"},
+            headers={"Authorization": f"Bearer {self.api_key or 'local'}",
+                     "Content-Type": "application/json"},
             json={"model": self.model, "messages": messages, "max_tokens": 1024},
             timeout=120,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        body = resp.json()
+        text = body["choices"][0]["message"]["content"]
+        raw_usage = body.get("usage", {})
+        usage = {
+            "input_tokens":  raw_usage.get("prompt_tokens", 0),
+            "output_tokens": raw_usage.get("completion_tokens", 0),
+        }
+        return text, usage
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +462,15 @@ class AiAdvisorResultPanel(QDialog):
         )
         layout.addWidget(self._text_edit)
 
+        # Token usage footer (populated after response arrives)
+        self._usage_label = QLabel("")
+        usage_font = QFont()
+        usage_font.setPointSize(max(8, QApplication.font().pointSize() - 1))
+        usage_font.setItalic(True)
+        self._usage_label.setFont(usage_font)
+        self._usage_label.setStyleSheet("color: #555;")
+        layout.addWidget(self._usage_label)
+
         # Close button
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btn_box.rejected.connect(self.close)
@@ -422,14 +491,24 @@ class AiAdvisorResultPanel(QDialog):
 
     def set_thread(self, thread: AiAdvisorThread):
         self._thread = thread
+        self._model = thread.model
         thread.result_ready.connect(self._on_result)
         thread.error_occurred.connect(self._on_error)
         thread.start()
 
-    def _on_result(self, text: str):
+    def _on_result(self, text: str, usage: dict):
         self._timer.stop()
         self._status_label.setText("AI advisor response:")
         self._text_edit.setHtml(_format_response(text))
+
+        # Usage footer
+        inp = usage.get("input_tokens", 0)
+        out = usage.get("output_tokens", 0)
+        cost = _estimate_cost(getattr(self, "_model", ""), inp, out)
+        cost_str = f" | est. cost ~${cost:.4f}" if cost is not None else ""
+        self._usage_label.setText(
+            f"Tokens: {inp:,} in + {out:,} out{cost_str}"
+        )
 
     def _on_error(self, msg: str):
         self._timer.stop()
@@ -448,14 +527,32 @@ class AiAdvisorResultPanel(QDialog):
 # ---------------------------------------------------------------------------
 
 class AiAdvisorConfigDialog(QDialog):
-    """Settings dialog: provider, model, API key, instructions."""
+    """Settings dialog: per-provider model/URL/key + shared instructions."""
+
+    # Default settings for each provider
+    _PROVIDER_DEFAULTS = {
+        "anthropic": {"model": "claude-opus-4-7",     "url": ""},
+        "openai":    {"model": "gpt-4o",               "url": "https://api.openai.com/v1"},
+        "local":     {"model": "gemma-3-27b-it",       "url": "http://localhost:1234/v1"},
+    }
+    _URL_LABELS = {
+        "anthropic": ("Custom API URL:",
+                      "Leave blank for default (https://api.anthropic.com)"),
+        "openai":    ("API base URL:",
+                      "https://api.openai.com/v1"),
+        "local":     ("Endpoint URL:",
+                      "http://localhost:1234/v1"),
+    }
 
     def __init__(self, state_manager, parent=None):
         super().__init__(parent)
         self.state_manager = state_manager
         self.setWindowTitle("AI Advisor — Configure")
         self.setModal(True)
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(500)
+        # Per-provider in-memory cache: {provider: {model, url}}
+        self._cache: dict[str, dict] = {p: dict(d) for p, d in self._PROVIDER_DEFAULTS.items()}
+        self._active_provider: str = "anthropic"
         self._build_ui()
         self._load_state()
 
@@ -468,28 +565,21 @@ class AiAdvisorConfigDialog(QDialog):
 
         radio_row = QHBoxLayout()
         self._radio_anthropic = QRadioButton("Anthropic (Claude)")
+        self._radio_openai    = QRadioButton("OpenAI (ChatGPT)")
         self._radio_local     = QRadioButton("Local (LM Studio / Ollama)")
         radio_row.addWidget(self._radio_anthropic)
+        radio_row.addWidget(self._radio_openai)
         radio_row.addWidget(self._radio_local)
         prov_layout.addLayout(radio_row)
 
         form = QFormLayout()
 
         self._model_edit = QLineEdit()
-        self._model_edit.setPlaceholderText("e.g. claude-opus-4-7")
         form.addRow("Model name:", self._model_edit)
 
-        self._base_url_edit = QLineEdit()
-        self._base_url_edit.setPlaceholderText(
-            "Leave blank for default (https://api.anthropic.com)"
-        )
-        self._base_url_label = QLabel("Custom API URL:")
-        form.addRow(self._base_url_label, self._base_url_edit)
-
-        self._endpoint_edit = QLineEdit()
-        self._endpoint_edit.setPlaceholderText("http://localhost:1234/v1")
-        self._endpoint_label = QLabel("Endpoint URL:")
-        form.addRow(self._endpoint_label, self._endpoint_edit)
+        self._url_label = QLabel("API URL:")
+        self._url_edit  = QLineEdit()
+        form.addRow(self._url_label, self._url_edit)
 
         self._key_edit = QLineEdit()
         self._key_edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -498,8 +588,7 @@ class AiAdvisorConfigDialog(QDialog):
 
         prov_layout.addLayout(form)
 
-        self._test_btn = QPushButton("Test connection")
-        self._test_btn.clicked.connect(self._test_connection)
+        self._test_btn   = QPushButton("Test connection")
         self._test_label = QLabel("")
         test_row = QHBoxLayout()
         test_row.addWidget(self._test_btn)
@@ -509,9 +598,14 @@ class AiAdvisorConfigDialog(QDialog):
 
         layout.addWidget(prov_group)
 
-        # Update endpoint visibility on radio change
-        self._radio_anthropic.toggled.connect(self._update_endpoint_visibility)
-        self._radio_local.toggled.connect(self._update_endpoint_visibility)
+        # Wire radio buttons — save current fields before switching
+        self._radio_anthropic.toggled.connect(
+            lambda chk: self._on_provider_radio(chk, "anthropic"))
+        self._radio_openai.toggled.connect(
+            lambda chk: self._on_provider_radio(chk, "openai"))
+        self._radio_local.toggled.connect(
+            lambda chk: self._on_provider_radio(chk, "local"))
+        self._test_btn.clicked.connect(self._test_connection)
 
         # --- Instructions group ---
         inst_group = QGroupBox("Instructions (sent to AI with every request)")
@@ -535,7 +629,6 @@ class AiAdvisorConfigDialog(QDialog):
 
         layout.addWidget(inst_group)
 
-        # --- Dialog buttons ---
         btn_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -543,70 +636,109 @@ class AiAdvisorConfigDialog(QDialog):
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
 
-    def _update_endpoint_visibility(self):
-        local = self._radio_local.isChecked()
-        # Local endpoint — shown for local provider only
-        self._endpoint_label.setVisible(local)
-        self._endpoint_edit.setVisible(local)
-        # Custom Anthropic base URL — shown for Anthropic only
-        self._base_url_label.setVisible(not local)
-        self._base_url_edit.setVisible(not local)
+    # ------------------------------------------------------------------
+
+    def _provider_from_radios(self) -> str:
+        if self._radio_openai.isChecked():
+            return "openai"
+        if self._radio_local.isChecked():
+            return "local"
+        return "anthropic"
+
+    def _save_active_to_cache(self):
+        """Flush current field values back into _cache for the active provider."""
+        self._cache[self._active_provider] = {
+            "model": self._model_edit.text().strip(),
+            "url":   self._url_edit.text().strip(),
+        }
+
+    def _populate_fields_from_cache(self, provider: str):
+        """Fill model/URL fields from cache; load API key from keyring."""
+        c = self._cache[provider]
+        self._model_edit.setText(c.get("model", ""))
+        self._url_edit.setText(c.get("url", ""))
+        self._key_edit.setText(_get_api_key(provider))
+        label, placeholder = self._URL_LABELS[provider]
+        self._url_label.setText(label)
+        self._url_edit.setPlaceholderText(placeholder)
+
+    def _on_provider_radio(self, checked: bool, provider: str):
+        if not checked:
+            return
+        self._save_active_to_cache()
+        self._active_provider = provider
+        self._populate_fields_from_cache(provider)
 
     def _load_state(self):
         cfg = self.state_manager.get("ai_advisor") or {}
+        # Seed cache from saved state
+        for p in ("anthropic", "openai", "local"):
+            saved = cfg.get(p, {})
+            defaults = self._PROVIDER_DEFAULTS[p]
+            # "url" key covers both base_url (anthropic/openai) and endpoint (local)
+            self._cache[p] = {
+                "model": saved.get("model",    saved.get("endpoint",
+                         defaults["model"])),
+                "url":   saved.get("base_url", saved.get("endpoint",
+                         defaults["url"])),
+            }
+        # Set radio (triggers _on_provider_radio)
         provider = cfg.get("provider", "anthropic")
-        if provider == "local":
+        self._active_provider = provider
+        if provider == "openai":
+            self._radio_openai.setChecked(True)
+        elif provider == "local":
             self._radio_local.setChecked(True)
         else:
             self._radio_anthropic.setChecked(True)
-        self._update_endpoint_visibility()
-
-        self._model_edit.setText(cfg.get("model", "claude-opus-4-7"))
-        self._base_url_edit.setText(cfg.get("anthropic_base_url", ""))
-        self._endpoint_edit.setText(cfg.get("local_endpoint", "http://localhost:1234/v1"))
-        self._key_edit.setText(_get_api_key(provider))
+        self._populate_fields_from_cache(provider)
         self._general_edit.setPlainText(cfg.get("user_instructions", ""))
         self._context_edit.setPlainText(cfg.get("project_context", ""))
 
     def _save_and_accept(self):
-        provider = "local" if self._radio_local.isChecked() else "anthropic"
+        self._save_active_to_cache()
+        provider = self._provider_from_radios()
         api_key  = self._key_edit.text().strip()
         if api_key:
             _set_api_key(provider, api_key)
 
-        self.state_manager.set("ai_advisor", "provider",             provider)
-        self.state_manager.set("ai_advisor", "model",              self._model_edit.text().strip())
-        self.state_manager.set("ai_advisor", "anthropic_base_url", self._base_url_edit.text().strip())
-        self.state_manager.set("ai_advisor", "local_endpoint",     self._endpoint_edit.text().strip())
-        self.state_manager.set("ai_advisor", "user_instructions", self._general_edit.toPlainText())
-        self.state_manager.set("ai_advisor", "project_context",   self._context_edit.toPlainText())
+        self.state_manager.set("ai_advisor", "provider", provider)
+        # Save all three provider caches
+        for p, c in self._cache.items():
+            block = {"model": c["model"]}
+            if p == "local":
+                block["endpoint"] = c["url"]
+            else:
+                block["base_url"] = c["url"]
+            self.state_manager.set("ai_advisor", p, block)
+        self.state_manager.set("ai_advisor", "user_instructions",
+                                self._general_edit.toPlainText())
+        self.state_manager.set("ai_advisor", "project_context",
+                                self._context_edit.toPlainText())
         self.state_manager.save()
         self.accept()
 
     def _test_connection(self):
         self._test_label.setText("Testing…")
-        provider         = "local" if self._radio_local.isChecked() else "anthropic"
-        api_key          = self._key_edit.text().strip() or _get_api_key(provider)
-        model            = self._model_edit.text().strip()
-        endpoint         = self._endpoint_edit.text().strip()
-        anthropic_base_url = self._base_url_edit.text().strip()
+        provider = self._provider_from_radios()
+        api_key  = self._key_edit.text().strip() or _get_api_key(provider)
+        model    = self._model_edit.text().strip()
+        url      = self._url_edit.text().strip()
 
         class _TestThread(QThread):
             done = Signal(str)
 
-            def __init__(self, provider, api_key, model, endpoint,
-                         anthropic_base_url, parent=None):
+            def __init__(self, provider, api_key, model, url, parent=None):
                 super().__init__(parent)
-                self._p, self._k, self._m = provider, api_key, model
-                self._e, self._base = endpoint, anthropic_base_url
+                self._p, self._k, self._m, self._u = provider, api_key, model, url
 
             def run(self):
                 try:
                     if self._p == "anthropic":
                         import anthropic
-                        kwargs = {"api_key": self._k}
-                        if self._base:
-                            kwargs["base_url"] = self._base
+                        kwargs: dict = {"api_key": self._k}
+                        if self._u:
+                            kwargs["base_url"] = self._u
                         c = anthropic.Anthropic(**kwargs)
                         r = c.messages.create(
                             model=self._m, max_tokens=10,
@@ -615,8 +747,11 @@ class AiAdvisorConfigDialog(QDialog):
                         self.done.emit(f"OK — model: {r.model}")
                     else:
                         import httpx
+                        ep = self._u.rstrip("/")
+                        if not ep:
+                            raise ValueError("No endpoint URL set.")
                         r = httpx.post(
-                            f"{self._e.rstrip('/')}/chat/completions",
+                            f"{ep}/chat/completions",
                             headers={"Authorization": f"Bearer {self._k or 'local'}"},
                             json={"model": self._m,
                                   "messages": [{"role": "user", "content": "Hi"}],
@@ -624,13 +759,11 @@ class AiAdvisorConfigDialog(QDialog):
                             timeout=15,
                         )
                         r.raise_for_status()
-                        self.done.emit("OK — local endpoint responded")
+                        self.done.emit(f"OK — {r.json()['model']}")
                 except Exception as exc:
                     self.done.emit(f"Error: {exc}")
 
-        self._test_thread = _TestThread(
-            provider, api_key, model, endpoint, anthropic_base_url, self
-        )
+        self._test_thread = _TestThread(provider, api_key, model, url, self)
         self._test_thread.done.connect(self._test_label.setText)
         self._test_thread.start()
 
@@ -678,27 +811,34 @@ def launch_unified_fit_advisor(panel) -> None:
     img_b64 = _capture_graph_image(panel)
 
     # --- LLM config from state_manager ---
-    cfg = panel.state_manager.get("ai_advisor") or {}
-    provider         = cfg.get("provider", "anthropic")
-    model            = cfg.get("model", "claude-opus-4-7")
-    endpoint         = cfg.get("local_endpoint", "http://localhost:1234/v1")
-    anthropic_base_url = cfg.get("anthropic_base_url", "")
-    user_inst        = cfg.get("user_instructions", "")
-    proj_ctx         = cfg.get("project_context", "")
-    api_key          = _get_api_key(provider)
+    cfg      = panel.state_manager.get("ai_advisor") or {}
+    provider = cfg.get("provider", "anthropic")
+    prov_cfg = cfg.get(provider, {})
+    model    = prov_cfg.get("model", "claude-opus-4-7")
+    # "url" covers base_url (anthropic/openai) and endpoint (local)
+    endpoint = prov_cfg.get("base_url", prov_cfg.get("endpoint", ""))
+    user_inst = cfg.get("user_instructions", "")
+    proj_ctx  = cfg.get("project_context", "")
+    api_key   = _get_api_key(provider)
 
-    if not api_key and provider == "anthropic":
-        from PySide6.QtWidgets import QMessageBox
+    if not api_key and provider in ("anthropic", "openai"):
+        try:
+            from PySide6.QtWidgets import QMessageBox
+        except ImportError:
+            try:
+                from PyQt6.QtWidgets import QMessageBox
+            except ImportError:
+                from PyQt5.QtWidgets import QMessageBox
         QMessageBox.warning(
             panel, "AI Advisor",
-            "No Anthropic API key found.\n\n"
+            f"No API key found for {provider}.\n\n"
             "Click 'Configure AI' to enter your key, or set the "
-            "ANTHROPIC_API_KEY environment variable.",
+            "ANTHROPIC_API_KEY / OPENAI_API_KEY environment variable.",
         )
         return
 
-    # --- build prompts ---
-    system_prompt = _build_system_prompt(user_inst, proj_ctx)
+    # --- build prompts (includes skills file for this tool) ---
+    system_prompt = _build_system_prompt("unified_fit", user_inst, proj_ctx)
     param_text    = _format_param_table(levels, background, num_levels,
                                         chi_sq, file_path)
 
@@ -711,7 +851,6 @@ def launch_unified_fit_advisor(panel) -> None:
         system_prompt=system_prompt,
         param_text=param_text,
         img_b64=img_b64,
-        anthropic_base_url=anthropic_base_url,
         parent=panel,
     )
 
