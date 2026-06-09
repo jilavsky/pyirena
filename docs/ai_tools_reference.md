@@ -8,21 +8,24 @@ If you are an AI assistant with access to pyirena tools, read this
 document — or have it inlined into your system prompt — before asking
 questions about a user's analysis data.
 
-> **All MCP tool names are prefixed `pyirena_`** (e.g.
-> `pyirena_summarize_folder`, `pyirena_list_files`). The prefix makes
-> tools globally unambiguous when a client connects to multiple MCP
-> servers, and avoids confusing small models with the `server-tool`
-> dash convention some clients render. The underlying Python library
-> functions in `pyirena.api` are unprefixed (`api.summarize_folder`,
-> `api.list_files`) — only the MCP wrappers carry the prefix.
+> **Tool name prefixes:**
+> - `pyirena_` — read-only tools that query existing fit results
+> - `pyirena_ctrl_` — control tools that drive fitting interactively
+>
+> Both sets are globally unambiguous when the client connects to multiple
+> MCP servers. The underlying Python library uses `pyirena.api` (read)
+> and `pyirena.api.control` (control) with no prefix.
 
 ---
 
 ## What pyirena gives you
 
-pyirena reads small-angle X-ray scattering (SAXS / USAXS) analysis
-results stored in NXcanSAS HDF5 files. The user has typically run one or
-more analyses on each file:
+pyirena works in two modes. **Read mode** retrieves existing fit results
+stored in NXcanSAS HDF5 files. **Control mode** lets you actually run fits —
+configure models, set parameters, execute the fitting algorithm, evaluate
+results, and save back to HDF5.
+
+### Read-mode analysis tools (results stored in NXcanSAS files)
 
 - **Reduced data** — the raw I(Q) curve, plus measurement uncertainties.
 - **Unified Fit** — Beaucage multi-level model with parameters G, Rg, B,
@@ -39,8 +42,14 @@ more analyses on each file:
 - **Data Merge / Data Manipulation** — provenance for combined or
   transformed datasets.
 
-Your job is to help the user understand what's in their data and what it
-means physically.
+Your job is to help the user understand what's in their data, and — when
+asked — to fit new datasets autonomously using the control tools.
+
+### Control-mode fitting (Phase 1: Unified Fit)
+
+The `pyirena_ctrl_*` tools let you drive pyirena's Unified Fit model
+end-to-end. Sessions are in-memory for the lifetime of the MCP server
+process and persist across tool calls within a conversation.
 
 ---
 
@@ -263,6 +272,133 @@ scans for sample X."
 
 ---
 
+## Control tools reference (`pyirena_ctrl_` prefix)
+
+These tools use sessions. Always start with `pyirena_ctrl_open_dataset()`,
+capture the returned `session_id`, and pass it to every subsequent call.
+
+### Typical fitting workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)           → session_id + data summary
+pyirena_ctrl_select_model(session_id, nlevels=1)
+pyirena_ctrl_get_model_description(session_id) → read before fitting
+pyirena_ctrl_get_data_q_range(session_id)      → know your Q range
+pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)  # if needed
+pyirena_ctrl_fix_all_except(session_id, ["Rg_1","G_1","background"])
+pyirena_ctrl_run_fit(session_id)               → chi_squared, params
+pyirena_ctrl_get_fit_image(session_id)         → inspect visually
+# if chi_squared > ~5, free more params or add a level, run again
+pyirena_ctrl_free_parameter(session_id, "P_1")
+pyirena_ctrl_run_fit(session_id)               → improved chi_squared
+pyirena_ctrl_save_fit(session_id)              → write back to HDF5
+pyirena_ctrl_export_fit_report(session_id)     → markdown summary
+```
+
+### Session lifecycle
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_open_dataset(file_path)` | `session_id`, data summary |
+| `pyirena_ctrl_list_open_sessions()` | all open sessions |
+| `pyirena_ctrl_get_session_summary(session_id)` | file, model, Q range, χ² |
+| `pyirena_ctrl_close_session(session_id)` | frees memory |
+
+### Model selection
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_list_available_models()` | `["unified_fit"]` (Phase 1) |
+| `pyirena_ctrl_select_model(session_id, model_name="unified_fit", nlevels=1)` | full parameter table |
+| `pyirena_ctrl_get_model_parameters(session_id)` | current parameter table |
+| `pyirena_ctrl_get_model_description(session_id)` | physical meaning of each param + tips |
+
+### Parameter control
+
+All parameter names follow the convention `<param>_<level>` for
+level-specific params (e.g. `Rg_1`, `G_2`, `P_1`) and plain names for
+model-wide params (`background`).
+
+| Tool | Effect |
+|------|--------|
+| `pyirena_ctrl_set_parameter_value(session_id, param_name, value)` | set starting value |
+| `pyirena_ctrl_set_parameter_bounds(session_id, param_name, lo, hi)` | constrain range |
+| `pyirena_ctrl_fix_parameter(session_id, param_name)` | hold fixed |
+| `pyirena_ctrl_free_parameter(session_id, param_name)` | release for fitting |
+| `pyirena_ctrl_fix_all_except(session_id, ["Rg_1", "G_1", …])` | staged fitting setup |
+| `pyirena_ctrl_reset_parameters_to_defaults(session_id)` | factory defaults |
+
+**Staged fitting strategy** (recommended):
+1. `fix_all_except(["background"])` → fit background first
+2. `fix_all_except(["Rg_1","G_1","background"])` → add Rg and G
+3. If χ²ᵣ > 5, `free_parameter("P_1")` → add power-law slope
+4. If residuals show structure at low-Q, add a level
+
+### Level management (Unified Fit)
+
+| Tool | Effect |
+|------|--------|
+| `pyirena_ctrl_add_unified_level(session_id, position=-1)` | add level (−1 = append) |
+| `pyirena_ctrl_remove_unified_level(session_id, level)` | remove 1-based level |
+
+After adding/removing a level, all parameters are renumbered and prior fit results are cleared.
+
+### Q range
+
+| Tool | Effect |
+|------|--------|
+| `pyirena_ctrl_get_data_q_range(session_id)` | full data Q range |
+| `pyirena_ctrl_get_fit_q_range(session_id)` | current fit Q range |
+| `pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)` | restrict fit range |
+| `pyirena_ctrl_reset_fit_q_range(session_id)` | restore full data range |
+
+Use `set_fit_q_range` to exclude beam-stop artefacts at low-Q or noisy
+high-Q tails before fitting. Either end can be `null` to leave it unchanged.
+
+### Fit execution
+
+#### `pyirena_ctrl_run_fit(session_id, max_iter=None)`
+Runs the fitting algorithm synchronously. Returns:
+- `success` (bool)
+- `chi_squared`, `reduced_chi_squared` (float)
+- `iterations` (int)
+- `message` (fit status from scipy)
+- `parameters_updated` (list of {name, value})
+
+**Interpreting reduced_chi_squared:**
+- ~1.0 → excellent (model matches data within error bars)
+- 2–10 → reasonable; consider freeing more parameters
+- >10 → poor; systematic residuals; may need extra levels or wider Q range
+- <0.5 → possibly over-fitting or error bars too large
+
+Re-calling `run_fit` after a partial convergence continues from current
+parameter values — this is intentional and useful.
+
+### Quality assessment
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_get_chi_squared(session_id)` | `chi_squared`, `reduced_chi_squared` |
+| `pyirena_ctrl_get_residuals(session_id)` | residuals array + rms / max_abs / mean |
+| `pyirena_ctrl_get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
+| `pyirena_ctrl_get_residuals_image(session_id)` | same image; requires completed fit |
+
+`get_fit_image` works **before and after** a fit:
+- Before: shows data + model at current starting parameter values (useful for sanity-checking starting conditions)
+- After: adds a normalised residuals subplot below the main plot
+
+Handle the image return value the same way as `pyirena_plot_iq`:
+check `content.type`, render the `image` item, show the `text` item as a label.
+
+### Persistence
+
+| Tool | Effect |
+|------|--------|
+| `pyirena_ctrl_save_fit(session_id, output_path=None)` | write fit to HDF5 (default: overwrites source) |
+| `pyirena_ctrl_export_fit_report(session_id, format="markdown")` | returns report text |
+
+---
+
 ## Example interactions
 
 ### "What's in this folder?"
@@ -303,6 +439,28 @@ scans for sample X."
 3. Present the parameters side by side and comment on differences.
 ```
 
+### "Fit this dataset with Unified Fit."
+```
+1. pyirena_ctrl_open_dataset("/data/scan_042.h5")
+   → session_id = "a1b2c3d4"
+2. pyirena_ctrl_get_model_description("a1b2c3d4")
+   → read fitting tips
+3. pyirena_ctrl_select_model("a1b2c3d4", nlevels=1)
+4. pyirena_ctrl_get_data_q_range("a1b2c3d4")
+   → decide if Q range restriction is needed
+5. pyirena_ctrl_fix_all_except("a1b2c3d4", ["Rg_1","G_1","background"])
+6. pyirena_ctrl_run_fit("a1b2c3d4")
+   → reduced_chi_squared=45 (high — need to free more params)
+7. pyirena_ctrl_free_parameter("a1b2c3d4", "P_1")
+   pyirena_ctrl_run_fit("a1b2c3d4")
+   → reduced_chi_squared=3.1 (good improvement)
+8. pyirena_ctrl_get_fit_image("a1b2c3d4")
+   → inspect residuals visually
+9. pyirena_ctrl_save_fit("a1b2c3d4")
+10. pyirena_ctrl_export_fit_report("a1b2c3d4", format="markdown")
+    → summarise for user
+```
+
 ### "Why might Rg jump at scan 17?"
 ```
 1. pyirena_tabulate_parameter(..., tool="unified_fit", parameter="Rg",
@@ -322,30 +480,37 @@ scans for sample X."
 ## Things to avoid
 
 - **Don't call `pyirena_read_*` blindly.** Use `pyirena_inspect_file`
-  first to confirm the analysis is there. Otherwise you'll get
+  first to confirm the analysis is present. Otherwise you'll get
   `{"found": false}` and burn a turn.
 - **Don't request full arrays unless necessary.** `include_arrays=True`
   / `include_full=True` make responses much larger and consume your
   context budget. For most questions, the scalar summary is enough.
-- **Don't fabricate parameter values.** If `value` is `null`, say so. Do
-  not interpolate or invent.
+- **Don't fabricate parameter values.** If `value` is `null`, say so.
+  Do not interpolate or invent.
 - **Don't speculate beyond the data.** Physical interpretations (e.g.
   "this Rg means …") should be framed as "consistent with…" and tied to
   what the user has told you about their sample.
-- **Don't try to write or modify files.** v0.7 is read-only. There are
-  no `pyirena_save_*`, `pyirena_update_*`, or `pyirena_run_*` tools.
+- **Don't skip `get_fit_image` after a fit.** Visual inspection of the
+  residuals subplot is the most reliable way to spot systematic
+  deviations that χ² alone misses.
+- **Don't free too many parameters at once.** The standard staged
+  approach (background first, then Rg+G, then P, then add levels) is
+  more robust than releasing everything simultaneously.
+- **Don't mix read tools and control tools for the same file.** The
+  read tools (`pyirena_read_unified_fit`) see what was previously saved
+  in the HDF5 file. The control tools (`pyirena_ctrl_*`) operate on the
+  in-memory session. Call `pyirena_ctrl_save_fit` first, then the read
+  tool, if you want to compare.
 
 ---
 
 ## When pyirena tools aren't enough
 
-If a user asks a question that pyirena's surface cannot answer (running
-a new fit, modifying a file, doing instrument control), say so
-explicitly. Suggest:
-
-- For new fits / data manipulation: the pyirena GUI tools (
-  `pyirena-gui`, `pyirena-modeling`, `pyirena-datamerge`, etc.) or the
-  headless batch API (`pyirena.batch.fit_unified`,
-  `pyirena.batch.merge_data`, etc.).
-- For instrument / beamline control: the user's instrument-control
-  agent (e.g. the EPICS / pyepics tool), not pyirena.
+- **Fitting models beyond Unified Fit** (Modeling, Size Distribution,
+  Simple Fits, WAXS) — Phase 1 only covers Unified Fit in the control
+  API. Use the pyirena GUI tools (`pyirena-gui`, etc.) or the headless
+  batch API (`pyirena.batch.*`) for those until Phase 2 ships.
+- **Instrument / beamline control** — use the user's instrument-control
+  agent (e.g. EPICS / pyepics), not pyirena.
+- **Data reduction** (2D → 1D, sector integration, masking) — that's
+  upstream of pyirena; use AreaDetector / pyFAI / etc.

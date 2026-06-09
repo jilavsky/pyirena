@@ -32,12 +32,20 @@ from pyirena import api as papi
 mcp = FastMCP(
     "pyirena",
     instructions=(
-        "Tools for reading pyirena SAXS/USAXS analysis results from NXcanSAS "
-        "HDF5 files. All tool names are prefixed 'pyirena_'. Start with "
-        "pyirena_summarize_folder() or pyirena_list_files() to discover what "
-        "is available, then drill in with pyirena_inspect_file() or one of "
-        "the pyirena_read_<tool>() functions. Use pyirena_plot_iq() / "
+        "Tools for reading and fitting SAXS/USAXS data via pyirena. "
+        "All tool names are prefixed 'pyirena_'. "
+        "\n\n"
+        "READ-ONLY tools (pyirena_ prefix): read existing fit results from NXcanSAS "
+        "HDF5 files. Start with pyirena_summarize_folder() or pyirena_list_files() "
+        "to discover available data, then pyirena_inspect_file() or "
+        "pyirena_read_<tool>() to retrieve results. Use pyirena_plot_iq() / "
         "pyirena_plot_parameter_trend() to visualize."
+        "\n\n"
+        "CONTROL tools (pyirena_ctrl_ prefix): drive fitting interactively. "
+        "Typical workflow: pyirena_ctrl_open_dataset() → session_id → "
+        "pyirena_ctrl_select_model() → pyirena_ctrl_fix_all_except() → "
+        "pyirena_ctrl_run_fit() → pyirena_ctrl_get_fit_image() → "
+        "pyirena_ctrl_save_fit(). Sessions are in-memory for this server process."
     ),
 )
 
@@ -286,6 +294,311 @@ def pyirena_plot_parameter_trend(
         output_path=output_path, return_base64=False,
     )
     return _plot_result_as_mcp_content(result)
+
+
+# ---------------------------------------------------------------------------
+# Control API — AI-driven fitting (stateful, session-based)
+# ---------------------------------------------------------------------------
+#
+# These tools expose pyirena.api.control, which lets an AI agent drive the
+# Unified Fit model end-to-end: open data → select model → configure params
+# → run fit → evaluate → save.
+#
+# Workflow:
+#   1. pyirena_ctrl_open_dataset()       → returns session_id
+#   2. pyirena_ctrl_select_model()       → choose model + nlevels
+#   3. pyirena_ctrl_fix_all_except()     → staged fitting setup
+#   4. pyirena_ctrl_run_fit()            → run
+#   5. pyirena_ctrl_get_fit_image()      → inspect visually
+#   6. pyirena_ctrl_save_fit()           → persist to HDF5
+#
+# Sessions live in-memory for the lifetime of this server process.
+# All tool names are prefixed pyirena_ctrl_ for global uniqueness.
+
+import base64 as _base64
+
+from pyirena.api import control as _ctrl
+
+
+def _ctrl_image_result(result: dict, session_id: str) -> list[Any]:
+    """Convert a get_fit_image / get_residuals_image result to MCP content."""
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    label = (
+        f"Fit image (session {session_id})"
+        + (" — includes residuals subplot" if result.get("has_residuals") else " — pre-fit preview")
+    )
+    return [label, Image(data=_base64.b64decode(b64), format="png")]
+
+
+# --- Session lifecycle ---
+
+@mcp.tool()
+def pyirena_ctrl_open_dataset(file_path: str) -> dict:
+    """Load a NXcanSAS HDF5 file and open a fitting session.
+
+    Returns a session_id you must pass to every other pyirena_ctrl_ tool.
+    Also returns a data summary (Q range, n_points, intensity range).
+    """
+    return _ctrl.open_dataset(file_path)
+
+
+@mcp.tool()
+def pyirena_ctrl_list_open_sessions() -> dict:
+    """List all currently open fitting sessions (session_id, file, model, fit status)."""
+    return _ctrl.list_open_sessions()
+
+
+@mcp.tool()
+def pyirena_ctrl_close_session(session_id: str) -> dict:
+    """Close and discard a fitting session, freeing its memory."""
+    return _ctrl.close_session(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_session_summary(session_id: str) -> dict:
+    """Return a summary of the session: file, model, Q range, fit status, χ²."""
+    return _ctrl.get_session_summary(session_id)
+
+
+# --- Model selection ---
+
+@mcp.tool()
+def pyirena_ctrl_list_available_models() -> dict:
+    """List the fitting models available in this version of the control API."""
+    return _ctrl.list_available_models()
+
+
+@mcp.tool()
+def pyirena_ctrl_select_model(
+    session_id: str,
+    model_name: str = "unified_fit",
+    nlevels: int = 1,
+) -> dict:
+    """Select and initialise a fitting model.
+
+    For unified_fit, nlevels sets the number of structural levels (1–5).
+    Start with 1; add levels with pyirena_ctrl_add_unified_level() if residuals
+    show systematic structure after the initial fit.
+    Returns the full initial parameter table.
+    """
+    return _ctrl.select_model(session_id, model_name=model_name, nlevels=nlevels)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_model_parameters(session_id: str) -> dict:
+    """Return the current parameter table.
+
+    Each entry has: name, value, fixed, lo, hi, units, description.
+    Level parameters are named <param>_<level>, e.g. Rg_1, G_2.
+    """
+    return _ctrl.get_model_parameters(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_model_description(session_id: str) -> dict:
+    """Return a text description of the model — physical meaning and fitting tips.
+
+    Read this before starting a fit to understand what each parameter controls.
+    """
+    return _ctrl.get_model_description(session_id)
+
+
+# --- Parameter control ---
+
+@mcp.tool()
+def pyirena_ctrl_set_parameter_value(
+    session_id: str, param_name: str, value: float
+) -> dict:
+    """Set the starting/current value of a named parameter (e.g. 'Rg_1', 'background').
+
+    Takes effect at the next pyirena_ctrl_run_fit() call.
+    """
+    return _ctrl.set_parameter_value(session_id, param_name, value)
+
+
+@mcp.tool()
+def pyirena_ctrl_set_parameter_bounds(
+    session_id: str, param_name: str, lo: float, hi: float
+) -> dict:
+    """Set lower and upper bounds for a parameter during fitting."""
+    return _ctrl.set_parameter_bounds(session_id, param_name, lo, hi)
+
+
+@mcp.tool()
+def pyirena_ctrl_fix_parameter(session_id: str, param_name: str) -> dict:
+    """Hold a parameter fixed at its current value during fitting."""
+    return _ctrl.fix_parameter(session_id, param_name)
+
+
+@mcp.tool()
+def pyirena_ctrl_free_parameter(session_id: str, param_name: str) -> dict:
+    """Allow a parameter to vary during fitting."""
+    return _ctrl.free_parameter(session_id, param_name)
+
+
+@mcp.tool()
+def pyirena_ctrl_fix_all_except(
+    session_id: str, free_list: list[str]
+) -> dict:
+    """Fix every parameter except those in free_list.
+
+    Core tool for staged fitting: fix everything, then free parameters
+    in groups.  Example: fix_all_except(['Rg_1', 'G_1', 'background']).
+    """
+    return _ctrl.fix_all_except(session_id, free_list)
+
+
+@mcp.tool()
+def pyirena_ctrl_reset_parameters_to_defaults(session_id: str) -> dict:
+    """Reset all parameters to factory defaults."""
+    return _ctrl.reset_parameters_to_defaults(session_id)
+
+
+# --- Unified Fit level management ---
+
+@mcp.tool()
+def pyirena_ctrl_add_unified_level(
+    session_id: str, position: int = -1
+) -> dict:
+    """Add a structural level to the Unified Fit model.
+
+    position=-1 appends; position=1 inserts before the first level.
+    Returns the updated parameter table with new level names.
+    """
+    return _ctrl.add_unified_level(session_id, position=position)
+
+
+@mcp.tool()
+def pyirena_ctrl_remove_unified_level(session_id: str, level: int) -> dict:
+    """Remove a structural level (1-based) from the Unified Fit model.
+
+    Levels are renumbered from 1 after removal.
+    """
+    return _ctrl.remove_unified_level(session_id, level)
+
+
+# --- Q range ---
+
+@mcp.tool()
+def pyirena_ctrl_get_data_q_range(session_id: str) -> dict:
+    """Return the full Q range of the loaded dataset."""
+    return _ctrl.get_data_q_range(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_fit_q_range(session_id: str) -> dict:
+    """Return the Q range currently used for fitting."""
+    return _ctrl.get_fit_q_range(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_set_fit_q_range(
+    session_id: str,
+    q_min: Optional[float] = None,
+    q_max: Optional[float] = None,
+) -> dict:
+    """Restrict the Q range used for fitting.
+
+    Useful to exclude low-Q beam stop artefacts or high-Q noise.
+    Pass q_min and/or q_max; omit either to leave that end unchanged.
+    """
+    return _ctrl.set_fit_q_range(session_id, q_min=q_min, q_max=q_max)
+
+
+@mcp.tool()
+def pyirena_ctrl_reset_fit_q_range(session_id: str) -> dict:
+    """Restore the fit Q range to the full data Q range."""
+    return _ctrl.reset_fit_q_range(session_id)
+
+
+# --- Fit execution ---
+
+@mcp.tool()
+def pyirena_ctrl_run_fit(
+    session_id: str,
+    max_iter: Optional[int] = None,
+) -> dict:
+    """Run the fitting algorithm.
+
+    Uses current parameter values as starting point and the current Q range.
+    Re-running after a partial fit continues from where it left off.
+    Returns chi_squared, reduced_chi_squared, iterations, and updated parameter values.
+    Good fit: reduced_chi_squared close to 1.0.
+    """
+    return _ctrl.run_fit(session_id, max_iter=max_iter)
+
+
+# --- Quality assessment ---
+
+@mcp.tool()
+def pyirena_ctrl_get_chi_squared(session_id: str) -> dict:
+    """Return χ² and reduced χ² from the last fit."""
+    return _ctrl.get_chi_squared(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_residuals(session_id: str) -> dict:
+    """Return normalised residuals and summary statistics from the last fit.
+
+    rms close to 1.0 means the fit matches the data within error bars.
+    Systematic patterns in residuals suggest the model needs adjustment.
+    """
+    return _ctrl.get_residuals(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_fit_image(
+    session_id: str,
+    width: int = 1024,
+    height: int = 768,
+) -> list[Any]:
+    """Capture the current fit as an inline PNG image.
+
+    Works before a fit (shows data + model at current parameter values)
+    and after a fit (adds a residuals subplot).
+    Examine the image to assess fit quality before deciding next steps.
+    """
+    result = _ctrl.get_fit_image(session_id, width=width, height=height)
+    return _ctrl_image_result(result, session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_residuals_image(
+    session_id: str,
+    width: int = 1024,
+    height: int = 768,
+) -> list[Any]:
+    """Capture fit + residuals panel as an inline PNG. Requires a completed fit."""
+    result = _ctrl.get_residuals_image(session_id, width=width, height=height)
+    return _ctrl_image_result(result, session_id)
+
+
+# --- Persistence ---
+
+@mcp.tool()
+def pyirena_ctrl_save_fit(
+    session_id: str, output_path: Optional[str] = None
+) -> dict:
+    """Save the fitted result to NXcanSAS HDF5.
+
+    Defaults to overwriting the original file. Pass output_path to save
+    to a different location and preserve the original.
+    """
+    return _ctrl.save_fit(session_id, output_path=output_path)
+
+
+@mcp.tool()
+def pyirena_ctrl_export_fit_report(
+    session_id: str, format: str = "markdown"
+) -> dict:
+    """Export a human-readable fit report.
+
+    format='markdown' (default) for display; format='json' for machine use.
+    Returns the report text in the 'content' key.
+    """
+    return _ctrl.export_fit_report(session_id, format=format)
 
 
 # ---------------------------------------------------------------------------
