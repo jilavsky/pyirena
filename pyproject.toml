@@ -51,6 +51,7 @@ gui = [
     "Dans-Diffraction>=3.0",
     # AI advisor (optional — buttons hidden if not installed)
     "anthropic>=0.40.0",
+    "openai>=1.0.0",
     "keyring>=24.0",
 ]
 gui3d = [
