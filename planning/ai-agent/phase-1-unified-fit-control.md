@@ -7,6 +7,20 @@
 
 ---
 
+## Status: M1 complete ✓ (2026-06-09)
+
+`pyirena/api/control/` created with:
+- `errors.py` — structured error helpers
+- `session.py` — `Session` dataclass + in-memory registry
+- `unified_fit.py` — 28 tool functions (Categories A–F)
+- `schemas.py` — 28 Anthropic-format JSON schemas
+- `__init__.py` — public surface
+
+All 8 success-criteria steps pass on `testData/TestUnifiedFit.h5`.
+Next: M2 (parameter control) is already implemented in M1. Move to M3 (level ops) ✓, then M4 (persistence audit), M5 (MCP wrappers).
+
+---
+
 ## What "Phase 1 done" looks like
 
 End state — a single Python script using only `pyirena` can:
@@ -53,7 +67,48 @@ each other — confirming the clean separation. We can add a third path
 
 ---
 
-## Pre-implementation investigations (do FIRST)
+## Code to reuse (rather than reinvent)
+
+Less code to maintain = better. Where existing pyirena code can serve, the
+control layer should call into it rather than write its own version.
+
+| Need | Reuse | Notes |
+|------|-------|-------|
+| Headless matplotlib plotting pattern | [pyirena/api/plotting.py](../../pyirena/api/plotting.py) (`plot_iq`, `plot_parameter_trend`) | Already returns PNG paths / base64; perfect template for `get_fit_image` and `get_residuals_image`. Extend, don't fork. |
+| Unified Fit results display layout | [pyirena/gui/data_selector.py](../../pyirena/gui/data_selector.py) `UnifiedFitResultsWindow` (line 1462) | Qt/pyqtgraph — *cannot import directly* in headless API. **Mirror its panel layout** in the matplotlib renderer so the AI sees the same picture the user sees. |
+| Plot styling / error bars | [pyirena/gui/data_selector.py](../../pyirena/gui/data_selector.py) `_style_plot` (118), `_iq_error_bars` (127) | Same caveat — Qt-coupled. Translate styling conventions (colors, axis scales) into the matplotlib renderer. |
+| JPEG export from a Qt scene | [pyirena/gui/data_selector.py](../../pyirena/gui/data_selector.py) `_add_jpeg_export` (183) | Not directly reusable headless, but informs format choice if we ever want to capture the live GUI panel for the advisor (Subproject 3). |
+| Report generation | [pyirena/gui/data_selector.py](../../pyirena/gui/data_selector.py) `_build_report` (222) | **Investigate during M4:** if this is mostly text formatting (not Qt-coupled), extract to a non-GUI helper module (e.g. `pyirena/io/reports.py`) and call from both the GUI panel and `export_fit_report`. Pure win — fix once, used twice. |
+| Tabulation across files | [pyirena/api/aggregate.py](../../pyirena/api/aggregate.py) `tabulate_parameter`, `summarize_sample` | Already headless; used as-is by the existing read-only API. Phase 2 (Subproject 2 batch mode) will lean on these. |
+| Engineering number format | [pyirena/gui/fmt_utils.py](../../pyirena/gui/fmt_utils.py) `eng_fmt`, `eng_fmt_edit` | Currently under `gui/` but doesn't appear to import Qt. **Recommend moving to `pyirena/utils/fmt.py`** so api/control can use it without dragging in Qt. Small refactor, broad payoff. |
+| Tabulation results display | [pyirena/gui/data_selector.py](../../pyirena/gui/data_selector.py) `TabulateResultsWindow` (2119) | GUI-only; reference for what columns the AI should also see. |
+
+**Action items captured:**
+- Investigate `_build_report` for extraction into `pyirena/io/reports.py` (M4)
+- Move `gui/fmt_utils.py` to `pyirena/utils/fmt.py` (small, do during M1)
+- Mirror `UnifiedFitResultsWindow` panel layout in the matplotlib renderer
+  (do during M1, refine in M3 after level-add UI is clear)
+
+---
+
+## Investigation results (completed 2026-06-09)
+
+**I-1 — State persistence:** `UnifiedFitModel` and `batch.py` have **zero** interaction with `~/.pyirena/state.json`. Defaults are hardcoded in the `UnifiedLevel` dataclass. The control layer does not need to worry about state.json.
+
+**I-2 — UnifiedFitModel introspection:**
+- Parameters per level: `Rg` (fit=True), `G` (True), `P` (False), `B` (True), `ETA` (False), `PACK` (False), `RgCO` (False). `K` has no fit flag (auto-set).
+- `fit()` returns: `success, message, chi_squared, reduced_chi_squared, n_iterations, levels, background, fit_intensity, residuals`.
+- **No parameter uncertainties** from scipy (not computed). Deferred.
+- **No global fit-limits toggle** — purely per-parameter. Removed `enable_fit_limits`/`disable_fit_limits` from tool catalog.
+- **Q range: no model-side field** — must pre-slice data arrays. Handled by session's `fit_q_min`/`fit_q_max` applied in `run_fit`.
+- Re-calling `fit()` uses current parameter values as starting point (does NOT reset). Confirmed deterministic.
+- `calculate_intensity(q)` method exists — can render model preview BEFORE running fit.
+
+**I-3 — Plot/image generation:** `pyirena/plotting/unified_plots.py` has `plot_fit_results()` with the right 2-panel layout (data+model / residuals). Extended in `_render_fit_image()` in the control layer (saves to tempdir, returns base64, mirrors the UnifiedFitResultsWindow layout from `gui/data_selector.py`).
+
+---
+
+## Pre-implementation investigations (archived)
 
 Before writing any API code, do these three audits. Each is a small
 focused task whose result changes the design. Expect 1-2 hours each.
@@ -93,12 +148,16 @@ PNG bytes of the current fit. Today, GUI panels render via pyqtgraph;
 headless rendering is via matplotlib in [pyirena/api/plotting.py](../../pyirena/api/plotting.py)
 and in [pyirena/batch.py](../../pyirena/batch.py).
 
-**Question:** can we use the existing matplotlib path to render a
-"data + model + residuals" image from a `UnifiedFitModel` instance, or do
-we need a new renderer?
+**Expected outcome:** extend `pyirena/api/plotting.py` (or add a sibling
+module `pyirena/api/control/plotting.py` that imports its helpers) to
+produce a "data + model + residuals" image directly from a fitted
+`UnifiedFitModel`. Use `UnifiedFitResultsWindow` in
+[gui/data_selector.py](../../pyirena/gui/data_selector.py) as the *visual
+reference* for what the panel should look like — match the styling so the
+AI sees what the user sees — but render via matplotlib, not pyqtgraph.
 
-**Output:** decision — reuse existing or write thin new renderer in
-`pyirena/api/control/plotting.py`.
+**Output:** confirm the extension approach works and identify any
+styling/axis conventions to mirror from the Qt panel.
 
 ---
 
@@ -239,6 +298,49 @@ add_unified_level(session_id, position: int = -1) -> {"ok": bool, "nlevels": int
 remove_unified_level(session_id, level: int) -> {"ok": bool, "nlevels": int}
 ```
 
+### Category C-double-prime — Q range and global fit-limits toggle
+Resolves the "critical capability" item from the review checklist. Two
+distinct concerns:
+
+**Q range** — fitting often requires excluding the very-low-Q or very-high-Q
+ends of the data. The AI must be able to read the data's available Q range
+and restrict the fit to a subset.
+
+```python
+get_data_q_range(session_id) -> {
+    "q_min": float, "q_max": float, "n_points": int
+}
+
+get_fit_q_range(session_id) -> {
+    "q_min": float, "q_max": float, "n_fit_points": int,
+    "is_full_range": bool      # True if no restriction
+}
+
+set_fit_q_range(session_id, q_min: float|None = None,
+                q_max: float|None = None) -> {
+    "ok": bool, "q_min": float, "q_max": float, "n_fit_points": int
+}
+# Either end can be None to leave unchanged. Values clamped to data range.
+
+reset_fit_q_range(session_id) -> {"ok": bool}
+# Restore to full data Q range.
+```
+
+**Global fit-limits toggle** — pyirena's GUI has a "Fix Limits" / "No
+limits" master switch that enables or disables parameter bound enforcement
+during fitting. Phase 1 exposes this toggle plus per-parameter bound
+setting (already in Category C). Per-parameter changes when limits are
+globally disabled are still stored — they just aren't enforced until
+re-enabled.
+
+```python
+get_fit_limits_state(session_id) -> {"enabled": bool}
+
+enable_fit_limits(session_id) -> {"ok": bool}
+
+disable_fit_limits(session_id) -> {"ok": bool}
+```
+
 ### Category D — Fit execution
 ```python
 run_fit(session_id, max_iter: int|None = None,
@@ -302,20 +404,26 @@ a working state demonstrable by a small script.
 - `open_dataset`, `list_open_sessions`, `close_session`, `get_session_summary`
 - `list_available_models`, `select_model`, `get_model_parameters`,
   `get_model_description`
+- `get_data_q_range`, `get_fit_q_range`, `get_fit_limits_state` (read-side
+  for the new Category C-double-prime tools)
 - `get_fit_image`, `get_residuals_image` (works before any fit — shows raw data + initial model)
+- Small refactor: move `gui/fmt_utils.py` → `pyirena/utils/fmt.py` (Qt-free, importable by control layer)
 
-**Demo script:** open dataset, select Unified Fit, read parameters, save plot to disk.
+**Demo script:** open dataset, select Unified Fit, read parameters, read
+Q range, save plot to disk.
 **Unblocks:** Subproject 3 (advisor) MVP can start in parallel with M2.
 
 ### M2 — Parameter control + first fit (medium)
 - All Category C tools (`set_*`, `fix_*`, `free_*`, `reset_*`)
 - `fix_all_except`
+- `set_fit_q_range`, `reset_fit_q_range`, `enable_fit_limits`, `disable_fit_limits`
 - `run_fit` (synchronous, returns full result)
 - `get_chi_squared`, `get_residuals`, `get_parameter_uncertainties`
 
-**Demo script:** open, select model, set starting values, fix all but
-scale + background, run fit, check χ², free Rg, run again. The
-success-criteria script from [01](01-api-and-mcp-extensions.md) works.
+**Demo script:** open, select model, restrict Q range, set starting
+values, fix all but scale + background, run fit, check χ², free Rg, run
+again. The success-criteria script from [01](01-api-and-mcp-extensions.md)
+works.
 
 ### M3 — Level operations (small)
 - `add_unified_level`, `remove_unified_level`
@@ -406,6 +514,16 @@ session via MCP can fit a dataset by itself given the system prompt.
    Decide before M3.
 6. **NXcanSAS save path** — does the existing `batch.py` write path
    compose, or do we need a new write helper? Investigate in M4.
+7. **Global fit-limits toggle vs per-parameter bounds** — when
+   `disable_fit_limits` is in effect, do calls to `set_parameter_bounds`
+   still store the bound values (just not enforce them), or should they
+   be rejected? Default proposal: **store always, enforce only when
+   enabled** — matches typical GUI semantics. Confirm during I-2 by
+   inspecting how `UnifiedFitModel` handles the case.
+8. **Q range storage location** — is the fit Q range stored on the
+   `UnifiedFitModel` itself, on the session, or applied at fit time by
+   slicing the data? Decide during I-2; affects whether `set_fit_q_range`
+   touches the model or only the session.
 
 ---
 
