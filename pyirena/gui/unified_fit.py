@@ -47,6 +47,18 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.state import StateManager
 
+# AI advisor — optional; buttons hidden if anthropic/keyring not installed
+_AI_ADVISOR_AVAILABLE = False
+try:
+    from pyirena.gui.ai_advisor import (
+        AiAdvisorConfigDialog,
+        launch_unified_fit_advisor,
+    )
+    import anthropic as _anthropic_check  # noqa: F401
+    _AI_ADVISOR_AVAILABLE = True
+except ImportError:
+    pass
+
 
 class ScrubbableLineEdit(QLineEdit):
     """
@@ -2300,6 +2312,37 @@ class UnifiedFitPanel(QWidget):
 
         layout.addLayout(additional_buttons)
 
+        # AI Advisor row (hidden when anthropic package is not installed)
+        if _AI_ADVISOR_AVAILABLE:
+            ai_row = QHBoxLayout()
+            self.ask_ai_button = QPushButton("Ask AI advisor")
+            self.ask_ai_button.setToolTip(
+                "Send the current fit parameters and plot to an AI assistant\n"
+                "for advice on next steps. Requires an API key — see 'Configure AI'."
+            )
+            self.ask_ai_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #8e44ad;
+                    color: white;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background-color: #7d3c98; }
+            """)
+            self.ask_ai_button.clicked.connect(
+                lambda: launch_unified_fit_advisor(self)
+            )
+
+            self.configure_ai_button = QPushButton("Configure AI")
+            self.configure_ai_button.setFixedWidth(110)
+            self.configure_ai_button.setToolTip(
+                "Set the AI provider, model, API key, and custom instructions."
+            )
+            self.configure_ai_button.clicked.connect(self._open_ai_config)
+
+            ai_row.addWidget(self.ask_ai_button)
+            ai_row.addWidget(self.configure_ai_button)
+            layout.addLayout(ai_row)
+
         # Results section header
         results_header = QLabel("Results")
         results_header.setStyleSheet("""
@@ -4065,6 +4108,13 @@ class UnifiedFitPanel(QWidget):
         msg = f"Unified Fit parameters loaded from: {file_path.name}  (written by {written_by})"
         self.status_label.setText(f"Loaded config: {file_path.name}")
         self.graph_window.show_success_message(msg)
+
+    def _open_ai_config(self):
+        """Open the AI advisor configuration dialog."""
+        if not _AI_ADVISOR_AVAILABLE:
+            return
+        dlg = AiAdvisorConfigDialog(self.state_manager, parent=self)
+        dlg.exec()
 
     def closeEvent(self, event):
         """Handle window close - auto-save state."""

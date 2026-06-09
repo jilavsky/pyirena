@@ -42,3 +42,7 @@ dependencies:
       # PySide6, pyqtgraph, xraydb, periodictable, Dans-Diffraction
       # from PyPI — see `gui` extras in pyproject.toml.
       - -e ".[gui]"
+      # AI advisor deps (installed with the GUI extra; listed explicitly so
+      # conda-managed envs get them without a separate pip install step)
+      - anthropic>=0.40.0
+      - keyring>=24.0

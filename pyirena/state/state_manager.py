@@ -546,6 +546,21 @@ class StateManager:
             # Misc
             "rng_seed": None,
         },
+        "ai_advisor": {
+            # schema_version 1: initial release
+            "schema_version": 1,
+            # Provider: "anthropic" | "local" (OpenAI-compatible endpoint)
+            "provider": "anthropic",
+            # Anthropic model name
+            "model": "claude-opus-4-7",
+            # Local endpoint URL (LM Studio default; Ollama uses :11434)
+            "local_endpoint": "http://localhost:1234/v1",
+            # Local model name (used only when provider="local")
+            "local_model": "gemma-3-27b-it",
+            # User-editable instruction layers (API key is stored in OS keyring)
+            "user_instructions": "",   # personal preferences for all fits
+            "project_context":   "",   # sample/material-specific framing
+        },
     }
 
     def __init__(self, state_file: Optional[Path] = None):
