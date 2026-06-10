@@ -601,12 +601,13 @@ class StateManager:
             # _merge_state gives loaded values priority over defaults, so after
             # merging the 'schema_version' key would reflect DEFAULT_STATE (not
             # the on-disk value) whenever the key is absent in the loaded file.
-            loaded_sizes_version = loaded_state.get('sizes', {}).get('schema_version', 1)
+            loaded_sizes_version    = loaded_state.get('sizes',      {}).get('schema_version', 1)
+            loaded_ai_advisor_version = loaded_state.get('ai_advisor', {}).get('schema_version', 1)
 
             # Merge loaded state with defaults (in case new fields were added)
             self.state = self._merge_state(self.DEFAULT_STATE, loaded_state)
             # Apply any default-value migrations for changed schema versions
-            self._migrate_state(loaded_sizes_version)
+            self._migrate_state(loaded_sizes_version, loaded_ai_advisor_version)
             print(f"Loaded state from: {self.state_file}")
             return True
 
@@ -745,7 +746,8 @@ class StateManager:
             print(f"Error importing state: {e}")
             return False
 
-    def _migrate_state(self, loaded_sizes_version: int = None):
+    def _migrate_state(self, loaded_sizes_version: int = None,
+                        loaded_ai_advisor_version: int = None):
         """
         Upgrade saved state to current schema.
 
@@ -800,6 +802,35 @@ class StateManager:
                 sizes['method'] = 'montecarlo'
             sizes['schema_version'] = 4
             self.state['sizes'] = sizes
+
+        # ------------------------------------------------------------------
+        # ai_advisor migrations
+        # ------------------------------------------------------------------
+        ai = self.state.get('ai_advisor', {})
+        stored_ai_version = (
+            loaded_ai_advisor_version if loaded_ai_advisor_version is not None
+            else ai.get('schema_version', 1)
+        )
+
+        if stored_ai_version < 3:
+            # schema_version 1/2 → 3: flat keys (model, anthropic_base_url,
+            # local_endpoint, local_model) replaced by per-provider nested dicts.
+            # Carry old flat values into the new structure so users don't lose
+            # their configurations after the upgrade.
+            anthropic_block = ai.setdefault('anthropic', {})
+            if not anthropic_block.get('model') and ai.get('model'):
+                anthropic_block['model'] = ai['model']
+            if not anthropic_block.get('base_url') and ai.get('anthropic_base_url'):
+                anthropic_block['base_url'] = ai['anthropic_base_url']
+
+            local_block = ai.setdefault('local', {})
+            if not local_block.get('model') and ai.get('local_model'):
+                local_block['model'] = ai['local_model']
+            if not local_block.get('endpoint') and ai.get('local_endpoint'):
+                local_block['endpoint'] = ai['local_endpoint']
+
+            ai['schema_version'] = 3
+            self.state['ai_advisor'] = ai
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:
         """
