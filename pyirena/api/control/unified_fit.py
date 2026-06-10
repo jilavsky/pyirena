@@ -793,6 +793,7 @@ def run_fit(
     session_id: str,
     max_iter: Optional[int] = None,
     tolerance: Optional[float] = None,
+    random_seed: Optional[int] = None,
 ) -> dict:
     """Run the fitting algorithm on the current session's model and data.
 
@@ -800,10 +801,20 @@ def run_fit(
     Re-running fit() uses the current parameter values as the starting point
     (they are updated in place by the previous fit).
 
+    Parameters
+    ----------
+    random_seed : int, optional
+        Seed for numpy's random number generator before the fit.  The
+        underlying scipy optimiser is deterministic, so this only matters for
+        fitting methods that have stochastic components (e.g. future MCSaS
+        integration).  Pass the same seed to reproduce a fit exactly from an
+        audit trail.  Stored in the returned dict and in last_fit_result so
+        pyirena-ai can stamp it into the audit JSON.
+
     Returns
     -------
     dict with keys: success, chi_squared, reduced_chi_squared, iterations,
-    message, parameters_updated (list of {name, value}).
+    message, random_seed, parameters_updated (list of {name, value}).
     """
     s = get_session(session_id)
     if s is None:
@@ -823,6 +834,9 @@ def run_fit(
     I_fit = s.intensity[mask]
     err_fit = s.error[mask] if s.error is not None else None
 
+    if random_seed is not None:
+        np.random.seed(int(random_seed))
+
     kwargs: dict = {}
     if max_iter is not None:
         kwargs["max_iterations"] = int(max_iter)
@@ -836,6 +850,7 @@ def run_fit(
             code="FIT_EXCEPTION",
         )
 
+    result["random_seed"] = random_seed  # None if not supplied; stored for audit trail
     s.last_fit_result = result
 
     # Build per-parameter update list (current fitted values)
@@ -850,6 +865,7 @@ def run_fit(
         "reduced_chi_squared": float(result.get("reduced_chi_squared", float("nan"))),
         "iterations":          int(result.get("n_iterations", 0)),
         "message":             str(result.get("message", "")),
+        "random_seed":         random_seed,
         "parameters_updated":  updated,
     }
 

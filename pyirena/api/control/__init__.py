@@ -1,5 +1,16 @@
 """pyirena.api.control — bidirectional fitting control surface.
 
+Version
+-------
+``__version__`` mirrors ``pyirena.__version__`` and is intended to be stamped
+into audit JSON produced by pyirena-ai so that replays can verify the control
+API version that was used.
+
+    >>> import pyirena.api.control as ctrl
+    >>> ctrl.__version__
+    '0.8.2'
+
+
 Extends the read-only pyirena.api facade with tools that allow an LLM agent
 (or any automation script) to configure models, run fits, and evaluate results.
 
@@ -24,6 +35,8 @@ JSON schemas for LLM tool-use
 >>> # pass to client.messages.create(tools=TOOL_SCHEMAS, ...)
 """
 from __future__ import annotations
+
+from pyirena import __version__  # re-exported for audit-trail stamping
 
 from pyirena.api.control.unified_fit import (
     # A — session lifecycle
@@ -65,6 +78,7 @@ from pyirena.api.control.unified_fit import (
 )
 
 __all__ = [
+    "__version__",
     # A
     "open_dataset", "list_open_sessions", "close_session", "get_session_summary",
     # B

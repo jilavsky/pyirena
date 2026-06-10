@@ -342,6 +342,14 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": ["number", "null"],
                     "description": "Convergence tolerance. Default: scipy default.",
                 },
+                "random_seed": {
+                    "type": ["integer", "null"],
+                    "description": (
+                        "Seed numpy RNG before the fit. Pass the same value to "
+                        "reproduce a fit from an audit trail. Stored in the result "
+                        "and in session.last_fit_result for stamping into audit JSON."
+                    ),
+                },
             },
             "required": ["session_id"],
         },
