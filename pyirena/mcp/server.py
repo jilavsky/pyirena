@@ -479,6 +479,39 @@ def pyirena_ctrl_remove_unified_level(session_id: str, level: int) -> dict:
     return _ctrl.remove_unified_level(session_id, level)
 
 
+# --- Per-level boolean options (correlations, mass_fractal, link_B, link_RGCO) ---
+
+@mcp.tool()
+def pyirena_ctrl_get_level_options(
+    session_id: str, level: Optional[int] = None
+) -> dict:
+    """Return per-level boolean flag state.
+
+    These flags (correlations, mass_fractal, link_B, link_RGCO) switch entire
+    features of the intensity formula on or off and are SEPARATE from numeric
+    parameters.  Omit `level` to get the state of all levels.
+    """
+    return _ctrl.get_level_options(session_id, level)
+
+
+@mcp.tool()
+def pyirena_ctrl_set_level_option(
+    session_id: str, level: int, option: str, enabled: bool
+) -> dict:
+    """Toggle a per-level boolean flag.
+
+    CRITICAL: setting numeric parameters ETA and PACK has NO EFFECT unless
+    the level's `correlations` option is True — use this tool to enable it.
+
+    option must be one of:
+      - "correlations" — Born-Green liquid-like-ordering (uses ETA + PACK)
+      - "mass_fractal" — auto-compute B from G, Rg, P; manual B is ignored
+      - "link_B" — estimate B from G, Rg, P via the Porod invariant
+      - "link_RGCO" — link RgCO to previous level's Rg
+    """
+    return _ctrl.set_level_option(session_id, level, option, enabled)
+
+
 # --- Q range ---
 
 @mcp.tool()

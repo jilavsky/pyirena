@@ -265,6 +265,64 @@ TOOL_SCHEMAS: list[dict] = [
     },
 
     # -----------------------------------------------------------------------
+    # Category C''' — Per-level boolean options (correlations, mass_fractal, …)
+    # -----------------------------------------------------------------------
+    {
+        "name": "get_level_options",
+        "description": (
+            "Return per-level boolean flag state: correlations, mass_fractal, "
+            "link_B, link_RGCO.  These flags switch entire features of the "
+            "intensity formula on or off and are SEPARATE from numeric "
+            "parameters (use set_parameter_value for those, "
+            "set_level_option for these).  Omit `level` to get all levels."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "level": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "description": "1-based level number; omit for all levels.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_level_option",
+        "description": (
+            "Toggle a per-level boolean flag.  Critical: setting numeric "
+            "parameters ETA and PACK has NO EFFECT unless the level's "
+            "`correlations` option is True — use this tool to enable it.  "
+            "Other options: `mass_fractal` (auto-compute B), `link_B` (estimate "
+            "B from Porod invariant), `link_RGCO` (link RgCO to previous "
+            "level's Rg)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "level": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based level number.",
+                },
+                "option": {
+                    "type": "string",
+                    "enum": ["correlations", "mass_fractal", "link_B", "link_RGCO"],
+                    "description": "Which boolean flag to toggle.",
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "description": "True to turn on, False to turn off.",
+                },
+            },
+            "required": ["session_id", "level", "option", "enabled"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
     # Category C'' — Q range
     # -----------------------------------------------------------------------
     {

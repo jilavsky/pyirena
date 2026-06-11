@@ -100,6 +100,25 @@ def _find_param(model, param_name: str):
     return None
 
 
+# Per-level boolean flags that materially change the level's intensity formula.
+# These are *not* numeric parameters and cannot be set with set_parameter_value.
+_LEVEL_OPTIONS = ("correlations", "mass_fractal", "link_B", "link_RGCO")
+
+
+def _level_options(model) -> list[dict]:
+    """Per-level boolean flag state — separate from numeric parameter rows."""
+    return [
+        {
+            "level":        i + 1,
+            "correlations": bool(lv.correlations),
+            "mass_fractal": bool(lv.mass_fractal),
+            "link_B":       bool(lv.link_B),
+            "link_RGCO":    bool(lv.link_RGCO),
+        }
+        for i, lv in enumerate(model.levels)
+    ]
+
+
 def _decimated(arr: np.ndarray, max_points: int = 500) -> list:
     """Thin a numpy array to at most max_points for JSON transport."""
     n = len(arr)
@@ -379,17 +398,28 @@ def select_model(
         s.last_fit_result = None
 
     return {
-        "ok":         True,
-        "model":      s.model_name,
-        "nlevels":    s.model.num_levels,
-        "parameters": _param_table(s.model),
+        "ok":            True,
+        "model":         s.model_name,
+        "nlevels":       s.model.num_levels,
+        "parameters":    _param_table(s.model),
+        "level_options": _level_options(s.model),
     }
 
 
 def get_model_parameters(session_id: str) -> dict:
     """Return the current parameter table for the session's model.
 
-    Each entry has: name, value, fixed, lo, hi, units, description.
+    Returns
+    -------
+    dict with keys:
+      - parameters    : list of {name, value, fixed, lo, hi, units, description}
+      - level_options : list of per-level boolean flags
+                        {level, correlations, mass_fractal, link_B, link_RGCO}
+
+    The numeric parameters live in `parameters`; the per-level boolean flags
+    (which switch entire intensity-formula features on/off) live in
+    `level_options`.  Use set_level_option() to toggle the booleans —
+    set_parameter_value() only works on numeric parameters.
     """
     s = get_session(session_id)
     if s is None:
@@ -398,9 +428,10 @@ def get_model_parameters(session_id: str) -> dict:
         return no_model(session_id)
 
     return {
-        "model":      s.model_name,
-        "nlevels":    s.model.num_levels,
-        "parameters": _param_table(s.model),
+        "model":         s.model_name,
+        "nlevels":       s.model.num_levels,
+        "parameters":    _param_table(s.model),
+        "level_options": _level_options(s.model),
     }
 
 
@@ -428,11 +459,39 @@ def get_model_description(session_id: str) -> dict:
             "Rg":         "Radius of gyration [Å].  Controls where the Guinier knee appears.  Start with a value roughly matching the feature size expected from the data.",
             "G":          "Guinier prefactor [cm⁻¹].  Controls the low-Q intensity of this level.  Often estimated from the data value at the Guinier knee.",
             "P":          "Power-law slope.  P=4 → smooth surfaces (Porod).  P=3 → rough surfaces.  P<3 → mass fractal.  Usually fixed at 4 initially.",
-            "B":          "Power-law prefactor [cm⁻¹·Å⁻ᴾ].  Rarely needs manual setting; often linked to G via link_B=True.",
-            "ETA":        "Correlation distance [Å].  Only relevant when correlations=True (liquid-like ordering).",
-            "PACK":       "Packing factor.  Only relevant when correlations=True.",
-            "RgCO":       "Cutoff radius [Å].  High-Q exponential roll-off.  Useful when this level is bounded above by the next level's Rg.",
+            "B":          "Power-law prefactor [cm⁻¹·Å⁻ᴾ].  Rarely needs manual setting; often linked to G via the link_B level option.",
+            "ETA":        "Correlation distance [Å].  HAS NO EFFECT unless the level's `correlations` option is enabled — use set_level_option(level, 'correlations', True).",
+            "PACK":       "Packing factor.  HAS NO EFFECT unless the level's `correlations` option is enabled — use set_level_option(level, 'correlations', True).",
+            "RgCO":       "Cutoff radius [Å].  High-Q exponential roll-off.  Useful when this level is bounded above by the next level's Rg.  Often linked to previous level's Rg via the link_RGCO level option.",
             "background": "Flat incoherent background [cm⁻¹].  Fit this first; fix once converged.",
+        },
+        "level_options_guide": {
+            "_note": (
+                "Per-level boolean flags that switch entire features of the "
+                "intensity formula on or off.  These are NOT numeric parameters "
+                "and cannot be changed with set_parameter_value() — use "
+                "set_level_option(session_id, level, option, enabled) instead.  "
+                "Read the current state from get_model_parameters()['level_options']."
+            ),
+            "correlations": (
+                "Enable the Born-Green liquid-like-ordering correction for this level. "
+                "Must be True for ETA and PACK to have any effect — without this flag, "
+                "setting ETA/PACK does NOTHING.  Use only for concentrated/interacting "
+                "systems where a clear interference peak is visible."
+            ),
+            "mass_fractal": (
+                "Switch this level to mass-fractal mode.  B is auto-computed from G, "
+                "Rg, and P; the manual B value is ignored."
+            ),
+            "link_B": (
+                "Estimate B from G, Rg, P via the Porod invariant — reduces a free "
+                "parameter.  Recommended for the smallest level when P ≈ 4."
+            ),
+            "link_RGCO": (
+                "Link this level's RgCO to the previous level's Rg.  Use when the "
+                "level represents an aggregate composed of the previous level's "
+                "primary particles."
+            ),
         },
         "fitting_tips": [
             "Start with one level.  Add more only if residuals show systematic structure.",
@@ -440,6 +499,9 @@ def get_model_description(session_id: str) -> dict:
             "Fit Rg and G first (fix everything else) to get the gross shape right.",
             "Free background early — a wrong background biases all other parameters.",
             "The Q range matters: restrict if the data has a substrate or beam-stop artifact at the extremes.",
+            "If chi_squared does not change after setting ETA/PACK values, the "
+            "level's `correlations` option is OFF.  Toggle it on with "
+            "set_level_option(session_id, level, 'correlations', True).",
         ],
     }
 
@@ -702,6 +764,94 @@ def remove_unified_level(session_id: str, level: int) -> dict:
         "ok":         True,
         "nlevels":    s.model.num_levels,
         "parameters": _param_table(s.model),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Category C''' — Per-level boolean options (correlations, mass_fractal, etc.)
+# ---------------------------------------------------------------------------
+
+def get_level_options(session_id: str, level: Optional[int] = None) -> dict:
+    """Return per-level boolean flag state.
+
+    Parameters
+    ----------
+    level : int, optional
+        1-based level number.  If omitted, returns the state of all levels.
+
+    Returns
+    -------
+    dict with key 'level_options' = list of
+        {level, correlations, mass_fractal, link_B, link_RGCO}
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+    if s.model is None or s.model_name != "unified_fit":
+        return no_model(session_id)
+
+    opts = _level_options(s.model)
+    if level is not None:
+        if not (1 <= level <= s.model.num_levels):
+            return make_error(
+                f"Level {level} does not exist (model has levels 1–{s.model.num_levels}).",
+                code="BAD_LEVEL",
+            )
+        return {"level_options": [opts[level - 1]]}
+    return {"level_options": opts}
+
+
+def set_level_option(
+    session_id: str,
+    level: int,
+    option: str,
+    enabled: bool,
+) -> dict:
+    """Toggle a per-level boolean flag.
+
+    These flags switch entire features of the intensity formula on or off.
+    They are NOT numeric parameters and cannot be set with set_parameter_value().
+
+    Parameters
+    ----------
+    level : int
+        1-based level number to modify.
+    option : str
+        One of:
+          - "correlations" — enable Born-Green liquid-like-ordering correction.
+            **Required** for ETA and PACK to have any effect; without this
+            flag set to True, ETA/PACK values are ignored.
+          - "mass_fractal" — switch this level to mass-fractal mode (B is
+            auto-computed from G, Rg, P; manual B is ignored).
+          - "link_B" — estimate B from G, Rg, P via the Porod invariant.
+          - "link_RGCO" — link this level's RgCO to the previous level's Rg.
+    enabled : bool
+        True to turn the option on, False to turn it off.
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+    if s.model is None or s.model_name != "unified_fit":
+        return no_model(session_id)
+
+    if not (1 <= level <= s.model.num_levels):
+        return make_error(
+            f"Level {level} does not exist (model has levels 1–{s.model.num_levels}).",
+            code="BAD_LEVEL",
+        )
+    if option not in _LEVEL_OPTIONS:
+        return make_error(
+            f"Unknown level option '{option}'.",
+            suggestion=f"Valid options: {list(_LEVEL_OPTIONS)}",
+            code="BAD_OPTION",
+        )
+
+    setattr(s.model.levels[level - 1], option, bool(enabled))
+    return {
+        "ok":      True,
+        "level":   level,
+        "option":  option,
+        "enabled": bool(enabled),
     }
 
 
