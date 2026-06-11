@@ -2815,6 +2815,13 @@ class UnifiedFitPanel(QWidget):
 
             self.graph_window.plot_residuals(self.data['Q'], residuals)
 
+            # CorMap (Franke 2015): longest run of same-sign residuals.
+            # C/log2(N) ≈ 1.0 means random noise; >> 1 means systematic misfit.
+            from pyirena.core.similarity import _longest_run
+            _cormap_c = _longest_run(residuals)
+            _cormap_n = int(np.sum(np.isfinite(residuals)))
+            cormap_ratio = _cormap_c / np.log2(_cormap_n) if _cormap_n > 1 else 0.0
+
             # Show statistics
             chi2 = result.get('chi_squared', 0.0)
             reduced_chi2 = result.get('reduced_chi_squared', 0.0)
@@ -2833,7 +2840,8 @@ class UnifiedFitPanel(QWidget):
                 f"Fit completed successfully! "
                 f"Levels: {num_levels} | "
                 f"χ²: {chi2:.4f} | "
-                f"Reduced χ²: {reduced_chi2:.4f}{cursor_info}"
+                f"Reduced χ²: {reduced_chi2:.4f} | "
+                f"CorMap C/log₂(N): {cormap_ratio:.2f} (N={_cormap_n}, C={_cormap_c}){cursor_info}"
             )
 
             # Update Sv and Invariant for all fitted levels
