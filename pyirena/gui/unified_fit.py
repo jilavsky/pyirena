@@ -1180,18 +1180,18 @@ class LevelParametersWidget(QWidget):
         """)
         layout.addWidget(header)
 
-        # Controls header
-        controls_header = QLabel("Controls")
-        controls_header.setStyleSheet(f"""
+        # Feasibility status header — shows "Level feasible" or "Level not feasible"
+        self.feasibility_label = QLabel("Level feasible")
+        self.feasibility_label.setStyleSheet(f"""
             QLabel {{
-                background-color: {header_color};
+                background-color: #888888;
                 color: white;
                 font-weight: bold;
                 font-size: 11px;
                 padding: 3px;
             }}
         """)
-        layout.addWidget(controls_header)
+        layout.addWidget(self.feasibility_label)
 
         # Parameters grid
         grid = QGridLayout()
@@ -1991,6 +1991,54 @@ class LevelParametersWidget(QWidget):
         if 'link_rgco' in params and self.link_rgco_check:
             self.link_rgco_check.setChecked(params['link_rgco'])
 
+    def update_feasibility_status(self):
+        """Update the feasibility status label based on current parameters."""
+        try:
+            g = float(self.g_value.text() or 0)
+            rg = float(self.rg_value.text() or 0)
+            p = float(self.p_value.text() or 0)
+            b = float(self.b_value.text() or 0)
+
+            # Create a temporary level object to check feasibility
+            level = UnifiedLevel(Rg=rg, G=g, P=p, B=b)
+            is_feasible = level.check_physical_feasibility()
+
+            # Update label text and color
+            if is_feasible:
+                self.feasibility_label.setText("Level feasible")
+                self.feasibility_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #888888;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 11px;
+                        padding: 3px;
+                    }
+                """)
+            else:
+                self.feasibility_label.setText("Level not feasible")
+                self.feasibility_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #c41c3b;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 11px;
+                        padding: 3px;
+                    }
+                """)
+        except (ValueError, AttributeError):
+            # If values are invalid, mark as not feasible
+            self.feasibility_label.setText("Level not feasible")
+            self.feasibility_label.setStyleSheet("""
+                QLabel {
+                    background-color: #c41c3b;
+                    color: white;
+                    font-weight: bold;
+                    font-size: 11px;
+                    padding: 3px;
+                }
+            """)
+
 
 """
 UnifiedFitPanel class - main control panel for Unified Fit GUI.
@@ -2246,26 +2294,6 @@ class UnifiedFitPanel(QWidget):
         self.fit_button.clicked.connect(self.run_fit)
         fit_buttons.addWidget(self.fit_button)
 
-        self.revert_button = QPushButton("Revert back")
-        self.revert_button.setMinimumHeight(28)
-        self.revert_button.setMaximumWidth(120)
-        self.revert_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e67e22;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #f39c12;
-            }
-        """)
-        self.revert_button.setToolTip(
-            "Restore all parameters to the values they had before the last fit.\n"
-            "Useful if a fit diverged or gave unreasonable results."
-        )
-        self.revert_button.clicked.connect(self.revert_to_backup)
-        fit_buttons.addWidget(self.revert_button)
-
         self.fix_limits_button = QPushButton("Fix limits?")
         self.fix_limits_button.setMinimumHeight(28)
         self.fix_limits_button.setMaximumWidth(120)
@@ -2288,11 +2316,137 @@ class UnifiedFitPanel(QWidget):
 
         layout.addLayout(fit_buttons)
 
-        # Additional buttons row with Reset
-        additional_buttons = QHBoxLayout()
+        # Results section header
+        results_header = QLabel("Results")
+        results_header.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                color: #3498db;
+                font-size: 12px;
+                margin-top: 5px;
+            }
+        """)
+        layout.addWidget(results_header)
 
+        # Output buttons — shared template (Row 1..5) + AI advisor (Row 6).
+        # Row 1: Results to graphs + Revert back
+        results_buttons1 = QHBoxLayout()
+
+        self.results_graphs_button = QPushButton("Results to graphs")
+        self.results_graphs_button.setMinimumHeight(26)
+        self.results_graphs_button.setStyleSheet("""
+            QPushButton {
+                background-color: #81c784;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #66bb6a;
+            }
+        """)
+        self.results_graphs_button.setToolTip(
+            "Plot fit results for all selected files in the data selector.\n"
+            "Useful for comparing parameters across a dataset."
+        )
+        self.results_graphs_button.clicked.connect(self.display_results_on_graph)
+        results_buttons1.addWidget(self.results_graphs_button)
+
+        self.revert_button = QPushButton("Revert back")
+        self.revert_button.setMinimumHeight(26)
+        self.revert_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f39c12;
+            }
+        """)
+        self.revert_button.setToolTip(
+            "Restore all parameters to the values they had before the last fit.\n"
+            "Useful if a fit diverged or gave unreasonable results."
+        )
+        self.revert_button.clicked.connect(self.revert_to_backup)
+        results_buttons1.addWidget(self.revert_button)
+
+        layout.addLayout(results_buttons1)
+
+        # Row 2: Save State + Store in File + Load Setup from File…
+        results_buttons2 = QHBoxLayout()
+
+        self.save_state_button = QPushButton("Save State")
+        self.save_state_button.setMinimumHeight(26)
+        self.save_state_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        self.save_state_button.setToolTip(
+            "Save current parameters and settings to the pyIrena state file.\n"
+            "State is restored automatically when the file is reopened."
+        )
+        self.save_state_button.clicked.connect(self.save_state)
+        results_buttons2.addWidget(self.save_state_button)
+
+        self.store_data_button = QPushButton("Store in File")
+        self.store_data_button.setMinimumHeight(26)
+        self.store_data_button.setStyleSheet("background-color: lightgreen;")
+        self.store_data_button.setToolTip(
+            "Save fit results (parameters and model curve) into the source HDF5/NXcanSAS file.\n"
+            "Results are appended as a pyirena NXprocess group, and the full\n"
+            "GUI setup is embedded so 'Load Setup from File…' can later restore it."
+        )
+        self.store_data_button.clicked.connect(self.store_results_to_file)
+        results_buttons2.addWidget(self.store_data_button)
+
+        self.load_setup_button = QPushButton("Load Setup from File…")
+        self.load_setup_button.setMinimumHeight(26)
+        self.load_setup_button.setStyleSheet("background-color: #ffe082;")
+        self.load_setup_button.setToolTip(
+            "Restore every Unified Fit control (parameters, fit flags, bounds,\n"
+            "link options, cursors, …) from a NXcanSAS file previously saved\n"
+            "by pyirena or by the pyirena-ai agent.\n"
+            "Use this to pick up where an AI run left off."
+        )
+        self.load_setup_button.clicked.connect(self._load_setup_from_file)
+        results_buttons2.addWidget(self.load_setup_button)
+
+        layout.addLayout(results_buttons2)
+
+        # Row 3: Save params to JSON + Load params from JSON
+        results_buttons3 = QHBoxLayout()
+
+        self.export_params_button = QPushButton("Save params to JSON")
+        self.export_params_button.setMinimumHeight(26)
+        self.export_params_button.setStyleSheet("background-color: lightgreen;")
+        self.export_params_button.setToolTip(
+            "Save current Unified Fit parameters to a pyIrena JSON file.\n"
+            "Use 'Load params from JSON' to restore them later."
+        )
+        self.export_params_button.clicked.connect(self.export_parameters)
+        results_buttons3.addWidget(self.export_params_button)
+
+        self.import_params_button = QPushButton("Load params from JSON")
+        self.import_params_button.setMinimumHeight(26)
+        self.import_params_button.setStyleSheet("background-color: lightgreen;")
+        self.import_params_button.setToolTip(
+            "Load Unified Fit parameters from a previously saved pyIrena JSON file.\n"
+            "Use 'Save params to JSON' to create a compatible file."
+        )
+        self.import_params_button.clicked.connect(self.import_parameters)
+        results_buttons3.addWidget(self.import_params_button)
+
+        layout.addLayout(results_buttons3)
+
+        # Row 4: Reset to Defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
-        self.reset_button.setMinimumHeight(26)  # Reduced from 30
+        self.reset_button.setMinimumHeight(26)
         self.reset_button.setStyleSheet("""
             QPushButton {
                 background-color: #e67e22;
@@ -2308,11 +2462,33 @@ class UnifiedFitPanel(QWidget):
             "This cannot be undone — use 'Revert back' to undo only the last fit."
         )
         self.reset_button.clicked.connect(self.reset_to_defaults)
-        additional_buttons.addWidget(self.reset_button)
+        layout.addWidget(self.reset_button)
 
-        layout.addLayout(additional_buttons)
+        # Row 5: Passes + Calc. Uncertainty (MC)
+        results_buttons5 = QHBoxLayout()
+        results_buttons5.addWidget(QLabel("Passes:"))
+        self.n_runs_spin = QSpinBox()
+        self.n_runs_spin.setMinimum(1)
+        self.n_runs_spin.setMaximum(500)
+        self.n_runs_spin.setValue(10)
+        self.n_runs_spin.setMaximumWidth(55)
+        self.n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
+        results_buttons5.addWidget(self.n_runs_spin)
+        self.analyze_results_button = QPushButton("Calc. Uncertainty (MC)")
+        self.analyze_results_button.setMinimumHeight(28)
+        self.analyze_results_button.setStyleSheet("""
+            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1abc9c; }
+        """)
+        self.analyze_results_button.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
+        self.analyze_results_button.clicked.connect(self.analyze_results)
+        results_buttons5.addWidget(self.analyze_results_button)
+        layout.addLayout(results_buttons5)
 
-        # AI Advisor row (hidden when anthropic package is not installed)
+        # Row 6: AI Advisor (Unified Fit only; hidden when anthropic isn't installed)
         if _AI_ADVISOR_AVAILABLE:
             ai_row = QHBoxLayout()
             self.ask_ai_button = QPushButton("Ask AI advisor")
@@ -2342,121 +2518,6 @@ class UnifiedFitPanel(QWidget):
             ai_row.addWidget(self.ask_ai_button)
             ai_row.addWidget(self.configure_ai_button)
             layout.addLayout(ai_row)
-
-        # Results section header
-        results_header = QLabel("Results")
-        results_header.setStyleSheet("""
-            QLabel {
-                font-weight: bold;
-                color: #3498db;
-                font-size: 12px;
-                margin-top: 5px;
-            }
-        """)
-        layout.addWidget(results_header)
-
-        # Results buttons row 1
-        results_buttons1 = QHBoxLayout()
-
-        self.save_state_button = QPushButton("Save State")
-        self.save_state_button.setMinimumHeight(26)
-        self.save_state_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-        """)
-        self.save_state_button.setToolTip(
-            "Save current parameters and settings to the pyIrena state file.\n"
-            "State is restored automatically when the file is reopened."
-        )
-        self.save_state_button.clicked.connect(self.save_state)
-        results_buttons1.addWidget(self.save_state_button)
-
-        self.store_data_button = QPushButton("Store in File")
-        self.store_data_button.setMinimumHeight(26)
-        self.store_data_button.setStyleSheet("background-color: lightgreen;")
-        self.store_data_button.setToolTip(
-            "Save fit results (parameters and model curve) into the source HDF5/NXcanSAS file.\n"
-            "Results are appended as a pyirena NXprocess group."
-        )
-        self.store_data_button.clicked.connect(self.store_results_to_file)
-        results_buttons1.addWidget(self.store_data_button)
-
-        self.results_graphs_button = QPushButton("Results to graphs")
-        self.results_graphs_button.setMinimumHeight(26)
-        self.results_graphs_button.setStyleSheet("""
-            QPushButton {
-                background-color: #81c784;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #66bb6a;
-            }
-        """)
-        self.results_graphs_button.setToolTip(
-            "Plot fit results for all selected files in the data selector.\n"
-            "Useful for comparing parameters across a dataset."
-        )
-        self.results_graphs_button.clicked.connect(self.display_results_on_graph)
-        results_buttons1.addWidget(self.results_graphs_button)
-
-        layout.addLayout(results_buttons1)
-
-        # Results buttons row 2
-        results_buttons2 = QHBoxLayout()
-
-        self.export_params_button = QPushButton("Save params to JSON")
-        self.export_params_button.setMinimumHeight(26)
-        self.export_params_button.setStyleSheet("background-color: lightgreen;")
-        self.export_params_button.setToolTip(
-            "Save current Unified Fit parameters to a pyIrena JSON file.\n"
-            "Use 'Load params from JSON' to restore them later."
-        )
-        self.export_params_button.clicked.connect(self.export_parameters)
-        results_buttons2.addWidget(self.export_params_button)
-
-        self.import_params_button = QPushButton("Load params from JSON")
-        self.import_params_button.setMinimumHeight(26)
-        self.import_params_button.setStyleSheet("background-color: lightgreen;")
-        self.import_params_button.setToolTip(
-            "Load Unified Fit parameters from a previously saved pyIrena JSON file.\n"
-            "Use 'Save params to JSON' to create a compatible file."
-        )
-        self.import_params_button.clicked.connect(self.import_parameters)
-        results_buttons2.addWidget(self.import_params_button)
-
-        layout.addLayout(results_buttons2)
-
-        # Results buttons row 3: Passes spinbox + Calc. Uncertainty (MC)
-        results_buttons3 = QHBoxLayout()
-        results_buttons3.addWidget(QLabel("Passes:"))
-        self.n_runs_spin = QSpinBox()
-        self.n_runs_spin.setMinimum(1)
-        self.n_runs_spin.setMaximum(500)
-        self.n_runs_spin.setValue(10)
-        self.n_runs_spin.setMaximumWidth(55)
-        self.n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
-        results_buttons3.addWidget(self.n_runs_spin)
-        self.analyze_results_button = QPushButton("Calc. Uncertainty (MC)")
-        self.analyze_results_button.setMinimumHeight(28)
-        self.analyze_results_button.setStyleSheet("""
-            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #1abc9c; }
-        """)
-        self.analyze_results_button.setToolTip(
-            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
-            "Set 'Passes' to control how many Monte Carlo replicates are used."
-        )
-        self.analyze_results_button.clicked.connect(self.analyze_results)
-        results_buttons3.addWidget(self.analyze_results_button)
-
-        layout.addLayout(results_buttons3)
 
         # Status label
         self.status_label = QLabel("Ready - Load data to begin")
@@ -2520,6 +2581,10 @@ class UnifiedFitPanel(QWidget):
         # Clear result text annotations when parameters change
         if self.graph_window:
             self.graph_window.clear_result_text_annotations()
+
+        # Update feasibility status for each level
+        for level_widget in self.level_widgets:
+            level_widget.update_feasibility_status()
 
         # Sync RgCutoff links whenever parameters change
         self.sync_rgcutoff_links()
@@ -3386,6 +3451,9 @@ class UnifiedFitPanel(QWidget):
                 if level_widget.link_rgco_check:
                     level_widget.link_rgco_check.setChecked(level_state.get('link_rgco', False))
 
+                # Update feasibility status
+                level_widget.update_feasibility_status()
+
     def load_state(self):
         """Load state from state manager."""
         state = self.state_manager.get('unified_fit')
@@ -3402,6 +3470,32 @@ class UnifiedFitPanel(QWidget):
             self.status_label.setText("State saved")
         else:
             QMessageBox.warning(self, "Save Failed", "Failed to save state")
+
+    def _load_setup_from_file(self):
+        """Restore the full Unified Fit setup from a NXcanSAS file.
+
+        Reads the ``_pyirena_config`` attribute embedded by
+        :func:`pyirena.io.nxcansas_unified.save_unified_fit_results` (or by
+        the pyirena-ai agent's save_fit call) and replays it through
+        :meth:`apply_state` so every control matches what was stored.
+        """
+        from pyirena.gui.setup_loader import prompt_and_load_setup
+        # Prefer the currently loaded data file's folder; otherwise home.
+        if self.data is not None and self.data.get('filepath'):
+            default_folder = str(Path(self.data['filepath']).parent)
+            suggested = str(self.data['filepath'])
+        else:
+            default_folder = str(Path.home())
+            suggested = None
+
+        prompt_and_load_setup(
+            parent=self,
+            tool="unified_fit",
+            default_folder=default_folder,
+            apply_state=self.apply_state,
+            on_status=lambda msg: self.status_label.setText(msg),
+            suggested_path=suggested,
+        )
 
     def copy_swap_level(self, source_level: int):
         """Copy or swap all parameters between source level and a chosen target level."""
@@ -3947,7 +4041,13 @@ class UnifiedFitPanel(QWidget):
                     sample_name=sample_name
                 )
 
-            # Save Unified Fit results
+            # Save Unified Fit results, embedding the full GUI state so the
+            # panel can later restore every control from this file.
+            try:
+                setup_state = self.get_current_state()
+            except Exception:
+                setup_state = None
+
             save_unified_fit_results(
                 filepath=output_path,
                 q=self.data['Q'],
@@ -3959,7 +4059,8 @@ class UnifiedFitPanel(QWidget):
                 chi_squared=chi_squared,
                 num_levels=num_levels,
                 error=self.data.get('Error'),
-                uncertainties=self.fit_uncertainties
+                uncertainties=self.fit_uncertainties,
+                setup_state=setup_state,
             )
 
             self.status_label.setText(f"Saved results to {output_path.name}")
