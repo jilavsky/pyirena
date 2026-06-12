@@ -321,6 +321,30 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id", "level", "option", "enabled"],
         },
     },
+    {
+        "name": "check_level_feasibility",
+        "description": (
+            "Check whether each level's parameters are physically meaningful. "
+            "A level is feasible when its Guinier and power-law regions "
+            "connect smoothly at the Hammouda rollover Q point.  Use this "
+            "AFTER run_fit to catch combinations that converged mathematically "
+            "but are not physically interpretable (e.g. B too small/large for "
+            "the chosen P, or G inconsistent with B and Rg).  Omit `level` to "
+            "check all levels."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "level": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "description": "1-based level number; omit for all levels.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 
     # -----------------------------------------------------------------------
     # Category C'' — Q range

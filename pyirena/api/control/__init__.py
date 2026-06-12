@@ -62,6 +62,7 @@ from pyirena.api.control.unified_fit import (
     # C''' — per-level boolean options (correlations, mass_fractal, …)
     get_level_options,
     set_level_option,
+    check_level_feasibility,
     # C'' — Q range
     get_data_q_range,
     get_fit_q_range,
@@ -96,7 +97,7 @@ __all__ = [
     # C'
     "add_unified_level", "remove_unified_level",
     # C'''
-    "get_level_options", "set_level_option",
+    "get_level_options", "set_level_option", "check_level_feasibility",
     # C''
     "get_data_q_range", "get_fit_q_range", "set_fit_q_range", "reset_fit_q_range",
     # C''''

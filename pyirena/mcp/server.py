@@ -512,6 +512,21 @@ def pyirena_ctrl_set_level_option(
     return _ctrl.set_level_option(session_id, level, option, enabled)
 
 
+@mcp.tool()
+def pyirena_ctrl_check_level_feasibility(
+    session_id: str, level: Optional[int] = None
+) -> dict:
+    """Check whether each level's parameters are physically meaningful.
+
+    A level is "feasible" when its Guinier and power-law regions connect
+    smoothly at the Hammouda rollover Q point.  Use AFTER run_fit to catch
+    combinations that converged mathematically but are not physically
+    interpretable (e.g. B too small/large for the chosen P, or G inconsistent
+    with B and Rg).  Omit `level` to check every level.
+    """
+    return _ctrl.check_level_feasibility(session_id, level)
+
+
 # --- Q range ---
 
 @mcp.tool()

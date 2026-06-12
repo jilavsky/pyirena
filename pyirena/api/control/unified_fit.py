@@ -855,6 +855,58 @@ def set_level_option(
     }
 
 
+def check_level_feasibility(
+    session_id: str, level: Optional[int] = None
+) -> dict:
+    """Check whether each level's parameters are physically meaningful.
+
+    A level is "feasible" when its Guinier and power-law regions connect
+    smoothly at the Hammouda rollover Q point.  A large discontinuity at
+    that point indicates an unphysical (G, Rg, B, P) combination — for
+    example, a power-law tail that lies far above or below the Guinier
+    plateau extrapolated to the same Q.
+
+    Use this after run_fit to catch combinations that converged
+    mathematically but are not physically interpretable.  If a level is
+    not feasible, common culprits are B too small/large for the chosen P,
+    or G inconsistent with B and Rg.
+
+    Parameters
+    ----------
+    level : int, optional
+        1-based level number.  If omitted, checks every level.
+
+    Returns
+    -------
+    dict with keys:
+      - feasibility : list of {level, feasible (bool)} for each checked level
+      - all_feasible : True iff every checked level is feasible
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+    if s.model is None or s.model_name != "unified_fit":
+        return no_model(session_id)
+
+    if level is not None and not (1 <= level <= s.model.num_levels):
+        return make_error(
+            f"Level {level} does not exist (model has levels 1–{s.model.num_levels}).",
+            code="BAD_LEVEL",
+        )
+
+    levels_to_check = (
+        [level] if level is not None else list(range(1, s.model.num_levels + 1))
+    )
+    results = [
+        {"level": lv, "feasible": bool(s.model.levels[lv - 1].check_physical_feasibility())}
+        for lv in levels_to_check
+    ]
+    return {
+        "feasibility":   results,
+        "all_feasible":  all(r["feasible"] for r in results),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Category C'' — Q range
 # ---------------------------------------------------------------------------
