@@ -936,6 +936,226 @@ def reset_fit_q_range(session_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Category C'''' — Local estimators (Guinier / power law on a Q sub-range)
+# ---------------------------------------------------------------------------
+#
+# Standalone Q-range fits of single-term models, equivalent to the GUI's
+# "Fit Rg/G btwn cursors" and "Fit P/B btwn cursors" buttons.  Useful for
+# generating good starting values before the full multi-level fit runs.
+#
+# These tools do NOT mutate the model — they only return the fitted
+# numbers.  The agent decides whether to apply them via set_parameter_value().
+
+def _slice_q_range(session: Session, q_min: float, q_max: float):
+    """Return q, I, err arrays restricted to [q_min, q_max].  May be empty."""
+    mask = (session.q >= q_min) & (session.q <= q_max)
+    if session.error is not None:
+        return session.q[mask], session.intensity[mask], session.error[mask]
+    return session.q[mask], session.intensity[mask], None
+
+
+def fit_local_guinier(
+    session_id: str,
+    q_min: float,
+    q_max: float,
+) -> dict:
+    """Fit a single Guinier term I(q) = G · exp(-q²·Rg²/3) on a Q sub-range.
+
+    Equivalent to the GUI's "Fit Rg/G btwn cursors" button.  Useful for
+    estimating starting values for Rg and G on one level before running
+    the full multi-level fit.
+
+    Does **not** modify the session's model — call set_parameter_value()
+    afterwards if you want to apply the result.
+
+    Parameters
+    ----------
+    q_min, q_max : float
+        Q range to fit in [Å⁻¹].  Choose a window covering the Guinier
+        knee of the level you are characterising.
+
+    Returns
+    -------
+    dict with keys:
+      - G, Rg                : fitted values
+      - q_min, q_max         : actual Q range used (may be clipped to data)
+      - n_points             : number of data points used
+      - chi_squared          : sum of squared (weighted) residuals
+      - reduced_chi_squared  : χ² per degree of freedom
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+
+    if q_max <= q_min:
+        return make_error(
+            f"q_max ({q_max}) must be greater than q_min ({q_min}).",
+            code="BAD_RANGE",
+        )
+
+    q_fit, I_fit, err_fit = _slice_q_range(s, float(q_min), float(q_max))
+    if len(q_fit) < 3:
+        return make_error(
+            f"Not enough data points in [{q_min}, {q_max}] ({len(q_fit)} points). "
+            "Need at least 3 points; widen the Q range.",
+            code="TOO_FEW_POINTS",
+        )
+
+    # Starting estimates (same heuristic as the GUI button)
+    q_avg = (float(q_fit[0]) + float(q_fit[-1])) / 2
+    g0    = float((I_fit[0] + I_fit[-1]) / 2)
+    rg0   = 2 * np.pi / q_avg if q_avg > 0 else 10.0
+
+    from scipy.optimize import curve_fit  # noqa: PLC0415
+
+    def guinier(q, G, Rg):
+        return G * np.exp(-(q ** 2) * (Rg ** 2) / 3.0)
+
+    sigma = err_fit if err_fit is not None and np.all(err_fit > 0) else None
+    try:
+        popt, _ = curve_fit(
+            guinier, q_fit, I_fit,
+            p0=[g0, rg0],
+            sigma=sigma,
+            absolute_sigma=False,
+            maxfev=5000,
+        )
+    except Exception as exc:
+        return make_error(
+            f"Local Guinier fit failed: {exc}",
+            suggestion="Try a different Q range that covers a visible Guinier knee.",
+            code="FIT_FAILED",
+        )
+
+    g_fit  = float(abs(popt[0]))
+    rg_fit = float(abs(popt[1]))
+
+    model_I = guinier(q_fit, g_fit, rg_fit)
+    resid   = (I_fit - model_I) / (err_fit if sigma is not None else 1.0)
+    chi_sq  = float(np.sum(resid ** 2))
+    dof     = max(len(q_fit) - 2, 1)
+
+    return {
+        "ok":                  True,
+        "G":                   g_fit,
+        "Rg":                  rg_fit,
+        "q_min":               float(q_fit[0]),
+        "q_max":               float(q_fit[-1]),
+        "n_points":            int(len(q_fit)),
+        "chi_squared":         chi_sq,
+        "reduced_chi_squared": chi_sq / dof,
+    }
+
+
+def fit_local_power_law(
+    session_id: str,
+    q_min: float,
+    q_max: float,
+) -> dict:
+    """Fit a single power-law term I(q) = B · q⁻ᴾ on a Q sub-range.
+
+    Equivalent to the GUI's "Fit P/B btwn cursors" button.  Useful for
+    estimating starting values for P and B on one level (typically the
+    high-Q power-law region after the Guinier knee).
+
+    Does **not** modify the session's model — call set_parameter_value()
+    afterwards if you want to apply the result.
+
+    Parameters
+    ----------
+    q_min, q_max : float
+        Q range to fit in [Å⁻¹].  Pick a window over the linear power-law
+        portion of the log-log plot, beyond the Guinier knee.
+
+    Returns
+    -------
+    dict with keys:
+      - P, B                 : fitted values
+      - q_min, q_max         : actual Q range used (may be clipped to data)
+      - n_points             : number of data points used
+      - chi_squared          : sum of squared (weighted) residuals
+      - reduced_chi_squared  : χ² per degree of freedom
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+
+    if q_max <= q_min:
+        return make_error(
+            f"q_max ({q_max}) must be greater than q_min ({q_min}).",
+            code="BAD_RANGE",
+        )
+
+    q_fit, I_fit, err_fit = _slice_q_range(s, float(q_min), float(q_max))
+    if len(q_fit) < 3:
+        return make_error(
+            f"Not enough data points in [{q_min}, {q_max}] ({len(q_fit)} points). "
+            "Need at least 3 points; widen the Q range.",
+            code="TOO_FEW_POINTS",
+        )
+
+    # Reject non-positive intensities (log-slope estimate would crash)
+    pos = (I_fit > 0) & (q_fit > 0)
+    if int(np.sum(pos)) < 3:
+        return make_error(
+            "Not enough positive intensity values in range for a power-law fit.",
+            code="TOO_FEW_POSITIVE",
+        )
+    q_pos = q_fit[pos]
+    I_pos = I_fit[pos]
+
+    # Starting estimates from endpoints (same as GUI button)
+    log_q_first = float(np.log(q_pos[0]))
+    log_q_last  = float(np.log(q_pos[-1]))
+    log_I_first = float(np.log(I_pos[0]))
+    log_I_last  = float(np.log(I_pos[-1]))
+    denom = log_q_last - log_q_first
+    p0 = abs((log_I_first - log_I_last) / denom) if denom != 0 else 4.0
+    b0 = float(I_pos[0] * (q_pos[0] ** p0))
+
+    from scipy.optimize import curve_fit  # noqa: PLC0415
+
+    def power_law(q, B, P):
+        return B * np.power(q, -P)
+
+    err_pos = err_fit[pos] if err_fit is not None else None
+    sigma   = err_pos if err_pos is not None and np.all(err_pos > 0) else None
+    try:
+        popt, _ = curve_fit(
+            power_law, q_pos, I_pos,
+            p0=[b0, p0],
+            sigma=sigma,
+            absolute_sigma=False,
+            maxfev=5000,
+        )
+    except Exception as exc:
+        return make_error(
+            f"Local power-law fit failed: {exc}",
+            suggestion="Try a different Q range over the linear power-law region.",
+            code="FIT_FAILED",
+        )
+
+    b_fit = float(abs(popt[0]))
+    p_fit = float(abs(popt[1]))
+
+    model_I = power_law(q_pos, b_fit, p_fit)
+    resid   = (I_pos - model_I) / (err_pos if sigma is not None else 1.0)
+    chi_sq  = float(np.sum(resid ** 2))
+    dof     = max(len(q_pos) - 2, 1)
+
+    return {
+        "ok":                  True,
+        "P":                   p_fit,
+        "B":                   b_fit,
+        "q_min":               float(q_pos[0]),
+        "q_max":               float(q_pos[-1]),
+        "n_points":            int(len(q_pos)),
+        "chi_squared":         chi_sq,
+        "reduced_chi_squared": chi_sq / dof,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Category D — Fit execution
 # ---------------------------------------------------------------------------
 
@@ -1151,6 +1371,62 @@ def get_parameter_uncertainties(session_id: str) -> dict:
 # Category F — Persistence
 # ---------------------------------------------------------------------------
 
+def _session_to_gui_state(session: Session) -> dict:
+    """Snapshot the session's UnifiedFitModel as a GUI-compatible state dict.
+
+    The shape matches ``UnifiedFitPanel.get_current_state()`` exactly so the
+    panel's ``apply_state`` can restore every control verbatim — the whole
+    point of embedding this in the NXcanSAS file.
+    """
+    model = session.model
+    state: dict = {
+        "num_levels":     int(model.num_levels),
+        "background": {
+            "value": float(model.background),
+            "fit":   bool(model.fit_background),
+        },
+        "cursor_left":    session.fit_q_min,
+        "cursor_right":   session.fit_q_max,
+        "update_auto":    False,
+        "display_local":  False,
+        "no_limits":      False,
+        "skip_fit_check": False,
+        "store_local":    False,
+        "levels":         [],
+    }
+
+    def _lim(level, attr):
+        lo, hi = getattr(level, f"{attr}_limits", (None, None))
+        return (None if lo is None else float(lo),
+                None if hi is None else float(hi))
+
+    for i, lv in enumerate(model.levels):
+        g_lo, g_hi   = _lim(lv, "G")
+        rg_lo, rg_hi = _lim(lv, "Rg")
+        b_lo, b_hi   = _lim(lv, "B")
+        p_lo, p_hi   = _lim(lv, "P")
+        e_lo, e_hi   = _lim(lv, "ETA")
+        k_lo, k_hi   = _lim(lv, "PACK")
+
+        state["levels"].append({
+            "level":    i + 1,
+            "G":   {"value": float(lv.G),   "fit": bool(lv.fit_G),   "low_limit": g_lo,  "high_limit": g_hi},
+            "Rg":  {"value": float(lv.Rg),  "fit": bool(lv.fit_Rg),  "low_limit": rg_lo, "high_limit": rg_hi},
+            "B":   {"value": float(lv.B),   "fit": bool(lv.fit_B),   "low_limit": b_lo,  "high_limit": b_hi},
+            "P":   {"value": float(lv.P),   "fit": bool(lv.fit_P),   "low_limit": p_lo,  "high_limit": p_hi},
+            "ETA": {"value": float(lv.ETA), "fit": bool(lv.fit_ETA), "low_limit": e_lo,  "high_limit": e_hi},
+            "PACK":{"value": float(lv.PACK),"fit": bool(lv.fit_PACK),"low_limit": k_lo,  "high_limit": k_hi},
+            # UnifiedLevel uses RgCO; the GUI key is RgCutoff
+            "RgCutoff":   float(lv.RgCO),
+            # GUI naming differs from model naming for the boolean flags
+            "correlated": bool(lv.correlations),
+            "estimate_B": bool(lv.link_B),
+            "link_rgco":  bool(lv.link_RGCO),
+        })
+
+    return state
+
+
 def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
     """Save the fitted result back to NXcanSAS HDF5.
 
@@ -1197,6 +1473,9 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
             chi_squared=float(s.last_fit_result.get("chi_squared", float("nan"))),
             num_levels=model.num_levels,
             error=model.error_data,
+            # Embed the full setup so the GUI can "Load Setup from File…"
+            # and resume exactly where pyirena-ai left off.
+            setup_state=_session_to_gui_state(s),
         )
     except Exception as exc:
         return make_error(

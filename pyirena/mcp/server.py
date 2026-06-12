@@ -546,6 +546,40 @@ def pyirena_ctrl_reset_fit_q_range(session_id: str) -> dict:
     return _ctrl.reset_fit_q_range(session_id)
 
 
+# --- Local one-term estimators (good for starting values) ---
+
+@mcp.tool()
+def pyirena_ctrl_fit_local_guinier(
+    session_id: str, q_min: float, q_max: float
+) -> dict:
+    """Fit Guinier I(q) = G·exp(-q²·Rg²/3) on a Q sub-range; return G and Rg.
+
+    Equivalent to the GUI's 'Fit Rg/G btwn cursors' button.  Useful for
+    estimating a level's starting Rg and G *before* running the full
+    multi-level fit.  Does NOT modify the model — call set_parameter_value()
+    afterwards if you want to apply the result.
+
+    Pick q_min/q_max to cover the Guinier knee of the level you are
+    characterising (where the log-log slope flattens).
+    """
+    return _ctrl.fit_local_guinier(session_id, q_min, q_max)
+
+
+@mcp.tool()
+def pyirena_ctrl_fit_local_power_law(
+    session_id: str, q_min: float, q_max: float
+) -> dict:
+    """Fit power law I(q) = B·q⁻ᴾ on a Q sub-range; return P and B.
+
+    Equivalent to the GUI's 'Fit P/B btwn cursors' button.  Useful for
+    estimating a level's starting P and B from the linear portion of the
+    log-log plot (typically just past the Guinier knee).  Does NOT modify
+    the model — call set_parameter_value() afterwards if you want to apply
+    the result.
+    """
+    return _ctrl.fit_local_power_law(session_id, q_min, q_max)
+
+
 # --- Fit execution ---
 
 @mcp.tool()

@@ -377,6 +377,50 @@ TOOL_SCHEMAS: list[dict] = [
     },
 
     # -----------------------------------------------------------------------
+    # Category C'''' — Local estimators (one-term fits over a Q sub-range)
+    # -----------------------------------------------------------------------
+    {
+        "name": "fit_local_guinier",
+        "description": (
+            "Fit a single Guinier term I(q) = G·exp(-q²·Rg²/3) on the Q "
+            "range [q_min, q_max] and return G and Rg.  Equivalent to the "
+            "GUI's 'Fit Rg/G btwn cursors' button.  Useful for estimating "
+            "good starting values for a level before run_fit.  Does NOT "
+            "modify the model — call set_parameter_value() afterwards if "
+            "you want to apply the result."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q_min":      {"type": "number", "description": "Lower Q [Å⁻¹]."},
+                "q_max":      {"type": "number", "description": "Upper Q [Å⁻¹]."},
+            },
+            "required": ["session_id", "q_min", "q_max"],
+        },
+    },
+    {
+        "name": "fit_local_power_law",
+        "description": (
+            "Fit a single power-law term I(q) = B·q⁻ᴾ on the Q range "
+            "[q_min, q_max] and return P and B.  Equivalent to the GUI's "
+            "'Fit P/B btwn cursors' button.  Pick a window over the linear "
+            "power-law region of the log-log plot (beyond the Guinier knee). "
+            "Does NOT modify the model — call set_parameter_value() "
+            "afterwards if you want to apply the result."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q_min":      {"type": "number", "description": "Lower Q [Å⁻¹]."},
+                "q_max":      {"type": "number", "description": "Upper Q [Å⁻¹]."},
+            },
+            "required": ["session_id", "q_min", "q_max"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
     # Category D — Fit execution
     # -----------------------------------------------------------------------
     {

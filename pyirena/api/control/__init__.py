@@ -67,6 +67,9 @@ from pyirena.api.control.unified_fit import (
     get_fit_q_range,
     set_fit_q_range,
     reset_fit_q_range,
+    # C'''' — local one-term estimators (Guinier / power law on a sub-range)
+    fit_local_guinier,
+    fit_local_power_law,
     # D — fit execution
     run_fit,
     # E — quality
@@ -96,6 +99,8 @@ __all__ = [
     "get_level_options", "set_level_option",
     # C''
     "get_data_q_range", "get_fit_q_range", "set_fit_q_range", "reset_fit_q_range",
+    # C''''
+    "fit_local_guinier", "fit_local_power_law",
     # D
     "run_fit",
     # E
