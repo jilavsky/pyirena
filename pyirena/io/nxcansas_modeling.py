@@ -39,6 +39,7 @@ def save_modeling_results(
     filepath: Path,
     result: ModelingResult,
     group_name: str = 'modeling_results',
+    setup_state: Optional[dict] = None,
 ) -> None:
     """Save Modeling fit results to an HDF5 file.
 
@@ -46,9 +47,13 @@ def save_modeling_results(
     If a previous ``modeling_results`` group exists it is deleted and replaced.
 
     Args:
-        filepath:   Path to HDF5 file (created if absent, opened 'a' if present).
-        result:     ModelingResult from ModelingEngine.fit().
-        group_name: HDF5 group name relative to 'entry/' (default 'modeling_results').
+        filepath:    Path to HDF5 file (created if absent, opened 'a' if present).
+        result:      ModelingResult from ModelingEngine.fit().
+        group_name:  HDF5 group name relative to 'entry/' (default 'modeling_results').
+        setup_state: Optional full GUI state dict (the ``modeling`` section
+                     from StateManager).  Embedded as the ``_pyirena_config``
+                     JSON attribute on the results group so the GUI can
+                     restore every population/control after an AI-driven run.
     """
     filepath = Path(filepath)
     timestamp = result.timestamp
@@ -230,6 +235,11 @@ def save_modeling_results(
         bg_err = result.params_std.get('background', 0.0)
         if bg_err > 0.0:
             grp.create_dataset('background_err', data=float(bg_err))
+
+        # Embed the full GUI setup so the panel can round-trip from this file.
+        if setup_state is not None:
+            from pyirena.io.setup_config import write_setup_config
+            write_setup_config(grp, "modeling", setup_state)
 
     print(f"Saved Modeling results to {filepath}")
 

@@ -65,6 +65,7 @@ def save_sizes_results(
     params: dict,
     intensity_error: Optional[np.ndarray] = None,
     distribution_std: Optional[np.ndarray] = None,
+    setup_state: Optional[dict] = None,
 ) -> None:
     """
     Save size distribution fitting results to an NXcanSAS HDF5 file.
@@ -102,6 +103,11 @@ def save_sizes_results(
         intensity_error:  Measurement uncertainty [cm^-1]; stored if provided.
         distribution_std: Per-bin std of P(r) across Monte Carlo repetitions;
                           stored if provided (Monte Carlo method only).
+        setup_state:      Optional full GUI state dict (the ``sizes`` section
+                          from StateManager).  Embedded as the
+                          ``_pyirena_config`` JSON attribute on
+                          ``sizes_results`` so the GUI can restore every
+                          control after an AI-driven run.
     """
     filepath = Path(filepath)
     timestamp = datetime.now().isoformat()
@@ -184,6 +190,11 @@ def save_sizes_results(
         grp['number_dist'].attrs['units']    = '1/angstrom'
         grp['cumul_vol_dist'].attrs['units'] = 'volume_fraction'
         grp['cumul_num_dist'].attrs['units'] = 'dimensionless'
+
+        # Embed the full GUI setup so the panel can round-trip from this file.
+        if setup_state is not None:
+            from pyirena.io.setup_config import write_setup_config
+            write_setup_config(grp, "sizes", setup_state)
 
 
 def load_sizes_results(filepath: Path) -> dict:

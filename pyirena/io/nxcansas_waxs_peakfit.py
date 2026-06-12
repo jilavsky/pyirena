@@ -71,6 +71,7 @@ def save_waxs_peakfit_results(
     intensity_error: Optional[np.ndarray] = None,
     q_min: Optional[float] = None,
     q_max: Optional[float] = None,
+    setup_state: Optional[Dict] = None,
 ) -> None:
     """Save WAXS peak-fit results into an NXcanSAS HDF5 file.
 
@@ -92,6 +93,11 @@ def save_waxs_peakfit_results(
         Measurement uncertainty.
     q_min, q_max : float or None
         Q range used for fitting (written as metadata).
+    setup_state : dict or None
+        Full GUI state dict (the ``waxs_peakfit`` section from StateManager).
+        Embedded as the ``_pyirena_config`` JSON attribute on
+        ``waxs_peakfit_results`` so the GUI can restore every control
+        (peak list, bg_shape, q-range, …) after an AI-driven run.
     """
     if h5py is None:
         raise ImportError("h5py is required to save results.")
@@ -215,6 +221,11 @@ def save_waxs_peakfit_results(
                 ds.attrs["limit_high"] = float(hi) if hi is not None else np.nan
                 std = float(p_std.get(pn, np.nan))
                 ps_grp.create_dataset(pn, data=std, dtype="float64")
+
+        # Embed the full GUI setup so the panel can round-trip from this file.
+        if setup_state is not None:
+            from pyirena.io.setup_config import write_setup_config
+            write_setup_config(grp, "waxs_peakfit", setup_state)
 
 
 # ===========================================================================
