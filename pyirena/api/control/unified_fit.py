@@ -513,7 +513,10 @@ def get_model_description(session_id: str) -> dict:
 def set_parameter_value(session_id: str, param_name: str, value: float) -> dict:
     """Set the starting/current value of a parameter.
 
-    The change takes effect at the next run_fit() call.
+    The change takes effect at the next run_fit() call.  If the new value lies
+    outside the current bounds the bounds are silently expanded to contain it,
+    so that a fixed parameter whose value is set to an extreme sentinel (e.g.
+    G=0 to "remove" a level) does not cause scipy to reject the initial guess.
     """
     s = get_session(session_id)
     if s is None:
@@ -525,13 +528,21 @@ def set_parameter_value(session_id: str, param_name: str, value: float) -> dict:
     if found is None:
         return bad_param(param_name, s.model_name)
 
+    v = float(value)
     level_idx, attr = found
     if level_idx == "background":
-        s.model.background = float(value)
+        s.model.background = v
+        lo, hi = s.model.background_limits
+        if v < lo or v > hi:
+            s.model.background_limits = (min(lo, v), max(hi, v))
     else:
-        setattr(s.model.levels[level_idx], attr, float(value))
+        setattr(s.model.levels[level_idx], attr, v)
+        limits_attr = f"{attr}_limits"
+        lo, hi = getattr(s.model.levels[level_idx], limits_attr)
+        if v < lo or v > hi:
+            setattr(s.model.levels[level_idx], limits_attr, (min(lo, v), max(hi, v)))
 
-    return {"ok": True, "param": param_name, "value": float(value)}
+    return {"ok": True, "param": param_name, "value": v}
 
 
 def set_parameter_bounds(

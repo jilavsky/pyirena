@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`set_parameter_value` now auto-expands bounds when the assigned value
+  falls outside them** (`pyirena/api/control/unified_fit.py`). Previously,
+  setting G or Rg to a sentinel value (e.g. G=0 to "remove" a level) would
+  leave the bounds unchanged, causing scipy to raise "Initial guess is outside
+  of provided bounds" at `run_fit` time — even when that parameter was fixed
+  and not actually passed to the optimizer. The fix silently widens the lower
+  or upper bound to contain the new value, so AI agents can set extreme
+  sentinel values without needing to also call `set_parameter_bounds`.
+
 ## [0.8.2] — 2026-05-25
 
 ### Fixed
