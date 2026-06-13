@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-06-13
+
+### Added
+
+- **Feature Identifier add-on for the Unified Fit panel and AI agent.**
+  Both interactive users and the LLM agent driving the Unified Fit tool now
+  have a way to ask "what does this curve actually contain?" before choosing
+  the number of levels and Q-windows.
+  - **Core** (`pyirena/core/feature_detect.py`): slope-profile detector that
+    operates on `d(log I)/d(log Q)` in log(Q) space, with reflection +
+    linear-extrapolation boundary handling to avoid edge bias. Classifies
+    regions as Guinier plateaus, structure-factor peaks, or power-law
+    sections, and proposes initial Guinier Q-windows per detected feature.
+    All thresholds are expressed in log decades so behaviour is independent
+    of point count. Two presets — `saxs_preset()` (≤2 decades) and
+    `usaxs_preset()` (>2.5 decades, relaxed slope thresholds) — with
+    `auto(q)` picking by data extent.
+  - **GUI** (`pyirena/gui/feature_identifier.py`): non-modal
+    `FeatureIdentifierDialog` opened from a new "Identify Features…" button
+    in the Unified Fit top control row. Draws plateau / power-law regions
+    as semi-transparent overlays and peaks as vertical lines on the main
+    I(Q) graph. Visualisation only — never modifies level parameters.
+  - **MCP / AI agent** (`pyirena/api/control/unified_fit.py`,
+    `pyirena/mcp/server.py`): new `detect_features(session_id, preset, …)`
+    tool with the same JSON output the dialog renders, so the agent can
+    base level-count and Q-window decisions on the curve's slope profile
+    instead of guessing.
+  - 11 new unit tests in `pyirena/tests/test_feature_detect.py`.
+
 ### Fixed
 
 - **`set_parameter_value` now auto-expands bounds when the assigned value

@@ -1219,6 +1219,130 @@ def fit_local_power_law(
 
 
 # ---------------------------------------------------------------------------
+# Category C''''' — Feature detection (slope-profile analysis)
+# ---------------------------------------------------------------------------
+#
+# Analyses the loaded data in log-log space and identifies plateaus
+# (Guinier knees), peaks (Guinier + structure factor), and power-law
+# regions.  Intended to help the agent decide how many Unified Fit levels
+# a curve needs and where to place Q-windows for local Guinier/Porod fits.
+# Does not mutate the model.
+
+def detect_features(
+    session_id: str,
+    preset: str = "auto",
+    q_min: Optional[float] = None,
+    q_max: Optional[float] = None,
+    config_overrides: Optional[dict] = None,
+) -> dict:
+    """Detect plateaus, peaks, and power-law regions in the loaded I(Q) data.
+
+    Returns a structured analysis of the curve's log-log slope profile,
+    intended to inform the choice of number of Unified Fit levels and the
+    initial Q-windows for `fit_local_guinier` / `fit_local_power_law`.
+
+    Does **not** modify the session's model or fit state — it only reports
+    what the data looks like.
+
+    Parameters
+    ----------
+    session_id : str
+        Session whose data should be analysed.
+    preset : str
+        One of: ``"auto"`` (pick by log-decades), ``"saxs"`` (≤2 decades,
+        stricter slope thresholds), ``"usaxs"`` (>2.5 decades, relaxed
+        thresholds), or ``"custom"`` (use ``config_overrides``).
+    q_min, q_max : float, optional
+        Restrict analysis to this Q sub-range.  Defaults to full data range.
+    config_overrides : dict, optional
+        Mapping of FeatureDetectConfig field names to override values.
+        Applied on top of the chosen preset.
+
+    Returns
+    -------
+    dict with keys:
+      - ok                            : True on success
+      - plateaus                      : list of {q_center, q_min, q_max, mean_slope, width_decades}
+      - peaks                         : list of {q_peak, q_low, q_high, slope_rising, slope_falling}
+      - power_law_regions             : list of {q_min, q_max, slope, slope_std, width_decades}
+      - background_q_min              : Q where high-Q flat background begins (None if not detected)
+      - recommended_guinier_windows   : list of {feature_type, q_min_guinier, q_max_guinier, q_min_powerlaw}
+      - recommended_nlevels           : suggested number of Unified Fit levels
+      - log_decades                   : total log10(Q) span of analysed data
+      - n_points                      : number of data points used (after filtering)
+      - preset_used                   : "saxs" | "usaxs" | "custom"
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+
+    # Lazy import to keep pyirena.api dependency surface minimal
+    from pyirena.core.feature_detect import (  # noqa: PLC0415
+        FeatureDetectConfig,
+        detect_features as _detect,
+    )
+
+    # Resolve Q sub-range
+    if q_min is None:
+        q_min = float(s.q.min())
+    if q_max is None:
+        q_max = float(s.q.max())
+    if q_max <= q_min:
+        return make_error(
+            f"q_max ({q_max}) must be greater than q_min ({q_min}).",
+            code="BAD_RANGE",
+        )
+
+    q_use, I_use, err_use = _slice_q_range(s, float(q_min), float(q_max))
+    if q_use.size < 5:
+        return make_error(
+            f"Not enough data points in [{q_min}, {q_max}] ({q_use.size} points). "
+            "Need at least 5 points; widen the Q range.",
+            code="TOO_FEW_POINTS",
+        )
+
+    # Resolve preset
+    preset = (preset or "auto").lower()
+    if preset == "auto":
+        cfg = FeatureDetectConfig.auto(q_use)
+    elif preset == "saxs":
+        cfg = FeatureDetectConfig.saxs_preset()
+    elif preset == "usaxs":
+        cfg = FeatureDetectConfig.usaxs_preset()
+    elif preset == "custom":
+        cfg = FeatureDetectConfig()
+    else:
+        return make_error(
+            f"Unknown preset {preset!r}. Use one of: auto, saxs, usaxs, custom.",
+            code="BAD_PRESET",
+        )
+
+    if config_overrides:
+        for k, v in config_overrides.items():
+            if hasattr(cfg, k):
+                try:
+                    setattr(cfg, k, float(v))
+                except (TypeError, ValueError):
+                    return make_error(
+                        f"Invalid value for config field {k!r}: {v!r}",
+                        code="BAD_OVERRIDE",
+                    )
+            else:
+                return make_error(
+                    f"Unknown FeatureDetectConfig field: {k!r}",
+                    suggestion="Check the FeatureDetectConfig docstring for valid fields.",
+                    code="BAD_OVERRIDE",
+                )
+
+    result = _detect(q_use, I_use, sigma_I=err_use, config=cfg)
+    out = result.to_dict()
+    out["ok"] = True
+    out["q_min_analysed"] = float(q_use[0])
+    out["q_max_analysed"] = float(q_use[-1])
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Category D — Fit execution
 # ---------------------------------------------------------------------------
 

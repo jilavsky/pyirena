@@ -2067,6 +2067,10 @@ class UnifiedFitPanel(QWidget):
         # Backup for revert functionality
         self.parameter_backup = None
 
+        # Feature Identifier dialog — created lazily on first open, set back
+        # to None when the dialog is closed so re-opening creates a fresh one
+        self._feature_dialog = None
+
         # Monte Carlo uncertainty estimates (std dev across MC runs).
         # Structure mirrors fit parameters; all zeros when not yet computed.
         # Reset whenever the number of levels changes.
@@ -2121,6 +2125,22 @@ class UnifiedFitPanel(QWidget):
         from pyirena.gui.fmt_utils import eng_fmt
         return eng_fmt(value, sig=3)
 
+    def _open_feature_identifier(self):
+        """Open the Feature Identifier dialog (non-modal) for the loaded data."""
+        if self.data is None or "Q" not in self.data:
+            QMessageBox.information(
+                self, "No data",
+                "Load a dataset into the Unified Fit panel before running "
+                "feature detection."
+            )
+            return
+        if self._feature_dialog is None:
+            from pyirena.gui.feature_identifier import FeatureIdentifierDialog
+            self._feature_dialog = FeatureIdentifierDialog(self)
+        self._feature_dialog.show()
+        self._feature_dialog.raise_()
+        self._feature_dialog.activateWindow()
+
     def create_control_panel(self) -> QWidget:
         """Create the left control panel."""
         panel = QWidget()
@@ -2174,6 +2194,23 @@ class UnifiedFitPanel(QWidget):
         self.no_limits_check.stateChanged.connect(self.on_no_limits_changed)
         top_controls.addWidget(self.no_limits_check)
         top_controls.addStretch()
+
+        # Identify Features button — opens FeatureIdentifierDialog (non-modal)
+        self.identify_features_btn = QPushButton("Identify Features…")
+        self.identify_features_btn.setFixedHeight(22)
+        self.identify_features_btn.setStyleSheet(
+            "QPushButton{background:#2980b9;color:white;font-size:11px;"
+            "border-radius:3px;padding:2px 8px;}"
+            "QPushButton:hover{background:#3498db;}"
+        )
+        self.identify_features_btn.setToolTip(
+            "Open the Feature Identifier — analyses the data's log-log slope\n"
+            "profile to suggest the number of Unified Fit levels and the\n"
+            "Guinier Q-windows.  Visualisation only; does not modify your fit."
+        )
+        self.identify_features_btn.clicked.connect(self._open_feature_identifier)
+        top_controls.addWidget(self.identify_features_btn)
+
         _help_btn = QPushButton("? Help")
         _help_btn.setFixedSize(60, 22)
         _help_btn.setStyleSheet(

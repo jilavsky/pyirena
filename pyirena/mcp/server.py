@@ -595,6 +595,41 @@ def pyirena_ctrl_fit_local_power_law(
     return _ctrl.fit_local_power_law(session_id, q_min, q_max)
 
 
+# --- Feature detection (slope-profile analysis) ---
+
+@mcp.tool()
+def pyirena_ctrl_detect_features(
+    session_id: str,
+    preset: str = "auto",
+    q_min: Optional[float] = None,
+    q_max: Optional[float] = None,
+    config_overrides: Optional[dict] = None,
+) -> dict:
+    """Detect plateaus, peaks, and power-law regions in the loaded I(Q) data.
+
+    Returns a structured analysis of the curve's log-log slope profile,
+    intended to help decide how many Unified Fit levels are needed and
+    where to place Q-windows for local Guinier / Porod sub-fits.
+
+    Does NOT modify the model — purely diagnostic.
+
+    Presets: 'auto' (picks SAXS or USAXS by log-decades), 'saxs' (strict
+    thresholds, good for ≤2 decades), 'usaxs' (relaxed, good for >2.5
+    decades), 'custom' (use defaults + config_overrides).
+
+    Returns dict with: plateaus, peaks, power_law_regions,
+    recommended_guinier_windows, recommended_nlevels, background_q_min,
+    preset_used, log_decades, n_points.
+    """
+    return _ctrl.detect_features(
+        session_id,
+        preset=preset,
+        q_min=q_min,
+        q_max=q_max,
+        config_overrides=config_overrides,
+    )
+
+
 # --- Fit execution ---
 
 @mcp.tool()
