@@ -1138,8 +1138,8 @@ class WAXSPeakFitPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("pyIrena – WAXS Peak Fit")
-        self.setMinimumSize(1000, 750)
-        self.resize(1200, 900)
+        self.setMinimumSize(1000, 860)
+        self.resize(1200, 1020)
 
         # ── Application state ─────────────────────────────────────────────
         from pyirena.state.state_manager import StateManager
@@ -1154,6 +1154,8 @@ class WAXSPeakFitPanel(QWidget):
 
         self._pre_fit_bg_params: Optional[Dict] = None   # for Revert
         self._pre_fit_peaks:     Optional[List] = None
+        self._result_annotation: Optional[pg.TextItem] = None
+        self._last_fit_result:   Optional[Dict] = None   # for std propagation to file
 
         # ── Graph window (embedded on right side) ─────────────────────────
         self._graph = WAXSPeakFitGraphWindow()
@@ -1316,14 +1318,21 @@ class WAXSPeakFitPanel(QWidget):
         ll.addWidget(pf_box)
 
         # ── Peaks scroll area ─────────────────────────────────────────────
-        # The peak list lives inside the "Peaks" QGroupBox.  "Add Peak
-        # Manually" / "Sort by Q" intentionally live OUTSIDE that groupbox
-        # so a long peak list can never cover them — when the scroll area
-        # filled the groupbox they were getting clipped below the visible
-        # area.
         peaks_outer = QGroupBox("Peaks")
         peaks_outer_layout = QVBoxLayout(peaks_outer)
         peaks_outer_layout.setSpacing(2)
+
+        # "Sort by Q" button sits at the top-right of the groupbox content area.
+        # "Add peak" and "Remove peak" are available via right-click on the graph.
+        peaks_hdr = QHBoxLayout()
+        peaks_hdr.addStretch()
+        sort_btn = QPushButton("Sort by Q")
+        sort_btn.setStyleSheet(_BTN_SAVE)
+        sort_btn.setFixedSize(82, 20)
+        sort_btn.setToolTip("Sort all peaks in the list by ascending Q₀ position.")
+        sort_btn.clicked.connect(self._sort_peaks_by_q)
+        peaks_hdr.addWidget(sort_btn)
+        peaks_outer_layout.addLayout(peaks_hdr)
 
         self._peaks_scroll = QScrollArea()
         self._peaks_scroll.setWidgetResizable(True)
@@ -1335,27 +1344,12 @@ class WAXSPeakFitPanel(QWidget):
         self._peaks_vbox.addStretch()
         self._peaks_scroll.setWidget(self._peaks_container)
         peaks_outer_layout.addWidget(self._peaks_scroll)
+
+        hint_lbl = _label("Right-click graph to add / remove peaks")
+        hint_lbl.setStyleSheet("color: #777777; font-style: italic; font-size: 10px;")
+        peaks_outer_layout.addWidget(hint_lbl)
+
         ll.addWidget(peaks_outer)
-
-        # Always-visible Add / Sort row pinned below the Peaks groupbox.
-        peak_btn_row = QHBoxLayout()
-        add_btn = QPushButton("Add Peak Manually")
-        add_btn.setStyleSheet(_BTN_ADD)
-        add_btn.setMinimumHeight(26)
-        add_btn.setToolTip(
-            "Add a new peak entry at a default Q position.\n"
-            "Edit the Q₀ and FWHM values, then click Fit."
-        )
-        add_btn.clicked.connect(lambda: self._add_peak_at_q(None, None))
-        peak_btn_row.addWidget(add_btn)
-
-        sort_btn = QPushButton("Sort by Q")
-        sort_btn.setStyleSheet(_BTN_SAVE)
-        sort_btn.setMinimumHeight(26)
-        sort_btn.setToolTip("Sort all peaks in the list by ascending Q₀ position.")
-        sort_btn.clicked.connect(self._sort_peaks_by_q)
-        peak_btn_row.addWidget(sort_btn)
-        ll.addLayout(peak_btn_row)
 
         # ── Fit controls: Graph Model | Fit | Fix Limits ──────────────────
         # Revert and Reset live in the standard output section below — matches
@@ -2047,6 +2041,9 @@ class WAXSPeakFitPanel(QWidget):
                 success=True,
             )
 
+        # Cache result so _store_in_file can propagate stds to the HDF5 file.
+        self._last_fit_result = result
+
         # Apply fitted parameters back to GUI
         try:
             self._apply_fit_result(result)
@@ -2269,18 +2266,29 @@ class WAXSPeakFitPanel(QWidget):
         s  = np.where(s > 0, s, 1.0)
         residuals = (self._I - I_model) / s
 
+        # Pull per-parameter std deviations from the most recent fit result.
+        # If the user added/removed peaks since the last fit the lists may be
+        # mismatched in length — pad with empty dicts for unfit peaks.
+        cached = self._last_fit_result or {}
+        cached_bg_std   = cached.get("bg_params_std", {})
+        cached_peak_std = cached.get("peaks_std", [])
+        peaks_std = [
+            cached_peak_std[i] if i < len(cached_peak_std) else {}
+            for i in range(len(peaks))
+        ]
+
         result = {
-            "bg_shape":    bg_shape,
-            "bg_params":   bg_params,
-            "bg_params_std": {},
-            "peaks":       peaks,
-            "peaks_std":   [{} for _ in peaks],
-            "I_model":     I_model,
-            "I_bg":        I_bg,
-            "residuals":   residuals,
-            "chi2":        float(np.sum((residuals[np.isfinite(residuals)]) ** 2)),
-            "dof":         max(1, np.sum(np.isfinite(self._I)) - len(peaks) * 3),
-            "reduced_chi2": float(np.nanmean(residuals ** 2)),
+            "bg_shape":      bg_shape,
+            "bg_params":     bg_params,
+            "bg_params_std": cached_bg_std,
+            "peaks":         peaks,
+            "peaks_std":     peaks_std,
+            "I_model":       I_model,
+            "I_bg":          I_bg,
+            "residuals":     residuals,
+            "chi2":          float(np.sum((residuals[np.isfinite(residuals)]) ** 2)),
+            "dof":           max(1, np.sum(np.isfinite(self._I)) - len(peaks) * 3),
+            "reduced_chi2":  float(np.nanmean(residuals ** 2)),
         }
         try:
             from pyirena.io.nxcansas_waxs_peakfit import save_waxs_peakfit_results
@@ -2304,7 +2312,15 @@ class WAXSPeakFitPanel(QWidget):
             self._set_status(f"Save error: {exc}", error=True)
 
     def _results_to_graphs(self):
-        """Add annotation with key fit results to the graph."""
+        """Replace annotation with key fit results on the graph."""
+        # Remove any previous annotation before placing a fresh one.
+        if self._result_annotation is not None:
+            try:
+                self._graph.main_plot.removeItem(self._result_annotation)
+            except Exception:
+                pass
+            self._result_annotation = None
+
         bg_shape  = self._bg_combo.currentText()
         bg_params = self._get_bg_params()
         peaks     = self._get_peaks()
@@ -2328,6 +2344,7 @@ class WAXSPeakFitPanel(QWidget):
         ann = pg.TextItem(text=text, color=(40, 40, 40), anchor=(1, 0))
         ann.setPos(vr[0][1] - 0.02 * dx, vr[1][1] - 0.12 * dy)
         self._graph.main_plot.addItem(ann)
+        self._result_annotation = ann
 
     def _export_params(self):
         # Default to the folder where the current data file lives
