@@ -1021,15 +1021,25 @@ class WAXSPeakFitModel:
             return {"success": False, "message": "Too few valid data points."}
 
         # ── Weight selection ─────────────────────────────────────────────
+        # absolute_sigma_for_cov controls how covariance is computed:
+        #   True  → sigma is taken as true 1-σ measurement uncertainty, so
+        #            pcov diagonals are absolute variances of the parameters.
+        #   False → sigma is treated as relative weights only; pcov is
+        #            rescaled by reduced χ² so parameter stds reflect the
+        #            actual residual scatter regardless of σ scale.
+        # Only the "standard" mode uses real measurement uncertainties.
         if weight_mode == "equal":
             sigma_ = np.ones_like(I_)
+            absolute_sigma_for_cov = False
         elif weight_mode == "relative":
             if dI_ is not None and np.all(I_ > 0):
                 sigma_ = dI_ / np.clip(I_, 1e-30, None)
             else:
                 sigma_ = 1.0 / np.clip(I_, 1e-30, None)
+            absolute_sigma_for_cov = False
         else:  # "standard"
             sigma_ = dI_ if dI_ is not None else np.ones_like(I_)
+            absolute_sigma_for_cov = dI_ is not None
 
         # ── Adaptive background pre-computation ──────────────────────────
         adaptive_bg_fit = None   # subset for curve_fit
@@ -1065,7 +1075,7 @@ class WAXSPeakFitModel:
                 warnings.simplefilter("ignore")
                 popt, pcov = optimize.curve_fit(
                     f, q_, I_, p0=p0,
-                    sigma=sigma_, absolute_sigma=True,
+                    sigma=sigma_, absolute_sigma=absolute_sigma_for_cov,
                     bounds=(lb, ub),
                     maxfev=10_000,
                     # Relaxed convergence: scipy default ~1.5e-8 (machine precision)
@@ -1112,9 +1122,11 @@ class WAXSPeakFitModel:
         """
         import copy
 
-        # Std deviations from covariance diagonal
-        if pcov.size > 0 and np.all(np.isfinite(pcov.diagonal())):
-            pstd = np.sqrt(np.abs(np.diag(pcov)))
+        # Std deviations from covariance diagonal — per-element so that a
+        # single inf (parameter at a bound) doesn't wipe out all other stds.
+        if pcov.size > 0:
+            diag = np.diag(pcov)
+            pstd = np.where(np.isfinite(diag), np.sqrt(np.abs(diag)), np.nan)
         else:
             pstd = np.full(len(popt), np.nan)
 
