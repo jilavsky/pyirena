@@ -5,9 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.2] — 2026-05-25
+## [0.8.2] — 2026-06-15
 
 ### Fixed
+
+- **WAXS Peak Fit: parameter uncertainties were nonsensical and the
+  saved HDF5 file contained empty `*_std` fields**. Three independent
+  bugs were combining to produce the broken behavior:
+
+  1. **`absolute_sigma=True` used unconditionally** in
+     `scipy.optimize.curve_fit`. For `weight_mode='equal'` (σ=1) or
+     `'relative'` (σ=dI/I), σ is a relative weight, not a real
+     measurement uncertainty — using `absolute_sigma=True` inflated
+     parameter covariances by orders of magnitude (e.g. σ_A ≫ A for a
+     clean Gaussian peak). Only `'standard'` mode (with measured dI)
+     now uses `absolute_sigma=True`; the other modes use
+     `absolute_sigma=False` so `pcov` is rescaled by the actual
+     residual scatter.
+  2. **All stds wiped to NaN if any one was inf**. A single inf in
+     the covariance diagonal (typically a parameter at a bound) was
+     setting every parameter's std to NaN via
+     `np.all(np.isfinite(...))`. Each parameter now gets its own std
+     or NaN independently.
+  3. **`_store_in_file` hard-coded empty std dicts**. The save path
+     built `bg_params_std={}` and `peaks_std=[{}…]` from scratch and
+     never consulted the fit result. The most recent fit result is
+     now cached and its stds forwarded to
+     `save_waxs_peakfit_results`.
+
+  Net effect: for a clean peak (A=0.011, Q₀=2.535, FWHM=0.027),
+  uncertainties go from absurd (σ_A=0.36, σ_Q₀=0.43, σ_FWHM=1.0) to
+  sensible (~1% of value), and the saved HDF5 `params_std/`,
+  `background_std/`, and `area_std` datasets are populated.
+
+- **WAXS Peak Fit GUI: "Results to graphs" stacked annotations**.
+  Each press added a new text box on top of the previous one instead
+  of replacing it. Now removes the previous annotation first.
 
 - **`.pxp` importer: many small fixes from end-to-end testing on real
   legacy USAXS experiments**. Aggregating one release because each
@@ -57,6 +90,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning that the rest need .h5xp re-save".
 
   +4 new unit tests (23 total).
+
+### Changed
+
+- **WAXS Peak Fit panel layout**: "Sort by Q" moved to a small button
+  at the top-right corner of the Peaks groupbox; "Add Peak Manually"
+  removed (right-click on the graph already adds/removes peaks); a
+  small italic hint reminds the user; window default height bumped
+  ~14% so a longer peak list fits without scroll-area clipping.
 
 ## [0.8.1] — 2026-05-25
 
