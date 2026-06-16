@@ -5,7 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **SimpleFits parameter uncertainties** (`pyirena/core/simple_fits.py`).
+  Mirror of the WAXS fix landed in 0.8.2: `SimpleFitModel.fit()` no longer
+  hardcodes `absolute_sigma=True` when calling `scipy.optimize.curve_fit`.
+  When the caller does not supply real measurement errors, the synthesised
+  `I × 0.05` weights are passed with `absolute_sigma=False` so the
+  covariance matrix is rescaled by reduced χ² (the textbook "unknown σ
+  scale" behaviour); real user-supplied errors are still treated as true
+  1-σ values via `absolute_sigma=True`. Without this, fits with residual
+  scatter very different from 5 % reported uncertainties that were tighter
+  or looser than the actual residual scatter by the χ²-ratio (e.g. 15 %
+  noisy data was reporting σ ≈ 3× too small). Per-element std extraction
+  now uses `np.isfinite` per diagonal entry so a single parameter at a
+  bound no longer NaN-wipes the full std vector. These uncertainties are
+  surfaced in the Simple Fits panel, in the NXcanSAS file (`params_std/`)
+  and in the Data Selector results display.
+
 ## [0.8.2] — 2026-06-15
+
+### Added
+
+- **Feature Identifier add-on for the Unified Fit panel and AI agent.**
+  Both interactive users and the LLM agent driving the Unified Fit tool now
+  have a way to ask "what does this curve actually contain?" before choosing
+  the number of levels and Q-windows.
+  - **Core** (`pyirena/core/feature_detect.py`): slope-profile detector that
+    operates on `d(log I)/d(log Q)` in log(Q) space, with reflection +
+    linear-extrapolation boundary handling to avoid edge bias. Classifies
+    regions as Guinier plateaus, structure-factor peaks, or power-law
+    sections, and proposes initial Guinier Q-windows per detected feature.
+    All thresholds are expressed in log decades so behaviour is independent
+    of point count. Two presets — `saxs_preset()` (≤2 decades) and
+    `usaxs_preset()` (>2.5 decades, relaxed slope thresholds) — with
+    `auto(q)` picking by data extent.
+  - **GUI** (`pyirena/gui/feature_identifier.py`): non-modal
+    `FeatureIdentifierDialog` opened from a new "Identify Features…" button
+    in the Unified Fit top control row. Draws plateau / power-law regions
+    as semi-transparent overlays and peaks as vertical lines on the main
+    I(Q) graph. Visualisation only — never modifies level parameters.
+  - **MCP / AI agent** (`pyirena/api/control/unified_fit.py`,
+    `pyirena/mcp/server.py`): new `detect_features(session_id, preset, …)`
+    tool with the same JSON output the dialog renders, so the agent can
+    base level-count and Q-window decisions on the curve's slope profile
+    instead of guessing.
+  - 11 new unit tests in `pyirena/tests/test_feature_detect.py`.
+>>>>>>> 05723f1 (fix(simple_fits): correct uncertainty computation (mirror of waxs fix))
 
 ### Fixed
 

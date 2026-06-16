@@ -636,11 +636,20 @@ class SimpleFitModel:
         """
         q = np.asarray(q, dtype=float)
         I = np.asarray(intensity, dtype=float)
+        # Track whether sigma is a true measurement uncertainty so we can
+        # tell curve_fit how to compute the covariance matrix.  Synthesised
+        # 5%-of-intensity weights are NOT true 1-σ errors; treating them as
+        # such would yield meaningless parameter uncertainties (pcov absolute).
+        # When no real error is supplied, absolute_sigma=False makes scipy
+        # rescale pcov by reduced χ² so parameter stds reflect the actual
+        # residual scatter (the textbook "unknown σ scale" behaviour).
         if error is None:
             dI = np.maximum(I * 0.05, 1e-30)
+            absolute_sigma_for_cov = False
         else:
             dI = np.asarray(error, dtype=float)
             dI = np.maximum(dI, 1e-30)
+            absolute_sigma_for_cov = True
 
         # Filter to finite, positive q points
         mask = np.isfinite(q) & np.isfinite(I) & np.isfinite(dI) & (q > 0)
@@ -715,7 +724,7 @@ class SimpleFitModel:
                 func, qf, If,
                 p0=p0,
                 sigma=dIf,
-                absolute_sigma=True,
+                absolute_sigma=absolute_sigma_for_cov,
                 bounds=(bounds_lo, bounds_hi),
                 maxfev=100_000,
             )
@@ -730,12 +739,18 @@ class SimpleFitModel:
         fitted_params = {k: float(v) for k, v in fitted_params.items()}
         self.params.update(fitted_params)
 
-        # Parameter uncertainties (0 for fixed params, from pcov for free)
+        # Parameter uncertainties (0 for fixed params, from pcov for free).
+        # Per-element extraction so a single non-finite diagonal entry
+        # (e.g. a parameter pinned at a bound) does not wipe the whole
+        # std vector.
         param_std: dict[str, float] = {n: 0.0 for n in fixed}
         try:
             diag = np.diag(pcov)
             for name, d in zip(free_names, diag):
-                param_std[name] = float(np.sqrt(max(d, 0.0)))
+                if np.isfinite(d):
+                    param_std[name] = float(np.sqrt(abs(d)))
+                else:
+                    param_std[name] = float('nan')
         except Exception:
             for name in free_names:
                 param_std[name] = float('nan')
