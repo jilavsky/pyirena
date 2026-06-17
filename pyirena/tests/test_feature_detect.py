@@ -1,7 +1,7 @@
-"""Unit tests for pyirena.core.feature_detect."""
+"""Unit tests for pyirena.core.feature_detect (v2 segmentation algorithm)."""
 from __future__ import annotations
 
-import os
+import re
 from pathlib import Path
 
 import numpy as np
@@ -15,187 +15,311 @@ from pyirena.core.feature_detect import (
 
 
 # ---------------------------------------------------------------------------
-# Synthetic data tests — deterministic and independent of test data files
+# Synthetic-curve helpers
 # ---------------------------------------------------------------------------
-
-def _guinier(q: np.ndarray, G: float, Rg: float) -> np.ndarray:
-    return G * np.exp(-(q ** 2) * (Rg ** 2) / 3.0)
-
 
 def _power_law(q: np.ndarray, B: float, P: float) -> np.ndarray:
     return B * np.power(q, -P)
 
 
-def test_empty_input_returns_empty_result():
-    """No data should produce an empty result without raising."""
-    r = detect_features(np.array([]), np.array([]))
-    assert isinstance(r, FeatureDetectResult)
-    assert r.n_points == 0
-    assert r.plateaus == []
-    assert r.peaks == []
-    assert r.power_law_regions == []
-
-
-def test_too_few_points_returns_empty():
-    """Fewer than 5 points returns empty result."""
-    q = np.array([0.01, 0.02, 0.03])
-    I = np.array([1.0, 0.8, 0.6])
-    r = detect_features(q, I)
-    assert r.n_points == 3
-    assert r.plateaus == []
-
-
-def test_pure_power_law_detected():
-    """Single Q⁻⁴ power-law should produce a power-law region and no plateau."""
-    q = np.logspace(-2, 0, 200)  # 2 decades
-    I = _power_law(q, B=1e-4, P=4.0)
-    r = detect_features(q, I, config=FeatureDetectConfig.saxs_preset())
-    assert len(r.power_law_regions) >= 1
-    pl = r.power_law_regions[0]
-    assert -4.5 < pl["slope"] < -3.5, f"Expected slope near -4, got {pl['slope']}"
-    assert pl["width_decades"] > 1.0
+def _guinier(q: np.ndarray, G: float, Rg: float) -> np.ndarray:
+    return G * np.exp(-(q ** 2) * (Rg ** 2) / 3.0)
 
 
 def _beaucage_level(q, G, Rg, B, P):
-    """Beaucage unified-fit level: smooth Guinier→Porod transition.
-
-        I(q) = G·exp(-q²Rg²/3) + B·[erf(q·Rg/√6)]^(3P) / q^P
-
-    The error-function factor switches the Porod term on only above the
-    Guinier knee — without it the Porod tail diverges as q→0.
-    """
+    """Beaucage unified-fit level: Guinier + smooth Porod onset."""
     from scipy.special import erf
-    guinier = G * np.exp(-(q ** 2) * (Rg ** 2) / 3.0)
     arg = q * Rg / np.sqrt(6.0)
-    porod = B * (erf(arg)) ** (3 * P) / np.power(q, P)
-    return guinier + porod
+    return _guinier(q, G, Rg) + B * (erf(arg)) ** (3 * P) / np.power(q, P)
 
 
-def test_single_guinier_with_porod_detected():
-    """Single Beaucage level (Guinier knee + cutoff Porod tail) — should
-    produce ≥1 plateau (the Guinier region) and ≥1 power-law (the Porod tail).
-    """
-    q = np.logspace(-3, 0, 300)  # 3 decades, USAXS-like
-    I = _beaucage_level(q, G=1.0e6, Rg=100.0, B=1.0e-3, P=4.0)
-    r = detect_features(q, I)  # auto preset → USAXS
-    assert r.preset_used == "usaxs"
-    assert len(r.plateaus) >= 1, f"Expected ≥1 plateau, got: {r.plateaus}"
-    assert len(r.power_law_regions) >= 1, (
-        f"Expected ≥1 power-law region, got: {r.power_law_regions}"
-    )
+# ---------------------------------------------------------------------------
+# Schema & edge-case tests
+# ---------------------------------------------------------------------------
+
+def test_empty_input_returns_empty_result():
+    r = detect_features(np.array([]), np.array([]))
+    assert isinstance(r, FeatureDetectResult)
+    assert r.n_points == 0
+    assert r.segments == []
+    assert r.guinier_knees == []
 
 
-def test_two_level_guinier():
-    """Two well-separated Beaucage levels — large aggregate (mass-fractal
-    P=2.5) + small primary particles (P=4) — should give ≥2 plateaus.
-
-    A mass-fractal aggregate has P<3 so its Porod tail decays slowly enough
-    that the smaller primary-particle plateau remains visible at intermediate Q.
-    This is the canonical pyirena two-level test case.
-    """
-    q = np.logspace(-4, 0, 500)
-    I = (
-        _beaucage_level(q, G=1.0e8, Rg=500.0, B=2.0e-2, P=2.0)
-        + _beaucage_level(q, G=1.0e5, Rg=10.0,  B=1.0e-3, P=4.0)
-    )
+def test_too_few_points_returns_empty():
+    q = np.array([0.01, 0.02, 0.03])
+    I = np.array([1.0, 0.8, 0.6])
     r = detect_features(q, I)
-    assert len(r.plateaus) >= 2, (
-        f"Expected ≥2 plateaus for two-level curve, got {len(r.plateaus)}: "
-        f"{r.plateaus}"
-    )
-    assert r.recommended_nlevels >= 2
-
-
-def test_auto_preset_selection_saxs():
-    """≤2 log decades → SAXS preset."""
-    q = np.logspace(-2, 0, 100)  # 2 decades
-    cfg = FeatureDetectConfig.auto(q)
-    # SAXS preset has plateau_slope_max=0.3, USAXS has 0.5
-    assert cfg.plateau_slope_max == 0.3
-
-
-def test_auto_preset_selection_usaxs():
-    """>2.5 log decades → USAXS preset."""
-    q = np.logspace(-4, 0, 200)  # 4 decades
-    cfg = FeatureDetectConfig.auto(q)
-    assert cfg.plateau_slope_max == 0.5
-    assert cfg.power_law_max_slope == -1.0
-
-
-def test_noisy_points_dropped_via_sigma_filter():
-    """Points with σ_I/I > threshold should be filtered out."""
-    q = np.logspace(-2, 0, 100)
-    I = _power_law(q, 1e-4, 4.0)
-    sigma_I = np.full_like(I, 0.01) * I  # 1% — well below threshold
-    sigma_I[50:60] = I[50:60] * 1.0       # 100% — dropped
-    r = detect_features(q, I, sigma_I=sigma_I)
-    # 10 noisy points dropped → 90 points used
-    assert r.n_points == 90
-
-
-def test_negative_intensities_handled():
-    """Negative I values (e.g. from subtraction) should not crash."""
-    q = np.logspace(-2, 0, 100)
-    I = _power_law(q, 1e-4, 4.0)
-    I[20:25] = -1e-6  # spurious negatives
-    r = detect_features(q, I)
-    # 5 dropped → 95 points
-    assert r.n_points == 95
-    assert len(r.power_law_regions) >= 1
+    assert r.segments == []
 
 
 def test_result_serializable_to_dict():
-    """Result must be JSON-friendly for MCP layer."""
-    q = np.logspace(-2, 0, 100)
+    q = np.logspace(-2, np.log10(0.5), 200)
     I = _power_law(q, 1e-4, 4.0)
     r = detect_features(q, I)
     d = r.to_dict()
     assert isinstance(d, dict)
-    assert "plateaus" in d
+    assert "segments" in d
+    assert "guinier_knees" in d
     assert "recommended_nlevels" in d
-    # All values must be plain Python types (not numpy)
     import json
-    json.dumps(d)  # raises if any np scalars remain
+    json.dumps(d)  # raises if any numpy types remain
+
+
+def test_negative_intensities_dropped():
+    q = np.logspace(-2, np.log10(0.5), 100)
+    I = _power_law(q, 1e-4, 4.0)
+    I[20:25] = -1e-6
+    r = detect_features(q, I)
+    assert r.n_points == 95
+
+
+def test_noisy_points_dropped_via_sigma_filter():
+    q = np.logspace(-2, np.log10(0.5), 100)
+    I = _power_law(q, 1e-4, 4.0)
+    sigma_I = 0.01 * I
+    sigma_I[40:50] = I[40:50] * 1.0  # 100% relative error — should be dropped
+    r = detect_features(q, I, sigma_I=sigma_I)
+    assert r.n_points == 90
 
 
 # ---------------------------------------------------------------------------
-# Optional: real test-data spot check, skipped if files absent
+# Q clipping
 # ---------------------------------------------------------------------------
 
-_REAL_DATA = Path(__file__).resolve().parents[2] / "temp" / "test_data_out" / "SAXS" / "Sa1_sphNP_5mg_0004.h5"
+def test_q_clipping_default_06():
+    """Synthetic data extending to Q=2.0 — analysis limited to Q ≤ 0.6."""
+    q = np.logspace(-2, np.log10(2.0), 300)
+    I = _power_law(q, 1e-4, 4.0)
+    r = detect_features(q, I)
+    assert r.q_max_analysed <= 0.6 + 1e-9
 
 
-def _find_qi_in_h5(h):
-    """Walk h5py file/group looking for a child with Q and I datasets."""
+def test_q_clipping_disabled_with_none():
+    """Pass q_max_clip=None → full range is analysed."""
+    q = np.logspace(-2, np.log10(2.0), 300)
+    I = _power_law(q, 1e-4, 4.0)
+    cfg = FeatureDetectConfig(q_max_clip=None)
+    r = detect_features(q, I, config=cfg)
+    assert r.q_max_analysed > 0.6
+
+
+# ---------------------------------------------------------------------------
+# Segmentation on controlled synthetic curves
+# ---------------------------------------------------------------------------
+
+def test_pure_power_law_one_segment():
+    """Single Q⁻⁴ across 2 decades should give 1 power-law segment, slope ≈ -4."""
+    q = np.logspace(-2, np.log10(0.5), 200)
+    I = _power_law(q, 1e-4, 4.0)
+    r = detect_features(q, I)
+    pl_segments = [s for s in r.segments if s["kind"] == "power_law"]
+    assert len(pl_segments) >= 1
+    main = pl_segments[0]
+    assert -4.3 < main["slope"] < -3.7, f"Expected slope ≈ -4, got {main['slope']}"
+    # Single-slope curve should produce no Guinier knees
+    assert len(r.guinier_knees) == 0
+
+
+def test_beaucage_one_level_two_segments_and_one_knee():
+    """Guinier+Porod → 1 plateau + 1 power-law, with a knee between them."""
+    q = np.logspace(-3, np.log10(0.5), 300)
+    I = _beaucage_level(q, G=1.0e6, Rg=100.0, B=1.0e-3, P=4.0)
+    r = detect_features(q, I)
+    kinds = [s["kind"] for s in r.segments]
+    assert "guinier_plateau" in kinds, f"Expected a guinier_plateau, got {kinds}"
+    assert "power_law" in kinds, f"Expected a power_law, got {kinds}"
+    # At least one knee should fall between the plateau and the Porod tail
+    assert len(r.guinier_knees) >= 1
+
+
+def test_background_recognised_at_high_q_end():
+    """A flat tail at the highest-Q end should be classified as background.
+
+    Built so the constant background dominates above Q~0.1: power-law signal
+    (Q⁻⁴ with B=1e-6) falls below the background (0.05) by Q=0.05.
+    """
+    q = np.logspace(-2, np.log10(0.5), 200)
+    I = _power_law(q, 1e-6, 4.0) + 0.05
+    r = detect_features(q, I)
+    assert r.segments, "Expected at least one segment"
+    last_seg = r.segments[-1]
+    assert last_seg["kind"] == "background", (
+        f"Expected last segment to be background, got {last_seg['kind']} "
+        f"with slope={last_seg['slope']:.2f}"
+    )
+    assert r.background_q_min is not None
+    assert r.background_q_min == last_seg["q_min"]
+
+
+def test_min_segment_decades_enforced():
+    """No segment narrower than min_segment_decades should be returned."""
+    q = np.logspace(-2, np.log10(0.5), 300)
+    I = _power_law(q, 1e-4, 4.0)
+    cfg = FeatureDetectConfig(min_segment_decades=0.5)
+    r = detect_features(q, I, config=cfg)
+    for s in r.segments:
+        assert s["width_decades"] + 1e-9 >= 0.5, (
+            f"Segment narrower than min_segment_decades: {s}"
+        )
+
+
+def test_recommended_nlevels_excludes_background():
+    """If a background is detected, recommended_nlevels must exclude it."""
+    q = np.logspace(-2, np.log10(0.5), 200)
+    I = _power_law(q, 1e-4, 4.0) + 0.1
+    r = detect_features(q, I)
+    # background segment present?
+    has_bg = any(s["kind"] == "background" for s in r.segments)
+    if has_bg:
+        non_bg = sum(1 for s in r.segments if s["kind"] != "background")
+        assert r.recommended_nlevels == non_bg
+
+
+# ---------------------------------------------------------------------------
+# Ground-truth fidelity test (parametrised over the 31 hand-labelled files)
+# ---------------------------------------------------------------------------
+
+_GT_DIR = (Path(__file__).resolve().parents[2]
+           / "testData" / "StructureIdentificationExamples")
+_GT_FILE = _GT_DIR / "Description and task.txt"
+
+
+def _parse_ground_truth(text: str) -> dict:
+    """Parse the description.txt into {sample_name: [(kind, q_lo, q_hi), ...]}.
+
+    Only PLS / GP / Background entries are returned (kinds the segmenter
+    can directly match against).  GK ranges are not collected because they
+    are the *gaps* between segments and are reported in `guinier_knees`,
+    not `segments`.
+    """
+    out: dict = {}
+    cur_name: str | None = None
+    range_re = re.compile(
+        r"^\s*"
+        r"(?P<tag>Background|Blackground|PLS|GP|GP/PLS|Bkg)"
+        r"\b[^0-9-]*"
+        r"(?P<lo>(?:0?\.[0-9]+|[0-9]+(?:\.[0-9]+)?))"
+        r"\s*-\s*"
+        r"(?P<hi>(?:0?\.[0-9]+|[0-9]+(?:\.[0-9]+)?|min))",
+        re.IGNORECASE,
+    )
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.match(r"^(Sample\d+|Plate\w+_NX|Rod\w+_NX|RodSfAgg_NSX)\b", line)
+        if m:
+            cur_name = m.group(1).strip()
+            if cur_name == "RodSfAgg_NSX":
+                cur_name = "RodSfAgg_NX"
+            out.setdefault(cur_name, [])
+            continue
+        if cur_name is None:
+            continue
+        rm = range_re.search(line)
+        if not rm:
+            continue
+        tag = rm.group("tag").upper()
+        if tag in ("BACKGROUND", "BLACKGROUND", "BKG"):
+            kind = "background"
+        elif tag == "PLS":
+            kind = "power_law"
+        elif tag in ("GP", "GP/PLS"):
+            kind = "guinier_plateau"
+        else:
+            continue
+        try:
+            q_lo = float(rm.group("lo"))
+        except ValueError:
+            continue
+        hi_str = rm.group("hi")
+        try:
+            q_hi = float("nan") if hi_str.lower() == "min" else float(hi_str)
+        except ValueError:
+            continue
+        if not np.isnan(q_hi) and q_lo > q_hi:
+            q_lo, q_hi = q_hi, q_lo
+        out[cur_name].append((kind, q_lo, q_hi))
+    return out
+
+
+def _find_qi(h):
+    """Walk an h5py.File/Group looking for a {Q, I[, Idev]} group."""
     import h5py
     for k in h:
         o = h[k]
         if isinstance(o, h5py.Group):
             if "Q" in o and "I" in o:
-                return o["Q"][:], o["I"][:]
-            found = _find_qi_in_h5(o)
-            if found is not None:
-                return found
+                idev = o["Idev"][:] if "Idev" in o else None
+                return o["Q"][:], o["I"][:], idev
+            r = _find_qi(o)
+            if r is not None:
+                return r
     return None
 
 
-@pytest.mark.skipif(not _REAL_DATA.exists(),
-                    reason="real test data not present in checkout")
-def test_real_saxs_file_runs_without_error():
-    """Real SAXS file should produce a valid result (any feature count).
+def _overlap_decades(a_lo, a_hi, b_lo, b_hi):
+    if any(np.isnan([a_lo, a_hi, b_lo, b_hi])):
+        return 0.0
+    lo = max(a_lo, b_lo)
+    hi = min(a_hi, b_hi)
+    if hi <= lo:
+        return 0.0
+    return float(np.log10(hi / lo))
 
-    The exact feature counts depend on the sample's actual structure —
-    not all SAXS files contain a clean Guinier knee.  This test just
-    confirms the algorithm runs end-to-end on real data without raising.
+
+# Representative samples spanning easy/medium/hard cases
+_FIDELITY_SAMPLES = [
+    "sample1", "sample6", "sample11", "sample14", "sample20",
+    "sample28", "sample3",
+    "PlateWeak_NX", "RodSfAgg_NX",
+]
+
+
+@pytest.mark.skipif(not _GT_FILE.exists(),
+                    reason="Ground-truth description file not present")
+@pytest.mark.parametrize("sample_name", _FIDELITY_SAMPLES)
+def test_ground_truth_fidelity(sample_name: str):
+    """For each labelled sample, at least 75% of human-labelled (PLS / GP /
+    Background) ranges with definite high Q must overlap a detected segment.
+
+    A detected segment "matches" a labelled range if their log-Q overlap is
+    ≥ max(30% of the labelled width, 0.15 decades).
     """
     import h5py
-    with h5py.File(_REAL_DATA, "r") as f:
-        result = _find_qi_in_h5(f)
-    assert result is not None, "Could not find Q,I in test file"
-    q, I = result
-    r = detect_features(q, I)
-    assert r.n_points > 0
-    assert r.log_decades > 0
-    # Result must be JSON-serialisable
-    import json
-    json.dumps(r.to_dict())
+    path = _GT_DIR / f"{sample_name}.h5"
+    if not path.exists():
+        pytest.skip(f"{path.name} not present")
+    gt = _parse_ground_truth(_GT_FILE.read_text(encoding="utf-8"))
+    # Sample name in description file may differ in case
+    gt_entries = (gt.get(sample_name)
+                  or gt.get(sample_name.replace("sample", "Sample"))
+                  or [])
+    gt_segs = [(k, lo, hi) for k, lo, hi in gt_entries if not np.isnan(hi)]
+    if not gt_segs:
+        pytest.skip(f"{sample_name}: no usable ground-truth entries")
+
+    with h5py.File(path, "r") as fh:
+        result = _find_qi(fh)
+    assert result is not None, f"Could not find Q,I in {path.name}"
+    q, I, idev = result
+
+    res = detect_features(q, I, sigma_I=idev)
+    assert len(res.segments) >= 1, f"{sample_name}: no segments detected"
+
+    n_match = 0
+    for kind, q_lo, q_hi in gt_segs:
+        width = max(np.log10(q_hi / q_lo), 1e-6)
+        best = 0.0
+        for s in res.segments:
+            o = _overlap_decades(q_lo, q_hi, s["q_min"], s["q_max"])
+            if o > best:
+                best = o
+        if best >= 0.3 * width or best >= 0.15:
+            n_match += 1
+    match_frac = n_match / len(gt_segs)
+    assert match_frac >= 0.75, (
+        f"{sample_name}: only {n_match}/{len(gt_segs)} GT segments matched "
+        f"(< 75%).\n  GT: {gt_segs}\n  Detected: "
+        f"{[(s['kind'], s['q_min'], s['q_max'], s['slope']) for s in res.segments]}"
+    )

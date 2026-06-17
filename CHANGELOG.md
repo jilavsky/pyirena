@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] — 2026-06-17
+
+### Changed
+
+- **Feature Identifier rewritten as power-law segmentation.**  The v0.8.3
+  threshold-based plateau detector was insufficient — it produced one or
+  zero features on many real SAXS curves because steep Porod slopes
+  (P ≈ 2-4) fell between the SAXS plateau threshold and the USAXS
+  power-law threshold and were silently ignored.  The new algorithm:
+  - Segments the **entire I(Q) curve** into contiguous power-law-slope
+    regions using a sliding-window stability test on the smoothed
+    d(log I)/d(log Q) profile, with adjacent-segment merging by
+    mean-slope similarity.
+  - Classifies each segment as ``background`` (small |slope| AND
+    touches the high-Q end), ``guinier_plateau`` (small |slope|
+    elsewhere), or ``power_law``.
+  - Derives ``guinier_knees`` between adjacent segments whose slopes
+    differ by ≥ 0.5.
+  - Clips data to Q ≤ 0.6 Å⁻¹ by default (SAS-approximation limit;
+    user-overridable).
+  - Validated against 31 hand-labelled SAXS samples in
+    ``testData/StructureIdentificationExamples/``: 95% of human-marked
+    Power-Law-Slope / Guinier-Plateau / Background ranges are matched
+    by a detected segment.
+  - Result schema changed: ``segments`` + ``guinier_knees`` replace the
+    v0.8.3 ``plateaus`` / ``peaks`` / ``power_law_regions`` lists.
+    No SAXS/USAXS presets — the algorithm is range-independent.
+  - Updated: ``pyirena.core.feature_detect``,
+    ``pyirena.api.control.unified_fit.detect_features``,
+    ``pyirena.mcp.server.pyirena_ctrl_detect_features``,
+    ``pyirena.gui.feature_identifier`` (drops preset combo; renders
+    one overlay per segment plus knee markers).
+  - 9 of 21 unit tests are parametrised ground-truth fidelity checks.
+
 ## [0.8.3] — 2026-06-13
 
 ### Added

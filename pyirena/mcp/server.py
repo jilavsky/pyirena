@@ -600,32 +600,37 @@ def pyirena_ctrl_fit_local_power_law(
 @mcp.tool()
 def pyirena_ctrl_detect_features(
     session_id: str,
-    preset: str = "auto",
     q_min: Optional[float] = None,
     q_max: Optional[float] = None,
+    q_max_clip: Optional[float] = 0.6,
     config_overrides: Optional[dict] = None,
 ) -> dict:
-    """Detect plateaus, peaks, and power-law regions in the loaded I(Q) data.
+    """Segment the loaded I(Q) curve into power-law slope segments.
 
-    Returns a structured analysis of the curve's log-log slope profile,
-    intended to help decide how many Unified Fit levels are needed and
-    where to place Q-windows for local Guinier / Porod sub-fits.
+    Returns a full piecewise classification of the curve in log-log space.
+    Each segment has a locally-constant slope; adjacent segments with
+    substantially different slopes imply Guinier knees between them
+    (also returned).  Intended to help decide how many Unified Fit levels
+    are needed and where to place Q-windows for local Guinier / Porod fits.
 
     Does NOT modify the model — purely diagnostic.
 
-    Presets: 'auto' (picks SAXS or USAXS by log-decades), 'saxs' (strict
-    thresholds, good for ≤2 decades), 'usaxs' (relaxed, good for >2.5
-    decades), 'custom' (use defaults + config_overrides).
+    Q clipping: by default data above q_max_clip=0.6 Å⁻¹ is dropped
+    (the practical small-angle-approximation limit; amorphous diffraction
+    above this should not be classified as SAS structure).  Pass None
+    to disable.
 
-    Returns dict with: plateaus, peaks, power_law_regions,
-    recommended_guinier_windows, recommended_nlevels, background_q_min,
-    preset_used, log_decades, n_points.
+    Returns dict with: segments (q_min, q_max, slope, kind, intensity_mid,
+    width_decades — kind is 'background' / 'guinier_plateau' / 'power_law'),
+    guinier_knees, recommended_guinier_windows, recommended_nlevels,
+    background_q_min, n_segments_found, log_decades, n_points,
+    q_min_analysed, q_max_analysed.
     """
     return _ctrl.detect_features(
         session_id,
-        preset=preset,
         q_min=q_min,
         q_max=q_max,
+        q_max_clip=q_max_clip,
         config_overrides=config_overrides,
     )
 
