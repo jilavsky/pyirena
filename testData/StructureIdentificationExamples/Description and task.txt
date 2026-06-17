@@ -1,0 +1,275 @@
+These are estimates for which features should be identified on each SAXS data
+
+Values in the table below are estimated ranges from graphs and are not exact. 
+
+All identification/ordering starts from high-Q, tables are ordered from high-q end. Unified fit level 1 is the level for smallest features = high Q range of data. Return order from high q end. 
+
+
+
+Practical information: 
+Qmin and Qmax of most data should be between 0.00001 to 0.6 [1/A].
+If data extend beyond 0.6 [1/A], search will be limited to Qmax of 0.6 [1/A] since that is limit of SAS approximations. Higher Q values are diffraction. 
+Qmin is limited by instrumentation. Most data will span 0.001 to 0.6 [1/A], USAXS data span 0.00001 to 0.3, when merged with SAXS data higher. 
+
+
+We want to identify Background range. We assume flat background. Uncertainties at background level may be significant.  
+It is possible to have background = 0. 
+If data exhibit minimum in intensity in at high Q (typically above 0.1 [1/A]) in that case a small area around the minimum is estimate for background location. . 
+
+Code "PLS" in table is Power law slope range. We want to identify Power law slope range in Q.    
+
+Code "GK" is Guinier knee . We want to identify range in Q. 
+
+Code "GP" is Guinier Plateau. We want to identify locations range in Q.   
+
+It is user or AI agent job to interpret these features further. User or agent can use local fit tools in Unified fit to obtain parameters, these tools require as input only the Q range. However, the design question is if we want to return more information from the search function as it may already exist here - we can return estimated power law slope for PLS and intensity in the middle of the Q range for GK and GP. 
+
+Note, that Power law slopes ranges are the most important part of the information here. With proper segmentation into power law slopes ranges users/agent may be able to interpret the data already. 
+
+
+Sample1
+Background 0.15
+Power law slope (PLS) 0.1 - 0.07
+Guinier knee (GK)  0.07 - 0.03
+Power law slope (PLS)  0.03 - 0.01
+GK 0.01 - 0.006
+PLS 0.006 - 0.003
+PLS 0.003 - 0.0015
+PLS 0.0015 - min
+
+Sample10
+High Q 0.6 (minimum) 
+Background - none
+PLS 0.5 - 0.025
+GK 0.025 - 0.007
+PLS 0.007 - 0.002
+PLS 0.0006 - min
+
+Sample11
+High Q 0.6 (minimum)
+Background - none
+PLS 0.5 - 0.025
+GK  0.025 - 0.005
+PLS 0.003 - 0.0006
+PLS 0.0002 - min
+
+Sample12
+Background 0.3 - 0.28 (alt no background)
+PLS 0.028 - 0.1
+GK 0.07 - 0.025
+Gunier plateau (GP) 0.025 - 0.009
+PLS 0.003 - 0.0004
+PLS 0.0004 - 0.0001
+
+Sample13
+Background 0.3 - 0.2
+PLS 0.2 - 0.02
+PLS 0.01 - 0.001
+GK 0.001 - 0.0007
+GP 0.0007 - 0.0002
+PLS 0.0002 - min (alt no PLS, noisy). 
+
+Sample14
+Background 0.3 - 0.22
+PLS 0.22 - 0.1
+GK 0.1 - 0.06
+GP 0.06 - 0.03
+PLS 0.1 - 0.0002
+GK 0.0002 - min (alt no GK) 
+
+
+Sample15
+Background 0.3 - 0.22
+PLS 0.22 - 0.1
+GK 0.1 - 0.06
+PLS 0.06 - 0.1
+PLS 0.005 - 0.0005
+GK 0.0004 - 0.00015
+GP 0.00015 - min (alt, no GP)
+
+Sample16
+Background 0.3 - 0.25
+PLS 0.15 - 0.08
+GK 0.08 - 0.045
+PLS 0.045 - 0.009
+PLS 0.009 - 0.002
+PLS 0.002 - min (noisy, alt no marker)
+
+Sample17
+Background 0.3 - 0.2
+PLS 0.2 - 0.09
+GK 0.09 - 0.05
+GP 0.05 - 0.007
+PLS 0.004 - 0.0004
+PLS 0.0004 - min
+
+Sample20
+No obvious background
+PLS 0.2 - 0.02
+GK 0.02 - 0.006
+PLS 0.006 - 0.002 (alt GP, depends on slope)
+
+Sample19
+No Background
+PLS 0.3 - 0.006
+PLS 0.006 - 0.002
+PLS 0.001 - min
+
+Sample2
+Max Q ~ 0.6 (theoretical max)
+Background 0.5 - 0.25
+PLS 0.15 - 0.07
+PLS 0.06 - 0.02
+PLS 0.0005 - min
+
+Sample20
+No background
+PLS 0.25 - 0.09
+GK 0.09 - 0.03
+GP 0.03 - 0.009
+PLS 0.004 - 0.0003
+PLS 0.0003 - min
+
+Sample21
+Max Q 0.6 - 0.8
+Background 0.8 - 0.5
+PLS 0.3 - 0.04
+GK 0.03 - 0.008
+PLS 0.008 - 0.001
+PLS 0.0003 - min
+
+Sample22
+Background 0.3 - 0.15
+PLS 0.08 - 0.03
+GK 0.03 - 001
+PLS 0.01 - 0.006
+GK 0.004 - 0.002
+PLS 0.0006 - min
+
+Sample23
+Blackground 0.3 - 0.2
+PLS 0.1 - 0.01 (note, Bessel function oscillations cannot be modeled by Unified fit and fall within Guinier Knee category)
+GK 0.007 - 0.002
+PLS 0.0003 - min
+
+Sample24
+Background 0.3 - 0.1 
+PLS 0.06 - 0.007
+PLS 0.004 - 0.002
+PLS 0.0015 - 0.0003
+GP 0.0003 - 0.00022
+PLS 0.0002 - min
+
+Sample25
+Background 0.3-0.25
+PLS 0.06 - 0.007
+PLS 0.006 - 0.0004
+PLS 0.0004 - 0.00012
+
+Sample26
+Max Q 0.6
+Background 0.5 - 0.1
+PLS 0.08 - 0.004
+GK 0.003 - 0.001
+GP 0.001 - min
+
+Sample27
+Max Q 0.6
+Background 0.5 - 0.2
+PLS  0.08 - 0.003
+GK (with Structure factor)  0.002 - 0.0006
+GP 0.0005 - min 
+
+Sample28
+Background 0.3 - 0.08
+PLS 0.02 - 0.001
+PLS 0.001 -0.0004
+PLS 0.0004 - min
+
+Sample3
+Max Q 0.6
+Background 0.6 - 0.08
+PLS 0.01 - 0.0002
+PLS 0.00016 - min
+
+Sample4
+Background 0.3 - 0.2
+PLS 0.16 - 0.04
+GK 0.04 - 0.02
+PLS 0.02 - 0.0095
+GK 0.009 - 0.006 (may bye part of Power law slope since may be Bessel function oscillation). 
+GK 0.006 - 0.003
+PLS 0.003 0.00015
+PLS 0.0007 - min
+
+Sample5
+Background 0.3 - 0.2
+PLS 0.1 - 0.05
+GK 0.04 - 0.025
+PLS 0.02 - 0.01
+GK 0.009 - 0.006 (may bye part of Power law slope since may be Bessel function oscillation). 
+GK 0.006 - 0.004
+PLS 0.003 - 0.001
+PLS 0.0007 - min
+
+Sample6
+Background 0.3 - 0.2
+GK 0.15 - 0.1
+PLS 0.1 - 0.06
+GK 0.06 - 0.002
+PLS 0.02 - 0.01
+GK 0.009 - 0.006
+PLS 0.005 - 0.0009
+PLS 0.0008 - min Q
+
+Sample8
+Background 0.3 - 0.2
+PLS 0.15 - 0.05
+GK around 0.045 difficult to see
+PLS 0.04 - 0.008
+PLS 0.003 - min Q
+
+Sample9
+Background 0.3 - 0.2
+PLS 0.1 - 0.07
+GK 0.07 - 0.04
+GP/PLS 0.03 - 0.003 (depends on slope, if close to 0, GP)
+PLS 0.002 - min 
+
+PlateWeak_NX
+Max Q 0.6
+Background 0.6 - 0.1
+PLS 0.06 - 0.02
+PLS 0.009 - 0.001
+GK 0.001 - min
+
+PlateWithAggregate_NX
+Max Q 0.6
+Background 0.5 - 0.3
+PLS 0.1 - 0.035
+PLS 0.02 - 0.003
+GK 0.003 - 0.0009
+PLS 0.0009 - 0.0004
+PLS 0.0003 - min (or not, noisy)
+
+PlateWithSFWithAGgregate_NX
+Max Q location of min intensity
+Background value at Max Q 
+PLS 0.3 - 0.04
+PLS 0.03 - 0.0004
+GK 0.004 - 0.002
+GP 0.002 - 0.0006
+PLS 0.0005 - min
+
+RodSfAgg_NSX
+Max Q location of min intensity
+Background Intense value at Max Q
+PLS 0.3 - 0.04
+PLS 0.01 - 0.0008
+GK 0.0007 - 0.0006
+GP 0.0006 - 0.00035
+PLS 0.00025 - min Q
+
+ 
+
+ 
