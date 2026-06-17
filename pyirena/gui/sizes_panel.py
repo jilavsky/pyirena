@@ -257,15 +257,6 @@ class SizesFitGraphWindow(QWidget):
 
         layout.addWidget(self.graphics_layout)
 
-        # ── "Save graph as JPEG" in right-click context menu of each plot ────
-        for _plot in (self.main_plot, self.distribution_plot):
-            _vb = _plot.getViewBox()
-            _vb.menu.addSeparator()
-            _action = _vb.menu.addAction("Save graph as JPEG…")
-            _action.triggered.connect(
-                lambda checked=False, p=_plot: self._save_plot_as_jpeg(p)
-            )
-
         # ── Status message (QTextEdit so the user can select/copy text) ─────────
         self.status_message = QTextEdit("")
         self.status_message.setReadOnly(True)
@@ -285,28 +276,6 @@ class SizesFitGraphWindow(QWidget):
         layout.addWidget(self.status_message)
 
         self.setLayout(layout)
-
-    # ── JPEG export ──────────────────────────────────────────────────────────
-
-    def _save_plot_as_jpeg(self, plot):
-        """Export a plot panel to a JPEG file chosen via file dialog."""
-        from pyqtgraph.exporters import ImageExporter
-        default_dir = self.data_folder or str(Path.home())
-        default_name = str(Path(default_dir) / "sizes_graph.jpg")
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Graph as JPEG",
-            default_name,
-            "JPEG Images (*.jpg *.jpeg);;All Files (*)",
-        )
-        if not file_path:
-            return
-        try:
-            exporter = ImageExporter(plot)
-            exporter.parameters()['width'] = 1600
-            exporter.export(file_path)
-        except Exception as exc:
-            QMessageBox.warning(self, "Export Failed", f"Could not save image:\n{exc}")
 
     # ── Cursor management ────────────────────────────────────────────────────
 
