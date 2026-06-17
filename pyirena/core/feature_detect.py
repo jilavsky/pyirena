@@ -142,7 +142,7 @@ class FeatureDetectResult:
     guinier_knees: list[dict] = field(default_factory=list)
     """Derived list of inferred Guinier knees between adjacent segments.
 
-    Each: ``q_min``, ``q_max``, ``q_center``, ``slope_left``, ``slope_right``,
+    Each: ``q_min``, ``q_max``, ``q_center``, ``slope_low_q``, ``slope_high_q``,
     ``delta_slope``.
     """
 
@@ -349,15 +349,36 @@ def _build_segments(seg_ranges: list[tuple[int, int]],
 
 
 def _derive_knees(segments: list[dict], cfg: FeatureDetectConfig) -> list[dict]:
+    """Derive Guinier knees between adjacent segments.
+
+    A Guinier knee is physically meaningful only when, going from high-Q to
+    low-Q, the power-law slope becomes *shallower* (smaller absolute value).
+    Equivalently, in the segment list (sorted low-Q → high-Q), a knee between
+    segments[i] (lower-Q) and segments[i+1] (higher-Q) is valid when:
+
+        |slope_low_Q| < |slope_high_Q|
+
+    i.e. the lower-Q segment has a *shallower* slope.  If the low-Q segment
+    is *steeper* than the high-Q segment, the transition is not a Guinier
+    knee — it could be a mass-fractal transition, aggregate crossover, or
+    structure factor; the caller should not label it as a knee.
+    """
     knees: list[dict] = []
     for i in range(len(segments) - 1):
-        left = segments[i]
-        right = segments[i + 1]
-        delta = abs(left["slope"] - right["slope"])
+        low_q_seg  = segments[i]       # lower-Q segment
+        high_q_seg = segments[i + 1]   # higher-Q segment
+        abs_slope_low_q  = abs(low_q_seg["slope"])
+        abs_slope_high_q = abs(high_q_seg["slope"])
+        delta = abs(low_q_seg["slope"] - high_q_seg["slope"])
+        # Require minimum slope difference
         if delta < cfg.guinier_knee_min_delta_slope:
             continue
-        q_lo = float(left["q_max"])
-        q_hi = float(right["q_min"])
+        # Guinier knee condition: going high→low Q, slope gets shallower,
+        # i.e. |slope| decreases.  Equivalently: |slope at low-Q| < |slope at high-Q|
+        if abs_slope_low_q >= abs_slope_high_q:
+            continue
+        q_lo = float(low_q_seg["q_max"])
+        q_hi = float(high_q_seg["q_min"])
         if q_hi < q_lo:
             q_hi = q_lo
         q_center = float(np.sqrt(max(q_lo * q_hi, 1e-30)))
@@ -365,8 +386,8 @@ def _derive_knees(segments: list[dict], cfg: FeatureDetectConfig) -> list[dict]:
             "q_min":       q_lo,
             "q_max":       q_hi,
             "q_center":    q_center,
-            "slope_left":  float(left["slope"]),
-            "slope_right": float(right["slope"]),
+            "slope_low_q":  float(low_q_seg["slope"]),
+            "slope_high_q": float(high_q_seg["slope"]),
             "delta_slope": float(delta),
         })
     return knees

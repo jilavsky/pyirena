@@ -1269,7 +1269,9 @@ def detect_features(
                                                  kind, intensity_mid, width_decades}
         where kind is "background" | "guinier_plateau" | "power_law"
       - guinier_knees                 : list of {q_min, q_max, q_center,
-                                                 slope_left, slope_right, delta_slope}
+                                                 slope_low_q, slope_high_q, delta_slope}
+        Only transitions where |slope_low_q| < |slope_high_q| are listed
+        (slope gets shallower going high→low Q, the Guinier knee condition).
       - background_q_min              : float | null
       - recommended_guinier_windows   : list of {feature_type, q_min_guinier,
                                                  q_max_guinier, q_min_powerlaw}

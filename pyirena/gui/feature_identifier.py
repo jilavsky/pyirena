@@ -112,6 +112,9 @@ class FeatureIdentifierDialog(QWidget):
             lambda: self._advanced_box.setVisible(self.show_advanced.isChecked())
         )
 
+        # Restore saved parameters (must happen after spin boxes are created)
+        self._restore_params()
+
         # Detect / Clear buttons
         btn_row = QHBoxLayout()
         self.detect_btn = QPushButton("Detect segments")
@@ -164,6 +167,38 @@ class FeatureIdentifierDialog(QWidget):
         self.setLayout(layout)
 
     # ----------------------------------------------------------------------
+    # State persistence (via parent panel's StateManager)
+    # ----------------------------------------------------------------------
+
+    def _save_params(self) -> None:
+        """Persist current spin-box values + advanced-toggle state."""
+        sm = getattr(self._panel, "state_manager", None)
+        if sm is None:
+            return
+        params = {key: float(sb.value()) for key, sb in self._spin_boxes.items()}
+        params["_show_advanced"] = bool(self.show_advanced.isChecked())
+        sm.update("feature_detect", params)
+        sm.save()
+
+    def _restore_params(self) -> None:
+        """Restore spin-box values saved by a previous session."""
+        sm = getattr(self._panel, "state_manager", None)
+        if sm is None:
+            return
+        saved = sm.get("feature_detect")
+        if not isinstance(saved, dict):
+            return
+        for key, sb in self._spin_boxes.items():
+            if key in saved:
+                try:
+                    sb.setValue(float(saved[key]))
+                except (TypeError, ValueError):
+                    pass
+        if "_show_advanced" in saved:
+            self.show_advanced.setChecked(bool(saved["_show_advanced"]))
+            self._advanced_box.setVisible(bool(saved["_show_advanced"]))
+
+    # ----------------------------------------------------------------------
     # Config + data access
     # ----------------------------------------------------------------------
 
@@ -204,6 +239,7 @@ class FeatureIdentifierDialog(QWidget):
             self.summary.setPlainText(f"Detection failed: {exc}")
             return
 
+        self._save_params()
         self._clear_markers()
         self._render_markers(result)
         self._render_summary(result)
@@ -345,7 +381,8 @@ class FeatureIdentifierDialog(QWidget):
             for k in result.guinier_knees:
                 lines.append(
                     f"  Q ∈ [{k['q_min']:.4g}, {k['q_max']:.4g}]  "
-                    f"slope: {k['slope_left']:+.2f} → {k['slope_right']:+.2f}  "
+                    f"slope: {k['slope_high_q']:+.2f} (high-Q) → "
+                    f"{k['slope_low_q']:+.2f} (low-Q)  "
                     f"(Δ = {k['delta_slope']:.2f})"
                 )
         if result.recommended_guinier_windows:
@@ -368,6 +405,7 @@ class FeatureIdentifierDialog(QWidget):
     # ----------------------------------------------------------------------
 
     def closeEvent(self, event):
+        self._save_params()
         self._clear_markers()
         try:
             self._panel._feature_dialog = None  # noqa: SLF001
