@@ -277,14 +277,32 @@ scans for sample X."
 These tools use sessions. Always start with `pyirena_ctrl_open_dataset()`,
 capture the returned `session_id`, and pass it to every subsequent call.
 
-### Typical fitting workflow
+### Recommended fitting workflow
+
+Feature detection is **step 0 before selecting a model** — it tells you how
+many levels the curve needs and where to place Q-windows, so you don't
+start fitting blind.
 
 ```
 pyirena_ctrl_open_dataset(file_path)           → session_id + data summary
-pyirena_ctrl_select_model(session_id, nlevels=1)
+
+# Step 0: understand the curve structure FIRST
+pyirena_ctrl_detect_features(session_id)       → segments, knees, recommended_nlevels
+# → use recommended_nlevels for nlevels below
+# → use guinier_knees[i].q_min..q_max for fit_local_guinier Q windows
+# → use segments for initial P estimate per level
+
+pyirena_ctrl_select_model(session_id, nlevels=N)   # N from detect_features
 pyirena_ctrl_get_model_description(session_id) → read before fitting
 pyirena_ctrl_get_data_q_range(session_id)      → know your Q range
 pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)  # if needed
+
+# Optional: get local starting values from the detected regions
+pyirena_ctrl_fit_local_guinier(session_id, q_min=knee.q_min, q_max=knee.q_max)
+pyirena_ctrl_fit_local_power_law(session_id, q_min=seg.q_min, q_max=seg.q_max)
+pyirena_ctrl_set_parameter_value(session_id, "Rg_1", rg_from_local)
+pyirena_ctrl_set_parameter_value(session_id, "P_1", p_from_local)
+
 pyirena_ctrl_fix_all_except(session_id, ["Rg_1","G_1","background"])
 pyirena_ctrl_run_fit(session_id)               → chi_squared, params
 pyirena_ctrl_get_fit_image(session_id)         → inspect visually
@@ -342,6 +360,104 @@ model-wide params (`background`).
 | `pyirena_ctrl_remove_unified_level(session_id, level)` | remove 1-based level |
 
 After adding/removing a level, all parameters are renumbered and prior fit results are cleared.
+
+### Feature detection — call before selecting a model
+
+#### `pyirena_ctrl_detect_features(session_id, q_min=None, q_max=None, q_max_clip=0.6, config_overrides=None)`
+
+Analyses the loaded I(Q) curve in log-log space and segments it into regions
+where the power-law slope `d(log I)/d(log Q)` is approximately constant.
+Returns a structured description of the curve's features without modifying
+the model.
+
+**When to call:** always call this *before* `pyirena_ctrl_select_model`.  The
+return value tells you how many Unified Fit levels are needed and where to
+find them, so you don't pick the wrong model complexity.
+
+**Parameters:**
+- `q_min`, `q_max` — restrict analysis to a Q sub-range (default: full data range)
+- `q_max_clip` — silently drop data above this Q (default: 0.6 Å⁻¹, the SAS
+  approximation limit; diffraction features above 0.6 should not be treated as
+  SAS structure). Pass `null` to disable.
+- `config_overrides` — dict of `FeatureDetectConfig` field names to adjust
+  sensitivity.  Useful fields:
+  - `"change_threshold_1"` (default 0.40) — raise to get fewer coarser segments;
+    lower to catch subtler slope transitions
+  - `"change_threshold_2"` (default 0.20) — threshold for the refinement pass
+    inside wide (> 1.0 decade) segments
+  - `"min_segment_decades"` (default 0.10) — minimum width of an interior segment
+  - `"merge_slope_tol"` (default 0.15) — merge adjacent segments with similar slopes
+
+**Returns dict with:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `ok` | bool | `true` on success |
+| `segments` | list | Power-law slope segments, sorted **low-Q to high-Q** |
+| `guinier_knees` | list | Inferred Guinier knees between adjacent segments |
+| `recommended_nlevels` | int | Suggested number of Unified Fit levels |
+| `recommended_guinier_windows` | list | Q windows for `fit_local_guinier` per knee |
+| `background_q_min` | float\|null | Q where high-Q flat background begins |
+| `n_segments_found` | int | Total segments detected |
+| `log_decades` | float | Total Q range analysed in log10(Q) decades |
+| `q_min_analysed`, `q_max_analysed` | float | Actual Q range after clipping |
+| `n_points` | int | Data points used |
+
+**Each segment has:**
+
+| Field | Description |
+|-------|-------------|
+| `q_min`, `q_max` | Q range of the segment (Å⁻¹) |
+| `slope` | Mean `d(log I)/d(log Q)` — negative for power-law, near zero for plateaus |
+| `slope_std` | Std dev of slope within the segment (lower = more constant) |
+| `kind` | `"power_law"` \| `"guinier_plateau"` \| `"background"` |
+| `intensity_mid` | I at the geometric centre Q — useful initial G estimate |
+| `width_decades` | Segment width in log10(Q) decades |
+
+**Each Guinier knee has:**
+
+| Field | Description |
+|-------|-------------|
+| `q_min`, `q_max`, `q_center` | Q location of the transition |
+| `slope_low_q` | Mean slope of the lower-Q (shallower) segment |
+| `slope_high_q` | Mean slope of the higher-Q (steeper) segment |
+| `delta_slope` | `\|slope_high_q − slope_low_q\|` |
+
+A knee is only reported when `|slope_low_q| < |slope_high_q|` — the slope
+gets shallower going high-Q to low-Q, the physical Guinier-knee signature.
+
+**Each recommended Guinier window has:**
+
+| Field | Description |
+|-------|-------------|
+| `q_min_guinier` | Use as `q_min` for `fit_local_guinier` |
+| `q_max_guinier` | Use as `q_max` for `fit_local_guinier` |
+| `q_min_powerlaw` | Use as `q_min` for `fit_local_power_law` |
+
+**Interpreting the result:**
+
+1. **How many levels?** Use `recommended_nlevels`.  Each `"power_law"` or
+   `"guinier_plateau"` segment with a Guinier knee on its low-Q side is one
+   Unified Fit level; `"background"` segments are not levels.
+
+2. **Starting P?** The `slope` of each power-law segment equals −P
+   (e.g. slope = −3.8 → P ≈ 3.8).
+
+3. **Starting Rg and G?** Call `fit_local_guinier` with the Q window from
+   `recommended_guinier_windows[i]`; apply the returned Rg and G with
+   `set_parameter_value`.
+
+4. **Background starting value?** If `background_q_min` is non-null, read
+   `intensity_mid` of the background segment and use it as the background
+   starting value.
+
+5. **Level ordering:** Unified Fit numbers levels from 1 = smallest structure
+   (highest Q).  The `segments` list goes low-Q → high-Q, so the *last*
+   segment corresponds to Level 1.  `recommended_guinier_windows` is in the
+   same low-Q → high-Q order.  Reverse the index when assigning to
+   `Rg_1`, `Rg_2`, etc.
+
+---
 
 ### Q range
 
@@ -443,21 +559,45 @@ check `content.type`, render the `image` item, show the `text` item as a label.
 ```
 1. pyirena_ctrl_open_dataset("/data/scan_042.h5")
    → session_id = "a1b2c3d4"
-2. pyirena_ctrl_get_model_description("a1b2c3d4")
+
+2. pyirena_ctrl_detect_features("a1b2c3d4")
+   → segments=[{q_min, q_max, slope, kind, intensity_mid, ...}, ...],
+     guinier_knees=[{q_min, q_max, slope_low_q, slope_high_q, ...}, ...],
+     recommended_nlevels=2,
+     recommended_guinier_windows=[
+       {q_min_guinier=0.001, q_max_guinier=0.008, q_min_powerlaw=0.007},
+       {q_min_guinier=0.01,  q_max_guinier=0.06,  q_min_powerlaw=0.05},
+     ]
+   → Note: recommended_nlevels=2, so we use nlevels=2 below.
+
+3. pyirena_ctrl_select_model("a1b2c3d4", nlevels=2)
+4. pyirena_ctrl_get_model_description("a1b2c3d4")
    → read fitting tips
-3. pyirena_ctrl_select_model("a1b2c3d4", nlevels=1)
-4. pyirena_ctrl_get_data_q_range("a1b2c3d4")
-   → decide if Q range restriction is needed
-5. pyirena_ctrl_fix_all_except("a1b2c3d4", ["Rg_1","G_1","background"])
-6. pyirena_ctrl_run_fit("a1b2c3d4")
-   → reduced_chi_squared=45 (high — need to free more params)
-7. pyirena_ctrl_free_parameter("a1b2c3d4", "P_1")
+
+5. # Use detect_features output to set starting values.
+   # Windows are ordered low-Q first; levels are numbered high-Q first (Level 1 = smallest).
+   # So recommended_guinier_windows[0] → Level 2 (large structure, low Q)
+   #    recommended_guinier_windows[1] → Level 1 (small structure, high Q)
+   local_L2 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.001, q_max=0.008)
+   → Rg=320, G=5e5
+   local_L1 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.01, q_max=0.06)
+   → Rg=28, G=1e3
+   pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_2", 320)
+   pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_2", 5e5)
+   pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_1", 28)
+   pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_1", 1e3)
+
+6. pyirena_ctrl_fix_all_except("a1b2c3d4", ["Rg_1","G_1","Rg_2","G_2","background"])
+7. pyirena_ctrl_run_fit("a1b2c3d4")
+   → reduced_chi_squared=3.8 (reasonable; Rg and G now near-optimal)
+8. pyirena_ctrl_free_parameter("a1b2c3d4", "P_1")
+   pyirena_ctrl_free_parameter("a1b2c3d4", "P_2")
    pyirena_ctrl_run_fit("a1b2c3d4")
-   → reduced_chi_squared=3.1 (good improvement)
-8. pyirena_ctrl_get_fit_image("a1b2c3d4")
+   → reduced_chi_squared=1.3 (good)
+9. pyirena_ctrl_get_fit_image("a1b2c3d4")
    → inspect residuals visually
-9. pyirena_ctrl_save_fit("a1b2c3d4")
-10. pyirena_ctrl_export_fit_report("a1b2c3d4", format="markdown")
+10. pyirena_ctrl_save_fit("a1b2c3d4")
+11. pyirena_ctrl_export_fit_report("a1b2c3d4", format="markdown")
     → summarise for user
 ```
 

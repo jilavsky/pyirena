@@ -1259,7 +1259,7 @@ def detect_features(
         not be treated as SAS structure.  Pass ``None`` to disable.
     config_overrides : dict, optional
         Mapping of ``FeatureDetectConfig`` field names to override values
-        (e.g. ``{"stability_std_max": 0.30, "min_segment_decades": 0.15}``).
+        (e.g. ``{"change_threshold_1": 0.60, "min_segment_decades": 0.15}``).
 
     Returns
     -------
