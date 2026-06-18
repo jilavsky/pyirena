@@ -1314,8 +1314,10 @@ def detect_features(
             if not hasattr(cfg, k):
                 return make_error(
                     f"Unknown FeatureDetectConfig field: {k!r}",
-                    suggestion="Valid fields include stability_window, "
-                               "stability_std_max, min_segment_decades, "
+                    suggestion="Valid fields include change_window_1, "
+                               "change_threshold_1, change_window_2, "
+                               "change_threshold_2, wide_region_decades, "
+                               "min_segment_decades, edge_min_segment_decades, "
                                "merge_slope_tol, guinier_knee_min_delta_slope.",
                     code="BAD_OVERRIDE",
                 )

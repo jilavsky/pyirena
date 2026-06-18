@@ -55,14 +55,20 @@ _KNEE_BRUSH = (231, 76, 60, 50)
 _KNEE_PEN   = (192, 57, 43, 220)
 
 
-# Advanced spin-box fields with sensible ranges
+# Advanced spin-box fields with sensible ranges.
+# v0.8.5: change-point detection has two passes (coarse + tight refinement
+# of wide regions); old stability_window / stability_std_max are gone.
 _FIELDS = [
-    ("stability_window",          "Stability window (dec)",   0.20, 1.00, 0.05),
-    ("stability_std_max",         "Stability std max",        0.05, 1.00, 0.05),
-    ("min_segment_decades",       "Min segment width (dec)",  0.05, 1.00, 0.05),
-    ("merge_slope_tol",           "Merge slope tolerance",    0.05, 1.50, 0.05),
-    ("guinier_knee_min_delta_slope", "Min knee Δslope",       0.10, 2.00, 0.10),
-    ("q_max_clip",                "Q max clip (Å⁻¹, 0=off)", 0.0,  1.0,  0.05),
+    ("change_window_1",          "Pass-1 window (dec)",        0.10, 1.00, 0.05),
+    ("change_threshold_1",       "Pass-1 threshold",           0.10, 1.50, 0.05),
+    ("change_window_2",          "Pass-2 window (dec)",        0.10, 1.00, 0.05),
+    ("change_threshold_2",       "Pass-2 threshold",           0.05, 1.00, 0.05),
+    ("wide_region_decades",      "Wide-region threshold (dec)",0.30, 3.00, 0.10),
+    ("min_segment_decades",      "Min segment width (dec)",    0.05, 1.00, 0.05),
+    ("edge_min_segment_decades", "Edge min width (dec)",       0.02, 0.50, 0.01),
+    ("merge_slope_tol",          "Merge slope tolerance",      0.05, 1.50, 0.05),
+    ("guinier_knee_min_delta_slope", "Min knee Δslope",        0.05, 2.00, 0.05),
+    ("q_max_clip",               "Q max clip (Å⁻¹, 0=off)",   0.0,  1.0,  0.05),
 ]
 
 
@@ -170,6 +176,11 @@ class FeatureIdentifierDialog(QWidget):
     # State persistence (via parent panel's StateManager)
     # ----------------------------------------------------------------------
 
+    # Bumped when the algorithm or field set changes incompatibly so that
+    # old saved values (which mean different things under different defaults)
+    # are not re-applied to a different algorithm.
+    _STATE_SCHEMA_VERSION = 2
+
     def _save_params(self) -> None:
         """Persist current spin-box values + advanced-toggle state."""
         sm = getattr(self._panel, "state_manager", None)
@@ -177,6 +188,7 @@ class FeatureIdentifierDialog(QWidget):
             return
         params = {key: float(sb.value()) for key, sb in self._spin_boxes.items()}
         params["_show_advanced"] = bool(self.show_advanced.isChecked())
+        params["_schema_version"] = self._STATE_SCHEMA_VERSION
         sm.update("feature_detect", params)
         sm.save()
 
@@ -187,6 +199,11 @@ class FeatureIdentifierDialog(QWidget):
             return
         saved = sm.get("feature_detect")
         if not isinstance(saved, dict):
+            return
+        # Reject state saved under an older schema (v0.8.4 used different
+        # field names; some field names overlap, so just-key-matching would
+        # produce a half-old-half-new config).
+        if saved.get("_schema_version") != self._STATE_SCHEMA_VERSION:
             return
         for key, sb in self._spin_boxes.items():
             if key in saved:

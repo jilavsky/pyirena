@@ -20,6 +20,52 @@ the fit model.  It is safe to run at any point without undoing work.
 
 ---
 
+## How the algorithm works
+
+The detector takes four conceptual steps:
+
+1. **Smooth log(I) in log(Q)** with a Gaussian kernel of width
+   `sigma_smooth = 0.15 decades` (not user-adjustable).  This suppresses
+   point-to-point noise without hiding real slope transitions, which in SAS
+   data always span at least 0.3 decades.
+
+2. **Compute the local slope** d(log I)/d(log Q) at every Q value using a
+   central difference over ±0.15 decades around each point.
+
+3. **Detect change-points** in the slope profile.  For each candidate
+   boundary point, the algorithm compares the *mean* slope in a window to
+   its left against the *mean* slope in a window to its right.  Local
+   maxima of |mean_left − mean_right| that exceed a threshold are
+   change-points; segments are the intervals between them.  This runs in
+   **two passes**:
+   - **Pass 1 (coarse)**: wider window, larger threshold — finds the major
+     transitions cleanly.
+   - **Pass 2 (refinement)**: any segment wider than
+     `wide_region_decades` (default 1.0) is re-scanned with tighter
+     parameters to find hidden sub-structure.  This catches the case where
+     a single broad region actually contains multiple distinct power-law
+     slopes that drift smoothly between each other — the Unified Fit model
+     says smooth drift implies a blend of constant-slope levels.
+
+4. **Merge and filter** the resulting segments: adjacent segments whose
+   mean slopes are within `merge_slope_tol` are merged (suppressing
+   spurious splits at noise spikes); segments narrower than
+   `min_segment_decades` are dropped — except for segments at the very
+   lowest or highest Q values, which use the looser
+   `edge_min_segment_decades` so that narrow low-Q Guinier plateaus and
+   high-Q backgrounds are not lost.
+
+Then each segment is classified by its mean slope as `background`,
+`guinier_plateau`, or `power_law` (see below), and adjacent segments are
+checked to see if a Guinier knee can be inferred between them.
+
+The change-point approach replaces an earlier variance-based detector that
+could not distinguish "slope is constant" from "slope is slowly drifting" —
+which led to missed knees at data edges (sample15) and lumping smoothly-
+drifting multi-level data into one segment (sample25).
+
+---
+
 ## What is detected
 
 ### Segments
@@ -66,52 +112,47 @@ the "Fit Rg/G btwn cursors" button:
 
 ## Advanced parameters
 
-Click **Show advanced params** to expose the segmentation controls.  The
-values are saved automatically between sessions and across dataset changes —
-you do not need to re-enter them when you load a new file into Unified Fit.
+Click **Show advanced params** to expose the segmentation controls.  Values
+are saved automatically between sessions (under the `feature_detect` key in
+`~/.pyirena/state.json`); you do not need to re-enter them when you load a
+new file into Unified Fit.
 
-### Smoothing
-
-| Parameter | Default | Description |
-|---|---|---|
-| **Stability window (dec)** | 0.40 | Width in log(Q) decades of the sliding window used to evaluate whether the slope is locally stable.  Larger values capture wider slope plateaus but may merge two distinct levels. |
-
-The slope is computed after Gaussian smoothing of log(I) with σ = 0.15 decades
-(not user-adjustable).  This suppresses point-to-point noise without hiding
-real slope transitions, which always span ≥ 0.3 decades in SAS data.
-
-### Stability threshold
+### Change-point detection — Pass 1 (coarse)
 
 | Parameter | Default | Description |
 |---|---|---|
-| **Stability std max** | 0.40 | A point is marked stable if the standard deviation of slope within the ± stability-window is below this value.  The default (0.40) is calibrated against 31 hand-labelled SAXS/USAXS curves.  Decrease to 0.20-0.25 if you see too many spurious segments; increase toward 0.60 if real Porod regions are missed. |
+| **Pass-1 window (dec)** | 0.30 | Half-width of the left/right windows used to compute the slope-mean difference.  A larger window averages over more points so the detector is less twitchy at noise spikes but cannot resolve transitions narrower than the window. |
+| **Pass-1 threshold** | 0.40 | A change-point is declared at a local maximum of |mean_L − mean_R| only if the difference exceeds this value.  Larger value → fewer change-points (only the biggest transitions); smaller value → more change-points (catches subtler boundaries). |
 
-**Why 0.40 and not something smaller?** Real SAS data has smooth Guinier-knee
-transitions that look like gradually changing slope over ≈ 0.5-1 decade.
-Requiring slope stability too tightly (std < 0.10-0.15) only detects the
-flat top of the Porod tail and misses the Guinier region on the other side
-of the knee.
+Pass 1 is meant to find the *major* boundaries reliably.  If you want only
+the most obvious transitions, raise the threshold.
 
-### Minimum segment width
+### Change-point detection — Pass 2 (wide-region refinement)
 
 | Parameter | Default | Description |
 |---|---|---|
-| **Min segment width (dec)** | 0.20 | Stable regions narrower than this are discarded.  Prevents noise spikes or very narrow diffraction artefacts from appearing as structural features.  Should be at least 2 × σ_smooth ≈ 0.30 decades in practice; the default 0.20 is intentionally a little looser to catch short segments near data edges. |
+| **Pass-2 window (dec)** | 0.20 | Tighter window for the second pass, which re-scans regions wider than `wide_region_decades` to find hidden sub-structure. |
+| **Pass-2 threshold** | 0.20 | Lower than Pass-1 threshold, so subtler slope changes inside a wide region are caught.  Wider regions are more likely to contain multiple slope drifts that should be separated. |
+| **Wide-region threshold (dec)** | 1.0 | A segment found in Pass 1 wider than this gets a Pass-2 re-scan.  Smaller value → Pass 2 runs on more segments (catches more sub-structure but risks over-segmentation). |
 
-### Merging adjacent segments
+The two-pass approach handles the common SAS case where two adjacent
+structural levels have similar Porod slopes that connect smoothly — the
+first pass treats the whole region as one segment, the second pass detects
+the subtle mean-slope difference inside it.
+
+### Segment filtering
 
 | Parameter | Default | Description |
 |---|---|---|
-| **Merge slope tolerance** | 0.40 | Two adjacent stable runs are merged into one segment if their mean slopes differ by less than this value.  This handles the common case where a single power-law region is interrupted by a brief unstable point (noise spike or a few bad data points).  Set to 0 to disable merging. |
-
-The gap between two runs must also be narrower than **0.20 decades** (not
-user-adjustable) for merging to be considered.
+| **Min segment width (dec)** | 0.10 | Interior segments narrower than this are discarded.  Prevents noise spikes or one-or-two-point artefacts from appearing as structural features. |
+| **Edge min width (dec)** | 0.05 | Looser width threshold for segments that touch the lowest-Q or highest-Q data point.  Recognises that real low-Q Guinier plateaus and high-Q backgrounds may genuinely be narrow when the data extent does not extend further in those directions. |
+| **Merge slope tolerance** | 0.15 | Two adjacent segments are merged into one if their mean slopes differ by less than this value.  Suppresses spurious splits when a noise spike triggers a change-point inside an otherwise-uniform region.  Set to 0 to disable merging. |
 
 ### Guinier knee sensitivity
 
 | Parameter | Default | Description |
 |---|---|---|
-| **Min knee Δslope** | 0.50 | A knee is reported between two adjacent segments only if their mean slopes differ by at least this amount.  Larger value → only report obvious knees; smaller value → report gentle transitions between regions of similar slope. |
+| **Min knee Δslope** | 0.10 | A Guinier knee is reported between two adjacent segments only if their mean slopes differ by at least this amount.  Larger value → only report obvious knees; smaller value → report gentle transitions between segments of similar slope. |
 
 Note: even if Δslope ≥ this threshold, a knee is **not** reported if the
 low-Q side is steeper than the high-Q side (see the physical constraint
@@ -146,6 +187,46 @@ are the actual Guinier knees; they are marked separately with the red band.
 
 ---
 
+## Tuning guidance
+
+### "I am getting too many segments"
+
+The default thresholds are set to be sensitive — they detect every slope
+transition the data supports.  To get fewer, larger segments:
+
+- Raise **Pass-1 threshold** (e.g. 0.60 instead of 0.40) — coarser
+  segmentation, only big transitions detected
+- Raise **Merge slope tolerance** (e.g. 0.30 instead of 0.15) — adjacent
+  similar segments get merged
+- Raise **Wide-region threshold** (e.g. 2.0 instead of 1.0) — Pass 2 runs
+  less often
+
+### "I know there is a knee here but the algorithm misses it"
+
+If your suspected knee is at the very low-Q or high-Q end of the data:
+
+- The default detection requires the boundary to be at least 0.05 decades
+  inside the data extreme.  Try lowering **Edge min width**.
+
+If the knee is in the interior and the slope transition is gradual:
+
+- The transition may not produce a sharp enough mean-slope difference to
+  cross **Pass-1 threshold**.  Lower it (e.g. 0.25 instead of 0.40).
+- Or lower **Pass-2 threshold** (e.g. 0.10) so subtler transitions inside
+  wide regions are caught.
+
+### "Two segments have nearly identical slopes — why are they separate?"
+
+Lower **Merge slope tolerance** is supposed to keep them separate; raise it
+above their slope difference to merge them.
+
+### "I want to see the bare-bones segmentation without the refinement pass"
+
+Set **Wide-region threshold** to a very large value (e.g. 10.0) so no
+segment is ever wide enough to trigger Pass 2.
+
+---
+
 ## Practical workflow
 
 1. Load a dataset into Unified Fit.
@@ -155,8 +236,8 @@ are the actual Guinier knees; they are marked separately with the red band.
    correspond to Level 1 in Unified Fit (the smallest structures, highest Q).
 4. **Choose number of levels**: each orange (PLS) segment that has a Guinier
    knee to its low-Q side is a candidate level.  The "Suggested Unified Fit
-   levels" count is a starting point; you may need more if the algorithm missed
-   a subtle knee.
+   levels" count is a starting point; you may need fewer if some PLS regions
+   are noise.
 5. **Place cursors**: drag the Unified Fit cursors to bracket a suggested
    Guinier window, then click "Fit Rg/G btwn cursors" for each level in turn.
 6. Click **Clear markers** when done, then close the dialog.
@@ -176,7 +257,8 @@ are the actual Guinier knees; they are marked separately with the red band.
   be missed if most points in a region have σ_I/I > 0.5 (the noise-filter
   threshold).
 - **Overlapping levels** with similar Rg: two levels whose Guinier knees are
-  less than ≈ 0.5-1 decade apart may be detected as a single broad segment.
+  less than ≈ 0.5-1 decade apart may be detected as a single broad segment
+  unless Pass 2 catches the slight slope drift.
 
 ---
 
@@ -206,3 +288,13 @@ Each knee dict has keys: `q_min`, `q_max`, `q_center`, `slope_low_q`,
 The algorithm is also available to the AI agent via the MCP tool
 `pyirena_ctrl_detect_features(session_id, q_max_clip=0.6, config_overrides={})`.
 See `docs/ai_tools_reference.md` for the full tool list.
+
+### Version history
+
+- **v0.8.5** (current): change-point segmentation with two-pass refinement
+  and edge-aware width filter.  Config schema changed; old saved state is
+  silently ignored via a schema-version check.
+- **v0.8.4**: variance-based stability detection.  Could not distinguish
+  smooth slope drift from constant slope; missed edge knees because the
+  stability window straddled the transition zone.
+- **v0.8.3**: threshold-based plateau detector (initial release).

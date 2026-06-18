@@ -1,9 +1,9 @@
 """Feature detection for small-angle scattering I(Q) curves.
 
-Segments an I(Q) log-log curve into power-law-slope regions
-(`d(log I)/d(log Q)` locally constant) and derives Guinier knees as the
-transitions between adjacent stable-slope segments with substantially
-different slopes.
+Segments an I(Q) log-log curve into power-law-slope regions using a
+two-pass change-point detector on the smoothed slope profile, and derives
+Guinier knees from adjacent segments whose slopes change in the expected
+direction (Porod tail giving way to Guinier plateau as Q decreases).
 
 Conceptual model
 ----------------
@@ -14,28 +14,34 @@ complete segmentation of the curve into piecewise-constant-slope segments
 recovers all the information a Unified Fit user needs to choose levels and
 Q-windows; Guinier knees fall naturally between adjacent slope segments.
 
-Algorithm
----------
-1. Filter positive-Q / positive-I points, optionally drop noisy points
-   (`σ_I / I > noisy_point_threshold`).
-2. Clip Q to ``config.q_max_clip`` (defaults to 0.6 Å⁻¹, the SAS-approximation
-   limit; diffraction features beyond this should not be segmented).
-3. Smooth ``log10(I)`` along ``log10(Q)`` with a Gaussian kernel of width
-   ``sigma_smooth`` (in decades), using reflection + linear-extrapolation
-   padding so edge slopes are preserved.
-4. Estimate the local slope ``d(log I) / d(log Q)`` with a central difference
-   over ``±span_deriv / 2`` decades.
-5. Scan a sliding window of width ``stability_window`` decades along the
-   slope profile; mark each point as **stable** if the slope std within the
-   window is below ``stability_std_max``.
-6. Group runs of stable points into raw segments; merge adjacent runs whose
-   mean slopes agree within ``merge_slope_tol`` and whose gap is small.
-7. Drop segments narrower than ``min_segment_decades``.
-8. Classify each remaining segment by its mean slope: ``background``
-   (|slope| small AND segment is rightmost AND touches the high-Q end),
-   ``guinier_plateau`` (|slope| small elsewhere), or ``power_law``.
-9. Derive Guinier knees as the unstable gaps between adjacent segments
-   where the slope changes by at least ``guinier_knee_min_delta_slope``.
+Algorithm (v0.8.5)
+------------------
+The detector is **change-point based**: at each candidate boundary point,
+compute the difference between the mean slope in a window to its left and
+the mean slope in a window to its right.  Local maxima of this difference
+that exceed a threshold are boundaries.  Segments are the intervals between
+boundaries.
+
+Two passes:
+
+  Pass 1 (loose): wider window, larger threshold — find the major
+                  transitions cleanly.
+  Pass 2 (tight): narrower window, smaller threshold — re-scan any segment
+                  wider than ``wide_region_decades`` for sub-structure.
+                  Catches the case where a single broad region actually
+                  contains multiple distinct power-law slopes that drift
+                  smoothly between each other.
+
+Post-processing: merge adjacent segments whose mean slopes are within
+``merge_slope_tol`` (suppresses spurious splits at noise spikes); width
+filter that uses a looser ``edge_min_segment_decades`` for segments touching
+the data extremes (lets narrow low-Q PLSes and high-Q backgrounds through).
+
+This replaces the variance-based stability check from v0.8.4, which could
+not distinguish "slope is constant" from "slope is slowly changing".  The
+change-point statistic answers a different question — "does the mean differ
+between the two sides?" — which catches both sharp transitions and smooth
+drifts.
 
 The module has **no GUI dependencies** — it returns a plain dataclass result
 that is JSON-serialisable for the MCP layer.
@@ -67,33 +73,39 @@ class FeatureDetectConfig:
     span_deriv: float = 0.30
     """Total span (±span/2) for central-difference slope estimation, decades."""
 
-    # --- Stability-window segmentation ---
-    stability_window: float = 0.40
-    """Width of the sliding window over which slope std is evaluated."""
+    # --- Change-point detection: Pass 1 (coarse) ---
+    change_window_1: float = 0.30
+    """Pass-1 half-window width for change-point detection (decades on each
+    side of the candidate boundary point)."""
 
-    stability_std_max: float = 0.40
-    """A window is "stable" if std(slope) within it is below this value.
+    change_threshold_1: float = 0.40
+    """Pass-1 minimum |mean_left − mean_right| to declare a change-point."""
 
-    Tuned empirically against 31 hand-labelled SAXS curves: 0.40 hits
-    ~95% of human-identified power-law-slope regions; tighter values
-    (0.15-0.25) miss regions where the slope drifts smoothly.
-    """
+    # --- Change-point detection: Pass 2 (refine wide regions) ---
+    change_window_2: float = 0.20
+    """Pass-2 half-window width."""
 
-    merge_slope_tol: float = 0.40
-    """Adjacent stable runs are merged if |mean_slope_left - mean_slope_right|
-    is below this threshold (and the gap between them is small)."""
+    change_threshold_2: float = 0.20
+    """Pass-2 minimum |Δmean| — tighter than pass 1 to catch sub-structure
+    inside an apparently wide region."""
 
-    merge_max_gap_decades: float = 0.20
-    """Adjacent stable runs are only merged if the unstable gap between them
-    is narrower than this (in decades)."""
+    wide_region_decades: float = 1.0
+    """A segment wider than this gets a Pass-2 re-scan to look for hidden
+    sub-segments (smooth slope drifts that pass-1 missed)."""
 
-    min_segment_decades: float = 0.20
-    """Minimum width of a reported segment.  Narrower stable runs are dropped.
+    # --- Segment filtering ---
+    min_segment_decades: float = 0.10
+    """Minimum width of an interior segment (not touching either data
+    extreme)."""
 
-    Note: when the user sees Q-decades-based width here, it includes the
-    smoothing window of ±sigma_smooth/2 on each side.  Practical minimum
-    where slope can be confidently constant is ~2×sigma_smooth.
-    """
+    edge_min_segment_decades: float = 0.05
+    """Minimum width for segments touching the lowest-Q or highest-Q data
+    point.  Looser than ``min_segment_decades`` so that narrow low-Q
+    Guinier plateaus and high-Q backgrounds are not silently discarded."""
+
+    merge_slope_tol: float = 0.15
+    """Adjacent segments are merged into one if their mean slopes differ by
+    less than this — suppresses spurious sub-divisions at noise spikes."""
 
     # --- Q clipping (SAS approximation limit) ---
     q_max_clip: Optional[float] = 0.6
@@ -109,11 +121,16 @@ class FeatureDetectConfig:
     background_slope_max: float = 0.25
     """|slope| < this AND segment touches data's high-Q end → background."""
 
-    guinier_plateau_slope_max: float = 0.4
+    guinier_plateau_slope_max: float = 0.40
     """|slope| < this and not background → guinier_plateau."""
 
-    guinier_knee_min_delta_slope: float = 0.5
-    """Minimum slope jump between adjacent segments to emit a Guinier knee."""
+    guinier_knee_min_delta_slope: float = 0.10
+    """Minimum slope jump between adjacent segments to emit a Guinier knee.
+
+    Per the physical direction check in `_derive_knees`, a knee is only
+    reported when the lower-Q segment has a *shallower* slope than the
+    higher-Q segment (Porod tail giving way to a Guinier plateau).
+    """
 
     # --- Noise filtering ---
     noisy_point_threshold: float = 0.5
@@ -127,16 +144,12 @@ class FeatureDetectConfig:
 @dataclass
 class FeatureDetectResult:
     segments: list[dict] = field(default_factory=list)
-    """One entry per stable-slope segment, sorted by ascending Q.
+    """One entry per detected segment, sorted by ascending Q.
 
     Each: ``q_min``, ``q_max``, ``slope``, ``slope_std``, ``kind``,
     ``intensity_mid``, ``width_decades``.
 
     ``kind`` is one of ``"background"``, ``"guinier_plateau"``, ``"power_law"``.
-
-    Note: segments do not necessarily cover the full Q range — unstable
-    transition regions (Guinier knees) are reported separately under
-    ``guinier_knees``.
     """
 
     guinier_knees: list[dict] = field(default_factory=list)
@@ -144,6 +157,9 @@ class FeatureDetectResult:
 
     Each: ``q_min``, ``q_max``, ``q_center``, ``slope_low_q``, ``slope_high_q``,
     ``delta_slope``.
+
+    Only transitions where |slope_low_q| < |slope_high_q| are listed
+    (slope gets shallower going high→low Q, the physical knee condition).
     """
 
     background_q_min: Optional[float] = None
@@ -160,7 +176,7 @@ class FeatureDetectResult:
 
 
 # ---------------------------------------------------------------------------
-# Smoothing & slope (kept from v1 — unchanged)
+# Smoothing & slope (unchanged from v0.8.4)
 # ---------------------------------------------------------------------------
 
 def _gaussian_smooth_log(logQ: np.ndarray, logI: np.ndarray,
@@ -224,77 +240,166 @@ def _local_slope(logQ: np.ndarray, logI_s: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
-# Stability-window segmentation
+# Change-point detection
 # ---------------------------------------------------------------------------
 
-def _stable_runs(logQ: np.ndarray, slope: np.ndarray,
-                 window_decades: float, std_max: float) -> tuple[np.ndarray, np.ndarray]:
-    """For each point, compute (is_stable, local_mean_slope).
+def _changepoint_z(logQ: np.ndarray, slope: np.ndarray,
+                   half_window_decades: float,
+                   lo: int = 0, hi: Optional[int] = None) -> np.ndarray:
+    """Compute |mean_L − mean_R| at each point.
 
-    A point is stable if std(slope) within ``±window_decades/2`` < std_max.
-    local_mean_slope is the mean within that window (NaN for unstable points).
+    For each interior index `i`, the left window covers slope[max(lo, i-W):i]
+    and the right window covers slope[i:min(hi, i+W)] where W is the index
+    range covered by ``half_window_decades`` on each side of ``logQ[i]``.
+
+    Windows are clipped to ``[lo, hi)`` so this can be called on sub-ranges
+    (used by the two-pass refinement to scan inside a single segment without
+    leaking statistics from the rest of the curve).
+
+    Returns an array of length ``len(logQ)`` with z=0 outside ``[lo, hi)``
+    and at points where either side window has fewer than 2 samples.
     """
     n = logQ.size
-    is_stable = np.zeros(n, dtype=bool)
-    local_mean = np.full(n, np.nan)
-    half = window_decades / 2.0
-    for i in range(n):
-        lo = int(np.searchsorted(logQ, logQ[i] - half, side="left"))
-        hi = int(np.searchsorted(logQ, logQ[i] + half, side="right"))
-        if hi - lo >= 3:
-            seg = slope[lo:hi]
-            std = float(np.std(seg))
-            if std < std_max:
-                is_stable[i] = True
-                local_mean[i] = float(np.mean(seg))
-    return is_stable, local_mean
+    if hi is None:
+        hi = n
+    z = np.zeros(n)
+    for i in range(max(lo + 1, 1), min(hi - 1, n - 1)):
+        lo_L = int(np.searchsorted(logQ, logQ[i] - half_window_decades,
+                                   side="left"))
+        lo_L = max(lo_L, lo)
+        hi_L = i
+        lo_R = i
+        hi_R = int(np.searchsorted(logQ, logQ[i] + half_window_decades,
+                                   side="right"))
+        hi_R = min(hi_R, hi)
+        if hi_L - lo_L < 2 or hi_R - lo_R < 2:
+            continue
+        mean_L = float(np.mean(slope[lo_L:hi_L]))
+        mean_R = float(np.mean(slope[lo_R:hi_R]))
+        z[i] = abs(mean_L - mean_R)
+    return z
 
 
-def _runs_from_mask(mask: np.ndarray) -> list[tuple[int, int]]:
-    """Return [(start, end_exclusive)] for each contiguous True run."""
-    runs = []
-    in_run = False
-    start = 0
-    for i in range(mask.size):
-        if mask[i] and not in_run:
-            start = i
-            in_run = True
-        elif not mask[i] and in_run:
-            runs.append((start, i))
-            in_run = False
-    if in_run:
-        runs.append((start, mask.size))
-    return runs
+def _find_changepoints(z: np.ndarray, logQ: np.ndarray,
+                       threshold: float, min_separation_decades: float,
+                       lo: int = 0, hi: Optional[int] = None) -> list[int]:
+    """Return indices of local maxima of `z` in ``[lo, hi)`` exceeding
+    `threshold`, with no two selections closer than `min_separation_decades`.
 
-
-def _merge_adjacent_runs(runs: list[tuple[int, int]], logQ: np.ndarray,
-                         local_mean: np.ndarray,
-                         slope_tol: float, max_gap_decades: float
-                         ) -> list[tuple[int, int]]:
-    """Merge adjacent runs whose mean slopes are similar and gap is small."""
-    if not runs:
+    Resolves overlaps by keeping the higher z; output is sorted ascending.
+    """
+    n = z.size
+    if hi is None:
+        hi = n
+    # Collect candidate local maxima
+    candidates: list[tuple[int, float]] = []
+    for i in range(max(lo + 1, 1), min(hi - 1, n - 1)):
+        if z[i] < threshold:
+            continue
+        if z[i] > z[i - 1] and z[i] >= z[i + 1]:
+            candidates.append((i, z[i]))
+    if not candidates:
         return []
-    merged = [runs[0]]
-    for s, e in runs[1:]:
-        prev_s, prev_e = merged[-1]
-        prev_mean = float(np.nanmean(local_mean[prev_s:prev_e]))
-        cur_mean = float(np.nanmean(local_mean[s:e]))
-        gap = float(logQ[s] - logQ[prev_e - 1])
-        if (abs(prev_mean - cur_mean) < slope_tol
-                and gap < max_gap_decades):
-            merged[-1] = (prev_s, e)
+    # Sort by z descending, then greedily accept respecting separation
+    candidates.sort(key=lambda x: -x[1])
+    selected: list[int] = []
+    for idx, _ in candidates:
+        too_close = False
+        for s in selected:
+            if abs(logQ[idx] - logQ[s]) < min_separation_decades:
+                too_close = True
+                break
+        if not too_close:
+            selected.append(idx)
+    return sorted(selected)
+
+
+def _two_pass_segment(logQ: np.ndarray, slope: np.ndarray,
+                      cfg: FeatureDetectConfig) -> list[tuple[int, int]]:
+    """Run two-pass change-point segmentation, return [(start, end_exclusive)]."""
+    n = logQ.size
+    if n < 4:
+        return [(0, n)] if n > 0 else []
+
+    # Pass 1: coarse boundaries on the full curve
+    z1 = _changepoint_z(logQ, slope, cfg.change_window_1 / 2.0)
+    cps1 = _find_changepoints(
+        z1, logQ,
+        threshold=cfg.change_threshold_1,
+        min_separation_decades=cfg.min_segment_decades,
+    )
+
+    coarse_boundaries = [0] + cps1 + [n]
+
+    # Pass 2: re-scan any segment wider than wide_region_decades
+    refined_boundaries: list[int] = [0]
+    for k in range(len(coarse_boundaries) - 1):
+        s, e = coarse_boundaries[k], coarse_boundaries[k + 1]
+        if e <= s:
+            continue
+        width = float(logQ[e - 1] - logQ[s]) if e > s else 0.0
+        if width > cfg.wide_region_decades and e - s >= 8:
+            z2 = _changepoint_z(logQ, slope, cfg.change_window_2 / 2.0,
+                                lo=s, hi=e)
+            sub_cps = _find_changepoints(
+                z2, logQ,
+                threshold=cfg.change_threshold_2,
+                min_separation_decades=cfg.min_segment_decades,
+                lo=s, hi=e,
+            )
+            for c in sub_cps:
+                if c != s and c != e:
+                    refined_boundaries.append(c)
+        if e < n:
+            refined_boundaries.append(e)
+    refined_boundaries.append(n)
+    refined_boundaries = sorted(set(refined_boundaries))
+
+    seg_ranges = []
+    for k in range(len(refined_boundaries) - 1):
+        s, e = refined_boundaries[k], refined_boundaries[k + 1]
+        if e - s < 2:
+            continue
+        seg_ranges.append((s, e))
+    return seg_ranges
+
+
+# ---------------------------------------------------------------------------
+# Post-processing
+# ---------------------------------------------------------------------------
+
+def _merge_similar_segments(seg_ranges: list[tuple[int, int]],
+                            slope: np.ndarray,
+                            tol: float) -> list[tuple[int, int]]:
+    """Merge adjacent segments whose mean slopes differ by less than ``tol``."""
+    if not seg_ranges:
+        return []
+    merged = [seg_ranges[0]]
+    for s, e in seg_ranges[1:]:
+        ps, pe = merged[-1]
+        prev_mean = float(np.mean(slope[ps:pe]))
+        cur_mean = float(np.mean(slope[s:e]))
+        if abs(prev_mean - cur_mean) < tol:
+            merged[-1] = (ps, e)
         else:
             merged.append((s, e))
     return merged
 
 
-def _filter_by_width(runs: list[tuple[int, int]], logQ: np.ndarray,
-                     min_decades: float) -> list[tuple[int, int]]:
-    """Drop runs narrower than min_decades."""
+def _filter_segments(seg_ranges: list[tuple[int, int]], logQ: np.ndarray,
+                     n_total: int, min_decades: float,
+                     edge_min_decades: float) -> list[tuple[int, int]]:
+    """Drop segments narrower than the applicable threshold.
+
+    Edge-touching segments (those whose s==0 or e==n_total) use the looser
+    ``edge_min_decades``; all others must satisfy ``min_decades``.
+    """
     out = []
-    for s, e in runs:
+    for s, e in seg_ranges:
         width = float(logQ[e - 1] - logQ[s])
-        if width >= min_decades:
+        is_edge = (s == 0) or (e == n_total)
+        threshold = edge_min_decades if is_edge else min_decades
+        if width >= threshold:
             out.append((s, e))
     return out
 
@@ -365,16 +470,13 @@ def _derive_knees(segments: list[dict], cfg: FeatureDetectConfig) -> list[dict]:
     """
     knees: list[dict] = []
     for i in range(len(segments) - 1):
-        low_q_seg  = segments[i]       # lower-Q segment
-        high_q_seg = segments[i + 1]   # higher-Q segment
+        low_q_seg  = segments[i]
+        high_q_seg = segments[i + 1]
         abs_slope_low_q  = abs(low_q_seg["slope"])
         abs_slope_high_q = abs(high_q_seg["slope"])
         delta = abs(low_q_seg["slope"] - high_q_seg["slope"])
-        # Require minimum slope difference
         if delta < cfg.guinier_knee_min_delta_slope:
             continue
-        # Guinier knee condition: going high→low Q, slope gets shallower,
-        # i.e. |slope| decreases.  Equivalently: |slope at low-Q| < |slope at high-Q|
         if abs_slope_low_q >= abs_slope_high_q:
             continue
         q_lo = float(low_q_seg["q_max"])
@@ -500,26 +602,21 @@ def detect_features(
             return FeatureDetectResult(n_points=int(q.size))
         slope = np.interp(np.arange(slope.size), idx_ok, slope[idx_ok])
 
-    # 5. Stability windows → raw stable runs
-    is_stable, local_mean = _stable_runs(
-        logQ, slope,
-        window_decades=config.stability_window,
-        std_max=config.stability_std_max,
-    )
-    runs = _runs_from_mask(is_stable)
+    # 5. Two-pass change-point segmentation
+    seg_ranges = _two_pass_segment(logQ, slope, config)
 
-    # 6. Merge adjacent runs with similar mean slope
-    runs = _merge_adjacent_runs(
-        runs, logQ, local_mean,
-        slope_tol=config.merge_slope_tol,
-        max_gap_decades=config.merge_max_gap_decades,
-    )
+    # 6. Merge segments with very similar slopes (suppress noise splits)
+    seg_ranges = _merge_similar_segments(seg_ranges, slope,
+                                         tol=config.merge_slope_tol)
 
-    # 7. Filter by minimum width
-    runs = _filter_by_width(runs, logQ, config.min_segment_decades)
+    # 7. Width filter (asymmetric: edge segments use looser threshold)
+    n_total = logQ.size
+    seg_ranges = _filter_segments(seg_ranges, logQ, n_total,
+                                  min_decades=config.min_segment_decades,
+                                  edge_min_decades=config.edge_min_segment_decades)
 
-    # 8. Build segments + classify
-    segments = _build_segments(runs, q, I, slope, config)
+    # 8. Build & classify segments
+    segments = _build_segments(seg_ranges, q, I, slope, config)
 
     # 9. Derive knees, windows, etc.
     knees = _derive_knees(segments, config)

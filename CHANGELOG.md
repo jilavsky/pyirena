@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] — 2026-06-17
+
+### Changed
+
+- **Feature Identifier algorithm rewritten as change-point detection.**
+  The v0.8.4 variance-based stability check had two failure modes flagged
+  by user testing:
+  - **Sample15**: a 0.4-decade Guinier plateau at the very low-Q end was
+    invisible because the stability window straddled the transition zone,
+    leaving only 0.04-decade "stable" runs that the min-width filter
+    discarded.
+  - **Sample25**: three distinct power-law regions (P ≈ 2.4, 2.8, 4.1)
+    connected by smooth slope drifts over ~2 decades were lumped into a
+    single segment with average slope ≈ −3.1, because the variance check
+    cannot distinguish "constant slope" from "slope changing slowly".
+
+  The root cause is the same: variance-based stability answers the wrong
+  question.  The right question is "does the mean slope here differ from
+  the mean slope nearby?" — change-point detection.
+
+  New algorithm:
+  - **Change-point statistic**: at each candidate boundary point, compute
+    `|mean_left − mean_right|` of the slope profile over a configurable
+    window.  Local maxima exceeding a threshold are change-points;
+    segments are the intervals between them.
+  - **Two-pass refinement**: a loose first pass finds major boundaries;
+    a tighter second pass re-scans any segment wider than
+    `wide_region_decades` (default 1.0) to detect hidden sub-structure,
+    catching the sample25 smooth-drift case.
+  - **Edge-aware width filter**: segments touching the data extremes use
+    a looser `edge_min_segment_decades` (default 0.05) than interior
+    segments (`min_segment_decades` default 0.10), preserving narrow
+    low-Q Guinier plateaus and high-Q backgrounds.
+
+  Validated against the 31 hand-labelled ground-truth samples in
+  `testData/StructureIdentificationExamples/`: **100% of human-marked
+  PLS / GP / Background ranges are now matched** by a detected segment
+  (was 94.8% in v0.8.4 with looser thresholds).
+
+  Config schema changed:
+  - Removed: `stability_window`, `stability_std_max`,
+    `merge_max_gap_decades`.
+  - Added: `change_window_1`, `change_threshold_1`, `change_window_2`,
+    `change_threshold_2`, `wide_region_decades`,
+    `edge_min_segment_decades`.
+  - Other classification / merge / knee thresholds retained with updated
+    defaults tuned to the new algorithm.
+
+  GUI dialog state version bumped to 2; old saved state under v0.8.4
+  field names is silently ignored on first open (defaults are restored).
+
+  Files: `pyirena/core/feature_detect.py`,
+  `pyirena/api/control/unified_fit.py`,
+  `pyirena/mcp/server.py` (unchanged signature),
+  `pyirena/gui/feature_identifier.py` (advanced-params field list +
+  schema version bump),
+  `pyirena/tests/test_feature_detect.py` (25 tests, including parametrised
+  ground-truth fidelity tests for sample15 and sample25),
+  `docs/feature_identifier.md` (rewritten parameter explanations + new
+  algorithm section + tuning guidance).
+
 ## [0.8.4] — 2026-06-17
 
 ### Changed
