@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyirena"
-version = "0.8.2"
+version = "0.8.5"
 description = "Python tools for small-angle scattering data analysis."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
@@ -49,6 +49,10 @@ gui = [
     "xraydb>=4.5",
     "periodictable>=1.7",
     "Dans-Diffraction>=3.0",
+    # AI advisor (optional — buttons hidden if not installed)
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
+    "keyring>=24.0",
 ]
 gui3d = [
     # 3D voxelgram viewer for SAXS Morph (and future 3D tools).

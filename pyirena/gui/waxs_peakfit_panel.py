@@ -68,11 +68,13 @@ _SPIN_STYLE  = "QDoubleSpinBox { max-width: 90px; }"
 
 _BTN_GRAPH   = "QPushButton { background:#52c77a;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
 _BTN_FIT     = "QPushButton { background:#27ae60;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_REVERT  = "QPushButton { background:#e67e22;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
+# Revert and Store keep their hue when disabled (faded orange/green) instead of
+# greying out, so the user always recognises them by colour.
+_BTN_REVERT  = "QPushButton { background:#e67e22;color:white;font-weight:bold; } QPushButton:disabled{background:#f4b483;color:#f8f8f8;}"
 _BTN_FIND    = "QPushButton { background:#3498db;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
 _BTN_RESET   = "QPushButton { background:#e67e22;color:white; } QPushButton:disabled{background:#bdc3c7;}"
 _BTN_SAVE    = "QPushButton { background:#3498db;color:white; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_STORE   = "QPushButton { background:#52c77a;color:white; } QPushButton:disabled{background:#bdc3c7;}"
+_BTN_STORE   = "QPushButton { background:#52c77a;color:white; } QPushButton:disabled{background:#a8e0bc;color:#f8f8f8;}"
 _BTN_RGRAPH  = "QPushButton { background:#81c784;color:white; } QPushButton:disabled{background:#bdc3c7;}"
 _BTN_EXPORT  = "QPushButton { background:#a9d18e;color:black; } QPushButton:disabled{background:#bdc3c7;}"
 _BTN_ADD     = "QPushButton { background:#95a5a6;color:white; } QPushButton:disabled{background:#bdc3c7;}"
@@ -1349,7 +1351,9 @@ class WAXSPeakFitPanel(QWidget):
 
         ll.addWidget(peaks_outer)
 
-        # ── Fit controls ──────────────────────────────────────────────────
+        # ── Fit controls: Graph Model | Fit | Fix Limits ──────────────────
+        # Revert and Reset live in the standard output section below — matches
+        # the shared template used by the other fit panels.
         fit_row = QHBoxLayout()
         self._graph_btn = QPushButton("Graph Model")
         self._graph_btn.setStyleSheet(_BTN_GRAPH)
@@ -1374,17 +1378,16 @@ class WAXSPeakFitPanel(QWidget):
         self._fit_btn.clicked.connect(self._run_fit)
         fit_row.addWidget(self._fit_btn)
 
-        self._revert_btn = QPushButton("Revert")
-        self._revert_btn.setStyleSheet(_BTN_REVERT)
-        self._revert_btn.setMinimumHeight(28)
-        self._revert_btn.setMaximumWidth(90)
-        self._revert_btn.setEnabled(False)
-        self._revert_btn.setToolTip(
-            "Restore all peak parameters to their values before the last fit.\n"
-            "Useful if a fit diverged or gave unreasonable results."
+        self._fix_limits_btn = QPushButton("Fix Limits")
+        self._fix_limits_btn.setStyleSheet(_BTN_FIXLIM)
+        self._fix_limits_btn.setMinimumHeight(28)
+        self._fix_limits_btn.setMaximumWidth(120)
+        self._fix_limits_btn.setToolTip(
+            "Set all fit limits to ±5× the current peak parameter values.\n"
+            "Convenient starting point before running a constrained fit."
         )
-        self._revert_btn.clicked.connect(self._revert)
-        fit_row.addWidget(self._revert_btn)
+        self._fix_limits_btn.clicked.connect(self._fix_limits)
+        fit_row.addWidget(self._fix_limits_btn)
         ll.addLayout(fit_row)
 
         # ── Weighting mode ────────────────────────────────────────────────
@@ -1475,63 +1478,96 @@ class WAXSPeakFitPanel(QWidget):
 
         ll.addWidget(ps_box)
 
-        # ── Fix Limits + Reset (same row) ─────────────────────────────────
-        extra_row = QHBoxLayout()
-        fix_limits_btn = QPushButton("Fix Limits")
-        fix_limits_btn.setStyleSheet(_BTN_FIXLIM)
-        fix_limits_btn.setMinimumHeight(28)
-        fix_limits_btn.setToolTip(
-            "Set all fit limits to ±5× the current peak parameter values.\n"
-            "Convenient starting point before running a constrained fit."
-        )
-        fix_limits_btn.clicked.connect(self._fix_limits)
-        extra_row.addWidget(fix_limits_btn)
-
-        reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setStyleSheet(_BTN_RESET)
-        reset_btn.setMinimumHeight(28)
-        reset_btn.setToolTip(
-            "Reset all peak parameters to their factory default values.\n"
-            "This cannot be undone — use 'Revert' to undo only the last fit."
-        )
-        reset_btn.clicked.connect(self._reset_defaults)
-        extra_row.addWidget(reset_btn)
-        ll.addLayout(extra_row)
-
         # ── Results section ───────────────────────────────────────────────
         res_lbl = _label("Results", bold=True)
         res_lbl.setStyleSheet("color:#3498db;margin-top:4px;")
         ll.addWidget(res_lbl)
 
+        # Output buttons — shared template (Row 1..4).  WAXS has no MC row.
+        # Row 1: Results to graphs + Revert back
         row1 = QHBoxLayout()
-        for txt, style, slot in [
-            ("Save State",        _BTN_SAVE,   self._save_state),
-            ("Store in File",     _BTN_STORE,  self._store_in_file),
-            ("Results to graphs", _BTN_RGRAPH, self._results_to_graphs),
-        ]:
-            b = QPushButton(txt)
-            b.setStyleSheet(style)
-            b.setMinimumHeight(26)
-            b.clicked.connect(slot)
-            row1.addWidget(b)
+        rgraph_btn = QPushButton("Results to graphs")
+        rgraph_btn.setStyleSheet(_BTN_RGRAPH)
+        rgraph_btn.setMinimumHeight(26)
+        rgraph_btn.setToolTip("Annotate the I(Q) plot with the current peak fit results.")
+        rgraph_btn.clicked.connect(self._results_to_graphs)
+        row1.addWidget(rgraph_btn)
+
+        self._revert_btn = QPushButton("Revert back")
+        self._revert_btn.setStyleSheet(_BTN_REVERT)
+        self._revert_btn.setMinimumHeight(26)
+        self._revert_btn.setEnabled(False)
+        self._revert_btn.setToolTip(
+            "Restore all peak parameters to their values before the last fit.\n"
+            "Useful if a fit diverged or gave unreasonable results."
+        )
+        self._revert_btn.clicked.connect(self._revert)
+        row1.addWidget(self._revert_btn)
         ll.addLayout(row1)
 
+        # Row 2: Save State + Store in File + Load Setup from File…
         row2 = QHBoxLayout()
-        for txt, style, slot, tip in [
-            ("Save params to JSON", _BTN_EXPORT, self._export_params,
+        save_state_btn = QPushButton("Save State")
+        save_state_btn.setStyleSheet(_BTN_SAVE)
+        save_state_btn.setMinimumHeight(26)
+        save_state_btn.setToolTip(
+            "Save current peak fit parameters to the pyIrena state file.\n"
+            "State is restored automatically when the file is reopened."
+        )
+        save_state_btn.clicked.connect(self._save_state)
+        row2.addWidget(save_state_btn)
+
+        store_btn = QPushButton("Store in File")
+        store_btn.setStyleSheet(_BTN_STORE)
+        store_btn.setMinimumHeight(26)
+        store_btn.setToolTip(
+            "Save fit results to the HDF5 (NXcanSAS) file.\n"
+            "The full GUI setup is embedded so 'Load Setup from File…' can\n"
+            "later restore every control."
+        )
+        store_btn.clicked.connect(self._store_in_file)
+        row2.addWidget(store_btn)
+
+        load_setup_btn = QPushButton("Load Setup from File…")
+        load_setup_btn.setStyleSheet("background-color: #ffe082;")
+        load_setup_btn.setMinimumHeight(26)
+        load_setup_btn.setToolTip(
+            "Restore every WAXS Peak Fit control (peak list, background, q-range, …)\n"
+            "from a NXcanSAS file previously saved by pyirena or by the pyirena-ai agent.\n"
+            "Use this to pick up where an AI run left off."
+        )
+        load_setup_btn.clicked.connect(self._load_setup_from_file)
+        row2.addWidget(load_setup_btn)
+        ll.addLayout(row2)
+
+        # Row 3: Save params to JSON + Load params from JSON
+        row3 = QHBoxLayout()
+        for txt, slot, tip in [
+            ("Save params to JSON", self._export_params,
              "Save current peak fit parameters to a pyIrena JSON file.\n"
              "Use 'Load params from JSON' to restore them later."),
-            ("Load params from JSON", _BTN_EXPORT, self._import_params,
+            ("Load params from JSON", self._import_params,
              "Load peak fit parameters from a previously saved pyIrena JSON file.\n"
              "Use 'Save params to JSON' to create a compatible file."),
         ]:
             b = QPushButton(txt)
-            b.setStyleSheet(style)
+            b.setStyleSheet(_BTN_EXPORT)
             b.setMinimumHeight(26)
             b.setToolTip(tip)
             b.clicked.connect(slot)
-            row2.addWidget(b)
-        ll.addLayout(row2)
+            row3.addWidget(b)
+        ll.addLayout(row3)
+
+        # Row 4: Reset to Defaults (full width)
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setStyleSheet(_BTN_RESET)
+        reset_btn.setMinimumHeight(26)
+        reset_btn.setToolTip(
+            "Reset all peak parameters to their factory default values.\n"
+            "This cannot be undone — use 'Revert back' to undo only the last fit."
+        )
+        reset_btn.clicked.connect(self._reset_defaults)
+        ll.addWidget(reset_btn)
 
         # ── Status label ──────────────────────────────────────────────────
         self._status = QLabel("")
@@ -2187,6 +2223,31 @@ class WAXSPeakFitPanel(QWidget):
         else:
             self._set_status("Failed to save state.", error=True)
 
+    def _load_setup_from_file(self):
+        """Restore the full WAXS Peak Fit setup from a NXcanSAS file.
+
+        Reads the ``_pyirena_config`` attribute embedded by
+        :func:`pyirena.io.nxcansas_waxs_peakfit.save_waxs_peakfit_results`
+        (or by the pyirena-ai agent) and replays it through
+        :meth:`_apply_state` so every control matches what was stored.
+        """
+        from pyirena.gui.setup_loader import prompt_and_load_setup
+        if self._filepath is not None:
+            default_folder = str(self._filepath.parent)
+            suggested = str(self._filepath)
+        else:
+            default_folder = str(Path.home())
+            suggested = None
+
+        prompt_and_load_setup(
+            parent=self,
+            tool="waxs_peakfit",
+            default_folder=default_folder,
+            apply_state=self._apply_state,
+            on_status=lambda msg: self._set_status(msg),
+            suggested_path=suggested,
+        )
+
     def _store_in_file(self):
         if self._filepath is None:
             QMessageBox.warning(self, "No file", "No data file is open.")
@@ -2232,12 +2293,19 @@ class WAXSPeakFitPanel(QWidget):
         try:
             from pyirena.io.nxcansas_waxs_peakfit import save_waxs_peakfit_results
             q_fit_min, q_fit_max = self._graph.get_q_range()
+            # Snapshot the full GUI state for round-trip restore via
+            # "Load Setup from File…".
+            try:
+                setup_state = self._get_current_state()
+            except Exception:
+                setup_state = None
             save_waxs_peakfit_results(
                 self._filepath, result, self._q,
                 intensity_data=self._I,
                 intensity_error=self._dI,
                 q_min=q_fit_min,
                 q_max=q_fit_max,
+                setup_state=setup_state,
             )
             self._set_status(f"Saved to {self._filepath.name}.")
         except Exception as exc:

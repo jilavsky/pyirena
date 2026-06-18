@@ -187,7 +187,8 @@ def save_unified_fit_results(filepath: Path,
                              chi_squared: float,
                              num_levels: int,
                              error: Optional[np.ndarray] = None,
-                             uncertainties: Optional[Dict] = None) -> None:
+                             uncertainties: Optional[Dict] = None,
+                             setup_state: Optional[Dict] = None) -> None:
     """
     Save Unified Fit results to NXcanSAS HDF5 file.
 
@@ -210,6 +211,11 @@ def save_unified_fit_results(filepath: Path,
                         'background': float}
             Non-zero values are stored as  <param>_err  attributes on each level
             group and as  background_err  on the unified_fit_results group.
+        setup_state: Optional full GUI state dict (as produced by
+            ``UnifiedFitPanel.get_current_state()``).  Embedded as the
+            ``_pyirena_config`` JSON attribute on ``unified_fit_results`` so the
+            GUI can restore every control (fit flags, bounds, link options,
+            cursors, …) after an AI-driven run.
     """
     timestamp = datetime.now().isoformat()
 
@@ -297,6 +303,11 @@ def save_unified_fit_results(filepath: Path,
                     err_val = ud.get(param_key, 0.0)
                     if err_val > 0.0:
                         level_group.create_dataset(f'{param_key}_err', data=float(err_val))
+
+        # Embed the full GUI setup so the panel can round-trip from this file.
+        if setup_state is not None:
+            from pyirena.io.setup_config import write_setup_config
+            write_setup_config(unified_group, "unified_fit", setup_state)
 
         print(f"Saved Unified Fit results to {filepath}")
 

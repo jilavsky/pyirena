@@ -56,6 +56,7 @@ def save_simple_fit_results(
     model_obj=None,
     intensity_data: Optional[np.ndarray] = None,
     intensity_error: Optional[np.ndarray] = None,
+    setup_state: Optional[dict] = None,
 ) -> None:
     """
     Save simple-model fitting results to an NXcanSAS HDF5 file.
@@ -79,6 +80,11 @@ def save_simple_fit_results(
         Measured I(Q) values to store alongside the fit.
     intensity_error : array, optional
         Measurement uncertainties [same units as intensity_data].
+    setup_state : dict, optional
+        Full GUI state dict (the ``simple_fits`` section from StateManager).
+        Embedded as the ``_pyirena_config`` JSON attribute on
+        ``simple_fit_results`` so the GUI can restore every control after an
+        AI-driven run.
     """
     filepath = Path(filepath)
     timestamp = datetime.now().isoformat()
@@ -168,6 +174,11 @@ def save_simple_fit_results(
             for name, val in derived.items():
                 if val is not None and np.isfinite(float(val)):
                     dgrp.create_dataset(name, data=float(val))
+
+        # Embed the full GUI setup so the panel can round-trip from this file.
+        if setup_state is not None:
+            from pyirena.io.setup_config import write_setup_config
+            write_setup_config(grp, "simple_fits", setup_state)
 
 
 def load_simple_fit_results(filepath: Path) -> dict:

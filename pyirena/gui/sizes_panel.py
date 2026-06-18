@@ -158,6 +158,7 @@ class SizesFitGraphWindow(QWidget):
         self._trust_bar_item = None    # Trust-region color bar on distribution plot
         self._cursor_a = None
         self._cursor_b = None
+        self._result_text_items = []   # pyqtgraph TextItems for "Results to graph"
         self.init_ui()
 
     def init_ui(self):
@@ -812,6 +813,37 @@ class SizesFitGraphWindow(QWidget):
     def show_success_message(self, text):
         self.show_message(text, '#27ae60')
 
+    # ── Result text annotations (Results to graph) ──────────────────────────
+
+    def clear_result_text_annotations(self):
+        """Remove all result text annotations from the main I(Q) plot."""
+        for text_item in self._result_text_items:
+            self.main_plot.removeItem(text_item)
+        self._result_text_items = []
+
+    def add_result_text_annotation(self, q_pos, y_pos, text, color='black'):
+        """Add a text box with fit-result values on the main I(Q) plot.
+
+        The main plot is in log-log mode, so the (q_pos, y_pos) inputs are
+        in *linear* coordinates and are converted to log10 internally —
+        matches the convention used by ``UnifiedFitGraphWindow``.
+        """
+        if q_pos is None or not np.isfinite(q_pos) or q_pos <= 0:
+            q_pos = 1e-10
+        if y_pos is None or not np.isfinite(y_pos) or y_pos <= 0:
+            y_pos = 1e-10
+
+        text_item = pg.TextItem(
+            text=text,
+            color=color,
+            anchor=(0, 1),
+            fill=pg.mkBrush(255, 255, 255, 200),  # near-opaque white
+            border=pg.mkPen(color='black', width=1),
+        )
+        text_item.setPos(np.log10(q_pos), np.log10(y_pos))
+        self.main_plot.addItem(text_item)
+        self._result_text_items.append(text_item)
+
 
 def _style_axes(plot_item):
     """Apply white background / black axes styling and disable SI prefix scaling."""
@@ -1427,59 +1459,6 @@ class SizesFitPanel(QWidget):
 
         layout.addLayout(btn_row1)
 
-        btn_row_unc = QHBoxLayout()
-        btn_row_unc.addWidget(QLabel("Passes:"))
-        self.unc_n_runs_spin = QSpinBox()
-        self.unc_n_runs_spin.setMinimum(1)
-        self.unc_n_runs_spin.setMaximum(200)
-        self.unc_n_runs_spin.setValue(10)
-        self.unc_n_runs_spin.setMaximumWidth(52)
-        self.unc_n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
-        btn_row_unc.addWidget(self.unc_n_runs_spin)
-        self.uncertainty_button = QPushButton("Calc. Uncertainty (MC)")
-        self.uncertainty_button.setMinimumHeight(26)
-        self.uncertainty_button.setStyleSheet("""
-            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #1abc9c; }
-        """)
-        self.uncertainty_button.setToolTip(
-            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
-            "Set 'Passes' to control how many Monte Carlo replicates are used."
-        )
-        self.uncertainty_button.clicked.connect(self.calculate_uncertainty)
-        btn_row_unc.addWidget(self.uncertainty_button)
-        layout.addLayout(btn_row_unc)
-
-        btn_row2 = QHBoxLayout()
-
-        self.revert_button = QPushButton("Revert")
-        self.revert_button.setMinimumHeight(26)
-        self.revert_button.setStyleSheet("""
-            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
-        self.revert_button.setToolTip(
-            "Restore all parameters to the values they had before the last fit.\n"
-            "Useful if a fit diverged or gave unreasonable results."
-        )
-        self.revert_button.clicked.connect(self._revert)
-        btn_row2.addWidget(self.revert_button)
-
-        self.reset_button = QPushButton("Reset to Defaults")
-        self.reset_button.setMinimumHeight(26)
-        self.reset_button.setStyleSheet("""
-            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #d35400; }
-        """)
-        self.reset_button.setToolTip(
-            "Reset all parameters to their factory default values.\n"
-            "This cannot be undone — use 'Revert' to undo only the last fit."
-        )
-        self.reset_button.clicked.connect(self.reset_to_defaults)
-        btn_row2.addWidget(self.reset_button)
-
-        layout.addLayout(btn_row2)
-
         # ── Results section ──────────────────────────────────────────────────
         results_header = QLabel("Results")
         results_header.setStyleSheet("""
@@ -1532,7 +1511,40 @@ class SizesFitPanel(QWidget):
 
         layout.addWidget(results_box)
 
-        # ── Storage buttons ──────────────────────────────────────────────────
+        # ── Output buttons — shared template (Row 1..5) ─────────────────────
+        # Row 1: Results to graph + Revert back
+        row1 = QHBoxLayout()
+
+        self.results_to_graph_button = QPushButton("Results to graph")
+        self.results_to_graph_button.setMinimumHeight(26)
+        self.results_to_graph_button.setStyleSheet("""
+            QPushButton { background-color: #81c784; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #66bb6a; }
+        """)
+        self.results_to_graph_button.setToolTip(
+            "Annotate the I(Q) plot with the current fitted Sizes results\n"
+            "(Rg, peak r, volume fraction, χ²).  The text box is anchored\n"
+            "near the data at Q ≈ 2π/Rg."
+        )
+        self.results_to_graph_button.clicked.connect(self._results_to_graph)
+        row1.addWidget(self.results_to_graph_button)
+
+        self.revert_button = QPushButton("Revert back")
+        self.revert_button.setMinimumHeight(26)
+        self.revert_button.setStyleSheet("""
+            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #f39c12; }
+        """)
+        self.revert_button.setToolTip(
+            "Restore all parameters to the values they had before the last fit.\n"
+            "Useful if a fit diverged or gave unreasonable results."
+        )
+        self.revert_button.clicked.connect(self._revert)
+        row1.addWidget(self.revert_button)
+
+        layout.addLayout(row1)
+
+        # Row 2: Save State + Store in File + Load Setup from File…
         store_row = QHBoxLayout()
 
         self.save_state_button = QPushButton("Save State")
@@ -1553,14 +1565,26 @@ class SizesFitPanel(QWidget):
         self.store_file_button.setStyleSheet("background-color: lightgreen;")
         self.store_file_button.setToolTip(
             "Save fit results (parameters and model curves) into the source HDF5/NXcanSAS file.\n"
-            "Results are appended as a pyirena NXprocess group."
+            "Results are appended as a pyirena NXprocess group, and the full\n"
+            "GUI setup is embedded so 'Load Setup from File…' can later restore it."
         )
         self.store_file_button.clicked.connect(self.store_results_to_file)
         store_row.addWidget(self.store_file_button)
 
+        self.load_setup_button = QPushButton("Load Setup from File…")
+        self.load_setup_button.setMinimumHeight(26)
+        self.load_setup_button.setStyleSheet("background-color: #ffe082;")
+        self.load_setup_button.setToolTip(
+            "Restore every Sizes control (shape, r-range, method, bounds, …)\n"
+            "from a NXcanSAS file previously saved by pyirena or by the\n"
+            "pyirena-ai agent.  Use this to pick up where an AI run left off."
+        )
+        self.load_setup_button.clicked.connect(self._load_setup_from_file)
+        store_row.addWidget(self.load_setup_button)
+
         layout.addLayout(store_row)
 
-        # ── Export / Import Parameters buttons ───────────────────────────────
+        # Row 3: Save params to JSON + Load params from JSON
         params_row = QHBoxLayout()
 
         self.export_params_button = QPushButton("Save params to JSON")
@@ -1584,6 +1608,44 @@ class SizesFitPanel(QWidget):
         params_row.addWidget(self.import_params_button)
 
         layout.addLayout(params_row)
+
+        # Row 4: Reset to defaults (full width)
+        self.reset_button = QPushButton("Reset to Defaults")
+        self.reset_button.setMinimumHeight(26)
+        self.reset_button.setStyleSheet("""
+            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #d35400; }
+        """)
+        self.reset_button.setToolTip(
+            "Reset all parameters to their factory default values.\n"
+            "This cannot be undone — use 'Revert back' to undo only the last fit."
+        )
+        self.reset_button.clicked.connect(self.reset_to_defaults)
+        layout.addWidget(self.reset_button)
+
+        # Row 5: Passes + Calc. Uncertainty (MC)
+        btn_row_unc = QHBoxLayout()
+        btn_row_unc.addWidget(QLabel("Passes:"))
+        self.unc_n_runs_spin = QSpinBox()
+        self.unc_n_runs_spin.setMinimum(1)
+        self.unc_n_runs_spin.setMaximum(200)
+        self.unc_n_runs_spin.setValue(10)
+        self.unc_n_runs_spin.setMaximumWidth(52)
+        self.unc_n_runs_spin.setToolTip("Number of noise-perturbed fits for uncertainty estimation")
+        btn_row_unc.addWidget(self.unc_n_runs_spin)
+        self.uncertainty_button = QPushButton("Calc. Uncertainty (MC)")
+        self.uncertainty_button.setMinimumHeight(26)
+        self.uncertainty_button.setStyleSheet("""
+            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1abc9c; }
+        """)
+        self.uncertainty_button.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
+        self.uncertainty_button.clicked.connect(self.calculate_uncertainty)
+        btn_row_unc.addWidget(self.uncertainty_button)
+        layout.addLayout(btn_row_unc)
 
         # ── Status label (left panel) ────────────────────────────────────────
         self.status_label = QLabel("Ready — load data to begin")
@@ -2252,6 +2314,79 @@ class SizesFitPanel(QWidget):
         self._apply_sizes_to_gui(s)
         self.graph_window.show_message("Reverted to pre-fit parameters.")
 
+    def _results_to_graph(self):
+        """Annotate the I(Q) plot with the current fitted Sizes results.
+
+        Mirrors the Unified Fit "Results to graphs" behaviour: a text box
+        with the key result values is anchored on top of the data near
+        Q ≈ 2π/Rg, which is the Guinier knee for a single-size system.
+        """
+        if self.fit_result is None:
+            self.graph_window.show_error_message(
+                "No fit results yet — run a fit first."
+            )
+            return
+        if self.data is None or self.data.get('Q') is None:
+            self.graph_window.show_error_message(
+                "No data loaded — cannot anchor the annotation."
+            )
+            return
+
+        from pyirena.gui.fmt_utils import eng_fmt
+
+        result = self.fit_result
+        rg     = result.get('rg')
+        vf     = result.get('volume_fraction')
+        chi2   = result.get('chi_squared')
+        n_data = result.get('n_data')
+        r_grid = result.get('r_grid')
+        dist   = result.get('distribution')
+
+        peak_r = None
+        if r_grid is not None and dist is not None and len(dist) > 0:
+            peak_idx = int(np.argmax(dist))
+            peak_r = float(r_grid[peak_idx])
+
+        # Pick anchor point on the data near Q = 2π/Rg.  Fall back to the
+        # middle of the data range if Rg is missing or out of bounds.
+        q_data = np.asarray(self.data['Q'])
+        i_data = np.asarray(self.data['Intensity'])
+        valid  = np.isfinite(q_data) & np.isfinite(i_data) & (q_data > 0) & (i_data > 0)
+        if not np.any(valid):
+            self.graph_window.show_error_message(
+                "Data has no positive Q / I points — cannot anchor the annotation."
+            )
+            return
+        qv, iv = q_data[valid], i_data[valid]
+
+        if rg is not None and np.isfinite(rg) and rg > 0:
+            target_q = 2.0 * np.pi / rg
+        else:
+            target_q = qv[len(qv) // 2]
+        target_q = float(np.clip(target_q, qv.min(), qv.max()))
+        anchor_idx = int(np.argmin(np.abs(qv - target_q)))
+        q_pos = float(qv[anchor_idx])
+        y_pos = float(iv[anchor_idx])
+
+        # Build the annotation text.  Skip values the fit didn't supply.
+        lines = ["Sizes fit:"]
+        if rg     is not None and np.isfinite(rg):     lines.append(f"Rg     = {eng_fmt(rg)} Å")
+        if peak_r is not None and np.isfinite(peak_r): lines.append(f"Peak r = {eng_fmt(peak_r)} Å")
+        if vf     is not None and np.isfinite(vf):     lines.append(f"Vf     = {eng_fmt(vf, sig=4)}")
+        if chi2   is not None and np.isfinite(chi2):
+            chi2_line = f"χ²     = {eng_fmt(chi2)}"
+            if n_data:
+                chi2_line += f"  (target: {int(n_data)})"
+            lines.append(chi2_line)
+
+        self.graph_window.clear_result_text_annotations()
+        self.graph_window.add_result_text_annotation(
+            q_pos, y_pos, "\n".join(lines), color='black'
+        )
+        self.graph_window.show_success_message(
+            "Results annotated on graph."
+        )
+
     def reset_to_defaults(self):
         s = SizesDistribution()  # Default values
         self._apply_sizes_to_gui(s)
@@ -2380,6 +2515,31 @@ class SizesFitPanel(QWidget):
             self.status_label.setText("State saved")
         else:
             QMessageBox.warning(self, "Save Failed", "Failed to save state.")
+
+    def _load_setup_from_file(self):
+        """Restore the full Sizes setup from a NXcanSAS file.
+
+        Reads the ``_pyirena_config`` attribute embedded by
+        :func:`pyirena.io.nxcansas_sizes.save_sizes_results` (or by the
+        pyirena-ai agent) and replays it through :meth:`_apply_state` so
+        every control matches what was stored.
+        """
+        from pyirena.gui.setup_loader import prompt_and_load_setup
+        if self.data is not None and self.data.get('filepath'):
+            default_folder = str(Path(self.data['filepath']).parent)
+            suggested = str(self.data['filepath'])
+        else:
+            default_folder = self._get_data_folder()
+            suggested = None
+
+        prompt_and_load_setup(
+            parent=self,
+            tool="sizes",
+            default_folder=default_folder,
+            apply_state=self._apply_state,
+            on_status=lambda msg: self.status_label.setText(msg),
+            suggested_path=suggested,
+        )
 
     def _get_data_folder(self) -> str:
         """Return the folder of the currently loaded data file, or cwd."""
@@ -2573,6 +2733,14 @@ class SizesFitPanel(QWidget):
             i_data = result.get('I_data', i_data)
             i_err  = result.get('err',    i_err)
 
+            # Snapshot the full GUI state for round-trip restore via
+            # "Load Setup from File…".  Re-derived from controls so it
+            # mirrors exactly what the user sees right now.
+            try:
+                setup_state = self._get_current_state()
+            except Exception:
+                setup_state = None
+
             save_sizes_results(
                 filepath=output_path,
                 q=q_fit,
@@ -2584,6 +2752,7 @@ class SizesFitPanel(QWidget):
                 params=params,
                 intensity_error=i_err,
                 distribution_std=result.get('distribution_std'),
+                setup_state=setup_state,
             )
 
             self.graph_window.show_success_message(

@@ -7,25 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [0.8.5] — 2026-06-17
 
-- **SimpleFits parameter uncertainties** (`pyirena/core/simple_fits.py`).
-  Mirror of the WAXS fix landed in 0.8.2: `SimpleFitModel.fit()` no longer
-  hardcodes `absolute_sigma=True` when calling `scipy.optimize.curve_fit`.
-  When the caller does not supply real measurement errors, the synthesised
-  `I × 0.05` weights are passed with `absolute_sigma=False` so the
-  covariance matrix is rescaled by reduced χ² (the textbook "unknown σ
-  scale" behaviour); real user-supplied errors are still treated as true
-  1-σ values via `absolute_sigma=True`. Without this, fits with residual
-  scatter very different from 5 % reported uncertainties that were tighter
-  or looser than the actual residual scatter by the χ²-ratio (e.g. 15 %
-  noisy data was reporting σ ≈ 3× too small). Per-element std extraction
-  now uses `np.isfinite` per diagonal entry so a single parameter at a
-  bound no longer NaN-wipes the full std vector. These uncertainties are
-  surfaced in the Simple Fits panel, in the NXcanSAS file (`params_std/`)
-  and in the Data Selector results display.
+### Changed
 
-## [0.8.2] — 2026-06-15
+- **Feature Identifier algorithm rewritten as change-point detection.**
+  The v0.8.4 variance-based stability check had two failure modes flagged
+  by user testing:
+  - **Sample15**: a 0.4-decade Guinier plateau at the very low-Q end was
+    invisible because the stability window straddled the transition zone,
+    leaving only 0.04-decade "stable" runs that the min-width filter
+    discarded.
+  - **Sample25**: three distinct power-law regions (P ≈ 2.4, 2.8, 4.1)
+    connected by smooth slope drifts over ~2 decades were lumped into a
+    single segment with average slope ≈ −3.1, because the variance check
+    cannot distinguish "constant slope" from "slope changing slowly".
+
+  The root cause is the same: variance-based stability answers the wrong
+  question.  The right question is "does the mean slope here differ from
+  the mean slope nearby?" — change-point detection.
+
+  New algorithm:
+  - **Change-point statistic**: at each candidate boundary point, compute
+    `|mean_left − mean_right|` of the slope profile over a configurable
+    window.  Local maxima exceeding a threshold are change-points;
+    segments are the intervals between them.
+  - **Two-pass refinement**: a loose first pass finds major boundaries;
+    a tighter second pass re-scans any segment wider than
+    `wide_region_decades` (default 1.0) to detect hidden sub-structure,
+    catching the sample25 smooth-drift case.
+  - **Edge-aware width filter**: segments touching the data extremes use
+    a looser `edge_min_segment_decades` (default 0.05) than interior
+    segments (`min_segment_decades` default 0.10), preserving narrow
+    low-Q Guinier plateaus and high-Q backgrounds.
+
+  Validated against the 31 hand-labelled ground-truth samples in
+  `testData/StructureIdentificationExamples/`: **100% of human-marked
+  PLS / GP / Background ranges are now matched** by a detected segment
+  (was 94.8% in v0.8.4 with looser thresholds).
+
+  Config schema changed:
+  - Removed: `stability_window`, `stability_std_max`,
+    `merge_max_gap_decades`.
+  - Added: `change_window_1`, `change_threshold_1`, `change_window_2`,
+    `change_threshold_2`, `wide_region_decades`,
+    `edge_min_segment_decades`.
+  - Other classification / merge / knee thresholds retained with updated
+    defaults tuned to the new algorithm.
+
+  GUI dialog state version bumped to 2; old saved state under v0.8.4
+  field names is silently ignored on first open (defaults are restored).
+
+  Files: `pyirena/core/feature_detect.py`,
+  `pyirena/api/control/unified_fit.py`,
+  `pyirena/mcp/server.py` (unchanged signature),
+  `pyirena/gui/feature_identifier.py` (advanced-params field list +
+  schema version bump),
+  `pyirena/tests/test_feature_detect.py` (25 tests, including parametrised
+  ground-truth fidelity tests for sample15 and sample25),
+  `docs/feature_identifier.md` (rewritten parameter explanations + new
+  algorithm section + tuning guidance).
+
+## [0.8.4] — 2026-06-17
+
+### Changed
+
+- **Feature Identifier rewritten as power-law segmentation.**  The v0.8.3
+  threshold-based plateau detector was insufficient — it produced one or
+  zero features on many real SAXS curves because steep Porod slopes
+  (P ≈ 2-4) fell between the SAXS plateau threshold and the USAXS
+  power-law threshold and were silently ignored.  The new algorithm:
+  - Segments the **entire I(Q) curve** into contiguous power-law-slope
+    regions using a sliding-window stability test on the smoothed
+    d(log I)/d(log Q) profile, with adjacent-segment merging by
+    mean-slope similarity.
+  - Classifies each segment as ``background`` (small |slope| AND
+    touches the high-Q end), ``guinier_plateau`` (small |slope|
+    elsewhere), or ``power_law``.
+  - Derives ``guinier_knees`` between adjacent segments whose slopes
+    differ by ≥ 0.5.
+  - Clips data to Q ≤ 0.6 Å⁻¹ by default (SAS-approximation limit;
+    user-overridable).
+  - Validated against 31 hand-labelled SAXS samples in
+    ``testData/StructureIdentificationExamples/``: 95% of human-marked
+    Power-Law-Slope / Guinier-Plateau / Background ranges are matched
+    by a detected segment.
+  - Result schema changed: ``segments`` + ``guinier_knees`` replace the
+    v0.8.3 ``plateaus`` / ``peaks`` / ``power_law_regions`` lists.
+    No SAXS/USAXS presets — the algorithm is range-independent.
+  - Updated: ``pyirena.core.feature_detect``,
+    ``pyirena.api.control.unified_fit.detect_features``,
+    ``pyirena.mcp.server.pyirena_ctrl_detect_features``,
+    ``pyirena.gui.feature_identifier`` (drops preset combo; renders
+    one overlay per segment plus knee markers).
+  - 9 of 21 unit tests are parametrised ground-truth fidelity checks.
+
+## [0.8.3] — 2026-06-13
 
 ### Added
 
@@ -53,42 +130,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     base level-count and Q-window decisions on the curve's slope profile
     instead of guessing.
   - 11 new unit tests in `pyirena/tests/test_feature_detect.py`.
->>>>>>> 05723f1 (fix(simple_fits): correct uncertainty computation (mirror of waxs fix))
 
 ### Fixed
 
-- **WAXS Peak Fit: parameter uncertainties were nonsensical and the
-  saved HDF5 file contained empty `*_std` fields**. Three independent
-  bugs were combining to produce the broken behavior:
+- **`set_parameter_value` now auto-expands bounds when the assigned value
+  falls outside them** (`pyirena/api/control/unified_fit.py`). Previously,
+  setting G or Rg to a sentinel value (e.g. G=0 to "remove" a level) would
+  leave the bounds unchanged, causing scipy to raise "Initial guess is outside
+  of provided bounds" at `run_fit` time — even when that parameter was fixed
+  and not actually passed to the optimizer. The fix silently widens the lower
+  or upper bound to contain the new value, so AI agents can set extreme
+  sentinel values without needing to also call `set_parameter_bounds`.
 
-  1. **`absolute_sigma=True` used unconditionally** in
-     `scipy.optimize.curve_fit`. For `weight_mode='equal'` (σ=1) or
-     `'relative'` (σ=dI/I), σ is a relative weight, not a real
-     measurement uncertainty — using `absolute_sigma=True` inflated
-     parameter covariances by orders of magnitude (e.g. σ_A ≫ A for a
-     clean Gaussian peak). Only `'standard'` mode (with measured dI)
-     now uses `absolute_sigma=True`; the other modes use
-     `absolute_sigma=False` so `pcov` is rescaled by the actual
-     residual scatter.
-  2. **All stds wiped to NaN if any one was inf**. A single inf in
-     the covariance diagonal (typically a parameter at a bound) was
-     setting every parameter's std to NaN via
-     `np.all(np.isfinite(...))`. Each parameter now gets its own std
-     or NaN independently.
-  3. **`_store_in_file` hard-coded empty std dicts**. The save path
-     built `bg_params_std={}` and `peaks_std=[{}…]` from scratch and
-     never consulted the fit result. The most recent fit result is
-     now cached and its stds forwarded to
-     `save_waxs_peakfit_results`.
+## [0.8.2] — 2026-05-25
 
-  Net effect: for a clean peak (A=0.011, Q₀=2.535, FWHM=0.027),
-  uncertainties go from absurd (σ_A=0.36, σ_Q₀=0.43, σ_FWHM=1.0) to
-  sensible (~1% of value), and the saved HDF5 `params_std/`,
-  `background_std/`, and `area_std` datasets are populated.
-
-- **WAXS Peak Fit GUI: "Results to graphs" stacked annotations**.
-  Each press added a new text box on top of the previous one instead
-  of replacing it. Now removes the previous annotation first.
+### Fixed
 
 - **`.pxp` importer: many small fixes from end-to-end testing on real
   legacy USAXS experiments**. Aggregating one release because each
@@ -138,14 +194,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning that the rest need .h5xp re-save".
 
   +4 new unit tests (23 total).
-
-### Changed
-
-- **WAXS Peak Fit panel layout**: "Sort by Q" moved to a small button
-  at the top-right corner of the Peaks groupbox; "Add Peak Manually"
-  removed (right-click on the graph already adds/removes peaks); a
-  small italic hint reminds the user; window default height bumped
-  ~14% so a longer peak list fits without scroll-area clipping.
 
 ## [0.8.1] — 2026-05-25
 

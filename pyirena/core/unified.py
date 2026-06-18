@@ -94,6 +94,42 @@ class UnifiedLevel:
         if self.mass_fractal and self.Rg > 0:
             self.B = (self.G * self.P / self.Rg ** self.P) * np.exp(np.log(gamma(self.P / 2.0)))
 
+    def check_physical_feasibility(self) -> bool:
+        """
+        Check if the level parameters represent a physically meaningful set.
+
+        A level is feasible if the Guinier and power-law regions smoothly connect
+        at the rollover Q point (defined by Hammouda's theory). The continuity is
+        checked by comparing their values at the rollover: a large discontinuity
+        indicates unphysical parameter combinations.
+
+        Returns:
+            True if physically feasible, False otherwise.
+        """
+        # Special case: removed level (G=0 and Rg very large)
+        if self.G <= 0 and self.Rg > 1e9:
+            return True
+
+        # Rollover Q value (Hammouda definition)
+        Q_rollover = 2.0 * (1.0 / self.Rg) * np.sqrt(self.P / 2.0)
+
+        # Guinier value at rollover Q
+        guinier_value = self.G * np.exp((-Q_rollover**2 * self.Rg**2) / 3.0)
+
+        # Power law value at rollover Q
+        power_law_value = self.B / (Q_rollover**self.P)
+
+        # Relative difference (fraction of Guinier value)
+        if guinier_value <= 0:
+            return False
+        difference = (power_law_value - guinier_value) / guinier_value
+
+        # Valid range: parameters must produce smooth connection
+        LOW_LIMIT = -0.633
+        HIGH_LIMIT = 2.25
+
+        return LOW_LIMIT <= difference <= HIGH_LIMIT
+
 
 class UnifiedFitModel:
     """

@@ -2141,47 +2141,12 @@ class ModelingPanel(QWidget):
         self.btn_fit.clicked.connect(self.run_fit)
         self.btn_fit.setEnabled(False)
 
-        self.btn_revert = QPushButton('Revert')
-        self.btn_revert.setMinimumHeight(34)
-        self.btn_revert.setStyleSheet(
-            'QPushButton {background: #e67e22; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #ca6f1e;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
-        self.btn_revert.setToolTip('Restore parameters to their values before the last fit.')
-        self.btn_revert.clicked.connect(self.revert_to_pre_fit)
-        self.btn_revert.setEnabled(False)
-
+        # "Revert" lives in the standard output section below, next to
+        # "Results to graph" — matches the shared template used by the
+        # other fit panels.
         btn_row1.addWidget(self.btn_graph)
         btn_row1.addWidget(self.btn_fit)
-        btn_row1.addWidget(self.btn_revert)
         lay.addLayout(btn_row1)
-
-        btn_row2 = QHBoxLayout()
-        btn_row2.addWidget(QLabel('Passes:'))
-        self.n_runs_spin = QSpinBox()
-        self.n_runs_spin.setRange(1, 500)
-        self.n_runs_spin.setValue(10)
-        self.n_runs_spin.setFixedWidth(60)
-        btn_row2.addWidget(self.n_runs_spin)
-
-        self.btn_mc = QPushButton('Calc. Uncertainty (MC)')
-        self.btn_mc.setMinimumHeight(34)
-        self.btn_mc.setStyleSheet(
-            'QPushButton {background: #16a085; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #1abc9c;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
-        self.btn_mc.setToolTip(
-            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
-            "Set 'Passes' to control how many Monte Carlo replicates are used."
-        )
-        self.btn_mc.clicked.connect(self.calc_uncertainty_mc)
-        self.btn_mc.setEnabled(False)
-        btn_row2.addWidget(self.btn_mc)
-        lay.addLayout(btn_row2)
 
         lay.addWidget(_sep())
 
@@ -2200,15 +2165,25 @@ class ModelingPanel(QWidget):
         lay.addWidget(res_group)
 
         # ── Output buttons (standard layout matching other tools) ─────────
+        # Disabled state keeps the button's hue (faded version) instead of
+        # going grey, so Revert/Store/Calc-Uncertainty stay visually
+        # identifiable across all panels even before a fit has run.
         _btn_css = {
             'green':  ('QPushButton {{background: #81c784; color: white; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #66bb6a;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+                       'QPushButton:hover {{background: #66bb6a;}} '
+                       'QPushButton:disabled {{background: #bce0c0; color: #f8f8f8;}}'),
             'blue':   ('QPushButton {{background: #3498db; color: white; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #2980b9;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+                       'QPushButton:hover {{background: #2980b9;}} '
+                       'QPushButton:disabled {{background: #9bc8e3; color: #f8f8f8;}}'),
             'lgreen': ('QPushButton {{background: lightgreen; color: black; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #90ee90;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+                       'QPushButton:hover {{background: #90ee90;}} '
+                       'QPushButton:disabled {{background: #c7f0c7; color: #707070;}}'),
             'orange': ('QPushButton {{background: #e67e22; color: white; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #d35400;}} QPushButton:disabled {{background: #bdc3c7;}}'),
+                       'QPushButton:hover {{background: #d35400;}} '
+                       'QPushButton:disabled {{background: #f4b483; color: #f8f8f8;}}'),
+            'yellow': ('QPushButton {{background: #ffe082; color: black; font-weight: bold; border-radius: 4px;}}'
+                       'QPushButton:hover {{background: #ffd54f;}} '
+                       'QPushButton:disabled {{background: #fff0c2; color: #707070;}}'),
         }
         def _mkbtn(text, css_key, handler, tooltip=''):
             b = QPushButton(text)
@@ -2221,25 +2196,36 @@ class ModelingPanel(QWidget):
 
         lay.addWidget(_sep())
 
-        # Row 1: Results to graph + Save State
+        # Output buttons — shared template (Row 1..5).
+        # Row 1: Results to graph + Revert back
         out1 = QHBoxLayout()
         out1.addWidget(_mkbtn('Results to graph', 'green', self._results_to_graph,
                               'Annotate the I(Q) plot with fitted parameter values.'))
-        out1.addWidget(_mkbtn('Save State', 'blue', self._save_state_explicit,
-                              'Save current parameters to the state file.'))
+        self.btn_revert = _mkbtn('Revert back', 'orange', self.revert_to_pre_fit,
+                                 'Restore parameters to their values before the last fit.')
+        self.btn_revert.setEnabled(False)
+        out1.addWidget(self.btn_revert)
         lay.addLayout(out1)
 
-        # Row 2: Store in File + Reset to Defaults
+        # Row 2: Save State + Store in File + Load Setup from File…
         out2 = QHBoxLayout()
+        out2.addWidget(_mkbtn('Save State', 'blue', self._save_state_explicit,
+                              'Save current parameters to the state file.'))
         self.btn_save = _mkbtn('Store in File', 'lgreen', self.save_results,
-                               'Save fit results to the HDF5 (NXcanSAS) file.')
+                               'Save fit results to the HDF5 (NXcanSAS) file.\n'
+                               'The full GUI setup is embedded so "Load Setup from File…"\n'
+                               'can later restore every control.')
         self.btn_save.setEnabled(False)
         out2.addWidget(self.btn_save)
-        out2.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
-                              'Reset all parameters to their default values.'))
+        out2.addWidget(_mkbtn('Load Setup from File…', 'yellow',
+                              self._load_setup_from_file,
+                              'Restore every Modeling control (populations, fit flags,\n'
+                              'bounds, q-range, …) from a NXcanSAS file previously saved\n'
+                              'by pyirena or by the pyirena-ai agent.  Use this to pick up\n'
+                              'where an AI run left off.'))
         lay.addLayout(out2)
 
-        # Row 3: Export Parameters + Import Parameters
+        # Row 3: Save params to JSON + Load params from JSON
         out3 = QHBoxLayout()
         out3.addWidget(_mkbtn('Save params to JSON', 'lgreen', self.export_json,
                               'Save current Modeling parameters to a pyIrena JSON file.\n'
@@ -2248,6 +2234,35 @@ class ModelingPanel(QWidget):
                               'Load Modeling parameters from a previously saved pyIrena JSON file.\n'
                               "Use 'Save params to JSON' to create a compatible file."))
         lay.addLayout(out3)
+
+        # Row 4: Reset to Defaults (full width)
+        lay.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
+                             'Reset all parameters to their default values.'))
+
+        # Row 5: Passes + Calc. Uncertainty (MC)
+        out5 = QHBoxLayout()
+        out5.addWidget(QLabel('Passes:'))
+        self.n_runs_spin = QSpinBox()
+        self.n_runs_spin.setRange(1, 500)
+        self.n_runs_spin.setValue(10)
+        self.n_runs_spin.setFixedWidth(60)
+        out5.addWidget(self.n_runs_spin)
+        self.btn_mc = QPushButton('Calc. Uncertainty (MC)')
+        self.btn_mc.setMinimumHeight(26)
+        self.btn_mc.setStyleSheet(
+            'QPushButton {background: #16a085; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #1abc9c;}'
+            'QPushButton:disabled {background: #8ac4bc; color: #f8f8f8;}'
+        )
+        self.btn_mc.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
+        self.btn_mc.clicked.connect(self.calc_uncertainty_mc)
+        self.btn_mc.setEnabled(False)
+        out5.addWidget(self.btn_mc)
+        lay.addLayout(out5)
 
         scroll.setWidget(inner)
 
@@ -2281,7 +2296,14 @@ class ModelingPanel(QWidget):
             if hasattr(Qt.CheckState, 'Checked') else (2 if nl else 0)
         )
 
-    def _save_state(self):
+    def _collect_state(self) -> dict:
+        """Return a snapshot of the current panel state.
+
+        Same shape that ``_save_state()`` writes to StateManager and that
+        ``_load_state()`` re-applies — so this dict can be embedded in an
+        NXcanSAS file (``setup_state`` kwarg) and later restored verbatim
+        via "Load Setup from File…".
+        """
         state = {
             'background':    _parse(self.bg_edit.text(), 0.0),
             'fit_background': self.bg_fit_cb.isChecked(),
@@ -2295,7 +2317,10 @@ class ModelingPanel(QWidget):
             q_lo, q_hi = self.graph.get_q_range()
             state['q_min'] = float(q_lo)
             state['q_max'] = float(q_hi)
-        self._state.update('modeling', state)
+        return state
+
+    def _save_state(self):
+        self._state.update('modeling', self._collect_state())
         self._state.save()
 
     # ── Signal handlers ──────────────────────────────────────────────────────
@@ -2725,8 +2750,17 @@ class ModelingPanel(QWidget):
             )[0])
             if not self._file_path.name:
                 return
+        # Snapshot the full GUI state for round-trip restore via
+        # "Load Setup from File…".  We rebuild the same dict that
+        # _save_state() persists so the embedded setup matches what
+        # the user sees right now.
         try:
-            save_modeling_results(self._file_path, self._last_result)
+            setup_state = self._collect_state()
+        except Exception:
+            setup_state = None
+        try:
+            save_modeling_results(self._file_path, self._last_result,
+                                  setup_state=setup_state)
             self.graph.set_status(f'Results saved to {self._file_path.name}', 'success')
         except Exception as e:
             QMessageBox.critical(self, 'Save error', str(e))
@@ -2768,6 +2802,37 @@ class ModelingPanel(QWidget):
             self.graph.set_status(f'Parameters exported to {Path(path).name}', 'success')
         except Exception as e:
             QMessageBox.critical(self, 'Export error', str(e))
+
+    def _load_setup_from_file(self):
+        """Restore the full Modeling setup from a NXcanSAS file.
+
+        Reads the ``_pyirena_config`` attribute embedded by
+        :func:`pyirena.io.nxcansas_modeling.save_modeling_results` (or by
+        the pyirena-ai agent) and applies it by pushing the state into
+        :class:`StateManager` and triggering :meth:`_load_state`, the same
+        path used by JSON import.
+        """
+        from pyirena.gui.setup_loader import prompt_and_load_setup
+
+        if self._file_path is not None:
+            default_folder = str(self._file_path.parent)
+            suggested = str(self._file_path)
+        else:
+            default_folder = self._get_data_folder()
+            suggested = None
+
+        def _apply(state: dict) -> None:
+            self._state.update("modeling", state)
+            self._load_state()
+
+        prompt_and_load_setup(
+            parent=self,
+            tool="modeling",
+            default_folder=default_folder,
+            apply_state=_apply,
+            on_status=lambda msg: self.graph.set_status(msg, 'success'),
+            suggested_path=suggested,
+        )
 
     def _import_parameters(self):
         """Import parameters from a pyIrena JSON configuration file."""

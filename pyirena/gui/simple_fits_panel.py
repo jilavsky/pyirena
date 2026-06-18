@@ -556,30 +556,6 @@ class SimpleFitsPanel(QWidget):
         btn_row1.addWidget(self.fit_btn)
         layout.addLayout(btn_row1)
 
-        # ── Uncertainty: [Passes: [10]] [Calc. Uncertainty (MC)] ─────────────
-        btn_row_unc = QHBoxLayout()
-        btn_row_unc.addWidget(QLabel('Passes:'))
-        self.n_runs_spin = QSpinBox()
-        self.n_runs_spin.setRange(1, 500)
-        self.n_runs_spin.setValue(10)
-        self.n_runs_spin.setMaximumWidth(55)
-        self.n_runs_spin.setToolTip('Number of noise-perturbed fits for uncertainty estimation.')
-        btn_row_unc.addWidget(self.n_runs_spin)
-
-        self.unc_btn = QPushButton('Calc. Uncertainty (MC)')
-        self.unc_btn.setMinimumHeight(26)
-        self.unc_btn.setStyleSheet("""
-            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #1abc9c; }
-        """)
-        self.unc_btn.setToolTip(
-            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
-            "Set 'Passes' to control how many Monte Carlo replicates are used."
-        )
-        self.unc_btn.clicked.connect(self._calculate_uncertainty)
-        btn_row_unc.addWidget(self.unc_btn)
-        layout.addLayout(btn_row_unc)
-
         # ── Fit results ───────────────────────────────────────────────────────
         results_box = QGroupBox('Fit results')
         results_layout = QGridLayout()
@@ -639,9 +615,25 @@ class SimpleFitsPanel(QWidget):
         self.store_btn = QPushButton('Store in File')
         self.store_btn.setMinimumHeight(26)
         self.store_btn.setStyleSheet('background-color: lightgreen;')
-        self.store_btn.setToolTip('Save fit results to the HDF5 (NXcanSAS) file.')
+        self.store_btn.setToolTip(
+            'Save fit results to the HDF5 (NXcanSAS) file.\n'
+            'The full GUI setup is embedded so "Load Setup from File…" can\n'
+            'later restore every control.'
+        )
         self.store_btn.clicked.connect(self._store_results)
         row_out2.addWidget(self.store_btn)
+
+        self.load_setup_btn = QPushButton('Load Setup from File…')
+        self.load_setup_btn.setMinimumHeight(26)
+        self.load_setup_btn.setStyleSheet('background-color: #ffe082;')
+        self.load_setup_btn.setToolTip(
+            'Restore every Simple Fits control (model, parameter values,\n'
+            'bounds, fit flags, q-range, …) from a NXcanSAS file previously\n'
+            'saved by pyirena or by the pyirena-ai agent.'
+        )
+        self.load_setup_btn.clicked.connect(self._load_setup_from_file)
+        row_out2.addWidget(self.load_setup_btn)
+
         layout.addLayout(row_out2)
 
         # Row 3: Export | Import parameters
@@ -679,6 +671,31 @@ class SimpleFitsPanel(QWidget):
         )
         self.reset_btn.clicked.connect(self._reset_to_defaults)
         layout.addWidget(self.reset_btn)
+
+        # Row 5: Passes + Calc. Uncertainty (MC) — last row in the output section,
+        # matches the shared template used by Unified Fit / Modeling / Sizes.
+        btn_row_unc = QHBoxLayout()
+        btn_row_unc.addWidget(QLabel('Passes:'))
+        self.n_runs_spin = QSpinBox()
+        self.n_runs_spin.setRange(1, 500)
+        self.n_runs_spin.setValue(10)
+        self.n_runs_spin.setMaximumWidth(55)
+        self.n_runs_spin.setToolTip('Number of noise-perturbed fits for uncertainty estimation.')
+        btn_row_unc.addWidget(self.n_runs_spin)
+
+        self.unc_btn = QPushButton('Calc. Uncertainty (MC)')
+        self.unc_btn.setMinimumHeight(26)
+        self.unc_btn.setStyleSheet("""
+            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1abc9c; }
+        """)
+        self.unc_btn.setToolTip(
+            "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+            "Set 'Passes' to control how many Monte Carlo replicates are used."
+        )
+        self.unc_btn.clicked.connect(self._calculate_uncertainty)
+        btn_row_unc.addWidget(self.unc_btn)
+        layout.addLayout(btn_row_unc)
 
         layout.addStretch()
         return panel
@@ -1142,12 +1159,19 @@ class SimpleFitsPanel(QWidget):
         filepath = Path(self.data['filepath'])
         try:
             q, I, dI = self._get_filtered_data()
+            # Snapshot the full GUI state for round-trip restore via
+            # "Load Setup from File…".
+            try:
+                setup_state = self._collect_state()
+            except Exception:
+                setup_state = None
             save_simple_fit_results(
                 filepath=filepath,
                 result=self.fit_result,
                 model_obj=self.model,
                 intensity_data=I,
                 intensity_error=dI,
+                setup_state=setup_state,
             )
             self.status_label.setText(f'Results saved to {filepath.name}')
         except Exception as exc:
@@ -1428,22 +1452,20 @@ class SimpleFitsPanel(QWidget):
 
         self._build_param_widgets()
 
-    def save_state(self):
-        """Persist current panel state via StateManager."""
-        # Read cursor Q range (and update display)
-        q_min, q_max = self.graph_window.get_cursor_range()
-        if q_min is not None:
-            self.q_min_display.setText(f'{q_min:.6g}')
-        if q_max is not None:
-            self.q_max_display.setText(f'{q_max:.6g}')
+    def _collect_state(self) -> dict:
+        """Return a snapshot of the current panel state.
 
-        # Collect which params are fixed (Fit? unchecked)
+        Same shape that ``save_state()`` writes to StateManager and that
+        ``load_state()`` re-applies — so this dict can be embedded in an
+        NXcanSAS file (``setup_state`` kwarg) and later restored verbatim
+        via "Load Setup from File…".
+        """
+        q_min, q_max = self.graph_window.get_cursor_range()
         param_fixed = {
             name: not chk.isChecked()
             for name, chk in self._param_fit_checks.items()
         }
-
-        state = {
+        return {
             'model': self.model.model,
             'q_min': q_min,
             'q_max': q_max,
@@ -1454,8 +1476,52 @@ class SimpleFitsPanel(QWidget):
             'param_fixed': param_fixed,
             'n_mc_runs': self.n_runs_spin.value(),
         }
+
+    def save_state(self):
+        """Persist current panel state via StateManager."""
+        # Refresh cursor Q-range display
+        q_min, q_max = self.graph_window.get_cursor_range()
+        if q_min is not None:
+            self.q_min_display.setText(f'{q_min:.6g}')
+        if q_max is not None:
+            self.q_max_display.setText(f'{q_max:.6g}')
+
+        state = self._collect_state()
         self.state_manager.update('simple_fits', state)
         self.state_manager.save()
+
+    def _load_setup_from_file(self):
+        """Restore the full Simple Fits setup from a NXcanSAS file.
+
+        Reads the ``_pyirena_config`` attribute embedded by
+        :func:`pyirena.io.nxcansas_simple_fits.save_simple_fit_results` (or
+        by the pyirena-ai agent) and re-applies it through
+        :meth:`load_state` so every control matches what was stored.
+        """
+        from pyirena.gui.setup_loader import prompt_and_load_setup
+
+        if self.data and self.data.get('filepath'):
+            default_folder = str(Path(self.data['filepath']).parent)
+            suggested = str(self.data['filepath'])
+        else:
+            default_folder = self._get_data_folder()
+            suggested = None
+
+        def _apply(state: dict) -> None:
+            # SimpleFitsPanel's load_state reads from StateManager rather than
+            # taking a dict.  Push the restored state into the manager first,
+            # then trigger a reload so every widget refreshes consistently.
+            self.state_manager.update('simple_fits', state)
+            self.load_state()
+
+        prompt_and_load_setup(
+            parent=self,
+            tool="simple_fits",
+            default_folder=default_folder,
+            apply_state=_apply,
+            on_status=lambda msg: self.status_label.setText(msg),
+            suggested_path=suggested,
+        )
 
     def closeEvent(self, event):
         self.save_state()
