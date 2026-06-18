@@ -480,12 +480,25 @@ Runs the fitting algorithm synchronously. Returns:
 - `iterations` (int)
 - `message` (fit status from scipy)
 - `parameters_updated` (list of {name, value})
+- `quality` (dict) — robust fit-quality scalars: `robust_scale_s`,
+  `realistic_reduced_chi2_floor`, `max_abs_frac_misfit`, `q_at_max_frac_misfit`,
+  `median_frac_uncertainty`, `n_outliers_3s`, `longest_same_sign_run`,
+  `sign_autocorr_lag1`, `sigma_available`. See **Quality assessment** below for
+  how to read these. (Full per-point arrays + per-band breakdown:
+  `pyirena_ctrl_get_fit_quality`.)
 
-**Interpreting reduced_chi_squared:**
-- ~1.0 → excellent (model matches data within error bars)
-- 2–10 → reasonable; consider freeing more parameters
-- >10 → poor; systematic residuals; may need extra levels or wider Q range
-- <0.5 → possibly over-fitting or error bars too large
+**Interpreting reduced_chi_squared — read this carefully:**
+Reported uncertainties σ in SAXS are *frequently mis-scaled*, so reduced χ² alone
+is unreliable. A reduced χ² of 9 does **not** necessarily mean a bad fit — it may
+just mean σ are ~3× too small. **Do not chase reduced χ² ≈ 1** and do not dismiss
+a fit just because reduced χ² is large. Instead, combine it with `quality`:
+- If `robust_scale_s` ≈ 1 → σ are honest; the usual reading applies (~1 excellent,
+  2–10 reasonable, >10 poor, <0.5 over-fitting).
+- If `robust_scale_s` ≈ s > 1 → σ are ~s× too small; the *realistic* reduced-χ²
+  floor is `realistic_reduced_chi2_floor` ≈ s². A reduced χ² near that floor with
+  no outliers and no sign-structure is **as good as the data allows — stop.**
+- Regardless of σ scale, a large `max_abs_frac_misfit` (≳ 0.3) or a long
+  `longest_same_sign_run` indicates a **real** misfit to investigate.
 
 Re-calling `run_fit` after a partial convergence continues from current
 parameter values — this is intentional and useful.
@@ -495,9 +508,47 @@ parameter values — this is intentional and useful.
 | Tool | Returns |
 |------|---------|
 | `pyirena_ctrl_get_chi_squared(session_id)` | `chi_squared`, `reduced_chi_squared` |
-| `pyirena_ctrl_get_residuals(session_id)` | residuals array + rms / max_abs / mean |
+| `pyirena_ctrl_get_residuals(session_id)` | `residuals` (normalised), `rescaled_residual`, `frac_misfit_percent`, `summary` (rms / max_abs / mean / `robust_scale_s`) |
+| `pyirena_ctrl_get_fit_quality(session_id, n_bands=4)` | full robust diagnostics (scalars + per-point arrays + per-band) |
 | `pyirena_ctrl_get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
 | `pyirena_ctrl_get_residuals_image(session_id)` | same image; requires completed fit |
+
+#### `pyirena_ctrl_get_fit_quality(session_id, n_bands=4)` — robust diagnostics
+
+The recommended way to judge a fit when σ may be mis-scaled. Returns **facts
+only** (no good/bad verdict — you apply the thresholds). Fields:
+
+**Global scalars**
+- `sigma_available` (bool) — `False` if no usable σ; then σ-dependent fields are
+  `null` and only the fractional/structure fields are meaningful.
+- `reduced_chi2`, `dof`, `n_valid`, `n_params`.
+- `robust_scale_s` — MAD-based estimate of how many × the *actual* scatter
+  exceeds the reported σ. **≈ 1** σ honest; **≈ 3** σ ~3× too small; **≪ 1** σ
+  too large / over-fitting risk. This is the single most useful number.
+- `sigma_misscale_factor` — alias of `robust_scale_s`.
+- `realistic_reduced_chi2_floor` — `robust_scale_s²`; the lowest reduced χ² the
+  data can physically support. Don't try to beat it.
+- `max_abs_frac_misfit` + `q_at_max_frac_misfit` — the largest |(I−M)/I| and the
+  Q where it occurs. **σ-independent backstop**: ≳ 0.3 (30 %) means a gross local
+  misfit no matter how unreliable σ is.
+- `median_frac_uncertainty` — typical σ/I ("a few %").
+- `n_outliers_3s`, `frac_outliers_3s` — points beyond 3·`robust_scale_s`. These
+  are genuine outliers *even after* accounting for a mis-scaled σ.
+
+**Structure scalars** (distinguish a wrong σ-scale from a wrong model)
+- `longest_same_sign_run` — long run of same-sign (I−M) ⇒ wrong functional form.
+- `sign_autocorr_lag1` — near +1 ⇒ systematic; near 0 ⇒ random scatter.
+
+**Per-band** (`bands`, count in `n_bands_used`): each `{q_lo, q_hi, n,
+reduced_chi2, robust_scale_s, max_abs_frac_misfit}`. One hot band points at the
+Q-region to fix; uneven per-band χ² is itself a misfit signal.
+
+**Decision sketch** (yours to tune):
+- bulk `robust_scale_s` small-ish, no sign-runs, `max_abs_frac_misfit` < ~0.15 →
+  fit is as good as the data allows; **stop** (a high reduced χ² is just σ-scale).
+- `n_outliers_3s` > 0 with `max_abs_frac_misfit` ≳ 0.3, or a hot band, or a long
+  sign-run → **real misfit; investigate that Q-region.**
+- `robust_scale_s` ≪ 1 while still tightening → **over-fitting; back off.**
 
 `get_fit_image` works **before and after** a fit:
 - Before: shows data + model at current starting parameter values (useful for sanity-checking starting conditions)
@@ -593,11 +644,16 @@ check `content.type`, render the `image` item, show the `text` item as a label.
 8. pyirena_ctrl_free_parameter("a1b2c3d4", "P_1")
    pyirena_ctrl_free_parameter("a1b2c3d4", "P_2")
    pyirena_ctrl_run_fit("a1b2c3d4")
-   → reduced_chi_squared=1.3 (good)
-9. pyirena_ctrl_get_fit_image("a1b2c3d4")
-   → inspect residuals visually
-10. pyirena_ctrl_save_fit("a1b2c3d4")
-11. pyirena_ctrl_export_fit_report("a1b2c3d4", format="markdown")
+   → reduced_chi_squared=9.1, but quality.robust_scale_s=3.0
+   → σ are ~3× underestimated; realistic_reduced_chi2_floor≈9 — this IS converged,
+     not a bad fit. Don't keep tightening.
+9. pyirena_ctrl_get_fit_quality("a1b2c3d4")
+   → max_abs_frac_misfit=0.08 (8%), n_outliers_3s=0, longest_same_sign_run short,
+     bands all similar → no real misfit; the high χ² is purely a σ-scale artefact.
+10. pyirena_ctrl_get_fit_image("a1b2c3d4")
+    → confirm residuals visually (random scatter, just wide)
+11. pyirena_ctrl_save_fit("a1b2c3d4")
+12. pyirena_ctrl_export_fit_report("a1b2c3d4", format="markdown")
     → summarise for user
 ```
 
@@ -630,6 +686,13 @@ check `content.type`, render the `image` item, show the `text` item as a label.
 - **Don't speculate beyond the data.** Physical interpretations (e.g.
   "this Rg means …") should be framed as "consistent with…" and tied to
   what the user has told you about their sample.
+- **Don't chase reduced χ² ≈ 1, and don't dismiss a fit for a large reduced χ².**
+  Reported σ are often mis-scaled. Call `pyirena_ctrl_get_fit_quality` (or read
+  the `quality` block from `run_fit`): if `robust_scale_s` ≈ 3 then σ are ~3× too
+  small and reduced χ² ≈ 9 is the *realistic floor* — a fit sitting there with no
+  outliers and no sign-structure is done. Conversely, a normalised residual of
+  20–50 is **not** "fine because σ are unreliable": check `max_abs_frac_misfit` —
+  if it is ≳ 0.3 the model is off by ≳ 30 % of the data, a real misfit.
 - **Don't skip `get_fit_image` after a fit.** Visual inspection of the
   residuals subplot is the most reliable way to spot systematic
   deviations that χ² alone misses.

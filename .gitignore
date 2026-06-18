@@ -105,3 +105,8 @@ dmypy.json
 
 # Claude memory
 .claude/
+
+# AI audit and session JSON files
+*.audit.json
+*.session.json
+audit_*.json

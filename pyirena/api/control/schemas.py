@@ -522,12 +522,45 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "name": "get_residuals",
         "description": (
-            "Return normalised residuals and summary statistics from the last fit. "
-            "rms close to 1 means the fit matches the error bars well."
+            "Return residuals from the last fit. 'residuals' are the normalised "
+            "residuals (I−M)/σ; rms close to 1 means the fit matches the error "
+            "bars well. Also returns 'rescaled_residual' (r/robust_scale_s, "
+            "compares scatter to the data's own robust noise floor instead of the "
+            "reported σ) and 'frac_misfit_percent' ((I−M)/I in %, σ-independent). "
+            "summary.robust_scale_s tells you how mis-scaled σ are (≈1 honest, "
+            "≈3 means σ ~3× too small). For the full diagnostic set use "
+            "get_fit_quality."
         ),
         "input_schema": {
             "type": "object",
             "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_fit_quality",
+        "description": (
+            "Return robust, σ-scale-independent fit-quality diagnostics — the "
+            "preferred way to judge a SAXS fit when reported uncertainties σ may "
+            "be mis-scaled (chasing reduced χ²≈1 is then misleading). Key fields: "
+            "robust_scale_s (MAD-based; how many × the actual scatter exceeds "
+            "reported σ — ≈1 σ honest, ≈3 σ ~3× too small so the realistic "
+            "reduced-χ² floor is ~9, given as realistic_reduced_chi2_floor); "
+            "max_abs_frac_misfit with q_at_max_frac_misfit (largest |(I−M)/I|, a "
+            "σ-independent gross-misfit backstop — ≳0.3 is a real local misfit); "
+            "n_outliers_3s (points beyond 3·robust_scale_s); longest_same_sign_run "
+            "and sign_autocorr_lag1 (structure signalling a wrong functional form, "
+            "distinct from a pure σ-scale problem); and per-Q-band 'bands' (an "
+            "uneven per-band reduced_chi2 is itself a misfit signal). Returns facts "
+            "only — no good/bad verdict."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "n_bands": {"type": "integer", "default": 4,
+                            "description": "Number of log-spaced Q bands (reduced adaptively for sparse data)."},
+            },
             "required": ["session_id"],
         },
     },
