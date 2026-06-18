@@ -444,6 +444,32 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
 
+    {
+        "name": "detect_features",
+        "description": (
+            "Segment the loaded I(Q) curve in log-log space into regions of "
+            "locally-constant power-law slope, and derive Guinier knees, "
+            "recommended Guinier/power-law fitting windows, a high-Q "
+            "background onset, and a suggested level count.  Read-only — does "
+            "NOT modify the model or fit state.  Use as a STARTING POINT for "
+            "choosing nlevels and fit_local_guinier / fit_local_power_law "
+            "windows; cross-check against get_fit_image.  Cannot distinguish "
+            "structure-factor peaks from knees, and recommended_nlevels "
+            "over-counts (use len(guinier_knees) instead)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id":       {"type": "string"},
+                "q_min":            {"type": "number", "description": "Lower Q bound for analysis [Å⁻¹]. Default: full range."},
+                "q_max":            {"type": "number", "description": "Upper Q bound for analysis [Å⁻¹]. Default: full range."},
+                "q_max_clip":       {"type": "number", "description": "Drop Q above this before segmentation [Å⁻¹]. Default 0.6; pass null to disable."},
+                "config_overrides": {"type": "object", "description": "Optional FeatureDetectConfig field overrides, e.g. {\"change_threshold_1\": 0.6}."},
+            },
+            "required": ["session_id"],
+        },
+    },
+
     # -----------------------------------------------------------------------
     # Category D — Fit execution
     # -----------------------------------------------------------------------
