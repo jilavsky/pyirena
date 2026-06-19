@@ -3,20 +3,26 @@
 **Branch:** `feature/fit-quality-metrics`
 **Spec:** [`04-fit-quality-metrics.md`](04-fit-quality-metrics.md) (the "what/why")
 **This doc:** the "how" — phased, backward-compatible, with decision gates.
-**Status:** Phases 1–3 implemented (2026-06-18) — at **Decision Gate 1**
-(upstream-AI MCP evaluation). Phases 4–5 pending gate outcome.
-**Date:** 2026-06-18
+**Status:** Phases 1–4 implemented (2026-06-19) — at **Decision Gate 2**
+(user UX evaluation). Phase 5 (propagation) pending gates outcome.
+**Date:** 2026-06-19
 
-> **Progress (2026-06-18):**
+> **Progress (2026-06-19):**
 > - Phase 1 ✅ `pyirena/core/fit_metrics.py` + `tests/test_fit_metrics.py` (10 tests pass).
-> - Phase 2 ✅ `fit_quality_metrics` exported from `pyirena`.
-> - Phase 3 ✅ MCP/control: new `get_fit_quality` tool (control fn + `TOOL_SCHEMAS`
->   + `pyirena_ctrl_get_fit_quality`); `run_fit` result gains a `quality` block;
->   `get_residuals` gains `rescaled_residual`, `frac_misfit_percent`, and
->   `summary.robust_scale_s`. Docs updated in `docs/ai_tools_reference.md`.
->   All additive — no existing keys changed. Full suite: 171 pass (2 pre-existing
->   unrelated failures: unified invariant NaN, saxs_morph Gibbs).
-> - **→ Hand to upstream AI test bed.** Then Decision Gate 1 before Phase 4.
+> - Phase 2 ✅ `fit_quality_metrics` exported from `pyirena` public API.
+> - Phase 3 ✅ MCP/control: new `get_fit_quality` tool; `run_fit` gains `quality` block;
+>   `get_residuals` gains `rescaled_residual`, `frac_misfit_percent`, `summary.robust_scale_s`.
+>   All additive — no existing keys changed. Full test suite: 171 pass.
+> - **→ Upstream AI evaluated, performance improved.**
+> - Phase 4 ✅ GUI implementation:
+>   - Unified Fit success message now shows `robust_scale_s`, `realistic_reduced_chi2_floor`,
+>     and `max_abs_frac_misfit` (%) — users immediately see if χ² is a scale problem.
+>   - Residual plot **switched to rescaled residuals r' = r/s** as default (easily
+>     switchable via `_USE_RESCALED_RESIDUALS` flag).
+>   - Same switch in matplotlib `plotting/unified_plots.py`.
+>   - All tests pass.
+> - **→ Gate 2:** user feedback on rescaled residuals UX (keep/switch-to-default/expose-choice).
+> - Phase 5 pending: propagate to sizes / simple_fits / modeling / waxs_peakfit (conditional).
 
 ---
 
