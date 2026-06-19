@@ -265,6 +265,19 @@ Watch both graphs update in real time when "Update automatically?" is checked.
 - Use cursor-based local fitting first to guide the global fit
 - Fix the well-determined parameters and only fit the uncertain ones
 
+## Interpreting Fit Quality
+
+After a fit, the success message includes robust fit-quality metrics:
+- **σ-scale**: how many times actual scatter exceeds reported uncertainties (MAD-based estimate)
+- **χ² floor**: the realistic lower bound for reduced χ² given your data's noise level
+- **max|(I−M)/I|**: the largest fractional misfit (σ-independent backstop for gross misfits)
+
+**Key insight:** if reduced χ² is high but σ-scale is large (e.g., σ-scale ≈ 3), the *realistic* floor is `σ-scale²` ≈ 9. A fit at that floor with random scatter and no outliers is **done — you cannot improve it further** without changing the model or error bars.
+
+See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for detailed interpretation of all diagnostics, decision trees, and common scenarios.
+
+Also check the **residuals plot**: it now shows rescaled residuals `r' = r/σ(robust)`, which compare scatter against the data's own noise floor rather than (possibly unreliable) reported σ. Structure in the rescaled plot (long stretches of same-sign) indicates a systematic model problem; random scatter indicates a mis-scaled σ only.
+
 ## References
 
 - Beaucage, G. "Approximations Leading to a Unified Exponential/Power-Law Approach to Small-Angle Scattering" *J. Appl. Cryst.* (1995) **28**, 717-728
