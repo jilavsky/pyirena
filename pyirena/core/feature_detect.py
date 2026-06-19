@@ -94,7 +94,7 @@ class FeatureDetectConfig:
     sub-segments (smooth slope drifts that pass-1 missed)."""
 
     # --- Segment filtering ---
-    min_segment_decades: float = 0.10
+    min_segment_decades: float = 0.2
     """Minimum width of an interior segment (not touching either data
     extreme)."""
 
