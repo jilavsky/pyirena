@@ -154,113 +154,310 @@ def readSimpleHDF5(path, filename):
         return None
 
 
-def readGenericNXcanSAS(path, filename):
+def _attr_first_str(value):
+    """Normalise an HDF5 attribute value to a plain string.
+
+    Handles scalars, bytes, and shape-(1,)/array attributes (NeXus often
+    stores text attributes as 1-element arrays). For multi-element string
+    attributes (e.g. ``I_axes = ['Q']`` or ``'Q,Q'``) the first token is
+    returned, which is what 1D SAS data needs.
     """
-    read data from NXcanSAS data in Nexus file. Ignore NXsas data and anything else
-    If NXcanSAS structure is not found, falls back to simple HDF5 reader.
+    if value is None:
+        return None
+    # Unwrap numpy arrays / lists to their first element.
+    if hasattr(value, 'ndim') and getattr(value, 'ndim', 0) >= 1:
+        if value.size == 0:
+            return None
+        value = value.flat[0]
+    elif isinstance(value, (list, tuple)):
+        if not value:
+            return None
+        value = value[0]
+    if isinstance(value, bytes):
+        value = value.decode('utf-8', errors='replace')
+    value = str(value)
+    # Comma-separated axis lists -> first axis.
+    if ',' in value:
+        value = value.split(',')[0]
+    return value.strip()
+
+
+def find_all_sasdata(hdf5_file):
+    """Find every plottable SAS data group in an open HDF5 file.
+
+    A SAS data group is any group with ``canSAS_class == 'SASdata'`` or any
+    ``NXdata`` group carrying a ``signal`` attribute (the loose generic-NeXus
+    convention used by some canSAS example files).
+
+    Returns a list of dicts, one per dataset, in file order::
+
+        {'path': '<hdf5 path to the NXdata group>',
+         'entry': '<hdf5 path to the parent SASentry, or None>',
+         'name': '<human-readable label>'}
+    """
+    found = []
+
+    def visit(name, obj):
+        if not isinstance(obj, h5py.Group):
+            return
+        cls = _attr_first_str(obj.attrs.get('canSAS_class'))
+        nx = _attr_first_str(obj.attrs.get('NX_class'))
+        is_sasdata = (cls == 'SASdata') or (nx == 'NXdata' and 'signal' in obj.attrs)
+        if not is_sasdata:
+            return
+        # Prefer an explicit canSAS_name, else the group's own basename.
+        label = _attr_first_str(obj.attrs.get('canSAS_name')) or name.rsplit('/', 1)[-1]
+        # Parent path is everything up to the last '/'.
+        parent = name.rsplit('/', 1)[0] if '/' in name else None
+        found.append({'path': name, 'entry': parent, 'name': label,
+                      'canSAS_class': cls})
+
+    hdf5_file.visititems(visit)
+    return found
+
+
+def _selectable_sasdata(f):
+    """The list of SAS I(Q) curves a user would choose between.
+
+    Restricts to groups explicitly marked ``canSAS_class == 'SASdata'`` so that
+    auxiliary NXdata (raw fly scans, transmission spectra) are not offered as
+    analysable curves. Falls back to every discovered data group for loose
+    files that omit ``canSAS_class`` entirely.
+    """
+    all_data = find_all_sasdata(f)
+    strict = [d for d in all_data if d.get('canSAS_class') == 'SASdata']
+    return strict if strict else all_data
+
+
+def _resolve_default_path(f):
+    """Follow the NeXus ``@default`` attribute chain from the file root down to
+    the canonical SAS data group.
+
+    NXcanSAS uses ``@default`` at each level (root → NXentry → NXsubentry →
+    NXdata) to mark the intended default plottable data. This walks that chain
+    until it lands on a SAS data group, returning its path (or ``None`` if the
+    chain does not resolve to one).
+    """
+    loc = ''  # '' == root
+    for _ in range(10):  # guard against malformed/cyclic @default chains
+        obj = f[loc] if loc else f
+        if loc:
+            cls = _attr_first_str(obj.attrs.get('canSAS_class'))
+            nx = _attr_first_str(obj.attrs.get('NX_class'))
+            if cls == 'SASdata' or (nx == 'NXdata' and 'signal' in obj.attrs):
+                return loc
+        nxt = _attr_first_str(obj.attrs.get('default'))
+        if not nxt:
+            break
+        child = f"{loc}/{nxt}".strip('/')
+        if child not in f:
+            break
+        loc = child
+    return None
+
+
+def _is_smr(d):
+    """True when a dataset dict belongs to a Matilda slit-smeared (SMR) entry.
+
+    Matilda always writes slit-smeared data under a group whose name ends with
+    ``_SMR`` (e.g. ``entry/SampleName_SMR/sasdata``). Checking the HDF5 path
+    is sufficient — the convention is stable because the USAXS pipeline is
+    controlled by the same codebase.
+    """
+    path = d.get('path', '') or ''
+    entry = d.get('entry', '') or ''
+    return '_SMR/' in path or entry.endswith('_SMR')
+
+
+def _filter_smr(datasets):
+    """Return *datasets* with slit-smeared (SMR) entries removed.
+
+    If all entries are SMR (shouldn't happen with well-formed files) the
+    original list is returned unchanged so the caller always has something to
+    load.
+    """
+    non_smr = [d for d in datasets if not _is_smr(d)]
+    return non_smr if non_smr else datasets
+
+
+def _ordered_sasdata(f):
+    """Selectable SAS curves, SMR entries excluded, with ``@default`` first.
+
+    So ``[0]`` is always the file's canonical desmeared dataset, while the
+    rest preserve file order for the dataset picker.  Slit-smeared copies
+    (``_SMR`` entries written by Matilda) are stripped here so that USAXS
+    files presenting two copies of the same data never trigger the picker or
+    the multi-dataset CLI warning.
+    """
+    datasets = _filter_smr(_selectable_sasdata(f))
+    default_path = _resolve_default_path(f)
+    if default_path:
+        for i, d in enumerate(datasets):
+            if d['path'] == default_path and i != 0:
+                datasets.insert(0, datasets.pop(i))
+                break
+    return datasets
+
+
+def _read_one_sasdata(f, data_path):
+    """Read a single SASdata (NXdata) group into the standard ``Data`` dict.
+
+    Robust to the two NXcanSAS axis conventions: the strict ``I_axes``
+    attribute and the loose generic-NeXus ``axes`` attribute, falling back to
+    a direct ``Q`` lookup. Likewise tolerates a missing ``signal`` attribute
+    (falls back to ``I``) and missing ``uncertainties`` / ``resolutions``
+    pointers (falls back to ``Idev`` / ``Qdev``).
+    """
+    grp = f[data_path]
+    attributes = grp.attrs
+
+    # Initialise all output variables so the return dict is always complete.
+    intensity = None
+    Int_attributes = {}
+    units = None
+    Kfactor = None
+    OmegaFactor = None
+    blankname = None
+    thickness = None
+    label = ""
+    Q = None
+    Q_attributes = {}
+    Error = None
+    Error_attributes = {}
+    dQ = None
+    dQ_attributes = {}
+
+    # --- Intensity (signal) --------------------------------------------------
+    signal_name = _attr_first_str(attributes.get('signal')) or 'I'
+    i_path = f"{data_path}/{signal_name}"
+    if i_path not in f and f"{data_path}/I" in f:
+        i_path = f"{data_path}/I"          # last-resort fallback
+    if i_path in f:
+        dataset = f[i_path]
+        intensity = dataset[()]
+        Int_attributes = dataset.attrs
+        units = Int_attributes.get('units')
+        # Kfactor and other instrument-specific attributes are only present in
+        # USAXS/calibrated data files; use .get() so plain NXcanSAS files read
+        # without errors.
+        Kfactor = Int_attributes.get("Kfactor")
+        OmegaFactor = Int_attributes.get("OmegaFactor")
+        blankname = Int_attributes.get("blankname")
+        thickness = Int_attributes.get("thickness")
+        label = Int_attributes.get("label", "")
+
+    # --- Q axis: I_axes (strict NXcanSAS) | axes (generic NeXus) | 'Q' -------
+    q_name = (_attr_first_str(attributes.get('I_axes'))
+              or _attr_first_str(attributes.get('axes'))
+              or 'Q')
+    q_path = f"{data_path}/{q_name}"
+    if q_path not in f and f"{data_path}/Q" in f:
+        q_path = f"{data_path}/Q"          # last-resort fallback
+    if q_path in f:
+        dataset = f[q_path]
+        Q = dataset[()]
+        Q_attributes = dataset.attrs
+
+    # --- Error (uncertainties pointer, else 'Idev') --------------------------
+    uncertainties_key = _attr_first_str(Int_attributes.get('uncertainties')) or 'Idev'
+    err_path = f"{data_path}/{uncertainties_key}"
+    if err_path in f:
+        dataset = f[err_path]
+        Error = dataset[()]
+        Error_attributes = dataset.attrs
+
+    # --- Q resolution (resolutions pointer, else 'Qdev') ---------------------
+    resolutions_key = _attr_first_str(Q_attributes.get('resolutions')) or 'Qdev'
+    dq_path = f"{data_path}/{resolutions_key}"
+    if dq_path in f:
+        dataset = f[dq_path]
+        dQ = dataset[()]
+        dQ_attributes = dataset.attrs
+
+    return {
+        'Intensity': intensity,
+        'Q': Q,
+        'dQ': dQ,
+        'Error': Error,
+        'units': units,
+        'Int_attributes': Int_attributes,
+        'Q_attributes': Q_attributes,
+        'Error_Attributes': Error_attributes,
+        'dQ_Attributes': dQ_attributes,
+        "Kfactor": Kfactor,
+        "OmegaFactor": OmegaFactor,
+        "blankname": blankname,
+        "thickness": thickness,
+        'label': label,
+    }
+
+
+def list_nxcansas_datasets(path, filename):
+    """List every SAS data group in an NXcanSAS file (without loading arrays).
+
+    Convenience wrapper around :func:`find_all_sasdata` that opens the file.
+    Used by the GUI to offer a dataset picker and by the CLI to report how
+    many datasets a multi-dataset file contains.
+
+    Returns a list of ``{'path', 'entry', 'name'}`` dicts (see
+    :func:`find_all_sasdata`).
     """
     Filepath = os.path.join(path, filename)
     with h5py.File(Filepath, 'r') as f:
-        # Start at the root
-        # Find the NXcanSAS entries
-        # rootgroup=f['/']
-        # SASentries=  find_NXcanSAS_entries(rootgroup)
-        required_attributes = {'canSAS_class': 'SASentry', 'NX_class': 'NXsubentry'}
-        required_items = {'definition': 'NXcanSAS'}
-        SASentries =  find_matching_groups(f, required_attributes, required_items)
-        #print(f"Found {len(SASentries)} NXcanSAS entries in the file:")
-        #print(SASentries)
-        FirstEntry = SASentries[0] if SASentries else None
-        if FirstEntry is None:
-            logging.warning(f"No NXcanSAS entries found in the file {filename}. Trying simple HDF5 reader.")
+        return _ordered_sasdata(f)
+
+
+def readGenericNXcanSAS(path, filename, data_path=None):
+    """Read NXcanSAS data from a NeXus file.
+
+    Only the minimum required to plot/analyse is needed: a Q/I(/Idev) triplet
+    inside a SASdata group. The reader tolerates both the strict NXcanSAS
+    ``I_axes`` attribute and the loose generic-NeXus ``axes`` attribute, and
+    accepts SASentry groups written as either ``NXentry`` (Igor/Irena) or
+    ``NXsubentry`` (pyirena).
+
+    Args:
+        path:      Directory containing the file.
+        filename:  File name.
+        data_path: Optional explicit HDF5 path to a specific SASdata group
+                   (as returned by :func:`list_nxcansas_datasets`). When given,
+                   exactly that dataset is read. When ``None`` and the file
+                   holds more than one dataset, the FIRST one is read and a
+                   warning is logged listing all available datasets — callers
+                   that want user selection should call
+                   :func:`list_nxcansas_datasets` first.
+
+    Returns:
+        dict with keys ``Intensity``, ``Q``, ``dQ``, ``Error`` (+ attribute
+        sub-dicts), or ``None`` if no SAS data could be located. Falls back to
+        :func:`readSimpleHDF5` for files with no recognisable NXcanSAS group.
+    """
+    Filepath = os.path.join(path, filename)
+    with h5py.File(Filepath, 'r') as f:
+        # If the caller already chose a dataset, just read it.
+        if data_path is not None:
+            if data_path in f:
+                return _read_one_sasdata(f, data_path)
+            logging.warning(f"Requested data path '{data_path}' not found in {filename}.")
+            return None
+
+        datasets = _ordered_sasdata(f)
+        if not datasets:
+            logging.warning(
+                f"No NXcanSAS data groups found in the file {filename}. "
+                "Trying simple HDF5 reader."
+            )
             return readSimpleHDF5(path, filename)
 
-        current_location = FirstEntry
-        default_location = f[current_location].attrs.get('default')
-        if default_location is not None:
-            current_location = f"{current_location}/{default_location}".strip('/')
-            if current_location in f:
-                default_location = f[current_location].attrs.get('default')
-                if 'default' in f[current_location].attrs:
-                    current_location = f"{current_location}/{default_location}".strip('/')
+        if len(datasets) > 1:
+            names = ", ".join(d['name'] for d in datasets)
+            logging.warning(
+                f"{filename} contains {len(datasets)} data sets ({names}). "
+                f"pyIrena loaded the first one ('{datasets[0]['name']}'). "
+                "Use the GUI dataset picker or pass data_path= to choose another."
+            )
 
-        logging.debug(f"Data is located at: {current_location}")
-        group_or_dataset = f[current_location]
-        # Retrieve and print the list of attributes
-        attributes = group_or_dataset.attrs
-        logging.debug(f"Attributes at '{current_location}':")
-        for attr_name, attr_value in attributes.items():
-            logging.debug(f"{attr_name}: {attr_value}")
-
-        # Initialise all output variables so the return dict is always complete.
-        intensity = None
-        Int_attributes = {}
-        units = None
-        Kfactor = None
-        OmegaFactor = None
-        blankname = None
-        thickness = None
-        label = ""
-        Q = None
-        Q_attributes = {}
-        Error = None
-        Error_attributes = {}
-        dQ = None
-        dQ_attributes = {}
-
-        data_location = current_location + '/' + attributes['signal']
-        if data_location in f:
-            dataset = f[data_location]
-            intensity = dataset[()]
-            Int_attributes = dataset.attrs
-            units = Int_attributes.get('units')
-            # Kfactor and other instrument-specific attributes are only present
-            # in USAXS/calibrated data files; use .get() so that plain NXcanSAS
-            # files (e.g. without a Unified-fit group) can be read without errors.
-            Kfactor = Int_attributes.get("Kfactor")
-            OmegaFactor = Int_attributes.get("OmegaFactor")
-            blankname = Int_attributes.get("blankname")
-            thickness = Int_attributes.get("thickness")
-            label = Int_attributes.get("label", "")
-
-        data_location = current_location + '/' + attributes['I_axes']
-        if data_location in f:
-            dataset = f[data_location]
-            Q = dataset[()]
-            Q_attributes = dataset.attrs
-
-        uncertainties_key = Int_attributes.get('uncertainties')
-        if uncertainties_key:
-            data_location = current_location + '/' + uncertainties_key
-            if data_location in f:
-                dataset = f[data_location]
-                Error = dataset[()]
-                Error_attributes = dataset.attrs
-
-        resolutions_key = Q_attributes.get('resolutions') if Q_attributes else None
-        if resolutions_key:
-            data_location = current_location + '/' + resolutions_key
-            if data_location in f:
-                dataset = f[data_location]
-                dQ = dataset[()]
-                dQ_attributes = dataset.attrs
-        Data = {
-            'Intensity':intensity,
-            'Q':Q,
-            'dQ':dQ,
-            'Error':Error,
-            'units':units,
-            'Int_attributes':Int_attributes,
-            'Q_attributes':Q_attributes,
-            'Error_Attributes':Error_attributes,
-            'dQ_Attributes':dQ_attributes,
-            "Kfactor":Kfactor,
-            "OmegaFactor":OmegaFactor,
-            "blankname":blankname,
-            "thickness":thickness,
-            'label':label,
-        }
-        return Data
+        return _read_one_sasdata(f, datasets[0]['path'])
 
 def saveNXcanSAS(Sample,path, filename):
     
@@ -853,7 +1050,9 @@ def find_matching_groups(hdf5_file, required_attributes, required_items):
             for item, expected_value in required_items.items():
                 if item in obj:
                     actual_value = obj[item][()]
-                    # Decode byte strings to regular strings if necessary
+                    # Unwrap shape-(1,) arrays (Igor/Irena writes definition as 1-element array)
+                    if hasattr(actual_value, 'ndim') and actual_value.ndim >= 1 and actual_value.size == 1:
+                        actual_value = actual_value.flat[0]
                     if isinstance(actual_value, bytes):
                         actual_value = actual_value.decode('utf-8')
                     if actual_value != expected_value:

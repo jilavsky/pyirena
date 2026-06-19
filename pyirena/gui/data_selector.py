@@ -17,7 +17,7 @@ try:
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
         QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame,
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
-        QTableWidget, QTableWidgetItem,
+        QTableWidget, QTableWidgetItem, QInputDialog,
     )
     from PySide6.QtCore import Qt, QDir, QThread, Signal, QUrl
     from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices
@@ -28,7 +28,7 @@ except ImportError:
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
             QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame,
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
-            QTableWidget, QTableWidgetItem,
+            QTableWidget, QTableWidgetItem, QInputDialog,
         )
         from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal, QUrl
         from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices
@@ -211,7 +211,7 @@ def _add_jpeg_export(window, *plot_items):
         plot_item.getViewBox().menu.addAction(act_itx)
 
 
-from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile, list_nxcansas_datasets, _filter_smr
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
@@ -4177,6 +4177,68 @@ class DataSelectorPanel(QWidget):
                 msg += f" (+{len(errors) - 3} more)"
         self.status_label.setText(msg)
 
+    def _prompt_dataset_choice(self, filename, datasets):
+        """Ask the user which SAS data set to load from a multi-dataset file.
+
+        Args:
+            filename:  Name of the file (for the dialog title).
+            datasets:  List of ``{'path', 'name', ...}`` dicts from
+                       :func:`list_nxcansas_datasets`.
+
+        Returns:
+            The chosen HDF5 ``data_path`` string, or ``None`` if cancelled.
+        """
+        items = [f"{d['name']}   [{d['path']}]" for d in datasets]
+        item, ok = QInputDialog.getItem(
+            self,
+            "Multiple data sets",
+            f"'{filename}' contains {len(datasets)} SAS data sets.\n"
+            "Select the one to load:",
+            items,
+            0,        # default to the first (the file's @default dataset)
+            False,    # not editable
+        )
+        if not ok:
+            return None
+        return datasets[items.index(item)]['path']
+
+    def _read_nxcansas_with_picker(self, path, filename):
+        """Load NXcanSAS data, prompting the user when the file holds several
+        SAS data sets.
+
+        Returns the data dict on success, or ``None`` if the file could not be
+        read or the user cancelled the picker. Shows its own error dialog for
+        genuine read failures but stays silent when the user cancels.
+        """
+        try:
+            datasets = list_nxcansas_datasets(path, filename)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Load Error", f"Could not read {filename}:\n{e}"
+            )
+            return None
+
+        # Strip slit-smeared (_SMR) copies — we always want desmeared data.
+        # _filter_smr falls back to the full list when everything is SMR.
+        selectable = _filter_smr(datasets)
+
+        data_path = None
+        if len(selectable) > 1:
+            data_path = self._prompt_dataset_choice(filename, selectable)
+            if data_path is None:
+                self.status_label.setText("Load cancelled — no data set selected.")
+                return None
+        elif selectable:
+            # Single non-SMR dataset (or only SMR left): use it directly.
+            data_path = selectable[0]['path']
+
+        data = readGenericNXcanSAS(path, filename, data_path=data_path)
+        if data is None:
+            QMessageBox.critical(
+                self, "Load Error", f"Could not load data from {filename}"
+            )
+        return data
+
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""
         selected_items = self.file_list.selectedItems()
@@ -4207,17 +4269,19 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self,
+                        "Load Error",
+                        f"Could not load data from {filename}"
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
-                is_nxcansas = True  # HDF5 files loaded with NXcanSAS reader
-
-            if data is None:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Could not load data from {filename}"
-                )
-                return
+                # HDF5 files loaded with NXcanSAS reader (with multi-dataset picker)
+                data = self._read_nxcansas_with_picker(path, filename)
+                is_nxcansas = True
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             # Create or show unified fit window
             if self.unified_fit_window is None:
@@ -4269,17 +4333,18 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self,
+                        "Load Error",
+                        f"Could not load data from {filename}"
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Could not load data from {filename}"
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.sizes_fit_window is None:
                 self.sizes_fit_window = SizesFitPanel()
@@ -4329,17 +4394,18 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self,
+                        "Load Error",
+                        f"Could not load data from {filename}"
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Could not load data from {filename}"
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.modeling_window is None:
                 self.modeling_window = ModelingPanel()
@@ -4402,16 +4468,17 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"Could not read data from file: {filename}",
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Could not read data from file: {filename}",
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.simple_fits_window is None:
                 self.simple_fits_window = SimpleFitsPanel()
@@ -4464,16 +4531,17 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"Could not read data from file: {filename}",
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Could not read data from file: {filename}",
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.waxs_peakfit_window is None:
                 self.waxs_peakfit_window = WAXSPeakFitPanel()
@@ -4526,16 +4594,17 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"Could not read data from file: {filename}",
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Could not read data from file: {filename}",
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.saxs_morph_window is None:
                 self.saxs_morph_window = SaxsMorphPanel()
