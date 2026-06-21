@@ -15,7 +15,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-        QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame,
+        QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea,
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
         QTableWidget, QTableWidgetItem,
     )
@@ -26,7 +26,7 @@ except ImportError:
         from PyQt6.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-            QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame,
+            QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea,
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
             QTableWidget, QTableWidgetItem,
         )
@@ -2443,10 +2443,10 @@ class DataSelectorPanel(QWidget):
         title_label = QLabel("pyIrena")
         title_label.setStyleSheet("""
             QLabel {
-                font-size: 24px;
+                font-size: 18px;
                 font-weight: bold;
                 color: #2c3e50;
-                padding: 10px;
+                padding: 4px;
             }
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2470,13 +2470,13 @@ class DataSelectorPanel(QWidget):
         # Folder selection section
         folder_layout = QHBoxLayout()
         self.folder_button = QPushButton("Select Data Folder")
-        self.folder_button.setMinimumHeight(40)
+        self.folder_button.setMinimumHeight(28)
         self.folder_button.setToolTip("Browse to a folder containing NXcanSAS/HDF5 data files.")
         self.folder_button.clicked.connect(self.select_folder)
         folder_layout.addWidget(self.folder_button)
 
         self.refresh_button = QPushButton("Refresh")
-        self.refresh_button.setMinimumHeight(40)
+        self.refresh_button.setMinimumHeight(28)
         self.refresh_button.setMaximumWidth(100)
         self.refresh_button.setToolTip(
             "Re-scan the current folder and update the file list.\n"
@@ -2502,6 +2502,7 @@ class DataSelectorPanel(QWidget):
         self.file_type_combo.addItem("Text Files (.txt, .dat)", "text")
         self.file_type_combo.addItem("All Supported Files", "all")
         self.file_type_combo.currentIndexChanged.connect(self.refresh_file_list)
+        self.file_type_combo.setMaximumWidth(140)
         type_layout.addWidget(self.file_type_combo)
 
         type_layout.addSpacing(12)
@@ -2528,10 +2529,9 @@ class DataSelectorPanel(QWidget):
             "  Pressure    : _35PSI"
         )
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        self.sort_combo.setMaximumWidth(140)
         type_layout.addWidget(self.sort_combo)
         type_layout.addStretch()
-
-        content_layout.addLayout(type_layout)
 
         # Content area (listbox + graph button)
         file_area_layout = QHBoxLayout()
@@ -2539,18 +2539,31 @@ class DataSelectorPanel(QWidget):
         # Left side: file list section
         left_layout = QVBoxLayout()
 
+        # File Type + Sort row lives at the top of the left column so the right
+        # column's tool palette can extend up to the same vertical level —
+        # gives the right column more usable height before scrolling kicks in
+        # on high-DPI / scaled displays.
+        left_layout.addLayout(type_layout)
+
         # File filter input
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Filter:"))
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText("Enter text to filter files...")
+        self.filter_input.setMaximumWidth(350)
         self.filter_input.textChanged.connect(self.filter_files)
         filter_layout.addWidget(self.filter_input)
+        filter_layout.addStretch()
         left_layout.addLayout(filter_layout)
 
         # File list
         self.file_list = QListWidget()
-        self.file_list.setMinimumWidth(400)  # At least 30 characters wide
+        self.file_list.setMinimumWidth(300)  # ~22 characters wide
+        # Cap the list's preferred width so long filenames don't bloat the
+        # left column and squeeze the right column. Users can scroll
+        # horizontally or hover for the full name; the right column needs
+        # the space more.
+        self.file_list.setMaximumWidth(400)
         self.file_list.setMinimumHeight(400)  # Show at least 15 items
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.itemDoubleClicked.connect(self.plot_selected_files)
@@ -2583,7 +2596,11 @@ class DataSelectorPanel(QWidget):
         configure_row.addStretch()
         left_layout.addLayout(configure_row)
 
-        file_area_layout.addLayout(left_layout, stretch=2)
+        # Left column takes only the width its widest capped child needs
+        # (~400px from the file list). All extra horizontal space goes to
+        # the right column so the two columns sit flush against each other
+        # — no gap between the file list and the right-column scroll area.
+        file_area_layout.addLayout(left_layout, stretch=0)
 
         # Right side: action buttons — starts at same level as Filter row
         right_layout = QVBoxLayout()
@@ -2592,7 +2609,7 @@ class DataSelectorPanel(QWidget):
         # ── Batch script status display ────────────────────────────────────
         self.batch_status_label = QLabel("")
         self.batch_status_label.setWordWrap(True)
-        self.batch_status_label.setMinimumHeight(28)
+        self.batch_status_label.setMinimumHeight(23)
         self.batch_status_label.setMaximumHeight(56)
         self.batch_status_label.setVisible(False)
         self.batch_status_label.setStyleSheet(
@@ -2601,7 +2618,7 @@ class DataSelectorPanel(QWidget):
         right_layout.addWidget(self.batch_status_label)
 
         # ── GROUP 1: View & Export ─────────────────────────────────────────────
-        grp_view = QGroupBox("View & Export")
+        grp_view = QGroupBox("")
         grp_view_lay = QVBoxLayout(grp_view)
         grp_view_lay.setSpacing(4)
 
@@ -2610,12 +2627,18 @@ class DataSelectorPanel(QWidget):
         _cb_lbl.setStyleSheet("font-weight:bold; color:#2c3e50; font-size:11px;")
         grp_view_lay.addWidget(_cb_lbl)
 
-        cb_row = QHBoxLayout()
-        cb_row.setSpacing(8)
+        # Checkboxes split across two rows (4+4) so they're not crowded —
+        # this also leaves vertical room while keeping the right column
+        # narrow enough for the 60%-width button grid below to fit.
+        cb_row1 = QHBoxLayout()
+        cb_row1.setSpacing(8)
+        cb_row2 = QHBoxLayout()
+        cb_row2.setSpacing(8)
+
         self.data_checkbox = QCheckBox("Data")
         self.data_checkbox.setChecked(True)
         self.data_checkbox.setToolTip("Plot experimental data for selected files")
-        cb_row.addWidget(self.data_checkbox)
+        cb_row1.addWidget(self.data_checkbox)
 
         self.unified_fit_result_checkbox = QCheckBox("Unified Fit")
         self.unified_fit_result_checkbox.setChecked(False)
@@ -2623,7 +2646,7 @@ class DataSelectorPanel(QWidget):
             "Plot stored Unified Fit results (data + model + residuals).\n"
             "Only HDF5 files are checked; files without fit results are skipped."
         )
-        cb_row.addWidget(self.unified_fit_result_checkbox)
+        cb_row1.addWidget(self.unified_fit_result_checkbox)
 
         self.size_dist_checkbox = QCheckBox("Size Dist.")
         self.size_dist_checkbox.setChecked(False)
@@ -2632,7 +2655,7 @@ class DataSelectorPanel(QWidget):
             "or include stored sizes results in report (Create Report).\n"
             "Only HDF5 files with stored sizes results are used for reports."
         )
-        cb_row.addWidget(self.size_dist_checkbox)
+        cb_row1.addWidget(self.size_dist_checkbox)
 
         self.simple_fits_checkbox = QCheckBox("Simple Fits")
         self.simple_fits_checkbox.setChecked(False)
@@ -2640,7 +2663,8 @@ class DataSelectorPanel(QWidget):
             "Plot stored Simple Fits results (data + model + residuals).\n"
             "Only HDF5 files with stored simple fit results are used."
         )
-        cb_row.addWidget(self.simple_fits_checkbox)
+        cb_row1.addWidget(self.simple_fits_checkbox)
+        cb_row1.addStretch()
 
         self.waxs_peakfit_checkbox = QCheckBox("WAXS Peaks")
         self.waxs_peakfit_checkbox.setChecked(False)
@@ -2648,7 +2672,7 @@ class DataSelectorPanel(QWidget):
             "Plot stored WAXS peak-fit results (data + model + residuals).\n"
             "Only HDF5 files with stored WAXS peak-fit results are used."
         )
-        cb_row.addWidget(self.waxs_peakfit_checkbox)
+        cb_row2.addWidget(self.waxs_peakfit_checkbox)
 
         self.modeling_checkbox = QCheckBox("Modeling")
         self.modeling_checkbox.setChecked(False)
@@ -2656,7 +2680,7 @@ class DataSelectorPanel(QWidget):
             "Plot stored Modeling results (total model I(Q)).\n"
             "Only HDF5 files with stored Modeling results are used."
         )
-        cb_row.addWidget(self.modeling_checkbox)
+        cb_row2.addWidget(self.modeling_checkbox)
 
         self.saxs_morph_checkbox = QCheckBox("3D saxsMorph")
         self.saxs_morph_checkbox.setChecked(False)
@@ -2664,7 +2688,7 @@ class DataSelectorPanel(QWidget):
             "Open 3D saxsMorph viewer for the first selected file with\n"
             "stored saxs_morph results (2D slice + 3D voxelgram)."
         )
-        cb_row.addWidget(self.saxs_morph_checkbox)
+        cb_row2.addWidget(self.saxs_morph_checkbox)
 
         self.fractals_checkbox = QCheckBox("Fractals")
         self.fractals_checkbox.setChecked(False)
@@ -2672,9 +2696,11 @@ class DataSelectorPanel(QWidget):
             "Open Fractals viewer for the first selected file with stored\n"
             "fractal aggregates (2D slice + 3D voxelgram + I(Q))."
         )
-        cb_row.addWidget(self.fractals_checkbox)
-        cb_row.addStretch()
-        grp_view_lay.addLayout(cb_row)
+        cb_row2.addWidget(self.fractals_checkbox)
+        cb_row2.addStretch()
+
+        grp_view_lay.addLayout(cb_row1)
+        grp_view_lay.addLayout(cb_row2)
 
         # 4 output buttons — smaller, 2×2 grid
         _btn_sm_blue = (
@@ -2703,7 +2729,7 @@ class DataSelectorPanel(QWidget):
         )
 
         self.plot_button = QPushButton("Create Graph")
-        self.plot_button.setMinimumHeight(28)
+        self.plot_button.setMinimumHeight(23)
         self.plot_button.setStyleSheet(_btn_sm_blue)
         self.plot_button.setToolTip(
             "Plot I(Q) for all selected files in a new graph window.\n"
@@ -2713,7 +2739,7 @@ class DataSelectorPanel(QWidget):
         self.plot_button.setEnabled(False)
 
         self.report_button = QPushButton("Create Report")
-        self.report_button.setMinimumHeight(28)
+        self.report_button.setMinimumHeight(23)
         self.report_button.setStyleSheet(_btn_sm_purple)
         self.report_button.setToolTip(
             "Generate a Markdown report (.md) summarising the Unified Fit\n"
@@ -2724,7 +2750,7 @@ class DataSelectorPanel(QWidget):
         self.report_button.setEnabled(False)
 
         self.tabulate_button = QPushButton("Tabulate Results")
-        self.tabulate_button.setMinimumHeight(28)
+        self.tabulate_button.setMinimumHeight(23)
         self.tabulate_button.setStyleSheet(_btn_sm_teal)
         self.tabulate_button.setToolTip(
             "Build a table of fit results for selected files and display it.\n"
@@ -2735,7 +2761,7 @@ class DataSelectorPanel(QWidget):
         self.tabulate_button.setEnabled(False)
 
         self.export_ascii_button = QPushButton("Export to ASCII")
-        self.export_ascii_button.setMinimumHeight(28)
+        self.export_ascii_button.setMinimumHeight(23)
         self.export_ascii_button.setStyleSheet(_btn_sm_orange)
         self.export_ascii_button.setToolTip(
             "Write space-separated .dat files into an 'ascii_export' subfolder\n"
@@ -2759,7 +2785,7 @@ class DataSelectorPanel(QWidget):
             "QPushButton:hover { background:#e74c3c; }"
         )
         self.hdf5_viewer_button = QPushButton("Data Explorer")
-        self.hdf5_viewer_button.setMinimumHeight(28)
+        self.hdf5_viewer_button.setMinimumHeight(23)
         self.hdf5_viewer_button.setStyleSheet(_de_style)
         self.hdf5_viewer_button.setToolTip(
             "Open the Data Explorer to browse, plot, and export data\n"
@@ -2804,14 +2830,14 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         self.unified_fit_button = QPushButton("Unified Fit (GUI)")
-        self.unified_fit_button.setMinimumHeight(38)
+        self.unified_fit_button.setMinimumHeight(23)
         self.unified_fit_button.setStyleSheet(_uf_gui_style)
         self.unified_fit_button.setToolTip("Open Unified Fit panel for the first selected file.")
         self.unified_fit_button.clicked.connect(self.launch_unified_fit)
         self.unified_fit_button.setEnabled(False)
 
         self.unified_script_button = QPushButton("Unified Fit (script)")
-        self.unified_script_button.setMinimumHeight(38)
+        self.unified_script_button.setMinimumHeight(23)
         self.unified_script_button.setStyleSheet(_uf_script_style)
         self.unified_script_button.setToolTip(
             "Batch-fit all selected files with Unified Fit using pyirena_config.json.\n"
@@ -2833,14 +2859,14 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         self.sizes_fit_button = QPushButton("Size Distribution (GUI)")
-        self.sizes_fit_button.setMinimumHeight(38)
+        self.sizes_fit_button.setMinimumHeight(23)
         self.sizes_fit_button.setStyleSheet(_sz_gui_style)
         self.sizes_fit_button.setToolTip("Open Size Distribution panel for the first selected file.")
         self.sizes_fit_button.clicked.connect(self.launch_sizes_fit)
         self.sizes_fit_button.setEnabled(False)
 
         self.sizes_script_button = QPushButton("Size Distribution (script)")
-        self.sizes_script_button.setMinimumHeight(38)
+        self.sizes_script_button.setMinimumHeight(23)
         self.sizes_script_button.setStyleSheet(_sz_script_style)
         self.sizes_script_button.setToolTip(
             "Batch-fit all selected files with Size Distribution using pyirena_config.json.\n"
@@ -2862,14 +2888,14 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         self.modeling_button = QPushButton("Modeling (GUI)")
-        self.modeling_button.setMinimumHeight(38)
+        self.modeling_button.setMinimumHeight(23)
         self.modeling_button.setStyleSheet(_mod_gui_style)
         self.modeling_button.setToolTip("Open Modeling panel for the first selected file.")
         self.modeling_button.clicked.connect(self.launch_modeling)
         self.modeling_button.setEnabled(False)
 
         self.modeling_script_button = QPushButton("Modeling (script)")
-        self.modeling_script_button.setMinimumHeight(38)
+        self.modeling_script_button.setMinimumHeight(23)
         self.modeling_script_button.setStyleSheet(_mod_script_style)
         self.modeling_script_button.setToolTip(
             "Batch-fit all selected files with Modeling using pyirena_config.json.\n"
@@ -2891,14 +2917,14 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         self.simple_fits_button = QPushButton("Simple Fits (GUI)")
-        self.simple_fits_button.setMinimumHeight(38)
+        self.simple_fits_button.setMinimumHeight(23)
         self.simple_fits_button.setStyleSheet(_sf_gui_style)
         self.simple_fits_button.setToolTip("Open Simple Fits panel for the first selected file.")
         self.simple_fits_button.clicked.connect(self.launch_simple_fits)
         self.simple_fits_button.setEnabled(False)
 
         self.simple_fits_script_button = QPushButton("Simple Fits (script)")
-        self.simple_fits_script_button.setMinimumHeight(38)
+        self.simple_fits_script_button.setMinimumHeight(23)
         self.simple_fits_script_button.setStyleSheet(_sf_script_style)
         self.simple_fits_script_button.setToolTip(
             "Batch-fit all selected files with Simple Fits using pyirena_config.json.\n"
@@ -2920,14 +2946,14 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         self.waxs_peakfit_button = QPushButton("WAXS Peaks (GUI)")
-        self.waxs_peakfit_button.setMinimumHeight(38)
+        self.waxs_peakfit_button.setMinimumHeight(23)
         self.waxs_peakfit_button.setStyleSheet(_waxs_gui_style)
         self.waxs_peakfit_button.setToolTip("Open WAXS Peak Fit panel for the first selected file.")
         self.waxs_peakfit_button.clicked.connect(self.launch_waxs_peakfit)
         self.waxs_peakfit_button.setEnabled(False)
 
         self.waxs_peakfit_script_button = QPushButton("WAXS Peaks (script)")
-        self.waxs_peakfit_script_button.setMinimumHeight(38)
+        self.waxs_peakfit_script_button.setMinimumHeight(23)
         self.waxs_peakfit_script_button.setStyleSheet(_waxs_script_style)
         self.waxs_peakfit_script_button.setToolTip(
             "Batch-fit all selected files with WAXS Peak Fit using pyirena_config.json.\n"
@@ -2949,7 +2975,7 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#bdc3c7; }"
         )
         self.saxs_morph_button = QPushButton("3D saxsMorph (GUI)")
-        self.saxs_morph_button.setMinimumHeight(38)
+        self.saxs_morph_button.setMinimumHeight(23)
         self.saxs_morph_button.setStyleSheet(_sm_gui_style)
         self.saxs_morph_button.setToolTip(
             "Open SAXS Morph (3D voxelgram) panel for the first selected file."
@@ -2958,7 +2984,7 @@ class DataSelectorPanel(QWidget):
         self.saxs_morph_button.setEnabled(False)
 
         self.saxs_morph_script_button = QPushButton("3D saxsMorph (script)")
-        self.saxs_morph_script_button.setMinimumHeight(38)
+        self.saxs_morph_script_button.setMinimumHeight(23)
         self.saxs_morph_script_button.setStyleSheet(_sm_script_style)
         self.saxs_morph_script_button.setToolTip(
             "Batch-fit all selected files with SAXS Morph using pyirena_config.json.\n"
@@ -2996,7 +3022,7 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#95a5a6; }"
         )
         self.data_merge_button = QPushButton("Data Merge")
-        self.data_merge_button.setMinimumHeight(38)
+        self.data_merge_button.setMinimumHeight(23)
         self.data_merge_button.setStyleSheet(_utility_style)
         self.data_merge_button.setToolTip(
             "Open the Data Merge tool to combine USAXS and SAXS/WAXS datasets."
@@ -3004,7 +3030,7 @@ class DataSelectorPanel(QWidget):
         self.data_merge_button.clicked.connect(self.launch_data_merge)
 
         self.data_manip_button = QPushButton("Data Manipulation")
-        self.data_manip_button.setMinimumHeight(38)
+        self.data_manip_button.setMinimumHeight(23)
         self.data_manip_button.setStyleSheet(_utility_style)
         self.data_manip_button.setToolTip(
             "Open the Data Manipulation tool for scaling, trimming,\n"
@@ -3019,7 +3045,7 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#95a5a6; }"
         )
         self.contrast_button = QPushButton("Scattering Contrast Calculator")
-        self.contrast_button.setMinimumHeight(38)
+        self.contrast_button.setMinimumHeight(23)
         self.contrast_button.setStyleSheet(_ref_style)
         self.contrast_button.setToolTip(
             "Open the Scattering Contrast Calculator.\n"
@@ -3029,7 +3055,7 @@ class DataSelectorPanel(QWidget):
         self.contrast_button.clicked.connect(self.launch_contrast)
 
         self.fractals_button = QPushButton("Fractals")
-        self.fractals_button.setMinimumHeight(38)
+        self.fractals_button.setMinimumHeight(23)
         self.fractals_button.setStyleSheet(_ref_style)
         self.fractals_button.setToolTip(
             "Open the Fractals tool: grow random mass-fractal aggregates by\n"
@@ -3047,7 +3073,7 @@ class DataSelectorPanel(QWidget):
             "QPushButton:disabled { background:#95a5a6; }"
         )
         self.igor_import_button = QPushButton("Import Igor Experiment…")
-        self.igor_import_button.setMinimumHeight(38)
+        self.igor_import_button.setMinimumHeight(23)
         self.igor_import_button.setStyleSheet(_igor_import_style)
         self.igor_import_button.setToolTip(
             "Open an Igor Pro packed experiment (.pxp or .h5xp) and export\n"
@@ -3064,7 +3090,24 @@ class DataSelectorPanel(QWidget):
         right_layout.addWidget(grp_proc)
 
         right_layout.addStretch()
-        file_area_layout.addLayout(right_layout, stretch=1)
+
+        # Wrap the right column in a scroll area so users on small or DPI-scaled
+        # displays (Windows 125–150% scaling) see a vertical scrollbar instead
+        # of squashed buttons. On large displays the scrollbar never appears
+        # and the layout looks identical to before.
+        right_container = QWidget()
+        right_container.setLayout(right_layout)
+        right_scroll = QScrollArea()
+        right_scroll.setWidget(right_container)
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Match the original right-column natural width so the two-column
+        # button grid never gets horizontally compressed (and no horizontal
+        # scrollbar ever appears).
+        right_scroll.setMinimumWidth(450)
+        file_area_layout.addWidget(right_scroll, stretch=1)
 
         content_layout.addLayout(file_area_layout)
 
@@ -3084,8 +3127,11 @@ class DataSelectorPanel(QWidget):
 
         self.setLayout(main_layout)
 
-        # Set minimum window size (at least twice the listbox width)
-        self.setMinimumSize(900, 600)
+        # Set minimum window size. Lowered from 600 to 500 now that the right
+        # column is in a QScrollArea — small screens / scaled displays no longer
+        # squash the buttons. File list still has setMinimumHeight(400) which
+        # dominates anyway.
+        self.setMinimumSize(900, 500)
 
         # If we have a restored folder, display it and list files
         if self.current_folder:
