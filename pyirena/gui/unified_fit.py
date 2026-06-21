@@ -1531,9 +1531,8 @@ class LevelParametersWidget(QWidget):
         try:
             value = float(self.rg_value.text() or 0)
             if value > 0:
-                # Clamp to absolute limits [0.1, 1e4]
                 low_val = max(0.1, value * 0.2)
-                high_val = min(1e4, value * 5)
+                high_val = value * 5
                 self.rg_low.setText(self._format_value(low_val))
                 self.rg_high.setText(self._format_value(high_val))
                 self.rg_value.setText(self._format_value(value))
@@ -1834,12 +1833,12 @@ class LevelParametersWidget(QWidget):
         except ValueError:
             pass
 
-        # Fix Rg limits - absolute limits [0.1, 1e4]
+        # Fix Rg limits: low >= 0.1; high = value*5 (no upper cap so value stays in range)
         try:
             rg_val = float(self.rg_value.text() or 0)
             if rg_val > 0:
                 low_val = max(0.1, rg_val * 0.2)
-                high_val = min(1e4, rg_val * 5)
+                high_val = rg_val * 5
                 self.rg_low.setText(self._format_value(low_val))
                 self.rg_high.setText(self._format_value(high_val))
         except ValueError:
@@ -1865,12 +1864,12 @@ class LevelParametersWidget(QWidget):
         except ValueError:
             pass
 
-        # Fix ETA limits - same as Rg: absolute limits [0.1, 1e4]
+        # Fix ETA limits: low >= 0.1; high = value*5 (no upper cap)
         try:
             eta_val = float(self.eta_value.text() or 0)
             if eta_val > 0:
                 low_val = max(0.1, eta_val * 0.2)
-                high_val = min(1e4, eta_val * 5)
+                high_val = eta_val * 5
                 self.eta_low.setText(self._format_value(low_val))
                 self.eta_high.setText(self._format_value(high_val))
         except ValueError:
@@ -2877,13 +2876,45 @@ class UnifiedFitPanel(QWidget):
                 error_fit = self.data.get('Error')
                 num_points = len(q_fit)
 
+            # Pre-flight: verify all initial guesses are inside their bounds.
+            # scipy least_squares raises a generic ValueError that doesn't name
+            # the offending parameter — we give a clear message here instead.
+            if not no_limits:
+                param_names = {
+                    'fit_Rg': ('Rg', 'Rg_low', 'Rg_high'),
+                    'fit_G':  ('G',  'G_low',  'G_high'),
+                    'fit_P':  ('P',  'P_low',  'P_high'),
+                    'fit_B':  ('B',  'B_low',  'B_high'),
+                    'fit_ETA':  ('ETA',  'ETA_low',  'ETA_high'),
+                    'fit_PACK': ('PACK', 'PACK_low', 'PACK_high'),
+                }
+                violations = []
+                for i in range(num_levels):
+                    p = self.level_widgets[i].get_parameters()
+                    for fit_key, (val_key, lo_key, hi_key) in param_names.items():
+                        if not p.get(fit_key, False):
+                            continue
+                        val, lo, hi = p[val_key], p[lo_key], p[hi_key]
+                        if not (lo <= val <= hi):
+                            violations.append(
+                                f"Level {i+1} {val_key}: value={val:.4g} "
+                                f"is outside [{lo:.4g}, {hi:.4g}]"
+                            )
+                if violations:
+                    msg = ("Initial guess is outside fitting bounds — "
+                           "use 'Fix limits' button to reset:\n  "
+                           + "\n  ".join(violations))
+                    self.graph_window.show_error_message(msg)
+                    self.status_label.setText("Fit aborted: bounds violation")
+                    return
+
             # Run fit
             self.status_label.setText(f"Fitting {num_levels} level(s) with {num_points} points...")
 
             result = self.model.fit(q_fit, intensity_fit, error_fit)
             self.fit_result = result
 
-            # Update GUI
+            # Update GUI with fitted values and reset limits around them
             for i in range(num_levels):
                 fitted_level = result['levels'][i]
                 self.level_widgets[i].set_parameters({
@@ -2894,6 +2925,7 @@ class UnifiedFitPanel(QWidget):
                     'ETA': fitted_level.ETA,
                     'PACK': fitted_level.PACK
                 })
+                self.level_widgets[i].fix_limits()
 
             self.background_value.setText(self.format_value_3sig(result['background']))
 
