@@ -1265,9 +1265,11 @@ def detect_features(
     -------
     dict with keys:
       - ok                            : True on success
-      - segments                      : list of {q_min, q_max, slope, slope_std,
-                                                 kind, intensity_mid, width_decades}
-        where kind is "background" | "guinier_plateau" | "power_law"
+      - segments                      : list of {q_min, q_max, P, P_std, kind,
+                                                 intensity_mid, width_decades}
+        Ordered HIGH-Q → LOW-Q to match Unified Fit level numbering
+        (segments[0] = Level 1, highest Q, smallest structure).
+        kind is "background" | "guinier_plateau" | "power_law"
       - guinier_knees                 : list of {q_min, q_max, q_center,
                                                  P_low_q, P_high_q, delta_P}
         P_low_q and P_high_q are positive Porod exponents (I ∝ Q^-P).

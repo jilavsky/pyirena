@@ -132,10 +132,10 @@ def test_beaucage_one_level_finds_knee():
     I = _beaucage_level(q, G=1.0e6, Rg=100.0, B=1.0e-3, P=4.0)
     r = detect_features(q, I)
     assert r.segments, f"Expected at least one segment"
-    # Last segment should have slope close to the Porod exponent -4
-    last_P = r.segments[-1]["P"]
-    assert 3.0 < last_P < 4.5, (
-        f"Expected last segment P near 4, got {last_P:.2f}"
+    # With high-Q → low-Q ordering, first segment is the highest-Q one (Porod tail)
+    first_P = r.segments[0]["P"]
+    assert 3.0 < first_P < 4.5, (
+        f"Expected first (high-Q) segment P near 4, got {first_P:.2f}"
     )
     # At least one knee in the transition zone
     assert len(r.guinier_knees) >= 1, (
@@ -155,13 +155,14 @@ def test_background_recognised_at_high_q_end():
     I = _power_law(q, 1e-8, 4.0) + 0.1
     r = detect_features(q, I)
     assert r.segments, "Expected at least one segment"
-    last_seg = r.segments[-1]
-    assert last_seg["kind"] == "background", (
-        f"Expected last segment to be background, got {last_seg['kind']} "
-        f"with P={last_seg['P']:.2f}"
+    # Background is at the high-Q end → now segments[0] in high-Q-first order
+    first_seg = r.segments[0]
+    assert first_seg["kind"] == "background", (
+        f"Expected first (high-Q) segment to be background, got {first_seg['kind']} "
+        f"with P={first_seg['P']:.2f}"
     )
     assert r.background_q_min is not None
-    assert r.background_q_min == last_seg["q_min"]
+    assert r.background_q_min == first_seg["q_min"]
 
 
 def test_min_segment_decades_enforced_for_interior():
@@ -198,12 +199,12 @@ def test_edge_segment_promotion():
         edge_min_segment_decades=0.05,    # Looser for edges
     )
     r = detect_features(q, I, config=cfg)
-    # There must be a first segment with shallow slope at the very low-Q end
+    # The low-Q edge segment is now last in high-Q-first ordering
     assert r.segments, "Expected at least one segment"
-    first = r.segments[0]
-    assert first["q_min"] == r.q_min_analysed
-    assert first["P"] < 1.5, (
-        f"Expected shallow P at very low-Q edge, got {first['P']:.2f}"
+    last = r.segments[-1]
+    assert last["q_min"] == r.q_min_analysed
+    assert last["P"] < 1.5, (
+        f"Expected shallow P at very low-Q edge, got {last['P']:.2f}"
     )
 
 
