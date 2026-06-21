@@ -440,8 +440,8 @@ gets shallower going high-Q to low-Q, the physical Guinier-knee signature.
    `"guinier_plateau"` segment with a Guinier knee on its low-Q side is one
    Unified Fit level; `"background"` segments are not levels.
 
-2. **Starting P?** The `slope` of each power-law segment equals −P
-   (e.g. slope = −3.8 → P ≈ 3.8).
+2. **Starting P?** Each segment has a `P` field (positive Porod exponent,
+   I ∝ Q⁻ᴾ).  Use it directly as the starting value for `set_parameter_value`.
 
 3. **Starting Rg and G?** Call `fit_local_guinier` with the Q window from
    `recommended_guinier_windows[i]`; apply the returned Rg and G with
@@ -451,11 +451,10 @@ gets shallower going high-Q to low-Q, the physical Guinier-knee signature.
    `intensity_mid` of the background segment and use it as the background
    starting value.
 
-5. **Level ordering:** Unified Fit numbers levels from 1 = smallest structure
-   (highest Q).  The `segments` list goes low-Q → high-Q, so the *last*
-   segment corresponds to Level 1.  `recommended_guinier_windows` is in the
-   same low-Q → high-Q order.  Reverse the index when assigning to
-   `Rg_1`, `Rg_2`, etc.
+5. **Level ordering:** `segments` and `recommended_guinier_windows` are already
+   ordered **high-Q → low-Q**, matching Unified Fit level numbering.
+   `segments[0]` corresponds to Level 1 (smallest structure, highest Q);
+   `segments[1]` to Level 2, and so on.  No reversal needed.
 
 ---
 
@@ -612,31 +611,31 @@ check `content.type`, render the `image` item, show the `text` item as a label.
    → session_id = "a1b2c3d4"
 
 2. pyirena_ctrl_detect_features("a1b2c3d4")
-   → segments=[{q_min, q_max, slope, kind, intensity_mid, ...}, ...],
-     guinier_knees=[{q_min, q_max, slope_low_q, slope_high_q, ...}, ...],
+   → segments=[{q_min, q_max, P, kind, intensity_mid, ...}, ...],
+     guinier_knees=[{q_min, q_max, P_low_q, P_high_q, delta_P, ...}, ...],
      recommended_nlevels=2,
      recommended_guinier_windows=[
-       {q_min_guinier=0.001, q_max_guinier=0.008, q_min_powerlaw=0.007},
-       {q_min_guinier=0.01,  q_max_guinier=0.06,  q_min_powerlaw=0.05},
+       {q_min_guinier=0.01,  q_max_guinier=0.06,  q_min_powerlaw=0.05},  # Level 1 (high Q)
+       {q_min_guinier=0.001, q_max_guinier=0.008, q_min_powerlaw=0.007}, # Level 2 (low Q)
      ]
-   → Note: recommended_nlevels=2, so we use nlevels=2 below.
+   → Note: segments and windows are ordered HIGH-Q → LOW-Q (Level 1 first).
+   → recommended_nlevels=2, so use nlevels=2 below.
 
 3. pyirena_ctrl_select_model("a1b2c3d4", nlevels=2)
 4. pyirena_ctrl_get_model_description("a1b2c3d4")
    → read fitting tips
 
-5. # Use detect_features output to set starting values.
-   # Windows are ordered low-Q first; levels are numbered high-Q first (Level 1 = smallest).
-   # So recommended_guinier_windows[0] → Level 2 (large structure, low Q)
-   #    recommended_guinier_windows[1] → Level 1 (small structure, high Q)
-   local_L2 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.001, q_max=0.008)
-   → Rg=320, G=5e5
+5. # segments[0] = Level 1 (high Q, small structure)
+   # segments[1] = Level 2 (low Q, large structure)
+   # recommended_guinier_windows follow the same order.
    local_L1 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.01, q_max=0.06)
    → Rg=28, G=1e3
-   pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_2", 320)
-   pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_2", 5e5)
+   local_L2 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.001, q_max=0.008)
+   → Rg=320, G=5e5
    pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_1", 28)
    pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_1", 1e3)
+   pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_2", 320)
+   pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_2", 5e5)
 
 6. pyirena_ctrl_fix_all_except("a1b2c3d4", ["Rg_1","G_1","Rg_2","G_2","background"])
 7. pyirena_ctrl_run_fit("a1b2c3d4")
