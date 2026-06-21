@@ -455,7 +455,10 @@ TOOL_SCHEMAS: list[dict] = [
             "choosing nlevels and fit_local_guinier / fit_local_power_law "
             "windows; cross-check against get_fit_image.  Cannot distinguish "
             "structure-factor peaks from knees, and recommended_nlevels "
-            "over-counts (use len(guinier_knees) instead)."
+            "over-counts (use len(guinier_knees) instead).  "
+            "Each segment carries P (positive Porod exponent, I ∝ Q^-P) and "
+            "P_std.  Each knee carries P_low_q, P_high_q, and delta_P (all "
+            "positive); a knee is valid only when P_low_q < P_high_q."
         ),
         "input_schema": {
             "type": "object",

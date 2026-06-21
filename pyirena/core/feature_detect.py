@@ -146,20 +146,23 @@ class FeatureDetectResult:
     segments: list[dict] = field(default_factory=list)
     """One entry per detected segment, sorted by ascending Q.
 
-    Each: ``q_min``, ``q_max``, ``slope``, ``slope_std``, ``kind``,
+    Each: ``q_min``, ``q_max``, ``P``, ``P_std``, ``kind``,
     ``intensity_mid``, ``width_decades``.
 
-    ``kind`` is one of ``"background"``, ``"guinier_plateau"``, ``"power_law"``.
+    ``P`` is the positive Porod exponent (I ∝ Q^-P); ``kind`` is one of
+    ``"background"``, ``"guinier_plateau"``, ``"power_law"``.
     """
 
     guinier_knees: list[dict] = field(default_factory=list)
     """Derived list of inferred Guinier knees between adjacent segments.
 
-    Each: ``q_min``, ``q_max``, ``q_center``, ``slope_low_q``, ``slope_high_q``,
-    ``delta_slope``.
+    Each: ``q_min``, ``q_max``, ``q_center``, ``P_low_q``, ``P_high_q``,
+    ``delta_P``.
 
-    Only transitions where |slope_low_q| < |slope_high_q| are listed
-    (slope gets shallower going high→low Q, the physical knee condition).
+    ``P_low_q`` and ``P_high_q`` are positive Porod exponents (I ∝ Q^-P).
+    Only transitions where P_low_q < P_high_q are listed — i.e. the
+    exponent is smaller (shallower slope) at low Q, the physical Guinier-knee
+    condition.
     """
 
     background_q_min: Optional[float] = None
@@ -444,8 +447,10 @@ def _build_segments(seg_ranges: list[tuple[int, int]],
         out.append({
             "q_min":         q_min_seg,
             "q_max":         q_max_seg,
-            "slope":         mean_slope,
+            "slope":         mean_slope,   # kept for internal use (negative)
             "slope_std":     float(np.std(seg_slope)),
+            "P":             -mean_slope,  # positive Porod exponent (I ∝ Q^-P)
+            "P_std":         float(np.std(seg_slope)),
             "kind":          kind,
             "intensity_mid": float(seg_I[mid_idx]),
             "width_decades": float(np.log10(q_max_seg) - np.log10(q_min_seg)),
@@ -472,12 +477,13 @@ def _derive_knees(segments: list[dict], cfg: FeatureDetectConfig) -> list[dict]:
     for i in range(len(segments) - 1):
         low_q_seg  = segments[i]
         high_q_seg = segments[i + 1]
-        abs_slope_low_q  = abs(low_q_seg["slope"])
-        abs_slope_high_q = abs(high_q_seg["slope"])
-        delta = abs(low_q_seg["slope"] - high_q_seg["slope"])
-        if delta < cfg.guinier_knee_min_delta_slope:
+        p_low_q  = abs(low_q_seg["slope"])   # P = -slope (positive)
+        p_high_q = abs(high_q_seg["slope"])
+        delta_p  = abs(p_low_q - p_high_q)
+        if delta_p < cfg.guinier_knee_min_delta_slope:
             continue
-        if abs_slope_low_q >= abs_slope_high_q:
+        # Guinier knee: P is smaller (shallower) at low-Q side
+        if p_low_q >= p_high_q:
             continue
         q_lo = float(low_q_seg["q_max"])
         q_hi = float(high_q_seg["q_min"])
@@ -485,12 +491,12 @@ def _derive_knees(segments: list[dict], cfg: FeatureDetectConfig) -> list[dict]:
             q_hi = q_lo
         q_center = float(np.sqrt(max(q_lo * q_hi, 1e-30)))
         knees.append({
-            "q_min":       q_lo,
-            "q_max":       q_hi,
-            "q_center":    q_center,
-            "slope_low_q":  float(low_q_seg["slope"]),
-            "slope_high_q": float(high_q_seg["slope"]),
-            "delta_slope": float(delta),
+            "q_min":    q_lo,
+            "q_max":    q_hi,
+            "q_center": q_center,
+            "P_low_q":  float(p_low_q),   # Porod exponent on the low-Q side
+            "P_high_q": float(p_high_q),  # Porod exponent on the high-Q side
+            "delta_P":  float(delta_p),
         })
     return knees
 
