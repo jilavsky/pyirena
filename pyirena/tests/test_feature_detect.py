@@ -115,7 +115,7 @@ def test_pure_power_law_one_segment():
     pl_segments = [s for s in r.segments if s["kind"] == "power_law"]
     assert len(pl_segments) >= 1
     main = pl_segments[0]
-    assert -4.3 < main["slope"] < -3.7, f"Expected slope ≈ -4, got {main['slope']}"
+    assert 3.7 < main["P"] < 4.3, f"Expected P ≈ 4, got {main['P']}"
     # Single-slope curve should produce no Guinier knees
     assert len(r.guinier_knees) == 0
 
@@ -133,14 +133,14 @@ def test_beaucage_one_level_finds_knee():
     r = detect_features(q, I)
     assert r.segments, f"Expected at least one segment"
     # Last segment should have slope close to the Porod exponent -4
-    last_slope = r.segments[-1]["slope"]
-    assert -4.5 < last_slope < -3.0, (
-        f"Expected last segment slope near -4, got {last_slope:.2f}"
+    last_P = r.segments[-1]["P"]
+    assert 3.0 < last_P < 4.5, (
+        f"Expected last segment P near 4, got {last_P:.2f}"
     )
     # At least one knee in the transition zone
     assert len(r.guinier_knees) >= 1, (
         f"Expected at least one Guinier knee, got 0. "
-        f"Segments: {[(s['q_min'], s['q_max'], s['slope']) for s in r.segments]}"
+        f"Segments: {[(s['q_min'], s['q_max'], s['P']) for s in r.segments]}"
     )
 
 
@@ -158,7 +158,7 @@ def test_background_recognised_at_high_q_end():
     last_seg = r.segments[-1]
     assert last_seg["kind"] == "background", (
         f"Expected last segment to be background, got {last_seg['kind']} "
-        f"with slope={last_seg['slope']:.2f}"
+        f"with P={last_seg['P']:.2f}"
     )
     assert r.background_q_min is not None
     assert r.background_q_min == last_seg["q_min"]
@@ -202,8 +202,8 @@ def test_edge_segment_promotion():
     assert r.segments, "Expected at least one segment"
     first = r.segments[0]
     assert first["q_min"] == r.q_min_analysed
-    assert abs(first["slope"]) < 1.5, (
-        f"Expected shallow slope at very low-Q edge, got {first['slope']:.2f}"
+    assert first["P"] < 1.5, (
+        f"Expected shallow P at very low-Q edge, got {first['P']:.2f}"
     )
 
 
@@ -236,7 +236,7 @@ def test_changepoint_detects_smooth_drift():
     assert len(pl_segs) >= 2, (
         f"Expected ≥2 power-law segments for a 3-region slope drift, "
         f"got {len(pl_segs)}. Segments: "
-        f"{[(s['q_min'], s['q_max'], s['slope']) for s in r.segments]}"
+        f"{[(s['q_min'], s['q_max'], s['P']) for s in r.segments]}"
     )
 
 
@@ -402,5 +402,5 @@ def test_ground_truth_fidelity(sample_name: str):
     assert match_frac >= 0.75, (
         f"{sample_name}: only {n_match}/{len(gt_segs)} GT segments matched "
         f"(< 75%).\n  GT: {gt_segs}\n  Detected: "
-        f"{[(s['kind'], s['q_min'], s['q_max'], s['slope']) for s in res.segments]}"
+        f"{[(s['kind'], s['q_min'], s['q_max'], s['P']) for s in res.segments]}"
     )

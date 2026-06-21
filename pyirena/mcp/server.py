@@ -620,11 +620,15 @@ def pyirena_ctrl_detect_features(
     above this should not be classified as SAS structure).  Pass None
     to disable.
 
-    Returns dict with: segments (q_min, q_max, slope, kind, intensity_mid,
-    width_decades — kind is 'background' / 'guinier_plateau' / 'power_law'),
-    guinier_knees, recommended_guinier_windows, recommended_nlevels,
-    background_q_min, n_segments_found, log_decades, n_points,
-    q_min_analysed, q_max_analysed.
+    Returns dict with:
+      segments — list of {q_min, q_max, P, P_std, kind, intensity_mid,
+        width_decades} where P is the positive Porod exponent (I ∝ Q^-P) and
+        kind is 'background' / 'guinier_plateau' / 'power_law'.
+      guinier_knees — list of {q_min, q_max, q_center, P_low_q, P_high_q,
+        delta_P} where P values are positive Porod exponents; P_low_q <
+        P_high_q (shallower at low Q = physical Guinier knee condition).
+      recommended_guinier_windows, recommended_nlevels, background_q_min,
+      n_segments_found, log_decades, n_points, q_min_analysed, q_max_analysed.
     """
     return _ctrl.detect_features(
         session_id,

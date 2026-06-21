@@ -293,7 +293,7 @@ class FeatureIdentifierDialog(QWidget):
             self._markers.append(region)
             # Label
             tag = self._label_for_kind(seg["kind"])
-            text = f"{tag} P={abs(seg['slope']):.1f}" if seg["kind"] == "power_law" else tag
+            text = f"{tag} P={seg['P']:.1f}" if seg["kind"] == "power_law" else tag
             label = pg.TextItem(text, color=pen, anchor=(0.5, 1.0))
             log_q_mid = 0.5 * (np.log10(q_lo) + np.log10(q_hi))
             label.setPos(log_q_mid, self._top_y(plot))
@@ -321,7 +321,7 @@ class FeatureIdentifierDialog(QWidget):
             plot.addItem(region)
             self._markers.append(region)
             label = pg.TextItem(
-                f"GK Δ={knee['delta_slope']:.1f}",
+                f"GK ΔP={knee['delta_P']:.1f}",
                 color=_KNEE_PEN, anchor=(0.5, 0.0)
             )
             label.setPos(0.5 * (log_lo + log_hi), self._bottom_y(plot))
@@ -385,9 +385,9 @@ class FeatureIdentifierDialog(QWidget):
         # Display segments in reverse (high-Q first) per user's preferred order
         for idx, seg in enumerate(reversed(result.segments), start=1):
             tag = self._label_for_kind(seg["kind"]).ljust(11)
-            extra = (f"slope = {seg['slope']:+.2f} ± {seg['slope_std']:.2f}"
+            extra = (f"P = {seg['P']:.2f} ± {seg['P_std']:.2f}"
                      if seg["kind"] == "power_law" else
-                     f"slope = {seg['slope']:+.2f}")
+                     f"P = {seg['P']:.2f}")
             lines.append(
                 f"  L{idx}: {tag} Q ∈ [{seg['q_min']:.4g}, {seg['q_max']:.4g}]  "
                 f"({seg['width_decades']:.2f} dec)  {extra}"
@@ -398,9 +398,9 @@ class FeatureIdentifierDialog(QWidget):
             for k in result.guinier_knees:
                 lines.append(
                     f"  Q ∈ [{k['q_min']:.4g}, {k['q_max']:.4g}]  "
-                    f"slope: {k['slope_high_q']:+.2f} (high-Q) → "
-                    f"{k['slope_low_q']:+.2f} (low-Q)  "
-                    f"(Δ = {k['delta_slope']:.2f})"
+                    f"P: {k['P_high_q']:.2f} (high-Q) → "
+                    f"{k['P_low_q']:.2f} (low-Q)  "
+                    f"(ΔP = {k['delta_P']:.2f})"
                 )
         if result.recommended_guinier_windows:
             lines.append("")
