@@ -2927,7 +2927,8 @@ class UnifiedFitPanel(QWidget):
                 })
                 self.level_widgets[i].fix_limits()
 
-            self.background_value.setText(self.format_value_3sig(result['background']))
+            from pyirena.gui.fmt_utils import eng_fmt_edit
+            self.background_value.setText(eng_fmt_edit(result['background'], sig=3))
 
             # Calculate and plot
             intensity_calc = self.model.calculate_intensity(self.data['Q'])
@@ -3448,7 +3449,8 @@ class UnifiedFitPanel(QWidget):
 
         # Set background
         bg = state.get('background', {})
-        self.background_value.setText(self.format_value_3sig(bg.get('value', 1e-6)))
+        from pyirena.gui.fmt_utils import eng_fmt_edit
+        self.background_value.setText(eng_fmt_edit(bg.get('value', 1e-6), sig=3))
         self.fit_background_check.setChecked(bg.get('fit', False))
 
         # Set checkboxes
@@ -3703,7 +3705,8 @@ class UnifiedFitPanel(QWidget):
             self.num_levels_spin.setValue(self.parameter_backup['num_levels'])
 
             # Restore background
-            self.background_value.setText(self.format_value_3sig(self.parameter_backup['background']))
+            from pyirena.gui.fmt_utils import eng_fmt_edit
+            self.background_value.setText(eng_fmt_edit(self.parameter_backup['background'], sig=3))
 
             # Restore all level parameters
             for i in range(5):

@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Unified Fit: SAS Background field shows unparseable string on first launch.**
+  On a fresh install, loading state set the Background field via `eng_fmt()`,
+  which formats small values like `1e-6` as `'1×10^-6'` (display-only notation).
+  `float()` cannot parse this string, causing a `ValueError` on every Graph Model
+  or Fit action. Fixed by using `eng_fmt_edit()` (parseable `e`-notation) for all
+  three places that write to the editable background field: state restore, post-fit
+  result display, and undo/restore.
+
+- **Data Selector squashed buttons on high-DPI / scaled Windows displays.**
+  First-time users on 1080p screens with 125–150% Windows display scaling
+  reported the right-column buttons (View, Analysis Tools, Data Processing)
+  appearing vertically compressed and unreadable — several wrote in believing
+  the application was corrupted. The fix was to manually drag the window
+  taller; not at all obvious.
+
+  Root cause: the right column needed ~514 logical pixels of button content
+  but the window's 600 px minimum height left only ~86 px for chrome
+  (title row, folder row, type/sort row, menu bar). On 150% scaling the
+  usable screen height drops below the layout's natural requirement, and Qt
+  silently compresses the buttons rather than clipping them — producing
+  the squashed look.
+
+  Three coordinated changes resolve this:
+  1. **Right column wrapped in a `QScrollArea`** — a vertical scrollbar
+     appears only when the column doesn't fit; on large displays it is
+     invisible and the layout looks identical to before.
+  2. **File Type / Sort row moved into the left column** above the Filter
+     row. The right column now starts one row higher, gaining ~26 logical
+     pixels of usable height before scrolling kicks in. The combos still
+     refresh the file list the same way.
+  3. **Title row shrunk by ~25%** (font-size 24→18 px, padding 10→4 px),
+     reclaiming another ~18 px of vertical space.
+
+  Window minimum height lowered from 600 to 500 px to match — the file
+  list's own 400 px minimum still dominates. No other tool windows were
+  changed.
+
 ## [0.8.5] — 2026-06-17
 
 ### Changed
