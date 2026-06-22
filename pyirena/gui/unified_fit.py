@@ -2853,6 +2853,11 @@ class UnifiedFitPanel(QWidget):
                         fit_B=params['fit_B'],
                         fit_ETA=params['fit_ETA'],
                         fit_PACK=params['fit_PACK'],
+                        # Propagate the parameter links into the core model so B
+                        # (and RgCO) are recomputed at every fit iteration from the
+                        # live G/Rg/P, rather than frozen at the stale GUI value.
+                        link_B=params['estimate_B'],
+                        link_RGCO=params['link_rgco'],
                         Rg_limits=(0.1, 1e6),      # Default wide bounds
                         G_limits=(1e-10, 1e10),    # Default wide bounds
                         P_limits=(0.0, 6.0),       # Default wide bounds
@@ -2876,6 +2881,11 @@ class UnifiedFitPanel(QWidget):
                         fit_B=params['fit_B'],
                         fit_ETA=params['fit_ETA'],
                         fit_PACK=params['fit_PACK'],
+                        # Propagate the parameter links into the core model so B
+                        # (and RgCO) are recomputed at every fit iteration from the
+                        # live G/Rg/P, rather than frozen at the stale GUI value.
+                        link_B=params['estimate_B'],
+                        link_RGCO=params['link_rgco'],
                         Rg_limits=(params['Rg_low'], params['Rg_high']),
                         G_limits=(params['G_low'], params['G_high']),
                         P_limits=(params['P_low'], params['P_high']),
