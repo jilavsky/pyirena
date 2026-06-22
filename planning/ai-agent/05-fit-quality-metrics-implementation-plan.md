@@ -3,9 +3,22 @@
 **Branch:** `feature/fit-quality-metrics`
 **Spec:** [`04-fit-quality-metrics.md`](04-fit-quality-metrics.md) (the "what/why")
 **This doc:** the "how" — phased, backward-compatible, with decision gates.
-**Status:** Phases 1–4 implemented; **Gate 2 PASSED** (2026-06-19). Phase 5–7
-(package-wide rollout: uniform display → NeXus persistence → reports) planned and
-ready to start. **Date:** 2026-06-19
+**Status:** Phases 1–7 implemented (2026-06-19). Robust fit-quality metrics are
+computed, displayed uniformly (rescaled residuals + σ-scale/χ²-floor/max-misfit
++ CorMap), persisted to NeXus, and surfaced in reports/API across all
+residual-based tools. **Date:** 2026-06-19
+
+> **Progress 5–7 (2026-06-19):**
+> - Phase 5 ✅ uniform rescaled residuals + quality summary in sizes, simple_fits,
+>   waxs_peakfit, modeling, and the data_selector stored-result viewers (shared
+>   `gui/quality_display.py`); CorMap added to sizes/simple/modeling.
+> - Phase 6 ✅ shared `io/nxcansas_fit_quality.py` persists a `fit_quality/`
+>   sub-group; wired into all 5 tool writers/readers + templates + HDF5 doc.
+>   Backward compatible (old files → None).
+> - Phase 7 ✅ metrics surfaced in `export_fit_report` (md+json), data_selector
+>   `_build_report`, and the API read layer (5 result dataclasses).
+> - 176 tests pass (2 pre-existing unrelated failures). saxs_morph & fractals
+>   excluded throughout (no (I−M) residual basis).
 
 > **Progress (2026-06-19):**
 > - Phase 1 ✅ `pyirena/core/fit_metrics.py` + `tests/test_fit_metrics.py` (10 tests pass).
