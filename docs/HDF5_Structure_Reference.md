@@ -229,6 +229,53 @@ Every pyirena fitting / analysis tool writes its results into a single
 group under `entry/`. All such groups carry `@NX_class = "NXprocess"`
 and an `@analysis_type` tag identifying the tool.
 
+### 3.0 fit_quality/ — robust fit-quality metrics (shared sub-group)
+
+Source: `pyirena/io/nxcansas_fit_quality.py`.
+
+The residual-based fitting tools (unified, simple_fits, sizes, waxs_peakfit,
+modeling) embed a `fit_quality/` sub-group inside their results group holding the
+robust, σ-scale-independent diagnostics from
+`pyirena.core.fit_metrics.fit_quality_metrics` (see
+[fit_quality_metrics.md](fit_quality_metrics.md)). The structure is identical
+everywhere:
+
+```
+<tool>_results/fit_quality/         [NXcollection]
+├── @NX_class        = "NXcollection"
+├── sigma_available  (int8, 0/1)
+├── n_valid          (int, optional)
+├── n_params         (int, optional)
+├── dof              (int, optional)
+├── reduced_chi2                  (float64, optional)
+├── robust_scale_s                (float64, optional)   actual_scatter / reported_σ
+├── sigma_misscale_factor         (float64, optional)   alias of robust_scale_s
+├── realistic_reduced_chi2_floor  (float64, optional)   robust_scale_s²
+├── median_frac_uncertainty       (float64, optional)
+├── max_abs_frac_misfit           (float64, optional)   largest |(I−M)/I|
+├── q_at_max_frac_misfit          (float64, optional)
+├── frac_outliers_3s              (float64, optional)
+├── sign_autocorr_lag1            (float64, optional)
+├── n_outliers_3s                 (int, optional)
+├── longest_same_sign_run         (int, optional)
+├── n_bands_used                  (int, optional)
+└── bands/                         [NXcollection]   per-Q-band table (parallel arrays)
+    ├── q_lo               (float64, n_bands)
+    ├── q_hi               (float64, n_bands)
+    ├── n                  (float64, n_bands)
+    ├── reduced_chi2       (float64, n_bands, NaN where undefined)
+    ├── robust_scale_s     (float64, n_bands, NaN where undefined)
+    └── max_abs_frac_misfit (float64, n_bands, NaN where undefined)
+```
+
+Notes:
+- Scalars that were `None` at fit time are simply **omitted**; readers return
+  `None` for anything absent.
+- **Backward compatibility:** files written before this feature have no
+  `fit_quality/` group; `read_fit_quality()` returns `None` and tools recompute
+  on demand where the stored arrays allow it.
+- `saxs_morph` and `fractals` do not write this group (no (I−M) residual basis).
+
 ### 3.1 entry/unified_fit_results/ — Unified Fit (Beaucage)
 
 Source: `pyirena/io/nxcansas_unified.py`.
@@ -252,6 +299,8 @@ entry/unified_fit_results/          [NXprocess]
 ├── intensity_error   (float64, Nq, units="1/cm", optional)
 ├── intensity_model   (float64, Nq, units="1/cm")
 ├── residuals         (float64, Nq)              normalized
+│
+├── fit_quality/      [NXcollection, optional]   robust diagnostics — see §3.0
 │
 └── level_1/, level_2/, … level_N/   [group]
     ├── @level_number   (int)
