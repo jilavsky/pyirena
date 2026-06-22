@@ -10,7 +10,7 @@ try:
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
         QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
         QGridLayout, QMessageBox, QSplitter, QFileDialog,
-        QDialog, QComboBox, QRadioButton
+        QDialog, QComboBox, QRadioButton, QScrollArea
     )
     from PySide6.QtCore import Qt, Signal, QTimer, QUrl
     from PySide6.QtGui import QFont, QDoubleValidator, QDesktopServices
@@ -20,7 +20,7 @@ except ImportError:
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
             QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
             QGridLayout, QMessageBox, QSplitter, QFileDialog,
-            QDialog, QComboBox, QRadioButton
+            QDialog, QComboBox, QRadioButton, QScrollArea
         )
         from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
         from PyQt6.QtGui import QFont, QDoubleValidator, QDesktopServices
@@ -30,7 +30,7 @@ except ImportError:
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                 QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
                 QGridLayout, QMessageBox, QSplitter, QFileDialog,
-                QDialog, QComboBox, QRadioButton
+                QDialog, QComboBox, QRadioButton, QScrollArea
             )
             from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
             from PyQt5.QtGui import QFont, QDoubleValidator, QDesktopServices
@@ -1218,16 +1218,19 @@ class LevelParametersWidget(QWidget):
         self.g_value.setValidator(QDoubleValidator())
         self.g_value.setMinimumWidth(120)
         self.g_value.setMaximumWidth(120)
+        self.g_value.setMinimumHeight(24)
         self.g_value.editingFinished.connect(self._on_g_changed)
         grid.addWidget(self.g_value, row, 1)
         self.g_fit = QCheckBox()
         grid.addWidget(self.g_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.g_low = QLineEdit("20")
         self.g_low.setMaximumWidth(80)
+        self.g_low.setMinimumHeight(24)
         self.g_low.setValidator(QDoubleValidator())
         grid.addWidget(self.g_low, row, 3)
         self.g_high = QLineEdit("500")
         self.g_high.setMaximumWidth(80)
+        self.g_high.setMinimumHeight(24)
         self.g_high.setValidator(QDoubleValidator())
         grid.addWidget(self.g_high, row, 4)
 
@@ -1238,16 +1241,19 @@ class LevelParametersWidget(QWidget):
         self.rg_value.setValidator(QDoubleValidator())
         self.rg_value.setMinimumWidth(120)
         self.rg_value.setMaximumWidth(120)
+        self.rg_value.setMinimumHeight(24)
         self.rg_value.editingFinished.connect(self._on_rg_changed)
         grid.addWidget(self.rg_value, row, 1)
         self.rg_fit = QCheckBox()
         grid.addWidget(self.rg_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.rg_low = QLineEdit("20")
         self.rg_low.setMaximumWidth(80)
+        self.rg_low.setMinimumHeight(24)
         self.rg_low.setValidator(QDoubleValidator())
         grid.addWidget(self.rg_low, row, 3)
         self.rg_high = QLineEdit("500")
         self.rg_high.setMaximumWidth(80)
+        self.rg_high.setMinimumHeight(24)
         self.rg_high.setValidator(QDoubleValidator())
         grid.addWidget(self.rg_high, row, 4)
 
@@ -1291,16 +1297,19 @@ class LevelParametersWidget(QWidget):
         self.b_value.setValidator(QDoubleValidator())
         self.b_value.setMinimumWidth(120)
         self.b_value.setMaximumWidth(120)
+        self.b_value.setMinimumHeight(24)
         self.b_value.editingFinished.connect(self._on_b_changed)
         grid2.addWidget(self.b_value, row, 1)
         self.b_fit = QCheckBox()
         grid2.addWidget(self.b_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.b_low = QLineEdit("0.002")
         self.b_low.setMaximumWidth(80)
+        self.b_low.setMinimumHeight(24)
         self.b_low.setValidator(QDoubleValidator())
         grid2.addWidget(self.b_low, row, 3)
         self.b_high = QLineEdit("0.05")
         self.b_high.setMaximumWidth(80)
+        self.b_high.setMinimumHeight(24)
         self.b_high.setValidator(QDoubleValidator())
         grid2.addWidget(self.b_high, row, 4)
 
@@ -1311,16 +1320,19 @@ class LevelParametersWidget(QWidget):
         self.p_value.setValidator(QDoubleValidator())
         self.p_value.setMinimumWidth(120)
         self.p_value.setMaximumWidth(120)
+        self.p_value.setMinimumHeight(24)
         self.p_value.editingFinished.connect(self._on_p_changed)
         grid2.addWidget(self.p_value, row, 1)
         self.p_fit = QCheckBox()
         grid2.addWidget(self.p_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.p_low = QLineEdit("2")
         self.p_low.setMaximumWidth(80)
+        self.p_low.setMinimumHeight(24)
         self.p_low.setValidator(QDoubleValidator())
         grid2.addWidget(self.p_low, row, 3)
         self.p_high = QLineEdit("5")
         self.p_high.setMaximumWidth(80)
+        self.p_high.setMinimumHeight(24)
         self.p_high.setValidator(QDoubleValidator())
         grid2.addWidget(self.p_high, row, 4)
 
@@ -1397,16 +1409,19 @@ class LevelParametersWidget(QWidget):
         self.eta_value.setValidator(QDoubleValidator())
         self.eta_value.setMinimumWidth(95)
         self.eta_value.setMaximumWidth(95)
+        self.eta_value.setMinimumHeight(24)
         self.eta_value.editingFinished.connect(self._on_eta_changed)
         corr_grid.addWidget(self.eta_value, row, 1)
         self.eta_fit = QCheckBox()
         corr_grid.addWidget(self.eta_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.eta_low = QLineEdit("0")
         self.eta_low.setMaximumWidth(80)
+        self.eta_low.setMinimumHeight(24)
         self.eta_low.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.eta_low, row, 3)
         self.eta_high = QLineEdit("1")
         self.eta_high.setMaximumWidth(80)
+        self.eta_high.setMinimumHeight(24)
         self.eta_high.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.eta_high, row, 4)
 
@@ -1417,16 +1432,19 @@ class LevelParametersWidget(QWidget):
         self.pack_value.setValidator(QDoubleValidator())
         self.pack_value.setMinimumWidth(95)
         self.pack_value.setMaximumWidth(95)
+        self.pack_value.setMinimumHeight(24)
         self.pack_value.editingFinished.connect(self._on_pack_changed)
         corr_grid.addWidget(self.pack_value, row, 1)
         self.pack_fit = QCheckBox()
         corr_grid.addWidget(self.pack_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.pack_low = QLineEdit("0")
         self.pack_low.setMaximumWidth(80)
+        self.pack_low.setMinimumHeight(24)
         self.pack_low.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.pack_low, row, 3)
         self.pack_high = QLineEdit("1")
         self.pack_high.setMaximumWidth(80)
+        self.pack_high.setMinimumHeight(24)
         self.pack_high.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.pack_high, row, 4)
 
@@ -2239,7 +2257,12 @@ class UnifiedFitPanel(QWidget):
             level_widget.fit_p_b_button.clicked.connect(lambda checked, level=i: self.fit_local_porod(level))
             level_widget.copy_move_button.clicked.connect(lambda checked, level=i: self.copy_swap_level(level))
             self.level_widgets.append(level_widget)
-            self.level_tabs.addTab(level_widget, f"{i}. Level")
+            # Wrap in scroll area so controls are not squeezed when Correlations rows are shown
+            scroll = QScrollArea()
+            scroll.setWidget(level_widget)
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.level_tabs.addTab(scroll, f"{i}. Level")
 
         # Apply stylesheet for tab colors (Level 1: Red, Level 2: Green, etc.)
         tab_stylesheet = """

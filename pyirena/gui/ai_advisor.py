@@ -303,9 +303,15 @@ def _format_param_table(levels: list[dict], background: float,
 
     for i, lv in enumerate(levels, 1):
         lines.append(f"### Level {i}")
+        correlated = lv.get("correlated", False)
         lines.append("| Parameter | Value | Fixed | Lo | Hi |")
         lines.append("|-----------|-------|-------|----|-----|")
-        for param in ("Rg", "G", "B", "P", "ETA", "PACK", "RgCutoff"):
+        # ETA and PACK are only active when the Correlations checkbox is checked.
+        # Omit them entirely when unused so stale values don't mislead the AI.
+        active_params = ("Rg", "G", "B", "P", "RgCutoff")
+        if correlated:
+            active_params = ("Rg", "G", "B", "P", "ETA", "PACK", "RgCutoff")
+        for param in active_params:
             val = lv.get(param, "—")
             fixed = not lv.get(f"fit_{param}", True)
             lo = lv.get(f"{param}_low", "—")
@@ -316,14 +322,15 @@ def _format_param_table(levels: list[dict], background: float,
             hi_s   = f"{hi:.4g}"   if isinstance(hi, float)  else str(hi)
             lines.append(f"| {param} | {val_s} | {fixed_str} | {lo_s} | {hi_s} |")
         extras = []
-        if lv.get("correlated"):
-            extras.append("correlations ON")
+        if correlated:
+            extras.append("correlations ON (ETA, PACK active)")
+        else:
+            extras.append("correlations OFF (ETA/PACK not used in fit)")
         if lv.get("estimate_B"):
             extras.append("estimate_B ON")
         if lv.get("link_rgco"):
             extras.append("link_RgCO ON")
-        if extras:
-            lines.append(f"Flags: {', '.join(extras)}")
+        lines.append(f"Flags: {', '.join(extras)}")
         lines.append("")
 
     lines.append("### Background")
