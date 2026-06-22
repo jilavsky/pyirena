@@ -592,7 +592,7 @@ class UnifiedFitGraphWindow(QWidget):
             },
         )
         self.residual_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
-        self.residual_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '11pt'})
+        self.residual_plot.setLabel('left', "Residuals r' (rescaled)", **{'color': 'k', 'font-size': '11pt'})
         self.residual_plot.setLogMode(x=True, y=False)
         self.residual_plot.showGrid(x=True, y=True, alpha=0.3)
 

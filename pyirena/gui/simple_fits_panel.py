@@ -94,7 +94,7 @@ class SimpleFitsGraphWindow(QWidget):
         # ── Residuals plot: log-x, linear-y, JPEG export ──────────────────────
         self.residuals_plot = make_sas_plot(
             self.graphics_layout, row=1, col=0,
-            x_label='Q  (Å⁻¹)', y_label='(I−fit)/σ',
+            x_label='Q  (Å⁻¹)', y_label="Residuals r' (rescaled)",
             log_x=True, log_y=False,
             x_link=self.main_plot,
             parent_widget=self._parent_ref,

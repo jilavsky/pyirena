@@ -531,7 +531,7 @@ class WAXSPeakFitGraphWindow(QWidget):
         # ── Bottom plot: residuals ────────────────────────────────────────
         self.resid_plot = self.gl.addPlot(row=1, col=0)
         self.resid_plot.setLogMode(False, False)
-        self.resid_plot.setLabel('left',   '(I−fit)/σ')
+        self.resid_plot.setLabel('left',   "Residuals r' (rescaled)")
         self.resid_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.resid_plot.showGrid(x=True, y=True, alpha=0.3)
         self.resid_plot.setXLink(self.main_plot)

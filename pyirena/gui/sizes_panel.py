@@ -220,7 +220,7 @@ class SizesFitGraphWindow(QWidget):
 
         # ── Residuals plot  (log-x, linear-y) ───────────────────────────────
         self.residuals_plot.setLogMode(x=True, y=False)
-        self.residuals_plot.setLabel('left',   'Residuals  (σ)')
+        self.residuals_plot.setLabel('left',   "Residuals r' (rescaled)")
         self.residuals_plot.setLabel('bottom', 'Q  (Å⁻¹)')
         self.residuals_plot.showGrid(x=True, y=True, alpha=0.3)
         self._zero_line = pg.InfiniteLine(

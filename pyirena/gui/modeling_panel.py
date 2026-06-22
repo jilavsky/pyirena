@@ -1624,7 +1624,7 @@ class ModelingGraphWindow(QWidget):
         # ── Residuals plot ────────────────────────────────────────────────
         self.resid_plot = self.gl.addPlot(row=1, col=0)
         self.resid_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '10pt'})
-        self.resid_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '10pt'})
+        self.resid_plot.setLabel('left', "Residuals r' (rescaled)", **{'color': 'k', 'font-size': '10pt'})
         self.resid_plot.setLogMode(x=True, y=False)
         self.resid_plot.showGrid(x=True, y=True, alpha=0.3)
         self._style_axes(self.resid_plot)

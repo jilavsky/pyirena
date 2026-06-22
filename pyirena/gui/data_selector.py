@@ -219,6 +219,20 @@ from pyirena.state import StateManager
 from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config, fit_waxs_peaks_from_config, fit_modeling, fit_saxs_morph
 
 
+def _rescaled_view(residuals):
+    """Rescale stored residuals by their robust (MAD-based) scale for display.
+
+    Uniform with the live fit panels: the viewer shows r' = r/s so scatter is
+    compared to the data's own robust noise floor. Returns the input unchanged
+    if it is None or has no finite points.
+    """
+    if residuals is None:
+        return residuals
+    from pyirena.core.fit_metrics import rescale_residuals
+    r_prime, _ = rescale_residuals(np.asarray(residuals, dtype=float))
+    return r_prime
+
+
 def _build_report(file_path: str,
                   data_info: Optional[dict] = None,
                   fit_results: Optional[dict] = None,
@@ -1499,7 +1513,7 @@ class UnifiedFitResultsWindow(QWidget):
         )
         self.ax_resid.setLogMode(True, False)
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         self.ax_resid.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_resid)
@@ -1593,10 +1607,10 @@ class UnifiedFitResultsWindow(QWidget):
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
-            # ── residuals ──────────────────────────────────────────────────
+            # ── residuals (rescaled, robust — uniform with live panels) ──────
             resid_name = label if in_legend else None
             self.ax_resid.plot(
-                Q, residuals,
+                Q, _rescaled_view(residuals),
                 pen=None, symbol='o', symbolSize=3,
                 symbolPen=pg.mkPen(color, width=1),
                 symbolBrush=pg.mkBrush(color),
@@ -1658,7 +1672,7 @@ class SizeDistResultsWindow(QWidget):
         )
         self.ax_resid.setLogMode(True, False)
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         _style_plot(self.ax_resid)
         self.ax_resid.setXLink(self.ax_main)
@@ -1771,10 +1785,10 @@ class SizeDistResultsWindow(QWidget):
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
-            # ── residuals ──────────────────────────────────────────────────
+            # ── residuals (rescaled, robust — uniform with live panels) ──────
             if residuals is not None:
                 self.ax_resid.plot(
-                    Q, residuals,
+                    Q, _rescaled_view(residuals),
                     pen=None, symbol='o', symbolSize=3,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
@@ -1854,7 +1868,7 @@ class SimpleFitResultsWindow(QWidget):
         )
         self.ax_resid.setLogMode(True, False)
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         _style_plot(self.ax_resid)
         self.ax_resid.setXLink(self.ax_main)
@@ -1946,10 +1960,10 @@ class SimpleFitResultsWindow(QWidget):
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
-            # ── residuals ──────────────────────────────────────────────────
+            # ── residuals (rescaled, robust — uniform with live panels) ──────
             if residuals is not None:
                 self.ax_resid.plot(
-                    Q, residuals,
+                    Q, _rescaled_view(residuals),
                     pen=None, symbol='o', symbolSize=3,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
@@ -1998,7 +2012,7 @@ class WAXSPeakFitResultsWindow(QWidget):
         self.ax_resid = self.gl.addPlot(row=1, col=0)
         self.ax_resid.setLogMode(False, False)
         self.ax_resid.setLabel('bottom', 'Q  (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         self.ax_resid.setXLink(self.ax_main)
         _style_plot(self.ax_resid)
@@ -2095,11 +2109,12 @@ class WAXSPeakFitResultsWindow(QWidget):
                 name=(f"{label} fit") if in_legend else None,
             )
 
-            # Residuals
+            # Residuals (rescaled, robust — uniform with live panels)
             if residuals is not None:
-                mask_r = np.isfinite(Q) & np.isfinite(residuals)
+                residuals_r = _rescaled_view(residuals)
+                mask_r = np.isfinite(Q) & np.isfinite(residuals_r)
                 self.ax_resid.plot(
-                    Q[mask_r], residuals[mask_r],
+                    Q[mask_r], residuals_r[mask_r],
                     pen=None, symbol='o', symbolSize=3,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
