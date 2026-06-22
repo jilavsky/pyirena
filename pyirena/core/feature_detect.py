@@ -94,7 +94,7 @@ class FeatureDetectConfig:
     sub-segments (smooth slope drifts that pass-1 missed)."""
 
     # --- Segment filtering ---
-    min_segment_decades: float = 0.10
+    min_segment_decades: float = 0.2
     """Minimum width of an interior segment (not touching either data
     extreme)."""
 
@@ -144,7 +144,8 @@ class FeatureDetectConfig:
 @dataclass
 class FeatureDetectResult:
     segments: list[dict] = field(default_factory=list)
-    """One entry per detected segment, sorted by ascending Q.
+    """One entry per detected segment, ordered **high-Q → low-Q** to match
+    Unified Fit level numbering (Level 1 = smallest structure at highest Q).
 
     Each: ``q_min``, ``q_max``, ``P``, ``P_std``, ``kind``,
     ``intensity_mid``, ``width_decades``.
@@ -624,7 +625,9 @@ def detect_features(
     # 8. Build & classify segments
     segments = _build_segments(seg_ranges, q, I, slope, config)
 
-    # 9. Derive knees, windows, etc.
+    # 9. Derive knees, windows, etc.  All derivation uses the natural low-Q →
+    # high-Q order of the data; we reverse to Unified Fit order (high-Q → low-Q,
+    # Level 1 = smallest structure at highest Q) only at the end.
     knees = _derive_knees(segments, config)
     windows = _recommended_guinier_windows(segments, knees)
     background_q_min = None
@@ -633,6 +636,15 @@ def detect_features(
             background_q_min = seg["q_min"]
             break
     n_levels = sum(1 for seg in segments if seg["kind"] != "background")
+
+    # Reverse to match Unified Fit level numbering:
+    #   segments[0] = Level 1 (highest Q, smallest structure)
+    #   segments[-1] = highest level (lowest Q, largest structure)
+    # Knees and recommended windows are reversed in the same pass so that
+    # knees[i] describes the transition between segments[i] and segments[i+1].
+    segments = list(reversed(segments))
+    knees    = list(reversed(knees))
+    windows  = list(reversed(windows))
 
     return FeatureDetectResult(
         segments=segments,

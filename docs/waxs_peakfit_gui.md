@@ -30,7 +30,7 @@ The window is split into a **left control panel** (≈430 px wide) and a
 | Panel | Content |
 |-------|---------|
 | Top (main) | Data scatter, total model (red), per-peak overlays (colors), background (dashed gray), diffraction line sticks (one color per phase) |
-| Bottom (residuals) | Normalized residuals `(I − fit) / σ`; dashed zero line; x-axis linked to main |
+| Bottom (residuals) | Rescaled residuals r' = r/σ(robust); dashed zero line; x-axis linked to main |
 
 **Right-click** on the main graph to:
 - **Add Peak at Q = X.XXX Å⁻¹** — inserts a peak row initialized at that Q
@@ -401,3 +401,17 @@ Results are stored in `entry/waxs_peakfit_results` (NXprocess group).
 - [Batch API reference — `fit_waxs`](batch_api.md#fit_waxs)
 - [NXcanSAS file format](NXcanSAS_UnifiedFit_Format.md)
 - [Data Selector quick start](gui_quickstart.md)
+
+## Fit Quality
+
+Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized
+residual divided by a robust (MAD-based) estimate of the actual noise scale, so
+the scatter is judged against the data's own noise floor rather than the (often
+mis-scaled) reported σ. The fit status line also reports **σ-scale** (how many ×
+the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, and
+the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
+backstop.
+
+See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
+interpretation of these numbers.
+

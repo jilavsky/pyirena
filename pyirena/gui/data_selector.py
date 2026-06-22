@@ -17,7 +17,7 @@ try:
         QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
         QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea,
         QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
-        QTableWidget, QTableWidgetItem,
+        QTableWidget, QTableWidgetItem, QInputDialog,
     )
     from PySide6.QtCore import Qt, QDir, QThread, Signal, QUrl
     from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices
@@ -28,7 +28,7 @@ except ImportError:
             QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
             QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea,
             QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
-            QTableWidget, QTableWidgetItem,
+            QTableWidget, QTableWidgetItem, QInputDialog,
         )
         from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal, QUrl
         from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices
@@ -211,12 +211,49 @@ def _add_jpeg_export(window, *plot_items):
         plot_item.getViewBox().menu.addAction(act_itx)
 
 
-from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile, list_nxcansas_datasets, _filter_smr
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.state import StateManager
 from pyirena.batch import fit_unified, fit_sizes, fit_simple_from_config, fit_waxs_peaks_from_config, fit_modeling, fit_saxs_morph
+
+
+def _rescaled_view(residuals):
+    """Rescale stored residuals by their robust (MAD-based) scale for display.
+
+    Uniform with the live fit panels: the viewer shows r' = r/s so scatter is
+    compared to the data's own robust noise floor. Returns the input unchanged
+    if it is None or has no finite points.
+    """
+    if residuals is None:
+        return residuals
+    from pyirena.core.fit_metrics import rescale_residuals
+    r_prime, _ = rescale_residuals(np.asarray(residuals, dtype=float))
+    return r_prime
+
+
+def _quality_report_rows(fq: Optional[dict]) -> list:
+    """Markdown table rows for robust fit-quality metrics (empty if unavailable).
+
+    Intended to be appended to a tool's '## Fit Quality' table in the report.
+    """
+    if not fq:
+        return []
+    rows = []
+    s = fq.get('robust_scale_s')
+    if s is not None:
+        rows.append(f"| σ-scale (robust) | {s:.2f}× |")
+        floor = fq.get('realistic_reduced_chi2_floor')
+        if floor is not None:
+            rows.append(f"| Realistic reduced-χ² floor | {floor:.2f} |")
+    mfm = fq.get('max_abs_frac_misfit')
+    if mfm is not None:
+        rows.append(f"| Max \\|(I−M)/I\\| | {mfm * 100:.1f}% |")
+    csr = fq.get('longest_same_sign_run')
+    if csr is not None:
+        rows.append(f"| Longest same-sign run | {csr} |")
+    return rows
 
 
 def _build_report(file_path: str,
@@ -329,8 +366,9 @@ def _build_report(file_path: str,
             f"| Residuals mean | {np.mean(residuals):.4f} |",
             f"| Residuals std dev | {np.std(residuals):.4f} |",
             f"| Max \\|residual\\| | {np.max(np.abs(residuals)):.4f} |",
-            "",
         ]
+        L += _quality_report_rows(fit_results.get('fit_quality'))
+        L.append("")
 
         # ── Level parameters ──────────────────────────────────────────────
         for i, level in enumerate(levels):
@@ -456,6 +494,7 @@ def _build_report(file_path: str,
                 f"| Residuals mean | {np.mean(residuals):.4f} |",
                 f"| Residuals std dev | {np.std(residuals):.4f} |",
             ]
+        L += _quality_report_rows(sizes_results.get('fit_quality'))
         L.append("")
 
         L += [
@@ -583,8 +622,9 @@ def _build_report(file_path: str,
             f"| DOF | {sf_dof if sf_dof is not None else 'N/A'} |",
             f"| Q range (fit) | {_sf_fmt(sf_q_min)} – {_sf_fmt(sf_q_max)} Å⁻¹ |",
             f"| Complex background | {sf_complex} |",
-            "",
         ]
+        L += _quality_report_rows(simple_fit_results.get('fit_quality'))
+        L.append("")
 
         if sf_params:
             has_std = bool(sf_std)
@@ -646,8 +686,9 @@ def _build_report(file_path: str,
             f"| Reduced chi² | {_wp_fmt(wp.get('reduced_chi_squared'))} |",
             f"| DOF | {wp.get('dof', 'N/A')} |",
             f"| Q range (fit) | {_wp_fmt(wp.get('q_min'))} – {_wp_fmt(wp.get('q_max'))} Å⁻¹ |",
-            "",
         ]
+        L += _quality_report_rows(wp.get('fit_quality'))
+        L.append("")
 
         peaks_list = wp.get('peaks', [])
         peaks_std  = wp.get('peaks_std', [])
@@ -714,8 +755,9 @@ def _build_report(file_path: str,
             f"| Populations (enabled) | {len(pops)} |",
             f"| Q min | {_mr_fmt(mr.get('q_min'))} Å⁻¹ |",
             f"| Q max | {_mr_fmt(mr.get('q_max'))} Å⁻¹ |",
-            "",
         ]
+        L += _quality_report_rows(mr.get('fit_quality'))
+        L.append("")
         for pop in pops:
             pt    = pop.get('pop_type', 'size_dist')
             idx   = pop.get('population_index', '?')
@@ -1499,7 +1541,7 @@ class UnifiedFitResultsWindow(QWidget):
         )
         self.ax_resid.setLogMode(True, False)
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         self.ax_resid.addLegend(offset=(-10, 10), labelTextSize='18pt', labelTextColor='k')
         _style_plot(self.ax_resid)
@@ -1593,10 +1635,10 @@ class UnifiedFitResultsWindow(QWidget):
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
-            # ── residuals ──────────────────────────────────────────────────
+            # ── residuals (rescaled, robust — uniform with live panels) ──────
             resid_name = label if in_legend else None
             self.ax_resid.plot(
-                Q, residuals,
+                Q, _rescaled_view(residuals),
                 pen=None, symbol='o', symbolSize=3,
                 symbolPen=pg.mkPen(color, width=1),
                 symbolBrush=pg.mkBrush(color),
@@ -1658,7 +1700,7 @@ class SizeDistResultsWindow(QWidget):
         )
         self.ax_resid.setLogMode(True, False)
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         _style_plot(self.ax_resid)
         self.ax_resid.setXLink(self.ax_main)
@@ -1771,10 +1813,10 @@ class SizeDistResultsWindow(QWidget):
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
-            # ── residuals ──────────────────────────────────────────────────
+            # ── residuals (rescaled, robust — uniform with live panels) ──────
             if residuals is not None:
                 self.ax_resid.plot(
-                    Q, residuals,
+                    Q, _rescaled_view(residuals),
                     pen=None, symbol='o', symbolSize=3,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
@@ -1854,7 +1896,7 @@ class SimpleFitResultsWindow(QWidget):
         )
         self.ax_resid.setLogMode(True, False)
         self.ax_resid.setLabel('bottom', 'Q (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         _style_plot(self.ax_resid)
         self.ax_resid.setXLink(self.ax_main)
@@ -1946,10 +1988,10 @@ class SimpleFitResultsWindow(QWidget):
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 
-            # ── residuals ──────────────────────────────────────────────────
+            # ── residuals (rescaled, robust — uniform with live panels) ──────
             if residuals is not None:
                 self.ax_resid.plot(
-                    Q, residuals,
+                    Q, _rescaled_view(residuals),
                     pen=None, symbol='o', symbolSize=3,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
@@ -1998,7 +2040,7 @@ class WAXSPeakFitResultsWindow(QWidget):
         self.ax_resid = self.gl.addPlot(row=1, col=0)
         self.ax_resid.setLogMode(False, False)
         self.ax_resid.setLabel('bottom', 'Q  (Å⁻¹)')
-        self.ax_resid.setLabel('left', 'Residuals (norm.)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
         self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
         self.ax_resid.setXLink(self.ax_main)
         _style_plot(self.ax_resid)
@@ -2095,11 +2137,12 @@ class WAXSPeakFitResultsWindow(QWidget):
                 name=(f"{label} fit") if in_legend else None,
             )
 
-            # Residuals
+            # Residuals (rescaled, robust — uniform with live panels)
             if residuals is not None:
-                mask_r = np.isfinite(Q) & np.isfinite(residuals)
+                residuals_r = _rescaled_view(residuals)
+                mask_r = np.isfinite(Q) & np.isfinite(residuals_r)
                 self.ax_resid.plot(
-                    Q[mask_r], residuals[mask_r],
+                    Q[mask_r], residuals_r[mask_r],
                     pen=None, symbol='o', symbolSize=3,
                     symbolPen=pg.mkPen(color, width=1),
                     symbolBrush=pg.mkBrush(color),
@@ -4223,6 +4266,68 @@ class DataSelectorPanel(QWidget):
                 msg += f" (+{len(errors) - 3} more)"
         self.status_label.setText(msg)
 
+    def _prompt_dataset_choice(self, filename, datasets):
+        """Ask the user which SAS data set to load from a multi-dataset file.
+
+        Args:
+            filename:  Name of the file (for the dialog title).
+            datasets:  List of ``{'path', 'name', ...}`` dicts from
+                       :func:`list_nxcansas_datasets`.
+
+        Returns:
+            The chosen HDF5 ``data_path`` string, or ``None`` if cancelled.
+        """
+        items = [f"{d['name']}   [{d['path']}]" for d in datasets]
+        item, ok = QInputDialog.getItem(
+            self,
+            "Multiple data sets",
+            f"'{filename}' contains {len(datasets)} SAS data sets.\n"
+            "Select the one to load:",
+            items,
+            0,        # default to the first (the file's @default dataset)
+            False,    # not editable
+        )
+        if not ok:
+            return None
+        return datasets[items.index(item)]['path']
+
+    def _read_nxcansas_with_picker(self, path, filename):
+        """Load NXcanSAS data, prompting the user when the file holds several
+        SAS data sets.
+
+        Returns the data dict on success, or ``None`` if the file could not be
+        read or the user cancelled the picker. Shows its own error dialog for
+        genuine read failures but stays silent when the user cancels.
+        """
+        try:
+            datasets = list_nxcansas_datasets(path, filename)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Load Error", f"Could not read {filename}:\n{e}"
+            )
+            return None
+
+        # Strip slit-smeared (_SMR) copies — we always want desmeared data.
+        # _filter_smr falls back to the full list when everything is SMR.
+        selectable = _filter_smr(datasets)
+
+        data_path = None
+        if len(selectable) > 1:
+            data_path = self._prompt_dataset_choice(filename, selectable)
+            if data_path is None:
+                self.status_label.setText("Load cancelled — no data set selected.")
+                return None
+        elif selectable:
+            # Single non-SMR dataset (or only SMR left): use it directly.
+            data_path = selectable[0]['path']
+
+        data = readGenericNXcanSAS(path, filename, data_path=data_path)
+        if data is None:
+            QMessageBox.critical(
+                self, "Load Error", f"Could not load data from {filename}"
+            )
+        return data
+
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""
         selected_items = self.file_list.selectedItems()
@@ -4253,17 +4358,19 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self,
+                        "Load Error",
+                        f"Could not load data from {filename}"
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
-                is_nxcansas = True  # HDF5 files loaded with NXcanSAS reader
-
-            if data is None:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Could not load data from {filename}"
-                )
-                return
+                # HDF5 files loaded with NXcanSAS reader (with multi-dataset picker)
+                data = self._read_nxcansas_with_picker(path, filename)
+                is_nxcansas = True
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             # Create or show unified fit window
             if self.unified_fit_window is None:
@@ -4315,17 +4422,18 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self,
+                        "Load Error",
+                        f"Could not load data from {filename}"
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Could not load data from {filename}"
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.sizes_fit_window is None:
                 self.sizes_fit_window = SizesFitPanel()
@@ -4375,17 +4483,18 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self,
+                        "Load Error",
+                        f"Could not load data from {filename}"
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Could not load data from {filename}"
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.modeling_window is None:
                 self.modeling_window = ModelingPanel()
@@ -4448,16 +4557,17 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"Could not read data from file: {filename}",
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Could not read data from file: {filename}",
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.simple_fits_window is None:
                 self.simple_fits_window = SimpleFitsPanel()
@@ -4510,16 +4620,17 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"Could not read data from file: {filename}",
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Could not read data from file: {filename}",
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.waxs_peakfit_window is None:
                 self.waxs_peakfit_window = WAXSPeakFitPanel()
@@ -4572,16 +4683,17 @@ class DataSelectorPanel(QWidget):
             if ext.lower() in ['.txt', '.dat']:
                 data = readTextFile(path, filename, error_fraction=error_fraction)
                 is_nxcansas = False
+                if data is None:
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"Could not read data from file: {filename}",
+                    )
+                    return
             else:
-                data = readGenericNXcanSAS(path, filename)
+                data = self._read_nxcansas_with_picker(path, filename)
                 is_nxcansas = True
-
-            if data is None:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Could not read data from file: {filename}",
-                )
-                return
+                if data is None:
+                    return  # picker showed any error, or user cancelled
 
             if self.saxs_morph_window is None:
                 self.saxs_morph_window = SaxsMorphPanel()

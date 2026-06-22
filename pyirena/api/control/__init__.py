@@ -77,6 +77,7 @@ from pyirena.api.control.unified_fit import (
     # E — quality
     get_chi_squared,
     get_residuals,
+    get_fit_quality,
     get_fit_image,
     get_residuals_image,
     get_parameter_uncertainties,
@@ -106,7 +107,7 @@ __all__ = [
     # D
     "run_fit",
     # E
-    "get_chi_squared", "get_residuals",
+    "get_chi_squared", "get_residuals", "get_fit_quality",
     "get_fit_image", "get_residuals_image",
     "get_parameter_uncertainties",
     # F

@@ -592,7 +592,7 @@ class UnifiedFitGraphWindow(QWidget):
             },
         )
         self.residual_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '11pt'})
-        self.residual_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '11pt'})
+        self.residual_plot.setLabel('left', "Residuals r' (rescaled)", **{'color': 'k', 'font-size': '11pt'})
         self.residual_plot.setLogMode(x=True, y=False)
         self.residual_plot.showGrid(x=True, y=True, alpha=0.3)
 
@@ -2743,11 +2743,21 @@ class UnifiedFitPanel(QWidget):
             )
             self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Unified Fit')
 
-            # Residuals
+            # Residuals: rescaled by robust (MAD-based) noise floor by default —
+            # more informative when σ are mis-scaled. See pyirena.core.fit_metrics.
+            # Set _USE_RESCALED_RESIDUALS=False to revert to plain normalized.
+            _USE_RESCALED_RESIDUALS = True
+
             if self.data.get('Error') is not None:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
             else:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+
+            if _USE_RESCALED_RESIDUALS:
+                from pyirena.core.fit_metrics import rescale_residuals
+                residuals, _ = rescale_residuals(norm_residuals)
+            else:
+                residuals = norm_residuals
 
             self.graph_window.plot_residuals(self.data['Q'], residuals)
 
@@ -2942,13 +2952,40 @@ class UnifiedFitPanel(QWidget):
             )
             self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Fitted Model')
 
-            # Residuals
+            # Residuals: rescaled by robust (MAD-based) noise floor by default —
+            # more informative when σ are mis-scaled. See pyirena.core.fit_metrics.
+            # Set _USE_RESCALED_RESIDUALS=False to revert to plain normalized.
+            _USE_RESCALED_RESIDUALS = True
+
             if self.data.get('Error') is not None:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
             else:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
+
+            if _USE_RESCALED_RESIDUALS:
+                from pyirena.core.fit_metrics import rescale_residuals
+                residuals, _ = rescale_residuals(norm_residuals)
+            else:
+                residuals = norm_residuals
 
             self.graph_window.plot_residuals(self.data['Q'], residuals)
+
+            # Compute robust fit-quality metrics
+            # n_params: count free parameters from the model's internal fit state
+            from pyirena.core.fit_metrics import fit_quality_metrics
+            try:
+                # The model tracks p0 (free parameters) after fitting
+                n_free_params = len(self.model.fit_result.x) if hasattr(self.model, 'fit_result') and self.model.fit_result else len(self.data['Q'])
+            except (AttributeError, TypeError):
+                n_free_params = len(self.data['Q'])
+
+            metrics = fit_quality_metrics(
+                q=self.data['Q'],
+                intensity=self.data['Intensity'],
+                model=intensity_calc,
+                sigma=self.data.get('Error'),
+                n_params=max(1, n_free_params),
+            )
 
             # CorMap (Franke 2015): longest run of same-sign residuals.
             # C/log2(N) ≈ 1.0 means random noise; >> 1 means systematic misfit.
@@ -2960,6 +2997,8 @@ class UnifiedFitPanel(QWidget):
             # Show statistics
             chi2 = result.get('chi_squared', 0.0)
             reduced_chi2 = result.get('reduced_chi_squared', 0.0)
+            robust_scale_s = metrics.get('robust_scale_s')
+            max_frac_misfit = metrics.get('max_abs_frac_misfit')
 
             from pyirena.gui.fmt_utils import eng_fmt as _efmt
             if cursor_range is not None:
@@ -2971,12 +3010,21 @@ class UnifiedFitPanel(QWidget):
 
             cursor_info = f" | Q: {_efmt(q_min)} - {_efmt(q_max)} ({num_points} pts)" if cursor_range else ""
 
+            # Build quality summary: show robust_scale_s and max fractional misfit
+            quality_str = ""
+            if robust_scale_s is not None and max_frac_misfit is not None:
+                quality_str = (
+                    f" | σ-scale: {robust_scale_s:.2f}× "
+                    f"(χ²ᵣ floor: {metrics['realistic_reduced_chi2_floor']:.1f}) | "
+                    f"max|(I−M)/I|: {max_frac_misfit*100:.1f}%"
+                )
+
             self.graph_window.show_success_message(
                 f"Fit completed successfully! "
                 f"Levels: {num_levels} | "
                 f"χ²: {chi2:.4f} | "
                 f"Reduced χ²: {reduced_chi2:.4f} | "
-                f"CorMap C/log₂(N): {cormap_ratio:.2f} (N={_cormap_n}, C={_cormap_c}){cursor_info}"
+                f"CorMap C/log₂(N): {cormap_ratio:.2f} (N={_cormap_n}, C={_cormap_c}){quality_str}{cursor_info}"
             )
 
             # Update Sv and Invariant for all fitted levels

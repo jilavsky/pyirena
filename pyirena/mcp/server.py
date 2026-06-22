@@ -666,12 +666,36 @@ def pyirena_ctrl_get_chi_squared(session_id: str) -> dict:
 
 @mcp.tool()
 def pyirena_ctrl_get_residuals(session_id: str) -> dict:
-    """Return normalised residuals and summary statistics from the last fit.
+    """Return residuals from the last fit (normalised, rescaled, and fractional).
 
-    rms close to 1.0 means the fit matches the data within error bars.
-    Systematic patterns in residuals suggest the model needs adjustment.
+    'residuals' = normalised (I-M)/sigma; rms close to 1.0 means the fit matches
+    the data within error bars. Also returns 'rescaled_residual' (r/robust_scale_s)
+    and 'frac_misfit_percent' ((I-M)/I in %, sigma-independent), plus
+    summary.robust_scale_s. Systematic patterns in residuals suggest the model
+    needs adjustment. For the full diagnostic set use pyirena_ctrl_get_fit_quality.
     """
     return _ctrl.get_residuals(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_get_fit_quality(session_id: str, n_bands: int = 4) -> dict:
+    """Robust, sigma-scale-independent fit-quality diagnostics for the last fit.
+
+    Preferred over reduced chi-squared alone when reported uncertainties sigma may
+    be mis-scaled (common in SAXS), where chasing reduced chi-squared ~ 1 is
+    misleading. Key fields:
+      - robust_scale_s: how many times the actual scatter exceeds reported sigma
+        (~1 sigma honest; ~3 sigma ~3x too small, so realistic_reduced_chi2_floor ~9).
+      - max_abs_frac_misfit (+ q_at_max_frac_misfit): largest |(I-M)/I|, a
+        sigma-independent gross-misfit backstop (>~0.3 is a real local misfit).
+      - n_outliers_3s: points beyond 3*robust_scale_s.
+      - longest_same_sign_run / sign_autocorr_lag1: structure signalling a wrong
+        functional form, distinct from a pure sigma-scale problem.
+      - bands: the same metrics per Q-decade (uneven per-band chi2 is a misfit signal).
+
+    Returns facts only — interpret thresholds yourself.
+    """
+    return _ctrl.get_fit_quality(session_id, n_bands=n_bands)
 
 
 @mcp.tool()

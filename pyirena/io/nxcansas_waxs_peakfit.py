@@ -72,6 +72,7 @@ def save_waxs_peakfit_results(
     q_min: Optional[float] = None,
     q_max: Optional[float] = None,
     setup_state: Optional[Dict] = None,
+    fit_quality: Optional[Dict] = None,
 ) -> None:
     """Save WAXS peak-fit results into an NXcanSAS HDF5 file.
 
@@ -222,6 +223,20 @@ def save_waxs_peakfit_results(
                 std = float(p_std.get(pn, np.nan))
                 ps_grp.create_dataset(pn, data=std, dtype="float64")
 
+        # Robust fit-quality metrics under fit_quality/.  Computed from the
+        # consistent (data, model, error) triple if not supplied by the caller.
+        from pyirena.io.nxcansas_fit_quality import write_fit_quality
+        if (fit_quality is None and I_model is not None
+                and intensity_data is not None
+                and len(intensity_data) == len(I_model) == len(q_arr)):
+            from pyirena.core.fit_metrics import fit_quality_metrics
+            n_params = max(1, len(peaks) * 3)
+            fit_quality = fit_quality_metrics(
+                q_arr, np.asarray(intensity_data, float), np.asarray(I_model, float),
+                np.asarray(intensity_error, float) if intensity_error is not None else None,
+                n_params=n_params)
+        write_fit_quality(grp, fit_quality)
+
         # Embed the full GUI setup so the panel can round-trip from this file.
         if setup_state is not None:
             from pyirena.io.setup_config import write_setup_config
@@ -292,6 +307,10 @@ def load_waxs_peakfit_results(filepath: Path) -> Dict:
             "intensity_data":    _arr("intensity_data"),
             "intensity_error":   _arr("intensity_error"),
         }
+
+        # Robust fit-quality metrics (None for files written before this feature)
+        from pyirena.io.nxcansas_fit_quality import read_fit_quality
+        result["fit_quality"] = read_fit_quality(grp)
 
         # Background
         bg_params     = {}

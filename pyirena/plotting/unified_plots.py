@@ -75,17 +75,26 @@ def plot_fit_results(model, show_residuals: bool = True,
     ax1.legend(loc='best', fontsize=10)
     ax1.grid(True, alpha=0.3)
 
-    # Plot residuals
+    # Plot residuals: display rescaled residuals (r' = r/s) by default
+    # which are more robust when σ are mis-scaled. Set _USE_RESCALED=False to revert.
     if show_residuals:
+        _USE_RESCALED = True
         residuals = model.I_data - model.fit_intensity
         if model.error_data is not None:
-            normalized_residuals = residuals / model.error_data
-            ylabel = 'Normalized Residuals'
+            norm_residuals = residuals / model.error_data
         else:
-            normalized_residuals = residuals
-            ylabel = 'Residuals (cm⁻¹)'
+            norm_residuals = residuals
 
-        ax2.plot(model.q_data, normalized_residuals, 'o', markersize=3, color='black')
+        if _USE_RESCALED:
+            # Rescale by robust MAD-based noise floor (shared helper, same as GUI)
+            from pyirena.core.fit_metrics import rescale_residuals
+            plot_residuals, _s = rescale_residuals(norm_residuals)
+            ylabel = 'Rescaled Residuals r\' = r/σ(robust)'
+        else:
+            plot_residuals = norm_residuals
+            ylabel = 'Normalized Residuals' if model.error_data is not None else 'Residuals (cm⁻¹)'
+
+        ax2.plot(model.q_data, plot_residuals, 'o', markersize=3, color='black')
         ax2.axhline(0, color='red', linestyle='--', linewidth=1)
         ax2.set_xlabel('Q (Å⁻¹)', fontsize=12)
         ax2.set_ylabel(ylabel, fontsize=12)

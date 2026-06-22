@@ -60,7 +60,7 @@ saving results to each HDF5 file automatically.
 │  [Set Q from cursors]             │  │  (dashed)                   │ │
 │                                   │  └─────────────────────────────┘ │
 │  □ Complex background             │  ┌─────────────── 10% ────────┐ │
-│  □ No limits                      │  │  Residuals (I−model)/σ      │ │
+│  □ No limits                      │  │  Residuals r' (rescaled)    │ │
 │                                   │  └─────────────────────────────┘ │
 │  ─── Parameters ───               │  ┌─────────────── 40% ────────┐ │
 │  I0   [1.0]  lo [0] hi [—]  [✓] │  │  Linearization              │ │
@@ -355,3 +355,17 @@ if sf and sf['success']:
 ```
 
 For the full batch API reference, see [batch_api.md](batch_api.md).
+
+## Fit Quality
+
+Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized
+residual divided by a robust (MAD-based) estimate of the actual noise scale, so
+the scatter is judged against the data's own noise floor rather than the (often
+mis-scaled) reported σ. The fit status line also reports **σ-scale** (how many ×
+the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, and
+the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
+backstop.
+
+See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
+interpretation of these numbers.
+

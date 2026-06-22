@@ -1624,7 +1624,7 @@ class ModelingGraphWindow(QWidget):
         # ── Residuals plot ────────────────────────────────────────────────
         self.resid_plot = self.gl.addPlot(row=1, col=0)
         self.resid_plot.setLabel('bottom', 'Q (Å⁻¹)', **{'color': 'k', 'font-size': '10pt'})
-        self.resid_plot.setLabel('left', 'Residuals', **{'color': 'k', 'font-size': '10pt'})
+        self.resid_plot.setLabel('left', "Residuals r' (rescaled)", **{'color': 'k', 'font-size': '10pt'})
         self.resid_plot.setLogMode(x=True, y=False)
         self.resid_plot.showGrid(x=True, y=True, alpha=0.3)
         self._style_axes(self.resid_plot)
@@ -2634,14 +2634,18 @@ class ModelingPanel(QWidget):
             set_robust_y_range(self.graph.iq_plot, self._data_I)
             self.graph.plot_model(result)
 
-            # Residuals over fitted Q range
+            # Residuals over fitted Q range — rescaled (robust, MAD-based) +
+            # quality summary, uniform across all fit tools.
             mask = ((self._data_q >= result.config.q_min) &
                     (self._data_q <= result.config.q_max))
             q_fit  = self._data_q[mask]
             dI_fit = self._data_dI[mask]
-            with np.errstate(invalid='ignore', divide='ignore'):
-                resid = (self._data_I[mask] - result.model_I) / np.maximum(dI_fit, 1e-30)
-            self.graph.plot_residuals(q_fit, resid)
+            from pyirena.gui.quality_display import compute_quality_display
+            n_free = max(1, len(q_fit) - int(result.dof))
+            q_plot, r_prime, _q_suffix, _m = compute_quality_display(
+                q_fit, self._data_I[mask], result.model_I, dI_fit, n_params=n_free)
+            self.graph.plot_residuals(q_plot, r_prime)
+            self._last_quality_metrics = _m  # stashed for save → NeXus
 
             # Populate derived results on each active population tab
             for k, pi in enumerate(result.pop_indices):
@@ -2650,7 +2654,7 @@ class ModelingPanel(QWidget):
 
             msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
                    f'χ²/dof = {result.reduced_chi_squared:.4f},  '
-                   f'DOF = {result.dof}')
+                   f'DOF = {result.dof}{_q_suffix}')
             self.graph.set_status(msg, 'success')
         except Exception as exc:
             import traceback; traceback.print_exc()
@@ -2760,7 +2764,8 @@ class ModelingPanel(QWidget):
             setup_state = None
         try:
             save_modeling_results(self._file_path, self._last_result,
-                                  setup_state=setup_state)
+                                  setup_state=setup_state,
+                                  fit_quality=getattr(self, '_last_quality_metrics', None))
             self.graph.set_status(f'Results saved to {self._file_path.name}', 'success')
         except Exception as e:
             QMessageBox.critical(self, 'Save error', str(e))

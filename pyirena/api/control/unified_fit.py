@@ -37,6 +37,7 @@ from pyirena.api.control.errors import (
 from pyirena.api.control.session import (
     Session, all_sessions, create_session, drop_session, fit_mask, get_session,
 )
+from pyirena.core.fit_metrics import fit_quality_metrics
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -1265,9 +1266,11 @@ def detect_features(
     -------
     dict with keys:
       - ok                            : True on success
-      - segments                      : list of {q_min, q_max, slope, slope_std,
-                                                 kind, intensity_mid, width_decades}
-        where kind is "background" | "guinier_plateau" | "power_law"
+      - segments                      : list of {q_min, q_max, P, P_std, kind,
+                                                 intensity_mid, width_decades}
+        Ordered HIGH-Q → LOW-Q to match Unified Fit level numbering
+        (segments[0] = Level 1, highest Q, smallest structure).
+        kind is "background" | "guinier_plateau" | "power_law"
       - guinier_knees                 : list of {q_min, q_max, q_center,
                                                  P_low_q, P_high_q, delta_P}
         P_low_q and P_high_q are positive Porod exponents (I ∝ Q^-P).
@@ -1415,6 +1418,10 @@ def run_fit(
         for row in _param_table(s.model)
     ]
 
+    # Robust fit-quality scalars (additive; complement reduced χ² when σ are
+    # mis-scaled).  Full arrays/bands available via get_fit_quality().
+    quality = _quality_scalars(_compute_quality(s.model))
+
     return {
         "success":             bool(result.get("success", False)),
         "chi_squared":         float(result.get("chi_squared", float("nan"))),
@@ -1423,6 +1430,7 @@ def run_fit(
         "message":             str(result.get("message", "")),
         "random_seed":         random_seed,
         "parameters_updated":  updated,
+        "quality":             quality,
     }
 
 
@@ -1461,17 +1469,175 @@ def get_residuals(session_id: str) -> dict:
     else:
         norm_resid = resid
 
+    # Robust scale and alternative residual views (additive — the legacy
+    # "residuals" key is unchanged).  See get_fit_quality() for the full set.
+    metrics = _compute_quality(model)
+    s = metrics["robust_scale_s"] if metrics else None
+    has_s = s is not None and np.isfinite(s) and s > 0
+
+    # Rescaled residual r' = r / s : compares scatter to the data's own robust
+    # noise floor rather than to the (possibly mis-scaled) reported σ.
+    rescaled = norm_resid / s if has_s else None
+    # Fractional misfit (I−M)/I in %, σ-independent; guard |I| ~ 0.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        frac_pct = np.where(np.abs(model.I_data) > 0, resid / model.I_data * 100.0, np.nan)
+
     max_pts = int(os.environ.get("PYIRENA_MAX_ARRAY_POINTS", 500))
     return {
         "q":          _decimated(model.q_data, max_pts),
         "residuals":  _decimated(norm_resid, max_pts),
+        "rescaled_residual":   None if rescaled is None else _decimated(rescaled, max_pts),
+        "frac_misfit_percent": _decimated(frac_pct, max_pts),
         "summary": {
             "rms":     float(np.sqrt(np.mean(norm_resid ** 2))),
             "max_abs": float(np.max(np.abs(norm_resid))),
             "mean":    float(np.mean(norm_resid)),
+            "robust_scale_s": float(s) if has_s else None,
         },
         "normalised": model.error_data is not None,
     }
+
+
+def _n_free_params(model) -> int:
+    """Number of free (non-fixed) fit parameters — used for degrees of freedom."""
+    return sum(1 for row in _param_table(model) if not row.get("fixed", False))
+
+
+def _compute_quality(model, n_bands: int = 4) -> Optional[dict]:
+    """Run fit_quality_metrics on a session's last fit. None if no usable fit."""
+    if model is None or model.fit_intensity is None:
+        return None
+    return fit_quality_metrics(
+        q=model.q_data,
+        intensity=model.I_data,
+        model=model.fit_intensity,
+        sigma=model.error_data,
+        n_params=_n_free_params(model),
+        n_bands=n_bands,
+    )
+
+
+def _quality_scalars(metrics: Optional[dict]) -> dict:
+    """The decision-relevant scalar subset, JSON-safe, for embedding in run_fit.
+
+    Returns an empty dict if metrics could not be computed. None values are kept
+    (they carry meaning: e.g. robust_scale_s is None when sigma is unavailable).
+    """
+    if not metrics:
+        return {}
+
+    def _f(x):
+        return float(x) if x is not None and np.isfinite(x) else None
+
+    return {
+        "sigma_available":              bool(metrics["sigma_available"]),
+        "robust_scale_s":               _f(metrics["robust_scale_s"]),
+        "realistic_reduced_chi2_floor": _f(metrics["realistic_reduced_chi2_floor"]),
+        "max_abs_frac_misfit":          _f(metrics["max_abs_frac_misfit"]),
+        "q_at_max_frac_misfit":         _f(metrics["q_at_max_frac_misfit"]),
+        "median_frac_uncertainty":      _f(metrics["median_frac_uncertainty"]),
+        "n_outliers_3s":                metrics["n_outliers_3s"],
+        "longest_same_sign_run":        int(metrics["longest_same_sign_run"]),
+        "sign_autocorr_lag1":           _f(metrics["sign_autocorr_lag1"]),
+    }
+
+
+def _serialize_quality(metrics: Optional[dict], max_pts: int) -> Optional[dict]:
+    """Convert a fit_quality_metrics dict to a fully JSON-serialisable form.
+
+    Arrays are decimated to max_pts (NaN/inf -> None). Scalar None values are
+    preserved. Returns None if metrics is None.
+    """
+    if metrics is None:
+        return None
+
+    def _f(x):
+        return float(x) if x is not None and np.isfinite(x) else None
+
+    def _arr(a):
+        return None if a is None else _decimated(np.asarray(a, dtype=float), max_pts)
+
+    bands = [
+        {
+            "q_lo":                float(b["q_lo"]),
+            "q_hi":                float(b["q_hi"]),
+            "n":                   int(b["n"]),
+            "reduced_chi2":        _f(b["reduced_chi2"]),
+            "robust_scale_s":      _f(b["robust_scale_s"]),
+            "max_abs_frac_misfit": _f(b["max_abs_frac_misfit"]),
+        }
+        for b in metrics["bands"]
+    ]
+
+    return {
+        "sigma_available":              bool(metrics["sigma_available"]),
+        "n_valid":                      int(metrics["n_valid"]),
+        "n_params":                     int(metrics["n_params"]),
+        "dof":                          metrics["dof"],
+        # per-point arrays (aligned to q_valid)
+        "q":                            _arr(metrics["q_valid"]),
+        "norm_residual":                _arr(metrics["norm_residual"]),
+        "frac_residual":                _arr(metrics["frac_residual"]),
+        "frac_uncertainty":             _arr(metrics["frac_uncertainty"]),
+        # global scalars
+        "reduced_chi2":                 _f(metrics["reduced_chi2"]),
+        "robust_scale_s":               _f(metrics["robust_scale_s"]),
+        "sigma_misscale_factor":        _f(metrics["sigma_misscale_factor"]),
+        "realistic_reduced_chi2_floor": _f(metrics["realistic_reduced_chi2_floor"]),
+        "median_frac_uncertainty":      _f(metrics["median_frac_uncertainty"]),
+        "max_abs_frac_misfit":          _f(metrics["max_abs_frac_misfit"]),
+        "q_at_max_frac_misfit":         _f(metrics["q_at_max_frac_misfit"]),
+        "n_outliers_3s":                metrics["n_outliers_3s"],
+        "frac_outliers_3s":             _f(metrics["frac_outliers_3s"]),
+        # structure scalars
+        "longest_same_sign_run":        int(metrics["longest_same_sign_run"]),
+        "sign_autocorr_lag1":           _f(metrics["sign_autocorr_lag1"]),
+        # per-band
+        "n_bands_used":                 int(metrics["n_bands_used"]),
+        "bands":                        bands,
+    }
+
+
+def get_fit_quality(session_id: str, n_bands: int = 4) -> dict:
+    """Return robust, sigma-scale-independent fit-quality diagnostics.
+
+    Complements get_chi_squared / get_residuals with metrics that stay
+    informative when the reported uncertainties are mis-scaled — a common SAXS
+    situation where chasing reduced χ² ≈ 1 is misleading.
+
+    Key fields to read:
+      - ``robust_scale_s``: MAD-based estimate of how many times the *actual*
+        scatter exceeds the reported σ. s ≈ 1 → σ honest; s ≈ 3 → σ ~3× too
+        small, so the realistic reduced-χ² floor is ~9 (``realistic_reduced_chi2_floor``).
+      - ``max_abs_frac_misfit`` (+ ``q_at_max_frac_misfit``): the largest
+        |(I−M)/I|, a σ-independent backstop. ≳ 0.3 means a gross local misfit no
+        matter how unreliable σ is.
+      - ``n_outliers_3s``: points beyond 3·robust_scale_s — genuine outliers
+        even after accounting for a mis-scaled σ.
+      - ``longest_same_sign_run`` / ``sign_autocorr_lag1``: structure that
+        signals a wrong functional form (systematic), distinct from a pure
+        σ-scale problem.
+      - ``bands``: the same metrics per Q-decade; an uneven per-band χ² is itself
+        a misfit signal.
+
+    This function returns *facts only* — no good/bad verdict. Interpretation/
+    thresholds belong to the caller.
+
+    Returns
+    -------
+    dict
+        The serialised metrics (see fields above), or an error dict if there is
+        no session or no fit yet.
+    """
+    s = get_session(session_id)
+    if s is None:
+        return no_session(session_id)
+    if s.last_fit_result is None or s.model is None or s.model.fit_intensity is None:
+        return no_fit(session_id)
+
+    max_pts = int(os.environ.get("PYIRENA_MAX_ARRAY_POINTS", 500))
+    metrics = _compute_quality(s.model, n_bands=int(n_bands))
+    return _serialize_quality(metrics, max_pts)
 
 
 def get_fit_image(
@@ -1691,6 +1857,7 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
     params = _param_table(s.model)
     chi_sq = s.last_fit_result.get("reduced_chi_squared")
     chi_sq_str = f"{chi_sq:.4f}" if chi_sq is not None else "n/a"
+    quality = _quality_scalars(_compute_quality(s.model))
 
     if format == "json":
         import json
@@ -1701,6 +1868,7 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
             "fit_q_min":       s.fit_q_min,
             "fit_q_max":       s.fit_q_max,
             "reduced_chi_squared": chi_sq,
+            "quality":         quality,
             "parameters":      params,
         }
         return {"format": "json", "content": json.dumps(report, indent=2)}
@@ -1712,6 +1880,20 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
             f"**File:** {s.file_path}",
             f"**Model:** Unified Fit — {s.model.num_levels} level(s)",
             f"**Reduced χ²:** {chi_sq_str}",
+        ]
+        if quality:
+            s_val = quality.get("robust_scale_s")
+            floor = quality.get("realistic_reduced_chi2_floor")
+            mfm = quality.get("max_abs_frac_misfit")
+            if s_val is not None:
+                floor_s = f" (realistic reduced-χ² floor ≈ {floor:.1f})" if floor is not None else ""
+                lines.append(f"**σ-scale (robust):** {s_val:.2f}×{floor_s}")
+            if mfm is not None:
+                lines.append(f"**Max |(I−M)/I|:** {mfm * 100:.1f}%")
+            csr = quality.get("longest_same_sign_run")
+            if csr is not None:
+                lines.append(f"**Longest same-sign run:** {csr}")
+        lines += [
             f"",
             f"## Parameters",
             f"",

@@ -57,6 +57,7 @@ def save_simple_fit_results(
     intensity_data: Optional[np.ndarray] = None,
     intensity_error: Optional[np.ndarray] = None,
     setup_state: Optional[dict] = None,
+    fit_quality: Optional[dict] = None,
 ) -> None:
     """
     Save simple-model fitting results to an NXcanSAS HDF5 file.
@@ -175,6 +176,20 @@ def save_simple_fit_results(
                 if val is not None and np.isfinite(float(val)):
                     dgrp.create_dataset(name, data=float(val))
 
+        # Robust fit-quality metrics under fit_quality/.  Computed from the
+        # consistent fit-range (data, model, error) triple if not supplied.
+        from pyirena.io.nxcansas_fit_quality import write_fit_quality
+        if (fit_quality is None and q is not None and I_model is not None
+                and intensity_data is not None
+                and len(intensity_data) == len(I_model) == len(q)):
+            from pyirena.core.fit_metrics import fit_quality_metrics
+            n_params = len(result.get('params', {}) or {})
+            fit_quality = fit_quality_metrics(
+                q, np.asarray(intensity_data, float), I_model,
+                np.asarray(intensity_error, float) if intensity_error is not None else None,
+                n_params=max(1, n_params))
+        write_fit_quality(grp, fit_quality)
+
         # Embed the full GUI setup so the panel can round-trip from this file.
         if setup_state is not None:
             from pyirena.io.setup_config import write_setup_config
@@ -240,6 +255,10 @@ def load_simple_fit_results(filepath: Path) -> dict:
         result['residuals'] = grp['residuals'][:] if 'residuals' in grp else None
         result['intensity_data']  = grp['intensity_data'][:]  if 'intensity_data'  in grp else None
         result['intensity_error'] = grp['intensity_error'][:] if 'intensity_error' in grp else None
+
+        # Robust fit-quality metrics (None for files written before this feature)
+        from pyirena.io.nxcansas_fit_quality import read_fit_quality
+        result['fit_quality'] = read_fit_quality(grp)
 
         # ── Sub-groups ─────────────────────────────────────────────────────────
         result['params'] = {}
