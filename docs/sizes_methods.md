@@ -298,6 +298,19 @@ uniquely constrain the distribution.
 
 ---
 
+## Fit Quality
+
+Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized
+residual divided by a robust (MAD-based) estimate of the actual noise scale, so
+the scatter is judged against the data's own noise floor rather than the (often
+mis-scaled) reported σ. The fit status line also reports **σ-scale** (how many ×
+the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, and
+the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
+backstop.
+
+See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
+interpretation of these numbers.
+
 ## References
 
 - J. Skilling & R.K. Bryan, *MNRAS* **211**, 111 (1984) — MaxEnt algorithm.
