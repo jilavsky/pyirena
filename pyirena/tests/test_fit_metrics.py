@@ -9,7 +9,11 @@ systematic misfit, missing sigma, the dof guard, and the I->0 fractional guard.
 import numpy as np
 import pytest
 
-from pyirena.core.fit_metrics import fit_quality_metrics
+from pyirena.core.fit_metrics import (
+    fit_quality_metrics,
+    robust_residual_scale,
+    rescale_residuals,
+)
 
 
 def _power_law(q, B=1.0e-3, P=4.0):
@@ -224,3 +228,52 @@ def test_band_counts_sum_to_valid(q, rng):
     I = M + rng.normal(0.0, 1.0, size=q.size) * sigma
     res = fit_quality_metrics(q, I, M, sigma, n_params=3, n_bands=4)
     assert sum(b["n"] for b in res["bands"]) == res["n_valid"]
+
+
+# ---------------------------------------------------------------------------
+#  Shared residual-rescale helpers (used by all GUI / plotting residual views)
+# ---------------------------------------------------------------------------
+
+def test_robust_residual_scale_basic():
+    """Scale of unit-Gaussian residuals is ~1; ignores non-finite entries."""
+    rng = np.random.default_rng(7)
+    r = rng.normal(0.0, 1.0, size=2000)
+    assert robust_residual_scale(r) == pytest.approx(1.0, abs=0.1)
+    # Non-finite entries are ignored, not propagated.
+    r2 = np.concatenate([r, [np.nan, np.inf, -np.inf]])
+    assert np.isfinite(robust_residual_scale(r2))
+    assert robust_residual_scale(r2) == pytest.approx(1.0, abs=0.1)
+
+
+def test_robust_residual_scale_empty():
+    """No finite points -> NaN (not a crash)."""
+    assert np.isnan(robust_residual_scale(np.array([np.nan, np.inf])))
+    assert np.isnan(robust_residual_scale(np.array([])))
+
+
+def test_rescale_residuals_divides_by_scale():
+    """rescale_residuals returns r/s and the scale s; r' has robust scale ~1."""
+    rng = np.random.default_rng(8)
+    r = rng.normal(0.0, 3.0, size=2000)  # scatter ~3x
+    r_prime, s = rescale_residuals(r)
+    assert s == pytest.approx(3.0, abs=0.3)
+    assert robust_residual_scale(r_prime) == pytest.approx(1.0, abs=0.1)
+
+
+def test_rescale_residuals_degenerate_scale():
+    """If the robust scale is 0 or non-finite, input is returned unchanged."""
+    zeros = np.zeros(10)
+    out, s = rescale_residuals(zeros)
+    assert np.array_equal(out, zeros)  # unchanged
+    assert s == 0.0 or not np.isfinite(s)
+
+
+def test_rescale_matches_internal_metrics(q, rng):
+    """The helper's s matches robust_scale_s from fit_quality_metrics."""
+    M = _power_law(q)
+    sigma = 0.02 * M
+    I = M + rng.normal(0.0, 1.0, size=q.size) * sigma
+    norm_res = (I - M) / sigma
+    _, s = rescale_residuals(norm_res)
+    res = fit_quality_metrics(q, I, M, sigma, n_params=3)
+    assert s == pytest.approx(res["robust_scale_s"], rel=1e-9)

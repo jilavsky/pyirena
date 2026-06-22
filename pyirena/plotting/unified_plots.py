@@ -86,18 +86,10 @@ def plot_fit_results(model, show_residuals: bool = True,
             norm_residuals = residuals
 
         if _USE_RESCALED:
-            # Rescale by robust MAD-based noise floor (same as GUI)
-            import numpy as np
-            finite = np.isfinite(norm_residuals)
-            if np.count_nonzero(finite) > 0:
-                center = np.median(norm_residuals[finite])
-                mad = np.median(np.abs(norm_residuals[finite] - center))
-                s = 1.4826 * mad  # MAD → Gaussian σ
-                plot_residuals = norm_residuals / s if s > 0 else norm_residuals
-                ylabel = 'Rescaled Residuals r\' = r/σ(robust)'
-            else:
-                plot_residuals = norm_residuals
-                ylabel = 'Normalized Residuals' if model.error_data is not None else 'Residuals (cm⁻¹)'
+            # Rescale by robust MAD-based noise floor (shared helper, same as GUI)
+            from pyirena.core.fit_metrics import rescale_residuals
+            plot_residuals, _s = rescale_residuals(norm_residuals)
+            ylabel = 'Rescaled Residuals r\' = r/σ(robust)'
         else:
             plot_residuals = norm_residuals
             ylabel = 'Normalized Residuals' if model.error_data is not None else 'Residuals (cm⁻¹)'

@@ -45,7 +45,7 @@ import numpy as np
 
 from pyirena.core.similarity import _longest_run
 
-__all__ = ["fit_quality_metrics"]
+__all__ = ["fit_quality_metrics", "robust_residual_scale", "rescale_residuals"]
 
 # Scale factor that turns the median absolute deviation into a consistent
 # estimator of the Gaussian standard deviation.
@@ -61,17 +61,43 @@ _FRAC_I_FLOOR_FRACTION = 1e-3
 _MIN_POINTS_PER_BAND = 5
 
 
-def _robust_scale(norm_residual: np.ndarray) -> float:
+def robust_residual_scale(norm_residual) -> float:
     """1.4826 * MAD(norm_residual) -- a Gaussian-sigma estimate robust to outliers.
 
     Centered on the median so a systematic offset does not inflate the scale; the
-    offset itself shows up in the sign-structure diagnostics instead.
+    offset itself shows up in the sign-structure diagnostics instead. Non-finite
+    entries are ignored. Returns NaN if there are no finite points.
+
+    This is the single source of truth for the robust residual scale ``s`` used
+    both inside :func:`fit_quality_metrics` and by the GUI/plotting residual views.
     """
-    if norm_residual.size == 0:
+    a = np.asarray(norm_residual, dtype=float)
+    finite = a[np.isfinite(a)]
+    if finite.size == 0:
         return float("nan")
-    center = np.median(norm_residual)
-    mad = np.median(np.abs(norm_residual - center))
+    center = np.median(finite)
+    mad = np.median(np.abs(finite - center))
     return float(_MAD_TO_SIGMA * mad)
+
+
+def rescale_residuals(norm_residual) -> tuple[np.ndarray, float]:
+    """Rescale normalized residuals by the robust scale ``s``.
+
+    Returns ``(r_prime, s)`` where ``r_prime = norm_residual / s`` re-references
+    the scatter to the data's own robust noise floor instead of the (possibly
+    mis-scaled) reported sigma. If ``s`` is not finite or not positive, the input
+    is returned unchanged alongside that ``s`` (callers can fall back gracefully).
+    """
+    a = np.asarray(norm_residual, dtype=float)
+    s = robust_residual_scale(a)
+    if np.isfinite(s) and s > 0:
+        return a / s, s
+    return a, s
+
+
+def _robust_scale(norm_residual: np.ndarray) -> float:
+    """Internal alias kept for call sites that pass already-masked arrays."""
+    return robust_residual_scale(norm_residual)
 
 
 def _sign_autocorr_lag1(residual: np.ndarray) -> float:

@@ -2744,9 +2744,9 @@ class UnifiedFitPanel(QWidget):
             )
             self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Unified Fit')
 
-            # Residuals: compute normalized, then rescale by robust scale (MAD-based).
-            # Use rescaled residuals by default — more informative when σ are mis-scaled.
-            # Set _USE_RESCALED_RESIDUALS=False to revert to normalized.
+            # Residuals: rescaled by robust (MAD-based) noise floor by default —
+            # more informative when σ are mis-scaled. See pyirena.core.fit_metrics.
+            # Set _USE_RESCALED_RESIDUALS=False to revert to plain normalized.
             _USE_RESCALED_RESIDUALS = True
 
             if self.data.get('Error') is not None:
@@ -2755,15 +2755,8 @@ class UnifiedFitPanel(QWidget):
                 norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
             if _USE_RESCALED_RESIDUALS:
-                # Rescale by robust MAD-based noise floor
-                finite = np.isfinite(norm_residuals)
-                if np.count_nonzero(finite) > 0:
-                    center = np.median(norm_residuals[finite])
-                    mad = np.median(np.abs(norm_residuals[finite] - center))
-                    s = 1.4826 * mad  # MAD → Gaussian σ
-                    residuals = norm_residuals / s if s > 0 else norm_residuals
-                else:
-                    residuals = norm_residuals
+                from pyirena.core.fit_metrics import rescale_residuals
+                residuals, _ = rescale_residuals(norm_residuals)
             else:
                 residuals = norm_residuals
 
@@ -2926,9 +2919,9 @@ class UnifiedFitPanel(QWidget):
             )
             self.graph_window.plot_fit(self.data['Q'], intensity_calc, 'Fitted Model')
 
-            # Residuals: compute normalized, then rescale by robust scale (MAD-based).
-            # Use rescaled residuals by default — more informative when σ are mis-scaled.
-            # Set _USE_RESCALED_RESIDUALS=False to revert to normalized.
+            # Residuals: rescaled by robust (MAD-based) noise floor by default —
+            # more informative when σ are mis-scaled. See pyirena.core.fit_metrics.
+            # Set _USE_RESCALED_RESIDUALS=False to revert to plain normalized.
             _USE_RESCALED_RESIDUALS = True
 
             if self.data.get('Error') is not None:
@@ -2937,15 +2930,8 @@ class UnifiedFitPanel(QWidget):
                 norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
             if _USE_RESCALED_RESIDUALS:
-                # Rescale by robust MAD-based noise floor
-                finite = np.isfinite(norm_residuals)
-                if np.count_nonzero(finite) > 0:
-                    center = np.median(norm_residuals[finite])
-                    mad = np.median(np.abs(norm_residuals[finite] - center))
-                    s = 1.4826 * mad  # MAD → Gaussian σ
-                    residuals = norm_residuals / s if s > 0 else norm_residuals
-                else:
-                    residuals = norm_residuals
+                from pyirena.core.fit_metrics import rescale_residuals
+                residuals, _ = rescale_residuals(norm_residuals)
             else:
                 residuals = norm_residuals
 
