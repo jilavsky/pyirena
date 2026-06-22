@@ -2009,11 +2009,13 @@ class SizesFitPanel(QWidget):
             # Rescaled residuals + quality summary (uniform across all fit tools).
             # Use the raw-basis triple (observed I, model+bg, err) at q_used.
             _quality_suffix = ""
+            self._last_quality_metrics = None
             if result.get('I_data') is not None:
                 from pyirena.gui.quality_display import compute_quality_display
                 q_plot, r_prime, _quality_suffix, _m = compute_quality_display(
                     q_used, result['I_data'], I_model_display, result.get('err'))
                 self.graph_window.plot_residuals(q_plot, r_prime)
+                self._last_quality_metrics = _m  # stashed for save → NeXus
             elif residuals is not None:
                 self.graph_window.plot_residuals(q_used, residuals)
             self.graph_window.plot_distribution(r_grid, distribution)
@@ -2762,6 +2764,7 @@ class SizesFitPanel(QWidget):
                 intensity_error=i_err,
                 distribution_std=result.get('distribution_std'),
                 setup_state=setup_state,
+                fit_quality=getattr(self, '_last_quality_metrics', None),
             )
 
             self.graph_window.show_success_message(

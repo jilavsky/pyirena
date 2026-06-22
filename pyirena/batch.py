@@ -857,6 +857,22 @@ def fit_sizes(
             # produced by the method itself (e.g. Monte Carlo with n_repetitions > 1).
             std_to_save = distribution_std if distribution_std is not None \
                 else fit_result.get('distribution_std')
+
+            # Robust fit-quality metrics on the consistent raw-basis triple
+            # (observed I, model + complex background, error) — same as the GUI.
+            fq_metrics = None
+            try:
+                from pyirena.core.fit_metrics import fit_quality_metrics
+                _q_q = fit_result.get('q', q_fit)
+                _I_obs = fit_result.get('I_data')
+                _err = fit_result.get('err')
+                if _I_obs is not None:
+                    _bg = s.compute_complex_background(_q_q)
+                    fq_metrics = fit_quality_metrics(
+                        _q_q, _I_obs, intensity_model + _bg, _err, n_params=1)
+            except Exception:
+                fq_metrics = None
+
             save_sizes_results(
                 filepath=output_path,
                 q=q_fit,
@@ -867,6 +883,7 @@ def fit_sizes(
                 distribution=distribution,
                 params=save_params,           # complete parameter set
                 distribution_std=std_to_save,
+                fit_quality=fq_metrics,
             )
             result['output_file'] = output_path
         except Exception:
@@ -1898,7 +1915,19 @@ def fit_modeling(
     out_path = None
     if save_to_nexus and data_file.suffix.lower() in ('.h5', '.hdf5', '.nxs'):
         try:
-            save_modeling_results(data_file, fit_result)
+            # Robust fit-quality metrics over the fitted Q range.
+            fq_metrics = None
+            try:
+                from pyirena.core.fit_metrics import fit_quality_metrics
+                _mask = (q >= fit_result.config.q_min) & (q <= fit_result.config.q_max)
+                if np.any(_mask) and fit_result.model_I is not None:
+                    _n_free = max(1, int(np.count_nonzero(_mask)) - int(fit_result.dof))
+                    fq_metrics = fit_quality_metrics(
+                        q[_mask], I[_mask], fit_result.model_I,
+                        dI[_mask] if dI is not None else None, n_params=_n_free)
+            except Exception:
+                fq_metrics = None
+            save_modeling_results(data_file, fit_result, fit_quality=fq_metrics)
             out_path = data_file
         except Exception:
             print(f"[pyirena.batch.fit_modeling] Save error:\n{traceback.format_exc()}")

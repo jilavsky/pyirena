@@ -188,7 +188,8 @@ def save_unified_fit_results(filepath: Path,
                              num_levels: int,
                              error: Optional[np.ndarray] = None,
                              uncertainties: Optional[Dict] = None,
-                             setup_state: Optional[Dict] = None) -> None:
+                             setup_state: Optional[Dict] = None,
+                             fit_quality: Optional[Dict] = None) -> None:
     """
     Save Unified Fit results to NXcanSAS HDF5 file.
 
@@ -304,6 +305,20 @@ def save_unified_fit_results(filepath: Path,
                     if err_val > 0.0:
                         level_group.create_dataset(f'{param_key}_err', data=float(err_val))
 
+        # Robust fit-quality metrics under fit_quality/.  Computed from the
+        # consistent (data, model, error) triple this writer already has if the
+        # caller did not supply a precomputed dict.
+        from pyirena.io.nxcansas_fit_quality import write_fit_quality
+        if fit_quality is None:
+            from pyirena.core.fit_metrics import fit_quality_metrics
+            n_params = sum(
+                1 for lv in levels for v in lv.values()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            ) + 1
+            fit_quality = fit_quality_metrics(
+                q, intensity_data, intensity_model, error, n_params=max(1, n_params))
+        write_fit_quality(unified_group, fit_quality)
+
         # Embed the full GUI setup so the panel can round-trip from this file.
         if setup_state is not None:
             from pyirena.io.setup_config import write_setup_config
@@ -364,6 +379,10 @@ def load_unified_fit_results(filepath: Path) -> Dict:
             results['intensity_error'] = unified['intensity_error'][:]
         else:
             results['intensity_error'] = None
+
+        # Robust fit-quality metrics (None for files written before this feature)
+        from pyirena.io.nxcansas_fit_quality import read_fit_quality
+        results['fit_quality'] = read_fit_quality(unified)
 
         # Load level parameters
         results['levels'] = []

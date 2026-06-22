@@ -40,6 +40,7 @@ def save_modeling_results(
     result: ModelingResult,
     group_name: str = 'modeling_results',
     setup_state: Optional[dict] = None,
+    fit_quality: Optional[dict] = None,
 ) -> None:
     """Save Modeling fit results to an HDF5 file.
 
@@ -236,6 +237,11 @@ def save_modeling_results(
         if bg_err > 0.0:
             grp.create_dataset('background_err', data=float(bg_err))
 
+        # Robust fit-quality metrics under fit_quality/.  Supplied by the caller
+        # (the ModelingResult does not carry the measured data arrays).
+        from pyirena.io.nxcansas_fit_quality import write_fit_quality
+        write_fit_quality(grp, fit_quality)
+
         # Embed the full GUI setup so the panel can round-trip from this file.
         if setup_state is not None:
             from pyirena.io.setup_config import write_setup_config
@@ -294,6 +300,10 @@ def load_modeling_results(
             'model_I':             grp['model_I'][()] if 'model_I' in grp else None,
             'populations':         [],
         }
+
+        # Robust fit-quality metrics (None for files written before this feature)
+        from pyirena.io.nxcansas_fit_quality import read_fit_quality
+        result['fit_quality'] = read_fit_quality(grp)
 
         # ── Per-population groups ──────────────────────────────────────────
         for key in sorted(grp.keys()):

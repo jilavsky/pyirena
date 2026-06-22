@@ -66,6 +66,7 @@ def save_sizes_results(
     intensity_error: Optional[np.ndarray] = None,
     distribution_std: Optional[np.ndarray] = None,
     setup_state: Optional[dict] = None,
+    fit_quality: Optional[dict] = None,
 ) -> None:
     """
     Save size distribution fitting results to an NXcanSAS HDF5 file.
@@ -191,6 +192,12 @@ def save_sizes_results(
         grp['cumul_vol_dist'].attrs['units'] = 'volume_fraction'
         grp['cumul_num_dist'].attrs['units'] = 'dimensionless'
 
+        # Robust fit-quality metrics under fit_quality/.  Supplied by the caller
+        # (sizes uses a background-subtracted basis the writer cannot reconstruct
+        # on its own).
+        from pyirena.io.nxcansas_fit_quality import write_fit_quality
+        write_fit_quality(grp, fit_quality)
+
         # Embed the full GUI setup so the panel can round-trip from this file.
         if setup_state is not None:
             from pyirena.io.setup_config import write_setup_config
@@ -259,6 +266,10 @@ def load_sizes_results(filepath: Path) -> dict:
 
         for key in ('number_dist', 'cumul_vol_dist', 'cumul_num_dist'):
             result[key] = grp[key][:] if key in grp else None
+
+        # Robust fit-quality metrics (None for files written before this feature)
+        from pyirena.io.nxcansas_fit_quality import read_fit_quality
+        result['fit_quality'] = read_fit_quality(grp)
 
         # Scalar metadata: fit results may be datasets (new format) or attrs (old format)
         _dataset_keys = ('chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power')

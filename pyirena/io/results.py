@@ -223,6 +223,8 @@ def _empty_unified_fit() -> dict:
         'intensity_model': None,
         'intensity_error': None,
         'residuals':       None,
+        # Robust fit-quality metrics (None if not stored)
+        'fit_quality':     None,
         # Level parameters
         'levels':          [],
     }
@@ -244,6 +246,8 @@ def _empty_size_distribution() -> dict:
         'r_grid':           None,
         'distribution':     None,
         'distribution_std': None,
+        # Robust fit-quality metrics (None if not stored)
+        'fit_quality':      None,
         # Fit results
         'chi_squared':      None,
         'volume_fraction':  None,
@@ -314,6 +318,7 @@ def _load_unified_fit(filepath: Path) -> dict:
     result['intensity_model'] = raw.get('intensity_model')
     result['intensity_error'] = raw.get('intensity_error')
     result['residuals']       = raw.get('residuals')
+    result['fit_quality']     = raw.get('fit_quality')
     result['levels']          = raw.get('levels', [])
 
     return result

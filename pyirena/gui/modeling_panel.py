@@ -2645,6 +2645,7 @@ class ModelingPanel(QWidget):
             q_plot, r_prime, _q_suffix, _m = compute_quality_display(
                 q_fit, self._data_I[mask], result.model_I, dI_fit, n_params=n_free)
             self.graph.plot_residuals(q_plot, r_prime)
+            self._last_quality_metrics = _m  # stashed for save → NeXus
 
             # Populate derived results on each active population tab
             for k, pi in enumerate(result.pop_indices):
@@ -2763,7 +2764,8 @@ class ModelingPanel(QWidget):
             setup_state = None
         try:
             save_modeling_results(self._file_path, self._last_result,
-                                  setup_state=setup_state)
+                                  setup_state=setup_state,
+                                  fit_quality=getattr(self, '_last_quality_metrics', None))
             self.graph.set_status(f'Results saved to {self._file_path.name}', 'success')
         except Exception as e:
             QMessageBox.critical(self, 'Save error', str(e))
