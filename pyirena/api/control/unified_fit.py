@@ -1857,6 +1857,7 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
     params = _param_table(s.model)
     chi_sq = s.last_fit_result.get("reduced_chi_squared")
     chi_sq_str = f"{chi_sq:.4f}" if chi_sq is not None else "n/a"
+    quality = _quality_scalars(_compute_quality(s.model))
 
     if format == "json":
         import json
@@ -1867,6 +1868,7 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
             "fit_q_min":       s.fit_q_min,
             "fit_q_max":       s.fit_q_max,
             "reduced_chi_squared": chi_sq,
+            "quality":         quality,
             "parameters":      params,
         }
         return {"format": "json", "content": json.dumps(report, indent=2)}
@@ -1878,6 +1880,20 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
             f"**File:** {s.file_path}",
             f"**Model:** Unified Fit — {s.model.num_levels} level(s)",
             f"**Reduced χ²:** {chi_sq_str}",
+        ]
+        if quality:
+            s_val = quality.get("robust_scale_s")
+            floor = quality.get("realistic_reduced_chi2_floor")
+            mfm = quality.get("max_abs_frac_misfit")
+            if s_val is not None:
+                floor_s = f" (realistic reduced-χ² floor ≈ {floor:.1f})" if floor is not None else ""
+                lines.append(f"**σ-scale (robust):** {s_val:.2f}×{floor_s}")
+            if mfm is not None:
+                lines.append(f"**Max |(I−M)/I|:** {mfm * 100:.1f}%")
+            csr = quality.get("longest_same_sign_run")
+            if csr is not None:
+                lines.append(f"**Longest same-sign run:** {csr}")
+        lines += [
             f"",
             f"## Parameters",
             f"",

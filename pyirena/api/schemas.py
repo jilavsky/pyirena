@@ -223,6 +223,7 @@ class _BaseToolResult:
 @dataclass
 class SimpleFitResult(_BaseToolResult):
     tool: str = "simple_fits"
+    fit_quality: Optional[dict] = None  # robust fit-quality metrics (see core.fit_metrics)
     model: Optional[str] = None
     success: Optional[bool] = None
     chi_squared: Optional[float] = None
@@ -264,6 +265,7 @@ class UnifiedFitLevel:
 @dataclass
 class UnifiedFitResult(_BaseToolResult):
     tool: str = "unified_fit"
+    fit_quality: Optional[dict] = None  # robust fit-quality metrics (see core.fit_metrics)
     num_levels: Optional[int] = None
     background: Optional[float] = None
     background_err: Optional[float] = None
@@ -281,6 +283,7 @@ class UnifiedFitResult(_BaseToolResult):
 @dataclass
 class SizeDistResult(_BaseToolResult):
     tool: str = "size_distribution"
+    fit_quality: Optional[dict] = None  # robust fit-quality metrics (see core.fit_metrics)
     method: Optional[str] = None
     shape: Optional[str] = None
     chi_squared: Optional[float] = None
@@ -332,6 +335,7 @@ class ModelingPopulation:
 @dataclass
 class ModelingResult(_BaseToolResult):
     tool: str = "modeling"
+    fit_quality: Optional[dict] = None  # robust fit-quality metrics (see core.fit_metrics)
     chi_squared: Optional[float] = None
     reduced_chi_squared: Optional[float] = None
     dof: Optional[int] = None
@@ -386,6 +390,7 @@ class WAXSPeak:
 @dataclass
 class WAXSPeakFitResult(_BaseToolResult):
     tool: str = "waxs_peakfit"
+    fit_quality: Optional[dict] = None  # robust fit-quality metrics (see core.fit_metrics)
     n_peaks: Optional[int] = None
     bg_shape: Optional[str] = None
     chi_squared: Optional[float] = None

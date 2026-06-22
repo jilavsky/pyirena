@@ -233,6 +233,29 @@ def _rescaled_view(residuals):
     return r_prime
 
 
+def _quality_report_rows(fq: Optional[dict]) -> list:
+    """Markdown table rows for robust fit-quality metrics (empty if unavailable).
+
+    Intended to be appended to a tool's '## Fit Quality' table in the report.
+    """
+    if not fq:
+        return []
+    rows = []
+    s = fq.get('robust_scale_s')
+    if s is not None:
+        rows.append(f"| σ-scale (robust) | {s:.2f}× |")
+        floor = fq.get('realistic_reduced_chi2_floor')
+        if floor is not None:
+            rows.append(f"| Realistic reduced-χ² floor | {floor:.2f} |")
+    mfm = fq.get('max_abs_frac_misfit')
+    if mfm is not None:
+        rows.append(f"| Max \\|(I−M)/I\\| | {mfm * 100:.1f}% |")
+    csr = fq.get('longest_same_sign_run')
+    if csr is not None:
+        rows.append(f"| Longest same-sign run | {csr} |")
+    return rows
+
+
 def _build_report(file_path: str,
                   data_info: Optional[dict] = None,
                   fit_results: Optional[dict] = None,
@@ -343,8 +366,9 @@ def _build_report(file_path: str,
             f"| Residuals mean | {np.mean(residuals):.4f} |",
             f"| Residuals std dev | {np.std(residuals):.4f} |",
             f"| Max \\|residual\\| | {np.max(np.abs(residuals)):.4f} |",
-            "",
         ]
+        L += _quality_report_rows(fit_results.get('fit_quality'))
+        L.append("")
 
         # ── Level parameters ──────────────────────────────────────────────
         for i, level in enumerate(levels):
@@ -470,6 +494,7 @@ def _build_report(file_path: str,
                 f"| Residuals mean | {np.mean(residuals):.4f} |",
                 f"| Residuals std dev | {np.std(residuals):.4f} |",
             ]
+        L += _quality_report_rows(sizes_results.get('fit_quality'))
         L.append("")
 
         L += [
@@ -597,8 +622,9 @@ def _build_report(file_path: str,
             f"| DOF | {sf_dof if sf_dof is not None else 'N/A'} |",
             f"| Q range (fit) | {_sf_fmt(sf_q_min)} – {_sf_fmt(sf_q_max)} Å⁻¹ |",
             f"| Complex background | {sf_complex} |",
-            "",
         ]
+        L += _quality_report_rows(simple_fit_results.get('fit_quality'))
+        L.append("")
 
         if sf_params:
             has_std = bool(sf_std)
@@ -660,8 +686,9 @@ def _build_report(file_path: str,
             f"| Reduced chi² | {_wp_fmt(wp.get('reduced_chi_squared'))} |",
             f"| DOF | {wp.get('dof', 'N/A')} |",
             f"| Q range (fit) | {_wp_fmt(wp.get('q_min'))} – {_wp_fmt(wp.get('q_max'))} Å⁻¹ |",
-            "",
         ]
+        L += _quality_report_rows(wp.get('fit_quality'))
+        L.append("")
 
         peaks_list = wp.get('peaks', [])
         peaks_std  = wp.get('peaks_std', [])
@@ -728,8 +755,9 @@ def _build_report(file_path: str,
             f"| Populations (enabled) | {len(pops)} |",
             f"| Q min | {_mr_fmt(mr.get('q_min'))} Å⁻¹ |",
             f"| Q max | {_mr_fmt(mr.get('q_max'))} Å⁻¹ |",
-            "",
         ]
+        L += _quality_report_rows(mr.get('fit_quality'))
+        L.append("")
         for pop in pops:
             pt    = pop.get('pop_type', 'size_dist')
             idx   = pop.get('population_index', '?')

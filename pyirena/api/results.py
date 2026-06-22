@@ -92,6 +92,7 @@ def read_simple_fit(path: str, include_arrays: bool = False,
     result.residuals = _arr(raw, "residuals", max_points, include_arrays)
     result.intensity_data = _arr(raw, "intensity_data", max_points, include_arrays)
     result.intensity_error = _arr(raw, "intensity_error", max_points, include_arrays)
+    result.fit_quality = raw.get("fit_quality")
     return result.to_dict()
 
 
@@ -155,6 +156,7 @@ def read_unified_fit(path: str, include_arrays: bool = False,
     result.intensity_model = _arr(raw, "intensity_model", max_points, include_arrays)
     result.intensity_error = _arr(raw, "intensity_error", max_points, include_arrays)
     result.residuals = _arr(raw, "residuals", max_points, include_arrays)
+    result.fit_quality = raw.get("fit_quality")
     return result.to_dict()
 
 
@@ -198,6 +200,7 @@ def read_size_distribution(path: str, include_arrays: bool = False,
               "residuals", "r_grid", "distribution", "distribution_std",
               "number_dist", "cumul_vol_dist"):
         setattr(result, k, _arr(raw, k, max_points, include_arrays))
+    result.fit_quality = raw.get("fit_quality")
     return result.to_dict()
 
 
@@ -291,6 +294,7 @@ def read_modeling(path: str, include_arrays: bool = False,
                        if v is not None}
         pops_out.append(pop)
     result.populations = pops_out
+    result.fit_quality = raw.get("fit_quality")
     return result.to_dict()
 
 
@@ -430,6 +434,7 @@ def read_waxs_peakfit(path: str, include_arrays: bool = False,
 
     for k in ("Q", "I_fit", "I_bg", "residuals", "intensity_data", "intensity_error"):
         setattr(result, k, _arr(raw, k, max_points, include_arrays))
+    result.fit_quality = raw.get("fit_quality")
     return result.to_dict()
 
 
