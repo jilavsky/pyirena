@@ -1878,11 +1878,11 @@ class SizesFitPanel(QWidget):
             # Plot model on top
             self.graph_window.plot_fit(q, I_model, 'Model')
 
-            if error is not None and np.any(error > 0):
-                residuals = (intensity - I_model) / error
-            else:
-                residuals = (intensity - I_model) / np.maximum(intensity, 1e-40)
-            self.graph_window.plot_residuals(q, residuals)
+            # Rescaled residuals (robust, MAD-based) — uniform across all fit tools.
+            from pyirena.gui.quality_display import compute_quality_display
+            q_plot, r_prime, _suffix, _m = compute_quality_display(
+                q, intensity, I_model, error)
+            self.graph_window.plot_residuals(q_plot, r_prime)
 
             if self._last_distribution is not None:
                 r_prev, p_prev = self._last_distribution
@@ -2006,7 +2006,15 @@ class SizesFitPanel(QWidget):
             # Plot fit on top so it is visible over other items
             self.graph_window.plot_fit(q_used, I_model_display, 'Fitted Model')
 
-            if residuals is not None:
+            # Rescaled residuals + quality summary (uniform across all fit tools).
+            # Use the raw-basis triple (observed I, model+bg, err) at q_used.
+            _quality_suffix = ""
+            if result.get('I_data') is not None:
+                from pyirena.gui.quality_display import compute_quality_display
+                q_plot, r_prime, _quality_suffix, _m = compute_quality_display(
+                    q_used, result['I_data'], I_model_display, result.get('err'))
+                self.graph_window.plot_residuals(q_plot, r_prime)
+            elif residuals is not None:
                 self.graph_window.plot_residuals(q_used, residuals)
             self.graph_window.plot_distribution(r_grid, distribution)
             dist_std = result.get('distribution_std')
@@ -2030,6 +2038,7 @@ class SizesFitPanel(QWidget):
                 f"Rg: {rg:.4g} Å | "
                 f"peak r: {peak_r:.4g} Å | "
                 f"iterations: {n_iter}"
+                f"{_quality_suffix}"
             )
             if sky_note:
                 msg += f" | Auto: {sky_note}"

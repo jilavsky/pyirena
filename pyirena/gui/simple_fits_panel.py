@@ -1087,13 +1087,22 @@ class SimpleFitsPanel(QWidget):
         # Write fitted values back to widgets
         self._apply_result_to_widgets(result)
 
+        # Robust fit-quality suffix (uniform across all fit tools)
+        from pyirena.gui.quality_display import compute_quality_display
+        _q_suffix = ''
+        I_model = result.get('I_model')
+        if I_model is not None:
+            n_free = len(result.get('params', {}) or {})
+            _, _, _q_suffix, _ = compute_quality_display(
+                q, I, I_model, dI, n_params=max(1, n_free))
+
         # Update derived quantities if any
         derived = result.get('derived', {})
         if derived:
             derived_txt = '   '.join(f'{k}={eng_fmt(v)}' for k, v in derived.items())
-            self.status_label.setText(f'Fit OK | χ²_red={eng_fmt(rchi2, sig=3)} | {derived_txt}')
+            self.status_label.setText(f'Fit OK | χ²_red={eng_fmt(rchi2, sig=3)} | {derived_txt}{_q_suffix}')
         else:
-            self.status_label.setText(f'Fit OK | Reduced χ² = {eng_fmt(rchi2)}')
+            self.status_label.setText(f'Fit OK | Reduced χ² = {eng_fmt(rchi2)}{_q_suffix}')
 
         # Update all plots
         self._update_plots(result)
@@ -1189,7 +1198,10 @@ class SimpleFitsPanel(QWidget):
             self.graph_window.plot_fit(q_fit, I_model)
 
         if q_fit is not None and residuals is not None:
-            self.graph_window.plot_residuals(q_fit, residuals)
+            # Rescaled residuals (robust, MAD-based) — uniform across all fit tools.
+            from pyirena.core.fit_metrics import rescale_residuals
+            r_prime, _ = rescale_residuals(residuals)
+            self.graph_window.plot_residuals(q_fit, r_prime)
 
         # Linearization (use full data range, not just fit range, so out-of-range
         # points are visible in grey alongside the dark in-range points)

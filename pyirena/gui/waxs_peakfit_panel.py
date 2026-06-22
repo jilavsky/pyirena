@@ -1920,7 +1920,10 @@ class WAXSPeakFitPanel(QWidget):
             qmin, qmax = self._graph.get_q_range()
             r = r.copy()
             r[(self._q < qmin) | (self._q > qmax)] = np.nan
-            self._graph.plot_residuals(self._q, r)
+            # Rescaled residuals (robust, MAD-based) — uniform across all fit tools.
+            from pyirena.core.fit_metrics import rescale_residuals
+            r_prime, _ = rescale_residuals(r)
+            self._graph.plot_residuals(self._q, r_prime)
 
     def _run_presearch(
         self, q, I, bg_shape, bg_params, peaks,
@@ -2035,9 +2038,16 @@ class WAXSPeakFitPanel(QWidget):
             self._set_status(f"Fit failed: {result.get('message', '')}", error=True)
         else:
             chi2 = result.get("reduced_chi2", float("nan"))
+            # Robust fit-quality suffix (uniform across all fit tools)
+            _q_suffix = ""
+            I_model = result.get("I_model")
+            if I_model is not None:
+                from pyirena.gui.quality_display import compute_quality_display
+                _, _, _q_suffix, _ = compute_quality_display(
+                    q_fit, I_fit, I_model, dI_fit, n_params=max(1, len(peaks_now) * 3))
             self._set_status(
                 f"Fit converged.  Reduced χ² = {chi2:.4g}  "
-                f"(DOF = {result.get('dof', 0)})",
+                f"(DOF = {result.get('dof', 0)}){_q_suffix}",
                 success=True,
             )
 
