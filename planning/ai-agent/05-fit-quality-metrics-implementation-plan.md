@@ -3,9 +3,9 @@
 **Branch:** `feature/fit-quality-metrics`
 **Spec:** [`04-fit-quality-metrics.md`](04-fit-quality-metrics.md) (the "what/why")
 **This doc:** the "how" — phased, backward-compatible, with decision gates.
-**Status:** Phases 1–4 implemented (2026-06-19) — at **Decision Gate 2**
-(user UX evaluation). Phase 5 (propagation) pending gates outcome.
-**Date:** 2026-06-19
+**Status:** Phases 1–4 implemented; **Gate 2 PASSED** (2026-06-19). Phase 5–7
+(package-wide rollout: uniform display → NeXus persistence → reports) planned and
+ready to start. **Date:** 2026-06-19
 
 > **Progress (2026-06-19):**
 > - Phase 1 ✅ `pyirena/core/fit_metrics.py` + `tests/test_fit_metrics.py` (10 tests pass).
@@ -241,17 +241,93 @@ Additive only. Three sub-steps, each shippable:
 > users judge fits better than normalized residuals? Decide (a) whether to make
 > `r'` the default view, and (b) whether to propagate to other tools.
 
-### Phase 5 — Propagate to other fit tools  *(conditional on gates 1 & 2)*
-Apply the same additive pattern, **one tool per commit**, in value order:
-1. **sizes** (`core/sizes.py`) — robust metrics especially valuable (no clean dof);
-   + `gui/sizes_panel.py` residual view.
-2. **simple_fits** (`core/simple_fits.py`) + `gui/simple_fits_panel.py`.
-3. **modeling** (`core/modeling.py` `ModelingResult`).
-4. **waxs_peakfit** (`core/waxs_peakfit.py`).
-Each: add `results['quality'] = fit_quality_metrics(...)` (or dataclass field),
-mirror the GUI summary line + selectable residual view, extend the read-side API
-schemas (`api/.../results.py`, `schemas.py`) and docs. Add per-tool tests.
-- **Risk:** low per tool, but multiplied across four tools + GUIs — hence gated.
+> **DECISION GATE 2 — PASSED (2026-06-19).** User validated the rescaled residual
+> view and metrics on Unified Fit: "the residuals plot seems more useful and the
+> numbers provide additional info." Decision: **make `r'` the default everywhere**
+> (no UI toggle — most users won't care which residual is shown; keep a code-level
+> `_USE_RESCALED_RESIDUALS` flag for safety). **Proceed to package-wide rollout.**
+
+---
+
+## Phase 5–7 — package-wide rollout (grounded in 2026-06-19 code survey)
+
+Three sequential phases: **5** = uniform display + metrics in every GUI tool,
+**6** = persist metrics to NeXus, **7** = surface metrics in reports/exports.
+All additive and backward-compatible.
+
+### Survey findings that shape the rollout
+- **Residual plots live in 5 fit tools** + the stored-results viewers:
+  `gui/sizes_panel.py` (~1881, 2010), `gui/simple_fits_panel.py` (~1186),
+  `gui/waxs_peakfit_panel.py` (~2267), `gui/modeling_panel.py` (~2643),
+  `gui/unified_fit.py` (done), and `gui/data_selector.py` (stored-result windows
+  ~1462/1619/1816/1969 + `_build_report` ~222).
+- **The MAD-rescale logic is currently duplicated inline** in `unified_fit.py`
+  and `plotting/unified_plots.py`. → **Refactor to a shared helper FIRST** so the
+  other 5 call sites stay DRY.
+- **No shared NeXus writer** — each tool has its own `save_*_results` /
+  `load_*_results` in `io/nxcansas_*.py`, all writing under
+  `entry/<tool>_results` (NXprocess). → **Write the quality-persistence ONCE** as
+  a shared helper, call it from each of the 6 writers/readers.
+- **Two report generators** (`api/control/unified_fit.py::export_fit_report`,
+  `gui/data_selector.py::_build_report`) + a text export
+  (`plotting/unified_plots.py::export_fit_results`) — none carry the new metrics.
+- **`saxs_morph` and `fractals`** have no (I−M) residual plot (voxelgram /
+  generative); they get the **scalar** metrics where a fit exists (saxs_morph) and
+  are skipped for residual rescaling.
+
+### Phase 5 — uniform residual display + metrics in all GUI tools
+- **5.0 Refactor (do first):** add public helpers to `core/fit_metrics.py`:
+  `robust_residual_scale(norm_resid) -> s` and
+  `rescale_residuals(norm_resid) -> (r_prime, s)`. Replace the two inline copies
+  in `unified_fit.py` + `unified_plots.py` with calls. No behavior change; verified
+  by existing tests. Add unit tests for the helpers.
+- **5.1–5.5 Per tool** (one commit each): sizes, simple_fits, waxs_peakfit,
+  modeling, and the `data_selector` stored-result windows. For each:
+  - Plot **rescaled residual `r'`** by default (call the 5.0 helper). Note: sizes
+    & simple_fits take residuals from the fit-result dict — recompute `r'` from
+    stored/available `q,I,M,σ` or rescale the normalized array consistently.
+  - Show the **quality summary** (robust_scale_s, realistic χ² floor,
+    max|(I−M)/I|) near the existing χ² readout, via `fit_quality_metrics(...)`.
+- **5.6** Update each tool's user doc (`docs/<tool>_gui.md`) with a one-line
+  pointer to `docs/fit_quality_metrics.md` (as done for unified).
+- **Risk:** GUI-only, display-layer; worst case a plot label bug. Per-tool commits.
+
+### Phase 6 — persist metrics to NeXus  *(so reports/viewers read, not recompute)*
+- **6.0 Shared helper (do first):** new `io/nxcansas_fit_quality.py` with
+  `write_fit_quality(parent_grp, metrics)` and `read_fit_quality(parent_grp)`.
+  Stores a **`fit_quality/` sub-group (NXcollection)** under each tool's
+  `entry/<tool>_results`: scalars (`robust_scale_s`,
+  `realistic_reduced_chi2_floor`, `max_abs_frac_misfit`, `q_at_max_frac_misfit`,
+  `median_frac_uncertainty`, `n_outliers_3s`, `longest_same_sign_run`,
+  `sign_autocorr_lag1`, `sigma_available`) + a `bands/` block. Reader tolerates
+  absence → returns `None`.
+- **6.1–6.6 Wire into each tool's writer + reader** (`io/nxcansas_*.py`) and the
+  canonical templates in `io/results.py`. Compute the metrics at save time and
+  pass to `write_fit_quality`.
+- **6.7 Backward-compat / fallback:** for files written before this feature, the
+  reader returns `None`; report/viewer code then **recomputes on the fly** from the
+  already-stored `Q, intensity_data, intensity_model, intensity_error` arrays
+  (present in every tool's group). So old files still show metrics.
+- **6.8** Update `docs/HDF5_Structure_Reference.md` (one `fit_quality/` block,
+  referenced from each tool section) and bump the relevant schema/version note.
+- **Risk:** file-format change — but purely additive sub-group; existing readers
+  ignore unknown groups. Round-trip write→read tested per tool.
+
+### Phase 7 — reports & other outputs
+- **7.1** `api/control/unified_fit.py::export_fit_report` — add a "Fit quality"
+  section to both markdown and JSON (reuse `_quality_scalars`).
+- **7.2** `gui/data_selector.py::_build_report` — add the quality lines to each
+  tool's section (read from `fit_quality/`, else recompute per 6.7).
+- **7.3** `plotting/unified_plots.py::export_fit_results` +
+  `UnifiedFitModel.get_parameter_summary` — add a robust-quality block.
+- **7.4** Result-window legends (data_selector) — optionally append
+  `robust_scale_s` next to χ².
+- **7.5** Docs: cross-link from report/export docs to `fit_quality_metrics.md`.
+- **Risk:** text-output only.
+
+> **One-decision note (resolved):** store **and** recompute-fallback (6.0/6.7),
+> not recompute-only — the user explicitly wants the values *in the NeXus files*.
+> Storing also captures the exact fit-time n_params/dof.
 
 ---
 
@@ -289,7 +365,11 @@ schemas (`api/.../results.py`, `schemas.py`) and docs. Add per-tool tests.
 3. feat(api): export fit_quality_metrics                          [Phase 2]
 4. feat(api/control): get_fit_quality tool + enrich run_fit/get_residuals + docs   [Phase 3]
    --- DECISION GATE 1: upstream AI evaluation ---
-5. feat(gui): unified-fit quality summary + selectable residual view               [Phase 4]
-   --- DECISION GATE 2: keep/flip default, decide propagation ---
-6..N. feat(core+gui): propagate to sizes / simple_fits / modeling / waxs_peakfit   [Phase 5]
+5. feat(gui): unified-fit quality summary + rescaled residual view                 [Phase 4]
+   --- DECISION GATE 2: PASSED — flip default to r', roll out package-wide ---
+6. refactor(core): shared robust-rescale helper; rewire unified + plots            [Phase 5.0]
+7..11. feat(gui): rescaled residuals + metrics in sizes/simple/waxs/modeling/selector [Phase 5.1-5.6]
+12. feat(io): shared write_fit_quality/read_fit_quality helper                      [Phase 6.0]
+13..18. feat(io): persist quality in each tool writer/reader + results.py + HDF5 doc [Phase 6.1-6.8]
+19. feat(reports): quality in export_fit_report / _build_report / text export       [Phase 7]
 ```
