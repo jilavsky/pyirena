@@ -407,16 +407,21 @@ class AiAdvisorThread(QThread):
             })
         user_parts.append({"type": "text", "text": self.param_text})
         messages.append({"role": "user", "content": user_parts})
+        # Local models have no token cost — allow generous output.
+        max_tokens = 4096 if self.provider == "local" else 1024
         resp = httpx.post(
             f"{self.endpoint}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key or 'local'}",
                      "Content-Type": "application/json"},
-            json={"model": self.model, "messages": messages, "max_tokens": 1024},
+            json={"model": self.model, "messages": messages, "max_tokens": max_tokens},
             timeout=120,
         )
         resp.raise_for_status()
         body = resp.json()
-        text = body["choices"][0]["message"]["content"]
+        choice = body["choices"][0]
+        text = choice["message"].get("content") or ""
+        if choice.get("finish_reason") == "length":
+            text += "\n\n*(Response was cut off — the model hit the token limit.)*"
         raw_usage = body.get("usage", {})
         usage = {
             "input_tokens":  raw_usage.get("prompt_tokens", 0),
@@ -499,6 +504,9 @@ class AiAdvisorResultPanel(QDialog):
     def _on_result(self, text: str, usage: dict):
         self._timer.stop()
         self._status_label.setText("AI advisor response:")
+        if not text:
+            self._text_edit.setPlainText("[No response content received from the model.]")
+            return
         self._text_edit.setHtml(_format_response(text))
 
         # Usage footer

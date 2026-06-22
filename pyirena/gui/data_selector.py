@@ -1416,6 +1416,9 @@ class GraphWindow(QWidget):
 
         # Set x-axis to the actual Q range of all loaded data so data from
         # instruments with very different Q ranges is always in view.
+        # Use raw Q values when the user has switched to linear mode via the
+        # right-click Transform menu; otherwise use log10 (ViewBox coords are
+        # log10 when log mode is active).
         all_q = []
         for entry in self._plot_cache:
             q = entry['q']
@@ -1425,9 +1428,15 @@ class GraphWindow(QWidget):
         if all_q:
             q_all = np.concatenate(all_q)
             if len(q_all) >= 2:
+                q_min, q_max = float(q_all.min()), float(q_all.max())
+                vb = self.plot.getViewBox()
+                try:
+                    x_log = vb.state['logMode'][0]
+                except (KeyError, IndexError, TypeError):
+                    x_log = True  # safe default: log mode
                 self.plot.setXRange(
-                    np.log10(float(q_all.min())),
-                    np.log10(float(q_all.max())),
+                    np.log10(q_min) if x_log else q_min,
+                    np.log10(q_max) if x_log else q_max,
                     padding=0.05,
                 )
 
