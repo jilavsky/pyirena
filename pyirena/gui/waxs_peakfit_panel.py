@@ -2044,7 +2044,8 @@ class WAXSPeakFitPanel(QWidget):
             if I_model is not None:
                 from pyirena.gui.quality_display import compute_quality_display
                 _, _, _q_suffix, _ = compute_quality_display(
-                    q_fit, I_fit, I_model, dI_fit, n_params=max(1, len(peaks_now) * 3))
+                    q_fit, I_fit, I_model, dI_fit, n_params=max(1, len(peaks_now) * 3),
+                    include_cormap=False)  # CorMap not meaningful for peak fitting
             self._set_status(
                 f"Fit converged.  Reduced χ² = {chi2:.4g}  "
                 f"(DOF = {result.get('dof', 0)}){_q_suffix}",

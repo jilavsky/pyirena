@@ -19,11 +19,15 @@ import numpy as np
 from pyirena.core.fit_metrics import fit_quality_metrics, rescale_residuals
 
 
-def quality_suffix(metrics: dict) -> str:
-    """Build the uniform ' | σ-scale: … | max|(I−M)/I|: …%' status suffix.
+def quality_suffix(metrics: dict, include_cormap: bool = True) -> str:
+    """Build the uniform ' | σ-scale: … | max|(I−M)/I|: … | CorMap …' status suffix.
 
     Returns an empty string if no metric is available (e.g. no sigma and no
     finite fractional misfit).
+
+    CorMap (Franke 2015) is the longest run of same-sign residuals, reported as
+    C/log₂(N): ≈1 means random scatter, ≫1 signals systematic misfit. Set
+    ``include_cormap=False`` where it is not meaningful (e.g. WAXS peak fitting).
     """
     parts: list[str] = []
     s = metrics.get("robust_scale_s")
@@ -36,10 +40,17 @@ def quality_suffix(metrics: dict) -> str:
     mfm = metrics.get("max_abs_frac_misfit")
     if mfm is not None and np.isfinite(mfm):
         parts.append(f"max|(I−M)/I|: {mfm * 100:.1f}%")
+    if include_cormap:
+        n = int(metrics.get("n_valid", 0) or 0)
+        c = metrics.get("longest_same_sign_run")
+        if c is not None and n > 1:
+            ratio = c / np.log2(n)
+            parts.append(f"CorMap C/log₂(N): {ratio:.2f} (N={n}, C={int(c)})")
     return (" | " + " | ".join(parts)) if parts else ""
 
 
-def compute_quality_display(q, intensity, model, sigma, n_params: int = 1):
+def compute_quality_display(q, intensity, model, sigma, n_params: int = 1,
+                            include_cormap: bool = True):
     """Compute the rescaled residual view and quality summary for a fit.
 
     Parameters
@@ -71,4 +82,4 @@ def compute_quality_display(q, intensity, model, sigma, n_params: int = 1):
         # so the plot still shows scatter relative to its noise floor.
         r_prime, _ = rescale_residuals(metrics["frac_residual"])
 
-    return q_plot, r_prime, quality_suffix(metrics), metrics
+    return q_plot, r_prime, quality_suffix(metrics, include_cormap=include_cormap), metrics
