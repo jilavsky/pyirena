@@ -21,7 +21,10 @@ GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/US
 ```bash
 pip install pyirena[gui]
 ```
-
+on macos with zsh:
+```zsh
+pip install "pyirena[gui]"
+```
 This installs pyirena with all GUI dependencies (PySide6, pyqtgraph, etc.). For the
 core library only (no GUI), use `pip install pyirena`.
 
