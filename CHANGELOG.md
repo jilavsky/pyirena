@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1]
+
+### Fixed
+
+- **Data Explorer and Simple Fits crash on Python 3.9 with TypeError on startup.**
+  `hdf5viewer/__init__.py` and `simple_fits_panel.py` used `X | Y` union type
+  annotations (Python 3.10+ syntax) without `from __future__ import annotations`.
+  On Python 3.9 these expressions are evaluated at import/instantiation time,
+  raising `TypeError: unsupported operand type(s) for |`. Fixed by adding the
+  future import to both files.
+
 ## [0.9.0]
 
 ### Fixed
