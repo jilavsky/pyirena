@@ -6,6 +6,8 @@ residuals, linearization) and ``SimpleFitsPanel`` (controls + graph) for
 interactive single-model fitting of SAS data.
 """
 
+from __future__ import annotations
+
 try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,

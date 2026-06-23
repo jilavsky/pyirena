@@ -7,6 +7,8 @@ Can be launched:
   - From Data Selector: HDF5ViewerWindow(initial_folder=...)
 """
 
+from __future__ import annotations
+
 from .main_window import HDF5ViewerWindow
 
 __all__ = ["HDF5ViewerWindow", "main"]
