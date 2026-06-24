@@ -532,9 +532,17 @@ class TestEngineSmoke:
              Gaussian smoothing).
 
         Detection: fit a flexible smooth (degree-4 polynomial in log-log)
-        through the model in the structurally-meaningful Q window, and
+        through the model in the structurally-reliable Q window, and
         bound the std of the log-residuals.  Pre-fix: std ~0.06–0.10;
-        post-fix: std < 0.05 at N=128 box=5000.
+        post-fix: std ~0.047 at N=128 box=5000.
+
+        The window is the region where the curve is genuine FFT structure:
+        from a few bins above the lowest model Q (skipping the data→model
+        transition at the very low-Q edge) up to ``0.7 * Q_nyq``.  Above
+        ``0.7 * Q_nyq`` the engine deliberately hands the curve over to an
+        analytical Porod tail ``K/Q^4`` (high_q_mode='porod'); testing
+        polynomial-smoothness across that FFT→Porod handoff would measure
+        the handoff, not the ripple suppression this test guards.
         """
         q = np.logspace(-3, -1.0, 150)
         L = 300.0
@@ -551,9 +559,12 @@ class TestEngineSmoke:
         engine = SaxsMorphEngine()
         res = engine.compute_voxelgram(cfg, q, I, dI)
 
-        # Structural window — above Q_max_model the model is pure background
-        mask = (res.model_q > 1.5 * res.model_q.min()) & (
-            res.model_q < 0.9 * res.q_max_model_A)
+        # Structural window — pure FFT region only.  Lower bound skips the
+        # low-Q data→model transition edge; upper bound stops at the
+        # Porod-extension onset (0.7 * Q_nyq, the constant the engine uses
+        # in voxelgram_to_iq), above which the curve is analytical K/Q^4.
+        mask = (res.model_q > 2.5 * res.model_q.min()) & (
+            res.model_q < 0.7 * res.q_max_model_A)
         if mask.sum() < 20:
             return  # window too small
         log_q = np.log(res.model_q[mask])

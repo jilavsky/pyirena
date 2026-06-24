@@ -514,7 +514,14 @@ class UnifiedFitModel:
         intensity = self.calculate_level_intensity(q, level_idx)
 
         # Integrate I(q) * q^2
-        integrand = intensity * q ** 2
+        # At q=0 the power-law term blows up to +inf (the erf denominator is
+        # clamped to a constant instead of vanishing like q), so the bin
+        # evaluates to inf*0 = nan and poisons the integral.  Its true
+        # contribution to I(q)*q^2 there is 0, so zero out any non-finite bin
+        # (and silence the expected inf*0 warning from that single bin).
+        with np.errstate(invalid='ignore', over='ignore'):
+            integrand = intensity * q ** 2
+        integrand = np.where(np.isfinite(integrand), integrand, 0.0)
         invariant = np.trapezoid(integrand, q)
 
         # Add Porod tail contribution if applicable
