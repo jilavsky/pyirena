@@ -1544,21 +1544,10 @@ class SizesFitPanel(QWidget):
 
         layout.addLayout(row1)
 
-        # Row 2: Save State + Store in File + Load Setup from File…
+        # Row 2: Store in File + Load Setup from File…
+        # (State is saved automatically on close — see closeEvent — so an
+        # explicit "Save State" button is no longer needed.)
         store_row = QHBoxLayout()
-
-        self.save_state_button = QPushButton("Save State")
-        self.save_state_button.setMinimumHeight(26)
-        self.save_state_button.setStyleSheet("""
-            QPushButton { background-color: #3498db; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #2980b9; }
-        """)
-        self.save_state_button.setToolTip(
-            "Save current parameters and settings to the pyIrena state file.\n"
-            "State is restored automatically when the file is reopened."
-        )
-        self.save_state_button.clicked.connect(self.save_state)
-        store_row.addWidget(self.save_state_button)
 
         self.store_file_button = QPushButton("Store in File")
         self.store_file_button.setMinimumHeight(26)
@@ -2526,6 +2515,15 @@ class SizesFitPanel(QWidget):
             self.status_label.setText("State saved")
         else:
             QMessageBox.warning(self, "Save Failed", "Failed to save state.")
+
+    def closeEvent(self, event):
+        """Auto-save state on close (silent — no confirmation dialog)."""
+        try:
+            self.state_manager.update('sizes', self._get_current_state())
+            self.state_manager.save()
+        except Exception as exc:
+            print(f"Warning: could not auto-save sizes state on close: {exc}")
+        super().closeEvent(event)
 
     def _load_setup_from_file(self):
         """Restore the full Sizes setup from a NXcanSAS file.

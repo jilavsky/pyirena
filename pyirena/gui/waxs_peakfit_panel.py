@@ -1505,17 +1505,10 @@ class WAXSPeakFitPanel(QWidget):
         row1.addWidget(self._revert_btn)
         ll.addLayout(row1)
 
-        # Row 2: Save State + Store in File + Load Setup from File…
+        # Row 2: Store in File + Load Setup from File…
+        # (State is saved automatically on close — see closeEvent — so an
+        # explicit "Save State" button is no longer needed.)
         row2 = QHBoxLayout()
-        save_state_btn = QPushButton("Save State")
-        save_state_btn.setStyleSheet(_BTN_SAVE)
-        save_state_btn.setMinimumHeight(26)
-        save_state_btn.setToolTip(
-            "Save current peak fit parameters to the pyIrena state file.\n"
-            "State is restored automatically when the file is reopened."
-        )
-        save_state_btn.clicked.connect(self._save_state)
-        row2.addWidget(save_state_btn)
 
         store_btn = QPushButton("Store in File")
         store_btn.setStyleSheet(_BTN_STORE)
@@ -2233,6 +2226,14 @@ class WAXSPeakFitPanel(QWidget):
             self._set_status("State saved.")
         else:
             self._set_status("Failed to save state.", error=True)
+
+    def closeEvent(self, event):
+        """Auto-save state on close (the explicit Save State button was removed)."""
+        try:
+            self._save_state()
+        except Exception as exc:
+            print(f"Warning: could not auto-save WAXS peak-fit state on close: {exc}")
+        super().closeEvent(event)
 
     def _load_setup_from_file(self):
         """Restore the full WAXS Peak Fit setup from a NXcanSAS file.

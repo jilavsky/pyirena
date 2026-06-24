@@ -2075,9 +2075,6 @@ class UnifiedFitPanel(QWidget):
         self.model = UnifiedFitModel()
         self.fit_result = None
 
-        # Storage for local fit curves
-        self.local_fits = {}  # Dict to store local fit curves: {level: {'guinier': (q, I), 'porod': (q, I)}}
-
         # State management
         self.state_manager = StateManager()
 
@@ -2276,6 +2273,10 @@ class UnifiedFitPanel(QWidget):
         """
         self.level_tabs.setStyleSheet(tab_stylesheet)
 
+        # When "Show selected level?" is on, redraw so the per-level overlay
+        # tracks whichever level tab the user selects.
+        self.level_tabs.currentChanged.connect(self.on_level_tab_changed)
+
         # Initially disable unused levels
         self.update_level_tabs()
 
@@ -2297,12 +2298,17 @@ class UnifiedFitPanel(QWidget):
         background_layout.addStretch()
         layout.addLayout(background_layout)
 
-        # Checkboxes row - Update automatically and Display local fits
+        # Checkboxes row - Update automatically and Show selected level
         checkboxes_layout = QHBoxLayout()
         self.update_auto_check = QCheckBox("Update automatically?")
         checkboxes_layout.addWidget(self.update_auto_check)
         checkboxes_layout.addSpacing(20)
-        self.display_local_check = QCheckBox("Display local fits?")
+        self.display_local_check = QCheckBox("Show selected level?")
+        self.display_local_check.setToolTip(
+            "Overlay the currently-selected level's model contribution on top of\n"
+            "the full unified model, in both the I–Q and Porod plots.\n"
+            "The overlay tracks whichever level tab is selected."
+        )
         self.display_local_check.stateChanged.connect(self.on_display_local_changed)
         checkboxes_layout.addWidget(self.display_local_check)
         checkboxes_layout.addStretch()
@@ -2431,27 +2437,10 @@ class UnifiedFitPanel(QWidget):
 
         layout.addLayout(results_buttons1)
 
-        # Row 2: Save State + Store in File + Load Setup from File…
+        # Row 2: Store in File + Load Setup from File…
+        # (State is saved automatically on close — see closeEvent — so an
+        # explicit "Save State" button is no longer needed.)
         results_buttons2 = QHBoxLayout()
-
-        self.save_state_button = QPushButton("Save State")
-        self.save_state_button.setMinimumHeight(26)
-        self.save_state_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-        """)
-        self.save_state_button.setToolTip(
-            "Save current parameters and settings to the pyIrena state file.\n"
-            "State is restored automatically when the file is reopened."
-        )
-        self.save_state_button.clicked.connect(self.save_state)
-        results_buttons2.addWidget(self.save_state_button)
 
         self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
@@ -2661,7 +2650,7 @@ class UnifiedFitPanel(QWidget):
             level_widget.toggle_limits_visibility(show_limits)
 
     def on_display_local_changed(self, state):
-        """Handle change in 'Display local fits?' checkbox."""
+        """Handle change in 'Show selected level?' checkbox."""
         if self.data is not None:
             self.graph_unified()
 
@@ -2784,9 +2773,12 @@ class UnifiedFitPanel(QWidget):
 
             self.graph_window.plot_residuals(self.data['Q'], residuals)
 
-            # Plot local fits and background line if checkbox is enabled
+            # When "Show selected level?" is enabled, overlay the selected
+            # level's pure model contribution (both plots) and a horizontal
+            # reference line at the SAS background level.
             if self.display_local_check.isChecked():
-                self.plot_local_fits()
+                self._plot_selected_level_overlay()
+                self._draw_background_line()
 
             # Restore zoom after replot if user had manually zoomed
             if _main_range is not None:
@@ -3185,21 +3177,14 @@ class UnifiedFitPanel(QWidget):
             # Fix limits for this level
             level_widget.fix_limits()
 
-            # Store local fit curve for plotting if display is enabled
-            # Calculate Guinier curve over the Q range used for fitting
+            # Calculate the local Guinier curve over the Q range used for fitting
             guinier_calc = fitted_g * np.exp(-q_fit**2 * fitted_rg**2 / 3)
 
-            # Store in local_fits dictionary
-            if level not in self.local_fits:
-                self.local_fits[level] = {}
-            self.local_fits[level]['guinier'] = (q_fit, guinier_calc)
-
-            # Recalculate and update plot (this will also plot local fits if checkbox is enabled)
-            if self.update_auto_check.isChecked():
-                self.graph_unified()
-            elif self.display_local_check.isChecked():
-                # If not auto-updating, manually redraw the graph with local fits
-                self.graph_unified()
+            # Redraw with the updated parameters, then overlay the local-fit
+            # curve.  The overlay is always shown right after the fit and is
+            # wiped on the next redraw (it is inherently temporary).
+            self.graph_unified()
+            self._draw_local_fit_overlay('guinier', q_fit, guinier_calc)
 
             # Show success message
             from pyirena.gui.fmt_utils import eng_fmt as _efmt
@@ -3346,21 +3331,14 @@ class UnifiedFitPanel(QWidget):
             # Fix limits for this level
             level_widget.fix_limits()
 
-            # Store local fit curve for plotting if display is enabled
-            # Calculate Porod/power law curve over the Q range used for fitting
+            # Calculate the local Porod/power-law curve over the Q range fitted
             porod_calc = fitted_b * q_fit**(-fitted_p)
 
-            # Store in local_fits dictionary
-            if level not in self.local_fits:
-                self.local_fits[level] = {}
-            self.local_fits[level]['porod'] = (q_fit, porod_calc)
-
-            # Recalculate and update plot (this will also plot local fits if checkbox is enabled)
-            if self.update_auto_check.isChecked():
-                self.graph_unified()
-            elif self.display_local_check.isChecked():
-                # If not auto-updating, manually redraw the graph with local fits
-                self.graph_unified()
+            # Redraw with the updated parameters, then overlay the local-fit
+            # curve.  The overlay is always shown right after the fit and is
+            # wiped on the next redraw (it is inherently temporary).
+            self.graph_unified()
+            self._draw_local_fit_overlay('porod', q_fit, porod_calc)
 
             # Show success message
             from pyirena.gui.fmt_utils import eng_fmt as _efmt
@@ -3383,62 +3361,64 @@ class UnifiedFitPanel(QWidget):
             import traceback
             traceback.print_exc()
 
-    def plot_local_fits(self):
-        """
-        Plot all stored local fit curves (Guinier and Porod) on the graph, and a
-        horizontal dotted line at the SAS background level.
-        Uses green color and different line styles for Guinier (dashed) and Porod (dotted).
-        """
-        # Use green color for all local fits (distinct from blue data points and red unified fit line)
-        local_fit_color = (0, 180, 0)  # Green color
+    # Per-level overlay colours, matching the level tab colours
+    # (Level 1 red, 2 green, 3 blue, 4 orange, 5 purple).
+    LEVEL_COLORS = [
+        (211, 47, 47), (56, 142, 60), (25, 118, 210),
+        (245, 124, 0), (123, 31, 162),
+    ]
 
-        # Plot local fits for each level
+    def on_level_tab_changed(self, _index):
+        """Redraw so the selected-level overlay tracks the active level tab."""
+        if self.display_local_check.isChecked() and self.data is not None:
+            self.graph_unified()
+
+    def _plot_selected_level_overlay(self):
+        """Overlay the currently-selected level's pure model contribution on the
+        main (I–Q) and Porod plots.
+
+        Used when 'Show selected level?' is checked.  The curve is the level's
+        own scattering only (``calculate_level_intensity`` — no background), so
+        the user can see how each level sits under the full model.
+        """
+        if self.data is None:
+            return
+        num_levels = self.num_levels_spin.value()
+        idx = self.level_tabs.currentIndex()
+        if idx < 0 or idx >= num_levels:
+            return  # selected tab is a disabled/unused level
+
+        try:
+            prev_Rg = self.model.levels[idx - 1].Rg if idx > 0 else 0.0
+            lvl_I = self.model.calculate_level_intensity(
+                np.asarray(self.data['Q'], dtype=float), idx, prev_Rg
+            )
+        except Exception:
+            return
+
+        q = np.asarray(self.data['Q'], dtype=float)
+        lvl_I = np.asarray(lvl_I, dtype=float)
+        valid = (q > 0) & (lvl_I > 0) & np.isfinite(q) & np.isfinite(lvl_I)
+        if not np.any(valid):
+            return
+
+        color = self.LEVEL_COLORS[idx % len(self.LEVEL_COLORS)]
+        pen = pg.mkPen(color=color, width=2, style=Qt.PenStyle.DashLine)
+        name = f'Level {idx + 1}'
+
+        self.graph_window.main_plot.plot(q[valid], lvl_I[valid], pen=pen, name=name)
+
         porod_plot = getattr(self.graph_window, 'porod_plot', None)
-        for level, fits in self.local_fits.items():
-            if level < 1 or level > 5:
-                continue
+        if porod_plot is not None:
+            porod_plot.plot(
+                q[valid].tolist(),
+                (lvl_I[valid] * q[valid] ** 4).tolist(),
+                pen=pen, name=name,
+            )
 
-            # Plot Guinier fit (dashed line) on both tabs
-            if 'guinier' in fits:
-                q_data, i_data = fits['guinier']
-                self.graph_window.main_plot.plot(
-                    q_data, i_data,
-                    pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DashLine),
-                    name=f'Level {level} Guinier fit'
-                )
-                if porod_plot is not None:
-                    q_arr = np.asarray(q_data, dtype=float)
-                    i_arr = np.asarray(i_data, dtype=float)
-                    valid = (q_arr > 0) & (i_arr > 0) & np.isfinite(q_arr) & np.isfinite(i_arr)
-                    if np.any(valid):
-                        porod_plot.plot(
-                            q_arr[valid].tolist(),
-                            (i_arr[valid] * q_arr[valid] ** 4).tolist(),
-                            pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DashLine),
-                            name=f'Level {level} Guinier fit',
-                        )
-
-            # Plot Porod fit (dotted line) on both tabs
-            if 'porod' in fits:
-                q_data, i_data = fits['porod']
-                self.graph_window.main_plot.plot(
-                    q_data, i_data,
-                    pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DotLine),
-                    name=f'Level {level} Porod fit'
-                )
-                if porod_plot is not None:
-                    q_arr = np.asarray(q_data, dtype=float)
-                    i_arr = np.asarray(i_data, dtype=float)
-                    valid = (q_arr > 0) & (i_arr > 0) & np.isfinite(q_arr) & np.isfinite(i_arr)
-                    if np.any(valid):
-                        porod_plot.plot(
-                            q_arr[valid].tolist(),
-                            (i_arr[valid] * q_arr[valid] ** 4).tolist(),
-                            pen=pg.mkPen(color=local_fit_color, width=2, style=Qt.PenStyle.DotLine),
-                            name=f'Level {level} Porod fit',
-                        )
-
-        # Plot horizontal dotted line at SAS background level
+    def _draw_background_line(self):
+        """Draw a horizontal reference line at the SAS background level on the
+        main I–Q plot."""
         try:
             bg_val = float(self.background_value.text() or 0)
             if bg_val > 0:
@@ -3451,9 +3431,39 @@ class UnifiedFitPanel(QWidget):
         except (ValueError, TypeError):
             pass
 
+    def _draw_local_fit_overlay(self, kind, q, intensity):
+        """Draw a single transient local-fit curve (Guinier or Porod) on both
+        plots.  These are always shown right after a between-cursors local fit
+        and are wiped on the next graph redraw (they are inherently temporary).
+
+        kind: 'guinier' (green dashed) or 'porod' (green dotted).
+        """
+        local_fit_color = (0, 180, 0)  # green, distinct from data (blue) / full fit (red)
+        style = Qt.PenStyle.DashLine if kind == 'guinier' else Qt.PenStyle.DotLine
+        pen = pg.mkPen(color=local_fit_color, width=2, style=style)
+        label = f'Local {kind} fit'
+
+        q_arr = np.asarray(q, dtype=float)
+        i_arr = np.asarray(intensity, dtype=float)
+        valid = (q_arr > 0) & (i_arr > 0) & np.isfinite(q_arr) & np.isfinite(i_arr)
+        if not np.any(valid):
+            return
+
+        self.graph_window.main_plot.plot(
+            q_arr[valid], i_arr[valid], pen=pen, name=label
+        )
+        porod_plot = getattr(self.graph_window, 'porod_plot', None)
+        if porod_plot is not None:
+            porod_plot.plot(
+                q_arr[valid].tolist(),
+                (i_arr[valid] * q_arr[valid] ** 4).tolist(),
+                pen=pen, name=label,
+            )
+
     def clear_local_fits(self):
-        """Clear all stored local fit curves."""
-        self.local_fits = {}
+        """Back-compat no-op: local fits are now transient (drawn once after a
+        local fit, wiped on the next redraw) rather than stored."""
+        pass
 
     # STATE MANAGEMENT METHODS
 

@@ -2207,10 +2207,10 @@ class ModelingPanel(QWidget):
         out1.addWidget(self.btn_revert)
         lay.addLayout(out1)
 
-        # Row 2: Save State + Store in File + Load Setup from File…
+        # Row 2: Store in File + Load Setup from File…
+        # (State is saved automatically on close — see closeEvent — so an
+        # explicit "Save State" button is no longer needed.)
         out2 = QHBoxLayout()
-        out2.addWidget(_mkbtn('Save State', 'blue', self._save_state_explicit,
-                              'Save current parameters to the state file.'))
         self.btn_save = _mkbtn('Store in File', 'lgreen', self.save_results,
                                'Save fit results to the HDF5 (NXcanSAS) file.\n'
                                'The full GUI setup is embedded so "Load Setup from File…"\n'
@@ -2870,14 +2870,6 @@ class ModelingPanel(QWidget):
         self._state.update('modeling', config['modeling'])
         self._load_state()
         self.graph.set_status(f'Parameters imported from {Path(path).name}', 'success')
-
-    def _save_state_explicit(self):
-        """Save current parameters to state file with confirmation dialog."""
-        self._save_state()
-        QMessageBox.information(
-            self, 'State saved',
-            'Modeling parameters have been saved to the state file.',
-        )
 
     def _results_to_graph(self):
         """Annotate the I(Q) plot with the current fitted parameter values."""

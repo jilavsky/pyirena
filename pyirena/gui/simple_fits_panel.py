@@ -600,19 +600,10 @@ class SimpleFitsPanel(QWidget):
         row_out1.addWidget(self.revert_btn)
         layout.addLayout(row_out1)
 
-        # Row 2: Save State | Store in File
+        # Row 2: Store in File
+        # (State is saved automatically on close — see closeEvent — so an
+        # explicit "Save state" button is no longer needed.)
         row_out2 = QHBoxLayout()
-        self.save_state_btn = QPushButton('Save state')
-        self.save_state_btn.setMinimumHeight(26)
-        self.save_state_btn.setStyleSheet("""
-            QPushButton { background-color: #3498db; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #2980b9; }
-        """)
-        self.save_state_btn.setToolTip(
-            'Save current model choice and parameter values to the state file.'
-        )
-        self.save_state_btn.clicked.connect(self._save_state_explicit)
-        row_out2.addWidget(self.save_state_btn)
 
         self.store_btn = QPushButton('Store in File')
         self.store_btn.setMinimumHeight(26)
@@ -1254,14 +1245,6 @@ class SimpleFitsPanel(QWidget):
             self._saved_param_fixed = {}
             self._build_param_widgets()
             self.status_label.setText('Parameters reset to defaults.')
-
-    # ── Save state (explicit button) ─────────────────────────────────────────
-
-    def _save_state_explicit(self):
-        """Save state and show a confirmation dialog."""
-        self.save_state()
-        QMessageBox.information(self, 'State saved',
-                                'Current model and parameters saved successfully.')
 
     # ── Export / import parameters ────────────────────────────────────────────
 
