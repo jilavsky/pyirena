@@ -2962,6 +2962,52 @@ def _pop_to_dict(pop) -> dict:
             'eta_voigt': pop.eta_voigt, 'fit_eta_voigt': pop.fit_eta_voigt,
             'eta_voigt_limits': list(pop.eta_voigt_limits),
         }
+    if pt == 'guinier_porod':
+        return {
+            'pop_type': 'guinier_porod',
+            'enabled': pop.enabled,
+            'label': pop.label,
+            'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
+            'Rg1': pop.Rg1, 'fit_Rg1': pop.fit_Rg1, 'Rg1_limits': list(pop.Rg1_limits),
+            's1': pop.s1, 'fit_s1': pop.fit_s1, 's1_limits': list(pop.s1_limits),
+            'P': pop.P, 'fit_P': pop.fit_P, 'P_limits': list(pop.P_limits),
+            'Rg2': pop.Rg2, 'fit_Rg2': pop.fit_Rg2, 'Rg2_limits': list(pop.Rg2_limits),
+            's2': pop.s2, 'fit_s2': pop.fit_s2, 's2_limits': list(pop.s2_limits),
+            'RgCO': pop.RgCO, 'fit_RgCO': pop.fit_RgCO, 'RgCO_limits': list(pop.RgCO_limits),
+            'correlations': pop.correlations,
+            'ETA': pop.ETA, 'fit_ETA': pop.fit_ETA, 'ETA_limits': list(pop.ETA_limits),
+            'PACK': pop.PACK, 'fit_PACK': pop.fit_PACK, 'PACK_limits': list(pop.PACK_limits),
+        }
+    if pt == 'mass_fractal':
+        return {
+            'pop_type': 'mass_fractal',
+            'enabled': pop.enabled,
+            'label': pop.label,
+            'Phi': pop.Phi, 'fit_Phi': pop.fit_Phi, 'Phi_limits': list(pop.Phi_limits),
+            'Radius': pop.Radius, 'fit_Radius': pop.fit_Radius, 'Radius_limits': list(pop.Radius_limits),
+            'Beta': pop.Beta, 'fit_Beta': pop.fit_Beta, 'Beta_limits': list(pop.Beta_limits),
+            'Dv': pop.Dv, 'fit_Dv': pop.fit_Dv, 'Dv_limits': list(pop.Dv_limits),
+            'Ksi': pop.Ksi, 'fit_Ksi': pop.fit_Ksi, 'Ksi_limits': list(pop.Ksi_limits),
+            'Eta': pop.Eta, 'fit_Eta': pop.fit_Eta, 'Eta_limits': list(pop.Eta_limits),
+            'Contrast': pop.Contrast, 'fit_Contrast': pop.fit_Contrast,
+            'Contrast_limits': list(pop.Contrast_limits),
+        }
+    if pt == 'surface_fractal':
+        return {
+            'pop_type': 'surface_fractal',
+            'enabled': pop.enabled,
+            'label': pop.label,
+            'Surface': pop.Surface, 'fit_Surface': pop.fit_Surface,
+            'Surface_limits': list(pop.Surface_limits),
+            'Ds': pop.Ds, 'fit_Ds': pop.fit_Ds, 'Ds_limits': list(pop.Ds_limits),
+            'Ksi': pop.Ksi, 'fit_Ksi': pop.fit_Ksi, 'Ksi_limits': list(pop.Ksi_limits),
+            'Contrast': pop.Contrast, 'fit_Contrast': pop.fit_Contrast,
+            'Contrast_limits': list(pop.Contrast_limits),
+            'use_porod_transition': pop.use_porod_transition,
+            'Qc': pop.Qc, 'fit_Qc': pop.fit_Qc, 'Qc_limits': list(pop.Qc_limits),
+            'QcWidth': pop.QcWidth, 'fit_QcWidth': pop.fit_QcWidth,
+            'QcWidth_limits': list(pop.QcWidth_limits),
+        }
     # size_dist
     return {
         'pop_type': 'size_dist',
@@ -3019,6 +3065,38 @@ def _pop_from_dict(d: dict):
             setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
             lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
             setattr(pop, f'{key}_limits', tuple(lim))
+        return pop
+    if pt == 'guinier_porod':
+        pop = GuinierPorodPopulation()
+        pop.enabled = bool(d.get('enabled', True))
+        pop.label = d.get('label', '')
+        for key in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO', 'ETA', 'PACK']:
+            setattr(pop, key, float(d.get(key, getattr(pop, key))))
+            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+            setattr(pop, f'{key}_limits', tuple(lim))
+        pop.correlations = bool(d.get('correlations', False))
+        return pop
+    if pt == 'mass_fractal':
+        pop = MassFractalPopulation()
+        pop.enabled = bool(d.get('enabled', True))
+        pop.label = d.get('label', '')
+        for key in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
+            setattr(pop, key, float(d.get(key, getattr(pop, key))))
+            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+            setattr(pop, f'{key}_limits', tuple(lim))
+        return pop
+    if pt == 'surface_fractal':
+        pop = SurfaceFractalPopulation()
+        pop.enabled = bool(d.get('enabled', True))
+        pop.label = d.get('label', '')
+        for key in ['Surface', 'Ds', 'Ksi', 'Contrast', 'Qc', 'QcWidth']:
+            setattr(pop, key, float(d.get(key, getattr(pop, key))))
+            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
+            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
+            setattr(pop, f'{key}_limits', tuple(lim))
+        pop.use_porod_transition = bool(d.get('use_porod_transition', False))
         return pop
     return _pop_from_dict_size_dist(d)
 

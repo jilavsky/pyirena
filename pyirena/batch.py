@@ -125,6 +125,10 @@ def _state_to_model(unified_state: Dict) -> UnifiedFitModel:
                 RgCO=float(ls.get('RgCutoff', 0.0)),
                 ETA=_v('ETA'), PACK=_v('PACK'),
                 correlations=bool(ls.get('correlated', False)),
+                # Propagate parameter links so B (and RgCO) are recomputed at
+                # every fit iteration from the live G/Rg/P, mirroring the GUI's
+                # run_fit().  estimate_B == "Calculate B" maps to link_B.
+                link_B=bool(ls.get('estimate_B', False)),
                 link_RGCO=bool(ls.get('link_rgco', False)),
                 fit_G=_b('G', 'fit'), fit_Rg=_b('Rg', 'fit'),
                 fit_B=_b('B', 'fit'), fit_P=_b('P', 'fit'),
@@ -140,6 +144,10 @@ def _state_to_model(unified_state: Dict) -> UnifiedFitModel:
                 RgCO=float(ls.get('RgCutoff', 0.0)),
                 ETA=_v('ETA'), PACK=_v('PACK'),
                 correlations=bool(ls.get('correlated', False)),
+                # Propagate parameter links so B (and RgCO) are recomputed at
+                # every fit iteration from the live G/Rg/P, mirroring the GUI's
+                # run_fit().  estimate_B == "Calculate B" maps to link_B.
+                link_B=bool(ls.get('estimate_B', False)),
                 link_RGCO=bool(ls.get('link_rgco', False)),
                 fit_G=_b('G', 'fit'), fit_Rg=_b('Rg', 'fit'),
                 fit_B=_b('B', 'fit'), fit_P=_b('P', 'fit'),
@@ -1035,6 +1043,7 @@ def fit_simple(
     n_mc_runs: int = 50,
     q_min: Optional[float] = None,
     q_max: Optional[float] = None,
+    fixed_params: Optional[Dict] = None,
     verbose: bool = True,
 ) -> Optional[Dict]:
     """
@@ -1124,7 +1133,10 @@ def fit_simple(
     if verbose:
         print(f"[pyirena.batch] Fitting {model.model} to '{data_file.name}' ...")
 
-    result = model.fit(qf, If, dIf)
+    # Honor the GUI's "Fit?" checkboxes: parameters marked fixed are held
+    # constant during fitting, matching SimpleFitsPanel._run_fit().
+    fixed_params = fixed_params if fixed_params else None
+    result = model.fit(qf, If, dIf, fixed_params=fixed_params)
 
     if not result.get('success'):
         msg = result.get('error', 'Unknown error')
@@ -1146,7 +1158,7 @@ def fit_simple(
 
         for _ in range(n_mc_runs):
             I_perturbed = If + dIf_safe * np.random.randn(len(If))
-            mc_res = model.fit(qf, I_perturbed, dIf)
+            mc_res = model.fit(qf, I_perturbed, dIf, fixed_params=fixed_params)
             if mc_res.get('success'):
                 for k in mc_params:
                     mc_params[k].append(mc_res['params'].get(k, float('nan')))
@@ -1242,8 +1254,20 @@ def fit_simple_from_config(
     else:
         sf_cfg.pop('param_limits', None)
 
+    # The GUI stores per-parameter "Fit?" state as param_fixed = {name: True if
+    # held fixed}.  SimpleFitModel.fit() expects fixed_params = {name: value},
+    # so build that from the params dict.  Without this the batch path would
+    # refit every parameter, ignoring the user's fixed-parameter choices.
+    param_fixed = sf_cfg.pop('param_fixed', {}) or {}
+    params = sf_cfg.get('params', {}) or {}
+    fixed_params = {
+        name: params[name]
+        for name, is_fixed in param_fixed.items()
+        if is_fixed and name in params
+    }
+
     # Remove state-only keys that have no meaning for from_dict()
-    for _k in ('schema_version', 'no_limits', 'param_fixed'):
+    for _k in ('schema_version', 'no_limits'):
         sf_cfg.pop(_k, None)
 
     result = fit_simple(
@@ -1253,6 +1277,7 @@ def fit_simple_from_config(
         n_mc_runs=n_mc_runs,
         q_min=q_min,
         q_max=q_max,
+        fixed_params=fixed_params if fixed_params else None,
         verbose=True,
     )
 
