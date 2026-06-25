@@ -67,11 +67,19 @@ class TestConfigDefaults:
 # ── Global vs local behaviour ────────────────────────────────────────────────
 
 class TestGlobalFit:
-    def test_global_recovers_radius_when_local_fails(self):
+    def test_global_recovers_radius_when_local_fails(self, monkeypatch):
         """From a bad starting radius the local fit sticks in the wrong Bessel
         lobe; the global search recovers the true radius."""
         q, I_obs, dI = _make_sphere_dataset(true_r=80.0)
         eng = ModelingEngine()
+
+        # Force a fixed DE seed so this assertion is deterministic in CI
+        # (production runs unseeded; correctness, not the RNG, is under test).
+        _orig_de = eng._run_global_de
+        monkeypatch.setattr(
+            eng, '_run_global_de',
+            lambda *a, **k: _orig_de(*a, **{**k, 'seed': 0}),
+        )
 
         local = eng.fit(_make_fit_config('local', start_r=150.0), q, I_obs, dI)
         glob = eng.fit(_make_fit_config('global', start_r=150.0), q, I_obs, dI)

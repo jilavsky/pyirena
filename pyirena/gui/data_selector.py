@@ -799,13 +799,24 @@ def _build_report(file_path: str,
                         ("Qc [Å⁻¹]", pop.get("Qc") if pop.get("use_porod_transition") else None)]
                 rows = [(k, v) for k, v in rows if v is not None]
             else:  # size_dist
-                rows = [("Distribution", pop.get("dist_type")),
-                        ("Scale", pop.get("scale")),
-                        ("Contrast [10²⁰ cm⁻⁴]", pop.get("contrast")),
-                        ("Form factor", pop.get("form_factor")),
-                        ("Structure factor", pop.get("structure_factor")),
-                        ("Vol. fraction", derived.get("volume_fraction")),
-                        ("Mean radius [Å]", derived.get("vol_mean_r"))]
+                rows = [("Distribution", pop.get("dist_type"))]
+                # Raw distribution parameters (mean_size, width, sdeviation, …)
+                for pn, pv in (pop.get("dist_params") or {}).items():
+                    rows.append((f"Dist: {pn}", pv))
+                rows += [("Scale", pop.get("scale")),
+                         ("Contrast [10²⁰ cm⁻⁴]", pop.get("contrast")),
+                         ("Form factor", pop.get("form_factor"))]
+                # Form-factor parameters (SLDs, shell thicknesses, aspect ratio, …)
+                for pn, pv in (pop.get("ff_params") or {}).items():
+                    rows.append((f"FF: {pn}", pv))
+                sf_name = pop.get("structure_factor")
+                rows.append(("Structure factor", sf_name))
+                # Structure-factor parameters (only meaningful when one is active)
+                if sf_name and str(sf_name).lower() != 'none':
+                    for pn, pv in (pop.get("sf_params") or {}).items():
+                        rows.append((f"SF: {pn}", pv))
+                rows += [("Vol. fraction", derived.get("volume_fraction")),
+                         ("Mean radius [Å]", derived.get("vol_mean_r"))]
             L += ["| Parameter | Value |", "|-----------|-------|"]
             for rname, rval in rows:
                 if rval is not None:
@@ -3863,18 +3874,45 @@ class DataSelectorPanel(QWidget):
                     f'WP_peak{pk}_area', f'WP_peak{pk}_area_std',
                 ]
 
-        _mod_pop_cols = [
-            'type', 'label',
-            # size_dist
-            'dist_type', 'scale', 'contrast', 'form_factor',
-            'ff_aspect_ratio', 'ff_length',
-            'ff_sld_core', 'ff_sld_shell', 'ff_sld_solvent', 'ff_t_shell', 'ff_r_core_fixed',
-            'structure_factor', 'vol_fraction', 'mean_r', 'r_total_mean',
-            # unified_level
-            'G', 'Rg', 'B', 'P', 'RgCO', 'ETA', 'PACK',
-            # diffraction_peak
-            'peak_type', 'position', 'amplitude', 'width', 'eta_voigt',
-        ]
+        # Distribution / form-factor / structure-factor parameter sets vary by
+        # model (sphere vs core-shell vs core-shell-shell vs hard-sphere SF, …),
+        # so collect the union of keys actually present across all loaded
+        # modeling results and emit a column for each. This keeps the export
+        # complete as new form/structure factors are added, instead of relying
+        # on a hand-maintained column list that silently drops new parameters.
+        _mod_dist_keys, _mod_ff_keys, _mod_sf_keys = [], [], []
+        if show_modeling:
+            _dk, _fk, _sk = set(), set(), set()
+            for _t in loaded:
+                _mod_res = _t[5]
+                if not _mod_res:
+                    continue
+                for _p in _mod_res.get('populations', []):
+                    if not _p.get('enabled', True):
+                        continue
+                    if _p.get('pop_type', 'size_dist') != 'size_dist':
+                        continue
+                    _dk.update((_p.get('dist_params') or {}).keys())
+                    _fk.update((_p.get('ff_params') or {}).keys())
+                    _sk.update((_p.get('sf_params') or {}).keys())
+            _mod_dist_keys = sorted(_dk)
+            _mod_ff_keys = sorted(_fk)
+            _mod_sf_keys = sorted(_sk)
+
+        _mod_pop_cols = (
+            ['type', 'label',
+             # size_dist
+             'dist_type', 'scale', 'contrast', 'form_factor']
+            + [f'dist_{k}' for k in _mod_dist_keys]
+            + [f'ff_{k}' for k in _mod_ff_keys]
+            + ['structure_factor']
+            + [f'sf_{k}' for k in _mod_sf_keys]
+            + ['vol_fraction', 'mean_r', 'r_total_mean',
+               # unified_level
+               'G', 'Rg', 'B', 'P', 'RgCO', 'ETA', 'PACK',
+               # diffraction_peak
+               'peak_type', 'position', 'amplitude', 'width', 'eta_voigt']
+        )
         if show_modeling:
             headers += ['MOD_chi2', 'MOD_background', 'MOD_q_min', 'MOD_q_max', 'MOD_n_pops']
             for k in range(1, max_mod_pops + 1):
@@ -4060,6 +4098,9 @@ class DataSelectorPanel(QWidget):
                             pt      = pop.get('pop_type', 'size_dist')
                             derived = pop.get('derived', {})
                             # All params are flat keys on pop dict
+                            _ffp = pop.get('ff_params', {}) or {}
+                            _sfp = pop.get('sf_params', {}) or {}
+                            _dp = pop.get('dist_params', {}) or {}
                             row += [
                                 pt,
                                 pop.get('label', ''),
@@ -4068,14 +4109,12 @@ class DataSelectorPanel(QWidget):
                                 _fmt(pop.get('scale')),
                                 _fmt(pop.get('contrast')),
                                 pop.get('form_factor'),
-                                _fmt(pop.get('ff_params', {}).get('aspect_ratio')),
-                                _fmt(pop.get('ff_params', {}).get('length')),
-                                _fmt(pop.get('ff_params', {}).get('sld_core')),
-                                _fmt(pop.get('ff_params', {}).get('sld_shell')),
-                                _fmt(pop.get('ff_params', {}).get('sld_solvent')),
-                                _fmt(pop.get('ff_params', {}).get('t_shell')),
-                                _fmt(pop.get('ff_params', {}).get('r_core_fixed')),
-                                pop.get('structure_factor'),
+                            ]
+                            row += [_fmt(_dp.get(k)) for k in _mod_dist_keys]
+                            row += [_fmt(_ffp.get(k)) for k in _mod_ff_keys]
+                            row += [pop.get('structure_factor')]
+                            row += [_fmt(_sfp.get(k)) for k in _mod_sf_keys]
+                            row += [
                                 _fmt(derived.get('volume_fraction')),
                                 _fmt(derived.get('vol_mean_r')),
                                 _fmt(derived.get('r_total_mean')),
