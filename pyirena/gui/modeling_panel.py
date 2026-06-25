@@ -111,6 +111,7 @@ FF_LABELS = {
     'cs_sphere_by_core':    ('Core-Shell Sphere (by core R)',       ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
     'cs_sphere_by_shell':   ('Core-Shell Sphere (by shell t)',      ['sld_core', 'sld_shell', 'sld_solvent', 'r_core_fixed']),
     'cs_sphere_by_total':   ('Core-Shell Sphere (by total R)',      ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
+    'css_sphere_by_core':   ('Core-Shell-Shell Sphere (by core R)', ['sld_core', 'sld_shell1', 'sld_shell2', 'sld_solvent', 't_shell1', 't_shell2']),
     'cs_spheroid_by_core':  ('Core-Shell Spheroid (by core R)',     ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
     'cs_spheroid_by_total': ('Core-Shell Spheroid (by total R)',    ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
 }
@@ -119,8 +120,12 @@ FF_PARAM_LABELS = {
     'length':        'Length H [Å]',
     'sld_core':      'SLD core [10⁻⁶ Å⁻²]',
     'sld_shell':     'SLD shell [10⁻⁶ Å⁻²]',
+    'sld_shell1':    'SLD shell 1 [10⁻⁶ Å⁻²]',
+    'sld_shell2':    'SLD shell 2 [10⁻⁶ Å⁻²]',
     'sld_solvent':   'SLD solvent [10⁻⁶ Å⁻²]',
     't_shell':       'Shell thickness t [Å]',
+    't_shell1':      'Shell 1 thickness t₁ [Å]',
+    't_shell2':      'Shell 2 thickness t₂ [Å]',
     'r_core_fixed':  'Core radius R_core [Å]',
 }
 # Form-factor keys that embed SLDs — contrast is fixed at 1.0 and hidden
@@ -788,8 +793,12 @@ class PopulationTab(QWidget):
             'length':        (100.0, 0.1,     1e6),
             'sld_core':      (10.0,  -100.0,  100.0),   # 10⁻⁶ Å⁻²
             'sld_shell':     (1.0,   -100.0,  100.0),
+            'sld_shell1':    (1.0,   -100.0,  100.0),
+            'sld_shell2':    (5.0,   -100.0,  100.0),
             'sld_solvent':   (9.46,  -100.0,  100.0),   # H₂O ≈ 9.46
             't_shell':       (20.0,  0.1,     1e4),     # Å
+            't_shell1':      (20.0,  0.1,     1e4),     # Å
+            't_shell2':      (20.0,  0.1,     1e4),     # Å
             'r_core_fixed':  (50.0,  0.1,     1e6),     # Å
         }
         for row_i, pname in enumerate(extra_keys):
@@ -993,6 +1002,47 @@ class PopulationTab(QWidget):
             for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in store.items():
                 lo_edit.setVisible(not no_limits)
                 hi_edit.setVisible(not no_limits)
+
+    def fix_limits(self):
+        """Bracket every parameter's fit limits to ≈0.2× … 5× its current value.
+
+        The bracket is clamped to the parameter's existing [lo, hi] bounds so
+        naturally-restricted parameters (power-law exponents, fractal
+        dimensions, deviations) stay within their valid ranges.
+        """
+        for store in (self._row_widgets, self._ff_rows, self._sf_rows,
+                      self._uf_rows, self._uf_corr_rows, self._peak_rows,
+                      self._gp_rows, self._gp_corr_rows,
+                      self._mf_rows,
+                      self._sf2_rows, self._sf2_porod_rows):
+            for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in store.items():
+                try:
+                    v = float(val_edit.text())
+                except (ValueError, TypeError):
+                    continue
+                try:
+                    cur_lo = float(lo_edit.text())
+                except (ValueError, TypeError):
+                    cur_lo = -np.inf
+                try:
+                    cur_hi = float(hi_edit.text())
+                except (ValueError, TypeError):
+                    cur_hi = np.inf
+
+                if v > 0:
+                    b_lo, b_hi = v * 0.2, v * 5.0
+                elif v < 0:
+                    b_lo, b_hi = v * 5.0, v * 0.2
+                else:
+                    continue  # zero: leave existing limits
+
+                new_lo = max(cur_lo, b_lo)
+                new_hi = min(cur_hi, b_hi)
+                if not (new_lo < new_hi):
+                    new_lo, new_hi = b_lo, b_hi
+
+                lo_edit.setText(_fmt(new_lo))
+                hi_edit.setText(_fmt(new_hi))
 
     # ── Read/write population state ──────────────────────────────────────────
 
@@ -1746,37 +1796,46 @@ class ModelingGraphWindow(QWidget):
         scatter, errbar = plot_iq_data(self.iq_plot, q, I, dI, label='Data')
         self._data_items = [scatter, errbar]
 
-    def plot_model(self, result: ModelingResult):
-        """Plot total model + per-population curves + distributions + residuals."""
+    def plot_model(self, result: ModelingResult, highlight_pop: int = None):
+        """Plot the combined model and optionally one population's individual curve.
+
+        The combined (total) model is ALWAYS drawn. If ``highlight_pop`` is
+        given (a 0-based population index, driven by the "Show individual?"
+        checkbox), that population's I(Q) curve is overlaid on top so it can
+        be compared against the data and the sum.
+        """
         # Remove old model items
         self._clear_model_items()
 
         q = result.model_q
         I_total = result.model_I
 
-        # ── Total model ────────────────────────────────────────────────────
+        # ── Combined model (always shown) ──────────────────────────────────
         self._total_item = self.iq_plot.plot(
             q, I_total,
             pen=pg.mkPen('#000000', width=2),
             name='Total model',
         )
 
-        # ── Per-population curves ──────────────────────────────────────────
-        for k, pi in enumerate(result.pop_indices):
-            color = POP_COLORS[pi % len(POP_COLORS)]
-            I_pop = result.pop_model_I[k]
-            self._pop_items[pi] = self.iq_plot.plot(
-                q, I_pop,
-                pen=pg.mkPen(color, width=1.5, style=Qt.PenStyle.DashLine),
-                name=f'P{pi+1}',
-            )
+        # ── Individual curve of the active tab (only when requested) ───────
+        if highlight_pop is not None:
+            for k, pi in enumerate(result.pop_indices):
+                if pi != highlight_pop:
+                    continue
+                color = POP_COLORS[pi % len(POP_COLORS)]
+                I_pop = result.pop_model_I[k]
+                self._pop_items[pi] = self.iq_plot.plot(
+                    q, I_pop,
+                    pen=pg.mkPen(color, width=2, style=Qt.PenStyle.DashLine),
+                    name=f'P{pi+1}',
+                )
 
         # ── Residuals ──────────────────────────────────────────────────────
         if self.q_data is not None and len(self.q_data) == len(q):
             # attempt residuals from cached data — may be out of sync
             pass  # residuals are computed in ModelingPanel.run_fit and passed explicitly
 
-        # ── Size distributions ─────────────────────────────────────────────
+        # ── Size distributions (always all populations) ────────────────────
         self.dist_plot.clear()
         for k, pi in enumerate(result.pop_indices):
             color = POP_COLORS[pi % len(POP_COLORS)]
@@ -1841,6 +1900,7 @@ class ModelingGraphWindow(QWidget):
             'info':    ('', '#333333'),
             'working': ('#fff3cd', '#856404'),
             'success': ('#d4edda', '#155724'),
+            'warning': ('#fff3cd', '#856404'),
             'error':   ('#f8d7da', '#721c24'),
         }
         bg, fg = colours.get(style, ('', '#333333'))
@@ -1992,6 +2052,16 @@ class ModelingPanel(QWidget):
         self._mc_worker: Optional[_MCWorker] = None
         self._pre_fit_state: Optional[dict] = None   # snapshot for Revert
 
+        # Throttled autoupdate (ported from Unified Fit): single-shot timer,
+        # 150 ms; only starts when not already running. Parameter changes set
+        # a pending flag but never restart the timer, so the GUI stays
+        # responsive and graph_model() always reads the latest values.
+        self._auto_update_pending = False
+        self._auto_update_timer = QTimer()
+        self._auto_update_timer.setSingleShot(True)
+        self._auto_update_timer.setInterval(150)
+        self._auto_update_timer.timeout.connect(self._do_auto_update)
+
         self._build_ui()
         self._load_state()
 
@@ -2066,18 +2136,6 @@ class ModelingPanel(QWidget):
         q_row.addStretch()
         lay.addLayout(q_row)
 
-        # ── Background ───────────────────────────────────────────────────
-        bg_row = QHBoxLayout()
-        bg_row.addWidget(QLabel('Background:'))
-        self.bg_edit = ScrubbableLineEdit('0.0')
-        self.bg_edit.setFixedWidth(90)
-        bg_row.addWidget(self.bg_edit)
-        self.bg_fit_cb = QCheckBox('Fit')
-        self.bg_fit_cb.setChecked(True)
-        bg_row.addWidget(self.bg_fit_cb)
-        bg_row.addStretch()
-        lay.addLayout(bg_row)
-
         # ── No limits checkbox ───────────────────────────────────────────
         self.no_limits_cb = QCheckBox('No limits? (unconstrained fit)')
         self.no_limits_cb.stateChanged.connect(self._on_no_limits_changed)
@@ -2106,13 +2164,58 @@ class ModelingPanel(QWidget):
         self.pop_tabs.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+        self.pop_tabs.currentChanged.connect(self._on_pop_tab_changed)
         lay.addWidget(self.pop_tabs, stretch=1)
         lay.addWidget(_sep())
 
-        # ── Action buttons ───────────────────────────────────────────────
+        # ── Background (below the population tabs, matches Unified Fit) ──
+        bg_row = QHBoxLayout()
+        bg_row.addWidget(QLabel('Background:'))
+        self.bg_edit = ScrubbableLineEdit('0.0')
+        self.bg_edit.setFixedWidth(90)
+        self.bg_edit.setToolTip("Flat SAS background added to the model intensity.")
+        self.bg_edit.editingFinished.connect(self._on_pop_changed)
+        bg_row.addWidget(self.bg_edit)
+        self.bg_fit_cb = QCheckBox('Fit')
+        self.bg_fit_cb.setChecked(True)
+        self.bg_fit_cb.setToolTip("Vary the background during the fit.")
+        bg_row.addWidget(self.bg_fit_cb)
+        bg_row.addStretch()
+        lay.addLayout(bg_row)
+
+        # ── Display options (autoupdate + individual population curve) ────
+        opt_row = QHBoxLayout()
+        self.autoupdate_cb = QCheckBox('Autoupdate?')
+        self.autoupdate_cb.setChecked(False)
+        self.autoupdate_cb.setToolTip(
+            "Recompute and graph the model automatically when a parameter\n"
+            "changes (throttled to stay responsive). Leave off for slow models\n"
+            "and use 'Graph Model' manually."
+        )
+        self.autoupdate_cb.stateChanged.connect(self._on_autoupdate_changed)
+        opt_row.addWidget(self.autoupdate_cb)
+
+        self.show_individual_cb = QCheckBox('Show individual?')
+        self.show_individual_cb.setToolTip(
+            "Overlay the individual curve of the population in the currently\n"
+            "selected tab on top of the combined model. Switch tabs to inspect\n"
+            "another population."
+        )
+        self.show_individual_cb.stateChanged.connect(self._on_show_individual_changed)
+        opt_row.addWidget(self.show_individual_cb)
+        opt_row.addStretch()
+        lay.addLayout(opt_row)
+
+        # ── Action buttons (4-slot layout: Graph Model | (empty) | Fit | Fix limits?) ──
+        # Three buttons get equal stretch so they are the same width (~25% of
+        # the row each); slot 2 is an expanding spacer that fills the gap.
         btn_row1 = QHBoxLayout()
+        btn_row1.setSpacing(6)
+
         self.btn_graph = QPushButton('Graph Model')
-        self.btn_graph.setMinimumHeight(34)
+        self.btn_graph.setMinimumHeight(28)
+        self.btn_graph.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_graph.setStyleSheet(
             'QPushButton {background: #52c77a; color: white; font-weight: bold;'
             ' border-radius: 4px;}'
@@ -2127,7 +2230,9 @@ class ModelingPanel(QWidget):
         self.btn_graph.setEnabled(False)
 
         self.btn_fit = QPushButton('Fit')
-        self.btn_fit.setMinimumHeight(34)
+        self.btn_fit.setMinimumHeight(28)
+        self.btn_fit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_fit.setStyleSheet(
             'QPushButton {background: #27ae60; color: white; font-weight: bold;'
             ' border-radius: 4px;}'
@@ -2141,11 +2246,30 @@ class ModelingPanel(QWidget):
         self.btn_fit.clicked.connect(self.run_fit)
         self.btn_fit.setEnabled(False)
 
+        self.btn_fix_limits = QPushButton('Fix limits?')
+        self.btn_fix_limits.setMinimumHeight(28)
+        self.btn_fix_limits.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_fix_limits.setStyleSheet(
+            'QPushButton {background: #27ae60; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #229954;}'
+            'QPushButton:disabled {background: #bdc3c7;}'
+        )
+        self.btn_fix_limits.setToolTip(
+            "Set all fit limits to roughly 0.2× … 5× the current parameter values.\n"
+            "Convenient starting point before running a constrained fit."
+        )
+        self.btn_fix_limits.clicked.connect(self.fix_all_limits)
+        self.btn_fix_limits.setEnabled(False)
+
         # "Revert" lives in the standard output section below, next to
         # "Results to graph" — matches the shared template used by the
         # other fit panels.
-        btn_row1.addWidget(self.btn_graph)
-        btn_row1.addWidget(self.btn_fit)
+        btn_row1.addWidget(self.btn_graph, 1)
+        btn_row1.addStretch(1)         # slot 2 left intentionally empty
+        btn_row1.addWidget(self.btn_fit, 1)
+        btn_row1.addWidget(self.btn_fix_limits, 1)
         lay.addLayout(btn_row1)
 
         lay.addWidget(_sep())
@@ -2282,6 +2406,8 @@ class ModelingPanel(QWidget):
         self.bg_fit_cb.setChecked(mod_state.get('fit_background', True))
         nl = mod_state.get('no_limits', False)
         self.no_limits_cb.setChecked(nl)
+        self.autoupdate_cb.setChecked(mod_state.get('autoupdate', False))
+        self.show_individual_cb.setChecked(mod_state.get('show_individual', False))
         self.n_runs_spin.setValue(mod_state.get('n_mc_runs', 10))
 
         pops = mod_state.get('populations', [])
@@ -2308,6 +2434,8 @@ class ModelingPanel(QWidget):
             'background':    _parse(self.bg_edit.text(), 0.0),
             'fit_background': self.bg_fit_cb.isChecked(),
             'no_limits':     self.no_limits_cb.isChecked(),
+            'autoupdate':    self.autoupdate_cb.isChecked(),
+            'show_individual': self.show_individual_cb.isChecked(),
             'n_mc_runs':     self.n_runs_spin.value(),
             'q_min':         None,
             'q_max':         None,
@@ -2326,13 +2454,75 @@ class ModelingPanel(QWidget):
     # ── Signal handlers ──────────────────────────────────────────────────────
 
     def _on_pop_changed(self):
-        pass  # Real-time update is expensive; user presses Graph Model instead
+        # Throttled autoupdate: only fires when "Autoupdate?" is checked.
+        # The user presses "Graph Model" manually when autoupdate is off.
+        self._request_auto_update()
+
+    def _request_auto_update(self):
+        """Schedule a throttled model recompute if autoupdate is enabled.
+
+        Single-shot timer, 150 ms — parameter changes set a pending flag but
+        never restart a running timer, so the GUI stays responsive and
+        graph_model() always reads the latest values when the timer fires.
+        """
+        if not self.autoupdate_cb.isChecked():
+            return
+        if self._data_q is None:
+            return
+        if self._fit_worker is not None and self._fit_worker.isRunning():
+            return
+        self._auto_update_pending = True
+        if not self._auto_update_timer.isActive():
+            self._auto_update_timer.start()
+
+    def _do_auto_update(self):
+        """Throttled auto-update: recompute with the latest values, then
+        re-arm if more changes arrived during the (blocking) graph call."""
+        self._auto_update_pending = False
+        if (self.autoupdate_cb.isChecked() and self._data_q is not None
+                and not (self._fit_worker is not None
+                         and self._fit_worker.isRunning())):
+            self.graph_model(silent=True)
+        if self._auto_update_pending and not self._auto_update_timer.isActive():
+            self._auto_update_timer.start()
+
+    def _on_autoupdate_changed(self, _state):
+        """When autoupdate is switched on, immediately refresh the model."""
+        if self.autoupdate_cb.isChecked():
+            self._request_auto_update()
+
+    def _on_show_individual_changed(self, _state):
+        """Refresh the plot when the individual-curve overlay is toggled."""
+        if self._data_q is not None:
+            self.graph_model(silent=True)
+
+    def _on_pop_tab_changed(self, _index):
+        """When the selected population tab changes, refresh the individual
+        curve overlay if that display mode is active."""
+        if self.show_individual_cb.isChecked() and self._data_q is not None:
+            self.graph_model(silent=True)
+
+    def fix_all_limits(self):
+        """Set fit limits for every population to a sensible bracket around
+        the current values, mirroring Unified Fit's "Fix limits?" button."""
+        if self.no_limits_cb.isChecked():
+            return
+        for pw in self._pop_widgets:
+            pw.fix_limits()
+        n = sum(1 for pw in self._pop_widgets if pw.use_cb.isChecked())
+        self.graph.set_status(
+            f'Fixed fit limits for {n} active population(s).', 'success'
+        )
 
     def _on_no_limits_changed(self, state):
         no_lim = (state == Qt.CheckState.Checked.value
                   if hasattr(Qt.CheckState, 'Checked') else state == 2)
         for pw in self._pop_widgets:
             pw.set_no_limits(no_lim)
+        if hasattr(self, 'btn_fix_limits'):
+            self.btn_fix_limits.setEnabled(
+                (not no_lim) and self._data_q is not None
+            )
 
     def _on_cursor_moved(self):
         q_lo, q_hi = self.graph.get_q_range()
@@ -2429,6 +2619,7 @@ class ModelingPanel(QWidget):
 
         self.btn_graph.setEnabled(True)
         self.btn_fit.setEnabled(True)
+        self.btn_fix_limits.setEnabled(not self.no_limits_cb.isChecked())
 
     def load_file(self, file_path: Path):
         """Load SAS data from an HDF5 NXcanSAS file."""
@@ -2477,26 +2668,34 @@ class ModelingPanel(QWidget):
 
     # ── Graph Model ──────────────────────────────────────────────────────────
 
-    def graph_model(self):
-        """Calculate and display the model without fitting."""
+    def graph_model(self, silent: bool = False):
+        """Calculate and display the model without fitting.
+
+        When ``silent`` is True (autoupdate path), invalid states return
+        quietly instead of raising modal dialogs.
+        """
         if self._data_q is None:
-            QMessageBox.information(self, 'No data', 'Please open an HDF5 file first.')
+            if not silent:
+                QMessageBox.information(self, 'No data',
+                                       'Please open an HDF5 file first.')
             return
 
         try:
             config = self._build_config()
             active = [p for p in config.populations if p.enabled]
             if not active:
-                QMessageBox.information(self, 'No populations',
-                                        'Enable at least one population tab.')
+                if not silent:
+                    QMessageBox.information(self, 'No populations',
+                                            'Enable at least one population tab.')
                 return
 
             q_range = (config.q_min, config.q_max)
             mask = (self._data_q >= q_range[0]) & (self._data_q <= q_range[1])
             q = self._data_q[mask]
             if len(q) == 0:
-                QMessageBox.warning(self, 'Empty range',
-                                    'No data points in the selected Q range.')
+                if not silent:
+                    QMessageBox.warning(self, 'Empty range',
+                                        'No data points in the selected Q range.')
                 return
 
             self._engine.clear_cache()
@@ -2538,8 +2737,28 @@ class ModelingPanel(QWidget):
                                 self._data_dI, label='Data')
             self.graph._data_items = [s, e]
             set_robust_y_range(self.graph.iq_plot, self._data_I)
-            self.graph.plot_model(mock)
-            self.graph.set_status('Model graphed successfully.', 'success')
+
+            # The combined model is always drawn. "Show individual?" overlays
+            # the active tab's population curve on top of the combined model.
+            highlight = None
+            not_enabled_msg = None
+            if self.show_individual_cb.isChecked():
+                sel = self.pop_tabs.currentIndex()
+                if sel in pop_idx:
+                    highlight = sel
+                else:
+                    not_enabled_msg = (
+                        f'P{sel + 1} is not enabled — showing combined model only.'
+                    )
+            self.graph.plot_model(mock, highlight_pop=highlight)
+            if highlight is not None:
+                self.graph.set_status(
+                    f'Combined model + individual P{highlight + 1}.', 'success'
+                )
+            elif not_enabled_msg:
+                self.graph.set_status(not_enabled_msg, 'warning')
+            else:
+                self.graph.set_status('Model graphed successfully.', 'success')
 
         except Exception as e:
             import traceback
@@ -2632,7 +2851,13 @@ class ModelingPanel(QWidget):
                                 self._data_dI, label='Data')
             self.graph._data_items = [s, e]
             set_robust_y_range(self.graph.iq_plot, self._data_I)
-            self.graph.plot_model(result)
+            # Honour "Show individual?" for the fitted result too.
+            fit_highlight = None
+            if self.show_individual_cb.isChecked():
+                sel = self.pop_tabs.currentIndex()
+                if sel in result.pop_indices:
+                    fit_highlight = sel
+            self.graph.plot_model(result, highlight_pop=fit_highlight)
 
             # Residuals over fitted Q range — rescaled (robust, MAD-based) +
             # quality summary, uniform across all fit tools.

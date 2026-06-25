@@ -433,6 +433,84 @@ def _build_g_cs_sphere_by_total(
     return _cs_g_from_pairs(q, r_c, r_grid, sld_core, sld_shell, sld_solvent)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Core-Shell-Shell sphere form factor
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# A sphere with a core and TWO concentric shells.  Same SLD/contrast and unit
+# conventions as the core-shell sphere above (SLDs in 10⁻⁶ Å⁻²).  The amplitude
+# is the standard sum of three centrosymmetric sphere contributions, each
+# weighted by the SLD step crossed at its outer boundary:
+#
+#   F_css = Δρ₁ · V_core  · f_sph(q·R_core)
+#         + Δρ₂ · V_mid   · f_sph(q·R_mid)
+#         + Δρ₃ · V_total · f_sph(q·R_total)
+#
+#   Δρ₁ = (sld_core   − sld_shell1)   × 1e-6  [Å⁻²]
+#   Δρ₂ = (sld_shell1 − sld_shell2)   × 1e-6  [Å⁻²]
+#   Δρ₃ = (sld_shell2 − sld_solvent)  × 1e-6  [Å⁻²]
+#
+# G[i,j] = F_css²(q_i) / V_total(R_total[j]) × 1e-4  [cm⁻¹]
+# V_total = (4/3)π R_total³ is the ENTIRE particle, so ``scale`` encodes the
+# total-particle volume fraction.
+#
+# Polydispersity is over the CORE radius only:
+#   r_grid = R_core;  R_mid = R_core + t_shell1;  R_total = R_mid + t_shell2
+# Both shell thicknesses are fixed parameters.
+
+
+def _coreshell_shell_f(
+    q: np.ndarray,
+    r_c: float,
+    r_m: float,
+    r_t: float,
+    d_rho_1: float,
+    d_rho_2: float,
+    d_rho_3: float,
+) -> np.ndarray:
+    """Core-shell-shell sphere amplitude for a single (R_core, R_mid, R_total).
+
+    Returns F_css(q) [Å³ · Å⁻² · 10⁻⁶] — a 1-D array over q values.
+    """
+    V_c = (4.0 / 3.0) * np.pi * r_c ** 3
+    V_m = (4.0 / 3.0) * np.pi * r_m ** 3
+    V_t = (4.0 / 3.0) * np.pi * r_t ** 3
+    F_c = _sphere_amplitude(q * r_c)
+    F_m = _sphere_amplitude(q * r_m)
+    F_t = _sphere_amplitude(q * r_t)
+    return d_rho_1 * V_c * F_c + d_rho_2 * V_m * F_m + d_rho_3 * V_t * F_t
+
+
+def _build_g_css_sphere_by_core(
+    q: np.ndarray, r_grid: np.ndarray, contrast: float,
+    sld_core: float = 10.0, sld_shell1: float = 1.0, sld_shell2: float = 5.0,
+    sld_solvent: float = 9.46, t_shell1: float = 20.0, t_shell2: float = 20.0,
+) -> np.ndarray:
+    """Core-Shell-Shell Sphere G matrix — distribution over core radius.
+
+    r_grid = R_core;  R_mid = R_core + t_shell1;  R_total = R_mid + t_shell2.
+    The ``contrast`` argument is accepted for API consistency but ignored.
+    """
+    r_c = np.asarray(r_grid, dtype=float)
+    r_m = r_c + float(t_shell1)
+    r_t = r_m + float(t_shell2)
+
+    d_rho_1 = float(sld_core)   - float(sld_shell1)
+    d_rho_2 = float(sld_shell1) - float(sld_shell2)
+    d_rho_3 = float(sld_shell2) - float(sld_solvent)
+
+    M, N = len(q), len(r_c)
+    G = np.empty((M, N), dtype=float)
+    for j in range(N):
+        r_t_j = float(r_t[j])
+        V_t = (4.0 / 3.0) * np.pi * r_t_j ** 3
+        F = _coreshell_shell_f(
+            q, float(r_c[j]), float(r_m[j]), r_t_j, d_rho_1, d_rho_2, d_rho_3
+        )
+        G[:, j] = F ** 2 / V_t
+    return G * 1e-4
+
+
 def _cs_spheroid_g_from_pairs(
     q: np.ndarray,
     r_c_arr: np.ndarray,
@@ -532,6 +610,7 @@ _G_BUILDERS: dict[str, callable] = {
     'cs_sphere_by_core':    _build_g_cs_sphere_by_core,
     'cs_sphere_by_shell':   _build_g_cs_sphere_by_shell,
     'cs_sphere_by_total':   _build_g_cs_sphere_by_total,
+    'css_sphere_by_core':   _build_g_css_sphere_by_core,
     'cs_spheroid_by_core':  _build_g_cs_spheroid_by_core,
     'cs_spheroid_by_total': _build_g_cs_spheroid_by_total,
 }
