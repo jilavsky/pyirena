@@ -3057,6 +3057,7 @@ class ModelingPanel(QWidget):
                 'background':     config.background,
                 'fit_background': config.fit_background,
                 'no_limits':      config.no_limits,
+                'fit_method':     config.fit_method,
                 'n_mc_runs':      config.n_mc_runs,
                 'q_min':          config.q_min,
                 'q_max':          config.q_max,

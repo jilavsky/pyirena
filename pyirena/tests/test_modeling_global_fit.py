@@ -169,3 +169,46 @@ class TestStateMigration:
         mod = sm.state['modeling']
         assert mod['fit_method'] == 'local'
         assert mod['schema_version'] == 3
+
+
+# ── Exported JSON config carries fit_method (batch/scripting) ────────────────
+
+class TestExportJsonCarriesFitMethod:
+    """The 'Save params to JSON' export must include fit_method so a headless
+    batch run (fit_modeling) uses the method the user picked in the GUI."""
+
+    def test_export_includes_selected_fit_method(self, tmp_path, monkeypatch):
+        pytest.importorskip("pyirena.gui.modeling_panel")
+        try:
+            try:
+                from PySide6.QtWidgets import QApplication
+            except ImportError:
+                from PyQt6.QtWidgets import QApplication
+        except Exception:
+            pytest.skip("Qt not available")
+
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from pyirena.gui import modeling_panel as mp
+
+        app = QApplication.instance() or QApplication([])
+        panel = mp.ModelingPanel()
+        panel.no_limits_cb.setChecked(False)
+        gi = panel.fit_method_combo.findData('global')
+        panel.fit_method_combo.setCurrentIndex(gi)
+
+        out = tmp_path / 'cfg.json'
+        monkeypatch.setattr(
+            mp.QFileDialog, 'getSaveFileName',
+            staticmethod(lambda *a, **k: (str(out), '')),
+        )
+        panel.export_json()
+
+        data = json.loads(out.read_text())
+        assert data['modeling']['fit_method'] == 'global'
+
+        # Under no-limits the export must record the effective (local) method.
+        panel.no_limits_cb.setChecked(True)
+        panel.export_json()
+        data2 = json.loads(out.read_text())
+        assert data2['modeling']['fit_method'] == 'local'
