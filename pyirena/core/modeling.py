@@ -44,7 +44,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import numpy as np
-from scipy.optimize import least_squares, minimize
+from scipy.optimize import least_squares, minimize, differential_evolution
 from scipy.special import erf as _scipy_erf
 
 from pyirena.core import distributions as D
@@ -305,6 +305,12 @@ class ModelingConfig:
     q_max: float = 1.0
     no_limits: bool = False
     n_mc_runs: int = 10
+    # 'local'  → scipy least_squares (TRF) / Nelder-Mead in no-limits mode (default).
+    # 'global' → differential_evolution to locate the basin, then a TRF local
+    #            polish. Requires finite bounds, so it is forced to 'local'
+    #            whenever no_limits is set. Best for monodisperse core-shell /
+    #            core-shell-shell models whose χ² surface is highly multimodal.
+    fit_method: str = 'local'
 
 
 @dataclass
@@ -1277,9 +1283,68 @@ class ModelingEngine:
         self, x: np.ndarray, keys: list, config: ModelingConfig,
         q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
     ) -> float:
-        """Scalar chi² for Nelder-Mead (no-limits mode)."""
+        """Scalar chi² for Nelder-Mead (no-limits mode) and global search."""
         resid = self._residuals(x, keys, config, q, I, sigma)
         return float(np.sum(resid ** 2))
+
+    def _run_global_de(
+        self, lo_arr: np.ndarray, hi_arr: np.ndarray, keys: list,
+        cfg: ModelingConfig, q_fit: np.ndarray, I_fit: np.ndarray,
+        dI_fit: np.ndarray, x0_arr: np.ndarray, seed=None,
+    ) -> np.ndarray:
+        """Differential-evolution global search; returns the best parameter vector.
+
+        This locates the correct basin of a multimodal χ² surface (e.g. the
+        right Bessel lobe for a monodisperse core-shell radius); the caller
+        then polishes the result with a local TRF least-squares step.
+
+        Parameters that span many decades (lo > 0 and hi/lo > 100) are searched
+        in log10 space so DE samples small and large values evenly. Without
+        this, wide bounds such as scale ∈ [0, 1e10] or background ∈ [0, 1e10]
+        make uniform DE sampling almost never probe physically relevant small
+        values. The transform is internal to this method — it never touches
+        _pack_params / _unpack_params or the stored parameter values.
+
+        The cancellation hook installed by the GUI worker wraps ``_chi2``, so
+        a user "Cancel Fit" during the (slow) DE stage raises and aborts here.
+        """
+        lo_arr = np.asarray(lo_arr, dtype=float)
+        hi_arr = np.asarray(hi_arr, dtype=float)
+
+        # Decide which parameters to search in log10 space.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = np.where(lo_arr > 0, hi_arr / np.maximum(lo_arr, 1e-300), 1.0)
+        log_mask = (lo_arr > 0) & (ratio > 100.0)
+
+        def _to_internal(x):
+            t = np.array(x, dtype=float)
+            t[log_mask] = np.log10(np.clip(t[log_mask], 1e-300, None))
+            return t
+
+        def _to_real(t):
+            x = np.array(t, dtype=float)
+            x[log_mask] = 10.0 ** x[log_mask]
+            return x
+
+        t_lo = _to_internal(lo_arr)
+        t_hi = _to_internal(hi_arr)
+        t_bounds = list(zip(t_lo, t_hi))
+
+        def _de_obj(t_x, *args):
+            return self._chi2(_to_real(t_x), *args)
+
+        # Seed DE with the current guess (clamped into the transformed box) so
+        # the global search can never return something worse than the start.
+        t_x0 = np.clip(_to_internal(x0_arr), t_lo, t_hi)
+
+        de = differential_evolution(
+            _de_obj, t_bounds,
+            args=(keys, cfg, q_fit, I_fit, dI_fit),
+            strategy='best1bin', popsize=15, maxiter=300, tol=1e-2,
+            mutation=(0.5, 1.0), recombination=0.7, init='latinhypercube',
+            polish=False, x0=t_x0, updating='immediate', workers=1, seed=seed,
+        )
+        return np.clip(_to_real(de.x), lo_arr, hi_arr)
 
     def fit(
         self,
@@ -1339,8 +1404,19 @@ class ModelingEngine:
             else:
                 lo_arr = np.array(lo, dtype=float)
                 hi_arr = np.array(hi, dtype=float)
+
+                if config.fit_method == 'global':
+                    # Global search locates the basin; TRF then polishes it to
+                    # the exact minimum (and yields the Jacobian for errors).
+                    x_seed = self._run_global_de(
+                        lo_arr, hi_arr, keys, cfg,
+                        q_fit, I_fit, dI_fit, x0_arr,
+                    )
+                else:
+                    x_seed = x0_arr
+
                 result = least_squares(
-                    self._residuals, x0_arr,
+                    self._residuals, x_seed,
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     bounds=(lo_arr, hi_arr),
                     method='trf',
@@ -1422,6 +1498,10 @@ class ModelingEngine:
                 progress_cb(run_i + 1, n_runs)
             I_pert = I + dI * rng.standard_normal(len(I))
             cfg_run = deepcopy(config)
+            # MC perturbs data around the already-found solution, so a fast
+            # local refinement per run is appropriate — running the global
+            # search n_runs times would be needlessly slow.
+            cfg_run.fit_method = 'local'
             try:
                 result = self.fit(cfg_run, q, I_pert, dI)
                 x_final, _, _, keys_run = self._pack_params(deepcopy(cfg_run))

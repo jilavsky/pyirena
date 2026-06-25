@@ -1889,6 +1889,7 @@ def fit_modeling(
             q_max=float(mod_cfg.get('q_max', float(q.max()))),
             no_limits=bool(mod_cfg.get('no_limits', False)),
             n_mc_runs=int(mod_cfg.get('n_mc_runs', n_mc_runs)),
+            fit_method=str(mod_cfg.get('fit_method', 'local')),
         )
     except Exception:
         print(f"[pyirena.batch.fit_modeling] Error building ModelingConfig:\n{traceback.format_exc()}")

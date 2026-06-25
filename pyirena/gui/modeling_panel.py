@@ -2181,6 +2181,23 @@ class ModelingPanel(QWidget):
         self.bg_fit_cb.setToolTip("Vary the background during the fit.")
         bg_row.addWidget(self.bg_fit_cb)
         bg_row.addStretch()
+
+        # Fit method selector — uses the empty space right of the Background
+        # row (directly above the Fit button). Global is forced to Standard /
+        # disabled while "No limits?" is on, because it needs finite bounds.
+        bg_row.addWidget(QLabel('Fit:'))
+        self.fit_method_combo = QComboBox()
+        self.fit_method_combo.addItem('Standard (local)', 'local')
+        self.fit_method_combo.addItem('Global (DE→local)', 'global')
+        self.fit_method_combo.setToolTip(
+            "Standard: fast local least-squares (TRF / Nelder-Mead).\n"
+            "Global: differential-evolution search followed by a local polish —\n"
+            "slow but robust for multimodal χ² surfaces (monodisperse core-shell /\n"
+            "core-shell-shell with sharp form-factor oscillations).\n"
+            "Global requires fit limits, so it is disabled in 'No limits?' mode.\n"
+            "Tip: set limits and press 'Fix limits?' first for faster convergence."
+        )
+        bg_row.addWidget(self.fit_method_combo)
         lay.addLayout(bg_row)
 
         # ── Display options (autoupdate + individual population curve) ────
@@ -2408,6 +2425,9 @@ class ModelingPanel(QWidget):
         self.no_limits_cb.setChecked(nl)
         self.autoupdate_cb.setChecked(mod_state.get('autoupdate', False))
         self.show_individual_cb.setChecked(mod_state.get('show_individual', False))
+        fm = mod_state.get('fit_method', 'local')
+        fm_idx = self.fit_method_combo.findData(fm)
+        self.fit_method_combo.setCurrentIndex(fm_idx if fm_idx >= 0 else 0)
         self.n_runs_spin.setValue(mod_state.get('n_mc_runs', 10))
 
         pops = mod_state.get('populations', [])
@@ -2436,6 +2456,9 @@ class ModelingPanel(QWidget):
             'no_limits':     self.no_limits_cb.isChecked(),
             'autoupdate':    self.autoupdate_cb.isChecked(),
             'show_individual': self.show_individual_cb.isChecked(),
+            # Persist the raw selection (not the no-limits-forced value) so the
+            # user's choice survives toggling 'No limits?'.
+            'fit_method':    self.fit_method_combo.currentData() or 'local',
             'n_mc_runs':     self.n_runs_spin.value(),
             'q_min':         None,
             'q_max':         None,
@@ -2523,6 +2546,12 @@ class ModelingPanel(QWidget):
             self.btn_fix_limits.setEnabled(
                 (not no_lim) and self._data_q is not None
             )
+        # Global fit needs finite bounds. Grey out the selector while
+        # unconstrained fitting is active (the fit itself is forced to local
+        # via _current_fit_method); the selection is kept, not reset, so the
+        # user's choice returns when 'No limits?' is switched back off.
+        if hasattr(self, 'fit_method_combo'):
+            self.fit_method_combo.setEnabled(not no_lim)
 
     def _on_cursor_moved(self):
         q_lo, q_hi = self.graph.get_q_range()
@@ -2645,6 +2674,13 @@ class ModelingPanel(QWidget):
 
     # ── Build ModelingConfig from GUI ────────────────────────────────────────
 
+    def _current_fit_method(self) -> str:
+        """Selected fit method, forced to 'local' in no-limits mode (the
+        global search needs finite bounds)."""
+        if self.no_limits_cb.isChecked():
+            return 'local'
+        return self.fit_method_combo.currentData() or 'local'
+
     def _build_config(self) -> ModelingConfig:
         populations = [pw.to_population() for pw in self._pop_widgets]
         q_lo, q_hi = self.graph.get_q_range()
@@ -2657,6 +2693,7 @@ class ModelingPanel(QWidget):
             q_max=q_hi,
             no_limits=self.no_limits_cb.isChecked(),
             n_mc_runs=self.n_runs_spin.value(),
+            fit_method=self._current_fit_method(),
         )
 
     def _write_config_back(self, config: ModelingConfig):

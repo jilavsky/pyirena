@@ -311,12 +311,13 @@ class StateManager:
             "similarity_normalize_scale": True,
         },
         "modeling": {
-            "schema_version": 2,
+            "schema_version": 3,
             "q_min": None,
             "q_max": None,
             "background": 0.0,
             "fit_background": True,
             "no_limits": False,
+            "fit_method": "local",
             "n_mc_runs": 10,
             "populations": [
                 # Population 0 — enabled by default
@@ -603,11 +604,13 @@ class StateManager:
             # the on-disk value) whenever the key is absent in the loaded file.
             loaded_sizes_version    = loaded_state.get('sizes',      {}).get('schema_version', 1)
             loaded_ai_advisor_version = loaded_state.get('ai_advisor', {}).get('schema_version', 1)
+            loaded_modeling_version = loaded_state.get('modeling',   {}).get('schema_version', 1)
 
             # Merge loaded state with defaults (in case new fields were added)
             self.state = self._merge_state(self.DEFAULT_STATE, loaded_state)
             # Apply any default-value migrations for changed schema versions
-            self._migrate_state(loaded_sizes_version, loaded_ai_advisor_version)
+            self._migrate_state(loaded_sizes_version, loaded_ai_advisor_version,
+                                loaded_modeling_version)
             print(f"Loaded state from: {self.state_file}")
             return True
 
@@ -747,7 +750,8 @@ class StateManager:
             return False
 
     def _migrate_state(self, loaded_sizes_version: int = None,
-                        loaded_ai_advisor_version: int = None):
+                        loaded_ai_advisor_version: int = None,
+                        loaded_modeling_version: int = None):
         """
         Upgrade saved state to current schema.
 
@@ -831,6 +835,24 @@ class StateManager:
 
             ai['schema_version'] = 3
             self.state['ai_advisor'] = ai
+
+        # ------------------------------------------------------------------
+        # modeling migrations
+        # ------------------------------------------------------------------
+        modeling = self.state.get('modeling', {})
+        stored_modeling_version = (
+            loaded_modeling_version if loaded_modeling_version is not None
+            else modeling.get('schema_version', 1)
+        )
+        target_modeling_version = self.DEFAULT_STATE['modeling']['schema_version']
+
+        if stored_modeling_version < 3 <= target_modeling_version:
+            # schema_version 2 → 3: fit_method added (Standard local vs Global
+            # DE→local). Old states default to the existing local behaviour.
+            modeling.setdefault('fit_method',
+                                self.DEFAULT_STATE['modeling']['fit_method'])
+            modeling['schema_version'] = 3
+            self.state['modeling'] = modeling
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:
         """

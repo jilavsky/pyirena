@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Modeling: Global fit option (Differential Evolution → local polish).** New
+  "Fit" method selector (right of the Background field) offering **Standard
+  (local)** — the unchanged default — and **Global (DE→local)**. The global
+  method runs `scipy.optimize.differential_evolution` to locate the correct
+  basin of a multimodal χ² surface, then polishes with the existing TRF
+  least-squares step. Intended for monodisperse **core-shell** and
+  **core-shell-shell** spheres, whose sharp Bessel oscillations trap local
+  fitters in the wrong minimum. Parameters spanning many decades are searched
+  in log space internally so the global search samples small and large values
+  evenly. Global requires finite bounds, so it is disabled and forced to
+  Standard while **No limits?** is checked; pairs naturally with **Fix limits?**.
+  Cancellation works during the global stage, and Monte-Carlo uncertainty
+  always uses the fast local refinement. Threaded through GUI, session state
+  (schema 2→3), NXcanSAS setup save/load, and the `fit_modeling` batch API
+  (`"fit_method": "global"` in the config's `modeling` section).
+- **Modeling: Core-shell-shell sphere form factor** (distribution over the core
+  radius; both shell thicknesses fixed).
+- **Modeling: Autoupdate, Show individual, and Fix limits controls** mirroring
+  the Unified Fit panel.
+
 ### Fixed
 
 - **Unified Fit: SAS Background field shows unparseable string on first launch.**
