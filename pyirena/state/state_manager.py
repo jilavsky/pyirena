@@ -311,13 +311,14 @@ class StateManager:
             "similarity_normalize_scale": True,
         },
         "modeling": {
-            "schema_version": 3,
+            "schema_version": 4,
             "q_min": None,
             "q_max": None,
             "background": 0.0,
             "fit_background": True,
             "no_limits": False,
             "fit_method": "local",
+            "de_workers": 1,
             "n_mc_runs": 10,
             "populations": [
                 # Population 0 — enabled by default
@@ -852,6 +853,14 @@ class StateManager:
             modeling.setdefault('fit_method',
                                 self.DEFAULT_STATE['modeling']['fit_method'])
             modeling['schema_version'] = 3
+            self.state['modeling'] = modeling
+
+        if stored_modeling_version < 4 <= target_modeling_version:
+            # schema_version 3 → 4: de_workers added (parallel Global search).
+            # Old states default to serial (1).
+            modeling.setdefault('de_workers',
+                                self.DEFAULT_STATE['modeling']['de_workers'])
+            modeling['schema_version'] = 4
             self.state['modeling'] = modeling
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:

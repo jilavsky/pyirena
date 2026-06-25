@@ -1989,7 +1989,13 @@ class _FitWorker(QThread):
             self._engine._residuals = _checked_residuals
             self._engine._chi2 = _checked_chi2
             try:
-                result = self._engine.fit(self._config, self._q, self._I, self._dI)
+                # cancel_cb lets the parallel global search (workers > 1) poll
+                # for cancellation via the DE per-generation callback, since its
+                # worker processes can't see the wrapped _chi2 above.
+                result = self._engine.fit(
+                    self._config, self._q, self._I, self._dI,
+                    cancel_cb=lambda: worker._cancelled,
+                )
                 self.finished.emit(result)
             finally:
                 # Restore original methods
@@ -2197,7 +2203,26 @@ class ModelingPanel(QWidget):
             "Global requires fit limits, so it is disabled in 'No limits?' mode.\n"
             "Tip: set limits and press 'Fix limits?' first for faster convergence."
         )
+        self.fit_method_combo.currentIndexChanged.connect(
+            self._sync_de_workers_enabled)
         bg_row.addWidget(self.fit_method_combo)
+
+        # Parallel worker processes for the Global search. 1 = serial (default).
+        # Only meaningful for Global; greyed out otherwise. Capped at CPU count.
+        bg_row.addWidget(QLabel('cores:'))
+        self.de_workers_spin = QSpinBox()
+        self.de_workers_spin.setMinimum(1)
+        self.de_workers_spin.setMaximum(max(1, os.cpu_count() or 1))
+        self.de_workers_spin.setValue(1)
+        self.de_workers_spin.setFixedWidth(48)
+        self.de_workers_spin.setToolTip(
+            "Worker processes for the Global (DE) search.\n"
+            "1 = serial (default). Higher values evaluate the DE population in\n"
+            "parallel across CPU cores — a large speedup for slow global fits.\n"
+            "Only used by the Global method; ignored by Standard. If the host\n"
+            "cannot start workers, the fit falls back to serial automatically."
+        )
+        bg_row.addWidget(self.de_workers_spin)
         lay.addLayout(bg_row)
 
         # ── Display options (autoupdate + individual population curve) ────
@@ -2428,6 +2453,10 @@ class ModelingPanel(QWidget):
         fm = mod_state.get('fit_method', 'local')
         fm_idx = self.fit_method_combo.findData(fm)
         self.fit_method_combo.setCurrentIndex(fm_idx if fm_idx >= 0 else 0)
+        dw = int(mod_state.get('de_workers', 1))
+        self.de_workers_spin.setValue(
+            max(self.de_workers_spin.minimum(),
+                min(dw, self.de_workers_spin.maximum())))
         self.n_runs_spin.setValue(mod_state.get('n_mc_runs', 10))
 
         pops = mod_state.get('populations', [])
@@ -2459,6 +2488,7 @@ class ModelingPanel(QWidget):
             # Persist the raw selection (not the no-limits-forced value) so the
             # user's choice survives toggling 'No limits?'.
             'fit_method':    self.fit_method_combo.currentData() or 'local',
+            'de_workers':    self.de_workers_spin.value(),
             'n_mc_runs':     self.n_runs_spin.value(),
             'q_min':         None,
             'q_max':         None,
@@ -2552,6 +2582,7 @@ class ModelingPanel(QWidget):
         # user's choice returns when 'No limits?' is switched back off.
         if hasattr(self, 'fit_method_combo'):
             self.fit_method_combo.setEnabled(not no_lim)
+        self._sync_de_workers_enabled()
 
     def _on_cursor_moved(self):
         q_lo, q_hi = self.graph.get_q_range()
@@ -2681,6 +2712,15 @@ class ModelingPanel(QWidget):
             return 'local'
         return self.fit_method_combo.currentData() or 'local'
 
+    def _sync_de_workers_enabled(self, *_):
+        """The 'cores' spinbox is only meaningful for the Global method with
+        finite bounds; grey it out otherwise."""
+        if not hasattr(self, 'de_workers_spin'):
+            return
+        is_global = (self.fit_method_combo.currentData() == 'global'
+                     and not self.no_limits_cb.isChecked())
+        self.de_workers_spin.setEnabled(is_global)
+
     def _build_config(self) -> ModelingConfig:
         populations = [pw.to_population() for pw in self._pop_widgets]
         q_lo, q_hi = self.graph.get_q_range()
@@ -2694,6 +2734,7 @@ class ModelingPanel(QWidget):
             no_limits=self.no_limits_cb.isChecked(),
             n_mc_runs=self.n_runs_spin.value(),
             fit_method=self._current_fit_method(),
+            de_workers=self.de_workers_spin.value(),
         )
 
     def _write_config_back(self, config: ModelingConfig):
@@ -3058,6 +3099,7 @@ class ModelingPanel(QWidget):
                 'fit_background': config.fit_background,
                 'no_limits':      config.no_limits,
                 'fit_method':     config.fit_method,
+                'de_workers':     config.de_workers,
                 'n_mc_runs':      config.n_mc_runs,
                 'q_min':          config.q_min,
                 'q_max':          config.q_max,

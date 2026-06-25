@@ -63,6 +63,84 @@ class TestConfigDefaults:
         cfg = ModelingConfig()
         assert cfg.fit_method == 'local'
 
+    def test_de_workers_default_is_serial(self):
+        cfg = ModelingConfig()
+        assert cfg.de_workers == 1
+
+
+# ── Parallel global search (de_workers) ──────────────────────────────────────
+
+class TestParallelGlobal:
+    def test_de_objective_pickles_and_matches_chi2(self):
+        """The parallel objective must pickle (to worker processes) and return
+        the same χ² as the engine's own _chi2."""
+        import pickle
+        from pyirena.core.modeling import _DEObjective
+
+        q, I_obs, dI = _make_sphere_dataset(true_r=80.0)
+        eng = ModelingEngine()
+        cfg = _make_fit_config('global', start_r=78.0)
+        x0, lo, hi, keys = eng._pack_params(cfg)
+        x0 = np.array(x0)
+        log_mask = np.zeros(len(keys), dtype=bool)  # no transform → direct
+        obj = _DEObjective(ModelingEngine(), keys, cfg, q, I_obs, dI, log_mask)
+
+        obj2 = pickle.loads(pickle.dumps(obj))   # survives the worker boundary
+        expected = eng._chi2(x0, keys, cfg, q, I_obs, dI)
+        assert obj(x0) == pytest.approx(expected)
+        assert obj2(x0) == pytest.approx(expected)
+
+    def test_parallel_failure_falls_back_to_serial(self, monkeypatch):
+        """If multiprocessing fails (workers != 1), the fit must retry serially
+        and still complete — never propagate the multiprocessing error."""
+        import pyirena.core.modeling as M
+
+        calls = []
+
+        class _FakeResult:
+            pass
+
+        def fake_de(func, bounds, **kw):
+            calls.append(kw.get('workers'))
+            if kw.get('workers', 1) != 1:
+                raise RuntimeError("simulated multiprocessing failure")
+            r = _FakeResult()
+            r.x = np.array([0.5 * (b[0] + b[1]) for b in bounds])
+            return r
+
+        monkeypatch.setattr(M, 'differential_evolution', fake_de)
+
+        q, I_obs, dI = _make_sphere_dataset(true_r=80.0)
+        eng = ModelingEngine()
+        cfg = _make_fit_config('global', start_r=78.0)
+        cfg.de_workers = 4
+
+        with pytest.warns(RuntimeWarning):
+            eng.fit(cfg, q, I_obs, dI)
+
+        # Attempted parallel (4), then fell back to serial (1).
+        assert calls[0] == 4
+        assert 1 in calls
+
+    def test_parallel_recovers_radius(self, monkeypatch):
+        """End-to-end: a real 2-worker global fit recovers the true radius
+        (identical optimum to serial)."""
+        q, I_obs, dI = _make_sphere_dataset(true_r=80.0)
+        eng = ModelingEngine()
+
+        # Seed the DE stage for a deterministic assertion.
+        _orig = eng._run_global_de
+        monkeypatch.setattr(
+            eng, '_run_global_de',
+            lambda *a, **k: _orig(*a, **{**k, 'seed': 0}),
+        )
+
+        cfg = _make_fit_config('global', start_r=150.0)
+        cfg.de_workers = 2
+        res = eng.fit(cfg, q, I_obs, dI)
+        r = res.config.populations[0].dist_params['mean_size']
+        assert abs(r - 80.0) < 6.0, f"parallel global R={r}"
+
 
 # ── Global vs local behaviour ────────────────────────────────────────────────
 
@@ -156,7 +234,7 @@ class TestLogSampling:
 # ── State migration (schema 2 → 3 adds fit_method) ───────────────────────────
 
 class TestStateMigration:
-    def test_old_modeling_state_gains_fit_method(self, tmp_path):
+    def test_old_modeling_state_gains_fit_method_and_de_workers(self, tmp_path):
         from pyirena.state.state_manager import StateManager
 
         old = {
@@ -175,8 +253,10 @@ class TestStateMigration:
         sm = StateManager(state_file=f)
         assert sm.load() is True
         mod = sm.state['modeling']
+        # 2 → 3 added fit_method, 3 → 4 added de_workers; both default safely.
         assert mod['fit_method'] == 'local'
-        assert mod['schema_version'] == 3
+        assert mod['de_workers'] == 1
+        assert mod['schema_version'] == 4
 
 
 # ── Exported JSON config carries fit_method (batch/scripting) ────────────────

@@ -496,6 +496,20 @@ visibly sticks at a poor solution; use Standard for routine, well-behaved
 - Monte-Carlo uncertainty always uses the fast local refinement, even when the
   main fit used Global.
 
+**Parallel global fits (`cores`).** The **cores** spinbox next to the method
+selector sets how many worker processes evaluate the DE population in parallel.
+It is enabled only for Global with finite limits. `1` (default) runs serially;
+higher values give a large speedup on multi-core machines for slow fits — e.g.
+a core-shell global fit that takes ~60 s serially drops to ~17 s on 6 cores.
+Notes:
+- The result is independent of the worker count (same minimum, same χ²).
+- Speedup only helps when each model evaluation is non-trivial (core-shell,
+  spheroidal, large Q arrays / many bins). For cheap models the process
+  overhead can make parallel *no faster* — leave `cores` at 1 there.
+- If the host cannot start worker processes, the fit **falls back to serial
+  automatically** (a warning is logged); it never fails for this reason.
+- Workers are pinned to single-threaded BLAS to avoid CPU oversubscription.
+
 ---
 
 ## MC Uncertainty

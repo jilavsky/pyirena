@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Modeling: Parallel global fits (`cores`).** New spinbox beside the Fit-method
+  selector sets the number of worker processes for the Global (DE) search
+  (`de_workers`; default 1 = serial). Higher values evaluate the DE population
+  in parallel across CPU cores — e.g. a core-shell global fit drops from ~60 s
+  to ~17 s on 6 cores — with identical results. Enabled only for Global with
+  finite limits; pins workers to single-threaded BLAS to avoid oversubscription;
+  cancellation works during the parallel stage via the DE per-generation
+  callback; and any multiprocessing failure falls back to a serial run
+  automatically. Threaded through GUI, session state (schema 3→4), JSON export,
+  and the `fit_modeling` batch API (`"de_workers"` key).
 - **Modeling: Global fit option (Differential Evolution → local polish).** New
   "Fit" method selector (right of the Background field) offering **Standard
   (local)** — the unchanged default — and **Global (DE→local)**. The global

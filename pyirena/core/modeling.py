@@ -38,6 +38,8 @@ from __future__ import annotations
 import warnings
 import hashlib
 import json
+import os
+import contextlib
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -46,6 +48,64 @@ from typing import Any, Optional
 import numpy as np
 from scipy.optimize import least_squares, minimize, differential_evolution
 from scipy.special import erf as _scipy_erf
+
+
+# Thread-count environment variables read by the common BLAS / OpenMP backends.
+# When running differential_evolution across worker processes we pin these to 1
+# so N workers don't each spawn a full BLAS thread pool and oversubscribe the
+# CPU. macOS Accelerate uses VECLIB_MAXIMUM_THREADS.
+_BLAS_THREAD_ENV = (
+    'OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
+    'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS',
+)
+
+
+@contextlib.contextmanager
+def _limit_blas_threads(n: int = 1):
+    """Temporarily pin BLAS/OpenMP thread counts (best-effort, restored after).
+
+    Spawned worker processes (macOS/Windows 'spawn') re-import numpy and read
+    these vars at import time, so setting them here before launching the DE
+    worker pool keeps each worker single-threaded.
+    """
+    saved = {k: os.environ.get(k) for k in _BLAS_THREAD_ENV}
+    try:
+        for k in _BLAS_THREAD_ENV:
+            os.environ[k] = str(n)
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+class _DEObjective:
+    """Picklable differential-evolution objective for parallel (workers>1) runs.
+
+    A nested closure cannot be pickled to worker processes, and the GUI
+    monkey-patches ``engine._chi2`` for cancellation (also unpicklable). This
+    class carries only picklable state (a clean engine, the deep-copied config,
+    the data arrays, and the log-sampling mask) and converts the internally
+    log-scaled trial vector back to real units before evaluating χ². It must be
+    module-level so ``pickle`` can reference it by qualified name.
+    """
+
+    def __init__(self, engine, keys, cfg, q, I, sigma, log_mask):
+        self.engine = engine
+        self.keys = keys
+        self.cfg = cfg
+        self.q = q
+        self.I = I
+        self.sigma = sigma
+        self.log_mask = np.asarray(log_mask, dtype=bool)
+
+    def __call__(self, t_x):
+        x = np.array(t_x, dtype=float)
+        if self.log_mask.any():
+            x[self.log_mask] = 10.0 ** x[self.log_mask]
+        return self.engine._chi2(x, self.keys, self.cfg, self.q, self.I, self.sigma)
 
 from pyirena.core import distributions as D
 from pyirena.core.form_factors import build_g_matrix, bin_widths
@@ -311,6 +371,11 @@ class ModelingConfig:
     #            whenever no_limits is set. Best for monodisperse core-shell /
     #            core-shell-shell models whose χ² surface is highly multimodal.
     fit_method: str = 'local'
+    # Worker processes for the global (DE) search. 1 = serial (default); N > 1
+    # or -1 (all cores) evaluates the DE population in parallel. Only affects
+    # the global method; the serial path is unchanged. Falls back to serial
+    # automatically if multiprocessing fails on the host.
+    de_workers: int = 1
 
 
 @dataclass
@@ -1291,6 +1356,7 @@ class ModelingEngine:
         self, lo_arr: np.ndarray, hi_arr: np.ndarray, keys: list,
         cfg: ModelingConfig, q_fit: np.ndarray, I_fit: np.ndarray,
         dI_fit: np.ndarray, x0_arr: np.ndarray, seed=None,
+        workers: int = 1, cancel_cb=None,
     ) -> np.ndarray:
         """Differential-evolution global search; returns the best parameter vector.
 
@@ -1305,8 +1371,14 @@ class ModelingEngine:
         values. The transform is internal to this method — it never touches
         _pack_params / _unpack_params or the stored parameter values.
 
-        The cancellation hook installed by the GUI worker wraps ``_chi2``, so
-        a user "Cancel Fit" during the (slow) DE stage raises and aborts here.
+        Cancellation:
+          * Serial (workers == 1): the GUI worker wraps ``_chi2``, so a "Cancel
+            Fit" raises out of each evaluation, as before.
+          * Parallel (workers != 1): the wrapped ``_chi2`` cannot be pickled to
+            worker processes, so a picklable objective on a clean engine is used
+            instead and cancellation is polled via the DE ``callback`` (which
+            runs in the main process once per generation). ``cancel_cb`` returns
+            True to stop. Any multiprocessing failure falls back to a serial run.
         """
         lo_arr = np.asarray(lo_arr, dtype=float)
         hi_arr = np.asarray(hi_arr, dtype=float)
@@ -1330,20 +1402,61 @@ class ModelingEngine:
         t_hi = _to_internal(hi_arr)
         t_bounds = list(zip(t_lo, t_hi))
 
-        def _de_obj(t_x, *args):
-            return self._chi2(_to_real(t_x), *args)
-
         # Seed DE with the current guess (clamped into the transformed box) so
         # the global search can never return something worse than the start.
         t_x0 = np.clip(_to_internal(x0_arr), t_lo, t_hi)
 
-        de = differential_evolution(
-            _de_obj, t_bounds,
-            args=(keys, cfg, q_fit, I_fit, dI_fit),
+        common = dict(
             strategy='best1bin', popsize=15, maxiter=300, tol=1e-2,
             mutation=(0.5, 1.0), recombination=0.7, init='latinhypercube',
-            polish=False, x0=t_x0, updating='immediate', workers=1, seed=seed,
+            polish=False, x0=t_x0, seed=seed,
         )
+
+        def _serial_de():
+            # Serial objective uses self._chi2 (possibly the GUI-wrapped one),
+            # so per-evaluation cancellation keeps working. scipy appends the
+            # tuple passed via `args` to each call: _de_obj(x, *args).
+            def _de_obj(t_x, *args):
+                return self._chi2(_to_real(t_x), *args)
+            return differential_evolution(
+                _de_obj, t_bounds,
+                args=(keys, cfg, q_fit, I_fit, dI_fit),
+                updating='immediate', workers=1, **common,
+            )
+
+        if workers == 1:
+            de = _serial_de()
+        else:
+            # Parallel: build a picklable objective on a *clean* engine (the
+            # live engine may carry a GUI cancellation monkey-patch that cannot
+            # be pickled), and poll cancellation via the per-generation callback.
+            objective = _DEObjective(
+                ModelingEngine(), keys, deepcopy(cfg),
+                q_fit, I_fit, dI_fit, log_mask,
+            )
+
+            # Legacy-style callback (no `intermediate_result` param) → scipy
+            # calls it as (xk, convergence=…) and stops when it returns True.
+            def _cb(*_a, **_k):
+                return bool(cancel_cb()) if cancel_cb is not None else False
+
+            try:
+                # _DEObjective carries keys/cfg/data itself, so no `args` here.
+                with _limit_blas_threads(1):
+                    de = differential_evolution(
+                        objective, t_bounds,
+                        updating='deferred', workers=workers, callback=_cb,
+                        **common,
+                    )
+            except Exception as exc:
+                # Multiprocessing can fail on some hosts (spawn/pickling/frozen
+                # apps). Never fail the fit for it — fall back to serial.
+                warnings.warn(
+                    f"Parallel global fit failed ({exc!r}); running serially.",
+                    RuntimeWarning,
+                )
+                de = _serial_de()
+
         return np.clip(_to_real(de.x), lo_arr, hi_arr)
 
     def fit(
@@ -1352,6 +1465,7 @@ class ModelingEngine:
         q: np.ndarray,
         I: np.ndarray,
         dI: np.ndarray,
+        cancel_cb=None,
     ) -> ModelingResult:
         """Fit the multi-population model to SAS data.
 
@@ -1362,6 +1476,10 @@ class ModelingEngine:
             q:      Scattering vector [Å⁻¹].
             I:      Measured intensity [cm⁻¹].
             dI:     Measurement uncertainty (σ) [cm⁻¹].
+            cancel_cb: optional callable returning True to abort. Used by the
+                parallel global search (workers > 1) to poll for "Cancel Fit"
+                via the DE per-generation callback (the serial path cancels
+                through the GUI's per-evaluation _chi2 wrapper instead).
 
         Returns:
             ModelingResult containing fitted parameters and derived quantities.
@@ -1411,6 +1529,8 @@ class ModelingEngine:
                     x_seed = self._run_global_de(
                         lo_arr, hi_arr, keys, cfg,
                         q_fit, I_fit, dI_fit, x0_arr,
+                        workers=getattr(config, 'de_workers', 1),
+                        cancel_cb=cancel_cb,
                     )
                 else:
                     x_seed = x0_arr
