@@ -447,10 +447,12 @@ Population colors are fixed per index:
 | Control | Description |
 |---------|-------------|
 | **Background** | Flat additive background [cm⁻¹]; check **Fit** to optimize it |
+| **Fit** (method) | Selector to the right of Background: **Standard (local)** or **Global (DE→local)** — see below |
 | **No limits?** | When checked, fitting is unconstrained (Nelder-Mead); unchecked uses TRF with bounds |
 | **Qmin / Qmax** | Q range for fitting (drag the vertical cursor lines in the graph) |
 | **Graph Model** | Compute and display the forward model without fitting |
-| **Fit** | Run least-squares optimization and update all parameters |
+| **Fix limits?** | Set every fit limit to ≈0.2×…5× the current value (clamped to valid ranges) — a quick way to bound a constrained or global fit |
+| **Fit** | Run optimization and update all parameters |
 
 **Fit parameters:** Each population has "Fit?" checkboxes per parameter. Unchecked
 parameters are held fixed during optimization. This lets you fix physically known
@@ -459,6 +461,54 @@ quantities (e.g. P=4 for Porod scattering) while fitting others.
 **Fitting algorithm:**
 - With limits: `scipy.optimize.least_squares` with Trust Region Reflective (TRF)
 - No limits: `scipy.optimize.minimize` with Nelder-Mead
+
+### Fit method: Standard vs Global
+
+The **Fit** method selector (right of the Background field) chooses how the
+optimizer searches parameter space:
+
+- **Standard (local)** — the default; behaves exactly as before. Fast,
+  gradient/Gauss-Newton search (TRF, or Nelder-Mead in *No limits* mode). It
+  converges to the nearest minimum of the starting guess.
+- **Global (DE→local)** — `scipy.optimize.differential_evolution` (a genetic /
+  evolutionary global search) locates the correct basin, then a local TRF step
+  polishes it to the exact minimum and produces the Jacobian used for
+  uncertainties.
+
+**When to use Global.** Monodisperse and near-monodisperse form factors — in
+particular **core-shell** and **core-shell-shell spheres** — produce sharp
+Bessel-function oscillations and a highly multimodal χ² surface with many local
+minima (one per oscillation lobe). A local fit started from the wrong radius
+gets trapped in the wrong lobe. The global search reliably finds the true
+minimum at the cost of being substantially slower. Use it when a Standard fit
+visibly sticks at a poor solution; use Standard for routine, well-behaved
+(e.g. polydisperse) models.
+
+**Notes / requirements:**
+- Global needs finite fit limits, so the selector is **disabled and forced to
+  Standard when "No limits?" is checked**.
+- Set sensible limits and press **Fix limits?** first — tighter bounds make the
+  global search converge much faster.
+- Parameters whose limits span many decades (scale, background, amplitudes) are
+  searched internally in log space so the search samples small and large values
+  evenly. This is automatic and does not change the stored values or units.
+- **Cancel Fit** works during the (slow) global stage.
+- Monte-Carlo uncertainty always uses the fast local refinement, even when the
+  main fit used Global.
+
+**Parallel global fits (`cores`).** The **cores** spinbox next to the method
+selector sets how many worker processes evaluate the DE population in parallel.
+It is enabled only for Global with finite limits. `1` (default) runs serially;
+higher values give a large speedup on multi-core machines for slow fits — e.g.
+a core-shell global fit that takes ~60 s serially drops to ~17 s on 6 cores.
+Notes:
+- The result is independent of the worker count (same minimum, same χ²).
+- Speedup only helps when each model evaluation is non-trivial (core-shell,
+  spheroidal, large Q arrays / many bins). For cheap models the process
+  overhead can make parallel *no faster* — leave `cores` at 1 there.
+- If the host cannot start worker processes, the fit **falls back to serial
+  automatically** (a warning is logged); it never fails for this reason.
+- Workers are pinned to single-threaded BLAS to avoid CPU oversubscription.
 
 ---
 

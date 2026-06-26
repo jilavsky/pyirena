@@ -486,9 +486,18 @@ result = fit_modeling(
 3. **Builds populations** — deserializes each population dict from the config into
    the appropriate dataclass based on the `pop_type` field.
 4. **Runs the fit** — `ModelingEngine.fit()` using `scipy.optimize.least_squares`
-   (TRF with bounds) or Nelder-Mead when `no_limits=True`.
+   (TRF with bounds) or Nelder-Mead when `no_limits=True`. If the config's
+   `modeling` section sets `"fit_method": "global"`, a `differential_evolution`
+   global search runs first to locate the basin, followed by a local TRF polish
+   (recommended for multimodal monodisperse core-shell / core-shell-shell fits).
+   `fit_method` is ignored — forced to local — when `no_limits` is true, since
+   the global search needs finite bounds. The `"de_workers"` key (int, default
+   `1`) sets the number of worker processes for the global search; `>1` or `-1`
+   (all cores) parallelizes the DE population evaluation, with automatic
+   fallback to serial if the host cannot start workers.
 5. **MC uncertainty** *(if `with_uncertainty=True`)* — re-fits `n_mc_runs` noise-perturbed
-   copies of the data and accumulates per-parameter standard deviations.
+   copies of the data and accumulates per-parameter standard deviations (always
+   using the fast local refinement, even when `fit_method` is `global`).
 6. **Saves results** *(if `save_to_nexus=True` and input is HDF5)* — writes
    `entry/modeling_results` to the HDF5 file.
 7. **Returns** a result dict (see below).

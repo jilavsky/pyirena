@@ -18,6 +18,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0]
 
+### Added
+
+- **Modeling: Parallel global fits (`cores`).** New spinbox beside the Fit-method
+  selector sets the number of worker processes for the Global (DE) search
+  (`de_workers`; default 1 = serial). Higher values evaluate the DE population
+  in parallel across CPU cores — e.g. a core-shell global fit drops from ~60 s
+  to ~17 s on 6 cores — with identical results. Enabled only for Global with
+  finite limits; pins workers to single-threaded BLAS to avoid oversubscription;
+  cancellation works during the parallel stage via the DE per-generation
+  callback; and any multiprocessing failure falls back to a serial run
+  automatically. Threaded through GUI, session state (schema 3→4), JSON export,
+  and the `fit_modeling` batch API (`"de_workers"` key).
+- **Modeling: Global fit option (Differential Evolution → local polish).** New
+  "Fit" method selector (right of the Background field) offering **Standard
+  (local)** — the unchanged default — and **Global (DE→local)**. The global
+  method runs `scipy.optimize.differential_evolution` to locate the correct
+  basin of a multimodal χ² surface, then polishes with the existing TRF
+  least-squares step. Intended for monodisperse **core-shell** and
+  **core-shell-shell** spheres, whose sharp Bessel oscillations trap local
+  fitters in the wrong minimum. Parameters spanning many decades are searched
+  in log space internally so the global search samples small and large values
+  evenly. Global requires finite bounds, so it is disabled and forced to
+  Standard while **No limits?** is checked; pairs naturally with **Fix limits?**.
+  Cancellation works during the global stage, and Monte-Carlo uncertainty
+  always uses the fast local refinement. Threaded through GUI, session state
+  (schema 2→3), NXcanSAS setup save/load, and the `fit_modeling` batch API
+  (`"fit_method": "global"` in the config's `modeling` section).
+- **Modeling: Core-shell-shell sphere form factor** (distribution over the core
+  radius; both shell thicknesses fixed).
+- **Modeling: Autoupdate, Show individual, and Fix limits controls** mirroring
+  the Unified Fit panel.
+
 ### Fixed
 
 - **Unified Fit: SAS Background field shows unparseable string on first launch.**
