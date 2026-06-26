@@ -1,0 +1,553 @@
+{
+  "_pyirena_config": {
+    "tool": "modeling"
+  },
+  "modeling": {
+    "background": 0.0,
+    "fit_background": false,
+    "no_limits": false,
+    "fit_method": "global",
+    "n_mc_runs": 10,
+    "q_min": 0.0004783399429016137,
+    "q_max": 0.30002980619426184,
+    "populations": [
+      {
+        "pop_type": "size_dist",
+        "enabled": true,
+        "label": "Particle",
+        "dist_type": "gauss",
+        "dist_params": {
+          "mean_size": 332.8,
+          "width": 0.05
+        },
+        "dist_params_fit": {
+          "mean_size": true,
+          "width": false
+        },
+        "dist_params_limits": {
+          "mean_size": [
+            100.0,
+            500.0
+          ],
+          "width": [
+            0.01,
+            0.1
+          ]
+        },
+        "form_factor": "cs_sphere_by_core",
+        "ff_params": {
+          "sld_core": 50.0,
+          "sld_shell": 24.28,
+          "sld_solvent": 0.0,
+          "t_shell": 14.09
+        },
+        "ff_params_fit": {
+          "sld_core": false,
+          "sld_shell": true,
+          "sld_solvent": false,
+          "t_shell": true
+        },
+        "ff_params_limits": {
+          "sld_core": [
+            10.0,
+            100.0
+          ],
+          "sld_shell": [
+            6.0,
+            100.0
+          ],
+          "sld_solvent": [
+            -100.0,
+            100.0
+          ],
+          "t_shell": [
+            2.0,
+            50.0
+          ]
+        },
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.05214,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 20
+      },
+      {
+        "pop_type": "unified_level",
+        "enabled": false,
+        "label": "",
+        "G": 0.0,
+        "fit_G": false,
+        "G_limits": [
+          0.2,
+          5.0
+        ],
+        "Rg": 10000000000.0,
+        "fit_Rg": false,
+        "Rg_limits": [
+          2000000000.0,
+          50000000000.0
+        ],
+        "B": 2.348e-10,
+        "fit_B": true,
+        "B_limits": [
+          4.696e-11,
+          8.165e-10
+        ],
+        "P": 4.0,
+        "fit_P": false,
+        "P_limits": [
+          0.8,
+          6.0
+        ],
+        "RgCO": 0.0,
+        "fit_RgCO": false,
+        "RgCO_limits": [
+          0.0,
+          1000000.0
+        ],
+        "correlations": false,
+        "ETA": 10.0,
+        "fit_ETA": false,
+        "ETA_limits": [
+          2.0,
+          50.0
+        ],
+        "PACK": 0.0,
+        "fit_PACK": false,
+        "PACK_limits": [
+          0.0,
+          16.0
+        ]
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "label": "",
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.0,
+          10000000000.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          1e-08,
+          1.0
+        ],
+        "use_number_dist": false,
+        "n_bins": 200
+      }
+    ]
+  }
+}
