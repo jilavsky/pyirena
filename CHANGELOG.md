@@ -5,50 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.9.3] — 2026-06-26
+
+### Added
+
+- **Modeling: Global fit (Differential Evolution → local polish).** New "Fit"
+  method selector (right of the Background field) offering **Standard (local)**
+  — the unchanged default — and **Global (DE→local)**. The global method runs
+  `scipy.optimize.differential_evolution` to locate the correct basin of a
+  multimodal χ² surface, then polishes with TRF least-squares. Intended for
+  monodisperse **core-shell** and **core-shell-shell** spheres whose sharp Bessel
+  oscillations trap local fitters in the wrong minimum. Parameters spanning many
+  decades are searched in log₁₀ space internally so the global search samples
+  small and large values evenly. Global requires finite bounds (disabled in
+  "No limits?" mode); pairs naturally with **Fix limits?**. Cancellation works
+  during the global stage; Monte-Carlo uncertainty always uses the fast local
+  refinement. Threaded through GUI, session state (schema 2→3), NXcanSAS
+  setup save/load, and the `fit_modeling` batch API (`"fit_method": "global"`).
+- **Modeling: Parallel global fits (`cores`).** Spinbox beside the method
+  selector sets worker processes for the Global (DE) search (`de_workers`;
+  default 1 = serial). Higher values evaluate the DE population in parallel —
+  e.g. a core-shell global fit drops from ~60 s to ~17 s on 6 cores — with
+  identical results. Pins workers to single-threaded BLAS; cancellation via
+  per-generation callback; automatic serial fallback on any multiprocessing
+  failure. Threaded through GUI, session state (schema 3→4), JSON export, and
+  the `fit_modeling` batch API (`"de_workers"` key).
+- **Modeling: Core-shell-shell sphere form factor** (`css_sphere_by_core`) —
+  distribution over core radius; both shell thicknesses are fixed parameters.
+- **Modeling panel improvements:** Autoupdate (150 ms debounce, off by default);
+  Show individual population curve; Fix limits? button; Background row moved
+  below Population tabs; 4-slot equal-width button layout — all mirroring the
+  Unified Fit panel.
+
+### Fixed
+
+- **Modeling: JSON export (`Save params to JSON`) dropped `fit_method`**, so
+  headless `fit_modeling` batch runs silently fell back to Standard even when
+  Global was selected in the GUI.
+- **Modeling: Create Report and Tabulate Results CSV dropped form-factor and
+  structure-factor parameters** (SLDs, shell thicknesses, etc.) — they were
+  stored in the HDF5 file but missing from both text outputs. Both now enumerate
+  dist/ff/sf parameters dynamically so new form factors are never silently omitted.
+
+## [0.9.2] — 2026-06-21
+
+### Added
+
+- **Unified Fit level display reworked** for clarity; Save State buttons removed
+  (session state is always auto-saved).
+
+### Fixed
+
+- **Batch scripting dropped GUI fit/link flags** across Unified Fit, Sizes, and
+  WAXS Peak Fit (`fit_method`, linked-Rg flags, etc.).
+- Two long-standing test failures cleared.
+
 ## [0.9.1]
 
 ### Fixed
 
-- **Data Explorer and Simple Fits crash on Python 3.9 with TypeError on startup.**
-  `hdf5viewer/__init__.py` and `simple_fits_panel.py` used `X | Y` union type
-  annotations (Python 3.10+ syntax) without `from __future__ import annotations`.
-  On Python 3.9 these expressions are evaluated at import/instantiation time,
-  raising `TypeError: unsupported operand type(s) for |`. Fixed by adding the
-  future import to both files.
+- **Data Explorer and Simple Fits crash on Python 3.9** with `TypeError` on
+  startup. `hdf5viewer/__init__.py` and `simple_fits_panel.py` used `X | Y`
+  union type annotations (Python 3.10+ syntax) without
+  `from __future__ import annotations`. Fixed by adding the future import.
 
 ## [0.9.0]
-
-### Added
-
-- **Modeling: Parallel global fits (`cores`).** New spinbox beside the Fit-method
-  selector sets the number of worker processes for the Global (DE) search
-  (`de_workers`; default 1 = serial). Higher values evaluate the DE population
-  in parallel across CPU cores — e.g. a core-shell global fit drops from ~60 s
-  to ~17 s on 6 cores — with identical results. Enabled only for Global with
-  finite limits; pins workers to single-threaded BLAS to avoid oversubscription;
-  cancellation works during the parallel stage via the DE per-generation
-  callback; and any multiprocessing failure falls back to a serial run
-  automatically. Threaded through GUI, session state (schema 3→4), JSON export,
-  and the `fit_modeling` batch API (`"de_workers"` key).
-- **Modeling: Global fit option (Differential Evolution → local polish).** New
-  "Fit" method selector (right of the Background field) offering **Standard
-  (local)** — the unchanged default — and **Global (DE→local)**. The global
-  method runs `scipy.optimize.differential_evolution` to locate the correct
-  basin of a multimodal χ² surface, then polishes with the existing TRF
-  least-squares step. Intended for monodisperse **core-shell** and
-  **core-shell-shell** spheres, whose sharp Bessel oscillations trap local
-  fitters in the wrong minimum. Parameters spanning many decades are searched
-  in log space internally so the global search samples small and large values
-  evenly. Global requires finite bounds, so it is disabled and forced to
-  Standard while **No limits?** is checked; pairs naturally with **Fix limits?**.
-  Cancellation works during the global stage, and Monte-Carlo uncertainty
-  always uses the fast local refinement. Threaded through GUI, session state
-  (schema 2→3), NXcanSAS setup save/load, and the `fit_modeling` batch API
-  (`"fit_method": "global"` in the config's `modeling` section).
-- **Modeling: Core-shell-shell sphere form factor** (distribution over the core
-  radius; both shell thicknesses fixed).
-- **Modeling: Autoupdate, Show individual, and Fix limits controls** mirroring
-  the Unified Fit panel.
 
 ### Fixed
 
