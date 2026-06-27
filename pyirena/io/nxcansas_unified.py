@@ -250,7 +250,7 @@ def save_unified_fit_results(filepath: Path,
         unified_group.attrs['analysis_type'] = 'Unified Fit'
         unified_group.attrs['program'] = 'pyirena'
         unified_group.attrs['timestamp'] = timestamp
-        unified_group.attrs['num_levels'] = num_levels
+        unified_group.attrs['num_levels'] = np.int32(num_levels)
         # Store fit results as scalar datasets (browseable/collectable in HDF5 viewer)
         unified_group.create_dataset('background', data=float(background))
         unified_group.create_dataset('chi_squared', data=float(chi_squared))
@@ -287,7 +287,7 @@ def save_unified_fit_results(filepath: Path,
         for i, level_params in enumerate(levels):
             level_num = i + 1
             level_group = unified_group.create_group(f'level_{level_num}')
-            level_group.attrs['level_number'] = level_num
+            level_group.attrs['level_number'] = np.int32(level_num)
 
             for param_name, param_value in level_params.items():
                 if isinstance(param_value, (int, float)) and not isinstance(param_value, bool):

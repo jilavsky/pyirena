@@ -1216,20 +1216,20 @@ class LevelParametersWidget(QWidget):
         grid.addWidget(QLabel("G"), row, 0)
         self.g_value = ScrubbableLineEdit("100")
         self.g_value.setValidator(QDoubleValidator())
-        self.g_value.setMinimumWidth(120)
-        self.g_value.setMaximumWidth(120)
+        self.g_value.setMinimumWidth(108)
+        self.g_value.setMaximumWidth(108)
         self.g_value.setMinimumHeight(24)
         self.g_value.editingFinished.connect(self._on_g_changed)
         grid.addWidget(self.g_value, row, 1)
         self.g_fit = QCheckBox()
         grid.addWidget(self.g_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.g_low = QLineEdit("20")
-        self.g_low.setMaximumWidth(80)
+        self.g_low.setMaximumWidth(76)
         self.g_low.setMinimumHeight(24)
         self.g_low.setValidator(QDoubleValidator())
         grid.addWidget(self.g_low, row, 3)
         self.g_high = QLineEdit("500")
-        self.g_high.setMaximumWidth(80)
+        self.g_high.setMaximumWidth(76)
         self.g_high.setMinimumHeight(24)
         self.g_high.setValidator(QDoubleValidator())
         grid.addWidget(self.g_high, row, 4)
@@ -1239,20 +1239,20 @@ class LevelParametersWidget(QWidget):
         grid.addWidget(QLabel("Rg"), row, 0)
         self.rg_value = ScrubbableLineEdit("100")
         self.rg_value.setValidator(QDoubleValidator())
-        self.rg_value.setMinimumWidth(120)
-        self.rg_value.setMaximumWidth(120)
+        self.rg_value.setMinimumWidth(108)
+        self.rg_value.setMaximumWidth(108)
         self.rg_value.setMinimumHeight(24)
         self.rg_value.editingFinished.connect(self._on_rg_changed)
         grid.addWidget(self.rg_value, row, 1)
         self.rg_fit = QCheckBox()
         grid.addWidget(self.rg_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.rg_low = QLineEdit("20")
-        self.rg_low.setMaximumWidth(80)
+        self.rg_low.setMaximumWidth(76)
         self.rg_low.setMinimumHeight(24)
         self.rg_low.setValidator(QDoubleValidator())
         grid.addWidget(self.rg_low, row, 3)
         self.rg_high = QLineEdit("500")
-        self.rg_high.setMaximumWidth(80)
+        self.rg_high.setMaximumWidth(76)
         self.rg_high.setMinimumHeight(24)
         self.rg_high.setValidator(QDoubleValidator())
         grid.addWidget(self.rg_high, row, 4)
@@ -1295,20 +1295,20 @@ class LevelParametersWidget(QWidget):
         grid2.addWidget(QLabel("B"), row, 0)
         self.b_value = ScrubbableLineEdit("0.01")
         self.b_value.setValidator(QDoubleValidator())
-        self.b_value.setMinimumWidth(120)
-        self.b_value.setMaximumWidth(120)
+        self.b_value.setMinimumWidth(108)
+        self.b_value.setMaximumWidth(108)
         self.b_value.setMinimumHeight(24)
         self.b_value.editingFinished.connect(self._on_b_changed)
         grid2.addWidget(self.b_value, row, 1)
         self.b_fit = QCheckBox()
         grid2.addWidget(self.b_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.b_low = QLineEdit("0.002")
-        self.b_low.setMaximumWidth(80)
+        self.b_low.setMaximumWidth(76)
         self.b_low.setMinimumHeight(24)
         self.b_low.setValidator(QDoubleValidator())
         grid2.addWidget(self.b_low, row, 3)
         self.b_high = QLineEdit("0.05")
-        self.b_high.setMaximumWidth(80)
+        self.b_high.setMaximumWidth(76)
         self.b_high.setMinimumHeight(24)
         self.b_high.setValidator(QDoubleValidator())
         grid2.addWidget(self.b_high, row, 4)
@@ -1318,20 +1318,20 @@ class LevelParametersWidget(QWidget):
         grid2.addWidget(QLabel("P"), row, 0)
         self.p_value = ScrubbableLineEdit("4", use_fixed_step=True, fixed_reference=4.0)
         self.p_value.setValidator(QDoubleValidator())
-        self.p_value.setMinimumWidth(120)
-        self.p_value.setMaximumWidth(120)
+        self.p_value.setMinimumWidth(108)
+        self.p_value.setMaximumWidth(108)
         self.p_value.setMinimumHeight(24)
         self.p_value.editingFinished.connect(self._on_p_changed)
         grid2.addWidget(self.p_value, row, 1)
         self.p_fit = QCheckBox()
         grid2.addWidget(self.p_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.p_low = QLineEdit("2")
-        self.p_low.setMaximumWidth(80)
+        self.p_low.setMaximumWidth(76)
         self.p_low.setMinimumHeight(24)
         self.p_low.setValidator(QDoubleValidator())
         grid2.addWidget(self.p_low, row, 3)
         self.p_high = QLineEdit("5")
-        self.p_high.setMaximumWidth(80)
+        self.p_high.setMaximumWidth(76)
         self.p_high.setMinimumHeight(24)
         self.p_high.setValidator(QDoubleValidator())
         grid2.addWidget(self.p_high, row, 4)
@@ -1376,7 +1376,7 @@ class LevelParametersWidget(QWidget):
         # RgCutoff is hidden for level 1 (always 0); shown for levels 2-5
         self.rg_cutoff = ScrubbableLineEdit("0")
         self.rg_cutoff.setValidator(QDoubleValidator())
-        self.rg_cutoff.setMaximumWidth(100)
+        self.rg_cutoff.setMaximumWidth(90)
         rg_cutoff_corr_layout = QHBoxLayout()
         if self.level_number > 1:
             rg_cutoff_corr_layout.addWidget(QLabel("RgCutoff"))
@@ -1407,20 +1407,20 @@ class LevelParametersWidget(QWidget):
         corr_grid.addWidget(QLabel("ETA"), row, 0)
         self.eta_value = ScrubbableLineEdit("0")
         self.eta_value.setValidator(QDoubleValidator())
-        self.eta_value.setMinimumWidth(95)
-        self.eta_value.setMaximumWidth(95)
+        self.eta_value.setMinimumWidth(85)
+        self.eta_value.setMaximumWidth(85)
         self.eta_value.setMinimumHeight(24)
         self.eta_value.editingFinished.connect(self._on_eta_changed)
         corr_grid.addWidget(self.eta_value, row, 1)
         self.eta_fit = QCheckBox()
         corr_grid.addWidget(self.eta_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.eta_low = QLineEdit("0")
-        self.eta_low.setMaximumWidth(80)
+        self.eta_low.setMaximumWidth(76)
         self.eta_low.setMinimumHeight(24)
         self.eta_low.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.eta_low, row, 3)
         self.eta_high = QLineEdit("1")
-        self.eta_high.setMaximumWidth(80)
+        self.eta_high.setMaximumWidth(76)
         self.eta_high.setMinimumHeight(24)
         self.eta_high.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.eta_high, row, 4)
@@ -1430,20 +1430,20 @@ class LevelParametersWidget(QWidget):
         corr_grid.addWidget(QLabel("PACK"), row, 0)
         self.pack_value = ScrubbableLineEdit("0")
         self.pack_value.setValidator(QDoubleValidator())
-        self.pack_value.setMinimumWidth(95)
-        self.pack_value.setMaximumWidth(95)
+        self.pack_value.setMinimumWidth(85)
+        self.pack_value.setMaximumWidth(85)
         self.pack_value.setMinimumHeight(24)
         self.pack_value.editingFinished.connect(self._on_pack_changed)
         corr_grid.addWidget(self.pack_value, row, 1)
         self.pack_fit = QCheckBox()
         corr_grid.addWidget(self.pack_fit, row, 2, Qt.AlignmentFlag.AlignCenter)
         self.pack_low = QLineEdit("0")
-        self.pack_low.setMaximumWidth(80)
+        self.pack_low.setMaximumWidth(76)
         self.pack_low.setMinimumHeight(24)
         self.pack_low.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.pack_low, row, 3)
         self.pack_high = QLineEdit("1")
-        self.pack_high.setMaximumWidth(80)
+        self.pack_high.setMaximumWidth(76)
         self.pack_high.setMinimumHeight(24)
         self.pack_high.setValidator(QDoubleValidator())
         corr_grid.addWidget(self.pack_high, row, 4)
@@ -1453,9 +1453,10 @@ class LevelParametersWidget(QWidget):
         self.corr_params_widget.setVisible(False)  # Hidden by default
         layout.addWidget(self.corr_params_widget)
 
-        # Copy/Swap button
+        # Copy/Swap button — kept narrow (same cap as Graph Unified) since it's secondary
         self.copy_move_button = QPushButton("Copy/Swap level")
         self.copy_move_button.setMinimumHeight(24)
+        self.copy_move_button.setMaximumWidth(120)
         self.copy_move_button.setToolTip(
             "Copy or swap parameters between this level and another level.\n"
             "Useful for reorganizing levels or duplicating a good starting guess."
@@ -2168,10 +2169,9 @@ class UnifiedFitPanel(QWidget):
             except ImportError:
                 from PyQt5.QtWidgets import QSizePolicy
 
-        size_policy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        size_policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         panel.setSizePolicy(size_policy)
         panel.setMinimumWidth(400)
-        panel.setMaximumWidth(400)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
@@ -4264,11 +4264,16 @@ class UnifiedFitPanel(QWidget):
         default_dir = self._get_data_folder()
         default_path = str(Path(default_dir) / "pyirena_config.json")
 
+        try:
+            _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog
+        except AttributeError:
+            _save_opts = QFileDialog.DontConfirmOverwrite | QFileDialog.DontUseNativeDialog
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export pyIrena Configuration",
             default_path,
-            "pyIrena Config (*.json);;All Files (*)"
+            "pyIrena Config (*.json);;All Files (*)",
+            options=_save_opts,
         )
         if not file_path:
             return
@@ -4294,14 +4299,16 @@ class UnifiedFitPanel(QWidget):
                 )
                 return
 
-            # Confirm overwrite of existing Unified Fit group
+            # Confirm update of existing Unified Fit section
             if 'unified_fit' in config:
                 reply = QMessageBox.question(
                     self,
-                    "Overwrite Unified Fit Parameters?",
-                    f"File already contains Unified Fit parameters:\n{file_path}\n\n"
-                    "Overwrite the existing Unified Fit group?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    "Update Unified Fit Section?",
+                    f"This file already has a Unified Fit section. Only that section will be "
+                    f"updated — all other tool settings in this file are preserved.\n\n"
+                    f"{file_path}",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return

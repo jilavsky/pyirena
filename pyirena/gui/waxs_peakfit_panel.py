@@ -2361,10 +2361,15 @@ class WAXSPeakFitPanel(QWidget):
     def _export_params(self):
         # Default to the folder where the current data file lives
         default_dir = str(self._filepath.parent) if self._filepath else str(Path.cwd())
+        try:
+            _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog
+        except AttributeError:
+            _save_opts = QFileDialog.DontConfirmOverwrite | QFileDialog.DontUseNativeDialog
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Parameters",
             str(Path(default_dir) / "pyirena_config.json"),
             "JSON (*.json);;All Files (*)",
+            options=_save_opts,
         )
         if not path:
             return
@@ -2383,6 +2388,24 @@ class WAXSPeakFitPanel(QWidget):
                     config = json.loads(config_path.read_text(encoding='utf-8'))
                 except Exception:
                     pass
+                if '_pyirena_config' not in config:
+                    QMessageBox.warning(
+                        self, "Not a pyIrena File",
+                        f"The selected file is not a pyIrena configuration file:\n{config_path}\n\n"
+                        "Choose a different file or enter a new filename.",
+                    )
+                    return
+                if 'waxs_peakfit' in config:
+                    reply = QMessageBox.question(
+                        self, "Update WAXS Peak Fit Section?",
+                        f"This file already has a WAXS Peak Fit section. Only that section will be "
+                        f"updated — all other tool settings in this file are preserved.\n\n"
+                        f"{config_path}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
             now = datetime.datetime.now().isoformat(timespec='seconds')
             if '_pyirena_config' not in config:
                 config['_pyirena_config'] = {

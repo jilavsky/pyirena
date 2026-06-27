@@ -13,10 +13,15 @@ used by the USAXS reduction pipeline, parses the rich wave-note metadata
 
 Wave-name conventions recognised
 --------------------------------
-USAXS (desmeared, primary):
-    ``DSM_Qvec``, ``DSM_Int``, ``DSM_Error``  (+ optional ``DSM_dQ``)
+USAXS — pxp and h5xp (Igor-exported):
+    Desmeared (primary):  ``DSM_Qvec``, ``DSM_Int``, ``DSM_Error``  (+ optional ``DSM_dQ``)
+    Slit-smeared fallback: ``SMR_Qvec``, ``SMR_Int``, ``SMR_Error``  (+ optional ``SMR_dQ``)
 
-SAXS / WAXS (reduced):
+USAXS — h5xp (pyirena-produced via :func:`~pyirena.io.h5xp_writer.write_iq_data`):
+    ``q_<folder>``, ``r_<folder>``, ``s_<folder>``  (+ optional ``dq_<folder>``)
+    or uppercase ``Q``, ``R``, ``S``  (+ optional ``dQ``)
+
+SAXS / WAXS — pxp and h5xp (Igor-exported):
     ``R_Qvec``, ``R_Int``, ``R_Error``        (+ optional ``w_<folder>``
     as dQ if present in the same folder)
 
@@ -155,28 +160,47 @@ WAVE_PICKERS: dict[str, list[tuple[str, str, str, str | None]]] = {
 #: Wave-name picker per technique for **.h5xp** files (Wavemetrics' HDF5
 #: packed-experiment format). Same tuple shape as :data:`WAVE_PICKERS`,
 #: but the literal token ``"<folder>"`` inside a name is substituted with
-#: the actual sample folder name at lookup time. This matches the two
-#: conventions produced by :mod:`pyirena.io.h5xp_writer`:
+#: the actual sample folder name at lookup time.
 #:
-#: * lowercase ``q_<folder>`` / ``r_<folder>`` / ``s_<folder>`` /
-#:   ``dq_<folder>`` — the per-sample-folder default of
-#:   :func:`pyirena.io.h5xp_writer.write_iq_data`
-#: * uppercase ``Q`` / ``R`` / ``S`` / ``dQ`` — older Igor-side export
-#:   helpers and some hand-built h5xp files
+#: Entries are tried in order; the first tuple whose Q, I, and Err waves
+#: all exist in the sample folder wins.
 #:
-#: Both are tried in order; the first match wins.
+#: **USAXS** covers three distinct naming conventions:
+#:
+#: 1. pyirena-produced h5xp (via :func:`~pyirena.io.h5xp_writer.write_iq_data`):
+#:    ``q_<folder>`` / ``r_<folder>`` / ``s_<folder>`` / ``dq_<folder>``
+#: 2. pyirena-produced h5xp (older uppercase variant):
+#:    ``Q`` / ``R`` / ``S`` / ``dQ``
+#: 3. Igor-exported h5xp (same wave names as ``.pxp``):
+#:    ``DSM_Qvec`` / ``DSM_Int`` / ``DSM_Error`` (desmeared — preferred)
+#:    ``SMR_Qvec`` / ``SMR_Int`` / ``SMR_Error`` (slit-smeared — fallback)
+#:
+#: **SAXS / WAXS** also adds the Igor-exported ``R_Qvec`` / ``R_Int`` /
+#: ``R_Error`` convention that ``WAVE_PICKERS`` already handles for pxp.
 WAVE_PICKERS_H5XP: dict[str, list[tuple[str, str, str, str | None]]] = {
     "USAXS": [
+        # pyirena-produced h5xp (write_iq_data default)
         ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        # pyirena-produced h5xp (older uppercase variant)
         ("Q", "R", "S", "dQ"),
+        # Igor-exported h5xp: desmeared USAXS waves (same as pxp convention)
+        ("DSM_Qvec", "DSM_Int", "DSM_Error", "DSM_dQ"),
+        # Igor-exported h5xp: slit-smeared fallback (when desmearing not run)
+        ("SMR_Qvec", "SMR_Int", "SMR_Error", "SMR_dQ"),
     ],
     "SAXS": [
+        # pyirena-produced h5xp
         ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
         ("Q", "R", "S", "dQ"),
+        # Igor-exported h5xp: reduced SAXS waves (same as pxp convention)
+        ("R_Qvec", "R_Int", "R_Error", None),
     ],
     "WAXS": [
+        # pyirena-produced h5xp
         ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
         ("Q", "R", "S", "dQ"),
+        # Igor-exported h5xp: reduced WAXS waves (same as pxp convention)
+        ("R_Qvec", "R_Int", "R_Error", None),
     ],
 }
 
@@ -1182,9 +1206,11 @@ def extract_h5xp_to_nexus(
     collected-value waves) is also skipped because it doesn't follow
     the per-sample-folder shape this extractor needs.
 
-    The wave-name convention is ``Q``/``R``/``S``(+``dQ``) per
-    :data:`WAVE_PICKERS_H5XP` — matches what
-    :func:`pyirena.io.h5xp_writer.write_iq_data` emits.
+    Wave names tried per :data:`WAVE_PICKERS_H5XP` — covers both
+    pyirena-produced h5xp (``q_<folder>`` / ``Q``/``R``/``S``) and
+    Igor-exported h5xp (``DSM_Qvec``/``DSM_Int``/``DSM_Error`` for
+    desmeared USAXS, ``SMR_*`` slit-smeared fallback, and
+    ``R_Qvec``/``R_Int``/``R_Error`` for SAXS/WAXS).
     """
     h5xp_path = Path(h5xp_path)
     if not h5xp_path.is_file():

@@ -11,7 +11,7 @@ try:
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
         QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox, QSplitter,
         QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame, QTextEdit,
-        QTabWidget, QFileDialog,
+        QTabWidget, QFileDialog, QGridLayout,
     )
     from PySide6.QtCore import Qt, Signal, QUrl
     from PySide6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor, QDesktopServices
@@ -1090,9 +1090,10 @@ class SizesFitPanel(QWidget):
         bins_row.addWidget(QLabel("Number of bins:"))
         self.nbins_spin = QSpinBox()
         self.nbins_spin.setMinimum(5)
-        self.nbins_spin.setMaximum(500)
+        self.nbins_spin.setMaximum(501)
         self.nbins_spin.setValue(200)
         self.nbins_spin.setMaximumWidth(70)
+        self.nbins_spin.valueChanged.connect(self._snap_bins_to_decades)
         self.nbins_spin.valueChanged.connect(self._on_param_changed)
         bins_row.addWidget(self.nbins_spin)
         self.log_spacing_check = QCheckBox("Logarithmic spacing")
@@ -1293,40 +1294,33 @@ class SizesFitPanel(QWidget):
 
         # Q range for power-law fit
         pl_q_lbl = QLabel("Q range for fit:")
+        pl_q_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pl_q_lbl.setStyleSheet("font-size: 10px; color: #555;")
         pl_layout.addWidget(pl_q_lbl)
 
-        pl_qmin_row = QHBoxLayout()
-        pl_qmin_row.addWidget(QLabel("  Q min:"))
+        pl_q_grid = QGridLayout()
+        pl_q_grid.setSpacing(4)
+        pl_q_grid.addWidget(QLabel("  Q min:"), 0, 0)
         self.pl_q_min_edit = ScrubbableLineEdit("")
         self.pl_q_min_edit.setPlaceholderText("cursor")
         self.pl_q_min_edit.setValidator(QDoubleValidator(0.0, 100.0, 8))
         self.pl_q_min_edit.setMaximumWidth(90)
-        pl_qmin_row.addWidget(self.pl_q_min_edit)
-        pl_qmin_row.addWidget(QLabel("Å⁻¹"))
-        pl_qmin_row.addStretch()
-        pl_layout.addLayout(pl_qmin_row)
-
-        pl_qmax_row = QHBoxLayout()
-        pl_qmax_row.addWidget(QLabel("  Q max:"))
+        pl_q_grid.addWidget(self.pl_q_min_edit, 0, 1)
+        pl_q_grid.addWidget(QLabel("Å⁻¹"), 0, 2)
+        pl_q_grid.addWidget(QLabel("  Q max:"), 1, 0)
         self.pl_q_max_edit = ScrubbableLineEdit("")
         self.pl_q_max_edit.setPlaceholderText("cursor")
         self.pl_q_max_edit.setValidator(QDoubleValidator(0.0, 100.0, 8))
         self.pl_q_max_edit.setMaximumWidth(90)
-        pl_qmax_row.addWidget(self.pl_q_max_edit)
-        pl_qmax_row.addWidget(QLabel("Å⁻¹"))
-        pl_qmax_row.addStretch()
-        pl_layout.addLayout(pl_qmax_row)
-
-        pl_cursor_row = QHBoxLayout()
-        pl_cursor_btn = QPushButton("Set Q from cursors")
-        pl_cursor_btn.setMaximumHeight(22)
-        pl_cursor_btn.setStyleSheet("font-size:10px; padding:1px 4px;")
+        pl_q_grid.addWidget(self.pl_q_max_edit, 1, 1)
+        pl_q_grid.addWidget(QLabel("Å⁻¹"), 1, 2)
+        pl_cursor_btn = QPushButton("Set Q\nfrom cursors")
+        pl_cursor_btn.setMinimumHeight(40)
+        pl_cursor_btn.setStyleSheet("font-size:10px; padding:2px 6px;")
         pl_cursor_btn.setToolTip("Set the power-law Q range from the current cursor positions.")
         pl_cursor_btn.clicked.connect(self._set_pl_q_from_cursors)
-        pl_cursor_row.addWidget(pl_cursor_btn)
-        pl_cursor_row.addStretch()
-        pl_layout.addLayout(pl_cursor_row)
+        pl_q_grid.addWidget(pl_cursor_btn, 0, 3, 2, 1)
+        pl_layout.addLayout(pl_q_grid)
 
         self.fit_pl_button = QPushButton("Fit P/B")
         self.fit_pl_button.setMinimumHeight(26)
@@ -1360,40 +1354,33 @@ class SizesFitPanel(QWidget):
         flat_layout.addLayout(bg_val_row)
 
         bg_q_lbl = QLabel("Q range for fit:")
+        bg_q_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bg_q_lbl.setStyleSheet("font-size: 10px; color: #555;")
         flat_layout.addWidget(bg_q_lbl)
 
-        bg_qmin_row = QHBoxLayout()
-        bg_qmin_row.addWidget(QLabel("  Q min:"))
+        bg_q_grid = QGridLayout()
+        bg_q_grid.setSpacing(4)
+        bg_q_grid.addWidget(QLabel("  Q min:"), 0, 0)
         self.bg_q_min_edit = ScrubbableLineEdit("")
         self.bg_q_min_edit.setPlaceholderText("cursor")
         self.bg_q_min_edit.setValidator(QDoubleValidator(0.0, 100.0, 8))
         self.bg_q_min_edit.setMaximumWidth(90)
-        bg_qmin_row.addWidget(self.bg_q_min_edit)
-        bg_qmin_row.addWidget(QLabel("Å⁻¹"))
-        bg_qmin_row.addStretch()
-        flat_layout.addLayout(bg_qmin_row)
-
-        bg_qmax_row = QHBoxLayout()
-        bg_qmax_row.addWidget(QLabel("  Q max:"))
+        bg_q_grid.addWidget(self.bg_q_min_edit, 0, 1)
+        bg_q_grid.addWidget(QLabel("Å⁻¹"), 0, 2)
+        bg_q_grid.addWidget(QLabel("  Q max:"), 1, 0)
         self.bg_q_max_edit = ScrubbableLineEdit("")
         self.bg_q_max_edit.setPlaceholderText("cursor")
         self.bg_q_max_edit.setValidator(QDoubleValidator(0.0, 100.0, 8))
         self.bg_q_max_edit.setMaximumWidth(90)
-        bg_qmax_row.addWidget(self.bg_q_max_edit)
-        bg_qmax_row.addWidget(QLabel("Å⁻¹"))
-        bg_qmax_row.addStretch()
-        flat_layout.addLayout(bg_qmax_row)
-
-        bg_cursor_row = QHBoxLayout()
-        bg_cursor_btn = QPushButton("Set Q from cursors")
-        bg_cursor_btn.setMaximumHeight(22)
-        bg_cursor_btn.setStyleSheet("font-size:10px; padding:1px 4px;")
+        bg_q_grid.addWidget(self.bg_q_max_edit, 1, 1)
+        bg_q_grid.addWidget(QLabel("Å⁻¹"), 1, 2)
+        bg_cursor_btn = QPushButton("Set Q\nfrom cursors")
+        bg_cursor_btn.setMinimumHeight(40)
+        bg_cursor_btn.setStyleSheet("font-size:10px; padding:2px 6px;")
         bg_cursor_btn.setToolTip("Set the background Q range from the current cursor positions.")
         bg_cursor_btn.clicked.connect(self._set_bg_q_from_cursors)
-        bg_cursor_row.addWidget(bg_cursor_btn)
-        bg_cursor_row.addStretch()
-        flat_layout.addLayout(bg_cursor_row)
+        bg_q_grid.addWidget(bg_cursor_btn, 0, 3, 2, 1)
+        flat_layout.addLayout(bg_q_grid)
 
         self.fit_bg_button = QPushButton("Fit Background")
         self.fit_bg_button.setMinimumHeight(26)
@@ -1670,6 +1657,20 @@ class SizesFitPanel(QWidget):
     def _on_param_changed(self):
         """Called when any parameter field changes."""
         pass  # Could add auto-update here
+
+    def _snap_bins_to_decades(self, value: int):
+        """Silently round multiples of 100 up by 1 so bins align to exact decades.
+
+        100 bins per decade requires (N-1) divisible by 100.  Users naturally
+        type round numbers (100, 200, 300, 400, 500) which are each one short;
+        this corrects them transparently without interrupting typing.
+        """
+        if value >= 100 and value % 100 == 0:
+            snapped = value + 1
+            if snapped <= self.nbins_spin.maximum():
+                self.nbins_spin.blockSignals(True)
+                self.nbins_spin.setValue(snapped)
+                self.nbins_spin.blockSignals(False)
 
     def _scale_edit(self, edit: ScrubbableLineEdit, factor: float):
         """Multiply the numeric value in *edit* by *factor* (for ÷10 / ×10 buttons)."""
@@ -2089,9 +2090,10 @@ class SizesFitPanel(QWidget):
         fit_B = self.fit_B_check.isChecked()
         fit_P = self.fit_P_check.isChecked()
         if not fit_B and not fit_P:
-            self.graph_window.show_error_message(
-                "Check at least one of 'Fit B?' or 'Fit P?' to fit the power law."
-            )
+            msg = "Check 'Fit B?' and/or 'Fit P?' before fitting the power law."
+            self.graph_window.show_error_message(msg)
+            self.status_label.setStyleSheet("color: #c0392b; font-weight: bold; padding: 5px;")
+            self.status_label.setText(f"⚠ {msg}")
             return
         try:
             s = self._collect_params()
@@ -2104,6 +2106,9 @@ class SizesFitPanel(QWidget):
                 self.power_law_B_edit.setText(f"{result['B']:.6g}")
                 self.power_law_P_edit.setText(f"{result['P']:.6g}")
                 self.graph_window.show_success_message(result['message'])
+                self.status_label.setStyleSheet(
+                    "QLabel { color: #7f8c8d; padding: 5px; border-top: 1px solid #bdc3c7; font-size: 10px; }"
+                )
                 self.status_label.setText(f"P/B fit: B={result['B']:.4g}, P={result['P']:.4g}")
                 self._replot_background_preview()
             else:
@@ -2567,11 +2572,16 @@ class SizesFitPanel(QWidget):
         default_dir = self._get_data_folder()
         default_path = str(Path(default_dir) / "pyirena_config.json")
 
+        try:
+            _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog
+        except AttributeError:
+            _save_opts = QFileDialog.DontConfirmOverwrite | QFileDialog.DontUseNativeDialog
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Sizes Parameters",
             default_path,
-            "pyIrena Config (*.json);;All Files (*)"
+            "pyIrena Config (*.json);;All Files (*)",
+            options=_save_opts,
         )
         if not file_path:
             return
@@ -2599,10 +2609,12 @@ class SizesFitPanel(QWidget):
             if 'sizes' in config:
                 reply = QMessageBox.question(
                     self,
-                    "Overwrite Sizes Parameters?",
-                    f"File already contains Sizes parameters:\n{file_path}\n\n"
-                    "Overwrite the existing Sizes group?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    "Update Sizes Section?",
+                    f"This file already has a Sizes section. Only that section will be "
+                    f"updated — all other tool settings in this file are preserved.\n\n"
+                    f"{file_path}",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return

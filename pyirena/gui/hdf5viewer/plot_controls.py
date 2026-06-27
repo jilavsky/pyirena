@@ -257,7 +257,7 @@ class PlotControlsPanel(QWidget):
         self._collect_index = QSpinBox()
         self._collect_index.setRange(1, 20)
         self._collect_index.setValue(1)
-        self._collect_index.setFixedWidth(60)
+        self._collect_index.setMinimumWidth(160)
         wg.addWidget(self._collect_index, 2, 1)
 
         wg.addWidget(_label("Custom path:"), 3, 0)

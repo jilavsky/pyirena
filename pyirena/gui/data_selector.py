@@ -4793,10 +4793,11 @@ class DataSelectorPanel(QWidget):
             self.data_merge_window = DataMergePanel(
                 state_manager=self.state_manager,
             )
-
-        # Pre-populate DS1 folder with the currently selected folder
-        if self.current_folder:
-            self.data_merge_window.set_folder(1, self.current_folder)
+            # Pre-populate DS1 only when there is no saved state — if the user
+            # has previously set up folders they are restored from state instead.
+            saved_dm = self.state_manager.get('data_merge') or {}
+            if not saved_dm.get('folder1') and self.current_folder:
+                self.data_merge_window.set_folder(1, self.current_folder)
 
         self.data_merge_window.show()
         self.data_merge_window.raise_()
@@ -5327,12 +5328,13 @@ class DataSelectorPanel(QWidget):
 
     def show_about(self):
         """Show about dialog."""
+        from pyirena import __version__ as _version
         QMessageBox.about(
             self,
             "About pyIrena",
-            """<h3>pyIrena</h3>
+            f"""<h3>pyIrena</h3>
             <p><b>Python tools for small-angle scattering data analysis</b></p>
-            <p>Version: 0.8.2</p>
+            <p>Version: {_version}</p>
             <p>pyIrena provides tools for analyzing SAXS/SANS/USAXS data,
             including the Unified Fit model for hierarchical structures.</p>
             <p>Based on Irena SAS package for Igor Pro by Jan Ilavsky</p>

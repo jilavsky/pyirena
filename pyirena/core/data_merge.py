@@ -168,9 +168,9 @@ class DataMerge:
         # reasonable starting point.
         if config.fit_scale:
             if config.scale_dataset == 2 and med2 > 0:
-                scale_init = float(np.clip(med1 / med2, 0.01, 100.0))
+                scale_init = float(np.clip(med1 / med2, 0.001, 1000.0))
             elif config.scale_dataset == 1 and med1 > 0:
-                scale_init = float(np.clip(med2 / med1, 0.01, 100.0))
+                scale_init = float(np.clip(med2 / med1, 0.001, 1000.0))
             else:
                 scale_init = 1.0
         else:
@@ -204,7 +204,7 @@ class DataMerge:
 
         bounds = [
             (-max_bg, max_bg),  # background
-            (0.01, 100.0),      # scale
+            (0.001, 1000.0),      # scale
             (-0.1, 0.1),        # q_shift
         ]
 
@@ -555,7 +555,7 @@ class DataMerge:
         regularisation penalty needed.
         """
         bounds_bg     = (-max_bg, max_bg)
-        bounds_scale  = (0.01, 100.0)
+        bounds_scale  = (0.001, 1000.0)
         bounds_qshift = (-0.1, 0.1)
 
         def _solve_at_qshift(q_shift: float) -> Tuple[float, float, float, int]:
@@ -575,7 +575,7 @@ class DataMerge:
                 if bg is None:
                     # Degenerate: DS2 nearly constant — fall back to medians
                     scale = float(np.clip(
-                        np.median(I1_ov) / np.median(I2_interp), 0.01, 100.0
+                        np.median(I1_ov) / np.median(I2_interp), 0.001, 1000.0
                     ))
                     w  = 1.0 / sigma ** 2
                     bg = float(np.clip(

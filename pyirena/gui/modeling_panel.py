@@ -3083,33 +3083,80 @@ class ModelingPanel(QWidget):
         """Export current population parameters as a JSON config file."""
         import json
         default_path = str(Path(self._get_data_folder()) / 'pyirena_config.json')
+        try:
+            _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog
+        except AttributeError:
+            _save_opts = QFileDialog.DontConfirmOverwrite | QFileDialog.DontUseNativeDialog
         path, _ = QFileDialog.getSaveFileName(
             self, 'Export Modeling Parameters', default_path,
             'pyIrena Config (*.json);;All Files (*)',
+            options=_save_opts,
         )
         if not path:
             return
         if not path.lower().endswith('.json'):
             path += '.json'
-        config = self._build_config()
-        data = {
-            '_pyirena_config': {'tool': 'modeling'},
-            'modeling': {
-                'background':     config.background,
-                'fit_background': config.fit_background,
-                'no_limits':      config.no_limits,
-                'fit_method':     config.fit_method,
-                'de_workers':     config.de_workers,
-                'n_mc_runs':      config.n_mc_runs,
-                'q_min':          config.q_min,
-                'q_max':          config.q_max,
-                'populations':    [_pop_to_dict(p) for p in config.populations],
-            },
+        config_path = Path(path)
+
+        # Load existing config and merge so other tool sections are preserved
+        import json as _json
+        import datetime
+        try:
+            from pyirena import __version__ as _version
+        except Exception:
+            _version = 'unknown'
+        existing: dict = {}
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    existing = _json.load(f)
+            except Exception:
+                existing = {}
+            if '_pyirena_config' not in existing:
+                QMessageBox.warning(
+                    self, 'Not a pyIrena File',
+                    f'The selected file is not a pyIrena configuration file:\n{config_path}\n\n'
+                    'Choose a different file or enter a new filename.',
+                )
+                return
+            if 'modeling' in existing:
+                reply = QMessageBox.question(
+                    self, 'Update Modeling Section?',
+                    f'This file already has a Modeling section. Only that section will be '
+                    f'updated — all other tool settings in this file are preserved.\n\n'
+                    f'{config_path}',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+        now = datetime.datetime.now().isoformat(timespec='seconds')
+        if '_pyirena_config' not in existing:
+            existing['_pyirena_config'] = {
+                'file_type': 'pyIrena Configuration File',
+                'version': _version,
+                'created': now,
+            }
+        existing['_pyirena_config']['modified'] = now
+        existing['_pyirena_config']['written_by'] = f'pyIrena {_version}'
+
+        mc = self._build_config()
+        existing['modeling'] = {
+            'background':     mc.background,
+            'fit_background': mc.fit_background,
+            'no_limits':      mc.no_limits,
+            'fit_method':     mc.fit_method,
+            'de_workers':     mc.de_workers,
+            'n_mc_runs':      mc.n_mc_runs,
+            'q_min':          mc.q_min,
+            'q_max':          mc.q_max,
+            'populations':    [_pop_to_dict(p) for p in mc.populations],
         }
         try:
-            with open(path, 'w') as f:
-                json.dump(data, f, indent=2)
-            self.graph.set_status(f'Parameters exported to {Path(path).name}', 'success')
+            with open(config_path, 'w') as f:
+                _json.dump(existing, f, indent=2)
+            self.graph.set_status(f'Parameters exported to {config_path.name}', 'success')
         except Exception as e:
             QMessageBox.critical(self, 'Export error', str(e))
 

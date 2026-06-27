@@ -1160,57 +1160,99 @@ class DataMergePanel(QWidget):
             return
 
         n_ok = 0
-        n_fail = 0
-        for f1, f2 in pairs:
-            path1 = os.path.join(self._ds1.current_folder, f1)
-            path2 = os.path.join(self._ds2.current_folder, f2)
-            d1 = self._load_file(path1, self._ds1.get_file_type())
-            d2 = self._load_file(path2, self._ds2.get_file_type())
-            if d1 is None or d2 is None:
-                print(f"[batch] Skipping {f1} / {f2} — load error.")
-                n_fail += 1
-                continue
+        failures: list = []  # list of (f1, f2, reason) for the summary dialog
+        total = len(pairs)
 
-            q1, I1 = d1['Q'], d1['Intensity']
-            q2, I2 = d2['Q'], d2['Intensity']
-            _dI1 = d1.get('Error')
-            dI1 = _dI1 if _dI1 is not None else I1 * 0.05
-            _dI2 = d2.get('Error')
-            dI2 = _dI2 if _dI2 is not None else I2 * 0.05
+        try:
+            fixed_scale = float(self._scale_result.text())
+        except ValueError:
+            fixed_scale = 1.0
+        try:
+            fixed_qshift = float(self._qshift_result.text())
+        except ValueError:
+            fixed_qshift = 0.0
 
+        import numpy as _np
+
+        for idx, (f1, f2) in enumerate(pairs, 1):
+            # ── Progress ───────────────────────────────────────────────────────
+            self._status.setText(f"Merging {idx}/{total}: {f1} …")
+            QApplication.processEvents()
+
+            # ── Wrap everything — including load — in one broad guard ──────────
+            # We catch BaseException (not just Exception) so that unusual errors
+            # from C extensions or scipy never escape silently.  KeyboardInterrupt
+            # and SystemExit are re-raised so the user can still abort.
             try:
-                fixed_scale = float(self._scale_result.text())
-            except ValueError:
-                fixed_scale = 1.0
-            try:
-                fixed_qshift = float(self._qshift_result.text())
-            except ValueError:
-                fixed_qshift = 0.0
-            config = MergeConfig(
-                q_overlap_min=q_min, q_overlap_max=q_max,
-                fit_scale=self._fit_scale_chk.isChecked(),
-                scale_dataset=self._scale_ds_combo.currentIndex() + 1,
-                fixed_scale_value=fixed_scale,
-                fit_qshift=self._fit_qshift_chk.isChecked(),
-                fixed_qshift_value=fixed_qshift,
-                qshift_dataset=qshift_map[self._qshift_combo.currentText()],
-                method=self._method_combo.currentData() or 'interpolation',
-                split_at_left_cursor=self._split_chk.isChecked(),
-            )
-            result = self._engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
-            q_m, I_m, dI_m, dQ_m = self._engine.merge(
-                q1, I1, dI1, d1.get('dQ'), q2, I2, dI2, d2.get('dQ'), result, config
-            )
-            prov = {
-                'scale': result.scale, 'q_shift': result.q_shift,
-                'background': result.background, 'chi_squared': result.chi_squared,
-                'n_overlap_points': result.n_overlap_points,
-                'q_overlap_min': config.q_overlap_min, 'q_overlap_max': config.q_overlap_max,
-                'scale_dataset': config.scale_dataset, 'fit_scale': config.fit_scale,
-                'qshift_dataset': config.qshift_dataset, 'fit_qshift': config.fit_qshift,
-                'split_at_left_cursor': config.split_at_left_cursor,
-            }
-            try:
+                path1 = os.path.join(self._ds1.current_folder, f1)
+                path2 = os.path.join(self._ds2.current_folder, f2)
+
+                # quiet=True suppresses the modal QMessageBox in _load_file;
+                # errors are handled here instead.
+                d1 = self._load_file(path1, self._ds1.get_file_type(), quiet=True)
+                d2 = self._load_file(path2, self._ds2.get_file_type(), quiet=True)
+                if d1 is None or d2 is None:
+                    which = []
+                    if d1 is None:
+                        which.append("DS1")
+                    if d2 is None:
+                        which.append("DS2")
+                    raise RuntimeError(f"could not load {' and '.join(which)}")
+
+                q1, I1 = d1['Q'], d1['Intensity']
+                q2, I2 = d2['Q'], d2['Intensity']
+                _dI1 = d1.get('Error')
+                dI1 = _dI1 if _dI1 is not None else I1 * 0.05
+                _dI2 = d2.get('Error')
+                dI2 = _dI2 if _dI2 is not None else I2 * 0.05
+
+                # ── Validate data quality ─────────────────────────────────────
+                for label, q, I in (('DS1', q1, I1), ('DS2', q2, I2)):
+                    valid = _np.isfinite(q) & _np.isfinite(I) & (q > 0) & (I > 0)
+                    if not _np.any(valid):
+                        raise RuntimeError(
+                            f"{label} has no valid (finite, positive) data points")
+                    if int(_np.sum(valid)) < 3:
+                        raise RuntimeError(
+                            f"{label} has fewer than 3 valid data points")
+
+                # Use only finite Q values for the overlap check
+                q1_max = float(q1[_np.isfinite(q1)].max())
+                q2_min = float(q2[_np.isfinite(q2)].min())
+                if q1_max <= q2_min:
+                    raise RuntimeError(
+                        f"no Q overlap: DS1 ends at {q1_max:.4g}, "
+                        f"DS2 starts at {q2_min:.4g}")
+                if q_min >= q1_max or q_max <= q2_min:
+                    raise RuntimeError(
+                        f"cursor range [{q_min:.4g}, {q_max:.4g}] "
+                        f"is outside the data overlap region")
+
+                # ── Merge ─────────────────────────────────────────────────────
+                config = MergeConfig(
+                    q_overlap_min=q_min, q_overlap_max=q_max,
+                    fit_scale=self._fit_scale_chk.isChecked(),
+                    scale_dataset=self._scale_ds_combo.currentIndex() + 1,
+                    fixed_scale_value=fixed_scale,
+                    fit_qshift=self._fit_qshift_chk.isChecked(),
+                    fixed_qshift_value=fixed_qshift,
+                    qshift_dataset=qshift_map[self._qshift_combo.currentText()],
+                    method=self._method_combo.currentData() or 'interpolation',
+                    split_at_left_cursor=self._split_chk.isChecked(),
+                )
+                result = self._engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
+                q_m, I_m, dI_m, dQ_m = self._engine.merge(
+                    q1, I1, dI1, d1.get('dQ'), q2, I2, dI2, d2.get('dQ'), result, config
+                )
+                prov = {
+                    'scale': result.scale, 'q_shift': result.q_shift,
+                    'background': result.background, 'chi_squared': result.chi_squared,
+                    'n_overlap_points': result.n_overlap_points,
+                    'q_overlap_min': config.q_overlap_min, 'q_overlap_max': config.q_overlap_max,
+                    'scale_dataset': config.scale_dataset, 'fit_scale': config.fit_scale,
+                    'qshift_dataset': config.qshift_dataset, 'fit_qshift': config.fit_qshift,
+                    'split_at_left_cursor': config.split_at_left_cursor,
+                }
                 out = save_merged_data(
                     output_folder=Path(self._out_folder),
                     ds1_path=Path(path1),
@@ -1219,19 +1261,34 @@ class DataMergePanel(QWidget):
                     merge_result_dict=prov,
                     ds2_path=Path(path2),
                 )
-                status = "OK" if result.success else "FAILED"
+                status = "OK" if result.success else "WARN(not converged)"
                 print(f"[batch] {status}  {f1} + {f2} → {out.name}  "
                       f"scale={result.scale:.4g}  BG={result.background:.4g}")
                 n_ok += 1
-            except Exception as exc:
-                print(f"[batch] ERROR {f1} + {f2}: {exc}")
-                n_fail += 1
+
+            except (KeyboardInterrupt, SystemExit):
+                raise  # always let the user abort
+            except BaseException as exc:
+                reason = str(exc) or type(exc).__name__
+                print(f"[batch] FAIL {f1} + {f2}: {reason}")
+                failures.append((f1, f2, reason))
 
             QApplication.processEvents()
 
-        msg = f"Batch done: {n_ok} OK, {n_fail} failed."
+        n_fail = len(failures)
+        msg = f"Batch done: {n_ok} merged OK, {n_fail} skipped/failed."
         self._status.setText(msg)
-        QMessageBox.information(self, "Batch Complete", msg)
+
+        if failures:
+            detail_lines = [f"  • {f1}  +  {f2}\n    {reason}"
+                            for f1, f2, reason in failures]
+            detail = "\n".join(detail_lines)
+            QMessageBox.warning(
+                self, "Batch Complete — Some Pairs Failed",
+                f"{msg}\n\nSkipped / failed pairs:\n{detail}",
+            )
+        else:
+            QMessageBox.information(self, "Batch Complete", msg)
 
     # ================================================================== #
     #  File matching                                                       #
@@ -1360,12 +1417,22 @@ class DataMergePanel(QWidget):
         self.save_state()
         super().closeEvent(event)
 
+    def hideEvent(self, event) -> None:
+        """Save state whenever the window is hidden (e.g. Cmd+W on macOS)."""
+        self.save_state()
+        super().hideEvent(event)
+
     # ================================================================== #
     #  Private helpers                                                     #
     # ================================================================== #
 
-    def _load_file(self, filepath: str, file_type: str) -> Optional[dict]:
-        """Load a SAS data file according to the selected file type."""
+    def _load_file(self, filepath: str, file_type: str,
+                   quiet: bool = False) -> Optional[dict]:
+        """Load a SAS data file according to the selected file type.
+
+        When *quiet* is True (batch context) errors are printed to stdout
+        rather than shown as a modal dialog, so the batch loop is not blocked.
+        """
         from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
         fp = Path(filepath)
         try:
@@ -1381,8 +1448,11 @@ class DataMergePanel(QWidget):
             data['filepath'] = filepath
             return data
         except Exception as exc:
-            QMessageBox.warning(self, "Load Error",
-                                f"Could not read {fp.name}:\n{exc}")
+            if quiet:
+                print(f"[batch] load error {fp.name}: {exc}")
+            else:
+                QMessageBox.warning(self, "Load Error",
+                                    f"Could not read {fp.name}:\n{exc}")
             return None
 
     def _init_cursors_from_data(self) -> None:

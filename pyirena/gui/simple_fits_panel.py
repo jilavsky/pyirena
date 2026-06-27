@@ -1257,9 +1257,14 @@ class SimpleFitsPanel(QWidget):
             _version = 'unknown'
 
         default_path = str(Path(self._get_data_folder()) / 'pyirena_config.json')
+        try:
+            _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog
+        except AttributeError:
+            _save_opts = QFileDialog.DontConfirmOverwrite | QFileDialog.DontUseNativeDialog
         file_path, _ = QFileDialog.getSaveFileName(
             self, 'Export pyIrena Configuration', default_path,
             'pyIrena Config (*.json);;All Files (*)',
+            options=_save_opts,
         )
         if not file_path:
             return
@@ -1281,10 +1286,12 @@ class SimpleFitsPanel(QWidget):
                 return
             if 'simple_fits' in config:
                 reply = QMessageBox.question(
-                    self, 'Overwrite Simple Fits parameters?',
-                    f'File already contains Simple Fits parameters:\n{file_path}\n\n'
-                    'Overwrite them?',
+                    self, 'Update Simple Fits Section?',
+                    f'This file already has a Simple Fits section. Only that section will be '
+                    f'updated — all other tool settings in this file are preserved.\n\n'
+                    f'{file_path}',
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return

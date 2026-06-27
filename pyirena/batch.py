@@ -324,9 +324,44 @@ def _mc_uncertainty_sizes(
     return np.std(arr, axis=0, ddof=1)
 
 
+def _build_setup_state(unified_state: Dict, fit_result: Dict) -> Dict:
+    """Build a GUI-compatible setup_state from the config + fitted parameter values.
+
+    Starts from the original config state (which carries fit flags, bounds, links,
+    cursor positions, etc.) and overwrites the parameter values with the fitted ones
+    so that "Load Setup from File" in the GUI restores the fitted — not initial — values.
+    """
+    import copy
+    state = copy.deepcopy(unified_state)
+
+    for i, lv in enumerate(fit_result.get('levels', [])):
+        if i >= len(state.get('levels', [])):
+            break
+        ls = state['levels'][i]
+        for param, fitted_val in [('G', lv.G), ('Rg', lv.Rg), ('B', lv.B),
+                                   ('P', lv.P), ('ETA', lv.ETA), ('PACK', lv.PACK)]:
+            entry = ls.get(param)
+            if isinstance(entry, dict):
+                entry['value'] = float(fitted_val)
+            else:
+                ls[param] = float(fitted_val)
+        # RgCutoff is stored as a plain float in the state dict
+        ls['RgCutoff'] = float(lv.RgCO)
+
+    bg_val = fit_result.get('background', 0.0)
+    bg = state.get('background', {})
+    if isinstance(bg, dict):
+        bg['value'] = float(bg_val)
+    else:
+        state['background'] = {'value': float(bg_val), 'fit': False}
+
+    return state
+
+
 def _save_to_nexus(data: Dict, model: UnifiedFitModel,
                    fit_result: Dict, num_levels: int,
-                   uncertainties: Optional[Dict] = None) -> Optional[Path]:
+                   uncertainties: Optional[Dict] = None,
+                   setup_state: Optional[Dict] = None) -> Optional[Path]:
     """Save fit results to NXcanSAS HDF5 file.  Returns output path, or None on error."""
     from pyirena.io.nxcansas_unified import (
         save_unified_fit_results, get_output_filepath, create_nxcansas_file
@@ -379,6 +414,7 @@ def _save_to_nexus(data: Dict, model: UnifiedFitModel,
         num_levels=num_levels,
         error=data.get('Error'),
         uncertainties=uncertainties,
+        setup_state=setup_state,
     )
 
     return output_path
@@ -581,8 +617,10 @@ def fit_unified(
     # --- Save to NXcanSAS ---
     if save_to_nexus:
         try:
+            setup_state = _build_setup_state(unified_state, fit_result)
             output_path = _save_to_nexus(
-                data, model, fit_result, num_levels, uncertainties=uncertainties
+                data, model, fit_result, num_levels,
+                uncertainties=uncertainties, setup_state=setup_state,
             )
             result['output_file'] = output_path
         except Exception:
@@ -892,6 +930,7 @@ def fit_sizes(
                 params=save_params,           # complete parameter set
                 distribution_std=std_to_save,
                 fit_quality=fq_metrics,
+                setup_state=sizes_state,
             )
             result['output_file'] = output_path
         except Exception:
@@ -1045,6 +1084,7 @@ def fit_simple(
     q_max: Optional[float] = None,
     fixed_params: Optional[Dict] = None,
     verbose: bool = True,
+    setup_state: Optional[Dict] = None,
 ) -> Optional[Dict]:
     """
     Fit a single analytical model to one SAS file and save the result.
@@ -1183,6 +1223,7 @@ def fit_simple(
                 model_obj=model,
                 intensity_data=I[mask] if mask is not None else I,
                 intensity_error=dI[mask] if (dI is not None and mask is not None) else dI,
+                setup_state=setup_state,
             )
             if verbose:
                 print(f"[pyirena.batch] Results saved to '{data_file.name}'")
@@ -1279,6 +1320,7 @@ def fit_simple_from_config(
         q_max=q_max,
         fixed_params=fixed_params if fixed_params else None,
         verbose=True,
+        setup_state=config.get('simple_fits'),
     )
 
     if result is None:
@@ -1363,6 +1405,7 @@ def fit_waxs_peaks_from_config(
         q_max=q_max,
         save_to_nexus=save_to_nexus,
         verbose=True,
+        setup_state=wp_cfg,
     )
 
     if result is None:
@@ -1391,6 +1434,7 @@ def fit_waxs_peaks(
     q_max: Optional[float] = None,
     save_to_nexus: bool = True,
     verbose: bool = True,
+    setup_state: Optional[Dict] = None,
 ) -> Optional[Dict]:
     """Fit WAXS diffraction peaks to one data file and (optionally) save.
 
@@ -1541,6 +1585,7 @@ def fit_waxs_peaks(
                 intensity_error=dI_ if dI_ is not None else None,
                 q_min=float(q_.min()),
                 q_max=float(q_.max()),
+                setup_state=setup_state,
             )
             if verbose:
                 print(f"  [fit_waxs_peaks] Saved to {data_file.name}.")
@@ -1611,6 +1656,20 @@ def merge_data(
     dQ1 = data1.get('dQ')
     dQ2 = data2.get('dQ')
 
+    # ── Validate data quality ─────────────────────────────────────────────────
+    for label, q, I in (('DS1', q1, I1), ('DS2', q2, I2)):
+        valid = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+        if not np.any(valid):
+            print(f"[merge_data] {label} has no valid (finite, positive) data points — skipping.")
+            return None
+        if int(np.sum(valid)) < 3:
+            print(f"[merge_data] {label} has fewer than 3 valid data points — skipping.")
+            return None
+    if float(q1.max()) <= float(q2.min()):
+        print(f"[merge_data] No Q overlap: DS1 ends at {q1.max():.4g}, "
+              f"DS2 starts at {q2.min():.4g} — skipping.")
+        return None
+
     # ── Build MergeConfig ─────────────────────────────────────────────────────
     cfg_dict: Dict = {}
     if config_file is not None:
@@ -1661,7 +1720,12 @@ def merge_data(
     engine = DataMerge()
     if verbose:
         print(f"[merge_data] Optimising merge …")
-    result = engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
+    try:
+        result = engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
+    except Exception:
+        print(f"[merge_data] Merge optimisation failed for "
+              f"'{file1.name}' + '{file2.name}':\n{traceback.format_exc()}")
+        return None
     if verbose:
         status = "OK" if result.success else "FAILED"
         print(f"[merge_data] {status}  scale={result.scale:.4g}  "
@@ -1669,9 +1733,14 @@ def merge_data(
               f"n_pts={result.n_overlap_points}  msg={result.message}")
 
     # ── Merge arrays ──────────────────────────────────────────────────────────
-    q_m, I_m, dI_m, dQ_m = engine.merge(
-        q1, I1, dI1, dQ1, q2, I2, dI2, dQ2, result, config
-    )
+    try:
+        q_m, I_m, dI_m, dQ_m = engine.merge(
+            q1, I1, dI1, dQ1, q2, I2, dI2, dQ2, result, config
+        )
+    except Exception:
+        print(f"[merge_data] Merge array assembly failed for "
+              f"'{file1.name}' + '{file2.name}':\n{traceback.format_exc()}")
+        return None
 
     # ── Save ──────────────────────────────────────────────────────────────────
     out_path: Optional[Path] = None
@@ -1954,7 +2023,8 @@ def fit_modeling(
                         dI[_mask] if dI is not None else None, n_params=_n_free)
             except Exception:
                 fq_metrics = None
-            save_modeling_results(data_file, fit_result, fit_quality=fq_metrics)
+            save_modeling_results(data_file, fit_result, fit_quality=fq_metrics,
+                                  setup_state=mod_cfg)
             out_path = data_file
         except Exception:
             print(f"[pyirena.batch.fit_modeling] Save error:\n{traceback.format_exc()}")
