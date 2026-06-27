@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-06-27
+
+### Added
+
+- **About dialog reads version from `pyirena.__version__`** — no longer a
+  manually maintained string that lagged behind releases.
+- **Data Merge batch: live progress reporting.** Status bar shows
+  `Merging N/total: filename …` during a batch run so the user knows the
+  tool is active when merging hundreds of pairs.
+- **Data Merge batch: detailed failure summary.** When pairs are skipped or
+  fail, a warning dialog lists every affected pair with its specific reason
+  (load failure, no valid data points, no Q overlap, optimizer error, etc.)
+  instead of a silent stop.
+- **Sizes: "Set Q from cursors" button** enlarged and placed inline to the
+  right of the Q min / Q max fields (spanning both rows) in both the
+  Power-Law and Flat Background sections. "Q range for fit:" label centred.
+- **Sizes: number of bins max raised to 501.** 501 bins across 5 decades
+  gives exactly 100 bins per decade for log-spaced grids. Entering a round
+  multiple of 100 (100, 200, 300, 400, 500) is silently rounded up by 1 to
+  maintain the decade-aligned count.
+
+### Fixed
+
+- **Unified Fit: fitting stopped prematurely.** `max_nfev` (maximum function
+  evaluations passed to `scipy.least_squares`) raised from 1 000 → 5 000,
+  reducing early convergence on complex multi-level fits.
+- **Unified Fit GUI: control panel width was fixed.** Size policy changed
+  from `Fixed` to `Preferred`; `setMaximumWidth(400)` removed so the
+  splitter can be dragged wider.
+- **Unified Fit GUI: Copy/Swap button stretched full width.** Now capped at
+  120 px (same as Graph Unified), matching its secondary importance.
+- **Batch scripting (`fit_unified`, `fit_sizes`, `fit_simple`, `fit_waxs`,
+  `fit_modeling`): `_pyirena_config` missing from HDF5 output.** The
+  IO writers already accepted `setup_state` but the batch callers never
+  passed it. "Load Setup from File" in the GUI therefore failed with
+  *"No … setup is stored"* on files produced by scripts. Each batch function
+  now builds and passes the setup state; `fit_unified` additionally updates
+  parameter values to the fitted result so the GUI starts from the solution.
+- **HDF5 `num_levels` / `level_number` attributes unreadable in external
+  viewers** (e.g. Igor Pro). Stored as Python `int` (h5py writes these as
+  object-typed scalars on some versions); changed to `numpy.int32`.
+- **Save Params to JSON — confusing double dialog.** All five panels
+  (Unified Fit, Sizes, Simple Fits, WAXS Peak Fit, Modeling) showed the
+  macOS native *"Replace file?"* dialog followed by a pyirena *"Overwrite
+  section?"* dialog. The OS dialog was misleading (we only update one JSON
+  section, not the whole file). Both replaced by a single clear message:
+  *"Only the [Tool] section will be updated — all other tool settings in
+  this file are preserved."* Implemented via `DontConfirmOverwrite |
+  DontUseNativeDialog` on the file picker.
+- **Modeling: Save Params to JSON replaced the whole file.** Previously the
+  Modeling export wrote `{'_pyirena_config': …, 'modeling': …}` from
+  scratch, destroying any Sizes or Unified Fit sections in the same config
+  file. Now loads the existing file and updates only the `modeling` key,
+  consistent with all other tools.
+- **WAXS Peak Fit: Save Params to JSON had no section-exists check.** Would
+  silently overwrite an existing `waxs_peakfit` section without asking.
+  Consistent check and dialog added.
+- **Data Merge batch: silent fail on bad data pairs.** Two root causes: (1)
+  `_load_file` showed a blocking modal `QMessageBox` inside the loop, which
+  on some Qt/macOS combinations caused the outer method to return early
+  without the final summary. Fixed with `quiet=True` batch mode — errors
+  printed to console, not shown as dialogs. (2) The per-pair `try/except
+  Exception` missed non-`Exception` subclasses (certain C-extension errors).
+  Changed to `except BaseException` with explicit re-raise of
+  `KeyboardInterrupt` / `SystemExit`.
+- **Data Merge batch: Q overlap check silently passed for all-NaN arrays.**
+  `q.max()` returns `nan` for arrays containing only non-finite values;
+  `nan >= anything` is `False`, so the guard never triggered. Now uses
+  `q[np.isfinite(q)].max()` to guarantee a finite comparison value.
+- **Data Merge: scale fitting bounds too narrow.** Occasional hardware
+  miscalibration produces intensity ratios outside the old 0.01–100 window,
+  causing the optimizer to be clamped at the boundary. Bounds widened to
+  0.001–1 000 throughout (initial clip, fallback median, `_wls_bg_scale2`).
+- **Igor import (`extract_h5xp_to_nexus`): USAXS data not found in
+  Igor-exported h5xp files.** `WAVE_PICKERS_H5XP["USAXS"]` only knew
+  pyirena-produced wave names (`q_<folder>`, `Q`/`R`/`S`). Igor's own h5xp
+  export retains the original USAXS pipeline names (`DSM_Qvec`/`DSM_Int`/
+  `DSM_Error` for desmeared data, `SMR_*` for slit-smeared). Both naming
+  conventions added, matching the existing pxp path. `R_Qvec`/`R_Int`/
+  `R_Error` also added for SAXS/WAXS h5xp to keep parity.
+- **Data Merge panel: folder paths not restored after restart.** State was
+  correctly written on close but `launch_data_merge` unconditionally called
+  `set_folder(1, current_folder)` on every open, overwriting the restored
+  DS1 path. DS1 pre-populate now only runs when no saved state exists.
+  `hideEvent` added so Cmd+W on macOS also triggers `save_state`.
+- **Sizes: power-law fit error not visible in control panel.** When the user
+  clicked "Fit P/B" without checking "Fit B?" or "Fit P?", the error
+  appeared only in the graph window's status area. Now also shown in the
+  control-panel status label in bold red.
+- **HDF5 Viewer — Collect tab: Level/Peak selector too narrow.** Spinner was
+  fixed at 60 px; text content clipped. Now uses `setMinimumWidth(160)` to
+  match the Item combo directly above it.
+
 ## [0.9.3] — 2026-06-26
 
 ### Added
