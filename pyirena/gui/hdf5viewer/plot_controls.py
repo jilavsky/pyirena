@@ -134,6 +134,8 @@ class PlotControlsPanel(QWidget):
         self._cb_sizes_nr    = QCheckBox("Size Dist. num. N(r)")
         self._cb_sizes_cumvol = QCheckBox("Size Dist. cumul. vol.")
         self._cb_sizes_cumnum = QCheckBox("Size Dist. cumul. num.")
+        self._cb_sizes_surf    = QCheckBox("Size Dist. surf. S(r)")
+        self._cb_sizes_cumsurf = QCheckBox("Size Dist. cumul. surf.")
         self._cb_waxs              = QCheckBox("WAXS model")
         self._cb_simple            = QCheckBox("Simple Fit model")
         self._cb_modeling          = QCheckBox("Modeling model")
@@ -150,11 +152,13 @@ class PlotControlsPanel(QWidget):
         pb.addWidget(self._cb_sizes_nr,          2, 0)
         pb.addWidget(self._cb_sizes_cumvol,      2, 1)
         pb.addWidget(self._cb_sizes_cumnum,      3, 0)
-        pb.addWidget(self._cb_waxs,              3, 1)
-        pb.addWidget(self._cb_simple,            4, 0)
-        pb.addWidget(self._cb_modeling,          4, 1)
-        pb.addWidget(self._cb_modeling_vol_pr,   5, 0)
-        pb.addWidget(self._cb_modeling_num_pr,   5, 1)
+        pb.addWidget(self._cb_sizes_surf,        3, 1)
+        pb.addWidget(self._cb_sizes_cumsurf,     4, 0)
+        pb.addWidget(self._cb_waxs,              4, 1)
+        pb.addWidget(self._cb_simple,            5, 0)
+        pb.addWidget(self._cb_modeling,          5, 1)
+        pb.addWidget(self._cb_modeling_vol_pr,   6, 0)
+        pb.addWidget(self._cb_modeling_num_pr,   6, 1)
         vl.addWidget(presets_box)
 
         # ── Custom data from HDF5 browser ─────────────────────────────────
@@ -549,7 +553,9 @@ class PlotControlsPanel(QWidget):
                          self._cb_sizes_pr.isChecked() or
                          self._cb_sizes_nr.isChecked() or
                          self._cb_sizes_cumvol.isChecked() or
-                         self._cb_sizes_cumnum.isChecked())
+                         self._cb_sizes_cumnum.isChecked() or
+                         self._cb_sizes_surf.isChecked() or
+                         self._cb_sizes_cumsurf.isChecked())
             sz_result = _readers.read_sizes(filepath) if any_sizes else None
 
             if self._cb_sizes_iq.isChecked():
@@ -620,6 +626,34 @@ class PlotControlsPanel(QWidget):
                     })
                 else:
                     errors.append(f"No cumul. num. dist. in {stem}")
+
+            # Surface-area distribution S(r) vs r
+            if self._cb_sizes_surf.isChecked():
+                if sz_result and sz_result.get("surface_dist") is not None:
+                    curves.append({
+                        "label": f"{stem}  surf. S(r)",
+                        "x": sz_result["r"], "y": sz_result["surface_dist"],
+                        "yerr": None, "xerr": None,
+                        "suggest_log_x": False,
+                        "suggest_log_y": False,
+                        "separate_graph": True,
+                    })
+                else:
+                    errors.append(f"No surface dist. in {stem}")
+
+            # Cumulative surface-area distribution
+            if self._cb_sizes_cumsurf.isChecked():
+                if sz_result and sz_result.get("cumul_surf_dist") is not None:
+                    curves.append({
+                        "label": f"{stem}  cumul. surf.",
+                        "x": sz_result["r"], "y": sz_result["cumul_surf_dist"],
+                        "yerr": None, "xerr": None,
+                        "suggest_log_x": False,
+                        "suggest_log_y": False,
+                        "separate_graph": True,
+                    })
+                else:
+                    errors.append(f"No cumul. surf. dist. in {stem}")
 
             # WAXS model
             if self._cb_waxs.isChecked():
@@ -965,7 +999,7 @@ class PlotControlsPanel(QWidget):
             self._collect_index.setEnabled(True)
 
         elif type_text == "Size Distribution":
-            items = ["chi_squared", "volume_fraction", "rg"]
+            items = ["chi_squared", "volume_fraction", "rg", "specific_surface"]
             self._collect_item.addItems(items)
             self._collect_index.setEnabled(False)
 

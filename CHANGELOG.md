@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Sizes: surface-area distribution.** The volume distribution is now also
+  converted to a surface-area distribution `S(r) = sv(r)·P_V(r)` and its
+  cumulative (running integral), saved into the NXcanSAS file as
+  `surface_dist` and `cumul_surf_dist`, plus the total **specific surface
+  area** (`specific_surface`, [Å⁻¹]) as a browseable scalar. The surface-to-
+  volume ratio is shape-aware: `3/r` for spheres and a closed-form `C(AR)/r`
+  for spheroids (`pyirena.core.sizes.surface_distribution`).
+- **Data Explorer: surface-area presets.** New "Size Dist. surf. S(r)" and
+  "Size Dist. cumul. surf." checkboxes in the 1D Graph tab, and
+  `specific_surface` added to the Size Distribution "Collect Values" items.
+
+### Fixed
+
+- **Sizes: number distribution now shape-aware.** `number_dist` /
+  `cumul_num_dist` previously assumed a sphere volume `(4/3)πr³` even for
+  spheroid fits. They now use the true particle volume (`×AR` for spheroids)
+  via `pyirena.core.sizes.number_distribution`, making them consistent with
+  the new surface-area distribution. Sphere fits are unchanged; older files
+  written before this fix need a re-store to update spheroid number
+  distributions.
+
 ## [0.9.4] — 2026-06-27
 
 ### Added

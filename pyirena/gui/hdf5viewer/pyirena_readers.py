@@ -180,6 +180,7 @@ def read_sizes(filepath: str | Path) -> dict | None:
     Returns {
         "Q", "I_model", "r", "distribution", "distribution_std" (may be None),
         "number_dist", "cumul_vol_dist", "cumul_num_dist" (may be None),
+        "surface_dist", "cumul_surf_dist" (may be None),
         "chi2", "label"
     } or None.
     """
@@ -203,6 +204,8 @@ def read_sizes(filepath: str | Path) -> dict | None:
             "number_dist":    _opt("number_dist"),
             "cumul_vol_dist": _opt("cumul_vol_dist"),
             "cumul_num_dist": _opt("cumul_num_dist"),
+            "surface_dist":   _opt("surface_dist"),
+            "cumul_surf_dist": _opt("cumul_surf_dist"),
             "chi2":           res.get("chi_squared"),
             "label":          Path(filepath).stem,
         }

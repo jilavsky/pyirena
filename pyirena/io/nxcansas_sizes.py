@@ -17,8 +17,11 @@ residuals          — normalised residuals (I_data - I_model) / error
 r_grid             — radius bin centres [Å]
 distribution       — volume size distribution P(r) [volume fraction / Å]
 number_dist        — number size distribution N(r) [1 / Å]
+surface_dist       — surface-area size distribution S(r) = sv(r)·P(r)
 cumul_vol_dist     — cumulative volume distribution (running integral from r_min)
 cumul_num_dist     — cumulative number distribution (running integral from r_min)
+cumul_surf_dist    — cumulative surface-area distribution (running integral from r_min);
+                     final value = total specific surface area [Å⁻¹]
 distribution_std   — per-bin std of P(r) across Monte Carlo repetitions (if available)
 
 Group attributes (fit results)
@@ -168,19 +171,33 @@ def save_sizes_results(
             grp['distribution_std'].attrs['units'] = 'volume_fraction/angstrom'
 
         # ── Derived distributions ────────────────────────────────────────────
-        # Number distribution: N(r) = P(r) / V(r),  V(r) = (4/3)πr³
-        V_r = (4.0 / 3.0) * np.pi * r_grid ** 3
-        num_dist = np.where(V_r > 0, distribution / V_r, 0.0)
+        # Number distribution N(r) = P(r) / V(r), shape-aware via the particle
+        # volume (sphere: (4/3)πr³; spheroid: ×AR).
+        from pyirena.core.sizes import number_distribution
+        _shape = params.get('shape', 'sphere')
+        _ar = params.get('aspect_ratio', 1.0)
+        num_dist, cumul_num = number_distribution(distribution, r_grid, _shape, _ar)
 
-        # Cumulative distributions: running integral from r_min using the
+        # Cumulative volume distribution: running integral from r_min using the
         # trapezoidal rule over bin-centre spacing.
         dr = np.diff(r_grid, prepend=r_grid[0])
         cumul_vol = np.cumsum(distribution * dr)
-        cumul_num = np.cumsum(num_dist * dr)
 
         grp.create_dataset('number_dist',    data=num_dist.astype('f8'),   compression='gzip')
         grp.create_dataset('cumul_vol_dist', data=cumul_vol.astype('f8'),  compression='gzip')
         grp.create_dataset('cumul_num_dist', data=cumul_num.astype('f8'),  compression='gzip')
+
+        # Surface-area distribution S(r) = sv(r)·P(r), shape-aware via the
+        # particle surface-to-volume ratio (sphere: 3/r; spheroid: C(AR)/r).
+        # The cumulative surface's final value is the total specific surface
+        # area (surface per unit sample volume, [Å⁻¹]).
+        from pyirena.core.sizes import surface_distribution
+        surf_dist, cumul_surf, specific_surface = surface_distribution(
+            distribution, r_grid, shape=_shape, aspect_ratio=_ar,
+        )
+        grp.create_dataset('surface_dist',    data=surf_dist.astype('f8'),  compression='gzip')
+        grp.create_dataset('cumul_surf_dist', data=cumul_surf.astype('f8'), compression='gzip')
+        grp.create_dataset('specific_surface', data=float(specific_surface))
 
         # Units annotations
         grp['Q'].attrs['units']              = '1/angstrom'
@@ -191,6 +208,9 @@ def save_sizes_results(
         grp['number_dist'].attrs['units']    = '1/angstrom'
         grp['cumul_vol_dist'].attrs['units'] = 'volume_fraction'
         grp['cumul_num_dist'].attrs['units'] = 'dimensionless'
+        grp['surface_dist'].attrs['units']    = '1/angstrom'
+        grp['cumul_surf_dist'].attrs['units'] = '1/angstrom'
+        grp['specific_surface'].attrs['units'] = '1/angstrom'
 
         # Robust fit-quality metrics under fit_quality/.  Supplied by the caller
         # (sizes uses a background-subtracted basis the writer cannot reconstruct
@@ -264,7 +284,8 @@ def load_sizes_results(filepath: Path) -> dict:
         else:
             result['distribution_std'] = None
 
-        for key in ('number_dist', 'cumul_vol_dist', 'cumul_num_dist'):
+        for key in ('number_dist', 'cumul_vol_dist', 'cumul_num_dist',
+                    'surface_dist', 'cumul_surf_dist'):
             result[key] = grp[key][:] if key in grp else None
 
         # Robust fit-quality metrics (None for files written before this feature)
@@ -272,7 +293,8 @@ def load_sizes_results(filepath: Path) -> dict:
         result['fit_quality'] = read_fit_quality(grp)
 
         # Scalar metadata: fit results may be datasets (new format) or attrs (old format)
-        _dataset_keys = ('chi_squared', 'volume_fraction', 'rg', 'n_iterations', 'q_power')
+        _dataset_keys = ('chi_squared', 'volume_fraction', 'rg', 'n_iterations',
+                         'q_power', 'specific_surface')
         for k in _dataset_keys:
             if k in grp and isinstance(grp[k], h5py.Dataset):
                 try:

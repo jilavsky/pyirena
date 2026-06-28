@@ -1266,3 +1266,151 @@ class SizesDistribution:
             'rg':                None,
             'n_iterations':      None,
         }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Surface-area distribution (derived from the volume distribution)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _spheroid_sv_factor(aspect_ratio: float) -> float:
+    """Dimensionless surface-to-volume factor C for a spheroid: ``sv(r) = C / r``.
+
+    The spheroid has equatorial semi-axes ``a = b = r`` and polar semi-axis
+    ``c = r·AR``.  Because the surface area scales as ``r²`` and the volume as
+    ``r³``, the ratio ``A(r)/V(r) = C(AR)/r`` where C depends only on AR:
+
+        C(AR) = 1.5 · g(AR) / AR
+
+    with ``g(AR)`` the surface-area shape factor (g = 2 for a sphere, giving
+    C = 3, consistent with the sphere relation ``sv = 3/r``).
+
+      * Prolate (AR > 1):  e = √(1 − 1/AR²),  g = 1 + (AR/e)·arcsin(e)
+      * Oblate  (AR < 1):  e = √(1 − AR²),    g = 1 + (AR²/e)·artanh(e)
+      * Sphere  (AR ≈ 1):  C = 3
+
+    Args:
+        aspect_ratio: polar/equatorial axis ratio (AR).  AR ≤ 0 is treated as 1.
+
+    Returns:
+        The factor C such that ``sv(r) = C / r``.
+    """
+    AR = float(aspect_ratio)
+    if AR <= 0.0 or abs(AR - 1.0) < 1e-6:
+        return 3.0
+    if AR > 1.0:                       # prolate
+        e = math.sqrt(1.0 - 1.0 / AR ** 2)
+        g = 1.0 + (AR / e) * math.asin(e)
+    else:                             # oblate
+        e = math.sqrt(1.0 - AR ** 2)
+        g = 1.0 + (AR ** 2 / e) * math.atanh(e)
+    return 1.5 * g / AR
+
+
+def particle_volume(
+    r_grid: np.ndarray,
+    shape: str = 'sphere',
+    aspect_ratio: float = 1.0,
+) -> np.ndarray:
+    """Per-particle volume V(r) for the given shape [Å³].
+
+      * Sphere:   ``V = (4/3)π r³``
+      * Spheroid: ``V = (4/3)π r³ · AR``  (semi-axes r, r, r·AR)
+
+    Args:
+        r_grid:       Radius bin centres [Å].
+        shape:        Particle shape (``'sphere'`` or ``'spheroid'``).  Any
+                      unrecognised shape falls back to the sphere volume.
+        aspect_ratio: Spheroid aspect ratio (used only when shape=='spheroid').
+
+    Returns:
+        Array of particle volumes matching ``r_grid``.
+    """
+    r_grid = np.asarray(r_grid, dtype=float)
+    V = (4.0 / 3.0) * np.pi * r_grid ** 3
+    if str(shape).lower() == 'spheroid':
+        AR = float(aspect_ratio)
+        if AR > 0.0:
+            V = V * AR
+    return V
+
+
+def number_distribution(
+    distribution: np.ndarray,
+    r_grid: np.ndarray,
+    shape: str = 'sphere',
+    aspect_ratio: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Derive the number distribution from a volume distribution.
+
+    The number distribution is ``N(r) = P_V(r) / V(r)`` with the shape-aware
+    particle volume from :func:`particle_volume`.  The cumulative number
+    distribution is the running integral ``∫ N(r) dr``.
+
+    Args:
+        distribution: Volume size distribution P_V(r) [vol-fraction / Å].
+        r_grid:       Radius bin centres [Å].
+        shape:        Particle shape (``'sphere'`` or ``'spheroid'``).
+        aspect_ratio: Spheroid aspect ratio (used only when shape=='spheroid').
+
+    Returns:
+        ``(number_dist, cumul_num_dist)`` arrays matching ``r_grid``.
+    """
+    distribution = np.asarray(distribution, dtype=float)
+    r_grid = np.asarray(r_grid, dtype=float)
+
+    V_r = particle_volume(r_grid, shape, aspect_ratio)
+    number_dist = np.where(V_r > 0, distribution / V_r, 0.0)
+
+    dr = np.diff(r_grid, prepend=r_grid[0])
+    cumul_num_dist = np.cumsum(number_dist * dr)
+
+    return number_dist, cumul_num_dist
+
+
+def surface_distribution(
+    distribution: np.ndarray,
+    r_grid: np.ndarray,
+    shape: str = 'sphere',
+    aspect_ratio: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Derive the surface-area distribution from a volume distribution.
+
+    The surface-area distribution is ``S(r) = sv(r) · P_V(r)`` where
+    ``sv(r) = A(r)/V(r)`` is the particle surface-to-volume ratio:
+
+      * Sphere:   ``sv(r) = 3 / r``
+      * Spheroid: ``sv(r) = C(AR) / r``  (see :func:`_spheroid_sv_factor`)
+
+    The cumulative surface distribution is the running integral
+    ``∫ S(r) dr``; its final value is the total specific surface area
+    (surface area per unit sample volume, [Å⁻¹]) — the same normalisation
+    convention used by the cumulative volume/number distributions.
+
+    Args:
+        distribution: Volume size distribution P_V(r) [vol-fraction / Å].
+        r_grid:       Radius bin centres [Å].
+        shape:        Particle shape (``'sphere'`` or ``'spheroid'``).  Any
+                      unrecognised shape falls back to the sphere relation.
+        aspect_ratio: Spheroid aspect ratio (used only when shape=='spheroid').
+
+    Returns:
+        ``(surface_dist, cumul_surf_dist, specific_surface)`` where the arrays
+        match ``r_grid`` in shape and ``specific_surface`` is a float.
+    """
+    distribution = np.asarray(distribution, dtype=float)
+    r_grid = np.asarray(r_grid, dtype=float)
+
+    r_safe = np.maximum(r_grid, 1e-30)
+    if str(shape).lower() == 'spheroid':
+        factor = _spheroid_sv_factor(aspect_ratio)
+    else:
+        factor = 3.0
+    sv = factor / r_safe
+
+    surface_dist = sv * distribution
+
+    dr = np.diff(r_grid, prepend=r_grid[0])
+    cumul_surf_dist = np.cumsum(surface_dist * dr)
+    specific_surface = float(cumul_surf_dist[-1]) if cumul_surf_dist.size else 0.0
+
+    return surface_dist, cumul_surf_dist, specific_surface
