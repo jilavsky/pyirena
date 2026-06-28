@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Size Dist. cumul. surf." checkboxes in the 1D Graph tab, and
   `specific_surface` added to the Size Distribution "Collect Values" items.
 
+### Changed
+
+- **Data Explorer: one graph per quantity.** Selecting several distribution
+  presets no longer dumps differential and cumulative curves onto a single Y
+  axis. Each quantity (I(Q), vol P(r), num N(r), surf S(r), and the three
+  cumulatives) now opens its own graph with the correct axis labels and title;
+  the *same* quantity from multiple files is grouped into one graph so files
+  can be compared. "Add to active graph" sends only I(Q) curves to the active
+  graph; other quantities open their own.
+
 ### Fixed
 
 - **Sizes: number distribution now shape-aware.** `number_dist` /
@@ -29,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the new surface-area distribution. Sphere fits are unchanged; older files
   written before this fix need a re-store to update spheroid number
   distributions.
+- **Sizes: "Save as Igor Pro ITX" on the distribution graph.** The size
+  distribution is drawn as a stepMode bar (a `PlotCurveItem` in log-x space),
+  which the ITX exporter skipped — it reported "No named data curves found to
+  export." The exporter now honours an explicit `_itx_export` payload, so the
+  distribution exports with linear radii and `P(r)` values.
+- **Data Explorer: legend now populates.** The legend was created *after* the
+  first curve was plotted, so pyqtgraph never registered it and the "Legend"
+  button appeared to do nothing. The legend is now rebuilt explicitly from each
+  curve's label, identifying both the quantity and the source file.
+- **Sizes: "Fit B?" / "Fit P?" checkboxes are now persisted.** Their state is
+  saved to the state file and exported config (and restored on restart),
+  instead of resetting to unchecked every session. `batch.fit_sizes` now acts
+  on these flags, running the power-law (and flat-background) pre-fit before
+  the size fit — so a script can fit the background first, then the model,
+  matching the GUI "Fit All" sequence.
 
 ## [0.9.4] — 2026-06-27
 

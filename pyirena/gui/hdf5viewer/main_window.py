@@ -231,6 +231,16 @@ class HDF5ViewerWindow(QMainWindow):
         gw.show()
         self._set_active_graph(gw)
 
+        # Apply per-graph axis labels / title carried on the curves (all curves
+        # in one emitted group share the same quantity, hence the same labels).
+        if curves:
+            first = curves[0]
+            gw.set_labels(
+                title=first.get("title"),
+                x_label=first.get("x_label"),
+                y_label=first.get("y_label"),
+            )
+
         for c in curves:
             gw.add_curve(
                 x=c["x"], y=c["y"],

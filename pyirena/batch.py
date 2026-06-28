@@ -770,6 +770,38 @@ def fit_sizes(
         print(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
         return None
 
+    # --- Optional background pre-fits (mirrors the GUI "Fit All" sequence) ---
+    # 1. Power-law B·q^(-P): fit B and/or P over the power-law Q range when the
+    #    config's fit flags are set, updating s.power_law_B / s.power_law_P.
+    # 2. Flat background: averaged over the background Q range when one is set,
+    #    updating s.background.
+    # Both pre-fits use the full (un-masked) data Q so the chosen Q windows are
+    # honoured independently of the size-fit cursor range, exactly as the GUI does.
+    try:
+        fit_B = bool(sizes_state.get('fit_power_law_B', False))
+        fit_P = bool(sizes_state.get('fit_power_law_P', False))
+        if fit_B or fit_P:
+            pl_qmin = sizes_state.get('power_law_q_min')
+            pl_qmax = sizes_state.get('power_law_q_max')
+            if pl_qmin is None or pl_qmax is None:
+                pl_qmin, pl_qmax = float(Q.min()), float(Q.max())
+            pl_res = s.fit_power_law(
+                Q, Intensity, float(pl_qmin), float(pl_qmax),
+                fit_B=fit_B, fit_P=fit_P,
+            )
+            print(f"[pyirena.batch] Power-law pre-fit: {pl_res.get('message', '')}")
+
+        bg_qmin = sizes_state.get('background_q_min')
+        bg_qmax = sizes_state.get('background_q_max')
+        if bg_qmin is not None and bg_qmax is not None:
+            bg_res = s.fit_background_term(
+                Q, Intensity, float(bg_qmin), float(bg_qmax),
+            )
+            print(f"[pyirena.batch] Background pre-fit: {bg_res.get('message', '')}")
+    except Exception:
+        print(f"[pyirena.batch] Background pre-fit failed (continuing with "
+              f"configured values):\n{traceback.format_exc()}")
+
     # --- Run fit ---
     try:
         fit_result = s.fit(q_fit, intensity_fit, error_fit)

@@ -833,7 +833,29 @@ def save_itx_from_plot(
 
     # Collect named, non-NaN-heavy PlotDataItems.
     named_items: list[tuple[str, np.ndarray, np.ndarray, str]] = []
-    for item in plot.listDataItems():
+
+    # Items carrying an explicit ``_itx_export`` dict (e.g. stepMode bar charts
+    # drawn as PlotCurveItems) are not tracked in ``dataItems`` and are not
+    # PlotDataItems, so scan ``plot.items`` for them in addition to the normal
+    # data items.
+    scan_items = list(plot.listDataItems())
+    for it in getattr(plot, 'items', []):
+        if it not in scan_items and getattr(it, '_itx_export', None) is not None:
+            scan_items.append(it)
+
+    for item in scan_items:
+        # Explicit export data takes precedence (linear units, correct shape).
+        exp = getattr(item, '_itx_export', None)
+        if exp is not None:
+            name = exp.get('name') or ''
+            x_data = np.asarray(exp.get('x'), dtype=float)
+            y_data = np.asarray(exp.get('y'), dtype=float)
+            if name and x_data.size >= 2 and y_data.size >= 2:
+                mask = np.isfinite(x_data) & np.isfinite(y_data)
+                if mask.sum() >= 2:
+                    named_items.append((name, x_data[mask], y_data[mask],
+                                        _get_item_color_hex(item)))
+            continue
         if not isinstance(item, pg.PlotDataItem):
             continue
         name = item.name() or ''

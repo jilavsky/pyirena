@@ -581,6 +581,15 @@ class SizesFitGraphWindow(QWidget):
             brush=green_brush,
             pen=pg.mkPen('#006400', width=1),
         )
+        # The distribution is a stepMode PlotCurveItem whose x data is in log10
+        # space with N+1 bin edges — neither a PlotDataItem nor in linear units,
+        # so the generic ITX exporter cannot read it.  Attach the linear bin
+        # centres + P(r) so ``save_itx_from_plot`` can export it directly.
+        self._dist_item._itx_export = {
+            'name': label or 'SizeDistribution',
+            'x': r.copy(),
+            'y': y.copy(),
+        }
         self.distribution_plot.addItem(self._dist_item)
 
         # ── Axis ranges ──────────────────────────────────────────────────────
@@ -1274,6 +1283,7 @@ class SizesFitPanel(QWidget):
         self.power_law_B_edit.editingFinished.connect(self._on_param_changed)
         b_row.addWidget(self.power_law_B_edit)
         self.fit_B_check = QCheckBox("Fit B?")
+        self.fit_B_check.stateChanged.connect(self._on_param_changed)
         b_row.addWidget(self.fit_B_check)
         b_row.addStretch()
         pl_layout.addLayout(b_row)
@@ -1288,6 +1298,7 @@ class SizesFitPanel(QWidget):
         self.power_law_P_edit.editingFinished.connect(self._on_param_changed)
         p_row.addWidget(self.power_law_P_edit)
         self.fit_P_check = QCheckBox("Fit P?")
+        self.fit_P_check.stateChanged.connect(self._on_param_changed)
         p_row.addWidget(self.fit_P_check)
         p_row.addStretch()
         pl_layout.addLayout(p_row)
@@ -2446,6 +2457,11 @@ class SizesFitPanel(QWidget):
             'error_scale': s.error_scale,
             'power_law_B': s.power_law_B,
             'power_law_P': s.power_law_P,
+            # Whether to fit B / P when "Fit P/B" or "Fit All" runs.  Persisted
+            # so the GUI remembers the user's choice and scripts can drive a
+            # background pre-fit before the size fit (see batch.fit_sizes).
+            'fit_power_law_B': self.fit_B_check.isChecked(),
+            'fit_power_law_P': self.fit_P_check.isChecked(),
             'power_law_q_min': self.pl_q_min_edit.text().strip() or None,
             'power_law_q_max': self.pl_q_max_edit.text().strip() or None,
             'background_q_min': self.bg_q_min_edit.text().strip() or None,
@@ -2495,6 +2511,8 @@ class SizesFitPanel(QWidget):
         self.error_scale_edit.setText(str(state.get('error_scale', 1.0)))
         self.power_law_B_edit.setText(str(state.get('power_law_B', 0.0)))
         self.power_law_P_edit.setText(str(state.get('power_law_P', 4.0)))
+        self.fit_B_check.setChecked(bool(state.get('fit_power_law_B', False)))
+        self.fit_P_check.setChecked(bool(state.get('fit_power_law_P', False)))
         pl_q_min = state.get('power_law_q_min')
         pl_q_max = state.get('power_law_q_max')
         self.pl_q_min_edit.setText(str(pl_q_min) if pl_q_min is not None else '')

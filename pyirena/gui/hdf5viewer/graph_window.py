@@ -278,6 +278,21 @@ class GraphWindow(QWidget):
     def get_curves(self) -> list[dict]:
         return list(self._curves)
 
+    def set_labels(self, title: str | None = None,
+                   x_label: str | None = None,
+                   y_label: str | None = None) -> None:
+        """Set the window title and/or axis labels (ignores blank/None values)."""
+        if title:
+            self._title = title
+            self.setWindowTitle(title)
+            self._plot.setTitle(title)
+        if x_label:
+            self._x_label = x_label
+            self._plot.setLabel("bottom", x_label)
+        if y_label:
+            self._y_label = y_label
+            self._plot.setLabel("left", y_label)
+
     # Axis mode getters (used by export.open_matplotlib)
     def is_log_x(self) -> bool: return self._log_x
     def is_log_y(self) -> bool: return self._log_y
@@ -353,10 +368,24 @@ class GraphWindow(QWidget):
 
     def _update_legend(self) -> None:
         if not self._legend_btn.isChecked():
+            if self._legend is not None and self._legend.scene() is not None:
+                self._legend.setVisible(False)
             return
         if self._legend is None:
             self._legend = self._plot.addLegend(offset=(10, 10), labelTextColor='k')
-        # The legend auto-updates from named plot items
+        # pyqtgraph only auto-registers items that are plotted AFTER the legend
+        # is created, so the first curve(s) would be missing.  Rebuild the
+        # legend explicitly from every curve's stored label instead.
+        try:
+            self._legend.clear()
+        except Exception:
+            pass
+        for curve in self._curves:
+            ref = curve.get("plot_ref")
+            label = curve.get("label") or ""
+            if ref is not None and label:
+                self._legend.addItem(ref, label)
+        self._legend.setVisible(True)
 
     # ── Toolbar actions ────────────────────────────────────────────────────
 
@@ -380,10 +409,7 @@ class GraphWindow(QWidget):
 
     def _toggle_legend(self, checked: bool) -> None:
         if checked:
-            if self._legend is None:
-                self._update_legend()
-            elif self._legend.scene():
-                self._legend.setVisible(True)
+            self._update_legend()
         else:
             if self._legend is not None and self._legend.scene():
                 self._legend.setVisible(False)

@@ -50,6 +50,32 @@ def _label(text: str, bold: bool = False) -> QLabel:
     return lbl
 
 
+# Per-quantity graph metadata.  Curves built in ``_build_curves`` carry a
+# ``group`` key; ``_group_curves`` collects all curves of one group into a
+# single graph and stamps these axis labels / title onto it so each graph is
+# self-identifying.  ``iq`` is the default (intensity-vs-Q) group.
+_GRAPH_META: dict[str, dict[str, str]] = {
+    "iq":            {"x_label": "Q (Å⁻¹)",  "y_label": "Intensity (cm⁻¹)",
+                      "title": "Intensity I(Q)"},
+    "sizes_vol":     {"x_label": "r (Å)", "y_label": "volume P(r) (Å⁻¹)",
+                      "title": "Volume size distribution"},
+    "sizes_num":     {"x_label": "r (Å)", "y_label": "number N(r) (Å⁻¹)",
+                      "title": "Number size distribution"},
+    "sizes_surf":    {"x_label": "r (Å)", "y_label": "surface S(r) (Å⁻¹)",
+                      "title": "Surface-area size distribution"},
+    "sizes_cumvol":  {"x_label": "r (Å)", "y_label": "cumulative volume fraction",
+                      "title": "Cumulative volume distribution"},
+    "sizes_cumnum":  {"x_label": "r (Å)", "y_label": "cumulative number",
+                      "title": "Cumulative number distribution"},
+    "sizes_cumsurf": {"x_label": "r (Å)", "y_label": "cumulative surface (Å⁻¹)",
+                      "title": "Cumulative surface-area distribution"},
+    "mod_vol":       {"x_label": "r (Å)", "y_label": "volume P(r) (Å⁻¹)",
+                      "title": "Modeling volume distribution"},
+    "mod_num":       {"x_label": "r (Å)", "y_label": "number P(r) (Å⁻¹)",
+                      "title": "Modeling number distribution"},
+}
+
+
 class PlotControlsPanel(QWidget):
     """
     Tabbed panel providing plot and collect-values controls.
@@ -57,8 +83,10 @@ class PlotControlsPanel(QWidget):
     Signals (all handled by HDF5ViewerWindow)
     -----------------------------------------
     new_graph_requested(list[dict])
-        Open a fresh GraphWindow and add these curves to it.
-        Each dict: {label, x, y, yerr, xerr, suggest_log_x, suggest_log_y}
+        Open a fresh GraphWindow and add these curves to it.  All curves in one
+        emission share a quantity (and hence a Y axis).
+        Each dict: {label, x, y, yerr, xerr, suggest_log_x, suggest_log_y,
+                    group, x_label, y_label, title}
 
     add_to_active_graph_requested(list[dict])
         Add curves to the currently active GraphWindow.
@@ -580,7 +608,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": yerr, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
-                        "separate_graph": True,
+                        "group": "sizes_vol",
                     })
                 else:
                     errors.append(f"No Size Dist. in {stem}")
@@ -594,7 +622,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": None, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
-                        "separate_graph": True,
+                        "group": "sizes_num",
                     })
                 else:
                     errors.append(f"No number dist. in {stem}")
@@ -608,7 +636,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": None, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
-                        "separate_graph": True,
+                        "group": "sizes_cumvol",
                     })
                 else:
                     errors.append(f"No cumul. vol. dist. in {stem}")
@@ -622,7 +650,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": None, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
-                        "separate_graph": True,
+                        "group": "sizes_cumnum",
                     })
                 else:
                     errors.append(f"No cumul. num. dist. in {stem}")
@@ -636,7 +664,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": None, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
-                        "separate_graph": True,
+                        "group": "sizes_surf",
                     })
                 else:
                     errors.append(f"No surface dist. in {stem}")
@@ -650,7 +678,7 @@ class PlotControlsPanel(QWidget):
                         "yerr": None, "xerr": None,
                         "suggest_log_x": False,
                         "suggest_log_y": False,
-                        "separate_graph": True,
+                        "group": "sizes_cumsurf",
                     })
                 else:
                     errors.append(f"No cumul. surf. dist. in {stem}")
@@ -718,7 +746,7 @@ class PlotControlsPanel(QWidget):
                                 "x": p["radius_grid"], "y": p["volume_dist"],
                                 "yerr": None, "xerr": None,
                                 "suggest_log_x": False, "suggest_log_y": False,
-                                "separate_graph": True,
+                                "group": "mod_vol",
                             })
                     else:
                         errors.append(f"No SD populations with distributions in {stem}")
@@ -741,7 +769,7 @@ class PlotControlsPanel(QWidget):
                                 "x": p["radius_grid"], "y": p["number_dist"],
                                 "yerr": None, "xerr": None,
                                 "suggest_log_x": False, "suggest_log_y": False,
-                                "separate_graph": True,
+                                "group": "mod_num",
                             })
                     else:
                         errors.append(f"No SD populations with distributions in {stem}")
@@ -788,32 +816,44 @@ class PlotControlsPanel(QWidget):
     # ── Button handlers ────────────────────────────────────────────────────
 
     @staticmethod
-    def _split_curves(curves: list[dict]) -> tuple[list[dict], list[dict]]:
-        """Split curves into (regular, separate_graph) groups."""
-        regular = [c for c in curves if not c.get("separate_graph")]
-        separate = [c for c in curves if c.get("separate_graph")]
-        return regular, separate
+    def _group_curves(curves: list[dict]) -> "dict[str, list[dict]]":
+        """Group curves by their ``group`` key (default ``'iq'``), preserving
+        first-seen order.  Each group is one quantity sharing a Y axis, so it
+        becomes one graph; the same quantity from several files lands together.
+
+        Axis labels / title from ``_GRAPH_META`` are stamped onto every curve so
+        the receiving GraphWindow can label itself.
+        """
+        groups: "dict[str, list[dict]]" = {}
+        for c in curves:
+            key = c.get("group", "iq")
+            meta = _GRAPH_META.get(key, _GRAPH_META["iq"])
+            c.setdefault("x_label", meta["x_label"])
+            c.setdefault("y_label", meta["y_label"])
+            c.setdefault("title",   meta["title"])
+            groups.setdefault(key, []).append(c)
+        return groups
 
     def _on_new_graph(self) -> None:
         curves = self._build_curves()
         if not curves:
             return
-        regular, separate = self._split_curves(curves)
-        if regular:
-            self.new_graph_requested.emit(regular)
-        if separate:
-            self.new_graph_requested.emit(separate)
+        # One graph per quantity (each group has its own correct Y axis).
+        for clist in self._group_curves(curves).values():
+            self.new_graph_requested.emit(clist)
 
     def _on_add_to_active(self) -> None:
         curves = self._build_curves()
         if not curves:
             return
-        regular, separate = self._split_curves(curves)
-        if regular:
-            self.add_to_active_graph_requested.emit(regular)
-        if separate:
-            # P(r) always opens its own window — different axes
-            self.new_graph_requested.emit(separate)
+        groups = self._group_curves(curves)
+        # Intensity I(Q) curves go to the active graph; every other quantity
+        # has incompatible axes, so each opens its own new graph.
+        iq = groups.pop("iq", None)
+        if iq:
+            self.add_to_active_graph_requested.emit(iq)
+        for clist in groups.values():
+            self.new_graph_requested.emit(clist)
 
     def _on_collect(self) -> None:
         if not self._selected_files:
