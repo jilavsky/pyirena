@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data Explorer: surface-area presets.** New "Size Dist. surf. S(r)" and
   "Size Dist. cumul. surf." checkboxes in the 1D Graph tab, and
   `specific_surface` added to the Size Distribution "Collect Values" items.
+- **Data Explorer: curve offsets (waterfall / stacked view).** A new **Offset…**
+  toolbar button and **Offset curves…** right-click action open a dialog that
+  separates overlapping curves. Each axis has an independent offset type —
+  additive (`v + off`, for linear axes) or multiplicative (`v × off`, a constant
+  visual shift on log axes) — defaulting to match the current axis scale.
+  Includes auto-stagger (curve *i* → `i × inc` additive, `inc`ⁱ multiplicative)
+  and a per-curve fine-tuning table. Offsets are display-only: the raw data is
+  never modified, so CSV/HDF5/ITX/matplotlib exports stay pristine.
 
 ### Changed
 

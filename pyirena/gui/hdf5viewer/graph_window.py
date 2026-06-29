@@ -28,7 +28,7 @@ try:
         QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
         QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
         QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QSizePolicy,
+        QMessageBox, QSizePolicy, QRadioButton, QButtonGroup,
     )
     from PySide6.QtCore import Qt, Signal, QEvent
     from PySide6.QtGui import QColor, QIcon, QAction
@@ -37,7 +37,7 @@ except ImportError:
         QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
         QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
         QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QSizePolicy,
+        QMessageBox, QSizePolicy, QRadioButton, QButtonGroup,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal, QEvent  # type: ignore[no-redef]
     from PyQt6.QtGui import QColor, QIcon, QAction              # type: ignore[no-redef]
@@ -93,6 +93,13 @@ class GraphWindow(QWidget):
         self._curves: list[dict[str, Any]] = []
         self._log_x = False
         self._log_y = False
+        # Curve offset modes: "add" (additive) or "mul" (multiplicative).
+        # Multiplicative is the natural choice on a log axis (a constant visual
+        # shift); additive on a linear axis.  Per-curve values live in each
+        # curve dict as "x_off"/"y_off".  Offsets are display-only — the raw
+        # arrays in curve["x"]/["y"] are never modified, so exports stay pristine.
+        self._x_off_mode = "add"
+        self._y_off_mode = "add"
         self._x_label = "X"
         self._y_label = "Y"
         self._legend: pg.LegendItem | None = None
@@ -144,6 +151,15 @@ class GraphWindow(QWidget):
         self._legend_btn.clicked.connect(self._toggle_legend)
         tb.addWidget(self._legend_btn)
 
+        offset_btn = QPushButton("Offset…")
+        offset_btn.setFixedWidth(65)
+        offset_btn.setToolTip(
+            "Offset curves for a waterfall/stacked view "
+            "(additive on linear axes, multiplicative on log axes)"
+        )
+        offset_btn.clicked.connect(self._edit_offsets)
+        tb.addWidget(offset_btn)
+
         tb.addSeparator()
 
         jpeg_btn = QPushButton("Save JPEG")
@@ -194,6 +210,10 @@ class GraphWindow(QWidget):
         act_styles = QAction("Curve styles…", self)
         act_styles.triggered.connect(self._edit_curve_styles)
         vb.menu.addAction(act_styles)
+
+        act_offset = QAction("Offset curves…", self)
+        act_offset.triggered.connect(self._edit_offsets)
+        vb.menu.addAction(act_offset)
 
         act_rm_err = QAction("Remove error bars", self)
         act_rm_err.triggered.connect(self._remove_error_bars)
@@ -255,6 +275,8 @@ class GraphWindow(QWidget):
             "yerr": np.asarray(yerr, float) if yerr is not None else None,
             "xerr": np.asarray(xerr, float) if xerr is not None else None,
             "style": style,
+            "x_off": 0.0,
+            "y_off": 0.0,
             "plot_ref": None,
             "err_ref":  None,
         })
@@ -302,10 +324,36 @@ class GraphWindow(QWidget):
 
     # ── Drawing ────────────────────────────────────────────────────────────
 
-    def _redraw_curve(self, curve: dict) -> None:
-        """Draw a single curve and its error bars onto the PlotItem."""
+    def _offset_xy(self, curve: dict):
+        """
+        Return (x, y, yerr) with display offsets applied.
+
+        Offsets are display-only: the raw arrays in curve["x"]/["y"] are never
+        modified, so all exporters (which read those directly) stay pristine.
+        Additive mode shifts by a constant; multiplicative mode scales (a
+        constant visual shift on a log axis).  A multiplicative Y offset scales
+        the error bars too so the caps stay proportionally correct.
+        """
         x = curve["x"]
         y = curve["y"]
+        yerr = curve.get("yerr")
+        xo = curve.get("x_off", 0.0)
+        yo = curve.get("y_off", 0.0)
+        if self._x_off_mode == "mul":
+            x = x * xo
+        elif xo:
+            x = x + xo
+        if self._y_off_mode == "mul":
+            y = y * yo
+            if yerr is not None:
+                yerr = yerr * yo
+        elif yo:
+            y = y + yo
+        return x, y, yerr
+
+    def _redraw_curve(self, curve: dict) -> None:
+        """Draw a single curve and its error bars onto the PlotItem."""
+        x, y, yerr = self._offset_xy(curve)
         style = curve["style"]
         color = style.get("color", "#2980b9")
         width = style.get("width", 1.5)
@@ -325,8 +373,8 @@ class GraphWindow(QWidget):
         curve["plot_ref"] = ref
 
         # Y error bars as NaN-separated lines
-        if curve.get("yerr") is not None:
-            ex, ey = self._build_error_bars(x, y, curve["yerr"])
+        if yerr is not None:
+            ex, ey = self._build_error_bars(x, y, yerr)
             err_ref = self._plot.plot(
                 ex, ey,
                 pen=pg.mkPen(color=color, width=max(1, width - 0.5)),
@@ -444,6 +492,30 @@ class GraphWindow(QWidget):
         dlg = _CurveStylesDialog(self._curves, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._redraw_all()
+
+    def _edit_offsets(self) -> None:
+        if not self._curves:
+            QMessageBox.information(self, "No curves", "No curves to offset.")
+            return
+        dlg = _OffsetDialog(self, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._redraw_all()
+            self._update_offset_status()
+
+    def _offsets_active(self) -> bool:
+        """True if any curve has a non-neutral offset on either axis."""
+        x_neutral = 1.0 if self._x_off_mode == "mul" else 0.0
+        y_neutral = 1.0 if self._y_off_mode == "mul" else 0.0
+        for c in self._curves:
+            if c.get("x_off", x_neutral) != x_neutral:
+                return True
+            if c.get("y_off", y_neutral) != y_neutral:
+                return True
+        return False
+
+    def _update_offset_status(self) -> None:
+        suffix = "  [offsets applied]" if self._offsets_active() else ""
+        self._status.setText(f"{len(self._curves)} curve(s){suffix}")
 
     def _remove_error_bars(self) -> None:
         """Remove all error bar overlays from the plot (does not affect exported data)."""
@@ -607,4 +679,192 @@ class _CurveStylesDialog(QDialog):
             curve["style"]["width"]  = self._width_spins[i].value()
             sym = self._symbol_combos[i].currentText()
             curve["style"]["symbol"] = None if sym == "none" else sym
+        self.accept()
+
+
+class _OffsetDialog(QDialog):
+    """
+    Dialog to offset curves into a waterfall/stacked view.
+
+    Offsets are display-only.  Each axis has an independent mode — additive
+    (``v + off``, natural on a linear axis) or multiplicative (``v × off``, a
+    constant visual shift on a log axis).  The mode defaults from the current
+    axis scale but can be overridden.  Offsets can be auto-staggered across all
+    curves (curve *i* → ``i × inc`` additive, ``inc**i`` multiplicative) and then
+    fine-tuned per curve.
+    """
+
+    def __init__(self, gw: "GraphWindow", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Offset Curves")
+        self._gw = gw
+        self._curves = gw._curves
+
+        # Starting modes: keep the window's stored modes if offsets are already
+        # applied; otherwise seed from the current axis scale (log → ×, lin → +).
+        if gw._offsets_active():
+            self._x_mode = gw._x_off_mode
+            self._y_mode = gw._y_off_mode
+        else:
+            self._x_mode = "mul" if gw.is_log_x() else "add"
+            self._y_mode = "mul" if gw.is_log_y() else "add"
+
+        main = QVBoxLayout(self)
+
+        # ── Mode selectors ──────────────────────────────────────────────────
+        mode_box = QGroupBox("Offset type")
+        mode_form = QFormLayout(mode_box)
+        self._x_add_rb, self._x_mul_rb, x_row = self._make_mode_row(
+            self._x_mode, self._on_x_mode)
+        self._y_add_rb, self._y_mul_rb, y_row = self._make_mode_row(
+            self._y_mode, self._on_y_mode)
+        mode_form.addRow("X:", x_row)
+        mode_form.addRow("Y:", y_row)
+        main.addWidget(mode_box)
+
+        # ── Auto-stagger ────────────────────────────────────────────────────
+        stag_box = QGroupBox("Auto-stagger  (curve i → i×inc additive, incⁱ multiplicative)")
+        stag = QGridLayout(stag_box)
+        self._x_inc = self._make_offset_spin(self._inc_default(self._x_mode))
+        self._y_inc = self._make_offset_spin(self._inc_default(self._y_mode))
+        x_apply = QPushButton("Apply"); x_apply.clicked.connect(self._apply_stagger_x)
+        y_apply = QPushButton("Apply"); y_apply.clicked.connect(self._apply_stagger_y)
+        stag.addWidget(QLabel("X increment:"), 0, 0)
+        stag.addWidget(self._x_inc, 0, 1)
+        stag.addWidget(x_apply, 0, 2)
+        stag.addWidget(QLabel("Y increment:"), 1, 0)
+        stag.addWidget(self._y_inc, 1, 1)
+        stag.addWidget(y_apply, 1, 2)
+        main.addWidget(stag_box)
+
+        # ── Per-curve grid (scrollable) ─────────────────────────────────────
+        same_x = (self._x_mode == gw._x_off_mode)
+        same_y = (self._y_mode == gw._y_off_mode)
+        inner = QWidget()
+        grid = QGridLayout(inner)
+        grid.addWidget(QLabel("Curve"), 0, 0)
+        grid.addWidget(QLabel("X offset"), 0, 1)
+        grid.addWidget(QLabel("Y offset"), 0, 2)
+        self._x_spins: list[QDoubleSpinBox] = []
+        self._y_spins: list[QDoubleSpinBox] = []
+        for i, curve in enumerate(self._curves):
+            lbl = curve["label"][:40] if curve.get("label") else f"curve {i + 1}"
+            grid.addWidget(QLabel(lbl), i + 1, 0)
+            x_init = curve.get("x_off", 0.0) if same_x else self._neutral(self._x_mode)
+            y_init = curve.get("y_off", 0.0) if same_y else self._neutral(self._y_mode)
+            xs = self._make_offset_spin(x_init)
+            ys = self._make_offset_spin(y_init)
+            grid.addWidget(xs, i + 1, 1)
+            grid.addWidget(ys, i + 1, 2)
+            self._x_spins.append(xs)
+            self._y_spins.append(ys)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(inner)
+        scroll.setMinimumHeight(120)
+        scroll.setMaximumHeight(260)
+        main.addWidget(scroll, 1)
+
+        # ── Buttons ─────────────────────────────────────────────────────────
+        clear_btn = QPushButton("Clear offsets")
+        clear_btn.clicked.connect(self._clear)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._apply)
+        btns.rejected.connect(self.reject)
+        bottom = QHBoxLayout()
+        bottom.addWidget(clear_btn)
+        bottom.addStretch(1)
+        bottom.addWidget(btns)
+        main.addLayout(bottom)
+
+    # ── Helpers ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _neutral(mode: str) -> float:
+        return 1.0 if mode == "mul" else 0.0
+
+    @staticmethod
+    def _inc_default(mode: str) -> float:
+        return 10.0 if mode == "mul" else 1.0
+
+    def _make_offset_spin(self, value: float) -> QDoubleSpinBox:
+        sp = QDoubleSpinBox()
+        sp.setRange(-1e15, 1e15)
+        sp.setDecimals(6)
+        sp.setSingleStep(1.0)
+        sp.setValue(value)
+        sp.setFixedWidth(110)
+        return sp
+
+    def _make_mode_row(self, mode: str, handler):
+        add_rb = QRadioButton("Additive (+)")
+        mul_rb = QRadioButton("Multiplicative (×)")
+        grp = QButtonGroup(self)
+        grp.addButton(add_rb)
+        grp.addButton(mul_rb)
+        (mul_rb if mode == "mul" else add_rb).setChecked(True)
+        add_rb.toggled.connect(handler)
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(add_rb)
+        h.addWidget(mul_rb)
+        h.addStretch(1)
+        return add_rb, mul_rb, row
+
+    # ── Mode-switch handlers ────────────────────────────────────────────────
+
+    def _on_x_mode(self) -> None:
+        new = "mul" if self._x_mul_rb.isChecked() else "add"
+        if new == self._x_mode:
+            return
+        self._reseed(self._x_spins, self._x_mode, new)
+        self._x_inc.setValue(self._inc_default(new))
+        self._x_mode = new
+
+    def _on_y_mode(self) -> None:
+        new = "mul" if self._y_mul_rb.isChecked() else "add"
+        if new == self._y_mode:
+            return
+        self._reseed(self._y_spins, self._y_mode, new)
+        self._y_inc.setValue(self._inc_default(new))
+        self._y_mode = new
+
+    def _reseed(self, spins, old_mode: str, new_mode: str) -> None:
+        """Move spins still at the old mode's neutral to the new mode's neutral."""
+        old_n = self._neutral(old_mode)
+        new_n = self._neutral(new_mode)
+        for sp in spins:
+            if sp.value() == old_n:
+                sp.setValue(new_n)
+
+    # ── Stagger / clear ─────────────────────────────────────────────────────
+
+    def _apply_stagger_x(self) -> None:
+        inc = self._x_inc.value()
+        for i, sp in enumerate(self._x_spins):
+            sp.setValue(inc ** i if self._x_mode == "mul" else i * inc)
+
+    def _apply_stagger_y(self) -> None:
+        inc = self._y_inc.value()
+        for i, sp in enumerate(self._y_spins):
+            sp.setValue(inc ** i if self._y_mode == "mul" else i * inc)
+
+    def _clear(self) -> None:
+        for sp in self._x_spins:
+            sp.setValue(self._neutral(self._x_mode))
+        for sp in self._y_spins:
+            sp.setValue(self._neutral(self._y_mode))
+
+    # ── Commit ──────────────────────────────────────────────────────────────
+
+    def _apply(self) -> None:
+        self._gw._x_off_mode = self._x_mode
+        self._gw._y_off_mode = self._y_mode
+        for i, curve in enumerate(self._curves):
+            curve["x_off"] = self._x_spins[i].value()
+            curve["y_off"] = self._y_spins[i].value()
         self.accept()

@@ -299,6 +299,7 @@ simultaneously.  The most recently activated window is the **active graph** for
 | Y log / Y lin | Toggle Y axis between log₁₀ and linear scale |
 | Labels… | Open dialog to set graph title, X label, Y label |
 | Legend | Show / hide the curve legend |
+| Offset… | Offset curves into a waterfall / stacked view (see below) |
 | Save JPEG | Save graph image at 1600 px width |
 | Save CSV | Save all curves as a comma-separated text file |
 
@@ -309,11 +310,46 @@ simultaneously.  The most recently activated window is the **active graph** for
 | Set X range… | Enter explicit min/max for the X axis |
 | Set Y range… | Enter explicit min/max for the Y axis |
 | Curve styles… | Per-curve color, line width, and symbol picker |
+| Offset curves… | Offset curves into a waterfall / stacked view (see below) |
 | Remove error bars | Remove all error bar overlays from the graph |
+| Add slope guide line ▸ | Add a draggable power-law guide line at a preset slope (n = −2, −3, −4 Porod, −5, −6) or a **Custom slope…** value; lines are draggable and right-clicking one lets you change or remove it |
+| Remove all slope lines | Remove every slope guide line from the graph |
 | Save PNG… | Save as PNG image |
 | Save HDF5… | Export all curves as NXdata groups in an HDF5 file |
 | Save ITX (Igor Pro)… | Export in Igor Pro text wave format |
 | Open as matplotlib figure… | Transfer curves to a matplotlib window |
+
+Slope guide lines are most useful on log–log I(Q) plots for comparing the
+local power-law slope of the data against reference exponents (e.g., −4 for
+Porod scattering).
+
+### Offsetting curves (waterfall / stacked view)
+
+Open the **Offset…** dialog from the toolbar button or the **Offset curves…**
+right-click action to separate overlapping curves into a stacked view.  Because
+the meaning of an offset differs by axis type, each axis has an independent
+**offset type**:
+
+| Offset type | Effect | Best for |
+|-------------|--------|----------|
+| Additive (+) | `value + offset` | linear axes |
+| Multiplicative (×) | `value × offset` (a constant *visual* shift on a log axis) | log axes |
+
+When the dialog opens, the offset type defaults to match the current axis scale
+(log → multiplicative, linear → additive); you can override it per axis.
+
+The dialog provides:
+
+- **Auto-stagger** — enter a single increment and click **Apply** to spread all
+  curves automatically: curve *i* gets `i × increment` (additive) or
+  `increment` ⁱ (multiplicative). The first curve stays in place.
+- **Per-curve offsets** — a table to fine-tune the X and Y offset of any
+  individual curve.
+- **Clear offsets** — reset everything to no offset.
+
+Offsets are **display-only**: they change only how curves are drawn. The status
+line shows `[offsets applied]` while any offset is active, and all exports
+(CSV, HDF5, ITX, matplotlib) always write the original, unshifted data.
 
 ### Adding curves
 
