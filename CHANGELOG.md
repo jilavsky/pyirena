@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AI control tools for Size Distribution (MCP).** The `pyirena.api.control`
+  surface and the `pyirena-mcp` server now let an AI agent drive a particle
+  size-distribution fit end-to-end, alongside the existing Unified Fit control
+  tools. New module `pyirena/api/control/sizes.py` exposes 16 functions
+  (MCP-prefixed `pyirena_ctrl_sizes_*`): `select_sizes_model` (MaxEnt /
+  Regularization / TNNLS / Monte Carlo), `set_size_grid`, `set_shape`
+  (sphere/spheroid, contrast, aspect ratio), `set_method`,
+  `set_error_handling` (error scaling or fractional errors), the complex
+  background workflow (`set_background`, `fit_power_law_background`,
+  `fit_flat_background`, `get_background_preview_image`), `run_sizes_fit`,
+  `get_sizes_distribution`, `get_sizes_results`, `get_sizes_fit_image`,
+  `suggest_sizes_setup` (data-driven suitability check + auto-setup), and
+  `save_sizes_fit`. The session lifecycle and Q-range tools are shared with
+  Unified Fit (`set_fit_q_range` defines the inversion window);
+  `list_available_models` now returns `["unified_fit", "sizes"]`. JSON
+  tool-schemas added for all new tools. Monte-Carlo per-bin uncertainty is not
+  exposed yet. Verified to produce results identical to `batch.fit_sizes` for
+  the same settings. Docs: see
+  [ai_tools_reference.md](docs/ai_tools_reference.md) and
+  [ai_integration.md](docs/ai_integration.md).
 - **Sizes: fractional error option.** A new "Fractional error" checkbox in the
   Error Scaling box lets you ignore the uncertainties from the data file and
   generate them as `error = |I| × fraction` (default `0.03` = 3%). Useful when

@@ -86,6 +86,31 @@ from pyirena.api.control.unified_fit import (
     export_fit_report,
 )
 
+from pyirena.api.control.sizes import (
+    # Sizes — model lifecycle
+    select_sizes_model,
+    get_sizes_config,
+    # Sizes — grid & shape
+    set_size_grid,
+    set_shape,
+    # Sizes — method & errors
+    set_method,
+    set_error_handling,
+    # Sizes — complex background
+    set_background,
+    fit_power_law_background,
+    fit_flat_background,
+    get_background_preview_image,
+    # Sizes — fit & results
+    run_sizes_fit,
+    get_sizes_distribution,
+    get_sizes_results,
+    get_sizes_fit_image,
+    # Sizes — guidance & persistence
+    suggest_sizes_setup,
+    save_sizes_fit,
+)
+
 __all__ = [
     "__version__",
     # A
@@ -112,4 +137,13 @@ __all__ = [
     "get_parameter_uncertainties",
     # F
     "save_fit", "export_fit_report",
+    # Sizes
+    "select_sizes_model", "get_sizes_config",
+    "set_size_grid", "set_shape",
+    "set_method", "set_error_handling",
+    "set_background", "fit_power_law_background", "fit_flat_background",
+    "get_background_preview_image",
+    "run_sizes_fit", "get_sizes_distribution", "get_sizes_results",
+    "get_sizes_fit_image",
+    "suggest_sizes_setup", "save_sizes_fit",
 ]

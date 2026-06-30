@@ -45,11 +45,23 @@ results, and save back to HDF5.
 Your job is to help the user understand what's in their data, and — when
 asked — to fit new datasets autonomously using the control tools.
 
-### Control-mode fitting (Phase 1: Unified Fit)
+### Control-mode fitting (Unified Fit + Size Distribution)
 
-The `pyirena_ctrl_*` tools let you drive pyirena's Unified Fit model
-end-to-end. Sessions are in-memory for the lifetime of the MCP server
-process and persist across tool calls within a conversation.
+The `pyirena_ctrl_*` tools let you drive pyirena's fitting models
+end-to-end. Two models are available:
+
+- **Unified Fit** — `pyirena_ctrl_*` tools (model parameters, levels,
+  staged fitting). See [Control tools reference](#control-tools-reference-pyirena_ctrl_-prefix).
+- **Size Distribution** — `pyirena_ctrl_sizes_*` tools (inversion method,
+  size grid, shape, complex background, error handling). See
+  [Size Distribution control tools](#control-tools-reference--size-distribution-pyirena_ctrl_sizes_-prefix).
+
+Sessions are in-memory for the lifetime of the MCP server process and
+persist across tool calls within a conversation. The session lifecycle
+(`open_dataset`, `list_open_sessions`, `close_session`,
+`get_session_summary`) and the Q-range tools (`get_data_q_range`,
+`get_fit_q_range`, `set_fit_q_range`, `reset_fit_q_range`) are **shared**
+between both models.
 
 ---
 
@@ -326,7 +338,7 @@ pyirena_ctrl_export_fit_report(session_id)     → markdown summary
 
 | Tool | Returns |
 |------|---------|
-| `pyirena_ctrl_list_available_models()` | `["unified_fit"]` (Phase 1) |
+| `pyirena_ctrl_list_available_models()` | `["unified_fit", "sizes"]` (+ per-model `details`) |
 | `pyirena_ctrl_select_model(session_id, model_name="unified_fit", nlevels=1)` | full parameter table |
 | `pyirena_ctrl_get_model_parameters(session_id)` | current parameter table |
 | `pyirena_ctrl_get_model_description(session_id)` | physical meaning of each param + tips |
@@ -565,6 +577,127 @@ check `content.type`, render the `image` item, show the `text` item as a label.
 
 ---
 
+## Control tools reference — Size Distribution (`pyirena_ctrl_sizes_` prefix)
+
+These tools fit a **particle size distribution** P(r) by inverting I(Q).
+They share the session and Q-range tools above — `open_dataset`,
+`get_session_summary`, `set_fit_q_range`, etc. are the same. The
+`set_fit_q_range` tool defines the **inversion Q-range** (the Q window the
+distribution is fitted over).
+
+**When is a size distribution appropriate?** Only for dilute samples with a
+single, identifiable particle population over a limited size range. It is
+*not* a general-purpose model — for multi-level hierarchical structure use
+Unified Fit instead. Always call `pyirena_ctrl_sizes_suggest_setup` first;
+it tells you whether the data is a viable candidate and recommends a setup.
+
+### Recommended size-distribution workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                  → session_id + data summary
+
+# Step 0: check suitability + get recommendations FIRST
+pyirena_ctrl_sizes_suggest_setup(session_id)
+   → suitable (bool), recommended {r_min, r_max, inversion_q_min/max,
+     power_law_q_min/max, background_q_min/max}, warnings[]
+# → if suitable=false, tell the user why (warnings) before proceeding.
+
+pyirena_ctrl_sizes_select_model(session_id, method="maxent")   # MaxEnt = default
+pyirena_ctrl_sizes_set_shape(session_id, shape="sphere", contrast=1.0)
+pyirena_ctrl_sizes_set_size_grid(session_id, r_min=…, r_max=…, n_bins=200)
+pyirena_ctrl_sizes_set_error_handling(session_id, error_scale=1.0)
+
+# Complex background = power_law_B·q^(-P) + flat. Fit each over its OWN window:
+pyirena_ctrl_sizes_fit_power_law_background(session_id, q_min=…, q_max=…)  # low-Q
+pyirena_ctrl_sizes_fit_flat_background(session_id, q_min=…, q_max=…)        # high-Q
+pyirena_ctrl_sizes_get_background_image(session_id)    # visually confirm background
+
+pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)   # inversion window (SHARED tool)
+pyirena_ctrl_sizes_run_fit(session_id)                 → chi_squared, Vf, Rg, peak_r
+pyirena_ctrl_sizes_get_fit_image(session_id)           → inspect (I(Q) + P(r) panels)
+pyirena_ctrl_sizes_save_fit(session_id)                → write back to HDF5
+```
+
+### Model lifecycle & configuration
+
+| Tool | Effect |
+|------|--------|
+| `pyirena_ctrl_sizes_select_model(session_id, method="maxent")` | create a Sizes model; `method` ∈ `maxent` (default), `regularization`, `tnnls`, `montecarlo`. Replaces any model and clears prior fit. |
+| `pyirena_ctrl_sizes_get_config(session_id)` | dump current grid, shape, method, error handling, background |
+| `pyirena_ctrl_sizes_set_size_grid(session_id, r_min, r_max, n_bins, log_spacing)` | radius grid [Å]. Heuristic: `r ≈ π/Q` over the inversion Q-range. |
+| `pyirena_ctrl_sizes_set_shape(session_id, shape, contrast, aspect_ratio)` | `shape` ∈ `sphere`/`spheroid`; `contrast` = (Δρ)² in 10²⁰ cm⁻⁴ (use 1.0 if unknown); `aspect_ratio` for spheroid only |
+| `pyirena_ctrl_sizes_set_method(session_id, method, …)` | switch method and/or tune it. Only params for the chosen method are applied: `maxent_sky_background`, `maxent_max_iter`; `regularization_evalue`, `regularization_min_ratio`; `tnnls_approach_param`, `tnnls_max_iter`; `montecarlo_n_repetitions`, `montecarlo_convergence`, `montecarlo_max_iter`. |
+| `pyirena_ctrl_sizes_set_error_handling(session_id, error_scale, fractional_error, fractional_error_value)` | either scale file σ (`error_scale`, 1.0 = unchanged) **or** ignore file σ and use σ = `|I|·fractional_error_value` (`fractional_error=true`, e.g. 0.03 = 3%) |
+
+**Choosing a method:** MaxEnt is the recommended default (smoothest
+distribution consistent with the data). Regularization is a good
+alternative. TNNLS enforces strict non-negativity without smoothing.
+Monte Carlo (McSAS) is slower and stochastic — use only when asked.
+
+### Complex background (power-law + flat)
+
+The background subtracted before inversion is
+`power_law_B·q^(-power_law_P) + background`. Set the two terms either
+directly or by fitting each over its own Q-window.
+
+| Tool | Effect |
+|------|--------|
+| `pyirena_ctrl_sizes_set_background(session_id, power_law_B, power_law_P, background)` | set terms directly (no fit). `power_law_B=0` → flat-only. |
+| `pyirena_ctrl_sizes_fit_power_law_background(session_id, q_min, q_max, fit_B=True, fit_P=True)` | fit `B·q^(-P)` over a window (typically the low-Q steep-slope region). Updates `power_law_B`/`P`. |
+| `pyirena_ctrl_sizes_fit_flat_background(session_id, q_min, q_max)` | fit the flat term by averaging `I − B·q^(-P)` over a window (typically the high-Q flat tail). Run *after* the power-law fit if both are present. |
+| `pyirena_ctrl_sizes_get_background_image(session_id, width=1024, height=768)` | inline PNG: data with the current complex background overlaid. Use to confirm before inverting. |
+
+These background windows are **independent** of the inversion Q-range
+(`set_fit_q_range`) — they use the full data Q. Use them on the regions
+where each term dominates, then narrow the inversion range to the
+particle (Guinier/knee) region.
+
+### Fit execution & results
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_sizes_run_fit(session_id, random_seed=None)` | `success`, `chi_squared`, `volume_fraction`, `rg`, `peak_r`, `n_iterations`, `n_data` |
+| `pyirena_ctrl_sizes_get_distribution(session_id, max_points=500)` | `r_grid` [Å], `distribution` P(r) [vol-frac/Å] (decimated), `distribution_std` (or null) |
+| `pyirena_ctrl_sizes_get_results(session_id)` | full scalar results + configuration (`parameters` dict) |
+| `pyirena_ctrl_sizes_get_fit_image(session_id, width=1024, height=900)` | inline PNG: top = log-log data + model (+ background); bottom = size distribution P(r) vs r |
+| `pyirena_ctrl_sizes_save_fit(session_id, output_path=None)` | write distribution to NXcanSAS HDF5 (default: overwrites source; embeds setup for GUI "Load Setup from File") |
+
+**Interpreting the result:**
+- `volume_fraction` is the integral ∫P(r)dr; its absolute scale depends on
+  `contrast`. If contrast is unknown (set to 1.0), treat the volume
+  fraction as relative, not absolute.
+- `peak_r` is the radius of the distribution maximum. If `peak_r` sits at
+  `r_max` (or `r_min`), the grid is too narrow — widen it and refit.
+- `rg` is the volume-weighted radius of gyration of the distribution.
+- The same reduced-χ² caveat as Unified Fit applies: reported σ are often
+  mis-scaled. Judge the fit primarily from `pyirena_ctrl_sizes_get_fit_image`
+  (does the model track the data; is P(r) physically plausible and not
+  piled at a grid edge).
+
+### Suitability + auto-setup
+
+#### `pyirena_ctrl_sizes_suggest_setup(session_id)`
+
+Inspects the loaded I(Q) and returns recommendations **without modifying
+the model**. Call this before configuring the fit.
+
+Returns:
+
+| Key | Description |
+|-----|-------------|
+| `suitable` | `true` if the data looks like a viable single size-distribution candidate |
+| `recommended.r_min`, `recommended.r_max` | suggested radius grid [Å] (from `r ≈ π/Q`) |
+| `recommended.inversion_q_min/max` | suggested inversion Q-range (the particle region) |
+| `recommended.power_law_q_min/max` | suggested low-Q power-law background window (or null) |
+| `recommended.background_q_min/max` | suggested high-Q flat background window (or null) |
+| `warnings` | list of caveats — e.g. no Guinier knee (no size scale), multiple populations (use Unified Fit), limited Q dynamic range |
+| `features` | raw feature-detection summary (`segments`, `guinier_knees`, `recommended_nlevels`, `log_decades`) |
+
+If `suitable` is `false`, surface the `warnings` to the user and consider
+recommending Unified Fit instead of forcing a size-distribution fit.
+
+---
+
 ## Example interactions
 
 ### "What's in this folder?"
@@ -656,6 +789,39 @@ check `content.type`, render the `image` item, show the `text` item as a label.
     → summarise for user
 ```
 
+### "Fit a size distribution to this dataset."
+```
+1. pyirena_ctrl_open_dataset("/data/spheres_042.h5")
+   → session_id = "a1b2c3d4"
+
+2. pyirena_ctrl_sizes_suggest_setup("a1b2c3d4")
+   → suitable=true,
+     recommended={r_min=12, r_max=400, inversion_q_min=0.004,
+                  inversion_q_max=0.2, power_law_q_min=0.001,
+                  power_law_q_max=0.003, background_q_min=0.25,
+                  background_q_max=1.0},
+     warnings=[]
+   → suitable, so proceed. (If suitable=false, report warnings first.)
+
+3. pyirena_ctrl_sizes_select_model("a1b2c3d4", method="maxent")
+4. pyirena_ctrl_sizes_set_shape("a1b2c3d4", shape="sphere", contrast=1.0)
+5. pyirena_ctrl_sizes_set_size_grid("a1b2c3d4", r_min=12, r_max=400, n_bins=200)
+6. pyirena_ctrl_sizes_set_error_handling("a1b2c3d4", error_scale=1.0)
+
+7. # complex background, each over its own window from suggest_setup
+   pyirena_ctrl_sizes_fit_power_law_background("a1b2c3d4", q_min=0.001, q_max=0.003)
+   pyirena_ctrl_sizes_fit_flat_background("a1b2c3d4", q_min=0.25, q_max=1.0)
+   pyirena_ctrl_sizes_get_background_image("a1b2c3d4")   # confirm visually
+
+8. pyirena_ctrl_set_fit_q_range("a1b2c3d4", q_min=0.004, q_max=0.2)  # shared tool
+9. pyirena_ctrl_sizes_run_fit("a1b2c3d4")
+   → success=true, chi_squared=…, volume_fraction=…, rg=…, peak_r=48.7
+   → peak_r is well inside [12, 400] → grid is fine.
+10. pyirena_ctrl_sizes_get_fit_image("a1b2c3d4")
+    → confirm model tracks data and P(r) is a clean single peak
+11. pyirena_ctrl_sizes_save_fit("a1b2c3d4")
+```
+
 ### "Why might Rg jump at scan 17?"
 ```
 1. pyirena_tabulate_parameter(..., tool="unified_fit", parameter="Rg",
@@ -708,10 +874,11 @@ check `content.type`, render the `image` item, show the `text` item as a label.
 
 ## When pyirena tools aren't enough
 
-- **Fitting models beyond Unified Fit** (Modeling, Size Distribution,
-  Simple Fits, WAXS) — Phase 1 only covers Unified Fit in the control
-  API. Use the pyirena GUI tools (`pyirena-gui`, etc.) or the headless
-  batch API (`pyirena.batch.*`) for those until Phase 2 ships.
+- **Fitting models beyond Unified Fit and Size Distribution** (Modeling,
+  Simple Fits, WAXS) — the control API currently covers Unified Fit
+  (`pyirena_ctrl_*`) and Size Distribution (`pyirena_ctrl_sizes_*`). Use
+  the pyirena GUI tools (`pyirena-gui`, etc.) or the headless batch API
+  (`pyirena.batch.*`) for the other tools.
 - **Instrument / beamline control** — use the user's instrument-control
   agent (e.g. EPICS / pyepics), not pyirena.
 - **Data reduction** (2D → 1D, sector integration, masking) — that's

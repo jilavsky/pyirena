@@ -655,6 +655,306 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id"],
         },
     },
+
+    # -----------------------------------------------------------------------
+    # Size Distribution (Sizes) — model lifecycle
+    # -----------------------------------------------------------------------
+    {
+        "name": "select_sizes_model",
+        "description": (
+            "Create a Size Distribution model for the session. method: 'maxent' "
+            "(recommended default), 'regularization', 'tnnls', or 'montecarlo'. "
+            "Best for dilute samples with a single particle population. Replaces "
+            "any existing model and clears prior fit results."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "method": {
+                    "type": "string",
+                    "enum": ["maxent", "regularization", "tnnls", "montecarlo"],
+                    "default": "maxent",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_sizes_config",
+        "description": (
+            "Return the current Sizes configuration (grid, shape, method, error "
+            "handling, complex background)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "suggest_sizes_setup",
+        "description": (
+            "Inspect the data and recommend a Sizes setup. Returns a 'suitable' "
+            "flag, 'recommended' r-range / inversion Q-range / background windows, "
+            "and 'warnings' (e.g. no size scale, multiple populations). Advisory "
+            "only — apply values with the set_* / fit_* tools. Call before "
+            "configuring the fit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
+    # Sizes — grid & shape
+    # -----------------------------------------------------------------------
+    {
+        "name": "set_size_grid",
+        "description": (
+            "Set the radius grid [Å] for the inversion. Heuristic: r ≈ π/Q over "
+            "the inversion Q-range."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "r_min": {"type": ["number", "null"], "description": "Min radius [Å]."},
+                "r_max": {"type": ["number", "null"], "description": "Max radius [Å]."},
+                "n_bins": {"type": ["integer", "null"], "description": "Number of radius bins (>=5)."},
+                "log_spacing": {"type": ["boolean", "null"], "description": "Log-spaced bins."},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_shape",
+        "description": (
+            "Set the form factor: shape ('sphere' or 'spheroid'), contrast (Δρ)² "
+            "in 10²⁰ cm⁻⁴ (use 1.0 if unknown), and aspect_ratio (spheroid only)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "shape": {"type": ["string", "null"], "enum": ["sphere", "spheroid", None]},
+                "contrast": {"type": ["number", "null"]},
+                "aspect_ratio": {"type": ["number", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
+    # Sizes — method & error handling
+    # -----------------------------------------------------------------------
+    {
+        "name": "set_method",
+        "description": (
+            "Choose the inversion method and optionally its tuning parameters. "
+            "Only parameters relevant to the chosen method are applied. MaxEnt is "
+            "the recommended default. Method params: maxent_* / regularization_* / "
+            "tnnls_* / montecarlo_*."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "method": {
+                    "type": "string",
+                    "enum": ["maxent", "regularization", "tnnls", "montecarlo"],
+                },
+                "maxent_sky_background": {"type": ["number", "null"]},
+                "maxent_max_iter": {"type": ["integer", "null"]},
+                "regularization_evalue": {"type": ["number", "null"]},
+                "regularization_min_ratio": {"type": ["number", "null"]},
+                "tnnls_approach_param": {"type": ["number", "null"]},
+                "tnnls_max_iter": {"type": ["integer", "null"]},
+                "montecarlo_n_repetitions": {"type": ["integer", "null"]},
+                "montecarlo_convergence": {"type": ["number", "null"]},
+                "montecarlo_max_iter": {"type": ["integer", "null"]},
+            },
+            "required": ["session_id", "method"],
+        },
+    },
+    {
+        "name": "set_error_handling",
+        "description": (
+            "Configure uncertainty handling. Either scale file errors "
+            "(error_scale, 1.0 = unchanged) or switch to fractional errors "
+            "(fractional_error=true with fractional_error_value, e.g. 0.03 = 3%, "
+            "which ignores file σ)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "error_scale": {"type": ["number", "null"]},
+                "fractional_error": {"type": ["boolean", "null"]},
+                "fractional_error_value": {"type": ["number", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
+    # Sizes — complex background (power-law + flat)
+    # -----------------------------------------------------------------------
+    {
+        "name": "set_background",
+        "description": (
+            "Set complex-background terms directly (no fitting). Background "
+            "subtracted before inversion is power_law_B·q^(-power_law_P) + "
+            "background. Set power_law_B=0 for a flat background only."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "power_law_B": {"type": ["number", "null"]},
+                "power_law_P": {"type": ["number", "null"]},
+                "background": {"type": ["number", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "fit_power_law_background",
+        "description": (
+            "Fit the power-law background B·q^(-P) over [q_min, q_max] (typically "
+            "the low-Q steep-slope region). Updates power_law_B/P. fit_B/fit_P "
+            "select which vary (at least one True)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q_min": {"type": "number"},
+                "q_max": {"type": "number"},
+                "fit_B": {"type": "boolean", "default": True},
+                "fit_P": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "q_min", "q_max"],
+        },
+    },
+    {
+        "name": "fit_flat_background",
+        "description": (
+            "Fit the flat background by averaging I − B·q^(-P) over [q_min, q_max] "
+            "(typically the high-Q flat region). Updates background. Run after "
+            "fit_power_law_background if both terms are present."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q_min": {"type": "number"},
+                "q_max": {"type": "number"},
+            },
+            "required": ["session_id", "q_min", "q_max"],
+        },
+    },
+    {
+        "name": "get_background_preview_image",
+        "description": (
+            "Render the data with the current complex background overlaid "
+            "(log-log). Use to visually confirm the background before inverting."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 768},
+            },
+            "required": ["session_id"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
+    # Sizes — fit execution & results
+    # -----------------------------------------------------------------------
+    {
+        "name": "run_sizes_fit",
+        "description": (
+            "Run the size-distribution inversion. The inversion Q-range "
+            "(set_fit_q_range) and complex background are applied first. Returns "
+            "success, chi_squared, volume_fraction, rg, peak_r, n_iterations, "
+            "n_data."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "random_seed": {"type": ["integer", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_sizes_distribution",
+        "description": (
+            "Return the fitted distribution arrays: r_grid [Å] and distribution "
+            "P(r) [vol-frac/Å] (decimated), plus distribution_std when available."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "max_points": {"type": "integer", "default": 500},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_sizes_results",
+        "description": (
+            "Return the full scalar results + configuration for the last Sizes "
+            "fit (chi_squared, volume_fraction, rg, peak_r, plus all setup "
+            "parameters)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_sizes_fit_image",
+        "description": (
+            "Render the Sizes fit as a two-panel PNG: (top) log-log data + model "
+            "(+ background), (bottom) the size distribution P(r) vs r."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 900},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_sizes_fit",
+        "description": (
+            "Save the fitted size distribution to NXcanSAS HDF5. Defaults to "
+            "overwriting the original file. Pass output_path to save elsewhere."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 ]
 
 # Convenience: look up a schema by name

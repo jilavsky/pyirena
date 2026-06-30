@@ -42,10 +42,19 @@ mcp = FastMCP(
         "pyirena_plot_parameter_trend() to visualize."
         "\n\n"
         "CONTROL tools (pyirena_ctrl_ prefix): drive fitting interactively. "
-        "Typical workflow: pyirena_ctrl_open_dataset() → session_id → "
+        "Two models are available — Unified Fit and Size Distribution (Sizes). "
+        "Unified Fit workflow: pyirena_ctrl_open_dataset() → session_id → "
         "pyirena_ctrl_select_model() → pyirena_ctrl_fix_all_except() → "
         "pyirena_ctrl_run_fit() → pyirena_ctrl_get_fit_image() → "
-        "pyirena_ctrl_save_fit(). Sessions are in-memory for this server process."
+        "pyirena_ctrl_save_fit(). "
+        "Sizes workflow (pyirena_ctrl_sizes_ prefix): pyirena_ctrl_open_dataset() → "
+        "pyirena_ctrl_sizes_suggest_setup() → pyirena_ctrl_sizes_select_model() → "
+        "set_shape / set_size_grid / set_error_handling → "
+        "fit_power_law_background + fit_flat_background → "
+        "pyirena_ctrl_set_fit_q_range() (inversion window) → "
+        "pyirena_ctrl_sizes_run_fit() → pyirena_ctrl_sizes_get_fit_image() → "
+        "pyirena_ctrl_sizes_save_fit(). The session and Q-range tools are shared "
+        "between both models. Sessions are in-memory for this server process."
     ),
 )
 
@@ -749,6 +758,250 @@ def pyirena_ctrl_export_fit_report(
     Returns the report text in the 'content' key.
     """
     return _ctrl.export_fit_report(session_id, format=format)
+
+
+# ---------------------------------------------------------------------------
+# Control API — Size Distribution (Sizes) fitting
+# ---------------------------------------------------------------------------
+#
+# Sizes counterpart of the Unified Fit control tools above.  Reuses the shared
+# session lifecycle (pyirena_ctrl_open_dataset / list_open_sessions /
+# close_session / get_session_summary) and the Q-range tools
+# (pyirena_ctrl_get_data_q_range / get_fit_q_range / set_fit_q_range /
+# reset_fit_q_range) — set_fit_q_range defines the INVERSION Q-range.
+#
+# Workflow:
+#   1. pyirena_ctrl_open_dataset()                 → session_id
+#   2. pyirena_ctrl_sizes_suggest_setup()          → data-driven recommendations
+#   3. pyirena_ctrl_sizes_select_model()           → choose inversion method
+#   4. pyirena_ctrl_sizes_set_shape() / set_size_grid() / set_error_handling()
+#   5. pyirena_ctrl_sizes_fit_power_law_background() + fit_flat_background()
+#   6. pyirena_ctrl_set_fit_q_range()              → inversion window (shared tool)
+#   7. pyirena_ctrl_sizes_run_fit()                → run inversion
+#   8. pyirena_ctrl_sizes_get_fit_image()          → inspect visually
+#   9. pyirena_ctrl_sizes_save_fit()               → persist to HDF5
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_select_model(session_id: str, method: str = "maxent") -> dict:
+    """Create a Size Distribution model for the session.
+
+    method: 'maxent' (recommended default), 'regularization', 'tnnls', or
+    'montecarlo'. Best for dilute samples with a single particle population.
+    Replaces any existing model and clears prior fit results.
+    """
+    return _ctrl.select_sizes_model(session_id, method=method)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_get_config(session_id: str) -> dict:
+    """Return the current Sizes configuration (grid, shape, method, error
+    handling, complex background)."""
+    return _ctrl.get_sizes_config(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_suggest_setup(session_id: str) -> dict:
+    """Inspect the data and recommend a Sizes setup, with suitability warnings.
+
+    Returns a 'suitable' flag, 'recommended' r-range / inversion Q-range /
+    background windows, and 'warnings' (e.g. no size scale, multiple
+    populations). Advisory only — apply values with the set_* / fit_* tools.
+    Call this before configuring the fit.
+    """
+    return _ctrl.suggest_sizes_setup(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_set_size_grid(
+    session_id: str,
+    r_min: Optional[float] = None,
+    r_max: Optional[float] = None,
+    n_bins: Optional[int] = None,
+    log_spacing: Optional[bool] = None,
+) -> dict:
+    """Set the radius grid [Å] for the inversion (r_min, r_max, n_bins,
+    log_spacing). Heuristic: r ≈ π/Q over the inversion Q-range."""
+    return _ctrl.set_size_grid(
+        session_id, r_min=r_min, r_max=r_max, n_bins=n_bins, log_spacing=log_spacing
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_set_shape(
+    session_id: str,
+    shape: Optional[str] = None,
+    contrast: Optional[float] = None,
+    aspect_ratio: Optional[float] = None,
+) -> dict:
+    """Set the form factor: shape ('sphere' or 'spheroid'), contrast (Δρ)² in
+    10²⁰ cm⁻⁴ (use 1.0 if unknown), and aspect_ratio (spheroid only)."""
+    return _ctrl.set_shape(
+        session_id, shape=shape, contrast=contrast, aspect_ratio=aspect_ratio
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_set_method(
+    session_id: str,
+    method: str,
+    maxent_sky_background: Optional[float] = None,
+    maxent_max_iter: Optional[int] = None,
+    regularization_evalue: Optional[float] = None,
+    regularization_min_ratio: Optional[float] = None,
+    tnnls_approach_param: Optional[float] = None,
+    tnnls_max_iter: Optional[int] = None,
+    montecarlo_n_repetitions: Optional[int] = None,
+    montecarlo_convergence: Optional[float] = None,
+    montecarlo_max_iter: Optional[int] = None,
+) -> dict:
+    """Choose the inversion method and (optionally) its tuning parameters.
+
+    Only parameters relevant to the chosen method are applied. MaxEnt is the
+    recommended default. Method params: maxent_* / regularization_* / tnnls_* /
+    montecarlo_*.
+    """
+    return _ctrl.set_method(
+        session_id, method,
+        maxent_sky_background=maxent_sky_background,
+        maxent_max_iter=maxent_max_iter,
+        regularization_evalue=regularization_evalue,
+        regularization_min_ratio=regularization_min_ratio,
+        tnnls_approach_param=tnnls_approach_param,
+        tnnls_max_iter=tnnls_max_iter,
+        montecarlo_n_repetitions=montecarlo_n_repetitions,
+        montecarlo_convergence=montecarlo_convergence,
+        montecarlo_max_iter=montecarlo_max_iter,
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_set_error_handling(
+    session_id: str,
+    error_scale: Optional[float] = None,
+    fractional_error: Optional[bool] = None,
+    fractional_error_value: Optional[float] = None,
+) -> dict:
+    """Configure uncertainty handling. Either scale file errors (error_scale,
+    1.0 = unchanged) or switch to fractional errors (fractional_error=True with
+    fractional_error_value, e.g. 0.03 = 3%, which ignores file σ)."""
+    return _ctrl.set_error_handling(
+        session_id,
+        error_scale=error_scale,
+        fractional_error=fractional_error,
+        fractional_error_value=fractional_error_value,
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_set_background(
+    session_id: str,
+    power_law_B: Optional[float] = None,
+    power_law_P: Optional[float] = None,
+    background: Optional[float] = None,
+) -> dict:
+    """Set complex-background terms directly (no fitting). Background subtracted
+    before inversion is power_law_B·q^(-power_law_P) + background. Set
+    power_law_B=0 for a flat background only."""
+    return _ctrl.set_background(
+        session_id, power_law_B=power_law_B, power_law_P=power_law_P,
+        background=background,
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_fit_power_law_background(
+    session_id: str,
+    q_min: float,
+    q_max: float,
+    fit_B: bool = True,
+    fit_P: bool = True,
+) -> dict:
+    """Fit the power-law background B·q^(-P) over [q_min, q_max] (typically the
+    low-Q steep-slope region). Updates power_law_B/P. fit_B/fit_P select which
+    vary (at least one True)."""
+    return _ctrl.fit_power_law_background(
+        session_id, q_min, q_max, fit_B=fit_B, fit_P=fit_P
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_fit_flat_background(
+    session_id: str, q_min: float, q_max: float
+) -> dict:
+    """Fit the flat background by averaging I − B·q^(-P) over [q_min, q_max]
+    (typically the high-Q flat region). Updates background. Run after
+    fit_power_law_background if both terms are present."""
+    return _ctrl.fit_flat_background(session_id, q_min, q_max)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_get_background_image(
+    session_id: str, width: int = 1024, height: int = 768
+) -> list[Any]:
+    """Render the data with the current complex background overlaid (log-log).
+    Use to visually confirm the background before inverting."""
+    result = _ctrl.get_background_preview_image(session_id, width=width, height=height)
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    return [f"Background preview (session {session_id})",
+            Image(data=_base64.b64decode(b64), format="png")]
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_run_fit(
+    session_id: str, random_seed: Optional[int] = None
+) -> dict:
+    """Run the size-distribution inversion. The inversion Q-range
+    (pyirena_ctrl_set_fit_q_range) and complex background are applied first.
+
+    Returns success, chi_squared, volume_fraction, rg, peak_r, n_iterations,
+    n_data.
+    """
+    return _ctrl.run_sizes_fit(session_id, random_seed=random_seed)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_get_distribution(
+    session_id: str, max_points: int = 500
+) -> dict:
+    """Return the fitted distribution arrays: r_grid [Å] and distribution P(r)
+    [vol-frac/Å] (decimated), plus distribution_std when available."""
+    return _ctrl.get_sizes_distribution(session_id, max_points=max_points)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_get_results(session_id: str) -> dict:
+    """Return the full scalar results + configuration for the last Sizes fit
+    (chi_squared, volume_fraction, rg, peak_r, plus all setup parameters)."""
+    return _ctrl.get_sizes_results(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_get_fit_image(
+    session_id: str, width: int = 1024, height: int = 900
+) -> list[Any]:
+    """Render the Sizes fit as a two-panel PNG: (top) log-log data + model
+    (+ background), (bottom) the size distribution P(r) vs r."""
+    result = _ctrl.get_sizes_fit_image(session_id, width=width, height=height)
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    return [f"Sizes fit image (session {session_id})",
+            Image(data=_base64.b64decode(b64), format="png")]
+
+
+@mcp.tool()
+def pyirena_ctrl_sizes_save_fit(
+    session_id: str, output_path: Optional[str] = None
+) -> dict:
+    """Save the fitted size distribution to NXcanSAS HDF5.
+
+    Defaults to overwriting the original file. Pass output_path to save
+    elsewhere and preserve the original.
+    """
+    return _ctrl.save_sizes_fit(session_id, output_path=output_path)
 
 
 # ---------------------------------------------------------------------------

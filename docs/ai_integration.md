@@ -42,10 +42,17 @@ AI summarises in plain language.
 ```
 
 The MCP server is a small process that the AI client spawns on demand. It
-exposes 18 tools (discovery, per-tool result reading, parameter
-aggregation across files, headless plotting), all prefixed `pyirena_`
-(e.g. `pyirena_summarize_folder`, `pyirena_list_files`) — see
-[ai_tools_reference.md](ai_tools_reference.md).
+exposes two families of tools — see
+[ai_tools_reference.md](ai_tools_reference.md):
+
+- **Read-only tools** (`pyirena_` prefix) — discovery, per-tool result
+  reading, parameter aggregation across files, headless plotting
+  (e.g. `pyirena_summarize_folder`, `pyirena_list_files`).
+- **Control tools** (`pyirena_ctrl_` prefix) — drive fitting
+  interactively and write results back to HDF5. Two models are covered:
+  **Unified Fit** (`pyirena_ctrl_*`) and **Size Distribution**
+  (`pyirena_ctrl_sizes_*`). These are stateful (session-based) and, unlike
+  the read-only tools, can modify files via the `*_save_fit` tools.
 
 ---
 

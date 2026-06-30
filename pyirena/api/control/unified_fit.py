@@ -337,7 +337,8 @@ def get_session_summary(session_id: str) -> dict:
         "q_min":         float(np.nanmin(s.q[valid])),
         "q_max":         float(np.nanmax(s.q[valid])),
         "model":         s.model_name,
-        "nlevels":       s.model.num_levels if s.model is not None else None,
+        # nlevels only applies to unified_fit; other models (e.g. sizes) lack it
+        "nlevels":       getattr(s.model, "num_levels", None) if s.model is not None else None,
         "fit_q_min":     s.fit_q_min,
         "fit_q_max":     s.fit_q_max,
         "has_fit":       s.last_fit_result is not None,
@@ -349,14 +350,28 @@ def get_session_summary(session_id: str) -> dict:
 # Category B — Model selection and inspection
 # ---------------------------------------------------------------------------
 
-AVAILABLE_MODELS = ["unified_fit"]
+AVAILABLE_MODELS = ["unified_fit", "sizes"]
 
 
 def list_available_models() -> dict:
     """List the fitting models available in this version of the control API."""
     return {
         "models": AVAILABLE_MODELS,
-        "note": "Additional models will be added in future phases.",
+        "details": {
+            "unified_fit": (
+                "Beaucage multi-level Unified Fit. Use select_model() and the "
+                "parameter/level tools (set_parameter_value, fix_all_except, "
+                "add_unified_level, …)."
+            ),
+            "sizes": (
+                "Particle size-distribution inversion (MaxEnt / Regularization / "
+                "TNNLS / Monte Carlo). Use select_sizes_model() and the sizes "
+                "tools (set_size_grid, set_shape, set_method, set_error_handling, "
+                "fit_power_law_background, fit_flat_background, run_sizes_fit, …). "
+                "Best for dilute samples with a single identifiable particle "
+                "population; call suggest_sizes_setup() first."
+            ),
+        },
     }
 
 
