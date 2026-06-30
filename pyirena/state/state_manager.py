@@ -88,7 +88,7 @@ class StateManager:
         "sizes": {
             # schema_version is bumped whenever a default value changes so that
             # old saved states can be migrated automatically on load.
-            "schema_version": 4,
+            "schema_version": 5,
             "r_min": 10.0,
             "r_max": 1000.0,
             "n_bins": 200,           # was 50 in schema_version 1
@@ -98,6 +98,8 @@ class StateManager:
             "aspect_ratio": 1.0,           # used when shape == 'spheroid'
             "background": 0.0,
             "error_scale": 1.0,            # new in schema_version 2
+            "fractional_error": False,     # new in schema_version 5
+            "fractional_error_value": 0.03,  # |I| × this when fractional_error
             "method": "regularization",    # 'maxent' | 'regularization' | 'tnnls' | 'montecarlo'
             "maxent_sky_background": 1e-6,
             "maxent_stability": 0.01,
@@ -806,6 +808,13 @@ class StateManager:
             if sizes.get('method') == 'mcsas':
                 sizes['method'] = 'montecarlo'
             sizes['schema_version'] = 4
+            self.state['sizes'] = sizes
+
+        if stored_version < 5 <= target_version:
+            # schema_version 4 → 5: fractional-error fields added.
+            sizes['fractional_error'] = self.DEFAULT_STATE['sizes']['fractional_error']
+            sizes['fractional_error_value'] = self.DEFAULT_STATE['sizes']['fractional_error_value']
+            sizes['schema_version'] = 5
             self.state['sizes'] = sizes
 
         # ------------------------------------------------------------------

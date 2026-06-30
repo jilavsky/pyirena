@@ -736,6 +736,8 @@ def fit_sizes(
             s.shape_params = {'aspect_ratio': float(ar)}
         s.background         = float(sizes_state.get('background', 0.0))
         s.error_scale        = float(sizes_state.get('error_scale', 1.0))
+        s.fractional_error   = bool(sizes_state.get('fractional_error', False))
+        s.fractional_error_value = float(sizes_state.get('fractional_error_value', 0.03))
         s.power_law_B        = float(sizes_state.get('power_law_B', 0.0))
         s.power_law_P        = float(sizes_state.get('power_law_P', 4.0))
         s.method             = str(sizes_state.get('method', 'regularization'))
@@ -856,6 +858,8 @@ def fit_sizes(
             'log_spacing':     s.log_spacing,
             'background':      s.background,
             'error_scale':     s.error_scale,
+            'fractional_error':       s.fractional_error,
+            'fractional_error_value': s.fractional_error_value,
             'power_law_B':     s.power_law_B,
             'power_law_P':     s.power_law_P,
             # Method-specific parameters

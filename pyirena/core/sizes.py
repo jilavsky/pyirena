@@ -165,6 +165,13 @@ class SizesDistribution:
 
     # ── Error scaling ─────────────────────────────────────────────────────────
     error_scale: float = 1.0   # Multiply measurement errors by this factor before fitting
+    # When True, ignore the measured/file uncertainties entirely and use a
+    # fractional error err = |I| × fractional_error_value (e.g. 0.03 = 3%).
+    # Useful when collected uncertainties are unreliable (e.g. after merging
+    # subsets or when error estimation failed).  Mutually exclusive with
+    # error_scale (error_scale is not applied in this mode).
+    fractional_error: bool = False
+    fractional_error_value: float = 0.03
 
     # ── Power-law background ───────────────────────────────────────────────────
     power_law_B: float = 0.0   # Amplitude of B·q^(-P) term  [same units as I]
@@ -251,16 +258,25 @@ class SizesDistribution:
         # Subtract complex background (B·q^(-P) + flat)
         I = I - self.compute_complex_background(q)
 
-        # Generate errors if absent
-        no_user_errors = err is None
-        if no_user_errors:
-            err = I * 0.05
-            err[err <= 0] = np.abs(I[err <= 0]) * 0.05 + 1e-20
-
-        # Apply user-specified error scaling (default 1.0 = no change)
-        if self.error_scale != 1.0:
-            err = err * float(self.error_scale)
+        # Fractional error: replace any file/measured uncertainties with a
+        # user-chosen fraction of the observed intensity.  Based on the observed
+        # (pre-background-subtraction) intensity so the bars match what callers
+        # plot, consistent with the ASCII-import fractional-error path.
+        if self.fractional_error:
+            frac = float(self.fractional_error_value)
+            err = np.abs(I_observed) * frac
             err = np.maximum(err, 1e-300)
+        else:
+            # Generate errors if absent
+            no_user_errors = err is None
+            if no_user_errors:
+                err = I * 0.05
+                err[err <= 0] = np.abs(I[err <= 0]) * 0.05 + 1e-20
+
+            # Apply user-specified error scaling (default 1.0 = no change)
+            if self.error_scale != 1.0:
+                err = err * float(self.error_scale)
+                err = np.maximum(err, 1e-300)
 
         # Build G matrix
         r_grid = make_r_grid(self.r_min, self.r_max, self.n_bins, self.log_spacing)
@@ -1236,6 +1252,8 @@ class SizesDistribution:
             'montecarlo_convergence':   self.montecarlo_convergence,
             'montecarlo_max_iter':      self.montecarlo_max_iter,
             'error_scale':              self.error_scale,
+            'fractional_error':         self.fractional_error,
+            'fractional_error_value':   self.fractional_error_value,
             'power_law_B':              self.power_law_B,
             'power_law_P':              self.power_law_P,
         }

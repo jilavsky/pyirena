@@ -1133,6 +1133,37 @@ class SizesFitPanel(QWidget):
         err_row.addWidget(QLabel("(default 1.0)"))
         err_row.addStretch()
         err_box_layout.addLayout(err_row)
+
+        # Fractional error: replace file/measured uncertainties with a fixed
+        # fraction of the intensity (e.g. 3%).  Useful when collected errors are
+        # unreliable (after merging subsets, or when error estimation failed).
+        frac_row = QHBoxLayout()
+        self.frac_error_check = QCheckBox("Fractional error")
+        self.frac_error_check.setToolTip(
+            "Ignore the uncertainties from the data file and generate them as\n"
+            "error = |I| × fraction.  Use when the collected errors are\n"
+            "unreliable (e.g. after merging subsets).  When enabled, the\n"
+            "Error scale field above is ignored."
+        )
+        self.frac_error_check.stateChanged.connect(self._on_frac_error_toggled)
+        self.frac_error_check.stateChanged.connect(self._on_param_changed)
+        self.frac_error_check.stateChanged.connect(self._update_error_display)
+        frac_row.addWidget(self.frac_error_check)
+        frac_row.addWidget(QLabel("Fraction:"))
+        self.frac_error_value_edit = ScrubbableLineEdit("0.03", step_factor=0.1)
+        self.frac_error_value_edit.setValidator(QDoubleValidator(1e-6, 1.0, 6))
+        self.frac_error_value_edit.setMaximumWidth(100)
+        self.frac_error_value_edit.setToolTip(
+            "Fractional uncertainty applied to the intensity (0.03 = 3%)."
+        )
+        self.frac_error_value_edit.editingFinished.connect(self._on_param_changed)
+        self.frac_error_value_edit.editingFinished.connect(self._update_error_display)
+        frac_row.addWidget(self.frac_error_value_edit)
+        frac_row.addWidget(QLabel("(e.g. 0.03 = 3%)"))
+        frac_row.addStretch()
+        err_box_layout.addLayout(frac_row)
+        # Initialise enabled/disabled state of the two fields
+        self._on_frac_error_toggled()
         sizes_layout.addWidget(err_box)
 
         # ── Method & parameters ───────────────────────────────────────────
@@ -1693,22 +1724,45 @@ class SizesFitPanel(QWidget):
         except ValueError:
             pass
 
-    def _update_error_display(self):
-        """Redraw error bars on I(Q) plot immediately when Error scale changes.
+    def _on_frac_error_toggled(self):
+        """Enable/disable the error-scale and fraction fields so only the
+        active error mode is editable.  Fractional error and error scaling are
+        mutually exclusive."""
+        frac_on = self.frac_error_check.isChecked()
+        self.error_scale_edit.setEnabled(not frac_on)
+        self.frac_error_value_edit.setEnabled(frac_on)
 
-        This lets the user see the effect of the scaling without running a fit.
-        The data points and any existing fit line are left untouched.
+    def _effective_error(self, intensity, raw_err, s):
+        """Return the error array used for fitting/display given the current
+        error mode, mirroring :meth:`SizesDistribution.fit`.
+
+        Fractional error → ``|I| × fraction`` (file/measured error ignored).
+        Otherwise → ``raw_err × error_scale`` (or ``raw_err`` unscaled).
+        """
+        if s.fractional_error:
+            return np.abs(intensity) * float(s.fractional_error_value)
+        if raw_err is None:
+            return None
+        return raw_err * float(s.error_scale) if s.error_scale != 1.0 else raw_err
+
+    def _update_error_display(self):
+        """Redraw error bars on I(Q) plot immediately when the error settings
+        change.
+
+        This lets the user see the effect of the scaling / fractional error
+        without running a fit.  The data points and any existing fit line are
+        left untouched.
         """
         if self.data is None or self.graph_window is None:
             return
-        raw_err = self.data.get('Error')
-        if raw_err is None:
-            return
         try:
-            error_scale = float(self.error_scale_edit.text() or 1.0)
+            s = self._collect_params()
         except ValueError:
             return
-        disp_err = raw_err * error_scale if error_scale != 1.0 else raw_err
+        disp_err = self._effective_error(self.data['Intensity'],
+                                         self.data.get('Error'), s)
+        if disp_err is None:
+            return
         self.graph_window.update_error_bars(
             self.data['Q'], self.data['Intensity'], disp_err
         )
@@ -1757,6 +1811,8 @@ class SizesFitPanel(QWidget):
             s.shape_params = {}
         s.background = float(self.background_edit.text() or 0.0)
         s.error_scale = float(self.error_scale_edit.text() or 1.0)
+        s.fractional_error = self.frac_error_check.isChecked()
+        s.fractional_error_value = float(self.frac_error_value_edit.text() or 0.03)
         s.power_law_B = float(self.power_law_B_edit.text() or 0.0)
         s.power_law_P = float(self.power_law_P_edit.text() or 4.0)
         s.method = self.method_combo.currentText()
@@ -1848,11 +1904,9 @@ class SizesFitPanel(QWidget):
             complex_bg = s.compute_complex_background(q)
             I_model = G @ x_raw + complex_bg
 
-            # Plot — scale display errors to match what was used for fitting
-            raw_err = self.data.get('Error')
-            disp_err = (raw_err * float(s.error_scale)
-                        if raw_err is not None and s.error_scale != 1.0
-                        else raw_err)
+            # Plot — display errors match what is used for fitting
+            disp_err = self._effective_error(
+                self.data['Intensity'], self.data.get('Error'), s)
             self.graph_window.init_plots()
             self.graph_window.plot_data(
                 self.data['Q'], self.data['Intensity'], disp_err, self.data['label']
@@ -1973,11 +2027,9 @@ class SizesFitPanel(QWidget):
             I_model_display = I_model_bg_subtracted + complex_bg_q
             residuals = result.get('residuals', None)
 
-            # Re-plot on full Q range — scale display errors to match fitting
-            raw_err = self.data.get('Error')
-            disp_err = (raw_err * float(s.error_scale)
-                        if raw_err is not None and s.error_scale != 1.0
-                        else raw_err)
+            # Re-plot on full Q range — display errors match fitting
+            disp_err = self._effective_error(
+                self.data['Intensity'], self.data.get('Error'), s)
             self.graph_window.init_plots()
             self.graph_window.plot_data(
                 self.data['Q'], self.data['Intensity'],
@@ -2240,7 +2292,9 @@ class SizesFitPanel(QWidget):
         if error is None:
             error = intensity * 0.05
             error = np.maximum(error, 1e-30)
-        err_mc = error * float(s.error_scale) if s.error_scale != 1.0 else error
+        # Perturbation noise matches the error model the fit actually uses
+        # (fractional error replaces the measured/synthetic error entirely).
+        err_mc = self._effective_error(intensity, error, s)
         err_mc = np.maximum(err_mc, 1e-30)
 
         self.status_label.setText(f"Running {N_runs} MC fits for uncertainty…")
@@ -2428,6 +2482,9 @@ class SizesFitPanel(QWidget):
         self.tnnls_approach_edit.setText(str(s.tnnls_approach_param))
         self.tnnls_maxiter_spin.setValue(s.tnnls_max_iter)
         self.error_scale_edit.setText(str(s.error_scale))
+        self.frac_error_check.setChecked(bool(s.fractional_error))
+        self.frac_error_value_edit.setText(str(s.fractional_error_value))
+        self._on_frac_error_toggled()
 
     # ── State save / load ────────────────────────────────────────────────────
 
@@ -2455,6 +2512,8 @@ class SizesFitPanel(QWidget):
             'unc_n_runs': self.unc_n_runs_spin.value(),
             'montecarlo_max_iter': s.montecarlo_max_iter,
             'error_scale': s.error_scale,
+            'fractional_error': s.fractional_error,
+            'fractional_error_value': s.fractional_error_value,
             'power_law_B': s.power_law_B,
             'power_law_P': s.power_law_P,
             # Whether to fit B / P when "Fit P/B" or "Fit All" runs.  Persisted
@@ -2509,6 +2568,9 @@ class SizesFitPanel(QWidget):
             state.get('montecarlo_max_iter') or state.get('mcsas_max_iter', 100000)))
         self.unc_n_runs_spin.setValue(int(state.get('unc_n_runs', 10)))
         self.error_scale_edit.setText(str(state.get('error_scale', 1.0)))
+        self.frac_error_check.setChecked(bool(state.get('fractional_error', False)))
+        self.frac_error_value_edit.setText(str(state.get('fractional_error_value', 0.03)))
+        self._on_frac_error_toggled()
         self.power_law_B_edit.setText(str(state.get('power_law_B', 0.0)))
         self.power_law_P_edit.setText(str(state.get('power_law_P', 4.0)))
         self.fit_B_check.setChecked(bool(state.get('fit_power_law_B', False)))

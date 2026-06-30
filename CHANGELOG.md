@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sizes: fractional error option.** A new "Fractional error" checkbox in the
+  Error Scaling box lets you ignore the uncertainties from the data file and
+  generate them as `error = |I| × fraction` (default `0.03` = 3%). Useful when
+  collected uncertainties are unreliable (e.g. after merging subsets, or when
+  error estimation failed). Mutually exclusive with the error-scale field; the
+  setting is persisted in the GUI state, honored by the batch API, and written
+  to / read from the NXcanSAS file (`fractional_error`,
+  `fractional_error_value`).
 - **Sizes: surface-area distribution.** The volume distribution is now also
   converted to a surface-area distribution `S(r) = sv(r)·P_V(r)` and its
   cumulative (running integral), saved into the NXcanSAS file as
