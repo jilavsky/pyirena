@@ -80,7 +80,7 @@ class FeatureIdentifierDialog(QWidget):
     def __init__(self, parent: "UnifiedFitPanel"):
         super().__init__(None)  # top-level, no Qt parent
         self._panel = parent
-        self.setWindowTitle("Feature Identifier — Power-law segmentation")
+        self.setWindowTitle(self._window_title())
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)
         self.resize(440, 600)
 
@@ -152,12 +152,7 @@ class FeatureIdentifierDialog(QWidget):
         )
 
         # Help label
-        help_label = QLabel(
-            "<b>Visualisation only</b> — segmentation never modifies your fit "
-            "parameters.  Segments listed from high-Q to low-Q (Unified Fit "
-            "Level 1 = high-Q end).  Use markers as visual guides for placing "
-            "cursors and choosing the number of levels."
-        )
+        help_label = QLabel(self._help_text())
         help_label.setWordWrap(True)
         help_label.setStyleSheet("QLabel{color:#555;font-size:10px;}")
 
@@ -171,6 +166,29 @@ class FeatureIdentifierDialog(QWidget):
         layout.addWidget(self.summary, stretch=1)
         layout.addWidget(help_label)
         self.setLayout(layout)
+
+    # ----------------------------------------------------------------------
+    # Overridable presentation hooks (subclasses customise title / help / summary)
+    # ----------------------------------------------------------------------
+
+    def _window_title(self) -> str:
+        return "Feature Identifier — Power-law segmentation"
+
+    def _help_text(self) -> str:
+        return (
+            "<b>Visualisation only</b> — segmentation never modifies your fit "
+            "parameters.  Segments listed from high-Q to low-Q (Unified Fit "
+            "Level 1 = high-Q end).  Use markers as visual guides for placing "
+            "cursors and choosing the number of levels."
+        )
+
+    def _extra_summary_lines(self, result) -> list:
+        """Extra summary lines appended after the standard segmentation report.
+
+        Default: none.  Subclasses (e.g. the Sizes dialog) override this to add
+        model-specific recommendations.
+        """
+        return []
 
     # ----------------------------------------------------------------------
     # State persistence (via parent panel's StateManager)
@@ -415,6 +433,7 @@ class FeatureIdentifierDialog(QWidget):
         if result.background_q_min is not None:
             lines.append("")
             lines.append(f"Background begins at Q ≈ {result.background_q_min:.4g}")
+        lines.extend(self._extra_summary_lines(result))
         self.summary.setPlainText("\n".join(lines))
 
     # ----------------------------------------------------------------------

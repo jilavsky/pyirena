@@ -883,6 +883,7 @@ class SizesFitPanel(QWidget):
         self._last_distribution = None      # Tuple (r, P) from last fit/compute
         self._param_backup = None           # For revert functionality
         self._pending_cursor_q_range = None # Q range restored after data load
+        self._feature_dialog = None         # Feature Identifier (non-modal)
 
         self.state_manager = StateManager()
         self.sizes = SizesDistribution()
@@ -915,6 +916,24 @@ class SizesFitPanel(QWidget):
 
         self.setMinimumSize(1200, 960)
         self.resize(1200, 960)
+
+    def _open_feature_identifier(self):
+        """Open the Feature Identifier dialog (non-modal) for the loaded data."""
+        if self.data is None or self.data.get("Q") is None:
+            QMessageBox.information(
+                self, "No data",
+                "Load a dataset into the Size Distribution panel before running "
+                "feature detection."
+            )
+            return
+        if self._feature_dialog is None:
+            from pyirena.gui.sizes_feature_identifier import (
+                SizesFeatureIdentifierDialog,
+            )
+            self._feature_dialog = SizesFeatureIdentifierDialog(self)
+        self._feature_dialog.show()
+        self._feature_dialog.raise_()
+        self._feature_dialog.activateWindow()
 
     def _create_control_panel(self) -> QWidget:
         """Build the left control panel (tabbed) inside a scroll area."""
@@ -950,6 +969,23 @@ class SizesFitPanel(QWidget):
                 border: 1px solid #bdc3c7;
             }
         """)
+        # Identify Features button — opens the (non-modal) Feature Identifier,
+        # which segments the I(Q) and shows the size-distribution recommendation.
+        self.identify_features_btn = QPushButton("Identify Features…")
+        self.identify_features_btn.setFixedHeight(22)
+        self.identify_features_btn.setStyleSheet(
+            "QPushButton{background:#2980b9;color:white;font-size:11px;"
+            "border-radius:3px;padding:2px 8px;}"
+            "QPushButton:hover{background:#3498db;}"
+        )
+        self.identify_features_btn.setToolTip(
+            "Open the Feature Identifier — segments the data's log-log slope\n"
+            "profile and shows the recommended size-distribution setup\n"
+            "(radius grid, inversion Q-range, background windows) plus a\n"
+            "suitability verdict.  Visualisation only; does not modify your fit."
+        )
+        self.identify_features_btn.clicked.connect(self._open_feature_identifier)
+
         _help_btn = QPushButton("? Help")
         _help_btn.setFixedSize(60, 22)
         _help_btn.setStyleSheet(
@@ -966,6 +1002,7 @@ class SizesFitPanel(QWidget):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(4)
         title_row.addWidget(title, 1)
+        title_row.addWidget(self.identify_features_btn)
         title_row.addWidget(_help_btn)
         layout.addLayout(title_row)
 

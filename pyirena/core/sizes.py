@@ -1432,3 +1432,133 @@ def surface_distribution(
     specific_surface = float(cumul_surf_dist[-1]) if cumul_surf_dist.size else 0.0
 
     return surface_dist, cumul_surf_dist, specific_surface
+
+
+def recommend_sizes_setup(
+    q: np.ndarray,
+    intensity: np.ndarray,
+    sigma: Optional[np.ndarray] = None,
+    config=None,
+) -> dict:
+    """Data-driven suggestions for a size-distribution fit + a suitability check.
+
+    Segments the I(Q) curve (via :func:`pyirena.core.feature_detect.detect_features`)
+    and derives a recommended setup: radius grid, inversion Q-range, and the
+    low-Q power-law / high-Q flat background windows.  Also flags whether the
+    data looks like a viable single size-distribution candidate.
+
+    This is the single source of truth shared by the AI control tool
+    (``pyirena.api.control.sizes.suggest_sizes_setup``) and the GUI's
+    Feature Identifier dialog, so both show identical recommendations.
+
+    Parameters
+    ----------
+    q, intensity : np.ndarray
+        The scattering curve.
+    sigma : np.ndarray, optional
+        Intensity uncertainties (improves the segmentation noise filter).
+    config : FeatureDetectConfig, optional
+        Override the segmentation parameters.  Defaults to
+        ``FeatureDetectConfig()`` (the same defaults the AI tool uses).
+
+    Returns
+    -------
+    dict with keys ``suitable`` (bool), ``recommended`` (dict),
+    ``warnings`` (list[str]), and ``features`` (dict).
+    """
+    from pyirena.core.feature_detect import detect_features  # noqa: PLC0415
+
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(intensity, dtype=float)
+    sig = np.asarray(sigma, dtype=float) if sigma is not None else None
+
+    fr = detect_features(q, I, sigma_I=sig, config=config)
+    feat = fr.to_dict()
+    segments = feat.get("segments", []) or []
+    knees = feat.get("guinier_knees", []) or []
+
+    valid = np.isfinite(q) & np.isfinite(I) & (q > 0)
+    if np.any(valid):
+        q_lo = float(np.nanmin(q[valid]))
+        q_hi = float(np.nanmax(q[valid]))
+    else:
+        q_lo, q_hi = float("nan"), float("nan")
+
+    warnings: list[str] = []
+
+    # Background windows from segmentation.  Segments are ordered high-Q -> low-Q;
+    # kind in {background, guinier_plateau, power_law}.
+    bg_q_min = feat.get("background_q_min")
+    background_q_min = float(bg_q_min) if bg_q_min is not None else None
+    background_q_max = q_hi if background_q_min is not None else None
+
+    # Lowest-Q power-law segment -> power-law background window
+    pl_window = None
+    power_law_segs = [seg for seg in segments if seg.get("kind") == "power_law"]
+    if power_law_segs:
+        low_seg = min(power_law_segs, key=lambda seg: seg.get("q_min", q_lo))
+        pl_window = (float(low_seg["q_min"]), float(low_seg["q_max"]))
+
+    # Inversion (particle) Q-range: between the low-Q power law and the high-Q
+    # flat background, i.e. where the size information lives.
+    inv_q_min = pl_window[1] if pl_window is not None else q_lo
+    inv_q_max = background_q_min if background_q_min is not None else q_hi
+    if not (inv_q_min < inv_q_max):
+        inv_q_min, inv_q_max = q_lo, q_hi
+        warnings.append(
+            "Could not separate a clean particle Q-range from background; "
+            "defaulting the inversion range to the full data."
+        )
+
+    # Radius range from the inversion Q-range:  r ≈ π/Q
+    r_min = float(np.pi / inv_q_max) if inv_q_max and np.isfinite(inv_q_max) else float("nan")
+    r_max = float(np.pi / inv_q_min) if inv_q_min and np.isfinite(inv_q_min) else float("nan")
+
+    # Suitability checks
+    if not knees:
+        warnings.append(
+            "No Guinier knee detected — there is no clear size scale in this "
+            "data. A size distribution may not be meaningful."
+        )
+    if len(knees) > 1:
+        warnings.append(
+            f"{len(knees)} knees detected (multiple populations / levels). The "
+            "Sizes tool fits a single distribution; consider Unified Fit, or "
+            "restrict the Q-range to one population."
+        )
+    log_decades = float(feat.get("log_decades", 0.0) or 0.0)
+    if log_decades < 1.0:
+        warnings.append(
+            f"Only {log_decades:.1f} decades of Q — limited dynamic range for a "
+            "reliable inversion."
+        )
+    rec_nlevels = int(feat.get("recommended_nlevels", 0) or 0)
+    if rec_nlevels >= 3:
+        warnings.append(
+            f"Feature detection suggests ~{rec_nlevels} structural levels; this "
+            "is likely too complex for a single size distribution."
+        )
+
+    suitable = bool(knees) and rec_nlevels <= 2
+
+    return {
+        "suitable": suitable,
+        "recommended": {
+            "r_min": round(r_min, 3) if np.isfinite(r_min) else None,
+            "r_max": round(r_max, 3) if np.isfinite(r_max) else None,
+            "inversion_q_min": inv_q_min,
+            "inversion_q_max": inv_q_max,
+            "power_law_q_min": pl_window[0] if pl_window else None,
+            "power_law_q_max": pl_window[1] if pl_window else None,
+            "background_q_min": background_q_min,
+            "background_q_max": background_q_max,
+        },
+        "warnings": warnings,
+        "features": {
+            "n_segments_found": feat.get("n_segments_found", 0),
+            "recommended_nlevels": rec_nlevels,
+            "log_decades": log_decades,
+            "guinier_knees": knees,
+            "segments": segments,
+        },
+    }

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sizes: "Identify Features…" button.** The Size Distribution panel now has
+  the same Feature Identifier as the Unified Fit panel (top-right, next to
+  Help). It segments the I(Q) log-log slope profile, overlays the segments and
+  Guinier knees on the graph, and — below the segment list — shows the
+  **size-distribution recommendation** (suggested radius grid, inversion
+  Q-range, low-Q power-law and high-Q flat-background windows) with a
+  suitability verdict and warnings. The GUI and the AI `suggest_sizes_setup`
+  tool share one core function (`pyirena.core.sizes.recommend_sizes_setup`), so
+  the displayed recommendation matches what the assistant receives.
+  Visualisation only — it never modifies the fit. (`SizesFeatureIdentifierDialog`
+  in `pyirena/gui/sizes_feature_identifier.py`; the base
+  `FeatureIdentifierDialog` gained overridable title/help/summary hooks.)
 - **AI control tools for Size Distribution (MCP).** The `pyirena.api.control`
   surface and the `pyirena-mcp` server now let an AI agent drive a particle
   size-distribution fit end-to-end, alongside the existing Unified Fit control

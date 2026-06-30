@@ -124,11 +124,6 @@ def _config_dict(model) -> dict:
     }
 
 
-def _full_q_range(s: Session):
-    valid = np.isfinite(s.q)
-    return float(np.nanmin(s.q[valid])), float(np.nanmax(s.q[valid]))
-
-
 def _render_image(fig, session_id: str, tag: str, dpi: int) -> str:
     import matplotlib.pyplot as plt  # noqa: PLC0415
 
@@ -747,97 +742,10 @@ def suggest_sizes_setup(session_id: str) -> dict:
     if s is None:
         return no_session(session_id)
 
-    from pyirena.core.feature_detect import detect_features  # noqa: PLC0415
+    from pyirena.core.sizes import recommend_sizes_setup  # noqa: PLC0415
 
-    q = np.asarray(s.q, dtype=float)
-    I = np.asarray(s.intensity, dtype=float)
-    sigma = np.asarray(s.error, dtype=float) if s.error is not None else None
-
-    fr = detect_features(q, I, sigma)
-    feat = fr.to_dict()
-    segments = feat.get("segments", []) or []
-    knees = feat.get("guinier_knees", []) or []
-
-    q_lo, q_hi = _full_q_range(s)
-    warnings: list[str] = []
-
-    # --- Background windows from segmentation ---
-    # Segments are ordered high-Q -> low-Q.  kind in {background, guinier_plateau, power_law}.
-    bg_q_min = feat.get("background_q_min")
-    background_q_min = float(bg_q_min) if bg_q_min is not None else None
-    background_q_max = q_hi if background_q_min is not None else None
-
-    # Lowest-Q power-law segment -> power-law background window
-    pl_window = None
-    power_law_segs = [seg for seg in segments if seg.get("kind") == "power_law"]
-    if power_law_segs:
-        low_seg = min(power_law_segs, key=lambda seg: seg.get("q_min", q_lo))
-        pl_window = (float(low_seg["q_min"]), float(low_seg["q_max"]))
-
-    # --- Inversion (particle) Q-range: between the low-Q power law and the
-    #     high-Q flat background, i.e. where the size information lives. ---
-    inv_q_min = pl_window[1] if pl_window is not None else q_lo
-    inv_q_max = background_q_min if background_q_min is not None else q_hi
-    if inv_q_min >= inv_q_max:
-        inv_q_min, inv_q_max = q_lo, q_hi
-        warnings.append(
-            "Could not separate a clean particle Q-range from background; "
-            "defaulting the inversion range to the full data."
-        )
-
-    # --- Radius range from the inversion Q-range:  r ≈ π/Q  ---
-    r_min = float(np.pi / inv_q_max)
-    r_max = float(np.pi / inv_q_min)
-
-    # --- Suitability checks ---
-    if not knees:
-        warnings.append(
-            "No Guinier knee detected — there is no clear size scale in this "
-            "data. A size distribution may not be meaningful."
-        )
-    if len(knees) > 1:
-        warnings.append(
-            f"{len(knees)} knees detected (multiple populations / levels). The "
-            "Sizes tool fits a single distribution; consider Unified Fit, or "
-            "restrict the Q-range to one population."
-        )
-    log_decades = float(feat.get("log_decades", 0.0) or 0.0)
-    if log_decades < 1.0:
-        warnings.append(
-            f"Only {log_decades:.1f} decades of Q — limited dynamic range for a "
-            "reliable inversion."
-        )
-    rec_nlevels = int(feat.get("recommended_nlevels", 0) or 0)
-    if rec_nlevels >= 3:
-        warnings.append(
-            f"Feature detection suggests ~{rec_nlevels} structural levels; this "
-            "is likely too complex for a single size distribution."
-        )
-
-    suitable = bool(knees) and rec_nlevels <= 2
-
-    return {
-        "ok": True,
-        "suitable": suitable,
-        "recommended": {
-            "r_min": round(r_min, 3),
-            "r_max": round(r_max, 3),
-            "inversion_q_min": inv_q_min,
-            "inversion_q_max": inv_q_max,
-            "power_law_q_min": pl_window[0] if pl_window else None,
-            "power_law_q_max": pl_window[1] if pl_window else None,
-            "background_q_min": background_q_min,
-            "background_q_max": background_q_max,
-        },
-        "warnings": warnings,
-        "features": {
-            "n_segments_found": feat.get("n_segments_found", 0),
-            "recommended_nlevels": rec_nlevels,
-            "log_decades": log_decades,
-            "guinier_knees": knees,
-            "segments": segments,
-        },
-    }
+    rec = recommend_sizes_setup(s.q, s.intensity, sigma=s.error)
+    return {"ok": True, **rec}
 
 
 # ---------------------------------------------------------------------------
