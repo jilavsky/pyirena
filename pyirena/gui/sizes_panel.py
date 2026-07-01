@@ -1510,15 +1510,16 @@ class SizesFitPanel(QWidget):
         self.fit_button.clicked.connect(self.run_fit)
         btn_row1.addWidget(self.fit_button)
 
-        self.fit_all_button = QPushButton("Fit All")
+        self.fit_all_button = QPushButton("Fit Cmplx. Bckg. & Sizes")
         self.fit_all_button.setMinimumHeight(28)
+        self.fit_all_button.setMinimumWidth(180)
         self.fit_all_button.setStyleSheet("""
             QPushButton { background-color: #2980b9; color: white; font-weight: bold; font-size: 12px; }
             QPushButton:hover { background-color: #1f618d; }
         """)
         self.fit_all_button.setToolTip(
-            "Fit all selected files sequentially using the current parameters.\n"
-            "Results are stored to each file automatically."
+            "Fit power law (if P or B checked), then flat background (if Q range set),\n"
+            "then size distribution — all on the current loaded data in one click."
         )
         self.fit_all_button.clicked.connect(self.fit_all_action)
         btn_row1.addWidget(self.fit_all_button)
@@ -2240,7 +2241,7 @@ class SizesFitPanel(QWidget):
             import traceback; traceback.print_exc()
 
     def fit_all_action(self):
-        """Fit P/B (if checked), then background (if non-empty range), then sizes."""
+        """Fit power law (if checked), then background (if Q range specified), then sizes."""
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return

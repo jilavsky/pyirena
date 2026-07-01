@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Sizes: "Fit All" button renamed and improved.** Button renamed to
+  "Fit Cmplx. Bckg. & Sizes" (wider, 180px) to clearly reflect that it runs
+  power-law fit → background fit → size distribution fit sequentially on the
+  **current loaded data**, not on all selected files (use the Data Selector's
+  "Size distribution (script)" button for batch fitting). Updated tooltip and
+  docstring to match.
+
 ## [0.9.5] — 2026-06-30
 
 ### Added
