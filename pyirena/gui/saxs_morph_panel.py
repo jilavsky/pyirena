@@ -80,6 +80,7 @@ from pyirena.gui.saxs_morph_3d import (
     HAS_PYVISTA, PYVISTA_INSTALL_HINT,
 )
 # SaxsMorphGraphWindow.show_voxelgram needs HAS_PYVISTA for conditional smoothing
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.state import StateManager
 
 
@@ -786,17 +787,9 @@ class SaxsMorphPanel(QWidget):
 
         # ── Data file ────────────────────────────────────────────────────
         lay.addWidget(_sep())
-        file_row = QHBoxLayout()
-        file_row.addWidget(QLabel('Data file:'))
-        self.file_edit = QLineEdit()
-        self.file_edit.setReadOnly(True)
-        self.file_edit.setPlaceholderText('(no file selected)')
-        file_row.addWidget(self.file_edit)
-        btn_open = QPushButton('Open…')
-        btn_open.setFixedWidth(60)
-        btn_open.clicked.connect(self._open_file)
-        file_row.addWidget(btn_open)
-        lay.addLayout(file_row)
+        self.data_loader = DataFileLoaderRow(state_manager=self._state)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        lay.addWidget(self.data_loader)
 
         # ── Q range readout (driven by cursors) ──────────────────────────
         q_row = QHBoxLayout()
@@ -1294,29 +1287,24 @@ class SaxsMorphPanel(QWidget):
 
     # ── File I/O ─────────────────────────────────────────────────────────
 
-    def _open_file(self):
-        last = (self._state.get('data_selector') or {}).get('last_folder', '')
-        path, _ = QFileDialog.getOpenFileName(
-            self, 'Open HDF5 file', last,
-            'HDF5 files (*.hdf5 *.h5 *.nxs);;All files (*)',
-        )
-        if path:
-            self.load_file(Path(path))
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        q  = np.asarray(data['Q'],        dtype=float)
+        I  = np.asarray(data['Intensity'], dtype=float)
+        err = data.get('Error')
+        dI = (np.asarray(err, dtype=float)
+              if err is not None else np.maximum(I * 0.05, 1e-30))
+        self.set_data(q, I, dI, filename=display_name, filepath=hdf5_path,
+                      is_nxcansas=True)
 
     def load_file(self, path: Path):
-        """Load Q/I/dI from an NXcanSAS HDF5 file."""
-        try:
-            from pyirena.io.hdf5 import readGenericNXcanSAS
-            data = readGenericNXcanSAS(str(path.parent), path.name)
-            q = np.asarray(data['Q'], dtype=float)
-            I = np.asarray(data['Intensity'], dtype=float)
-            err = data.get('Error')
-            dI = (np.asarray(err, dtype=float)
-                  if err is not None else np.maximum(I * 0.05, 1e-30))
-        except Exception as e:
-            QMessageBox.critical(self, 'Open failed', f'Could not load:\n{e}')
+        """Load SAS data from a file (HDF5 or text). Used by __main__."""
+        from pyirena.gui.data_loading import load_data_file
+        res = load_data_file(self, str(path))
+        if res is None:
             return
-        self.set_data(q, I, dI, filename=path.name, filepath=str(path))
+        data, hdf5_path, display_name = res
+        self._on_loader_data_loaded(data, hdf5_path, display_name)
 
     def set_data(self, q, I, dI, filename: str, filepath: str = '',
                  is_nxcansas: bool = True):
@@ -1329,7 +1317,7 @@ class SaxsMorphPanel(QWidget):
         self._data_I = I
         self._data_dI = dI
 
-        self.file_edit.setText(filename)
+        self.data_loader.set_filename(filename)
         if filepath:
             self.graph.data_folder = str(Path(filepath).parent)
 

@@ -47,6 +47,7 @@ from pyirena.core.waxs_peakfit import (
     compute_adaptive_background,
     find_peaks_in_data, WAXSPeakFitModel,
 )
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.sas_plot import save_itx_from_plot, DSpacingAxisItem
 
 
@@ -1237,6 +1238,11 @@ class WAXSPeakFitPanel(QWidget):
         )
         title_row.addWidget(_help_btn)
         ll.addLayout(title_row)
+
+        # ── Data file loader ──────────────────────────────────────────────
+        self.data_loader = DataFileLoaderRow(state_manager=self._state_mgr)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        ll.addWidget(self.data_loader)
 
         # ── Q fit range (cursor positions, read-only display) ─────────────
         qr_row = QHBoxLayout()
@@ -2523,6 +2529,17 @@ class WAXSPeakFitPanel(QWidget):
     # Public data API
     # ===========================================================================
 
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        self.set_data(
+            np.asarray(data['Q'],        float),
+            np.asarray(data['Intensity'], float),
+            data.get('Error'),
+            label=display_name,
+            filepath=hdf5_path,
+            is_nxcansas=True,
+        )
+
     def set_data(
         self,
         q: np.ndarray,
@@ -2538,6 +2555,9 @@ class WAXSPeakFitPanel(QWidget):
         self._dI = np.asarray(dI, float) if dI is not None else None
         self._filepath   = Path(filepath) if filepath else None
         self._is_nxcansas = is_nxcansas
+
+        if hasattr(self, 'data_loader'):
+            self.data_loader.set_filename(label)
 
         self._graph.plot_data(self._q, self._I, self._dI, label=label)
 

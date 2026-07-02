@@ -36,6 +36,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.simple_fits import SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.state.state_manager import StateManager
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.sas_plot import (
@@ -439,6 +440,11 @@ class SimpleFitsPanel(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(5)
         panel.setLayout(layout)
+
+        # ── Data file loader ──────────────────────────────────────────────────
+        self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        layout.addWidget(self.data_loader)
 
         # ── Model selector ────────────────────────────────────────────────────
         model_row = QHBoxLayout()
@@ -880,6 +886,17 @@ class SimpleFitsPanel(QWidget):
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        self.set_data(
+            np.asarray(data['Q'],        dtype=float),
+            np.asarray(data['Intensity'], dtype=float),
+            data.get('Error'),
+            label=display_name,
+            filepath=hdf5_path,
+            is_nxcansas=True,
+        )
+
     def set_data(self, q, intensity, error=None, label='Data',
                  filepath=None, is_nxcansas=False):
         """Load SAS data into the panel and plot it."""
@@ -894,6 +911,9 @@ class SimpleFitsPanel(QWidget):
         self.fit_result = None
         self.chi2_label.setText('—')
         self.rchi2_label.setText('—')
+
+        if hasattr(self, 'data_loader'):
+            self.data_loader.set_filename(label)
 
         self.graph_window.plot_data(
             self.data['Q'],

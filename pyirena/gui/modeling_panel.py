@@ -66,6 +66,7 @@ from pyirena.gui.sas_plot import (
     RadiusAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
 from pyirena.state import StateManager
 
@@ -2117,18 +2118,9 @@ class ModelingPanel(QWidget):
 
         # ── Data file ────────────────────────────────────────────────────
         lay.addWidget(_sep())
-        file_row = QHBoxLayout()
-        file_row.addWidget(QLabel('Data file:'))
-        self.file_edit = QLineEdit()
-        self.file_edit.setReadOnly(True)
-        self.file_edit.setPlaceholderText('(no file selected)')
-        file_row.addWidget(self.file_edit)
-        btn_open = QPushButton('Open…')
-        btn_open.setFixedWidth(60)
-        btn_open.setToolTip("Open an NXcanSAS/HDF5 file to load I(Q) data for modeling.")
-        btn_open.clicked.connect(self._open_file)
-        file_row.addWidget(btn_open)
-        lay.addLayout(file_row)
+        self.data_loader = DataFileLoaderRow(state_manager=self._state)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        lay.addWidget(self.data_loader)
 
         # ── Q range display ──────────────────────────────────────────────
         q_row = QHBoxLayout()
@@ -2621,14 +2613,18 @@ class ModelingPanel(QWidget):
 
     # ── File I/O ─────────────────────────────────────────────────────────────
 
-    def _open_file(self):
-        last = (self._state.get('data_selector') or {}).get('last_folder', '')
-        path, _ = QFileDialog.getOpenFileName(
-            self, 'Open HDF5 file', last,
-            'HDF5 files (*.hdf5 *.h5 *.nxs);;All files (*)',
-        )
-        if path:
-            self.load_file(Path(path))
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        import numpy as _np
+        q   = _np.asarray(data['Q'],        dtype=float)
+        I   = _np.asarray(data['Intensity'], dtype=float)
+        err = data.get('Error')
+        dI  = (_np.asarray(err, dtype=float)
+               if err is not None else _np.full_like(I, 0.05 * I))
+        self.set_data(q, I, dI,
+                      filename=display_name,
+                      filepath=hdf5_path,
+                      is_nxcansas=True)
 
     def set_data(
         self,
@@ -2649,7 +2645,7 @@ class ModelingPanel(QWidget):
         self._data_I = I
         self._data_dI = dI
 
-        self.file_edit.setText(filename)
+        self.data_loader.set_filename(filename)
         if filepath:
             self.graph.data_folder = str(Path(filepath).parent)
 
@@ -2682,26 +2678,13 @@ class ModelingPanel(QWidget):
         self.btn_fix_limits.setEnabled(not self.no_limits_cb.isChecked())
 
     def load_file(self, file_path: Path):
-        """Load SAS data from an HDF5 NXcanSAS file."""
-        try:
-            from pyirena.io.hdf5 import readGenericNXcanSAS
-            import numpy as _np
-            data = readGenericNXcanSAS(str(file_path.parent), file_path.name)
-            q   = _np.asarray(data['Q'],         dtype=float)
-            I   = _np.asarray(data['Intensity'],  dtype=float)
-            err = data.get('Error')
-            dI  = (_np.asarray(err, dtype=float)
-                   if err is not None else _np.full_like(I, 0.05 * I))
-        except Exception as e:
-            QMessageBox.critical(self, 'Load error', str(e))
+        """Load SAS data from a file (HDF5 or text). Used by __main__."""
+        from pyirena.gui.data_loading import load_data_file
+        res = load_data_file(self, str(file_path))
+        if res is None:
             return
-
-        self.set_data(
-            q, I, dI,
-            filename=str(file_path.name),
-            filepath=str(file_path),
-            is_nxcansas=True,
-        )
+        data, hdf5_path, display_name = res
+        self._on_loader_data_loaded(data, hdf5_path, display_name)
 
     # ── Build ModelingConfig from GUI ────────────────────────────────────────
 

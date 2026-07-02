@@ -213,6 +213,11 @@ def _add_jpeg_export(window, *plot_items):
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile, list_nxcansas_datasets, _filter_smr
 from pyirena.io.text_import import ensure_nxcansas_sibling
+from pyirena.gui.data_loading import (
+    prompt_dataset_choice as _prompt_dataset_choice_fn,
+    read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
+    load_data_file as _load_data_file_fn,
+)
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
@@ -4330,106 +4335,20 @@ class DataSelectorPanel(QWidget):
         self.status_label.setText(msg)
 
     def _prompt_dataset_choice(self, filename, datasets):
-        """Ask the user which SAS data set to load from a multi-dataset file.
-
-        Args:
-            filename:  Name of the file (for the dialog title).
-            datasets:  List of ``{'path', 'name', ...}`` dicts from
-                       :func:`list_nxcansas_datasets`.
-
-        Returns:
-            The chosen HDF5 ``data_path`` string, or ``None`` if cancelled.
-        """
-        items = [f"{d['name']}   [{d['path']}]" for d in datasets]
-        item, ok = QInputDialog.getItem(
-            self,
-            "Multiple data sets",
-            f"'{filename}' contains {len(datasets)} SAS data sets.\n"
-            "Select the one to load:",
-            items,
-            0,        # default to the first (the file's @default dataset)
-            False,    # not editable
-        )
-        if not ok:
-            return None
-        return datasets[items.index(item)]['path']
+        """Thin wrapper — delegates to the shared function in data_loading."""
+        return _prompt_dataset_choice_fn(self, filename, datasets)
 
     def _read_nxcansas_with_picker(self, path, filename):
-        """Load NXcanSAS data, prompting the user when the file holds several
-        SAS data sets.
-
-        Returns the data dict on success, or ``None`` if the file could not be
-        read or the user cancelled the picker. Shows its own error dialog for
-        genuine read failures but stays silent when the user cancels.
-        """
-        try:
-            datasets = list_nxcansas_datasets(path, filename)
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Load Error", f"Could not read {filename}:\n{e}"
-            )
-            return None
-
-        # Strip slit-smeared (_SMR) copies — we always want desmeared data.
-        # _filter_smr falls back to the full list when everything is SMR.
-        selectable = _filter_smr(datasets)
-
-        data_path = None
-        if len(selectable) > 1:
-            data_path = self._prompt_dataset_choice(filename, selectable)
-            if data_path is None:
-                self.status_label.setText("Load cancelled — no data set selected.")
-                return None
-        elif selectable:
-            # Single non-SMR dataset (or only SMR left): use it directly.
-            data_path = selectable[0]['path']
-
-        data = readGenericNXcanSAS(path, filename, data_path=data_path)
-        if data is None:
-            QMessageBox.critical(
-                self, "Load Error", f"Could not load data from {filename}"
-            )
-        return data
+        """Thin wrapper — delegates to the shared function in data_loading."""
+        return _read_nxcansas_with_picker_fn(
+            self, path, filename,
+            status_cb=lambda msg: self.status_label.setText(msg),
+        )
 
     def _load_data_for_tool(self, file_path: str):
-        """Load data from *file_path* for use by a fitting tool.
-
-        Text files (.txt/.dat) are converted to a cleaned NXcanSAS HDF5
-        sibling on first use (see ``pyirena.io.text_import``).  The sibling
-        is then loaded identically to a native HDF5 file so every tool always
-        receives ``is_nxcansas=True`` and a valid HDF5 filepath.
-
-        Returns
-        -------
-        tuple (data_dict, hdf5_path_str, filename_str)  or  None on failure.
-        data_dict  has keys Q, Intensity, Error, … as from readGenericNXcanSAS.
-        hdf5_path_str  is the path tools should use for result saving.
-        filename_str   is the display name (stem of the original file).
-        """
-        fp = Path(file_path)
+        """Thin wrapper — delegates to the shared function in data_loading."""
         error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
-
-        try:
-            if fp.suffix.lower() in ('.txt', '.dat'):
-                # Convert-once: create/reuse a cleaned NXcanSAS sibling
-                h5_path = ensure_nxcansas_sibling(fp, error_fraction=error_fraction)
-                data = self._read_nxcansas_with_picker(
-                    str(h5_path.parent), h5_path.name
-                )
-                if data is None:
-                    return None
-                return data, str(h5_path), fp.stem + h5_path.suffix
-            else:
-                data = self._read_nxcansas_with_picker(str(fp.parent), fp.name)
-                if data is None:
-                    return None
-                return data, str(fp), fp.name
-        except Exception as exc:
-            QMessageBox.critical(
-                self, "Load Error",
-                f"Could not load '{fp.name}':\n{exc}",
-            )
-            return None
+        return _load_data_file_fn(self, file_path, error_fraction=error_fraction)
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""

@@ -42,6 +42,7 @@ except ImportError:
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.sas_plot import (
     RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
@@ -2191,6 +2192,11 @@ class UnifiedFitPanel(QWidget):
         """)
         layout.addWidget(title_label)
 
+        # ── Data file loader ────────────────────────────────────────────
+        self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        layout.addWidget(self.data_loader)
+
         # Top controls row - Number of levels and No limits
         top_controls = QHBoxLayout()
         top_controls.addWidget(QLabel("Number of levels:"))
@@ -2654,6 +2660,18 @@ class UnifiedFitPanel(QWidget):
         if self.data is not None:
             self.graph_unified()
 
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        import numpy as _np
+        self.set_data(
+            _np.asarray(data['Q'],        dtype=float),
+            _np.asarray(data['Intensity'], dtype=float),
+            data.get('Error'),
+            label=display_name,
+            filepath=hdf5_path,
+            is_nxcansas=True,
+        )
+
     def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
         """Set the data to be fitted."""
         self.data = {
@@ -2661,9 +2679,12 @@ class UnifiedFitPanel(QWidget):
             'Intensity': intensity,
             'Error': error,
             'label': label,
-            'filepath': filepath,  # Track source file
-            'is_nxcansas': is_nxcansas  # Track if source is NXcanSAS
+            'filepath': filepath,
+            'is_nxcansas': is_nxcansas,
         }
+
+        if hasattr(self, 'data_loader'):
+            self.data_loader.set_filename(label)
 
         # Clear local fits when new data is loaded (they would be invalid for different data)
         self.clear_local_fits()
