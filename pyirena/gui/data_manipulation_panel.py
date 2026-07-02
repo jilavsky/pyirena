@@ -1118,11 +1118,21 @@ class DataManipulationPanel(QWidget):
     def _load_file(self, filepath: str) -> Optional[dict]:
         """Load a SAS data file. Returns dict with Q, Intensity, Error, dQ, etc."""
         from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
+        from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         file_type = self._fb.get_file_type()
         try:
             if file_type == "Text (.dat/.txt)":
                 data = readTextFile(str(fp.parent), fp.name)
+                if data is not None:
+                    Q, I, E, dQ, _ = clean_sas_arrays(
+                        data['Q'], data['Intensity'], data.get('Error'),
+                        data.get('dQ'),
+                    )
+                    data['Q'] = Q
+                    data['Intensity'] = I
+                    data['Error'] = E
+                    data['dQ'] = dQ
                 data['is_nxcansas'] = False
             elif file_type == "HDF5 Generic":
                 data = readSimpleHDF5(str(fp.parent), fp.name)
@@ -1875,11 +1885,22 @@ class DataManipulationPanel(QWidget):
     def _load_reference_file(self, filepath: str) -> Optional[dict]:
         """Load a reference data file, auto-detecting type by extension."""
         from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
+        from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         ext = fp.suffix.lower()
         try:
             if ext in ('.dat', '.txt'):
                 data = readTextFile(str(fp.parent), fp.name)
+                if data is not None:
+                    Q, I, E, dQ, _ = clean_sas_arrays(
+                        data['Q'], data['Intensity'], data.get('Error'),
+                        data.get('dQ'),
+                    )
+                    data['Q'] = Q
+                    data['Intensity'] = I
+                    data['Error'] = E
+                    data['dQ'] = dQ
+                return data
             elif ext in ('.h5', '.hdf5', '.hdf'):
                 data = readGenericNXcanSAS(str(fp.parent), fp.name)
             else:

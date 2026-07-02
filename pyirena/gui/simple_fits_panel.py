@@ -36,6 +36,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.simple_fits import SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.state.state_manager import StateManager
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.sas_plot import (
@@ -440,14 +441,12 @@ class SimpleFitsPanel(QWidget):
         layout.setSpacing(5)
         panel.setLayout(layout)
 
-        # ── Model selector ────────────────────────────────────────────────────
-        model_row = QHBoxLayout()
-        model_row.addWidget(QLabel('Model:'))
-        self.model_combo = QComboBox()
-        self.model_combo.addItems(MODEL_NAMES)
-        self.model_combo.setCurrentText(self.model.model)
-        self.model_combo.currentTextChanged.connect(self._on_model_changed)
-        model_row.addWidget(self.model_combo, 1)
+        # ── Title + Help ──────────────────────────────────────────────────────
+        title_row = QHBoxLayout()
+        title_lbl = QLabel("Simple Fits")
+        title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
+        title_row.addWidget(title_lbl)
+        title_row.addStretch()
         _help_btn = QPushButton("? Help")
         _help_btn.setFixedSize(60, 22)
         _help_btn.setStyleSheet(
@@ -460,7 +459,22 @@ class SimpleFitsPanel(QWidget):
                 "https://github.com/jilavsky/pyirena/blob/main/docs/simple_fits_gui.md"
             ))
         )
-        model_row.addWidget(_help_btn)
+        title_row.addWidget(_help_btn)
+        layout.addLayout(title_row)
+
+        # ── Data file loader ──────────────────────────────────────────────────
+        self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        layout.addWidget(self.data_loader)
+
+        # ── Model selector ────────────────────────────────────────────────────
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel('Model:'))
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(MODEL_NAMES)
+        self.model_combo.setCurrentText(self.model.model)
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        model_row.addWidget(self.model_combo, 1)
         layout.addLayout(model_row)
 
         # ── Q range (cursor-driven, read-only display) ────────────────────────
@@ -880,6 +894,17 @@ class SimpleFitsPanel(QWidget):
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        self.set_data(
+            np.asarray(data['Q'],        dtype=float),
+            np.asarray(data['Intensity'], dtype=float),
+            data.get('Error'),
+            label=display_name,
+            filepath=hdf5_path,
+            is_nxcansas=True,
+        )
+
     def set_data(self, q, intensity, error=None, label='Data',
                  filepath=None, is_nxcansas=False):
         """Load SAS data into the panel and plot it."""
@@ -894,6 +919,9 @@ class SimpleFitsPanel(QWidget):
         self.fit_result = None
         self.chi2_label.setText('—')
         self.rchi2_label.setText('—')
+
+        if hasattr(self, 'data_loader'):
+            self.data_loader.set_filename(label)
 
         self.graph_window.plot_data(
             self.data['Q'],

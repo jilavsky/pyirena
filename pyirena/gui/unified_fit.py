@@ -42,6 +42,7 @@ except ImportError:
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.sas_plot import (
     RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
@@ -2177,54 +2178,14 @@ class UnifiedFitPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)  # Reduced from 10 to 6 to save vertical space
 
-        # Title
+        # ── Title + Help ────────────────────────────────────────────────
+        title_row = QHBoxLayout()
         title_label = QLabel("Unified model input")
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: bold;
-                color: #2c3e50;
-                background-color: #ecf0f1;
-                padding: 8px;
-                border: 1px solid #bdc3c7;
-            }
-        """)
-        layout.addWidget(title_label)
-
-        # Top controls row - Number of levels and No limits
-        top_controls = QHBoxLayout()
-        top_controls.addWidget(QLabel("Number of levels:"))
-        self.num_levels_spin = QSpinBox()
-        self.num_levels_spin.setMinimum(1)
-        self.num_levels_spin.setMaximum(5)
-        self.num_levels_spin.setValue(1)
-        self.num_levels_spin.setMinimumHeight(26)
-        self.num_levels_spin.valueChanged.connect(self.on_num_levels_changed)
-        top_controls.addWidget(self.num_levels_spin)
-
-        top_controls.addSpacing(20)
-
-        self.no_limits_check = QCheckBox("No limits?")
-        self.no_limits_check.stateChanged.connect(self.on_no_limits_changed)
-        top_controls.addWidget(self.no_limits_check)
-        top_controls.addStretch()
-
-        # Identify Features button — opens FeatureIdentifierDialog (non-modal)
-        self.identify_features_btn = QPushButton("Identify Features…")
-        self.identify_features_btn.setFixedHeight(22)
-        self.identify_features_btn.setStyleSheet(
-            "QPushButton{background:#2980b9;color:white;font-size:11px;"
-            "border-radius:3px;padding:2px 8px;}"
-            "QPushButton:hover{background:#3498db;}"
+        title_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #2c3e50;"
         )
-        self.identify_features_btn.setToolTip(
-            "Open the Feature Identifier — analyses the data's log-log slope\n"
-            "profile to suggest the number of Unified Fit levels and the\n"
-            "Guinier Q-windows.  Visualisation only; does not modify your fit."
-        )
-        self.identify_features_btn.clicked.connect(self._open_feature_identifier)
-        top_controls.addWidget(self.identify_features_btn)
-
+        title_row.addWidget(title_label)
+        title_row.addStretch()
         _help_btn = QPushButton("? Help")
         _help_btn.setFixedSize(60, 22)
         _help_btn.setStyleSheet(
@@ -2237,7 +2198,47 @@ class UnifiedFitPanel(QWidget):
                 "https://github.com/jilavsky/pyirena/blob/main/docs/unified_fit_gui.md"
             ))
         )
-        top_controls.addWidget(_help_btn)
+        title_row.addWidget(_help_btn)
+        layout.addLayout(title_row)
+
+        # ── Data file loader ────────────────────────────────────────────
+        self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        layout.addWidget(self.data_loader)
+
+        # ── Controls: levels, no limits, Identify Features ─────────────
+        top_controls = QHBoxLayout()
+        top_controls.addWidget(QLabel("Number of levels:"))
+        self.num_levels_spin = QSpinBox()
+        self.num_levels_spin.setMinimum(1)
+        self.num_levels_spin.setMaximum(5)
+        self.num_levels_spin.setValue(1)
+        self.num_levels_spin.setMinimumHeight(26)
+        self.num_levels_spin.valueChanged.connect(self.on_num_levels_changed)
+        top_controls.addWidget(self.num_levels_spin)
+
+        top_controls.addSpacing(12)
+
+        self.no_limits_check = QCheckBox("No limits?")
+        self.no_limits_check.stateChanged.connect(self.on_no_limits_changed)
+        top_controls.addWidget(self.no_limits_check)
+        top_controls.addStretch()
+
+        # Identify Features button — opens FeatureIdentifierDialog (non-modal)
+        self.identify_features_btn = QPushButton("Identify Features…")
+        self.identify_features_btn.setFixedHeight(26)
+        self.identify_features_btn.setStyleSheet(
+            "QPushButton{background:#2980b9;color:white;font-size:12px;"
+            "border-radius:3px;padding:2px 10px;}"
+            "QPushButton:hover{background:#3498db;}"
+        )
+        self.identify_features_btn.setToolTip(
+            "Open the Feature Identifier — analyses the data's log-log slope\n"
+            "profile to suggest the number of Unified Fit levels and the\n"
+            "Guinier Q-windows.  Visualisation only; does not modify your fit."
+        )
+        self.identify_features_btn.clicked.connect(self._open_feature_identifier)
+        top_controls.addWidget(self.identify_features_btn)
         layout.addLayout(top_controls)
 
         # Level tabs
@@ -2654,6 +2655,18 @@ class UnifiedFitPanel(QWidget):
         if self.data is not None:
             self.graph_unified()
 
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        import numpy as _np
+        self.set_data(
+            _np.asarray(data['Q'],        dtype=float),
+            _np.asarray(data['Intensity'], dtype=float),
+            data.get('Error'),
+            label=display_name,
+            filepath=hdf5_path,
+            is_nxcansas=True,
+        )
+
     def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
         """Set the data to be fitted."""
         self.data = {
@@ -2661,9 +2674,12 @@ class UnifiedFitPanel(QWidget):
             'Intensity': intensity,
             'Error': error,
             'label': label,
-            'filepath': filepath,  # Track source file
-            'is_nxcansas': is_nxcansas  # Track if source is NXcanSAS
+            'filepath': filepath,
+            'is_nxcansas': is_nxcansas,
         }
+
+        if hasattr(self, 'data_loader'):
+            self.data_loader.set_filename(label)
 
         # Clear local fits when new data is loaded (they would be invalid for different data)
         self.clear_local_fits()

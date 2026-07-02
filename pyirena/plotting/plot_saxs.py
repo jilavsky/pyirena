@@ -314,16 +314,15 @@ def _resolve_files(
 def _load_raw(fpath: Path):
     """Return (Q, I) arrays from a data file, or None on failure."""
     try:
+        from pyirena.io.hdf5 import readGenericNXcanSAS
+        import numpy as np
         ext = fpath.suffix.lower()
         if ext in ('.txt', '.dat'):
-            from pyirena.io.hdf5 import readTextFile
-            data = readTextFile(str(fpath.parent), fpath.name)
-        else:
-            from pyirena.io.hdf5 import readGenericNXcanSAS
-            data = readGenericNXcanSAS(str(fpath.parent), fpath.name)
+            from pyirena.io.text_import import ensure_nxcansas_sibling
+            fpath = ensure_nxcansas_sibling(fpath)
+        data = readGenericNXcanSAS(str(fpath.parent), fpath.name)
         if data is None:
             return None
-        import numpy as np
         q = np.asarray(data['Q'], dtype=float)
         I = np.asarray(data['Intensity'], dtype=float)
         mask = (q > 0) & (I > 0)

@@ -34,6 +34,7 @@ from pathlib import Path
 import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
+from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot, add_slope_line_menu
 from pyirena.state.state_manager import StateManager
 
@@ -960,22 +961,16 @@ class SizesFitPanel(QWidget):
 
         # ── Title + Help button ──────────────────────────────────────────────
         title = QLabel("Sizes Distribution Input")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 14px; font-weight: bold;
-                color: #2c3e50;
-                background-color: #ecf0f1;
-                padding: 8px;
-                border: 1px solid #bdc3c7;
-            }
-        """)
+        title.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #2c3e50;"
+        )
         # Identify Features button — opens the (non-modal) Feature Identifier,
         # which segments the I(Q) and shows the size-distribution recommendation.
         self.identify_features_btn = QPushButton("Identify Features…")
-        self.identify_features_btn.setFixedHeight(22)
+        self.identify_features_btn.setFixedHeight(26)
         self.identify_features_btn.setStyleSheet(
-            "QPushButton{background:#2980b9;color:white;font-size:11px;"
-            "border-radius:3px;padding:2px 8px;}"
+            "QPushButton{background:#2980b9;color:white;font-size:12px;"
+            "border-radius:3px;padding:2px 10px;}"
             "QPushButton:hover{background:#3498db;}"
         )
         self.identify_features_btn.setToolTip(
@@ -1005,6 +1000,11 @@ class SizesFitPanel(QWidget):
         title_row.addWidget(self.identify_features_btn)
         title_row.addWidget(_help_btn)
         layout.addLayout(title_row)
+
+        # ── Data file loader ────────────────────────────────────────────────
+        self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
+        self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
+        layout.addWidget(self.data_loader)
 
         # ── Tab widget ───────────────────────────────────────────────────────
         tabs = QTabWidget()
@@ -1807,6 +1807,18 @@ class SizesFitPanel(QWidget):
 
     # ── Data loading ─────────────────────────────────────────────────────────
 
+    def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
+        """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
+        import numpy as _np
+        self.set_data(
+            _np.asarray(data['Q'],        dtype=float),
+            _np.asarray(data['Intensity'], dtype=float),
+            data.get('Error'),
+            label=display_name,
+            filepath=hdf5_path,
+            is_nxcansas=True,
+        )
+
     def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
         """Set the SAS data to be fitted."""
         self.data = {
@@ -1819,6 +1831,9 @@ class SizesFitPanel(QWidget):
         }
         self.fit_result = None
         self._last_distribution = None
+
+        if hasattr(self, 'data_loader'):
+            self.data_loader.set_filename(label)
 
         if self.graph_window:
             if filepath:

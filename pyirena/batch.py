@@ -62,26 +62,31 @@ def _load_config(config_file: Union[str, Path]) -> Optional[Dict]:
 def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
     """Load SAS data from a text (.dat/.txt) or HDF5 (.h5/.hdf5) file.
 
+    Text files are converted to a cleaned NXcanSAS HDF5 sibling via
+    ``ensure_nxcansas_sibling`` before loading, so all callers always
+    receive ``is_nxcansas=True`` and a valid HDF5 filepath.  The sibling
+    is cached by mtime and reused on subsequent calls.
+
     Returns a dict with keys: Q, Intensity, Error (may be None).
     """
-    from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+    from pyirena.io.hdf5 import readGenericNXcanSAS
 
     data_file = Path(data_file)
     if not data_file.exists():
         print(f"[pyirena.batch] Data file not found: '{data_file}'")
         return None
 
-    path = str(data_file.parent)
-    filename = data_file.name
     ext = data_file.suffix.lower()
 
     try:
         if ext in ('.txt', '.dat'):
-            data = readTextFile(path, filename)
-            is_nxcansas = False
+            from pyirena.io.text_import import ensure_nxcansas_sibling
+            h5_file = ensure_nxcansas_sibling(data_file)
+            data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)
+            actual_file = h5_file
         else:
-            data = readGenericNXcanSAS(path, filename)
-            is_nxcansas = True
+            data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
+            actual_file = data_file
     except Exception as e:
         print(f"[pyirena.batch] Error reading '{data_file}': {e}")
         return None
@@ -90,8 +95,8 @@ def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
         print(f"[pyirena.batch] Could not read data from '{data_file}'")
         return None
 
-    data['filepath'] = str(data_file)
-    data['is_nxcansas'] = is_nxcansas
+    data['filepath'] = str(actual_file)
+    data['is_nxcansas'] = True
     data.setdefault('label', data_file.stem)
     return data
 
@@ -1501,7 +1506,7 @@ def fit_waxs_peaks(
         WAXSPeakFitModel, find_peaks_in_data, default_bg_params,
         cross_corr_q_shift, presearch_q0_per_peak, eval_model,
     )
-    from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
+    from pyirena.io.hdf5 import readGenericNXcanSAS
 
     data_file = Path(data_file)
     if verbose:
@@ -1511,7 +1516,9 @@ def fit_waxs_peaks(
     try:
         ext = data_file.suffix.lower()
         if ext in ('.txt', '.dat'):
-            data = readTextFile(str(data_file.parent), data_file.name)
+            from pyirena.io.text_import import ensure_nxcansas_sibling
+            h5_file = ensure_nxcansas_sibling(data_file)
+            data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)
         else:
             data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
         if data is None:

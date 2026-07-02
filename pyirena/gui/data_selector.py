@@ -212,6 +212,12 @@ def _add_jpeg_export(window, *plot_items):
 
 
 from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile, list_nxcansas_datasets, _filter_smr
+from pyirena.io.text_import import ensure_nxcansas_sibling
+from pyirena.gui.data_loading import (
+    prompt_dataset_choice as _prompt_dataset_choice_fn,
+    read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
+    load_data_file as _load_data_file_fn,
+)
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.sizes_panel import SizesFitPanel
@@ -1402,7 +1408,12 @@ class GraphWindow(QWidget):
                 _, ext = os.path.splitext(filename)
 
                 if ext.lower() in ('.txt', '.dat'):
-                    data = readTextFile(path, filename, error_fraction=error_fraction)
+                    # Convert-once: creates/reuses a cleaned NXcanSAS sibling
+                    h5_path = ensure_nxcansas_sibling(
+                        Path(file_path),
+                        error_fraction=error_fraction,
+                    )
+                    data = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                 else:
                     data = readGenericNXcanSAS(path, filename)
 
@@ -3615,7 +3626,9 @@ class DataSelectorPanel(QWidget):
                 try:
                     dir_path, filename = os.path.split(file_path)
                     if ext.lower() in ['.txt', '.dat']:
-                        raw = readTextFile(dir_path, filename, error_fraction=error_fraction)
+                        h5_path = ensure_nxcansas_sibling(
+                            Path(file_path), error_fraction=error_fraction)
+                        raw = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                     else:
                         raw = readGenericNXcanSAS(dir_path, filename)
 
@@ -4270,6 +4283,13 @@ class DataSelectorPanel(QWidget):
         out_dir_first = None
 
         for fp in file_paths:
+            # Auto-convert text files to NXcanSAS before ASCII export
+            if fp.suffix.lower() in ('.txt', '.dat'):
+                try:
+                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac)
+                except Exception as exc:
+                    errors.append((fp.name, f'conversion failed: {exc}'))
+                    continue
             if fp.suffix.lower() not in ('.h5', '.hdf5', '.hdf'):
                 errors.append((fp.name, 'not an HDF5 file'))
                 continue
@@ -4315,139 +4335,56 @@ class DataSelectorPanel(QWidget):
         self.status_label.setText(msg)
 
     def _prompt_dataset_choice(self, filename, datasets):
-        """Ask the user which SAS data set to load from a multi-dataset file.
-
-        Args:
-            filename:  Name of the file (for the dialog title).
-            datasets:  List of ``{'path', 'name', ...}`` dicts from
-                       :func:`list_nxcansas_datasets`.
-
-        Returns:
-            The chosen HDF5 ``data_path`` string, or ``None`` if cancelled.
-        """
-        items = [f"{d['name']}   [{d['path']}]" for d in datasets]
-        item, ok = QInputDialog.getItem(
-            self,
-            "Multiple data sets",
-            f"'{filename}' contains {len(datasets)} SAS data sets.\n"
-            "Select the one to load:",
-            items,
-            0,        # default to the first (the file's @default dataset)
-            False,    # not editable
-        )
-        if not ok:
-            return None
-        return datasets[items.index(item)]['path']
+        """Thin wrapper — delegates to the shared function in data_loading."""
+        return _prompt_dataset_choice_fn(self, filename, datasets)
 
     def _read_nxcansas_with_picker(self, path, filename):
-        """Load NXcanSAS data, prompting the user when the file holds several
-        SAS data sets.
+        """Thin wrapper — delegates to the shared function in data_loading."""
+        return _read_nxcansas_with_picker_fn(
+            self, path, filename,
+            status_cb=lambda msg: self.status_label.setText(msg),
+        )
 
-        Returns the data dict on success, or ``None`` if the file could not be
-        read or the user cancelled the picker. Shows its own error dialog for
-        genuine read failures but stays silent when the user cancels.
-        """
-        try:
-            datasets = list_nxcansas_datasets(path, filename)
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Load Error", f"Could not read {filename}:\n{e}"
-            )
-            return None
-
-        # Strip slit-smeared (_SMR) copies — we always want desmeared data.
-        # _filter_smr falls back to the full list when everything is SMR.
-        selectable = _filter_smr(datasets)
-
-        data_path = None
-        if len(selectable) > 1:
-            data_path = self._prompt_dataset_choice(filename, selectable)
-            if data_path is None:
-                self.status_label.setText("Load cancelled — no data set selected.")
-                return None
-        elif selectable:
-            # Single non-SMR dataset (or only SMR left): use it directly.
-            data_path = selectable[0]['path']
-
-        data = readGenericNXcanSAS(path, filename, data_path=data_path)
-        if data is None:
-            QMessageBox.critical(
-                self, "Load Error", f"Could not load data from {filename}"
-            )
-        return data
+    def _load_data_for_tool(self, file_path: str):
+        """Thin wrapper — delegates to the shared function in data_loading."""
+        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        return _load_data_file_fn(self, file_path, error_fraction=error_fraction)
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""
+        from pyirena.gui.unified_fit import UnifiedFitPanel
         selected_items = self.file_list.selectedItems()
 
         if not selected_items:
             QMessageBox.warning(
-                self,
-                "No Selection",
+                self, "No Selection",
                 "Please select one or more files to analyze with Unified Fit."
             )
             return
 
-        # Get full file paths
-        file_paths = []
-        for item in selected_items:
-            file_path = os.path.join(self.current_folder, item.text())
-            file_paths.append(file_path)
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
 
-        # Load first selected file for fitting
-        # (Multiple files can be loaded and fitted separately)
-        file_path = file_paths[0]
-        path, filename = os.path.split(file_path)
-        _, ext = os.path.splitext(filename)
-
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
-            # Load data based on file extension
-            if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename, error_fraction=error_fraction)
-                is_nxcansas = False
-                if data is None:
-                    QMessageBox.critical(
-                        self,
-                        "Load Error",
-                        f"Could not load data from {filename}"
-                    )
-                    return
-            else:
-                # HDF5 files loaded with NXcanSAS reader (with multi-dataset picker)
-                data = self._read_nxcansas_with_picker(path, filename)
-                is_nxcansas = True
-                if data is None:
-                    return  # picker showed any error, or user cancelled
-
-            # Create or show unified fit window
             if self.unified_fit_window is None:
                 self.unified_fit_window = UnifiedFitPanel()
 
-            # Set the data with filepath and format information
             self.unified_fit_window.set_data(
-                data['Q'],
-                data['Intensity'],
-                data.get('Error'),
-                filename,
-                filepath=file_path,  # Pass full path to file
-                is_nxcansas=is_nxcansas  # Pass format information
+                data['Q'], data['Intensity'], data.get('Error'),
+                display_name, filepath=hdf5_path, is_nxcansas=True,
             )
-
-            # Show the window
             self.unified_fit_window.show()
             self.unified_fit_window.raise_()
             self.unified_fit_window.activateWindow()
-
-            self.status_label.setText(f"Opened Unified Fit for {filename}")
+            self.status_label.setText(f"Opened Unified Fit for {display_name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Error loading data for Unified Fit:\n{str(e)}"
-            )
-            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for Unified Fit:\n{e}")
+            self.status_label.setText(f"Error: {e}")
 
     def launch_sizes_fit(self):
         """Launch the Size Distribution fitting panel with selected data."""
@@ -4455,59 +4392,34 @@ class DataSelectorPanel(QWidget):
 
         if not selected_items:
             QMessageBox.warning(
-                self,
-                "No Selection",
+                self, "No Selection",
                 "Please select one or more files to analyze with Size Distribution."
             )
             return
 
         file_path = os.path.join(self.current_folder, selected_items[0].text())
-        path, filename = os.path.split(file_path)
-        _, ext = os.path.splitext(filename)
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
 
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
-            if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename, error_fraction=error_fraction)
-                is_nxcansas = False
-                if data is None:
-                    QMessageBox.critical(
-                        self,
-                        "Load Error",
-                        f"Could not load data from {filename}"
-                    )
-                    return
-            else:
-                data = self._read_nxcansas_with_picker(path, filename)
-                is_nxcansas = True
-                if data is None:
-                    return  # picker showed any error, or user cancelled
-
             if self.sizes_fit_window is None:
                 self.sizes_fit_window = SizesFitPanel()
 
             self.sizes_fit_window.set_data(
-                data['Q'],
-                data['Intensity'],
-                data.get('Error'),
-                filename,
-                filepath=file_path,
-                is_nxcansas=is_nxcansas,
+                data['Q'], data['Intensity'], data.get('Error'),
+                display_name, filepath=hdf5_path, is_nxcansas=True,
             )
-
             self.sizes_fit_window.show()
             self.sizes_fit_window.raise_()
             self.sizes_fit_window.activateWindow()
-
-            self.status_label.setText(f"Opened Size Distribution for {filename}")
+            self.status_label.setText(f"Opened Size Distribution for {display_name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Error loading data for Size Distribution:\n{str(e)}"
-            )
-            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for Size Distribution:\n{e}")
+            self.status_label.setText(f"Error: {e}")
 
     def launch_modeling(self):
         """Launch the Modeling panel with the first selected file."""
@@ -4516,58 +4428,34 @@ class DataSelectorPanel(QWidget):
 
         if not selected_items:
             QMessageBox.warning(
-                self,
-                "No Selection",
+                self, "No Selection",
                 "Please select a file to open in Modeling.",
             )
             return
 
         file_path = os.path.join(self.current_folder, selected_items[0].text())
-        path, filename = os.path.split(file_path)
-        _, ext = os.path.splitext(filename)
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
 
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
-            if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename, error_fraction=error_fraction)
-                is_nxcansas = False
-                if data is None:
-                    QMessageBox.critical(
-                        self,
-                        "Load Error",
-                        f"Could not load data from {filename}"
-                    )
-                    return
-            else:
-                data = self._read_nxcansas_with_picker(path, filename)
-                is_nxcansas = True
-                if data is None:
-                    return  # picker showed any error, or user cancelled
-
             if self.modeling_window is None:
                 self.modeling_window = ModelingPanel()
 
             self.modeling_window.set_data(
-                data['Q'],
-                data['Intensity'],
-                data.get('Error'),
-                filename,
-                filepath=file_path,
-                is_nxcansas=is_nxcansas,
+                data['Q'], data['Intensity'], data.get('Error'),
+                display_name, filepath=hdf5_path, is_nxcansas=True,
             )
-
             self.modeling_window.show()
             self.modeling_window.raise_()
             self.modeling_window.activateWindow()
-
-            self.status_label.setText(f"Opened Modeling for {filename}")
+            self.status_label.setText(f"Opened Modeling for {display_name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error",
-                f"Error loading data for Modeling:\n{str(e)}",
-            )
-            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for Modeling:\n{e}")
+            self.status_label.setText(f"Error: {e}")
 
     # ── Batch script fitting ───────────────────────────────────────────────
 
@@ -4590,57 +4478,34 @@ class DataSelectorPanel(QWidget):
 
         if not selected_items:
             QMessageBox.warning(
-                self,
-                "No Selection",
+                self, "No Selection",
                 "Please select a file to open in Simple Fits.",
             )
             return
 
         file_path = os.path.join(self.current_folder, selected_items[0].text())
-        path, filename = os.path.split(file_path)
-        _, ext = os.path.splitext(filename)
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
 
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
-            if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename, error_fraction=error_fraction)
-                is_nxcansas = False
-                if data is None:
-                    QMessageBox.critical(
-                        self, "Error",
-                        f"Could not read data from file: {filename}",
-                    )
-                    return
-            else:
-                data = self._read_nxcansas_with_picker(path, filename)
-                is_nxcansas = True
-                if data is None:
-                    return  # picker showed any error, or user cancelled
-
             if self.simple_fits_window is None:
                 self.simple_fits_window = SimpleFitsPanel()
 
             self.simple_fits_window.set_data(
-                data['Q'],
-                data['Intensity'],
-                data.get('Error'),
-                filename,
-                filepath=file_path,
-                is_nxcansas=is_nxcansas,
+                data['Q'], data['Intensity'], data.get('Error'),
+                display_name, filepath=hdf5_path, is_nxcansas=True,
             )
-
             self.simple_fits_window.show()
             self.simple_fits_window.raise_()
             self.simple_fits_window.activateWindow()
-
-            self.status_label.setText(f"Opened Simple Fits for {filename}")
+            self.status_label.setText(f"Opened Simple Fits for {display_name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error",
-                f"Error loading data for Simple Fits:\n{str(e)}",
-            )
-            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for Simple Fits:\n{e}")
+            self.status_label.setText(f"Error: {e}")
 
     def run_simple_fits_script(self):
         """Batch-fit all selected files with Simple Fits."""
@@ -4653,57 +4518,34 @@ class DataSelectorPanel(QWidget):
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             QMessageBox.warning(
-                self,
-                "No Selection",
+                self, "No Selection",
                 "Please select a file to open in WAXS Peak Fit.",
             )
             return
 
         file_path = os.path.join(self.current_folder, selected_items[0].text())
-        path, filename = os.path.split(file_path)
-        _, ext = os.path.splitext(filename)
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
 
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
-            if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename, error_fraction=error_fraction)
-                is_nxcansas = False
-                if data is None:
-                    QMessageBox.critical(
-                        self, "Error",
-                        f"Could not read data from file: {filename}",
-                    )
-                    return
-            else:
-                data = self._read_nxcansas_with_picker(path, filename)
-                is_nxcansas = True
-                if data is None:
-                    return  # picker showed any error, or user cancelled
-
             if self.waxs_peakfit_window is None:
                 self.waxs_peakfit_window = WAXSPeakFitPanel()
 
             self.waxs_peakfit_window.set_data(
-                data['Q'],
-                data['Intensity'],
-                data.get('Error'),
-                label=filename,
-                filepath=file_path,
-                is_nxcansas=is_nxcansas,
+                data['Q'], data['Intensity'], data.get('Error'),
+                label=display_name, filepath=hdf5_path, is_nxcansas=True,
             )
-
             self.waxs_peakfit_window.show()
             self.waxs_peakfit_window.raise_()
             self.waxs_peakfit_window.activateWindow()
-
-            self.status_label.setText(f"Opened WAXS Peak Fit for {filename}")
+            self.status_label.setText(f"Opened WAXS Peak Fit for {display_name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error",
-                f"Error loading data for WAXS Peak Fit:\n{str(e)}",
-            )
-            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for WAXS Peak Fit:\n{e}")
+            self.status_label.setText(f"Error: {e}")
 
     def run_waxs_peakfit_script(self):
         """Batch-fit all selected files with WAXS Peak Fit."""
@@ -4716,33 +4558,18 @@ class DataSelectorPanel(QWidget):
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             QMessageBox.warning(
-                self,
-                "No Selection",
+                self, "No Selection",
                 "Please select a file to open in SAXS Morph.",
             )
             return
 
         file_path = os.path.join(self.current_folder, selected_items[0].text())
-        path, filename = os.path.split(file_path)
-        _, ext = os.path.splitext(filename)
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
 
-        error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
         try:
-            if ext.lower() in ['.txt', '.dat']:
-                data = readTextFile(path, filename, error_fraction=error_fraction)
-                is_nxcansas = False
-                if data is None:
-                    QMessageBox.critical(
-                        self, "Error",
-                        f"Could not read data from file: {filename}",
-                    )
-                    return
-            else:
-                data = self._read_nxcansas_with_picker(path, filename)
-                is_nxcansas = True
-                if data is None:
-                    return  # picker showed any error, or user cancelled
-
             if self.saxs_morph_window is None:
                 self.saxs_morph_window = SaxsMorphPanel()
                 # SaxsMorphPanel sets WA_DeleteOnClose so the embedded
@@ -4754,26 +4581,18 @@ class DataSelectorPanel(QWidget):
                 )
 
             self.saxs_morph_window.set_data(
-                data['Q'],
-                data['Intensity'],
-                data.get('Error'),
-                filename=filename,
-                filepath=file_path,
-                is_nxcansas=is_nxcansas,
+                data['Q'], data['Intensity'], data.get('Error'),
+                filename=display_name, filepath=hdf5_path, is_nxcansas=True,
             )
-
             self.saxs_morph_window.show()
             self.saxs_morph_window.raise_()
             self.saxs_morph_window.activateWindow()
-
-            self.status_label.setText(f"Opened SAXS Morph for {filename}")
+            self.status_label.setText(f"Opened SAXS Morph for {display_name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error",
-                f"Error loading data for SAXS Morph:\n{str(e)}",
-            )
-            self.status_label.setText(f"Error: {str(e)}")
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for SAXS Morph:\n{e}")
+            self.status_label.setText(f"Error: {e}")
 
     def _on_saxs_morph_destroyed(self, _obj=None):
         """Clear the cached SAXS Morph panel reference once Qt has
