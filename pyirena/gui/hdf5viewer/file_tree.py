@@ -49,8 +49,11 @@ def _sort_key_time(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_order(name: str) -> float:
-    # _merged suffix is skipped transparently so merged files sort beside their originals
-    m = re.search(r'_(\d+)(?:_merged)?(?:\.[^.]+)?$', name)
+    # Extract order number before any _merged suffix(es).
+    # Handles multiple sequential merges (e.g., usaxs_001_merged_merged.h5).
+    name_no_ext = re.sub(r'\.[^.]+$', '', name)
+    name_no_merged = re.sub(r'(_merged)+$', '', name_no_ext)
+    m = re.search(r'_(\d+)$', name_no_merged)
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_pressure(name: str) -> float:

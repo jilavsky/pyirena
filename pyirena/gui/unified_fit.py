@@ -404,6 +404,9 @@ class UnifiedFitGraphWindow(QWidget):
         self.setWindowTitle("pyIrena - Unified Fit")
         self.setGeometry(100, 100, 900, 700)
 
+        self._itx_technique = 'UnifiedFit'   # ITX export → root:UnifiedFit:<sample>
+        self._itx_sample_label = None        # set to current sample in plot_data
+
         # Two graphics layouts, one per tab.
         # Tab 1 ("I vs Q") holds the main I/Q plot + residuals + cursors.
         # Tab 2 ("Porod (I·Q⁴)") holds a single full-height Porod-presentation plot.
@@ -783,6 +786,7 @@ class UnifiedFitGraphWindow(QWidget):
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot experimental data on the main I-Q plot and the Porod tab."""
         self.q_data = q
+        self._itx_sample_label = label   # route ITX export into this sample's folder
 
         # Mirror onto the Porod tab (same data, transformed presentation).
         self.plot_data_porod(q, intensity, error, label)

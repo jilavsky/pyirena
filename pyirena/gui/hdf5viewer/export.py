@@ -168,8 +168,14 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
         return False
 
     if filepath is None:
+        _technique = getattr(gw, "_itx_technique", None) or "HDF5Viewer"
+        _sample = getattr(gw, "_itx_sample_label", None) or gw.get_title()
+        _parts = [p for p in (_technique, _sample) if p]
+        _stem = re.sub(r"[^\w\-.]", "_", "_".join(_parts)).strip("_") or "graph"
+        _stem = re.sub(r"\.(h5|hdf5|hdf|dat|txt|csv|itx|pxp|xml|nxs)$", "",
+                       _stem, flags=re.IGNORECASE)
         filepath, _ = QFileDialog.getSaveFileName(
-            gw, "Save as Igor Pro ITX", _default_save_path(gw.get_title(), ".itx"),
+            gw, "Save as Igor Pro ITX", _default_save_path(_stem, ".itx"),
             "Igor Pro Text (*.itx);;All files (*)",
         )
     if not filepath:
@@ -196,7 +202,16 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
             r = g = b = 0
         return r * 257, g * 257, b * 257
 
-    lines = ["IGOR"]
+    # Route waves into root:<technique>:<sample> so multiple ITX imports into a
+    # single Igor experiment do not collide on wave names.  Technique/sample are
+    # taken from attributes on the graph window when present, else sensible
+    # defaults (tool name + graph title).
+    from pyirena.gui.sas_plot import _itx_folder_cmds
+    _technique = getattr(gw, "_itx_technique", None) or "HDF5Viewer"
+    _sample = getattr(gw, "_itx_sample_label", None) or gw.get_title()
+    folder_open, folder_close = _itx_folder_cmds(_technique, _sample)
+
+    lines = ["IGOR"] + folder_open
     # (x_name, y_name, label, color) tuples for formatting commands
     wave_names = []
 
@@ -272,6 +287,9 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
     if legend_parts:
         legend_text = "\\r".join(legend_parts)
         lines.append(f'X Legend/C/N=text0 "{legend_text}"')
+
+    # Restore current data folder to root: after routing waves into a subfolder.
+    lines += folder_close
 
     try:
         with open(filepath, "w", encoding="utf-8") as f:

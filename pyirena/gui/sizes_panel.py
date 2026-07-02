@@ -148,6 +148,8 @@ class SizesFitGraphWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.data_folder = None
+        self._itx_technique = 'Sizes'      # ITX export → root:Sizes:<sample>
+        self._itx_sample_label = None      # set to current sample in plot_data
         self._data_item = None
         self._error_item = None
         self._fit_item = None
@@ -372,6 +374,7 @@ class SizesFitGraphWindow(QWidget):
         """
         q_ = np.asarray(q, dtype=float)
         I_ = np.asarray(intensity, dtype=float)
+        self._itx_sample_label = label     # route ITX export into this sample's folder
 
         # Error bars drawn first so data symbols render on top.
         # Use the same NaN-separated line-segment approach as unified_fit.py:

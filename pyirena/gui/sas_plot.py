@@ -800,6 +800,42 @@ def _get_item_color_hex(item: pg.PlotDataItem) -> str:
     return '#000000'
 
 
+def _itx_folder_cmds(technique: str | None,
+                     sample: str | None) -> tuple[list[str], list[str]]:
+    """Build the Igor ``X`` commands that route loaded waves into a folder.
+
+    Returns ``(open_lines, close_lines)`` such that WAVES blocks emitted
+    between them land in ``root:<technique>:<sample>`` instead of ``root:``.
+    This lets users import many ITX files into one Igor experiment without
+    wave-name collisions — each sample gets its own data folder.
+
+    Returns ``([], [])`` when *technique* is falsy (top-level export, the
+    historical behaviour).  The *technique* segment is sanitised to a strict
+    Igor object name; the *sample* segment uses a quoted liberal name so it
+    stays human-readable (Igor 8+ / Igor 10 long names).
+    """
+    import re
+    if not technique:
+        return [], []
+    tech = re.sub(r'[^A-Za-z0-9_]', '_', str(technique))
+    if tech and tech[0].isdigit():
+        tech = 'f_' + tech
+    tech = tech[:31]
+    if not tech:
+        return [], []
+    open_lines = [f'X NewDataFolder/O/S root:{tech}']
+    if sample:
+        s = str(sample).strip()
+        # Drop a single trailing file extension for a cleaner folder name.
+        s = re.sub(r'\.(h5|hdf5|hdf|dat|txt|csv|itx|pxp|xml|nxs)$', '',
+                   s, flags=re.IGNORECASE)
+        # Single quote is the liberal-name delimiter — replace any in the name.
+        s = s.replace("'", '_').strip()[:200]
+        if s:
+            open_lines.append(f"X NewDataFolder/O/S root:{tech}:'{s}'")
+    return open_lines, ['X SetDataFolder root:']
+
+
 def save_itx_from_plot(
     plot: pg.PlotItem,
     parent,
@@ -807,6 +843,8 @@ def save_itx_from_plot(
     x_label: str | None = None,
     y_label: str | None = None,
     title: str | None = None,
+    technique: str | None = None,
+    sample: str | None = None,
 ) -> None:
     """Export named data curves from *plot* as an Igor Pro Text (.itx) file.
 
@@ -817,8 +855,19 @@ def save_itx_from_plot(
 
     Auto-extracts axis labels and title from *plot* when the corresponding
     parameters are ``None``.
+
+    When *technique* (and optionally *sample*) is supplied — or discoverable
+    as ``parent._itx_technique`` / ``parent._itx_sample_label`` — the waves are
+    routed into ``root:<technique>:<sample>`` so multiple ITX imports into one
+    Igor experiment do not collide on wave names.
     """
     import re
+
+    # Fall back to attributes stashed on the parent window by the tool panels.
+    if technique is None:
+        technique = getattr(parent, '_itx_technique', None)
+    if sample is None:
+        sample = getattr(parent, '_itx_sample_label', None)
 
     # Auto-extract labels / title from the plot_item if not provided.
     if x_label is None:
@@ -882,7 +931,17 @@ def save_itx_from_plot(
                             'No named data curves found to export.')
         return
 
-    default_path = str(Path.home() / f'{default_name}.itx')
+    # Build a default filename from technique + sample so multiple exports
+    # don't collide in the same directory (e.g. "Sizes_AeroGel_500C.itx").
+    if technique or sample:
+        parts = [p for p in (technique, sample) if p]
+        stem = re.sub(r'[^\w\-.]', '_', '_'.join(parts)).strip('_') or default_name
+        # Drop duplicate/trailing extension that may already be in sample name.
+        stem = re.sub(r'\.(h5|hdf5|hdf|dat|txt|csv|itx|pxp|xml|nxs)$', '',
+                      stem, flags=re.IGNORECASE)
+    else:
+        stem = default_name
+    default_path = str(Path.home() / f'{stem}.itx')
     filepath, _ = QFileDialog.getSaveFileName(
         parent, 'Save as Igor Pro ITX', default_path,
         'Igor Pro Text (*.itx);;All files (*)',
@@ -909,7 +968,9 @@ def save_itx_from_plot(
             r = g = b = 0
         return r * 257, g * 257, b * 257
 
-    lines = ['IGOR']
+    folder_open, folder_close = _itx_folder_cmds(technique, sample)
+
+    lines = ['IGOR'] + folder_open
     wave_info: list[tuple[str, str, str, str]] = []   # (xn, yn, label, color)
     n = len(named_items)
 
@@ -952,6 +1013,10 @@ def save_itx_from_plot(
     if legend_parts:
         legend_text = '\\r'.join(legend_parts)
         lines.append(f'X Legend/C/N=text0 "{legend_text}"')
+
+    # Restore the current data folder to root: after routing waves into a
+    # sample subfolder (no-op when no folder routing was requested).
+    lines += folder_close
 
     try:
         with open(filepath, 'w', encoding='utf-8') as f:

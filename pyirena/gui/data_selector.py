@@ -157,8 +157,12 @@ def _sort_key_time(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_order(name: str) -> float:
-    # last _NNN before the file extension; _merged suffix is skipped transparently
-    m = re.search(r'_(\d+)(?:_merged)?(?:\.[^.]+)?$', name)
+    # last _NNN before the file extension(s) and _merged suffix(es).
+    # Handles multiple sequential merges (e.g., usaxs_001_merged_merged.h5).
+    # Remove extension and all _merged suffixes, then extract the last number.
+    name_no_ext = re.sub(r'\.[^.]+$', '', name)
+    name_no_merged = re.sub(r'(_merged)+$', '', name_no_ext)
+    m = re.search(r'_(\d+)$', name_no_merged)
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_pressure(name: str) -> float:
@@ -1341,6 +1345,7 @@ class GraphWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Data Viewer")
         self.setGeometry(100, 100, 850, 620)
+        self._itx_technique = 'Data'   # ITX export → root:Data: (multi-file viewer)
 
         self.gl = pg.GraphicsLayoutWidget()
         self.gl.setBackground('w')
@@ -1545,6 +1550,7 @@ class UnifiedFitResultsWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Unified Fit Results")
         self.setGeometry(130, 130, 900, 700)
+        self._itx_technique = 'UnifiedFit'   # ITX export → root:UnifiedFit: (batch viewer)
 
         self.gl = pg.GraphicsLayoutWidget()
         self.gl.setBackground('w')
@@ -1704,6 +1710,7 @@ class SizeDistResultsWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Size Distribution Results")
         self.setGeometry(150, 150, 900, 900)
+        self._itx_technique = 'Sizes'   # ITX export → root:Sizes: (batch viewer)
 
         self.gl = pg.GraphicsLayoutWidget()
         self.gl.setBackground('w')
@@ -1900,6 +1907,7 @@ class SimpleFitResultsWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Simple Fits Results")
         self.setGeometry(140, 140, 900, 700)
+        self._itx_technique = 'SimpleFits'   # ITX export → root:SimpleFits: (batch viewer)
 
         self.gl = pg.GraphicsLayoutWidget()
         self.gl.setBackground('w')
@@ -2053,6 +2061,7 @@ class WAXSPeakFitResultsWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - WAXS Peak Fit Results")
         self.setGeometry(145, 145, 900, 700)
+        self._itx_technique = 'WAXSPeakFit'   # ITX export → root:WAXSPeakFit: (batch viewer)
 
         self.gl = pg.GraphicsLayoutWidget()
         self.gl.setBackground('w')

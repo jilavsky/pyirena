@@ -512,6 +512,9 @@ class WAXSPeakFitGraphWindow(QWidget):
         self.setWindowTitle("pyIrena – WAXS Peak Fit")
         self.setGeometry(120, 120, 900, 700)
 
+        self._itx_technique = 'WAXSPeakFit'   # ITX export → root:WAXSPeakFit:<sample>
+        self._itx_sample_label = None         # set by WAXSPeakFitPanel.set_data
+
         self.gl = pg.GraphicsLayoutWidget()
         self.gl.setBackground('w')
 
@@ -2559,6 +2562,7 @@ class WAXSPeakFitPanel(QWidget):
         if hasattr(self, 'data_loader'):
             self.data_loader.set_filename(label)
 
+        self._graph._itx_sample_label = label   # route ITX export into this sample's folder
         self._graph.plot_data(self._q, self._I, self._dI, label=label)
 
         # Diffraction-lines tab: pass data Q-range and (best-effort) wavelength

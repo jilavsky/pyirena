@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Callable, Optional, List, Tuple
@@ -84,6 +85,22 @@ _BTN_GREY   = ("QPushButton { background: #7f8c8d; color: white; font-weight: bo
                "border-radius: 4px; padding: 4px 8px; }"
                "QPushButton:hover { background: #95a5a6; }")
 _RDONLY_STYLE = "background: #ecf0f1; color: #2c3e50; border: 1px solid #bdc3c7;"
+
+
+# ---------------------------------------------------------------------------
+# File sorting helpers
+# ---------------------------------------------------------------------------
+
+def _sort_key_order(name: str) -> float:
+    """Extract order number from filename for natural sorting.
+
+    Handles merged files (e.g., usaxs_001_merged.h5, usaxs_001_merged_merged.h5).
+    Returns the order number found in the stem before any _merged suffixes.
+    """
+    name_no_ext = re.sub(r'\.[^.]+$', '', name)
+    name_no_merged = re.sub(r'(_merged)+$', '', name_no_ext)
+    m = re.search(r'_(\d+)$', name_no_merged)
+    return float(m.group(1)) if m else float('inf')
 
 
 # ===========================================================================
@@ -237,9 +254,10 @@ class _DatasetSelectorWidget(QWidget):
         exts = _FILE_TYPE_EXTS[self.type_combo.currentText()]
         try:
             files = sorted(
-                f for f in os.listdir(self.current_folder)
-                if os.path.isfile(os.path.join(self.current_folder, f))
-                and Path(f).suffix.lower() in exts
+                (f for f in os.listdir(self.current_folder)
+                 if os.path.isfile(os.path.join(self.current_folder, f))
+                 and Path(f).suffix.lower() in exts),
+                key=_sort_key_order,
             )
         except PermissionError:
             files = []

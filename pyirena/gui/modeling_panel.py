@@ -1623,6 +1623,9 @@ class ModelingGraphWindow(QWidget):
         self.q_data = None
         self.data_folder = str(Path.cwd())
 
+        self._itx_technique = 'Modeling'   # ITX export → root:Modeling:<sample>
+        self._itx_sample_label = None      # set by ModelingPanel.set_data
+
         self._cursor_left_line: Optional[_SafeInfiniteLine] = None
         self._cursor_right_line: Optional[_SafeInfiniteLine] = None
         self._cursor_updating = False
@@ -2645,6 +2648,7 @@ class ModelingPanel(QWidget):
         self._data_dI = dI
 
         self.data_loader.set_filename(filename)
+        self.graph._itx_sample_label = filename   # route ITX export into this sample's folder
         if filepath:
             self.graph.data_folder = str(Path(filepath).parent)
 

@@ -177,6 +177,9 @@ class SaxsMorphGraphWindow(QWidget):
         super().__init__(parent)
         self.data_folder = '.'
 
+        self._itx_technique = 'SAXSMorph'   # ITX export → root:SAXSMorph:<sample>
+        self._itx_sample_label = None       # set by SaxsMorphPanel.set_data
+
         self._cursor_left = None
         self._cursor_right = None
         self._cursor_updating = False
@@ -1318,6 +1321,7 @@ class SaxsMorphPanel(QWidget):
         self._data_dI = dI
 
         self.data_loader.set_filename(filename)
+        self.graph._itx_sample_label = filename   # route ITX export into this sample's folder
         if filepath:
             self.graph.data_folder = str(Path(filepath).parent)
 
