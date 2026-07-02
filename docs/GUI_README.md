@@ -45,7 +45,8 @@ The main GUI provides:
 1. **Folder Selection** - Browse and select data directories
 2. **File Type Filtering** - Choose between:
    - HDF5 files (.hdf, .h5, .hdf5)
-   - Text files (.txt, .dat)
+   - Text files (.txt, .dat) — automatically converted to cleaned NXcanSAS
+     HDF5 on first use (see [Text File Import and Cleaning](data_import_and_cleaning.md))
    - All supported files
 3. **File List** - View and select files from the folder
 4. **Text Filter** - Grep-like filtering of file names

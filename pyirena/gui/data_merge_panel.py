@@ -1434,10 +1434,20 @@ class DataMergePanel(QWidget):
         rather than shown as a modal dialog, so the batch loop is not blocked.
         """
         from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
+        from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         try:
             if file_type == "Text (.dat/.txt)":
                 data = readTextFile(str(fp.parent), fp.name)
+                if data is not None:
+                    Q, I, E, dQ, _ = clean_sas_arrays(
+                        data['Q'], data['Intensity'], data.get('Error'),
+                        data.get('dQ'),
+                    )
+                    data['Q'] = Q
+                    data['Intensity'] = I
+                    data['Error'] = E
+                    data['dQ'] = dQ
                 data['is_nxcansas'] = False
             elif file_type == "HDF5 Generic":
                 data = readSimpleHDF5(str(fp.parent), fp.name)
