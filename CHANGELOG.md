@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] — 2026-07-02
+
+### Added
+
+- **Automatic text-file import and cleaning.** ASCII SAS files (`.dat`,
+  `.txt`) are now automatically cleaned and converted to a full NXcanSAS
+  HDF5 sibling (`<stem>.h5`) on first use. All fitting tools, result saving,
+  and viewers then work on the HDF5 file — text-file awareness is confined to
+  a single import layer (`pyirena/io/text_import.py`).
+  - **Cleaning rules (silent, recorded in HDF5 provenance):** points with
+    `Q ≤ 0` removed (occasional Q=0 beamstop rows); points with `I ≤ 0`
+    removed (beamstop zeros invisible on log-scale but fatal for numerical
+    fits); surviving points with missing or zero uncertainty have `E` replaced
+    by `I × error_fraction` (default 5%, configurable in Data Selector →
+    Configure).
+  - **Naming and caching:** converted file is placed next to the original
+    as `mydata.dat → mydata.h5`. Reused on subsequent calls via mtime cache.
+    Collision guard: if `<stem>.h5` already exists and was not created by
+    pyirena, falls back silently to `<stem>_NX.h5`.
+  - **All consumers updated:** Data Selector (plotting, all 6 tool launchers,
+    report, ASCII export), `pyirena.batch` (headless fits also get cleaned
+    data and always save results to a valid file), `plot_saxs.py`, Data Merge,
+    Data Manipulation panels.
+  - **Documentation:** new `docs/data_import_and_cleaning.md` covering the
+    workflow, cleaning rules, naming convention, batch API, and low-level API.
+  - **22 unit tests** covering `clean_sas_arrays`, `ensure_nxcansas_sibling`,
+    mtime cache, collision guard, and regression that the produced file
+    contains both `sasdata` and can receive fit results.
+
+- **Shared in-panel data loader — all 6 tool panels.** Every tool panel
+  (Unified Fit, Sizes, Simple Fits, WAXS Peak Fit, Modeling, SAXS Morph) now
+  has a uniform `Open…` button at the top of its left panel so data can be
+  loaded directly within the tool, without going through the Data Selector.
+  - New module `pyirena/gui/data_loading.py` provides: `load_data_file`
+    (text → clean/convert → HDF5, with multi-dataset picker for HDF5 files),
+    `read_nxcansas_with_picker`, `prompt_dataset_choice`, and the
+    `DataFileLoaderRow` widget (filename field + `Open…` button, emits
+    `data_loaded` signal).
+  - Dialog filter includes text files (`.dat`, `.txt`) in all tools — text
+    files are automatically cleaned and converted; Modeling and SAXS Morph
+    previously accepted HDF5 only.
+  - `DataSelectorPanel` now calls the shared functions (thin wrappers); no
+    behavior change for Data Selector users.
+  - Last-used folder is shared across all tools via the `data_selector/
+    last_folder` state key.
+
 ### Changed
 
 - **Sizes: "Fit All" button renamed and improved.** Button renamed to
@@ -15,6 +61,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **current loaded data**, not on all selected files (use the Data Selector's
   "Size distribution (script)" button for batch fitting). Updated tooltip and
   docstring to match.
+
+- **GUI layout consistency across all tool panels.** The top-of-panel layout
+  is now uniform: bold tool title on the left, red `? Help` button on the
+  right, data-file loader row below.
+  - WAXS Peak Fit: "No limits?" checkbox moved from title row to the right
+    end of the Q-range display row.
+  - Modeling: "No limits?" moved from its own row into the Q-range row;
+    label shortened (tooltip carries the explanation).
+  - Unified Fit: block-style title (with background fill) replaced by plain
+    bold title + Help button on right; "Identify Features" button enlarged to
+    26 px / 12 pt for readability.
+  - Simple Fits: "Simple Fits" bold title row with Help button added above
+    the data loader; Help removed from the Model selector row.
+  - Sizes: title background block removed to match the other panels;
+    "Identify Features" button enlarged to 26 px / 12 pt (matching Unified).
 
 ## [0.9.5] — 2026-06-30
 
