@@ -961,22 +961,16 @@ class SizesFitPanel(QWidget):
 
         # ── Title + Help button ──────────────────────────────────────────────
         title = QLabel("Sizes Distribution Input")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 14px; font-weight: bold;
-                color: #2c3e50;
-                background-color: #ecf0f1;
-                padding: 8px;
-                border: 1px solid #bdc3c7;
-            }
-        """)
+        title.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #2c3e50;"
+        )
         # Identify Features button — opens the (non-modal) Feature Identifier,
         # which segments the I(Q) and shows the size-distribution recommendation.
         self.identify_features_btn = QPushButton("Identify Features…")
-        self.identify_features_btn.setFixedHeight(22)
+        self.identify_features_btn.setFixedHeight(26)
         self.identify_features_btn.setStyleSheet(
-            "QPushButton{background:#2980b9;color:white;font-size:11px;"
-            "border-radius:3px;padding:2px 8px;}"
+            "QPushButton{background:#2980b9;color:white;font-size:12px;"
+            "border-radius:3px;padding:2px 10px;}"
             "QPushButton:hover{background:#3498db;}"
         )
         self.identify_features_btn.setToolTip(

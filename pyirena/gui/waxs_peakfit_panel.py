@@ -1213,7 +1213,7 @@ class WAXSPeakFitPanel(QWidget):
     def _build_left_panel(self):
         ll = self._left_layout
 
-        # ── Title + No limits ─────────────────────────────────────────────
+        # ── Title + Help ──────────────────────────────────────────────────
         title_row = QHBoxLayout()
         title_lbl = _label("WAXS Peak Fit", bold=True, size=12)
         title_lbl.setStyleSheet(
@@ -1221,9 +1221,6 @@ class WAXSPeakFitPanel(QWidget):
         )
         title_row.addWidget(title_lbl)
         title_row.addStretch()
-        self._no_limits_chk = QCheckBox("No limits?")
-        self._no_limits_chk.stateChanged.connect(self._on_no_limits_toggled)
-        title_row.addWidget(self._no_limits_chk)
         _help_btn = QPushButton("? Help")
         _help_btn.setFixedSize(60, 22)
         _help_btn.setStyleSheet(
@@ -1244,7 +1241,7 @@ class WAXSPeakFitPanel(QWidget):
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         ll.addWidget(self.data_loader)
 
-        # ── Q fit range (cursor positions, read-only display) ─────────────
+        # ── Q fit range + No limits ───────────────────────────────────────
         qr_row = QHBoxLayout()
         qr_row.addWidget(_label("Fit Q range:"))
         self._qmin_label = QLabel("–")
@@ -1256,6 +1253,9 @@ class WAXSPeakFitPanel(QWidget):
         qr_row.addWidget(self._qmax_label)
         qr_row.addWidget(_label("Å⁻¹"))
         qr_row.addStretch()
+        self._no_limits_chk = QCheckBox("No limits?")
+        self._no_limits_chk.stateChanged.connect(self._on_no_limits_toggled)
+        qr_row.addWidget(self._no_limits_chk)
         ll.addLayout(qr_row)
 
         # ── Background section ────────────────────────────────────────────

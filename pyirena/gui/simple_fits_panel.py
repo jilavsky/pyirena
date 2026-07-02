@@ -441,6 +441,27 @@ class SimpleFitsPanel(QWidget):
         layout.setSpacing(5)
         panel.setLayout(layout)
 
+        # ── Title + Help ──────────────────────────────────────────────────────
+        title_row = QHBoxLayout()
+        title_lbl = QLabel("Simple Fits")
+        title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
+        title_row.addWidget(title_lbl)
+        title_row.addStretch()
+        _help_btn = QPushButton("? Help")
+        _help_btn.setFixedSize(60, 22)
+        _help_btn.setStyleSheet(
+            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
+            "QPushButton:hover{background:#e74c3c;}"
+        )
+        _help_btn.setToolTip("Open online documentation in your browser")
+        _help_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(
+                "https://github.com/jilavsky/pyirena/blob/main/docs/simple_fits_gui.md"
+            ))
+        )
+        title_row.addWidget(_help_btn)
+        layout.addLayout(title_row)
+
         # ── Data file loader ──────────────────────────────────────────────────
         self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
@@ -454,19 +475,6 @@ class SimpleFitsPanel(QWidget):
         self.model_combo.setCurrentText(self.model.model)
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         model_row.addWidget(self.model_combo, 1)
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/simple_fits_gui.md"
-            ))
-        )
-        model_row.addWidget(_help_btn)
         layout.addLayout(model_row)
 
         # ── Q range (cursor-driven, read-only display) ────────────────────────

@@ -2122,7 +2122,7 @@ class ModelingPanel(QWidget):
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         lay.addWidget(self.data_loader)
 
-        # ── Q range display ──────────────────────────────────────────────
+        # ── Q range display + No limits ──────────────────────────────────
         q_row = QHBoxLayout()
         q_row.addWidget(QLabel('Q fit range:'))
         self.qmin_lbl = QLabel('—')
@@ -2132,12 +2132,11 @@ class ModelingPanel(QWidget):
         q_row.addWidget(QLabel('max'))
         q_row.addWidget(self.qmax_lbl)
         q_row.addStretch()
-        lay.addLayout(q_row)
-
-        # ── No limits checkbox ───────────────────────────────────────────
-        self.no_limits_cb = QCheckBox('No limits? (unconstrained fit)')
+        self.no_limits_cb = QCheckBox('No limits?')
+        self.no_limits_cb.setToolTip('Unconstrained fit — remove all parameter bounds')
         self.no_limits_cb.stateChanged.connect(self._on_no_limits_changed)
-        lay.addWidget(self.no_limits_cb)
+        q_row.addWidget(self.no_limits_cb)
+        lay.addLayout(q_row)
 
         lay.addWidget(_sep())
 
