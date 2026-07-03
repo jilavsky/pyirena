@@ -3770,9 +3770,11 @@ class DataSelectorPanel(QWidget):
             )
             return
 
+        selected_set = {item.text() for item in selected_items}
         file_paths = [
-            os.path.join(self.current_folder, item.text())
-            for item in selected_items
+            os.path.join(self.current_folder, self.file_list.item(i).text())
+            for i in range(self.file_list.count())
+            if self.file_list.item(i).text() in selected_set
         ]
 
         from pyirena.io.nxcansas_unified import load_unified_fit_results
