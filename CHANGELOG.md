@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Unified Fit and Modeling: fit now converges in a single press.**
+  Least-squares fitting previously terminated far short of the true minimum
+  and only crept toward the optimum each time the user re-pressed **Fit**
+  (often needing 5–8 presses). Cause: `scipy.optimize.least_squares` (TRF)
+  was called without parameter scaling, so its trust region and convergence
+  tests operated on the raw parameter vector. With Unified-fit parameters
+  spanning many orders of magnitude (`G` ~ 10³, `B` ~ 10⁻⁴, `Rg` ~ 10¹,
+  background ~ 10⁻²), no single trust-region step could be meaningful for
+  both large and tiny parameters at once, and the fit stopped early.
+  Both fit engines now pass `x_scale='jac'`, which auto-rescales each
+  parameter by its Jacobian-column norm every iteration — the scipy
+  equivalent of Igor Pro's per-parameter fit-step (epsilon) on
+  log-dependent parameters. A single **Fit** press now reaches the minimum.
+  Affects `pyirena/core/unified.py` (standalone Unified Fit tool) and
+  `pyirena/core/modeling.py` (Modeling tool's unified-level population).
+
 ## [0.9.7] — 2026-07-02
 
 ### Added

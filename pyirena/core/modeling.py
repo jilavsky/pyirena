@@ -1535,11 +1535,22 @@ class ModelingEngine:
                 else:
                     x_seed = x0_arr
 
+                # x_scale='jac' auto-rescales each parameter by its Jacobian-
+                # column norm every iteration. Modeling parameters span many
+                # decades (unified-level G ~ 10³, B ~ 10⁻⁴, Rg ~ 10¹; scale
+                # ~ 10⁻³; background ~ 10⁻²). Without it the TRF trust region
+                # and the xtol/ftol tests act on the raw vector and terminate
+                # far short of the minimum, so the fit only creeps forward each
+                # time the user re-presses Fit. Auto-scaling gives every
+                # parameter a natural unit step so a single Fit converges (the
+                # scipy equivalent of Igor's per-parameter fit-step on
+                # log-dependent parameters).
                 result = least_squares(
                     self._residuals, x_seed,
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     bounds=(lo_arr, hi_arr),
                     method='trf',
+                    x_scale='jac',
                     max_nfev=300,
                     ftol=1e-5, xtol=1e-5, gtol=1e-5,
                 )

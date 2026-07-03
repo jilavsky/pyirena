@@ -440,14 +440,26 @@ class UnifiedFitModel:
         lower, upper = self._get_bounds()
 
         # Perform fit
-        self.fit_result = least_squares(
-            self._residuals,
-            p0,
+        # x_scale='jac' auto-rescales each parameter by its Jacobian-column
+        # norm every iteration. Unified-fit parameters span many decades
+        # (G ~ 10³, B ~ 10⁻⁴, Rg ~ 10¹, P ~ 10⁰, background ~ 10⁻²); without
+        # this the TRF trust region and xtol test — which act on the raw
+        # parameter vector — cannot take a step that is meaningful for both a
+        # large and a tiny parameter at once, so the fit terminates far short
+        # of the minimum and only creeps forward each time the user re-presses
+        # Fit. Auto-scaling gives every parameter a natural unit step, so a
+        # single Fit converges (the scipy equivalent of Igor's per-parameter
+        # fit-step / epsilon on log-dependent parameters). 'lm' does not
+        # support 'jac'-scaling, so only pass it for the bounded methods.
+        ls_kwargs = dict(
             bounds=(lower, upper),
             method=method,
             max_nfev=max_iterations,
-            verbose=verbose
+            verbose=verbose,
         )
+        if method in ('trf', 'dogbox'):
+            ls_kwargs['x_scale'] = 'jac'
+        self.fit_result = least_squares(self._residuals, p0, **ls_kwargs)
 
         # Unpack final parameters
         self._unpack_parameters(self.fit_result.x)
