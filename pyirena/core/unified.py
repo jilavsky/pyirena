@@ -413,7 +413,7 @@ class UnifiedFitModel:
     def fit(self, q: np.ndarray, intensity: np.ndarray,
             error: Optional[np.ndarray] = None,
             method: str = 'trf',
-            max_iterations: int = 5000,
+            max_iterations: int = 500,
             verbose: int = 0) -> Dict:
         """
         Fit the Unified model to experimental data.
