@@ -1540,20 +1540,40 @@ class ModelingEngine:
                 # decades (unified-level G ~ 10³, B ~ 10⁻⁴, Rg ~ 10¹; scale
                 # ~ 10⁻³; background ~ 10⁻²). Without it the TRF trust region
                 # and the xtol/ftol tests act on the raw vector and terminate
-                # far short of the minimum, so the fit only creeps forward each
-                # time the user re-presses Fit. Auto-scaling gives every
-                # parameter a natural unit step so a single Fit converges (the
-                # scipy equivalent of Igor's per-parameter fit-step on
-                # log-dependent parameters).
-                result = least_squares(
-                    self._residuals, x_seed,
+                # far short of the minimum. Auto-scaling gives every parameter a
+                # natural unit step (the scipy equivalent of Igor's
+                # per-parameter fit-step on log-dependent parameters).
+                #
+                # Tight ftol/xtol/gtol (1e-12): with 'jac' scaling the
+                # convergence tests run in SCALED space, where loose tolerances
+                # trigger a spurious "converged" on the first small step while
+                # still far from the minimum — the cause of the "press Fit 2–3
+                # times" behaviour.
+                #
+                # Internal restart loop: re-seed the solver from its own result
+                # until χ² stops improving, so scripts (which cannot re-press
+                # Fit) get the fully-settled result on the first call. The
+                # Modeling GUI worker wraps self._residuals to raise on each
+                # evaluation for "Cancel Fit"; because every restart calls
+                # self._residuals, cancellation stays responsive across the loop.
+                ls_common = dict(
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     bounds=(lo_arr, hi_arr),
                     method='trf',
                     x_scale='jac',
                     max_nfev=300,
-                    ftol=1e-5, xtol=1e-5, gtol=1e-5,
+                    ftol=1e-12, xtol=1e-12, gtol=1e-12,
                 )
+                prev_chi2 = np.inf
+                max_restarts = 5
+                result = least_squares(self._residuals, x_seed, **ls_common)
+                for _ in range(max_restarts - 1):
+                    chi2 = float(np.sum(result.fun ** 2))
+                    if prev_chi2 - chi2 <= 1e-8 * max(chi2, 1.0):
+                        break
+                    prev_chi2 = chi2
+                    result = least_squares(
+                        self._residuals, result.x, **ls_common)
                 x_best = result.x
 
             self._unpack_params(x_best, keys, cfg)

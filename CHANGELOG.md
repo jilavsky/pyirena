@@ -12,18 +12,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified Fit and Modeling: fit now converges in a single press.**
   Least-squares fitting previously terminated far short of the true minimum
   and only crept toward the optimum each time the user re-pressed **Fit**
-  (often needing 5–8 presses). Cause: `scipy.optimize.least_squares` (TRF)
-  was called without parameter scaling, so its trust region and convergence
-  tests operated on the raw parameter vector. With Unified-fit parameters
-  spanning many orders of magnitude (`G` ~ 10³, `B` ~ 10⁻⁴, `Rg` ~ 10¹,
-  background ~ 10⁻²), no single trust-region step could be meaningful for
-  both large and tiny parameters at once, and the fit stopped early.
-  Both fit engines now pass `x_scale='jac'`, which auto-rescales each
-  parameter by its Jacobian-column norm every iteration — the scipy
-  equivalent of Igor Pro's per-parameter fit-step (epsilon) on
-  log-dependent parameters. A single **Fit** press now reaches the minimum.
-  Affects `pyirena/core/unified.py` (standalone Unified Fit tool) and
-  `pyirena/core/modeling.py` (Modeling tool's unified-level population).
+  (often needing several presses) — a problem especially in scripts, where
+  Fit cannot be re-pressed. Three combined fixes:
+  1. **Parameter scaling.** `scipy.optimize.least_squares` (TRF) was called
+     without `x_scale`, so its trust region and convergence tests operated on
+     the raw parameter vector. With parameters spanning many orders of
+     magnitude (`G` ~ 10⁴, `B` ~ 10⁻¹⁰, `Rg` ~ 10¹, background ~ 10⁻²), no
+     single trust-region step could be meaningful for both large and tiny
+     parameters at once. Both engines now pass `x_scale='jac'` (auto-rescale
+     each parameter by its Jacobian-column norm each iteration — the scipy
+     equivalent of Igor Pro's per-parameter fit-step / epsilon on
+     log-dependent parameters).
+  2. **Tight convergence tolerances.** With `x_scale='jac'` the `xtol`/`ftol`
+     tests run in *scaled* space, where scipy's loose defaults (and the
+     Modeling engine's former `1e-5`) fired a spurious "converged" on the
+     first small step while still far from the minimum. Tightened to `1e-12`.
+  3. **Internal restart loop.** As a safety net, each engine now re-seeds the
+     solver from its own result until χ² stops improving — the automated
+     equivalent of pressing Fit a few times — so scripts get the fully-settled
+     result on the first call (typically 1–3 restarts, ~50–70 evaluations).
+     In the Modeling engine every restart calls `_residuals`, so the GUI's
+     "Cancel Fit" stays responsive across the loop.
+
+  A single **Fit** press (or one scripted `fit()` call) now reaches the
+  minimum; a genuinely bad starting point in the wrong basin still needs the
+  existing **global (differential-evolution)** fit option. Affects
+  `pyirena/core/unified.py` (standalone Unified Fit tool) and
+  `pyirena/core/modeling.py` (Modeling tool's unified-level and other
+  local-fit populations).
 
 ## [0.9.7] — 2026-07-02
 

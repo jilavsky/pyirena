@@ -446,20 +446,49 @@ class UnifiedFitModel:
         # this the TRF trust region and xtol test — which act on the raw
         # parameter vector — cannot take a step that is meaningful for both a
         # large and a tiny parameter at once, so the fit terminates far short
-        # of the minimum and only creeps forward each time the user re-presses
-        # Fit. Auto-scaling gives every parameter a natural unit step, so a
-        # single Fit converges (the scipy equivalent of Igor's per-parameter
-        # fit-step / epsilon on log-dependent parameters). 'lm' does not
-        # support 'jac'-scaling, so only pass it for the bounded methods.
-        ls_kwargs = dict(
-            bounds=(lower, upper),
-            method=method,
-            max_nfev=max_iterations,
-            verbose=verbose,
-        )
+        # of the minimum. Auto-scaling gives every parameter a natural unit
+        # step (the scipy equivalent of Igor's per-parameter fit-step / epsilon
+        # on log-dependent parameters). 'lm' does not support 'jac'-scaling, so
+        # only pass it for the bounded methods.
+        #
+        # Tight ftol/xtol/gtol: with 'jac' scaling the convergence tests run in
+        # SCALED space, where scipy's default 1e-8 is far too loose — the xtol
+        # test fires on the first small step and the solver returns "converged"
+        # while still far from the minimum. This was the cause of the
+        # "press Fit 2–3 times to converge" behaviour. 1e-12 defers termination
+        # to a genuine minimum.
+        # Tolerance kwargs are only meaningful (and 'x_scale' only accepted) for
+        # the bounded methods; 'lm' keeps scipy defaults.
+        tol_kwargs: Dict = {}
         if method in ('trf', 'dogbox'):
-            ls_kwargs['x_scale'] = 'jac'
-        self.fit_result = least_squares(self._residuals, p0, **ls_kwargs)
+            tol_kwargs = dict(x_scale='jac', ftol=1e-12, xtol=1e-12, gtol=1e-12)
+
+        # Internal restart loop: re-seed the solver from its own result until
+        # χ² stops improving. This is the automated equivalent of a user
+        # pressing "Fit" a few times — a safety net for the rare stiff case
+        # where a single least_squares call still terminates one step short,
+        # so scripts (which cannot re-press) always get the fully-settled
+        # result on the first call. Converges in 1–3 restarts (~50–70 total
+        # function evaluations); a fully-converged first call exits after one.
+        x_current = np.asarray(p0, dtype=float)
+        prev_chi2 = np.inf
+        max_restarts = 5
+        result = least_squares(
+            self._residuals, x_current,
+            bounds=(lower, upper), method=method,
+            max_nfev=max_iterations, verbose=verbose, **tol_kwargs,
+        )
+        for _ in range(max_restarts - 1):
+            chi2 = float(np.sum(result.fun ** 2))
+            if prev_chi2 - chi2 <= 1e-8 * max(chi2, 1.0):
+                break
+            prev_chi2 = chi2
+            result = least_squares(
+                self._residuals, result.x,
+                bounds=(lower, upper), method=method,
+                max_nfev=max_iterations, verbose=verbose, **tol_kwargs,
+            )
+        self.fit_result = result
 
         # Unpack final parameters
         self._unpack_parameters(self.fit_result.x)
