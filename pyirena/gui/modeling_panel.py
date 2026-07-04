@@ -272,6 +272,10 @@ class PopulationTab(QWidget):
         self._mf_rows: dict = {}
         self._sf2_rows: dict = {}        # surface fractal main rows
         self._sf2_porod_rows: dict = {}  # surface fractal Porod transition rows
+        # Hard physical bounds per limit-field, keyed by id(lo_edit). Used by
+        # fix_limits() to clamp the 0.2×…5× bracket without depending on the
+        # user's current editable limits.
+        self._hard_bounds: dict = {}
         self._dist_param_cache: dict = {}   # {dist_type: {key: (val, fit, lo, hi)}}
         self._last_dist_type: str = 'lognormal'
 
@@ -755,6 +759,12 @@ class PopulationTab(QWidget):
         grid.addWidget(hi_edit,  row, 4)
 
         store[key] = (lbl, val_edit, fit_cb, lo_edit, hi_edit)
+        # Remember the parameter's hard physical bounds (the lo/hi passed in
+        # at construction, which come from the per-type default-limit tables).
+        # "Fix limits?" clamps its 0.2×…5× bracket to these hard bounds — never
+        # to the user's current editable limits, so the button always resets
+        # the bracket even when the user has already narrowed the fields.
+        self._hard_bounds[id(lo_edit)] = (lo, hi)
         return store
 
     # ── Dynamic parameter rebuilding ─────────────────────────────────────────
@@ -1029,11 +1039,17 @@ class PopulationTab(QWidget):
             hi_w.setVisible(not no_limits)
 
     def fix_limits(self):
-        """Bracket every parameter's fit limits to ≈0.2× … 5× its current value.
+        """Set every parameter's fit limits to a ≈0.2× … 5× bracket around its
+        current value.
 
-        The bracket is clamped to the parameter's existing [lo, hi] bounds so
-        naturally-restricted parameters (power-law exponents, fractal
-        dimensions, deviations) stay within their valid ranges.
+        The bracket is clamped only to the parameter's *hard physical bounds*
+        (the per-type default-limit tables captured at row construction) — never
+        to the user's current editable limits.  This means the button always
+        resets the bracket to 0.2×…5×, even when the user has previously
+        narrowed the fields (the earlier behaviour clamped against the current
+        limits, so a no-op resulted whenever they were already tighter than the
+        bracket).  Clamping to hard bounds still keeps naturally-restricted
+        params (power-law exponents, fractal dimensions, deviations) valid.
         """
         for store in (self._row_widgets, self._ff_rows, self._sf_rows,
                       self._uf_rows, self._uf_corr_rows, self._peak_rows,
@@ -1045,14 +1061,9 @@ class PopulationTab(QWidget):
                     v = float(val_edit.text())
                 except (ValueError, TypeError):
                     continue
-                try:
-                    cur_lo = float(lo_edit.text())
-                except (ValueError, TypeError):
-                    cur_lo = -np.inf
-                try:
-                    cur_hi = float(hi_edit.text())
-                except (ValueError, TypeError):
-                    cur_hi = np.inf
+
+                hard_lo, hard_hi = self._hard_bounds.get(
+                    id(lo_edit), (-np.inf, np.inf))
 
                 if v > 0:
                     b_lo, b_hi = v * 0.2, v * 5.0
@@ -1061,15 +1072,16 @@ class PopulationTab(QWidget):
                 else:
                     continue  # zero: leave existing limits
 
-                new_lo = max(cur_lo, b_lo)
-                new_hi = min(cur_hi, b_hi)
+                new_lo = max(b_lo, hard_lo)
+                new_hi = min(b_hi, hard_hi)
                 if not (new_lo < new_hi):
-                    new_lo, new_hi = b_lo, b_hi
+                    new_lo, new_hi = hard_lo, hard_hi
 
                 lo_edit.setText(_fmt(new_lo))
                 hi_edit.setText(_fmt(new_hi))
 
-        # Also fix limits for scale and contrast (custom widgets, not in row dicts)
+        # Also fix limits for scale and contrast (custom widgets, not in row
+        # dicts). Same rule: bracket clamped to hard bounds only.
         for val_edit, lo_edit, hi_edit, hard_lo, hard_hi in (
             (self.scale_edit,    self.scale_lo_edit,    self.scale_hi_edit,    1e-8, 1.0),
             (self.contrast_edit, self.contrast_lo_edit, self.contrast_hi_edit, 0.0,  1e10),
@@ -1080,20 +1092,10 @@ class PopulationTab(QWidget):
                 continue
             if v <= 0:
                 continue
-            try:
-                cur_lo = float(lo_edit.text())
-            except (ValueError, TypeError):
-                cur_lo = hard_lo
-            try:
-                cur_hi = float(hi_edit.text())
-            except (ValueError, TypeError):
-                cur_hi = hard_hi
-            b_lo = max(v * 0.2, hard_lo)
-            b_hi = min(v * 5.0, hard_hi)
-            new_lo = max(cur_lo, b_lo)
-            new_hi = min(cur_hi, b_hi)
+            new_lo = max(v * 0.2, hard_lo)
+            new_hi = min(v * 5.0, hard_hi)
             if not (new_lo < new_hi):
-                new_lo, new_hi = b_lo, b_hi
+                new_lo, new_hi = hard_lo, hard_hi
             lo_edit.setText(_fmt(new_lo))
             hi_edit.setText(_fmt(new_hi))
 

@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modeling: "Fix limits?" now updates distribution, scale, and contrast
+  limits (previously a no-op for narrowed fields).** The button is meant to set
+  every fit limit to a 0.2×…5× bracket around the current value, but it clamped
+  that bracket against each parameter's *current editable limits*
+  (`new_lo = max(cur_lo, bracket_lo)`, `new_hi = min(cur_hi, bracket_hi)`).
+  Because `max`/`min` can only tighten, the button did nothing whenever the
+  current limits were already narrower than the bracket — e.g. a Gauss
+  distribution with `mean_size` limits 200–400 stayed 200–400. Form-factor
+  parameters *appeared* to work only because their default limits are typically
+  much wider than the bracket. Distribution parameters (`mean_size`, `width`,
+  etc.) were the most visibly affected. `fix_limits()` now clamps the bracket to
+  each parameter's *hard physical bounds* (from the per-type default-limit
+  tables, captured at row construction) instead of the current fields, so the
+  button always resets the bracket — while still keeping naturally-restricted
+  params (fractal dimensions, power-law exponents, deviations) within valid
+  ranges. Also added editable low/high limit fields for **Scale** and
+  **Contrast** in the Physical Parameters section (previously fixed at
+  hardcoded defaults with no GUI control); these are now shown/hidden by
+  "No limits?" and driven by "Fix limits?" like all other parameters.
+
 - **Unified Fit: `success` flag is now consistent between GUI and scripting.**
   The GUI showed "Fit completed successfully!" (green bar) for any fit that
   returned a finite result — including ones with large chi² on complex or noisy
