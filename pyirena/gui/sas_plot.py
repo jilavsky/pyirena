@@ -881,7 +881,8 @@ def save_itx_from_plot(
             title = ''
 
     # Collect named, non-NaN-heavy PlotDataItems.
-    named_items: list[tuple[str, np.ndarray, np.ndarray, str]] = []
+    # Tuple: (label, x_arr, y_arr, color_hex, dI_arr_or_None)
+    named_items: list[tuple[str, np.ndarray, np.ndarray, str, np.ndarray | None]] = []
 
     # Items carrying an explicit ``_itx_export`` dict (e.g. stepMode bar charts
     # drawn as PlotCurveItems) are not tracked in ``dataItems`` and are not
@@ -903,7 +904,7 @@ def save_itx_from_plot(
                 mask = np.isfinite(x_data) & np.isfinite(y_data)
                 if mask.sum() >= 2:
                     named_items.append((name, x_data[mask], y_data[mask],
-                                        _get_item_color_hex(item)))
+                                        _get_item_color_hex(item), None))
             continue
         if not isinstance(item, pg.PlotDataItem):
             continue
@@ -923,8 +924,19 @@ def save_itx_from_plot(
         mask = np.isfinite(x_data) & np.isfinite(y_data)
         if mask.sum() < 2:
             continue
+        # Retrieve dI stashed by plot_iq_data (None for model curves).
+        raw_dI = getattr(item, '_itx_dI', None)
+        dI_arr: np.ndarray | None = None
+        if raw_dI is not None:
+            raw_dI = np.asarray(raw_dI, dtype=float)
+            if raw_dI.shape == x_data.shape:
+                dI_arr = raw_dI[mask]
+            elif raw_dI.shape == x_data[mask].shape:
+                dI_arr = raw_dI
+            if dI_arr is not None and not np.any(np.isfinite(dI_arr) & (dI_arr > 0)):
+                dI_arr = None  # all zeros/NaN — skip Yerr wave
         named_items.append((name, x_data[mask], y_data[mask],
-                             _get_item_color_hex(item)))
+                             _get_item_color_hex(item), dI_arr))
 
     if not named_items:
         QMessageBox.warning(parent, 'No data',
@@ -971,14 +983,16 @@ def save_itx_from_plot(
     folder_open, folder_close = _itx_folder_cmds(technique, sample)
 
     lines = ['IGOR'] + folder_open
-    wave_info: list[tuple[str, str, str, str]] = []   # (xn, yn, label, color)
+    # (xn, yn, en_or_None, label, color)
+    wave_info: list[tuple[str, str, str | None, str, str]] = []
     n = len(named_items)
 
-    for i, (lbl, x_arr, y_arr, color) in enumerate(named_items):
+    for i, (lbl, x_arr, y_arr, color, dI_arr) in enumerate(named_items):
         suffix = f'_{i + 1:02d}' if n > 1 else ''
         xn = _safe_name(f'X_{lbl}{suffix}')
         yn = _safe_name(f'Y_{lbl}{suffix}')
-        wave_info.append((xn, yn, lbl, color))
+        en = _safe_name(f'Yerr_{lbl}{suffix}') if dI_arr is not None else None
+        wave_info.append((xn, yn, en, lbl, color))
 
         lines += [f'WAVES/D  {xn}', 'BEGIN']
         lines += [f'  {v:.10g}' for v in x_arr]
@@ -986,8 +1000,13 @@ def save_itx_from_plot(
         lines += [f'  {v:.10g}' for v in y_arr]
         lines.append('END')
 
+        if en is not None and dI_arr is not None:
+            lines += [f'WAVES/D  {en}', 'BEGIN']
+            lines += [f'  {v:.10g}' for v in dI_arr]
+            lines.append('END')
+
     lines.append('')
-    for j, (xn, yn, lbl, _) in enumerate(wave_info):
+    for j, (xn, yn, en, lbl, _) in enumerate(wave_info):
         if j == 0:
             lines.append(f'X Display {yn} vs {xn} as "{lbl}"')
         else:
@@ -998,9 +1017,11 @@ def save_itx_from_plot(
     if log_y:
         lines.append('X ModifyGraph log(left)=1')
 
-    for _, yn, _, color in wave_info:
+    for _, yn, en, _, color in wave_info:
         r, g, b = _hex_to_igor(color)
         lines.append(f'X ModifyGraph rgb({yn})=({r},{g},{b})')
+        if en is not None:
+            lines.append(f'X ErrorBars {yn} Y,wave=({{{en},{en}}})')
 
     if x_label:
         lines.append(f'X Label bottom "{x_label}"')
@@ -1009,7 +1030,7 @@ def save_itx_from_plot(
     if title:
         lines.append(f'X TextBox/C/N=title0/A=MC/X=0/Y=5 "{title}"')
 
-    legend_parts = [f'\\\\s({yn}) {lbl}' for _, yn, lbl, _ in wave_info]
+    legend_parts = [f'\\\\s({yn}) {lbl}' for _, yn, en, lbl, _ in wave_info]
     if legend_parts:
         legend_text = '\\r'.join(legend_parts)
         lines.append(f'X Legend/C/N=text0 "{legend_text}"')
@@ -1089,6 +1110,8 @@ def plot_iq_data(
             pass   # already masked
         else:
             dI_ = np.zeros_like(q_)
+        # Stash linear dI on the scatter item so save_itx_from_plot can export a Yerr wave.
+        scatter._itx_dI = dI_
         # Global cap: prevent error bar tops from exceeding 3 decades above the 99th
         # percentile of the data. Without this, a few extreme outlier data points
         # (e.g. uncalibrated WAXS or Bragg peaks with very large I) drive the error

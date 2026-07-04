@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ITX export now includes error bars.** Both `save_itx_from_plot` (all analysis
+  tool windows) and `save_itx` (HDF5 Viewer) now emit a `Yerr` wave and an
+  `ErrorBars` command for each data curve that has measurement uncertainties.
+  Model and fit curves without uncertainties are unaffected. The `dI` array is
+  stored on the scatter item by `plot_iq_data` and retrieved at export time, so
+  the exporter is safe for data with or without error bars.
+
 - **Modeling & Size Distribution: MC uncertainties now reach the graph label.**
   - **Modeling**: the Monte-Carlo result is no longer shown in a transient
     blocking dialog; the ±1σ parameter list is written into the graph-window

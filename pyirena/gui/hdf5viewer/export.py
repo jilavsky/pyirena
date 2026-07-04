@@ -212,7 +212,7 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
     folder_open, folder_close = _itx_folder_cmds(_technique, _sample)
 
     lines = ["IGOR"] + folder_open
-    # (x_name, y_name, label, color) tuples for formatting commands
+    # (x_name, y_name, e_name_or_None, label, color) tuples for formatting commands
     wave_names = []
 
     for i, curve in enumerate(curves):
@@ -223,7 +223,7 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
         suffix = f"_{i+1:02d}" if len(curves) > 1 else ""
         x_name = _safe_name(f"X_{lbl}{suffix}")
         y_name = _safe_name(f"Y_{lbl}{suffix}")
-        wave_names.append((x_name, y_name, lbl, color))
+        e_name = None
 
         # X wave
         lines.append(f"WAVES/D  {x_name}")
@@ -248,9 +248,11 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
                 lines.append(f"  {v:.10g}")
             lines.append("END")
 
+        wave_names.append((x_name, y_name, e_name, lbl, color))
+
     # ── Display / graph commands ───────────────────────────────────────────
     lines.append("")
-    for j, (xn, yn, lbl, _color) in enumerate(wave_names):
+    for j, (xn, yn, _en, lbl, _color) in enumerate(wave_names):
         if j == 0:
             lines.append(f'X Display {yn} vs {xn} as "{lbl}"')
         else:
@@ -262,10 +264,12 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
     if gw.is_log_y():
         lines.append("X ModifyGraph log(left)=1")
 
-    # ── Curve colors ──────────────────────────────────────────────────────
-    for _xn, yn, _lbl, color in wave_names:
+    # ── Curve colors + error bars ─────────────────────────────────────────
+    for _xn, yn, en, _lbl, color in wave_names:
         r, g, b = _hex_to_igor(color)
         lines.append(f"X ModifyGraph rgb({yn})=({r},{g},{b})")
+        if en is not None:
+            lines.append(f"X ErrorBars {yn} Y,wave=({{{en},{en}}})")
 
     # ── Axis labels ───────────────────────────────────────────────────────
     x_label = gw.get_x_label()
@@ -282,7 +286,7 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
 
     # ── Legend ────────────────────────────────────────────────────────────
     legend_parts = []
-    for _xn, yn, lbl, _color in wave_names:
+    for _xn, yn, _en, lbl, _color in wave_names:
         legend_parts.append(f"\\\\s({yn}) {lbl}")
     if legend_parts:
         legend_text = "\\r".join(legend_parts)
