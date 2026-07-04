@@ -3498,22 +3498,43 @@ class ModelingPanel(QWidget):
         result = self._last_result
         lines = [f'χ²/dof = {eng_fmt(result.reduced_chi_squared)}']
         stds = result.params_std or {}
+
+        def _valid(s):
+            return s is not None and np.isfinite(s) and s > 0
+
         for k, d in enumerate(result.derived):
             pi = result.pop_indices[k]
             pop = result.config.populations[pi]
             pop_label = getattr(pop, 'label', '') or f'P{pi+1}'
+
+            # Build a {param_name: std} map for this population by stripping the
+            # 'pop{n}_{group}_' prefix.  MC std keys use the fitted-parameter
+            # group (dist/ff/sf/uf/gp/mf/peak/scale/contrast); the derived-dict
+            # names (B, G, Rg, P, position, …) usually match the fitted name,
+            # so a prefix-stripped lookup covers all population types.
+            pop_tag = f'pop{pi+1}'
+            pop_stds: dict[str, float] = {}
+            for full_key, sval in stds.items():
+                parts = full_key.split('_', 2)        # ['pop2', 'uf', 'B']
+                if len(parts) != 3 or parts[0] != pop_tag:
+                    continue
+                param_name = parts[2]                 # 'B' or 'scale'
+                if _valid(sval):
+                    pop_stds[param_name] = float(sval)
+
             for name, val in d.items():
                 if val is None:
                     continue
-                # MC std keys are 'pop{n}_{group}_{name}' where group is dist/ff/sf.
-                # Try each group in turn; also keep the old 'derived' key as fallback.
-                std = None
-                for grp in ('dist', 'ff', 'sf', 'derived'):
-                    candidate = stds.get(f'pop{pi+1}_{grp}_{name}')
-                    if candidate is not None and np.isfinite(candidate) and candidate > 0:
-                        std = candidate
-                        break
-                if std is not None:
+                std = pop_stds.get(name)
+                # volume_fraction is derived from the fitted 'scale' param —
+                # propagate scale's uncertainty:  vf = 0.5(1 - sqrt(1-4·scale)),
+                # dvf/dscale = 1/sqrt(1-4·scale).
+                if std is None and name == 'volume_fraction':
+                    scale_std = pop_stds.get('scale')
+                    scale_val = getattr(pop, 'scale', None)
+                    if _valid(scale_std) and scale_val is not None and (1.0 - 4.0 * scale_val) > 0:
+                        std = scale_std / np.sqrt(1.0 - 4.0 * scale_val)
+                if _valid(std):
                     lines.append(f'{pop_label}: {name} = {eng_fmt(val)} ± {eng_fmt(std, sig=3)}')
                 else:
                     lines.append(f'{pop_label}: {name} = {eng_fmt(val)}')
