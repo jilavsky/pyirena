@@ -132,6 +132,8 @@ class SimpleFitsGraphWindow(QWidget):
         ci.layout.setRowStretchFactor(0, 5)
         ci.layout.setRowStretchFactor(1, 1)
         ci.layout.setRowStretchFactor(2, 4)
+        self._lin_row_stretch = 4      # remembered so hide/show can restore it
+        self._lin_visible = True
 
         # Stretch=1 so the graphics widget expands vertically when the
         # window grows (default is 0 = stay at preferred size).  Other tools
@@ -340,6 +342,64 @@ class SimpleFitsGraphWindow(QWidget):
         )
         self.lin_plot.addItem(fit_item)
         self._lin_fit_item = fit_item
+
+        # ── Bound both axes to the cursor Q range (converted to X units) ───────
+        # The transform is monotone in Q, so the in-range X span is simply the
+        # min/max of the X values whose original Q lies within [q_min, q_max].
+        # A robust Y window is taken from the in-range Y values only so tiny
+        # high-Q intensities (huge negative ln values) can't dominate the scale.
+        self._apply_lin_ranges(X, Y, in_mask)
+
+    def _apply_lin_ranges(self, X, Y, in_mask):
+        """Fix the linearization plot to the in-range data window.
+
+        *in_mask* selects the points inside the cursor Q range (and finite).
+        Falls back to all finite points when the cursor range excludes
+        everything.  Disables auto-range so the view stays put.
+        """
+        sel = in_mask
+        if not np.any(sel):
+            sel = np.isfinite(X) & np.isfinite(Y)
+        if not np.any(sel):
+            return
+
+        Xs = X[sel]
+        Ys = Y[sel]
+
+        x_lo, x_hi = float(np.min(Xs)), float(np.max(Xs))
+        if x_hi <= x_lo:
+            x_hi = x_lo + max(abs(x_lo) * 1e-3, 1e-30)
+
+        # Robust linear Y window (1st–99th percentile) + 8% padding.
+        y_lo, y_hi = np.nanpercentile(Ys, [1.0, 99.0])
+        span = y_hi - y_lo
+        if span <= 0:
+            span = max(abs(y_hi), 1.0) * 0.1
+        pad = span * 0.08
+        y_lo -= pad
+        y_hi += pad
+
+        self.lin_plot.enableAutoRange(enable=False)
+        self.lin_plot.setXRange(x_lo, x_hi, padding=0.02)
+        self.lin_plot.setYRange(y_lo, y_hi, padding=0)
+
+    def set_linearization_visible(self, visible: bool):
+        """Show or hide the bottom linearization panel.
+
+        When hidden, the row's stretch factor is set to 0 so the I(Q) and
+        residuals plots expand to fill the freed vertical space.
+        """
+        visible = bool(visible)
+        if visible == self._lin_visible:
+            return
+        self._lin_visible = visible
+        ci = self.graphics_layout.ci
+        if visible:
+            self.lin_plot.show()
+            ci.layout.setRowStretchFactor(2, self._lin_row_stretch)
+        else:
+            self.lin_plot.hide()
+            ci.layout.setRowStretchFactor(2, 0)
 
     # ── Cursors ───────────────────────────────────────────────────────────────
 
@@ -848,6 +908,10 @@ class SimpleFitsPanel(QWidget):
         # Clear stale model curve and annotations from previous model
         self.graph_window.clear_fit()
         self.graph_window.clear_result_annotations()
+        # Refresh the bottom linearization panel for the new model (or hide it).
+        # clear_fit() re-titled the empty lin plot; _refresh_linearization draws
+        # the correct transform (using current param widget values) or hides it.
+        self._refresh_linearization()
 
     def _on_complex_bg_changed(self, state):
         """Toggle complex background and rebuild param widgets."""
@@ -1057,6 +1121,7 @@ class SimpleFitsPanel(QWidget):
             return
 
         self.graph_window.plot_fit(q_plot[valid], I_model[valid])
+        self._refresh_linearization()
         self.status_label.setText(f'Model: {self.model.model}  (not fitted)')
 
     # ── Fit ───────────────────────────────────────────────────────────────────
@@ -1224,17 +1289,36 @@ class SimpleFitsPanel(QWidget):
             r_prime, _ = rescale_residuals(residuals)
             self.graph_window.plot_residuals(q_fit, r_prime)
 
-        # Linearization (use full data range, not just fit range, so out-of-range
-        # points are visible in grey alongside the dark in-range points)
-        q_all  = self.data['Q'] if self.data else q_fit
-        I_all  = self.data['Intensity'] if self.data else I_model
-        dI_all = self.data.get('Error') if self.data else None
+        # Linearization (bottom panel) — hidden for models with no linearization
+        self._refresh_linearization()
+
+    def _refresh_linearization(self):
+        """Refresh (or hide) the bottom linearization panel for the current model.
+
+        Called after Fit, after "Graph model", and on model change so the panel
+        never gets stuck on a previous model's transform.  Models whose registry
+        entry has ``linearization is None`` have the panel hidden entirely.
+        """
+        has_lin = MODEL_REGISTRY[self.model.model]['linearization'] is not None
+        self.graph_window.set_linearization_visible(has_lin)
+        if not has_lin:
+            self.graph_window.plot_linearization(None)
+            return
+
+        if self.data is None:
+            self.graph_window.plot_linearization(None)
+            return
+
+        # Sync widget values into model.params so the analytic model line matches.
+        self._collect_model()
+
+        # Use full data range so out-of-range points are visible in grey alongside
+        # the dark in-range points; axes are then bounded to the cursor Q range.
+        q_all  = self.data['Q']
+        I_all  = self.data['Intensity']
+        dI_all = self.data.get('Error')
         q_min, q_max = self.graph_window.get_cursor_range()
-        if q_all is not None and I_all is not None:
-            lin = self.model.linearize(q_all, I_all, dI_all,
-                                       q_min=q_min, q_max=q_max)
-        else:
-            lin = None
+        lin = self.model.linearize(q_all, I_all, dI_all, q_min=q_min, q_max=q_max)
         self.graph_window.plot_linearization(lin, q_min=q_min, q_max=q_max)
 
     # ── Helper ────────────────────────────────────────────────────────────────

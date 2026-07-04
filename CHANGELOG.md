@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Simple Fits: bottom linearization graph now tracks the selected model,
+  bounds its axes, and hides when unavailable.** The linearization panel
+  (Guinier ln(I) vs Q², Porod I·Q⁴ vs Q⁴, …) was only redrawn after a *Fit*, so
+  switching the model or pressing "Graph model" left it stuck on the previous
+  model's transform (usually Guinier). It now refreshes on Fit, on "Graph
+  model", and on model change. Both axes are bounded to the cursor-selected Q
+  range (converted to the transform's X units) with a robust 1st–99th-percentile
+  Y window computed from the in-range points, so tiny high-Q intensities (huge
+  negative ln values) no longer blow up the auto-scale and squash the linear
+  region out of view. Models with no linearization (Power Law, Sphere,
+  Debye-Bueche, Treubner-Strey, Hermans, etc.) now hide the bottom panel
+  entirely, giving the I(Q) plot more vertical space; the panel reappears when a
+  linearizable model (Guinier family or Porod) is selected.
+
 - **Modeling: "Fix limits?" now updates distribution, scale, and contrast
   limits (previously a no-op for narrowed fields).** The button is meant to set
   every fit limit to a 0.2×…5× bracket around the current value, but it clamped
