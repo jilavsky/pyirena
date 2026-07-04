@@ -486,6 +486,16 @@ class PopulationTab(QWidget):
         self.contrast_fit_cb = QCheckBox('Fit')
         self.contrast_fit_cb.stateChanged.connect(self._emit_changed)
         phys_lay.addWidget(self.contrast_fit_cb, 0, 2)
+        self.contrast_lo_edit = ScrubbableLineEdit()
+        self.contrast_lo_edit.setText('0.0')
+        self.contrast_lo_edit.setFixedWidth(70)
+        self.contrast_lo_edit.editingFinished.connect(self._emit_changed)
+        phys_lay.addWidget(self.contrast_lo_edit, 0, 3)
+        self.contrast_hi_edit = ScrubbableLineEdit()
+        self.contrast_hi_edit.setText('1e10')
+        self.contrast_hi_edit.setFixedWidth(70)
+        self.contrast_hi_edit.editingFinished.connect(self._emit_changed)
+        phys_lay.addWidget(self.contrast_hi_edit, 0, 4)
 
         phys_lay.addWidget(QLabel('Scale [= Vf(1−Vf)]:'), 1, 0)
         self.scale_edit = ScrubbableLineEdit()
@@ -497,6 +507,16 @@ class PopulationTab(QWidget):
         self.scale_fit_cb.setChecked(True)
         self.scale_fit_cb.stateChanged.connect(self._emit_changed)
         phys_lay.addWidget(self.scale_fit_cb, 1, 2)
+        self.scale_lo_edit = ScrubbableLineEdit()
+        self.scale_lo_edit.setText('1e-8')
+        self.scale_lo_edit.setFixedWidth(70)
+        self.scale_lo_edit.editingFinished.connect(self._emit_changed)
+        phys_lay.addWidget(self.scale_lo_edit, 1, 3)
+        self.scale_hi_edit = ScrubbableLineEdit()
+        self.scale_hi_edit.setText('1.0')
+        self.scale_hi_edit.setFixedWidth(70)
+        self.scale_hi_edit.editingFinished.connect(self._emit_changed)
+        phys_lay.addWidget(self.scale_hi_edit, 1, 4)
 
         phys_lay.addWidget(QLabel('Volume fraction (Vf):'), 2, 0)
         self.vf_label = QLabel('0.001')
@@ -1003,6 +1023,10 @@ class PopulationTab(QWidget):
             for key, (lbl, val_edit, fit_cb, lo_edit, hi_edit) in store.items():
                 lo_edit.setVisible(not no_limits)
                 hi_edit.setVisible(not no_limits)
+        for lo_w, hi_w in ((self.scale_lo_edit, self.scale_hi_edit),
+                           (self.contrast_lo_edit, self.contrast_hi_edit)):
+            lo_w.setVisible(not no_limits)
+            hi_w.setVisible(not no_limits)
 
     def fix_limits(self):
         """Bracket every parameter's fit limits to ≈0.2× … 5× its current value.
@@ -1044,6 +1068,34 @@ class PopulationTab(QWidget):
 
                 lo_edit.setText(_fmt(new_lo))
                 hi_edit.setText(_fmt(new_hi))
+
+        # Also fix limits for scale and contrast (custom widgets, not in row dicts)
+        for val_edit, lo_edit, hi_edit, hard_lo, hard_hi in (
+            (self.scale_edit,    self.scale_lo_edit,    self.scale_hi_edit,    1e-8, 1.0),
+            (self.contrast_edit, self.contrast_lo_edit, self.contrast_hi_edit, 0.0,  1e10),
+        ):
+            try:
+                v = float(val_edit.text())
+            except (ValueError, TypeError):
+                continue
+            if v <= 0:
+                continue
+            try:
+                cur_lo = float(lo_edit.text())
+            except (ValueError, TypeError):
+                cur_lo = hard_lo
+            try:
+                cur_hi = float(hi_edit.text())
+            except (ValueError, TypeError):
+                cur_hi = hard_hi
+            b_lo = max(v * 0.2, hard_lo)
+            b_hi = min(v * 5.0, hard_hi)
+            new_lo = max(cur_lo, b_lo)
+            new_hi = min(cur_hi, b_hi)
+            if not (new_lo < new_hi):
+                new_lo, new_hi = b_lo, b_hi
+            lo_edit.setText(_fmt(new_lo))
+            hi_edit.setText(_fmt(new_hi))
 
     # ── Read/write population state ──────────────────────────────────────────
 
@@ -1107,11 +1159,20 @@ class PopulationTab(QWidget):
         if ff_key in _CS_FF_KEYS:
             pop.contrast = 1.0
             pop.fit_contrast = False
+            pop.contrast_limits = (0.0, 1e10)
         else:
             pop.contrast = _parse(self.contrast_edit.text(), 1.0)
             pop.fit_contrast = self.contrast_fit_cb.isChecked()
+            pop.contrast_limits = (
+                _parse(self.contrast_lo_edit.text(), 0.0),
+                _parse(self.contrast_hi_edit.text(), 1e10),
+            )
         pop.scale = _parse(self.scale_edit.text(), 0.001)
         pop.fit_scale = self.scale_fit_cb.isChecked()
+        pop.scale_limits = (
+            _parse(self.scale_lo_edit.text(), 1e-8),
+            _parse(self.scale_hi_edit.text(), 1.0),
+        )
         pop.use_number_dist = self.num_dist_rb.isChecked()
         pop.n_bins = self.nbins_spin.value()
         pop.label = self.label_edit.text().strip()
@@ -1229,8 +1290,12 @@ class PopulationTab(QWidget):
 
         self.contrast_edit.setText(_fmt(pop.contrast))
         self.contrast_fit_cb.setChecked(pop.fit_contrast)
+        self.contrast_lo_edit.setText(_fmt(pop.contrast_limits[0]))
+        self.contrast_hi_edit.setText(_fmt(pop.contrast_limits[1]))
         self.scale_edit.setText(_fmt(pop.scale))
         self.scale_fit_cb.setChecked(pop.fit_scale)
+        self.scale_lo_edit.setText(_fmt(pop.scale_limits[0]))
+        self.scale_hi_edit.setText(_fmt(pop.scale_limits[1]))
         self.vol_dist_rb.setChecked(not pop.use_number_dist)
         self.num_dist_rb.setChecked(pop.use_number_dist)
         self.nbins_spin.setValue(pop.n_bins)
