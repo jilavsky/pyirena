@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Modeling: parameter limits auto-update when a value is changed.** Scrubbing
+  or typing a new value in any population-tab parameter field (including Scale and
+  Contrast) now immediately updates that parameter's lo/hi limits to a 0.2×…5×
+  bracket around the new value, clamped to the parameter's hard physical bounds.
+  Matches the Unified Fit tool's long-standing behaviour. The "Fix limits?" button
+  continues to reset all parameters at once.
+
 - **Simple Fits: complex-background symbols now use B / P / flat.** The checkbox
   now reads `B·Q⁻ᴾ + flat` (was `A·Q⁻ⁿ + flat`) and the power-law prefactor is
   labelled **B** (was `BG_G`), matching the Unified Fit convention (B = prefactor,

@@ -1796,7 +1796,7 @@ class ModelingGraphWindow(QWidget):
         # Status bar
         self.status_lbl = QLabel('')
         self.status_lbl.setWordWrap(True)
-        self.status_lbl.setMaximumHeight(50)
+        self.status_lbl.setMaximumHeight(160)
         self.status_lbl.setStyleSheet(
             'padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt;'
         )
@@ -3292,18 +3292,18 @@ class ModelingPanel(QWidget):
 
         self.btn_mc.setEnabled(True)
         self.btn_fit.setEnabled(True)
-        self.graph.set_status('MC uncertainty estimation complete.', 'success')
 
         if stds:
             from pyirena.gui.fmt_utils import eng_fmt
-            lines = [f'  {k}: ± {eng_fmt(v)}' for k, v in sorted(stds.items())]
-            QMessageBox.information(
-                self, 'MC Uncertainties',
-                'Parameter standard deviations:\n' + '\n'.join(lines),
-            )
+            lines = ['MC uncertainties (±1σ):'] + [
+                f'  {k}: ± {eng_fmt(v)}' for k, v in sorted(stds.items())
+            ]
+            self.graph.set_status('\n'.join(lines), 'success')
         else:
-            QMessageBox.information(self, 'MC Uncertainties',
-                                    'No fittable parameters or too few successful runs.')
+            self.graph.set_status(
+                'MC uncertainty: no fittable parameters or too few successful runs.',
+                'warning',
+            )
 
     def _on_mc_error(self, msg: str):
         self.graph.set_status(f'MC error: {msg}', 'error')
