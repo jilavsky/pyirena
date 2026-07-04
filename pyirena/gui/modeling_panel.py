@@ -486,6 +486,9 @@ class PopulationTab(QWidget):
         self.contrast_edit.setText('1.0')
         self.contrast_edit.setFixedWidth(90)
         self.contrast_edit.editingFinished.connect(self._emit_changed)
+        self.contrast_edit.editingFinished.connect(
+            lambda: self._update_single_row_limits(
+                self.contrast_edit, self.contrast_lo_edit, self.contrast_hi_edit))
         phys_lay.addWidget(self.contrast_edit, 0, 1)
         self.contrast_fit_cb = QCheckBox('Fit')
         self.contrast_fit_cb.stateChanged.connect(self._emit_changed)
@@ -521,6 +524,11 @@ class PopulationTab(QWidget):
         self.scale_hi_edit.setFixedWidth(70)
         self.scale_hi_edit.editingFinished.connect(self._emit_changed)
         phys_lay.addWidget(self.scale_hi_edit, 1, 4)
+
+        # Register hard bounds for contrast and scale so _update_single_row_limits
+        # can clamp the auto-bracket when the user edits these custom fields.
+        self._hard_bounds[id(self.contrast_lo_edit)] = (0.0, 1e10)
+        self._hard_bounds[id(self.scale_lo_edit)]    = (1e-8, 1.0)
 
         phys_lay.addWidget(QLabel('Volume fraction (Vf):'), 2, 0)
         self.vf_label = QLabel('0.001')
@@ -765,6 +773,13 @@ class PopulationTab(QWidget):
         # to the user's current editable limits, so the button always resets
         # the bracket even when the user has already narrowed the fields.
         self._hard_bounds[id(lo_edit)] = (lo, hi)
+        # Auto-update limits when the value changes (scrub or Enter), matching
+        # the Unified Fit tool's behaviour.  Uses the same bracket + hard-bound
+        # clamping as fix_limits(), but for this single row only.
+        val_edit.editingFinished.connect(
+            lambda ve=val_edit, le=lo_edit, he=hi_edit:
+                self._update_single_row_limits(ve, le, he)
+        )
         return store
 
     # ── Dynamic parameter rebuilding ─────────────────────────────────────────
@@ -1000,6 +1015,8 @@ class PopulationTab(QWidget):
         disc = max(1.0 - 4.0 * scale, 0.0)
         vf = 0.5 * (1.0 - disc ** 0.5)
         self.vf_label.setText(f'{vf:.5f}')
+        self._update_single_row_limits(
+            self.scale_edit, self.scale_lo_edit, self.scale_hi_edit)
         self._emit_changed()
 
     def _emit_changed(self, *_):
@@ -1073,6 +1090,33 @@ class PopulationTab(QWidget):
                            (self.contrast_lo_edit, self.contrast_hi_edit)):
             lo_w.setVisible(not no_limits)
             hi_w.setVisible(not no_limits)
+
+    def _update_single_row_limits(self, val_edit, lo_edit, hi_edit):
+        """Apply the 0.2×…5× bracket to one parameter row.
+
+        Called automatically when the user changes a value (scrub or Enter)
+        so that the fit limits track the current value, matching the Unified
+        Fit tool's behaviour.  Uses the same hard-bound clamping as
+        ``fix_limits()`` so naturally-restricted params stay in valid ranges.
+        Skips zero values (limit stays wherever the user left it).
+        """
+        try:
+            v = float(val_edit.text())
+        except (ValueError, TypeError):
+            return
+        hard_lo, hard_hi = self._hard_bounds.get(id(lo_edit), (-np.inf, np.inf))
+        if v > 0:
+            b_lo, b_hi = v * 0.2, v * 5.0
+        elif v < 0:
+            b_lo, b_hi = v * 5.0, v * 0.2
+        else:
+            return  # zero: leave existing limits
+        new_lo = max(b_lo, hard_lo)
+        new_hi = min(b_hi, hard_hi)
+        if not (new_lo < new_hi):
+            new_lo, new_hi = hard_lo, hard_hi
+        lo_edit.setText(_fmt(new_lo))
+        hi_edit.setText(_fmt(new_hi))
 
     def fix_limits(self):
         """Set every parameter's fit limits to a ≈0.2× … 5× bracket around its
