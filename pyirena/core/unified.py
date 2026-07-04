@@ -509,9 +509,17 @@ class UnifiedFitModel:
 
         self.reduced_chi_squared = self.chi_squared / dof if dof > 0 else np.inf
 
-        # Prepare results dictionary
+        # 'success' means the fit ran to completion and returned finite, valid
+        # parameters — NOT scipy's internal convergence status. scipy marks a
+        # result as success=False when the last restart hit max_nfev or a loose
+        # tolerance, even when chi2 is fully converged and the parameters are
+        # physically meaningful (e.g. chi2=5000 on noisy/complex data is a
+        # valid, usable result that the GUI correctly accepts as "success").
+        # Tying success to scipy's flag causes batch scripts to report the same
+        # fit as "failed" that the GUI shows as "Fit completed successfully!".
+        fit_succeeded = np.isfinite(self.chi_squared) and len(self.levels) > 0
         results = {
-            'success': self.fit_result.success,
+            'success': fit_succeeded,
             'message': self.fit_result.message,
             'chi_squared': self.chi_squared,
             'reduced_chi_squared': self.reduced_chi_squared,

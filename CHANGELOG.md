@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Unified Fit: `success` flag is now consistent between GUI and scripting.**
+  The GUI showed "Fit completed successfully!" (green bar) for any fit that
+  returned a finite result — including ones with large chi² on complex or noisy
+  data — but `batch.fit_unified()` / scripting reported the same fit as
+  `'success': False` because it passed scipy's internal convergence status
+  through directly. scipy's `success` flag means "a tolerance was met by the
+  optimizer" — it is independent of chi² magnitude and can be `False` even on a
+  fully-converged restart loop. The `fit()` method in `unified.py` now sets
+  `success = np.isfinite(chi_squared)` (fit ran to completion and returned a
+  valid result), matching the GUI's effective rule. A fit with chi²=5000 /
+  reduced chi²=111 is now reported as `success=True` everywhere.
+
 - **Unified Fit and Modeling: fit now converges in a single press.**
   Least-squares fitting previously terminated far short of the true minimum
   and only crept toward the optimum each time the user re-pressed **Fit**
