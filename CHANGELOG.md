@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Modeling & Size Distribution: MC uncertainties now reach the graph label.**
+  - **Modeling**: the Monte-Carlo result is no longer shown in a transient
+    blocking dialog; the ±1σ parameter list is written into the graph-window
+    status area (green report), matching the Unified Fit tool. **Results to
+    Graph** now shows each fitted parameter's MC uncertainty in the annotation.
+    The lookup is group-agnostic, so it works for every population type:
+    size distribution (incl. `volume_fraction`, propagated from the fitted
+    `scale`), Unified Fit level (G/Rg/B/P), Guinier-Porod (G/Rg1/s1/P/Rg2/s2),
+    diffraction peak (position/amplitude/width), and mass/surface fractals.
+    Purely-derived quantities with no single fitted parameter (e.g. the Unified
+    `invariant`) remain without a ± by design.
+  - **Size Distribution**: the MC scalar uncertainties (Rg, Vf, peak r) are now
+    retained after the MC run so **Results to Graph** re-displays them in the
+    plot annotation; they are cleared on a new fit or data load so stale values
+    never carry over.
+
 ### Added
 
 - **Complex-background prefit-between-cursors helpers (Simple Fits + Modeling).**
