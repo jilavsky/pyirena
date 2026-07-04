@@ -486,6 +486,9 @@ class PopulationTab(QWidget):
         self.contrast_edit.setText('1.0')
         self.contrast_edit.setFixedWidth(90)
         self.contrast_edit.editingFinished.connect(self._emit_changed)
+        self.contrast_edit.editingFinished.connect(
+            lambda: self._update_single_row_limits(
+                self.contrast_edit, self.contrast_lo_edit, self.contrast_hi_edit))
         phys_lay.addWidget(self.contrast_edit, 0, 1)
         self.contrast_fit_cb = QCheckBox('Fit')
         self.contrast_fit_cb.stateChanged.connect(self._emit_changed)
@@ -521,6 +524,11 @@ class PopulationTab(QWidget):
         self.scale_hi_edit.setFixedWidth(70)
         self.scale_hi_edit.editingFinished.connect(self._emit_changed)
         phys_lay.addWidget(self.scale_hi_edit, 1, 4)
+
+        # Register hard bounds for contrast and scale so _update_single_row_limits
+        # can clamp the auto-bracket when the user edits these custom fields.
+        self._hard_bounds[id(self.contrast_lo_edit)] = (0.0, 1e10)
+        self._hard_bounds[id(self.scale_lo_edit)]    = (1e-8, 1.0)
 
         phys_lay.addWidget(QLabel('Volume fraction (Vf):'), 2, 0)
         self.vf_label = QLabel('0.001')
@@ -765,6 +773,13 @@ class PopulationTab(QWidget):
         # to the user's current editable limits, so the button always resets
         # the bracket even when the user has already narrowed the fields.
         self._hard_bounds[id(lo_edit)] = (lo, hi)
+        # Auto-update limits when the value changes (scrub or Enter), matching
+        # the Unified Fit tool's behaviour.  Uses the same bracket + hard-bound
+        # clamping as fix_limits(), but for this single row only.
+        val_edit.editingFinished.connect(
+            lambda ve=val_edit, le=lo_edit, he=hi_edit:
+                self._update_single_row_limits(ve, le, he)
+        )
         return store
 
     # ── Dynamic parameter rebuilding ─────────────────────────────────────────
@@ -1000,11 +1015,49 @@ class PopulationTab(QWidget):
         disc = max(1.0 - 4.0 * scale, 0.0)
         vf = 0.5 * (1.0 - disc ** 0.5)
         self.vf_label.setText(f'{vf:.5f}')
+        self._update_single_row_limits(
+            self.scale_edit, self.scale_lo_edit, self.scale_hi_edit)
         self._emit_changed()
 
     def _emit_changed(self, *_):
         if not self._building:
             self.changed.emit()
+
+    # ── Public accessors for background prefit (used by ModelingPanel) ─────────
+
+    def current_pop_type(self) -> str:
+        """Return the selected population type key (e.g. 'unified_level')."""
+        return self.pop_type_combo.currentData() or 'size_dist'
+
+    def is_unified_level(self) -> bool:
+        """True when this tab is a Unified Fit Level population."""
+        return self.current_pop_type() == 'unified_level'
+
+    def uf_p_is_fit(self) -> bool:
+        """True if the Unified-Level P parameter's 'Fit?' box is checked."""
+        row = self._uf_rows.get('P')
+        return bool(row[2].isChecked()) if row is not None else True
+
+    def uf_current_p(self, default: float = 4.0) -> float:
+        """Return the current Unified-Level P value from its edit field."""
+        row = self._uf_rows.get('P')
+        if row is None:
+            return default
+        try:
+            return float(row[1].text())
+        except (ValueError, TypeError):
+            return default
+
+    def set_uf_power_law(self, B: float, P: float | None = None):
+        """Write prefit B (and optionally P) into the Unified-Level widgets."""
+        b_row = self._uf_rows.get('B')
+        if b_row is not None:
+            b_row[1].setText(_fmt(B))
+        if P is not None:
+            p_row = self._uf_rows.get('P')
+            if p_row is not None:
+                p_row[1].setText(_fmt(P))
+        self._emit_changed()
 
     def set_derived(self, derived: dict):
         """Populate the Derived Results panel with post-fit computed quantities."""
@@ -1037,6 +1090,33 @@ class PopulationTab(QWidget):
                            (self.contrast_lo_edit, self.contrast_hi_edit)):
             lo_w.setVisible(not no_limits)
             hi_w.setVisible(not no_limits)
+
+    def _update_single_row_limits(self, val_edit, lo_edit, hi_edit):
+        """Apply the 0.2×…5× bracket to one parameter row.
+
+        Called automatically when the user changes a value (scrub or Enter)
+        so that the fit limits track the current value, matching the Unified
+        Fit tool's behaviour.  Uses the same hard-bound clamping as
+        ``fix_limits()`` so naturally-restricted params stay in valid ranges.
+        Skips zero values (limit stays wherever the user left it).
+        """
+        try:
+            v = float(val_edit.text())
+        except (ValueError, TypeError):
+            return
+        hard_lo, hard_hi = self._hard_bounds.get(id(lo_edit), (-np.inf, np.inf))
+        if v > 0:
+            b_lo, b_hi = v * 0.2, v * 5.0
+        elif v < 0:
+            b_lo, b_hi = v * 5.0, v * 0.2
+        else:
+            return  # zero: leave existing limits
+        new_lo = max(b_lo, hard_lo)
+        new_hi = min(b_hi, hard_hi)
+        if not (new_lo < new_hi):
+            new_lo, new_hi = hard_lo, hard_hi
+        lo_edit.setText(_fmt(new_lo))
+        hi_edit.setText(_fmt(new_hi))
 
     def fix_limits(self):
         """Set every parameter's fit limits to a ≈0.2× … 5× bracket around its
@@ -1716,7 +1796,7 @@ class ModelingGraphWindow(QWidget):
         # Status bar
         self.status_lbl = QLabel('')
         self.status_lbl.setWordWrap(True)
-        self.status_lbl.setMaximumHeight(50)
+        self.status_lbl.setMaximumHeight(160)
         self.status_lbl.setStyleSheet(
             'padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt;'
         )
@@ -2141,6 +2221,7 @@ class ModelingPanel(QWidget):
 
         self._build_ui()
         self._load_state()
+        self._update_prefit_buttons_enabled()
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -2285,6 +2366,43 @@ class ModelingPanel(QWidget):
         )
         bg_row.addWidget(self.de_workers_spin)
         lay.addLayout(bg_row)
+
+        # ── Background prefit helpers (Unified-Level B/P + global flat) ────
+        # Small helper buttons that prefit the power-law / flat background over
+        # the cursor-selected Q window, mirroring the Unified Fit tool and the
+        # Simple Fits complex-background prefit.  "Fit B/P" targets the active
+        # population's Unified-Level B and P (respecting P's "Fit?" box); it is
+        # only enabled when the current tab is a Unified Fit Level population.
+        # "Fit Flat" targets the global Background field above.
+        bg_prefit_row = QHBoxLayout()
+        _bg_helper_style = (
+            'QPushButton { font-size: 10px; padding: 1px 6px; background-color: #ecf0f1; }'
+            'QPushButton:hover { background-color: #dfe4e6; }'
+            'QPushButton:disabled { color: #aaa; }'
+        )
+        self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
+        self.prefit_bp_btn.setMaximumHeight(22)
+        self.prefit_bp_btn.setStyleSheet(_bg_helper_style)
+        self.prefit_bp_btn.setToolTip(
+            'Prefit the active Unified-Level population’s power-law B·Q⁻ᴾ to the '
+            'data between the two cursors.\nIf P’s "Fit?" box is unchecked, only '
+            'B is fit at the current P.\nEnabled only for Unified Fit Level '
+            'populations.'
+        )
+        self.prefit_bp_btn.clicked.connect(self._prefit_uf_power_law)
+        bg_prefit_row.addWidget(self.prefit_bp_btn)
+
+        self.prefit_flat_btn = QPushButton('Fit Flat btwn cursors')
+        self.prefit_flat_btn.setMaximumHeight(22)
+        self.prefit_flat_btn.setStyleSheet(_bg_helper_style)
+        self.prefit_flat_btn.setToolTip(
+            'Prefit the global flat Background to the data between the two cursors '
+            '(median of I − model over the range, or median I if no model yet).'
+        )
+        self.prefit_flat_btn.clicked.connect(self._prefit_flat_background)
+        bg_prefit_row.addWidget(self.prefit_flat_btn)
+        bg_prefit_row.addStretch()
+        lay.addLayout(bg_prefit_row)
 
         # ── Display options (autoupdate + individual population curve) ────
         opt_row = QHBoxLayout()
@@ -2570,6 +2688,9 @@ class ModelingPanel(QWidget):
     def _on_pop_changed(self):
         # Throttled autoupdate: only fires when "Autoupdate?" is checked.
         # The user presses "Graph Model" manually when autoupdate is off.
+        # A population's type may have just changed, so keep the B/P prefit
+        # button's enabled state in sync with the active tab.
+        self._update_prefit_buttons_enabled()
         self._request_auto_update()
 
     def _request_auto_update(self):
@@ -2613,7 +2734,98 @@ class ModelingPanel(QWidget):
     def _on_pop_tab_changed(self, _index):
         """When the selected population tab changes, refresh the individual
         curve overlay if that display mode is active."""
+        self._update_prefit_buttons_enabled()
         if self.show_individual_cb.isChecked() and self._data_q is not None:
+            self.graph_model(silent=True)
+
+    def _active_pop_tab(self) -> 'PopulationTab | None':
+        """Return the currently selected PopulationTab, or None."""
+        idx = self.pop_tabs.currentIndex()
+        if 0 <= idx < len(self._pop_widgets):
+            return self._pop_widgets[idx]
+        return None
+
+    def _update_prefit_buttons_enabled(self):
+        """Enable 'Fit B/P' only when the active tab is a Unified Fit Level."""
+        if not hasattr(self, 'prefit_bp_btn'):
+            return
+        tab = self._active_pop_tab()
+        self.prefit_bp_btn.setEnabled(tab is not None and tab.is_unified_level())
+
+    def _prefit_cursor_data(self):
+        """Return (q, I, q_min, q_max) sliced to the cursor Q window, or None.
+
+        Selects finite, positive-Q, positive-I points inside the current cursor
+        range.  Shows a status message and returns None when unavailable.
+        """
+        if self._data_q is None:
+            self.graph.set_status('Load data before prefitting the background.', 'warning')
+            return None
+        q_min, q_max = self.graph.get_q_range()
+        q = self._data_q
+        I = self._data_I
+        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+        mask &= (q >= q_min) & (q <= q_max)
+        if mask.sum() < 1:
+            self.graph.set_status('No data points between the cursors.', 'warning')
+            return None
+        return q[mask], I[mask], float(q[mask].min()), float(q[mask].max())
+
+    def _prefit_uf_power_law(self):
+        """Prefit the active Unified-Level population's B·Q⁻ᴾ over the cursors.
+
+        Respects the population's P "Fit?" checkbox: unchecked → fit only B at
+        the current P; checked → fit both B and P.  Writes starting values into
+        the population widgets (does not run the full fit).
+        """
+        from pyirena.core.saxs_morph import fit_power_law_bg, fit_power_law_bg_fixed_p
+
+        tab = self._active_pop_tab()
+        if tab is None or not tab.is_unified_level():
+            self.graph.set_status(
+                'Select a Unified Fit Level population tab first.', 'warning')
+            return
+
+        sliced = self._prefit_cursor_data()
+        if sliced is None:
+            return
+        q, I, q_min, q_max = sliced
+        if len(q) < 2:
+            self.graph.set_status('Need ≥2 points between the cursors for B/P.', 'warning')
+            return
+
+        if tab.uf_p_is_fit():
+            B, P = fit_power_law_bg(q, I, q_min, q_max)
+            tab.set_uf_power_law(B, P)
+        else:
+            P = tab.uf_current_p()
+            B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
+            tab.set_uf_power_law(B)   # leave P as the user set it
+
+        self.graph.set_status(f'Prefit power-law: B={B:.4g}  P={P:.4g}', 'success')
+        if self._data_q is not None:
+            self.graph_model(silent=True)
+
+    def _prefit_flat_background(self):
+        """Prefit the global flat Background as the median intensity over cursors.
+
+        The user places the cursors over a high-Q window where the structural
+        scattering has decayed to the flat noise floor; the median of I there is
+        a robust estimate of the flat background.  (Median, not mean, because
+        high-Q data is long-tailed.)  Writes a starting value into the global
+        Background field; does not run the full fit.
+        """
+        sliced = self._prefit_cursor_data()
+        if sliced is None:
+            return
+        q, I, q_min, q_max = sliced
+        flat = float(np.median(I))
+        self.bg_edit.setText(_fmt(flat))
+        self._on_pop_changed()
+        self.graph.set_status(
+            f'Prefit flat background = {flat:.4g}  '
+            f'(median I over {q_min:.3g}–{q_max:.3g} Å⁻¹)', 'success')
+        if self._data_q is not None:
             self.graph_model(silent=True)
 
     def fix_all_limits(self):
@@ -3080,18 +3292,18 @@ class ModelingPanel(QWidget):
 
         self.btn_mc.setEnabled(True)
         self.btn_fit.setEnabled(True)
-        self.graph.set_status('MC uncertainty estimation complete.', 'success')
 
         if stds:
             from pyirena.gui.fmt_utils import eng_fmt
-            lines = [f'  {k}: ± {eng_fmt(v)}' for k, v in sorted(stds.items())]
-            QMessageBox.information(
-                self, 'MC Uncertainties',
-                'Parameter standard deviations:\n' + '\n'.join(lines),
-            )
+            lines = ['MC uncertainties (±1σ):'] + [
+                f'  {k}: ± {eng_fmt(v)}' for k, v in sorted(stds.items())
+            ]
+            self.graph.set_status('\n'.join(lines), 'success')
         else:
-            QMessageBox.information(self, 'MC Uncertainties',
-                                    'No fittable parameters or too few successful runs.')
+            self.graph.set_status(
+                'MC uncertainty: no fittable parameters or too few successful runs.',
+                'warning',
+            )
 
     def _on_mc_error(self, msg: str):
         self.graph.set_status(f'MC error: {msg}', 'error')
@@ -3286,16 +3498,43 @@ class ModelingPanel(QWidget):
         result = self._last_result
         lines = [f'χ²/dof = {eng_fmt(result.reduced_chi_squared)}']
         stds = result.params_std or {}
+
+        def _valid(s):
+            return s is not None and np.isfinite(s) and s > 0
+
         for k, d in enumerate(result.derived):
             pi = result.pop_indices[k]
             pop = result.config.populations[pi]
             pop_label = getattr(pop, 'label', '') or f'P{pi+1}'
+
+            # Build a {param_name: std} map for this population by stripping the
+            # 'pop{n}_{group}_' prefix.  MC std keys use the fitted-parameter
+            # group (dist/ff/sf/uf/gp/mf/peak/scale/contrast); the derived-dict
+            # names (B, G, Rg, P, position, …) usually match the fitted name,
+            # so a prefix-stripped lookup covers all population types.
+            pop_tag = f'pop{pi+1}'
+            pop_stds: dict[str, float] = {}
+            for full_key, sval in stds.items():
+                parts = full_key.split('_', 2)        # ['pop2', 'uf', 'B']
+                if len(parts) != 3 or parts[0] != pop_tag:
+                    continue
+                param_name = parts[2]                 # 'B' or 'scale'
+                if _valid(sval):
+                    pop_stds[param_name] = float(sval)
+
             for name, val in d.items():
                 if val is None:
                     continue
-                std_key = f'pop{pi+1}_derived_{name}'
-                std = stds.get(std_key)
-                if std is not None and np.isfinite(std) and std > 0:
+                std = pop_stds.get(name)
+                # volume_fraction is derived from the fitted 'scale' param —
+                # propagate scale's uncertainty:  vf = 0.5(1 - sqrt(1-4·scale)),
+                # dvf/dscale = 1/sqrt(1-4·scale).
+                if std is None and name == 'volume_fraction':
+                    scale_std = pop_stds.get('scale')
+                    scale_val = getattr(pop, 'scale', None)
+                    if _valid(scale_std) and scale_val is not None and (1.0 - 4.0 * scale_val) > 0:
+                        std = scale_std / np.sqrt(1.0 - 4.0 * scale_val)
+                if _valid(std):
                     lines.append(f'{pop_label}: {name} = {eng_fmt(val)} ± {eng_fmt(std, sig=3)}')
                 else:
                     lines.append(f'{pop_label}: {name} = {eng_fmt(val)}')

@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modeling & Size Distribution: MC uncertainties now reach the graph label.**
+  - **Modeling**: the Monte-Carlo result is no longer shown in a transient
+    blocking dialog; the ±1σ parameter list is written into the graph-window
+    status area (green report), matching the Unified Fit tool. **Results to
+    Graph** now shows each fitted parameter's MC uncertainty in the annotation.
+    The lookup is group-agnostic, so it works for every population type:
+    size distribution (incl. `volume_fraction`, propagated from the fitted
+    `scale`), Unified Fit level (G/Rg/B/P), Guinier-Porod (G/Rg1/s1/P/Rg2/s2),
+    diffraction peak (position/amplitude/width), and mass/surface fractals.
+    Purely-derived quantities with no single fitted parameter (e.g. the Unified
+    `invariant`) remain without a ± by design.
+  - **Size Distribution**: the MC scalar uncertainties (Rg, Vf, peak r) are now
+    retained after the MC run so **Results to Graph** re-displays them in the
+    plot annotation; they are cleared on a new fit or data load so stale values
+    never carry over.
+
+### Added
+
+- **Complex-background prefit-between-cursors helpers (Simple Fits + Modeling).**
+  The power-law background prefactor spans many decades and is painful to set by
+  hand, so both tools now offer small "Fit … btwn cursors" helper buttons that
+  prefit the background over the cursor-selected Q window (mirroring the Unified
+  Fit tool's local-fit pattern). No full fit is run — results are written as
+  starting values.
+  - **Simple Fits** (shown only when "Complex background" is active): **Fit B/P
+    btwn cursors** fits the power-law `B·Q⁻ᴾ`; if P's "Fit?" box is unchecked,
+    only B is fit at the current (model-guided) P. **Fit Flat btwn cursors**
+    estimates the flat term from the median residual over the window.
+  - **Modeling** (Unified-Fit-Level population): **Fit B/P btwn cursors**
+    (enabled only when the active population tab is a Unified Fit Level) fits
+    that population's B/P, respecting its P "Fit?" box. **Fit Flat btwn cursors**
+    sets the global flat Background to the median intensity over the cursor
+    window (place cursors on a flat high-Q region).
+  - New reusable core helper `fit_power_law_bg_fixed_p()` in `saxs_morph.py`
+    (closed-form median estimate of B at a fixed P), alongside the existing
+    `fit_power_law_bg()` / `fit_flat_bg()`.
+
+### Changed
+
+- **Modeling: parameter limits auto-update when a value is changed.** Scrubbing
+  or typing a new value in any population-tab parameter field (including Scale and
+  Contrast) now immediately updates that parameter's lo/hi limits to a 0.2×…5×
+  bracket around the new value, clamped to the parameter's hard physical bounds.
+  Matches the Unified Fit tool's long-standing behaviour. The "Fix limits?" button
+  continues to reset all parameters at once.
+
+- **Simple Fits: complex-background symbols now use B / P / flat.** The checkbox
+  now reads `B·Q⁻ᴾ + flat` (was `A·Q⁻ⁿ + flat`) and the power-law prefactor is
+  labelled **B** (was `BG_G`), matching the Unified Fit convention (B = prefactor,
+  P = exponent). Internal state keys were renamed `BG_G → BG_B` (P and flat keys
+  unchanged); the parameter grid shows friendly B/P/flat labels. Old saved states
+  containing the previous `BG_G` key load without error — the stale key is simply
+  not restored (re-enter B if needed).
+
+### Fixed
+
 - **Simple Fits: bottom linearization graph now tracks the selected model,
   bounds its axes, and hides when unavailable.** The linearization panel
   (Guinier ln(I) vs Q², Porod I·Q⁴ vs Q⁴, …) was only redrawn after a *Fit*, so

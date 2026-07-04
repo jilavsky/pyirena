@@ -887,6 +887,9 @@ class SizesFitPanel(QWidget):
         self._last_distribution = None      # Tuple (r, P) from last fit/compute
         self._param_backup = None           # For revert functionality
         self._pending_cursor_q_range = None # Q range restored after data load
+        self._mc_rg_std = None              # MC scalar uncertainties (None until MC run)
+        self._mc_vf_std = None
+        self._mc_pr_std = None
         self._feature_dialog = None         # Feature Identifier (non-modal)
 
         self.state_manager = StateManager()
@@ -1834,6 +1837,9 @@ class SizesFitPanel(QWidget):
         }
         self.fit_result = None
         self._last_distribution = None
+        self._mc_rg_std = None
+        self._mc_vf_std = None
+        self._mc_pr_std = None
 
         if hasattr(self, 'data_loader'):
             self.data_loader.set_filename(label)
@@ -2047,6 +2053,10 @@ class SizesFitPanel(QWidget):
 
             self.fit_result = result
             self.sizes = s  # Store fitted object
+            # Clear stale MC uncertainties from a previous run
+            self._mc_rg_std = None
+            self._mc_vf_std = None
+            self._mc_pr_std = None
 
             r_grid = result['r_grid']
             distribution = result['distribution']
@@ -2406,6 +2416,11 @@ class SizesFitPanel(QWidget):
         pr_mean  = float(np.nanmean(peak_r_vals))
         pr_std   = float(np.nanstd(peak_r_vals, ddof=min(1, n_ok - 1)))
 
+        # Store MC scalar stats so _results_to_graph can include uncertainties
+        self._mc_rg_std   = rg_std
+        self._mc_vf_std   = vf_std
+        self._mc_pr_std   = pr_std
+
         # Update result fields with ± notation (2 sig figs on uncertainty)
         self.result_rg.setText(_fmt_unc(rg_mean, rg_std))
         self.result_vf.setText(_fmt_unc(vf_mean, vf_std))
@@ -2494,11 +2509,24 @@ class SizesFitPanel(QWidget):
         q_pos = float(qv[anchor_idx])
         y_pos = float(iv[anchor_idx])
 
+        # MC uncertainties stored by calculate_uncertainty() (None if MC not run)
+        rg_std = getattr(self, '_mc_rg_std', None)
+        vf_std = getattr(self, '_mc_vf_std', None)
+        pr_std = getattr(self, '_mc_pr_std', None)
+
+        def _with_unc(val, std, unit=''):
+            if std is not None and np.isfinite(std) and std > 0:
+                return f"{eng_fmt(val)}{unit} ± {eng_fmt(std)}{unit}"
+            return f"{eng_fmt(val)}{unit}"
+
         # Build the annotation text.  Skip values the fit didn't supply.
         lines = ["Sizes fit:"]
-        if rg     is not None and np.isfinite(rg):     lines.append(f"Rg     = {eng_fmt(rg)} Å")
-        if peak_r is not None and np.isfinite(peak_r): lines.append(f"Peak r = {eng_fmt(peak_r)} Å")
-        if vf     is not None and np.isfinite(vf):     lines.append(f"Vf     = {eng_fmt(vf, sig=4)}")
+        if rg     is not None and np.isfinite(rg):
+            lines.append(f"Rg     = {_with_unc(rg, rg_std, ' Å')}")
+        if peak_r is not None and np.isfinite(peak_r):
+            lines.append(f"Peak r = {_with_unc(peak_r, pr_std, ' Å')}")
+        if vf     is not None and np.isfinite(vf):
+            lines.append(f"Vf     = {_with_unc(vf, vf_std)}")
         if chi2   is not None and np.isfinite(chi2):
             chi2_line = f"χ²     = {eng_fmt(chi2)}"
             if n_data:
