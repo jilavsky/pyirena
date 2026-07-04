@@ -3505,9 +3505,15 @@ class ModelingPanel(QWidget):
             for name, val in d.items():
                 if val is None:
                     continue
-                std_key = f'pop{pi+1}_derived_{name}'
-                std = stds.get(std_key)
-                if std is not None and np.isfinite(std) and std > 0:
+                # MC std keys are 'pop{n}_{group}_{name}' where group is dist/ff/sf.
+                # Try each group in turn; also keep the old 'derived' key as fallback.
+                std = None
+                for grp in ('dist', 'ff', 'sf', 'derived'):
+                    candidate = stds.get(f'pop{pi+1}_{grp}_{name}')
+                    if candidate is not None and np.isfinite(candidate) and candidate > 0:
+                        std = candidate
+                        break
+                if std is not None:
                     lines.append(f'{pop_label}: {name} = {eng_fmt(val)} ± {eng_fmt(std, sig=3)}')
                 else:
                     lines.append(f'{pop_label}: {name} = {eng_fmt(val)}')
