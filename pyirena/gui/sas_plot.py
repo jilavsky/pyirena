@@ -1021,7 +1021,7 @@ def save_itx_from_plot(
         r, g, b = _hex_to_igor(color)
         lines.append(f'X ModifyGraph rgb({yn})=({r},{g},{b})')
         if en is not None:
-            lines.append(f'X ErrorBars {yn} Y,wave=({{{en},{en}}})')
+            lines.append(f'X ErrorBars {yn} Y,wave=({en},{en})')
 
     if x_label:
         lines.append(f'X Label bottom "{x_label}"')

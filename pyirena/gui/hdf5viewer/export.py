@@ -269,7 +269,7 @@ def save_itx(gw: "GraphWindow", filepath: str | None = None) -> bool:
         r, g, b = _hex_to_igor(color)
         lines.append(f"X ModifyGraph rgb({yn})=({r},{g},{b})")
         if en is not None:
-            lines.append(f"X ErrorBars {yn} Y,wave=({{{en},{en}}})")
+            lines.append(f"X ErrorBars {yn} Y,wave=({en},{en})")
 
     # ── Axis labels ───────────────────────────────────────────────────────
     x_label = gw.get_x_label()
