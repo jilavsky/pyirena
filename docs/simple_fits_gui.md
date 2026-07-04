@@ -128,7 +128,7 @@ The spheroid orientational average is computed with Gauss-Legendre quadrature
 (50-point rule) for efficiency.
 
 Both models support complex background.  A flat background can be added via the
-complex background option (set BG_G = 0, BG_flat = desired value).
+complex background option (set B = 0, flat = desired value).
 
 ### Correlation models
 
@@ -158,21 +158,34 @@ any other parameter.
 Check **"Complex background"** to add a background term of the form:
 
 ```
-BG(Q) = BG_G · Q^(−BG_P) + BG_flat
+BG(Q) = B · Q^(−P) + flat
 ```
 
-Three additional parameters appear:
+Three additional parameters appear in the grid, labelled **B**, **P**, **flat**
+(stored internally as `BG_B`, `BG_P`, `BG_flat`):
 
 | Parameter | Meaning | Typical use |
 |-----------|---------|-------------|
-| `BG_G` | Power-law amplitude | Parasitic scattering |
-| `BG_P` | Power-law exponent | Usually 4 (Porod) |
-| `BG_flat` | Flat (incoherent) background | Incoherent scattering |
+| `B` | Power-law prefactor | Parasitic scattering |
+| `P` | Power-law exponent | Usually 4 (Porod) |
+| `flat` | Flat (incoherent) background | Incoherent scattering |
 
-The naming mirrors the Unified Fit convention (G for amplitude, P for exponent).
+The naming mirrors the Unified Fit convention (B for prefactor, P for exponent).
 
-To add only a flat background: set `BG_G = 0` (fixed) and fit `BG_flat`.
-To model a Porod-law background: fix `BG_P = 4` and fit `BG_G`.
+To add only a flat background: set `B = 0` (fixed) and fit `flat`.
+To model a Porod-law background: fix `P = 4` and fit `B`.
+
+**Prefit helpers.**  When complex background is active, two small buttons appear
+below the parameter grid:
+
+- **Fit B/P btwn cursors** — fits the power-law `B·Q⁻ᴾ` to the data between the
+  two cursors and writes the result as starting values.  If P's "Fit?" box is
+  unchecked, only B is fit at the current (model-guided) P.
+- **Fit Flat btwn cursors** — estimates the flat term from the median residual
+  over the cursor window (using the current B and P).
+
+Place the cursors over the low-Q power-law tail for **Fit B/P**, and over a
+high-Q region where the data has flattened for **Fit Flat**.
 
 ---
 

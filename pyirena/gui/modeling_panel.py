@@ -1006,6 +1006,42 @@ class PopulationTab(QWidget):
         if not self._building:
             self.changed.emit()
 
+    # ── Public accessors for background prefit (used by ModelingPanel) ─────────
+
+    def current_pop_type(self) -> str:
+        """Return the selected population type key (e.g. 'unified_level')."""
+        return self.pop_type_combo.currentData() or 'size_dist'
+
+    def is_unified_level(self) -> bool:
+        """True when this tab is a Unified Fit Level population."""
+        return self.current_pop_type() == 'unified_level'
+
+    def uf_p_is_fit(self) -> bool:
+        """True if the Unified-Level P parameter's 'Fit?' box is checked."""
+        row = self._uf_rows.get('P')
+        return bool(row[2].isChecked()) if row is not None else True
+
+    def uf_current_p(self, default: float = 4.0) -> float:
+        """Return the current Unified-Level P value from its edit field."""
+        row = self._uf_rows.get('P')
+        if row is None:
+            return default
+        try:
+            return float(row[1].text())
+        except (ValueError, TypeError):
+            return default
+
+    def set_uf_power_law(self, B: float, P: float | None = None):
+        """Write prefit B (and optionally P) into the Unified-Level widgets."""
+        b_row = self._uf_rows.get('B')
+        if b_row is not None:
+            b_row[1].setText(_fmt(B))
+        if P is not None:
+            p_row = self._uf_rows.get('P')
+            if p_row is not None:
+                p_row[1].setText(_fmt(P))
+        self._emit_changed()
+
     def set_derived(self, derived: dict):
         """Populate the Derived Results panel with post-fit computed quantities."""
         if not derived:
@@ -2141,6 +2177,7 @@ class ModelingPanel(QWidget):
 
         self._build_ui()
         self._load_state()
+        self._update_prefit_buttons_enabled()
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -2285,6 +2322,43 @@ class ModelingPanel(QWidget):
         )
         bg_row.addWidget(self.de_workers_spin)
         lay.addLayout(bg_row)
+
+        # ── Background prefit helpers (Unified-Level B/P + global flat) ────
+        # Small helper buttons that prefit the power-law / flat background over
+        # the cursor-selected Q window, mirroring the Unified Fit tool and the
+        # Simple Fits complex-background prefit.  "Fit B/P" targets the active
+        # population's Unified-Level B and P (respecting P's "Fit?" box); it is
+        # only enabled when the current tab is a Unified Fit Level population.
+        # "Fit Flat" targets the global Background field above.
+        bg_prefit_row = QHBoxLayout()
+        _bg_helper_style = (
+            'QPushButton { font-size: 10px; padding: 1px 6px; background-color: #ecf0f1; }'
+            'QPushButton:hover { background-color: #dfe4e6; }'
+            'QPushButton:disabled { color: #aaa; }'
+        )
+        self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
+        self.prefit_bp_btn.setMaximumHeight(22)
+        self.prefit_bp_btn.setStyleSheet(_bg_helper_style)
+        self.prefit_bp_btn.setToolTip(
+            'Prefit the active Unified-Level population’s power-law B·Q⁻ᴾ to the '
+            'data between the two cursors.\nIf P’s "Fit?" box is unchecked, only '
+            'B is fit at the current P.\nEnabled only for Unified Fit Level '
+            'populations.'
+        )
+        self.prefit_bp_btn.clicked.connect(self._prefit_uf_power_law)
+        bg_prefit_row.addWidget(self.prefit_bp_btn)
+
+        self.prefit_flat_btn = QPushButton('Fit Flat btwn cursors')
+        self.prefit_flat_btn.setMaximumHeight(22)
+        self.prefit_flat_btn.setStyleSheet(_bg_helper_style)
+        self.prefit_flat_btn.setToolTip(
+            'Prefit the global flat Background to the data between the two cursors '
+            '(median of I − model over the range, or median I if no model yet).'
+        )
+        self.prefit_flat_btn.clicked.connect(self._prefit_flat_background)
+        bg_prefit_row.addWidget(self.prefit_flat_btn)
+        bg_prefit_row.addStretch()
+        lay.addLayout(bg_prefit_row)
 
         # ── Display options (autoupdate + individual population curve) ────
         opt_row = QHBoxLayout()
@@ -2570,6 +2644,9 @@ class ModelingPanel(QWidget):
     def _on_pop_changed(self):
         # Throttled autoupdate: only fires when "Autoupdate?" is checked.
         # The user presses "Graph Model" manually when autoupdate is off.
+        # A population's type may have just changed, so keep the B/P prefit
+        # button's enabled state in sync with the active tab.
+        self._update_prefit_buttons_enabled()
         self._request_auto_update()
 
     def _request_auto_update(self):
@@ -2613,7 +2690,98 @@ class ModelingPanel(QWidget):
     def _on_pop_tab_changed(self, _index):
         """When the selected population tab changes, refresh the individual
         curve overlay if that display mode is active."""
+        self._update_prefit_buttons_enabled()
         if self.show_individual_cb.isChecked() and self._data_q is not None:
+            self.graph_model(silent=True)
+
+    def _active_pop_tab(self) -> 'PopulationTab | None':
+        """Return the currently selected PopulationTab, or None."""
+        idx = self.pop_tabs.currentIndex()
+        if 0 <= idx < len(self._pop_widgets):
+            return self._pop_widgets[idx]
+        return None
+
+    def _update_prefit_buttons_enabled(self):
+        """Enable 'Fit B/P' only when the active tab is a Unified Fit Level."""
+        if not hasattr(self, 'prefit_bp_btn'):
+            return
+        tab = self._active_pop_tab()
+        self.prefit_bp_btn.setEnabled(tab is not None and tab.is_unified_level())
+
+    def _prefit_cursor_data(self):
+        """Return (q, I, q_min, q_max) sliced to the cursor Q window, or None.
+
+        Selects finite, positive-Q, positive-I points inside the current cursor
+        range.  Shows a status message and returns None when unavailable.
+        """
+        if self._data_q is None:
+            self.graph.set_status('Load data before prefitting the background.', 'warning')
+            return None
+        q_min, q_max = self.graph.get_q_range()
+        q = self._data_q
+        I = self._data_I
+        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+        mask &= (q >= q_min) & (q <= q_max)
+        if mask.sum() < 1:
+            self.graph.set_status('No data points between the cursors.', 'warning')
+            return None
+        return q[mask], I[mask], float(q[mask].min()), float(q[mask].max())
+
+    def _prefit_uf_power_law(self):
+        """Prefit the active Unified-Level population's B·Q⁻ᴾ over the cursors.
+
+        Respects the population's P "Fit?" checkbox: unchecked → fit only B at
+        the current P; checked → fit both B and P.  Writes starting values into
+        the population widgets (does not run the full fit).
+        """
+        from pyirena.core.saxs_morph import fit_power_law_bg, fit_power_law_bg_fixed_p
+
+        tab = self._active_pop_tab()
+        if tab is None or not tab.is_unified_level():
+            self.graph.set_status(
+                'Select a Unified Fit Level population tab first.', 'warning')
+            return
+
+        sliced = self._prefit_cursor_data()
+        if sliced is None:
+            return
+        q, I, q_min, q_max = sliced
+        if len(q) < 2:
+            self.graph.set_status('Need ≥2 points between the cursors for B/P.', 'warning')
+            return
+
+        if tab.uf_p_is_fit():
+            B, P = fit_power_law_bg(q, I, q_min, q_max)
+            tab.set_uf_power_law(B, P)
+        else:
+            P = tab.uf_current_p()
+            B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
+            tab.set_uf_power_law(B)   # leave P as the user set it
+
+        self.graph.set_status(f'Prefit power-law: B={B:.4g}  P={P:.4g}', 'success')
+        if self._data_q is not None:
+            self.graph_model(silent=True)
+
+    def _prefit_flat_background(self):
+        """Prefit the global flat Background as the median intensity over cursors.
+
+        The user places the cursors over a high-Q window where the structural
+        scattering has decayed to the flat noise floor; the median of I there is
+        a robust estimate of the flat background.  (Median, not mean, because
+        high-Q data is long-tailed.)  Writes a starting value into the global
+        Background field; does not run the full fit.
+        """
+        sliced = self._prefit_cursor_data()
+        if sliced is None:
+            return
+        q, I, q_min, q_max = sliced
+        flat = float(np.median(I))
+        self.bg_edit.setText(_fmt(flat))
+        self._on_pop_changed()
+        self.graph.set_status(
+            f'Prefit flat background = {flat:.4g}  '
+            f'(median I over {q_min:.3g}–{q_max:.3g} Å⁻¹)', 'success')
+        if self._data_q is not None:
             self.graph_model(silent=True)
 
     def fix_all_limits(self):

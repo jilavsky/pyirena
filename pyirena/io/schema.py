@@ -212,8 +212,8 @@ TOOL_REGISTRY: dict[str, dict] = {
             _scalar("param_Rg",   "params/Rg",   "Å",  "Rg"),
             _scalar("param_B",    "params/B",    "",   "B (Porod constant)"),
             _scalar("param_P",    "params/P",    "",   "P (Porod exponent)"),
-            _scalar("param_BG_G", "params/BG_G", "1/cm", "Background (Guinier)"),
-            _scalar("param_BG_P", "params/BG_P", "1/cm", "Background (Porod)"),
+            _scalar("param_BG_B", "params/BG_B", "1/cm", "Background prefactor B"),
+            _scalar("param_BG_P", "params/BG_P", "",     "Background exponent P"),
         ],
         "sub_groups": None,
         # Note: model name is in group attribute @model; params/* keys vary per model.

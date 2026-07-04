@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Complex-background prefit-between-cursors helpers (Simple Fits + Modeling).**
+  The power-law background prefactor spans many decades and is painful to set by
+  hand, so both tools now offer small "Fit … btwn cursors" helper buttons that
+  prefit the background over the cursor-selected Q window (mirroring the Unified
+  Fit tool's local-fit pattern). No full fit is run — results are written as
+  starting values.
+  - **Simple Fits** (shown only when "Complex background" is active): **Fit B/P
+    btwn cursors** fits the power-law `B·Q⁻ᴾ`; if P's "Fit?" box is unchecked,
+    only B is fit at the current (model-guided) P. **Fit Flat btwn cursors**
+    estimates the flat term from the median residual over the window.
+  - **Modeling** (Unified-Fit-Level population): **Fit B/P btwn cursors**
+    (enabled only when the active population tab is a Unified Fit Level) fits
+    that population's B/P, respecting its P "Fit?" box. **Fit Flat btwn cursors**
+    sets the global flat Background to the median intensity over the cursor
+    window (place cursors on a flat high-Q region).
+  - New reusable core helper `fit_power_law_bg_fixed_p()` in `saxs_morph.py`
+    (closed-form median estimate of B at a fixed P), alongside the existing
+    `fit_power_law_bg()` / `fit_flat_bg()`.
+
+### Changed
+
+- **Simple Fits: complex-background symbols now use B / P / flat.** The checkbox
+  now reads `B·Q⁻ᴾ + flat` (was `A·Q⁻ⁿ + flat`) and the power-law prefactor is
+  labelled **B** (was `BG_G`), matching the Unified Fit convention (B = prefactor,
+  P = exponent). Internal state keys were renamed `BG_G → BG_B` (P and flat keys
+  unchanged); the parameter grid shows friendly B/P/flat labels. Old saved states
+  containing the previous `BG_G` key load without error — the stale key is simply
+  not restored (re-enter B if needed).
+
 ### Fixed
 
 - **Simple Fits: bottom linearization graph now tracks the selected model,

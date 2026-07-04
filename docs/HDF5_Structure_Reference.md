@@ -390,12 +390,12 @@ be group attributes (legacy) instead of datasets.
 | Model               | Free parameters                    |
 |---------------------|------------------------------------|
 | Guinier             | I0, Rg                             |
-| Porod               | B, P, BG_G, BG_P                   |
+| Porod               | B, P, BG_B, BG_P                   |
 | Guinier Sheet       | I0, Thickness                      |
-| Sphere              | I0, R, BG_G, BG_P                  |
-| Treubner-Strey      | I0, ksi (a), CorrLength, BG_G, BG_P|
-| Unified Born-Green  | I0, Rg, ETA, PACK, BG_G, BG_P      |
-| Debye Polymer Chain | I0, Rg, BG_G, BG_P                 |
+| Sphere              | I0, R, BG_B, BG_P                  |
+| Treubner-Strey      | I0, ksi (a), CorrLength, BG_B, BG_P|
+| Unified Born-Green  | I0, Rg, ETA, PACK, BG_B, BG_P      |
+| Debye Polymer Chain | I0, Rg, BG_B, BG_P                 |
 | ...                 | (see source)                        |
 
 ### 3.3 entry/sizes_results/ — Size Distribution

@@ -920,6 +920,29 @@ def fit_flat_bg(
     return float(np.median(I_w - pl))
 
 
+def fit_power_law_bg_fixed_p(
+    q: np.ndarray, I: np.ndarray,
+    q_min: float, q_max: float, P: float,
+) -> float:
+    """Estimate the power-law prefactor B for a **fixed** exponent P.
+
+    For ``I(Q) = B · Q**(-P)`` with P held at a user-supplied (model-guided)
+    value, the best single-parameter estimate is the median of ``I · Q**P``
+    over the window — the median makes it robust to the long-tailed noise of
+    a low-count Porod tail.  Companion to :func:`fit_power_law_bg` (which fits
+    both B and P); use this when the P "Fit?" checkbox is unchecked.
+
+    Falls back to ``0.0`` if the window contains fewer than 1 valid
+    (positive Q, positive I) point.
+    """
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    mask = (q >= q_min) & (q <= q_max) & (q > 0) & (I > 0)
+    if not np.any(mask):
+        return 0.0
+    return float(np.median(I[mask] * q[mask] ** P))
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------

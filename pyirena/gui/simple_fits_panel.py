@@ -45,6 +45,12 @@ from pyirena.gui.sas_plot import (
     add_plot_annotation, _SafeInfiniteLine, SASPlotStyle,
 )
 
+# Friendly display labels for the complex-background parameters.  The dict
+# *keys* stay ``BG_*`` (so persistence, HDF5 I/O and ``linearize()`` are
+# unaffected); only the label shown in the parameter grid uses these symbols,
+# matching the Unified Fit convention (B = prefactor, P = exponent).
+_BG_DISPLAY = {'BG_B': 'B', 'BG_P': 'P', 'BG_flat': 'flat'}
+
 
 # ===========================================================================
 # SimpleFitsGraphWindow
@@ -581,7 +587,7 @@ class SimpleFitsPanel(QWidget):
         self.no_limits_check.stateChanged.connect(self._on_no_limits_changed)
         options_row.addWidget(self.no_limits_check)
 
-        self.complex_bg_check = QCheckBox('Complex background  (A·Q⁻ⁿ + flat)')
+        self.complex_bg_check = QCheckBox('Complex background  (B·Q⁻ᴾ + flat)')
         self.complex_bg_check.setChecked(False)
         self.complex_bg_check.stateChanged.connect(self._on_complex_bg_changed)
         options_row.addWidget(self.complex_bg_check)
@@ -604,6 +610,45 @@ class SimpleFitsPanel(QWidget):
 
         # Build initial parameter widgets
         self._build_param_widgets()
+
+        # ── Complex-background prefit helpers (shown only when bg is active) ───
+        # Small helper buttons that prefit the power-law (B/P) or flat term over
+        # the cursor-selected Q window, so users don't have to guess B by hand.
+        # Mirrors the "Fit … btwn cursors" pattern from the Unified Fit tool.
+        self._bg_prefit_row = QWidget()
+        _bg_prefit_layout = QHBoxLayout(self._bg_prefit_row)
+        _bg_prefit_layout.setContentsMargins(0, 0, 0, 0)
+        _bg_prefit_layout.setSpacing(4)
+        _bg_helper_style = (
+            'QPushButton { font-size: 10px; padding: 1px 6px; background-color: #ecf0f1; }'
+            'QPushButton:hover { background-color: #dfe4e6; }'
+        )
+
+        self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
+        self.prefit_bp_btn.setMaximumHeight(22)
+        self.prefit_bp_btn.setStyleSheet(_bg_helper_style)
+        self.prefit_bp_btn.setToolTip(
+            'Prefit the background power-law B·Q⁻ᴾ to the data between the two '
+            'cursors.\nIf P’s "Fit?" box is unchecked, only B is fit at the '
+            'current (model-guided) P.\nResults are written as starting values '
+            'for the full Fit.'
+        )
+        self.prefit_bp_btn.clicked.connect(self._prefit_bg_power_law)
+        _bg_prefit_layout.addWidget(self.prefit_bp_btn)
+
+        self.prefit_flat_btn = QPushButton('Fit Flat btwn cursors')
+        self.prefit_flat_btn.setMaximumHeight(22)
+        self.prefit_flat_btn.setStyleSheet(_bg_helper_style)
+        self.prefit_flat_btn.setToolTip(
+            'Prefit the flat background term to the data between the two cursors '
+            '(median of I − B·Q⁻ᴾ over the range, using the current B and P).'
+        )
+        self.prefit_flat_btn.clicked.connect(self._prefit_bg_flat)
+        _bg_prefit_layout.addWidget(self.prefit_flat_btn)
+        _bg_prefit_layout.addStretch()
+
+        self._bg_prefit_row.setVisible(False)
+        layout.addWidget(self._bg_prefit_row)
 
         # ── Primary action buttons: [Graph model] [Fit] ───────────────────────
         btn_row1 = QHBoxLayout()
@@ -840,8 +885,8 @@ class SimpleFitsPanel(QWidget):
             grid.addWidget(fit_chk, row, 0, alignment=Qt.AlignmentFlag.AlignCenter)
             self._param_fit_checks[name] = fit_chk
 
-            # Col 1: Name label
-            name_lbl = QLabel(name + ':')
+            # Col 1: Name label (friendly symbol for BG_* params)
+            name_lbl = QLabel(_BG_DISPLAY.get(name, name) + ':')
             name_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             name_lbl.setStyleSheet('font-size: 11px;')
             grid.addWidget(name_lbl, row, 1)
@@ -902,6 +947,7 @@ class SimpleFitsPanel(QWidget):
                 self.model.limits.setdefault(name, (lo, hi))
         self._saved_param_fixed = {}   # reset "Fit?" state for new model
         self._build_param_widgets()
+        self._update_bg_prefit_visibility()
         self.fit_result = None
         self.chi2_label.setText('—')
         self.rchi2_label.setText('—')
@@ -923,6 +969,7 @@ class SimpleFitsPanel(QWidget):
                 self.model.params.setdefault(name, default)
                 self.model.limits.setdefault(name, (lo, hi))
         self._build_param_widgets()
+        self._update_bg_prefit_visibility()
         self.graph_window.clear_fit()
         self.graph_window.clear_result_annotations()
 
@@ -1032,6 +1079,91 @@ class SimpleFitsPanel(QWidget):
             mask &= (q <= q_max)
         dI_f = dI[mask] if dI is not None else None
         return q[mask], I[mask], dI_f
+
+    # ── Complex-background prefit ──────────────────────────────────────────────
+
+    def _update_bg_prefit_visibility(self):
+        """Show the B/P + Flat prefit buttons only when complex bg is active."""
+        if not hasattr(self, '_bg_prefit_row'):
+            return
+        visible = (
+            self.model.use_complex_bg
+            and MODEL_REGISTRY.get(self.model.model, {}).get('complex_bg', False)
+        )
+        self._bg_prefit_row.setVisible(visible)
+
+    def _prefit_bg_power_law(self):
+        """Prefit the background power-law B·Q⁻ᴾ over the cursor Q range.
+
+        Respects the P "Fit?" checkbox: if P is unchecked, only B is estimated
+        at the current (fixed / model-guided) P; otherwise both B and P are fit
+        by a log-log least-squares line.  Writes results into the BG_B / BG_P
+        widgets as starting values (does NOT run the full fit).
+        """
+        from pyirena.core.saxs_morph import fit_power_law_bg, fit_power_law_bg_fixed_p
+
+        q, I, _ = self._get_filtered_data()
+        if q is None or len(q) < 2:
+            self.status_label.setText('Prefit B/P: need ≥2 points between the cursors.')
+            return
+        q_min, q_max = float(q.min()), float(q.max())
+
+        fit_p_chk = self._param_fit_checks.get('BG_P')
+        fit_p = fit_p_chk.isChecked() if fit_p_chk is not None else True
+
+        if fit_p:
+            B, P = fit_power_law_bg(q, I, q_min, q_max)
+            self._set_param_value('BG_P', P)
+        else:
+            # Hold P at the user's current value; fit only the prefactor B.
+            try:
+                P = float(self._param_value_edits['BG_P'].text())
+            except (KeyError, ValueError):
+                P = self.model.params.get('BG_P', 4.0)
+            B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
+
+        self._set_param_value('BG_B', B)
+        self._collect_model()
+        self._auto_graph_model()
+        self._refresh_linearization()
+        self.status_label.setText(f'Prefit background: B={B:.4g}  P={P:.4g}')
+
+    def _prefit_bg_flat(self):
+        """Prefit the flat background term over the cursor Q range.
+
+        Uses the current B and P to subtract the power-law first, then takes the
+        median residual as the flat estimate.  Writes BG_flat as a starting value.
+        """
+        from pyirena.core.saxs_morph import fit_flat_bg
+
+        q, I, _ = self._get_filtered_data()
+        if q is None or len(q) < 1:
+            self.status_label.setText('Prefit flat: need ≥1 point between the cursors.')
+            return
+        q_min, q_max = float(q.min()), float(q.max())
+
+        try:
+            B = float(self._param_value_edits['BG_B'].text())
+        except (KeyError, ValueError):
+            B = self.model.params.get('BG_B', 0.0)
+        try:
+            P = float(self._param_value_edits['BG_P'].text())
+        except (KeyError, ValueError):
+            P = self.model.params.get('BG_P', 4.0)
+
+        flat = fit_flat_bg(q, I, q_min, q_max, power_law_B=B, power_law_P=P)
+        self._set_param_value('BG_flat', flat)
+        self._collect_model()
+        self._auto_graph_model()
+        self._refresh_linearization()
+        self.status_label.setText(f'Prefit background: flat={flat:.4g}')
+
+    def _set_param_value(self, name: str, value: float):
+        """Write a value into a parameter's edit field and model.params."""
+        edit = self._param_value_edits.get(name)
+        if edit is not None:
+            edit.setText(f'{value:.6g}')
+        self.model.params[name] = float(value)
 
     # ── Collect model from widgets ─────────────────────────────────────────────
 
@@ -1528,7 +1660,7 @@ class SimpleFitsPanel(QWidget):
         _registry_param_names = {
             name for name, *_ in MODEL_REGISTRY.get(model_name, {}).get('params', [])
         }
-        _bg_keys = {'BG_G', 'BG_P', 'BG_flat'}
+        _bg_keys = {'BG_B', 'BG_P', 'BG_flat'}
         for stale_key in list(self.model.params.keys()):
             if stale_key not in _registry_param_names and stale_key not in _bg_keys:
                 del self.model.params[stale_key]
@@ -1567,6 +1699,7 @@ class SimpleFitsPanel(QWidget):
                 pass
 
         self._build_param_widgets()
+        self._update_bg_prefit_visibility()
 
     def _collect_state(self) -> dict:
         """Return a snapshot of the current panel state.
