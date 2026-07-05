@@ -84,8 +84,14 @@ def _sort_key_time(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_order(name: str) -> float:
-    m = re.search(r'_(\d+)(?:_merged|_scaled|_trimmed|_rebinned|_avg|_sub|_div)?(?:\.[^.]+)?$', name)
-    return float(m.group(1)) if m else float('inf')
+    # Strip extension then scan _-segments right-to-left for a bare integer
+    # (digits only).  Skips any suffix that contains letters, including
+    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
+    stem = re.sub(r'\.[^.]+$', '', name)
+    for part in reversed(stem.split('_')):
+        if re.fullmatch(r'\d+', part):
+            return float(part)
+    return float('inf')
 
 def _sort_key_pressure(name: str) -> float:
     m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)

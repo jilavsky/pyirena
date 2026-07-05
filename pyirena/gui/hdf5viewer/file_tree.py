@@ -49,12 +49,14 @@ def _sort_key_time(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 def _sort_key_order(name: str) -> float:
-    # Extract order number before any _merged suffix(es).
-    # Handles multiple sequential merges (e.g., usaxs_001_merged_merged.h5).
-    name_no_ext = re.sub(r'\.[^.]+$', '', name)
-    name_no_merged = re.sub(r'(_merged)+$', '', name_no_ext)
-    m = re.search(r'_(\d+)$', name_no_merged)
-    return float(m.group(1)) if m else float('inf')
+    # Strip extension then scan _-segments right-to-left for a bare integer
+    # (digits only).  Skips any suffix that contains letters, including
+    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
+    stem = re.sub(r'\.[^.]+$', '', name)
+    for part in reversed(stem.split('_')):
+        if re.fullmatch(r'\d+', part):
+            return float(part)
+    return float('inf')
 
 def _sort_key_pressure(name: str) -> float:
     m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)

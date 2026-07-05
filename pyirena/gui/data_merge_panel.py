@@ -92,15 +92,14 @@ _RDONLY_STYLE = "background: #ecf0f1; color: #2c3e50; border: 1px solid #bdc3c7;
 # ---------------------------------------------------------------------------
 
 def _sort_key_order(name: str) -> float:
-    """Extract order number from filename for natural sorting.
-
-    Handles merged files (e.g., usaxs_001_merged.h5, usaxs_001_merged_merged.h5).
-    Returns the order number found in the stem before any _merged suffixes.
-    """
-    name_no_ext = re.sub(r'\.[^.]+$', '', name)
-    name_no_merged = re.sub(r'(_merged)+$', '', name_no_ext)
-    m = re.search(r'_(\d+)$', name_no_merged)
-    return float(m.group(1)) if m else float('inf')
+    # Strip extension then scan _-segments right-to-left for a bare integer
+    # (digits only).  Skips any suffix that contains letters, including
+    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
+    stem = re.sub(r'\.[^.]+$', '', name)
+    for part in reversed(stem.split('_')):
+        if re.fullmatch(r'\d+', part):
+            return float(part)
+    return float('inf')
 
 
 # ===========================================================================
