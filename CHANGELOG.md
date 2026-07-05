@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Order-number sort is now robust against arbitrary filename suffixes.** The
+  "Order number" sort in Data Explorer, Data Selector, Data Merge, Data
+  Manipulation, and the HDF5 Viewer file tree now scans `_`-separated segments
+  right-to-left and picks the first bare integer (digits only, no letters).
+  This handles all pyirena-generated suffixes (`_merged`, `_mrg`, `_scaled`,
+  `_trimmed`, `_rebinned`, `_avg`, `_sub`, `_div`) as well as Irena-style `_mrg`
+  and unit-bearing tokens like `_10min` or `_5C`, without requiring an explicit
+  allowlist.
+
 ## [0.9.9] — 2026-07-05
 
 ### Fixed
