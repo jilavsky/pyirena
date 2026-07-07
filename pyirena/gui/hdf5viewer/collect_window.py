@@ -18,6 +18,7 @@ try:
         QFileDialog, QMessageBox,
     )
     from PySide6.QtCore import Qt
+    from PySide6.QtGui import QAction
 except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
         QWidget, QVBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
@@ -25,6 +26,7 @@ except ImportError:
         QFileDialog, QMessageBox,
     )
     from PyQt6.QtCore import Qt  # type: ignore[no-redef]
+    from PyQt6.QtGui import QAction  # type: ignore[no-redef]
 
 from . import export as _export
 
@@ -85,6 +87,12 @@ class CollectWindow(QWidget):
         jpeg_btn.clicked.connect(self._save_jpeg)
         tb.addWidget(jpeg_btn)
 
+        itx_btn = QPushButton("Save ITX")
+        itx_btn.setFixedWidth(75)
+        itx_btn.setToolTip("Export graph as Igor Pro Text (.itx)")
+        itx_btn.clicked.connect(self._save_itx)
+        tb.addWidget(itx_btn)
+
         layout.addWidget(tb)
 
         # Splitter: table (top) + plot (bottom)
@@ -113,6 +121,7 @@ class CollectWindow(QWidget):
         self._plot.showGrid(x=True, y=True, alpha=0.3)
         self._plot.getAxis('bottom').enableAutoSIPrefix(False)
         self._plot.getAxis('left').enableAutoSIPrefix(False)
+        self._add_viewbox_menu()
         splitter.addWidget(glw)
 
         splitter.setSizes([180, 280])
@@ -192,6 +201,15 @@ class CollectWindow(QWidget):
         # Auto-range
         self._plot.autoRange()
 
+    # ── ViewBox right-click menu ───────────────────────────────────────────
+
+    def _add_viewbox_menu(self) -> None:
+        vb = self._plot.getViewBox()
+        vb.menu.addSeparator()
+        act_itx = QAction("Save ITX (Igor Pro)…", self)
+        act_itx.triggered.connect(self._save_itx)
+        vb.menu.addAction(act_itx)
+
     # ── Export ─────────────────────────────────────────────────────────────
 
     def _default_path(self, ext: str) -> str:
@@ -232,3 +250,73 @@ class CollectWindow(QWidget):
         if not filepath.lower().endswith((".jpg", ".jpeg")):
             filepath += ".jpg"
         self.grab().save(filepath, "JPEG", 95)
+
+    def _save_itx(self) -> None:
+        xs, ys, yes = [], [], []
+        for r in self._rows:
+            xv = r.get("x_value")
+            yv = r.get("y_value")
+            ye = r.get("y_error")
+            if xv is not None and yv is not None:
+                xs.append(float(xv))
+                ys.append(float(yv))
+                yes.append(float(ye) if ye is not None else None)
+
+        if not xs:
+            QMessageBox.warning(self, "No data", "No data points to export.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Save as Igor Pro ITX", self._default_path(".itx"),
+            "Igor Pro Text (*.itx);;All files (*)",
+        )
+        if not filepath:
+            return
+        if not filepath.lower().endswith(".itx"):
+            filepath += ".itx"
+
+        x_name = re.sub(r"[^A-Za-z0-9_]", "_", "X_" + self._x_label)[:31] or "X_wave"
+        y_name = re.sub(r"[^A-Za-z0-9_]", "_", "Y_" + self._y_label)[:31] or "Y_wave"
+        has_err = any(e is not None for e in yes)
+        e_name = (re.sub(r"[^A-Za-z0-9_]", "_", "Yerr_" + self._y_label)[:31] or "Yerr_wave") if has_err else None
+
+        lines = ["IGOR"]
+
+        lines.append(f"WAVES/D  {x_name}")
+        lines.append("BEGIN")
+        for v in xs:
+            lines.append(f"  {v:.10g}")
+        lines.append("END")
+
+        lines.append(f"WAVES/D  {y_name}")
+        lines.append("BEGIN")
+        for v in ys:
+            lines.append(f"  {v:.10g}")
+        lines.append("END")
+
+        if has_err:
+            lines.append(f"WAVES/D  {e_name}")
+            lines.append("BEGIN")
+            for e in yes:
+                lines.append(f"  {e:.10g}" if e is not None else "  NaN")
+            lines.append("END")
+
+        lines.append("")
+        lines.append(f'X Display {y_name} vs {x_name} as "{self._y_label}"')
+        lines.append(f"X ModifyGraph rgb({y_name})=(41471,9509,3328)")
+        lines.append(f"X ModifyGraph mode({y_name})=3,marker({y_name})=19")
+        if has_err:
+            lines.append(f"X ErrorBars {y_name} Y,wave=({e_name},{e_name})")
+        if self._x_label:
+            lines.append(f'X Label bottom "{self._x_label}"')
+        if self._y_label:
+            lines.append(f'X Label left "{self._y_label}"')
+        if self._window_title:
+            lines.append(f'X TextBox/C/N=title0/A=MC/X=0/Y=5 "{self._window_title}"')
+        lines.append(f'X Legend/C/N=text0 "\\\\s({y_name}) {self._y_label}"')
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))

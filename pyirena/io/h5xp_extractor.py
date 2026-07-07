@@ -339,7 +339,8 @@ def _extract_unified_fit(grp: h5py.Group, h5xp: h5py.File,
     n = 1
     while f"level_{n}" in grp:
         lg = grp[f"level_{n}"]
-        for pname in ("Rg", "G", "B", "P", "ETA", "PACK", "RgCutoff"):
+        for pname in ("Rg", "G", "B", "P", "ETA", "PACK", "RgCutoff",
+                      "Sv", "Invariant"):
             v = _scalar(lg, pname)   # _scalar already tries attrs as fallback
             if not np.isnan(v):
                 params[f"{pname}_L{n}"] = v
@@ -361,6 +362,9 @@ def _extract_size_distribution(grp: h5py.Group, h5xp: h5py.File,
         "Rg":              _scalar(grp, "rg"),
         "q_power":         _scalar(grp, "q_power"),
     }
+    sp_surf = _scalar(grp, "specific_surface")
+    if not np.isnan(sp_surf):
+        params["specific_surface_invA"] = sp_surf
 
     q_model = _array(grp, "Q")
     I_model = _array(grp, "intensity_model")

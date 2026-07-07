@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Data Explorer — Collect Values: Export to ITX.** The Collect Values graph now
+  has a "Save ITX" toolbar button and a "Save ITX (Igor Pro)…" right-click context
+  menu entry. Exports the scatter plot (X, Y, and optional error-bar waves) as an
+  Igor Pro Text (.itx) file with display commands, axis labels, and a legend.
+
+- **Export to Igor — derived parameters in wave notes.** The h5xp export now
+  includes additional derived / calculated parameters in the wave notes of result
+  waves:
+  - **Unified Fit**: per-level `Sv` (surface-to-volume ratio, m²/cm³) and
+    `Invariant` (scattering invariant, cm⁻⁴) are now written as `Sv_L{n}` and
+    `Invariant_L{n}` in the wave note of `UnifiedFitIntensity` (when present in
+    the HDF5 file, i.e. the GUI calculated them before saving).
+  - **Size Distribution**: `specific_surface_invA` (Å⁻¹) is now written in the
+    wave note of `SizesFitIntensity`, `SizesVolumeDistribution`, and related
+    distribution waves.
+
 ### Fixed
 
 - **Order-number sort is now robust against arbitrary filename suffixes.** The
