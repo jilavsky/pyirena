@@ -131,7 +131,7 @@ def test_beaucage_one_level_finds_knee():
     q = np.logspace(-3, np.log10(0.5), 300)
     I = _beaucage_level(q, G=1.0e6, Rg=100.0, B=1.0e-3, P=4.0)
     r = detect_features(q, I)
-    assert r.segments, f"Expected at least one segment"
+    assert r.segments, "Expected at least one segment"
     # With high-Q → low-Q ordering, first segment is the highest-Q one (Porod tail)
     first_P = r.segments[0]["P"]
     assert 3.0 < first_P < 4.5, (

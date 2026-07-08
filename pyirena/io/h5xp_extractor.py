@@ -42,7 +42,6 @@ import h5py
 import numpy as np
 
 from pyirena.io.h5xp_writer import (
-    make_wave_note,
     open_h5xp,
     create_h5xp,
     write_iq_data,
@@ -51,7 +50,7 @@ from pyirena.io.h5xp_writer import (
     write_notebook,
     igor_notebook_name,
 )
-from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE, TOOL_CROSS_REF
+from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE
 from pyirena.io.schema import TOOL_REGISTRY
 
 

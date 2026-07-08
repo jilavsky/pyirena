@@ -86,9 +86,12 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import h5py
 
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 

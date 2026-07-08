@@ -37,10 +37,10 @@ except ImportError:
         QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
         QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
         QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QSizePolicy, QRadioButton, QButtonGroup,
+        QMessageBox, QRadioButton, QButtonGroup,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal, QEvent  # type: ignore[no-redef]
-    from PyQt6.QtGui import QColor, QIcon, QAction              # type: ignore[no-redef]
+    from PyQt6.QtGui import QColor, QAction              # type: ignore[no-redef]
 
 from . import export as _export
 from pyirena.gui.sas_plot import add_slope_line_menu

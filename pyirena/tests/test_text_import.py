@@ -1,8 +1,6 @@
 """Tests for pyirena.io.text_import — clean_sas_arrays and ensure_nxcansas_sibling."""
 
-import os
 import time
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +10,6 @@ from pyirena.io.text_import import (
     clean_sas_arrays,
     converted_sibling_path,
     ensure_nxcansas_sibling,
-    _is_valid_sibling,
     _PROVENANCE_ATTR,
 )
 

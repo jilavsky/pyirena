@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,

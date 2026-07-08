@@ -631,7 +631,7 @@ class UnifiedFitModel:
         summary.append(f"\nBackground: {self.background:.4e} cm⁻¹")
 
         if self.chi_squared is not None:
-            summary.append(f"\nFit Quality:")
+            summary.append("\nFit Quality:")
             summary.append(f"  χ² = {self.chi_squared:.4e}")
             summary.append(f"  Reduced χ² = {self.reduced_chi_squared:.4e}")
 

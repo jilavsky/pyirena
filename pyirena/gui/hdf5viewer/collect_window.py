@@ -28,7 +28,6 @@ except ImportError:
     from PyQt6.QtCore import Qt  # type: ignore[no-redef]
     from PyQt6.QtGui import QAction  # type: ignore[no-redef]
 
-from . import export as _export
 
 
 class CollectWindow(QWidget):

@@ -27,14 +27,15 @@ Batch over many files:
 from __future__ import annotations
 
 import json
-import os
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import numpy as np
 
-from pyirena import __version__
+if TYPE_CHECKING:
+    from pyirena.core.simple_fits import SimpleFitModel
+
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
 
 # ---------------------------------------------------------------------------
@@ -1163,7 +1164,7 @@ def fit_simple(
         Fit result dict (same structure as ``SimpleFitModel.fit()``), with
         the result also saved to the HDF5 file.  Returns None on failure.
     """
-    from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY
+    from pyirena.core.simple_fits import SimpleFitModel
     from pyirena.io.nxcansas_simple_fits import save_simple_fit_results
 
     data_file = Path(data_file)
@@ -1545,7 +1546,7 @@ def fit_waxs_peaks(
 
     if len(q_) < 5:
         if verbose:
-            print(f"  [fit_waxs_peaks] Too few data points in Q range.")
+            print("  [fit_waxs_peaks] Too few data points in Q range.")
         return None
 
     # ── Build model config ────────────────────────────────────────────────────
@@ -1570,7 +1571,7 @@ def fit_waxs_peaks(
 
     if not peaks:
         if verbose:
-            print(f"  [fit_waxs_peaks] No peaks defined; fitting background only.")
+            print("  [fit_waxs_peaks] No peaks defined; fitting background only.")
         peaks = []
 
     # ── Q0 pre-search ─────────────────────────────────────────────────────────
@@ -1762,7 +1763,7 @@ def merge_data(
     # ── Optimise ──────────────────────────────────────────────────────────────
     engine = DataMerge()
     if verbose:
-        print(f"[merge_data] Optimising merge …")
+        print("[merge_data] Optimising merge …")
     try:
         result = engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
     except Exception:

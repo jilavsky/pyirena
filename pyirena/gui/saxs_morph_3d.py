@@ -43,10 +43,10 @@ except ImportError:
     except ImportError:
         from PyQt5.QtWidgets import (
             QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-            QSlider, QSplitter, QDialog, QComboBox, QColorDialog, QFileDialog,
-            QMenu, QSizePolicy, QApplication,
+            QSlider, QDialog, QComboBox, QColorDialog, QFileDialog,
+            QMenu, QSizePolicy,
         )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal
+        from PyQt5.QtCore import Qt
         from PyQt5.QtGui import QAction, QColor
 
 import pyqtgraph as pg

@@ -42,7 +42,7 @@ from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, plot_iq_model,
     make_cursors, get_cursor_q_range, set_cursor_q_range,
-    add_plot_annotation, _SafeInfiniteLine, SASPlotStyle,
+    add_plot_annotation, SASPlotStyle,
 )
 
 # Friendly display labels for the complex-background parameters.  The dict
@@ -1494,7 +1494,8 @@ class SimpleFitsPanel(QWidget):
 
     def _export_parameters(self):
         """Export current parameters to a pyIrena JSON configuration file."""
-        import json, datetime
+        import json
+        import datetime
         try:
             from pyirena import __version__ as _version
         except Exception:

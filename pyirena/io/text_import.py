@@ -39,7 +39,6 @@ Pass ``force=True`` to always regenerate.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional, Tuple
 

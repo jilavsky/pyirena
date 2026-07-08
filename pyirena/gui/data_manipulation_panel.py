@@ -1636,7 +1636,7 @@ class DataManipulationPanel(QWidget):
 
     def _on_similarity_check(self) -> None:
         """Run CorMap similarity analysis on the current Average selection."""
-        from pyirena.core.similarity import check_similarity, SIMILARITY_METHODS
+        from pyirena.core.similarity import check_similarity
 
         selected = self._fb.get_selected_filenames()
         if len(selected) < 2:
@@ -1890,7 +1890,7 @@ class DataManipulationPanel(QWidget):
 
     def _load_reference_file(self, filepath: str) -> Optional[dict]:
         """Load a reference data file, auto-detecting type by extension."""
-        from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
+        from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
         from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         ext = fp.suffix.lower()

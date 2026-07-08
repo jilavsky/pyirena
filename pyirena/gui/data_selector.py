@@ -216,7 +216,7 @@ def _add_jpeg_export(window, *plot_items):
         plot_item.getViewBox().menu.addAction(act_itx)
 
 
-from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile, list_nxcansas_datasets, _filter_smr
+from pyirena.io.hdf5 import readGenericNXcanSAS
 from pyirena.io.text_import import ensure_nxcansas_sibling
 from pyirena.gui.data_loading import (
     prompt_dataset_choice as _prompt_dataset_choice_fn,
@@ -4364,7 +4364,6 @@ class DataSelectorPanel(QWidget):
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""
-        from pyirena.gui.unified_fit import UnifiedFitPanel
         selected_items = self.file_list.selectedItems()
 
         if not selected_items:

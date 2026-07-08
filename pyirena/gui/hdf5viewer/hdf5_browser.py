@@ -12,8 +12,6 @@ Context menu on group nodes:  Plot NXcanSAS / Unified Fit / … if known type.
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Optional
 
 try:
     from PySide6.QtWidgets import (
@@ -24,7 +22,7 @@ try:
     from PySide6.QtGui import QFont, QAction
 except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
+        QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
         QLabel, QLineEdit, QMenu, QSizePolicy, QAbstractItemView,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]

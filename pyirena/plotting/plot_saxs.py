@@ -34,9 +34,8 @@ Usage
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Union
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +134,6 @@ def plot_saxs(
             "  pip install matplotlib"
         ) from exc
 
-    import numpy as np
 
     # ── Validate content ────────────────────────────────────────────────────
     content = list(content)
@@ -365,7 +363,6 @@ def _load_size_dist(fpath: Path):
 def _gen_colors_mpl(n: int) -> list:
     """Return *n* evenly-spaced colours from blue to red (matplotlib format)."""
     import matplotlib.pyplot as plt
-    import numpy as np
     if n <= 0:
         return []
     if n == 1:

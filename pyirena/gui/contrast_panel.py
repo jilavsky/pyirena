@@ -52,7 +52,7 @@ from pyqtgraph.exporters import ImageExporter
 
 from pyirena.core.scattering_contrast import (
     VACUUM, CompoundProperties, ContrastResult,
-    compute_compound, compute_contrast, compute_contrast_anomalous,
+    compute_compound, compute_contrast_anomalous,
     compute_anomalous_scan, get_isotopes_for_element, parse_formula,
 )
 from pyirena.io.contrast_io import (

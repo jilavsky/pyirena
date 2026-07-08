@@ -23,7 +23,7 @@ a file can be opened either from the Data Selector or directly from the tool.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 try:
     from PySide6.QtWidgets import (

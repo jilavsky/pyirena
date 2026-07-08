@@ -53,7 +53,7 @@ try:
 except ImportError:
     from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
     from PyQt6.QtCore import Qt, QPointF, QRectF
-    from PyQt6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
+    from PyQt6.QtGui import QPainterPath, QFont
 
 
 # ===========================================================================

@@ -33,7 +33,7 @@ except ImportError:
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
         QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
         QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
-        QMessageBox, QFrame, QSizePolicy, QSpacerItem, QTabWidget,
+        QMessageBox, QFrame, QTabWidget,
         QDialog, QDialogButtonBox,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
@@ -41,7 +41,7 @@ except ImportError:
 
 from pyirena.core.waxs_peakfit import (
     PEAK_SHAPES, BG_SHAPES, BG_ADAPTIVE, _BG_ADAPTIVE_PARAMS,
-    _PEAK_PARAM_NAMES, _BG_NCOEFFS, _PARAM_DEFAULTS,
+    _PEAK_PARAM_NAMES, _PARAM_DEFAULTS,
     bg_param_names, default_bg_params, default_peak_params,
     eval_background, eval_peak, eval_model,
     compute_adaptive_background,
@@ -1940,7 +1940,7 @@ class WAXSPeakFitPanel(QWidget):
         Returns a deep-copied peaks list; the input is not modified.
         """
         from pyirena.core.waxs_peakfit import (
-            eval_model, cross_corr_q_shift, presearch_q0_per_peak,
+            cross_corr_q_shift, presearch_q0_per_peak,
         )
 
         window  = self._ps_window_spin.value()
@@ -2060,7 +2060,7 @@ class WAXSPeakFitPanel(QWidget):
         # Apply fitted parameters back to GUI
         try:
             self._apply_fit_result(result)
-        except Exception as exc:
+        except Exception:
             import traceback
             traceback.print_exc()
         self._revert_btn.setEnabled(True)

@@ -43,7 +43,7 @@ import contextlib
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 from scipy.optimize import least_squares, minimize, differential_evolution

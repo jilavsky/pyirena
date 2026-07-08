@@ -6,7 +6,6 @@ The state file is human-readable and can be edited manually if needed.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from copy import deepcopy

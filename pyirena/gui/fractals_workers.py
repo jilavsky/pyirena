@@ -35,7 +35,7 @@ except ImportError:
 
 from pyirena.core.fractals import (
     FractalAggregate, GrowthConfig, OptimizerConfig,
-    grow_aggregate, optimize_growth, intensity_unified, intensity_montecarlo,
+    grow_aggregate, optimize_growth, intensity_montecarlo,
 )
 
 

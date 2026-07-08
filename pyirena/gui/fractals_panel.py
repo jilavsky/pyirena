@@ -17,8 +17,6 @@ FractalsGraphWindow  : main window — `data_selector` constructs and shows it.
 from __future__ import annotations
 
 import math
-from copy import deepcopy
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -47,14 +45,14 @@ except ImportError:
         from PyQt6.QtGui import QFont, QAction
     except ImportError:
         from PyQt5.QtWidgets import (
-            QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
+            QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
             QPushButton, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
             QTabWidget, QGroupBox, QMessageBox, QSplitter, QFileDialog,
-            QScrollArea, QFrame, QSizePolicy, QListWidget, QListWidgetItem,
+            QScrollArea, QFrame, QListWidget, QListWidgetItem,
             QMenu, QAbstractItemView,
         )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal
-        from PyQt5.QtGui import QFont, QAction
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QAction
 
 import pyqtgraph as pg
 
@@ -68,7 +66,6 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer, Slice2DViewer, make_popout_button,
-    HAS_PYVISTA, PYVISTA_INSTALL_HINT,
 )
 from pyirena.io.nxcansas_fractals import (
     save_fractal_aggregate, list_fractal_aggregates, load_fractal_aggregate,

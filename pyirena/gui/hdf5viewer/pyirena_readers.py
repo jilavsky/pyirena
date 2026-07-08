@@ -8,9 +8,7 @@ that doesn't have the expected data — it returns None in that case.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional
 
 import h5py
 import numpy as np

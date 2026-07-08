@@ -1890,8 +1890,8 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
 
     elif format == "markdown":
         lines = [
-            f"# Unified Fit Report",
-            f"",
+            "# Unified Fit Report",
+            "",
             f"**File:** {s.file_path}",
             f"**Model:** Unified Fit — {s.model.num_levels} level(s)",
             f"**Reduced χ²:** {chi_sq_str}",
@@ -1909,11 +1909,11 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
             if csr is not None:
                 lines.append(f"**Longest same-sign run:** {csr}")
         lines += [
-            f"",
-            f"## Parameters",
-            f"",
-            f"| Parameter | Value | Fixed | Lo | Hi | Units |",
-            f"|-----------|-------|-------|----|----|-------|",
+            "",
+            "## Parameters",
+            "",
+            "| Parameter | Value | Fixed | Lo | Hi | Units |",
+            "|-----------|-------|-------|----|----|-------|",
         ]
         for p in params:
             lo_s = f"{p['lo']:.3g}" if p["lo"] is not None else "—"

@@ -25,7 +25,6 @@ Units returned:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -666,7 +665,6 @@ def compute_anomalous_scan(
 def get_element_info(symbol: str) -> Dict[str, object]:
     """Return basic element info dict for display purposes."""
     import periodictable as pt
-    import xraydb
     try:
         el = pt.elements.symbol(symbol)
         z = el.number

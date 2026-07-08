@@ -15,7 +15,6 @@ Tab 2 — "Collect Values":
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
@@ -33,9 +32,7 @@ except ImportError:
     from PyQt6.QtWidgets import (  # type: ignore[no-redef]
         QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
         QCheckBox, QLabel, QLineEdit, QPushButton, QRadioButton,
-        QButtonGroup, QComboBox, QSpinBox, QGridLayout, QFrame,
-        QMessageBox, QSizePolicy,
-        QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
+        QComboBox, QSpinBox, QGridLayout, QMessageBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     )
     from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
 

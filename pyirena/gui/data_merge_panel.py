@@ -50,8 +50,7 @@ import pyqtgraph as pg
 from pyirena.core.data_merge import DataMerge, MergeConfig, MergeResult
 from pyirena.state.state_manager import StateManager
 from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, plot_iq_model,
-    set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
+    make_sas_plot, set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
 )
 
 

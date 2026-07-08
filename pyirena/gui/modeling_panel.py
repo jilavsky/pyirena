@@ -48,10 +48,9 @@ except ImportError:
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
             QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
             QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-            QScrollArea, QFrame, QSizePolicy, QDoubleSpinBox,
+            QScrollArea, QFrame, QSizePolicy,
         )
         from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer
-        from PyQt5.QtGui import QFont, QDoubleValidator
 
 import pyqtgraph as pg
 
@@ -62,12 +61,12 @@ from pyirena.core.modeling import (
     GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
 )
 from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
+    plot_iq_data, set_robust_y_range, add_plot_annotation,
     RadiusAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
+from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3346,7 +3345,6 @@ class ModelingPanel(QWidget):
 
     def export_json(self):
         """Export current population parameters as a JSON config file."""
-        import json
         default_path = str(Path(self._get_data_folder()) / 'pyirena_config.json')
         try:
             _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog

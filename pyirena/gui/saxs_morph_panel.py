@@ -23,10 +23,8 @@ main()          — CLI: python -m pyirena.gui.saxs_morph_panel <file>
 
 from __future__ import annotations
 
-import os
 import sys
 import time
-from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
@@ -54,30 +52,28 @@ except ImportError:
     except ImportError:
         from PyQt5.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
+            QPushButton, QLabel, QLineEdit, QCheckBox, QTabWidget,
             QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-            QScrollArea, QFrame, QSizePolicy,
+            QScrollArea, QFrame,
         )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QThread, QTimer
-        from PyQt5.QtGui import QFont, QDoubleValidator
+        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QThread
+        from PyQt5.QtGui import QDoubleValidator
 
 import pyqtgraph as pg
 
 from pyirena.core.saxs_morph import (
     SaxsMorphEngine, SaxsMorphConfig, SaxsMorphResult,
-    ALLOWED_VOXEL_SIZES, MAX_FIT_VOXEL_SIZE,
+    ALLOWED_VOXEL_SIZES,
 )
 from pyirena.io.nxcansas_saxs_morph import (
-    save_saxs_morph_results, load_saxs_morph_results,
+    save_saxs_morph_results,
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
-    RadiusAxisItem, save_itx_from_plot, SASPlotStyle,
 )
 from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer, Slice2DViewer, make_popout_button,
-    HAS_PYVISTA, PYVISTA_INSTALL_HINT,
 )
 # SaxsMorphGraphWindow.show_voxelgram needs HAS_PYVISTA for conditional smoothing
 from pyirena.gui.data_loading import DataFileLoaderRow

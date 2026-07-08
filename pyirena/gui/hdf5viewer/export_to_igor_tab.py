@@ -27,9 +27,8 @@ except ImportError:
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
         QPushButton, QLabel, QLineEdit, QCheckBox, QRadioButton,
         QGroupBox, QPlainTextEdit, QProgressBar, QFileDialog,
-        QSizePolicy,
     )
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal as Signal  # type: ignore[no-redef]
+    from PyQt6.QtCore import QThread, pyqtSignal as Signal  # type: ignore[no-redef]
     from PyQt6.QtGui import QFont  # type: ignore[no-redef]
 
 

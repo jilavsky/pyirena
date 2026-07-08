@@ -6,7 +6,6 @@ import h5py
 import os
 import numpy as np
 import six  #what is this for???
-import datetime
 import logging
 
 

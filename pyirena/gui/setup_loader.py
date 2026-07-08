@@ -13,7 +13,7 @@ boilerplate each.  Keeping it in one place also makes the UX uniform.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional
 
 try:
     from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget

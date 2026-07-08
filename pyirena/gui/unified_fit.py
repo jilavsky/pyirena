@@ -1,7 +1,6 @@
 
-import os
 import sys
-from typing import List, Optional, Dict
+from typing import List, Dict
 from pathlib import Path
 import numpy as np
 
@@ -1038,12 +1037,12 @@ class UnifiedFitGraphWindow(QWidget):
         if self.cursor_left_line is not None:
             try:
                 self.main_plot.removeItem(self.cursor_left_line)
-            except:
+            except Exception:
                 pass
         if self.cursor_right_line is not None:
             try:
                 self.main_plot.removeItem(self.cursor_right_line)
-            except:
+            except Exception:
                 pass
 
         # IMPORTANT: Since X-axis is in log mode, InfiniteLine expects positions in log space!
@@ -1187,14 +1186,14 @@ class LevelParametersWidget(QWidget):
 
         # Feasibility status header — shows "Level feasible" or "Level not feasible"
         self.feasibility_label = QLabel("Level feasible")
-        self.feasibility_label.setStyleSheet(f"""
-            QLabel {{
+        self.feasibility_label.setStyleSheet("""
+            QLabel {
                 background-color: #888888;
                 color: white;
                 font-weight: bold;
                 font-size: 11px;
                 padding: 3px;
-            }}
+            }
         """)
         layout.addWidget(self.feasibility_label)
 
@@ -1705,7 +1704,6 @@ class LevelParametersWidget(QWidget):
                 from scipy.integrate import simpson
             except ImportError:
                 from scipy.integrate import simps as simpson
-            from scipy.special import erf, gamma
 
             # Get parameters
             P = float(self.p_value.text() or 0)
@@ -1785,7 +1783,7 @@ class LevelParametersWidget(QWidget):
         Based on IR1A_SurfToVolCalcInvarVec from Igor code.
         """
         import numpy as np
-        from scipy.special import erf, gamma
+        from scipy.special import erf
 
         # Calculate K value
         K = 1.0 if P > 3 else 1.06
@@ -3687,7 +3685,7 @@ class UnifiedFitPanel(QWidget):
         target_options = [l for l in range(1, num_levels + 1) if l != source_level]
         if not target_options:
             self.graph_window.show_error_message(
-                f"Only one level active — nothing to copy/swap."
+                "Only one level active — nothing to copy/swap."
             )
             return
 
@@ -4167,12 +4165,12 @@ class UnifiedFitPanel(QWidget):
 
                 try:
                     sv_val = float(sv_text) if sv_text not in ['N/A', 'Error', '0'] else None
-                except:
+                except Exception:
                     sv_val = None
 
                 try:
                     inv_val = float(inv_text) if inv_text not in ['N/A', 'Error', '0'] else None
-                except:
+                except Exception:
                     inv_val = None
 
                 level_dict = {

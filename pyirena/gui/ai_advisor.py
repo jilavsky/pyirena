@@ -50,10 +50,9 @@ except ImportError:
         from PyQt5.QtWidgets import (
             QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
             QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-            QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
-            QWidget,
+            QRadioButton, QTextBrowser, QVBoxLayout,
         )
-        from PyQt5.QtCore import QBuffer, QByteArray, QIODevice
+        from PyQt5.QtCore import QBuffer, QIODevice
 
 
 # ---------------------------------------------------------------------------
