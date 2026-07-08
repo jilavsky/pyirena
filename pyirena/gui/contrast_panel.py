@@ -1557,6 +1557,9 @@ class ContrastPanel(QWidget):
 
 def main() -> None:
     """Entry point for ``pyirena-contrast`` CLI command."""
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     from pyirena.state.state_manager import StateManager
 
     app = QApplication.instance() or QApplication(sys.argv)

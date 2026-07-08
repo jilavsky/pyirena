@@ -2677,6 +2677,15 @@ class DataSelectorPanel(QWidget):
         )
         self.manage_config_button.clicked.connect(self.open_config_manager)
         configure_row.addWidget(self.manage_config_button)
+        self.locate_logs_button = QPushButton("Locate Logs…")
+        self.locate_logs_button.setMinimumHeight(24)
+        self.locate_logs_button.setStyleSheet(_mc_style)
+        self.locate_logs_button.setToolTip(
+            "Open the pyirena log folder (~/.pyirena/logs).\n"
+            "Attach the newest gui.log when reporting a problem."
+        )
+        self.locate_logs_button.clicked.connect(self.locate_logs)
+        configure_row.addWidget(self.locate_logs_button)
         configure_row.addStretch()
         left_layout.addLayout(configure_row)
 
@@ -4981,6 +4990,11 @@ class DataSelectorPanel(QWidget):
             return
         dlg = ConfigManagerDialog(config_file, parent=self)
         dlg.exec()
+
+    def locate_logs(self):
+        """Open the pyirena log folder (~/.pyirena/logs) in the file browser."""
+        from pyirena.logging_setup import get_log_dir
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(get_log_dir())))
 
     def _find_config_file(self) -> Optional[str]:
         """

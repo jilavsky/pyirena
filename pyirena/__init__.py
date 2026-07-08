@@ -43,6 +43,7 @@ from pyirena.batch import (
     igor_to_nexus, pxp_to_nexus,
 )
 from pyirena.io.results import load_result, SUPPORTED_ANALYSES
+from pyirena.logging_setup import setup_logging, get_log_dir
 
 try:
     from pyirena.plotting.plot_saxs import plot_saxs
@@ -69,5 +70,7 @@ __all__ = [
     "pxp_to_nexus",
     "load_result",
     "SUPPORTED_ANALYSES",
+    "setup_logging",
+    "get_log_dir",
     "plot_saxs",
 ]

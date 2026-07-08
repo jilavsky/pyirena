@@ -2265,6 +2265,9 @@ class DataManipulationPanel(QWidget):
 
 def main() -> None:
     """Entry point: ``pyirena-datamanip``."""
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     import argparse
 
     parser = argparse.ArgumentParser(

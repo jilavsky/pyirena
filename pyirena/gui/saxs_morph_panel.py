@@ -1827,6 +1827,9 @@ class SaxsMorphPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 def main():
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)
     panel = SaxsMorphPanel()
     panel.show()

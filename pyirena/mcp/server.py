@@ -1010,6 +1010,9 @@ def pyirena_ctrl_sizes_save_fit(
 
 def main() -> None:
     """Run the MCP server over stdio (default transport)."""
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("mcp")   # console handler writes to stderr; stdout stays clean for MCP
+    install_excepthook()
     mcp.run()
 
 

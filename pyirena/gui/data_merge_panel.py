@@ -1676,6 +1676,9 @@ def main() -> None:
     With ``--file1`` and ``--file2``: runs a headless merge (no Qt needed).
     With ``--folder1`` and/or ``--folder2``: launches GUI with pre-filled folders.
     """
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     import argparse
 
     parser = argparse.ArgumentParser(
