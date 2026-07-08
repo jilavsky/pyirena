@@ -540,6 +540,12 @@ class UnifiedFitModel:
 
         Q = ∫₀^∞ I(q) q² dq
 
+        Note:
+            This integrates over an explicit [q_min, q_max] range (default:
+            the data range).  For the Igor-equivalent calculation used by the
+            GUI and batch API — fixed Qmax = 2*pi/(Rg/10) with Simpson
+            integration — use :func:`compute_invariant_sv` instead.
+
         Args:
             level_idx: Level index (0-based)
             q_min: Minimum q for integration [1/Angstrom]
@@ -573,19 +579,21 @@ class UnifiedFitModel:
         integrand = np.where(np.isfinite(integrand), integrand, 0.0)
         invariant = np.trapezoid(integrand, q)
 
-        # Add Porod tail contribution if applicable
-        if level.RgCO < 0.1 and abs(level.P - 4.0) < 0.5:
-            # Porod tail: -B * q_max^(3-P) / (3-P)
-            porod_tail = -level.B * q_max ** (3.0 - abs(level.P)) / (3.0 - abs(level.P))
-            invariant += porod_tail
+        # Add analytic Porod tail beyond q_max when there is no cutoff.
+        # Skip when P ~ 3 (the (3-P) denominator is singular there).
+        if level.RgCO < 0.1:
+            denom = 3.0 - abs(level.P)
+            if abs(denom) > 1e-6:
+                invariant += -level.B * q_max ** denom / denom
 
         # Convert from cm^-1 Angstrom^-3 to cm^-4
         invariant_cm4 = invariant * 1e24
 
-        # Calculate surface/volume ratio if P ≈ 4
+        # Surface/volume ratio, only meaningful in the Porod regime (P ~ 4).
+        # 1e4 converts pi*B/Q from A^-1 to m^2/cm^3 (matches Igor Irena).
         surf_to_vol = None
-        if abs(level.P - 4.0) < 0.05 and invariant > 0:
-            surf_to_vol = np.pi * level.B / invariant  # m^2/cm^3
+        if 3.95 <= level.P <= 4.05 and invariant > 0:
+            surf_to_vol = 1e4 * np.pi * level.B / invariant  # m^2/cm^3
 
         return {
             'invariant': invariant,
@@ -638,6 +646,90 @@ class UnifiedFitModel:
         summary.append("=" * 70)
 
         return "\n".join(summary)
+
+
+def compute_invariant_sv(
+    G: float,
+    Rg: float,
+    B: float,
+    P: float,
+    RgCO: float = 0.0,
+    ETA: float = 0.0,
+    PACK: float = 0.0,
+    correlated: bool = False,
+) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Compute the scattering invariant and surface-to-volume ratio for one
+    Unified Fit level.
+
+    This is the Igor-faithful implementation (port of
+    ``IR1A_SurfToVolCalcInvarVec`` / ``IR1A_UpdatePorodSfcandInvariant``)
+    and the single source of truth used by both the GUI panel and the
+    batch API, so both report identical numbers.
+
+    Method
+    ------
+    - Evaluate the single-level unified intensity on 2000 points from
+      Q = 0 to Qmax = 2*pi / (Rg/10).
+    - Invariant = Simpson integral of I(Q)*Q^2, plus (when RgCO < 0.1 and
+      P is not ~3) the analytic Porod tail  -B * Qmax^(3-P) / (3-P).
+    - Sv = 1e4 * pi * B / invariant  [m^2/cm^3], reported only in the
+      Porod regime 3.95 <= P <= 4.05.
+
+    Returns
+    -------
+    (invariant_cm4, sv)
+        invariant in cm^-4 (converted from cm^-1 A^-3 via 1e24), or None
+        when not computable (Rg <= 0, or a negative invariant indicating a
+        bad extrapolation).  sv is None outside the Porod regime.
+    """
+    from scipy.integrate import simpson
+
+    if Rg <= 0:
+        return None, None
+    try:
+        maxQ = 2 * np.pi / (Rg / 10)
+        surf_q = np.linspace(0, maxQ, 2000)
+
+        # Single-level unified intensity, Igor-style q -> 0 regularization
+        K = 1.0 if P > 3 else 1.06
+        q_safe = np.where(np.abs(surf_q) < 1e-10, 1e-10, surf_q)
+        erf_cubed = erf(K * q_safe * Rg / np.sqrt(6)) ** 3
+        erf_cubed = np.where(np.abs(erf_cubed) < 1e-10, 1e-10, erf_cubed)
+        qstar = q_safe / erf_cubed
+        qstar = np.where(np.isfinite(qstar), qstar, 1e-10)
+        intensity = (G * np.exp(-surf_q ** 2 * Rg ** 2 / 3)
+                     + (B / qstar ** P) * np.exp(-RgCO ** 2 * surf_q ** 2 / 3))
+        intensity = np.where(np.isfinite(intensity), intensity, 0.0)
+        if correlated and PACK > 0 and ETA > 0:
+            qr = np.where(surf_q * ETA == 0, 1e-10, surf_q * ETA)
+            sphere_amp = 3 * (np.sin(qr) - qr * np.cos(qr)) / qr ** 3
+            intensity = intensity / (1 + PACK * sphere_amp)
+        # Handle the Q=0 point (use the Q=dQ value)
+        if intensity[0] == 0 or np.isnan(intensity[0]):
+            intensity[0] = intensity[1]
+
+        # Invariant = integral of I(Q)*Q^2 dQ
+        invariant = simpson(intensity * surf_q ** 2, x=surf_q)
+
+        # Analytic Porod tail beyond Qmax when there is no cutoff.
+        # Skip when P ~ 3: the integrand becomes B/Q which integrates to
+        # B*ln(Q), and the closed-form (3-P) denominator is singular.
+        if RgCO < 0.1:
+            denom = 3 - abs(P)
+            if abs(denom) > 1e-6:
+                invariant += -B * maxQ ** denom / denom
+
+        # Negative invariant means the extrapolation is invalid
+        if invariant <= 0:
+            return None, None
+
+        # Sv is only meaningful in the Porod regime (P ~ 4).
+        # 1e4 converts pi*B/Q from A^-1 to m^2/cm^3.
+        sv = 1e4 * np.pi * B / invariant if 3.95 <= P <= 4.05 else None
+        return invariant * 1e24, sv   # invariant converted to cm^-4
+    except Exception:
+        return None, None
 
 
 def load_data_from_nxcansas(file_path: str,

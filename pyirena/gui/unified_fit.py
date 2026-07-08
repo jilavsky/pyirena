@@ -1693,17 +1693,17 @@ class LevelParametersWidget(QWidget):
     def update_porod_surface_and_invariant(self, q_vector):
         """
         Calculate and update Porod surface (Sv) and Invariant for this level.
-        Based on IR1A_UpdatePorodSfcandInvariant from Igor code.
+
+        Delegates to pyirena.core.unified.compute_invariant_sv(), the single
+        (Igor-faithful, IR1A_UpdatePorodSfcandInvariant-equivalent)
+        implementation shared with the batch API.
 
         Args:
-            q_vector: Q vector from the experimental data
+            q_vector: Q vector from the experimental data (unused; kept for
+                API compatibility — the integration grid is derived from Rg)
         """
         try:
-            import numpy as np
-            try:
-                from scipy.integrate import simpson
-            except ImportError:
-                from scipy.integrate import simps as simpson
+            from pyirena.core.unified import compute_invariant_sv
 
             # Get parameters
             P = float(self.p_value.text() or 0)
@@ -1715,60 +1715,16 @@ class LevelParametersWidget(QWidget):
             PACK = float(self.pack_value.text() or 0)
             correlated = self.correlated_check.isChecked()
 
-            if Rg <= 0:
-                self.sv_value.setText("N/A")
-                self.invariant_value.setText("N/A")
-                return
+            invariant_cm4, sv = compute_invariant_sv(
+                G, Rg, B, P, RgCO, ETA, PACK, correlated
+            )
 
-            # Create Q vector for integration: maxQ = 2*pi / (Rg/10)
-            maxQ = 2 * np.pi / (Rg / 10)
-            npoints = 2000
-            surf_q = np.linspace(0, maxQ, npoints)
-
-            # Calculate intensity using unified model
-            surf_int = self._calculate_unified_intensity(surf_q, G, Rg, P, B, RgCO, ETA, PACK, correlated)
-
-            # Handle Q=0 point (use Q=dQ value)
-            if surf_int[0] == 0 or np.isnan(surf_int[0]):
-                surf_int[0] = surf_int[1]
-
-            # Calculate invariant integrand: I * Q^2
-            surf_invariant = surf_int * surf_q**2
-
-            # Integrate to get invariant (using Simpson's rule)
-            invariant = simpson(surf_invariant, x=surf_q)
-
-            # Add Porod tail if RgCO < 0.1 (no cutoff)
-            if RgCO < 0.1:
-                # Porod tail contribution: -B * maxQ^(3-P) / (3-P)
-                # Skip when P≈3: integrand becomes B/Q which integrates to
-                # B*ln(Q), and the closed-form (3-P) denominator is singular.
-                # In practice P=3 is a degenerate Porod regime and the tail
-                # contribution to the invariant is undefined here.
-                denom = 3 - abs(P)
-                if abs(denom) > 1e-6:
-                    invariant += -B * maxQ**denom / denom
-
-            # Check if invariant is valid (negative means bad extrapolation)
-            if invariant < 0:
-                self.invariant_value.setText("N/A")
-                self.sv_value.setText("N/A")
-                return
-
-            # Calculate surface to volume ratio (Sv = pi*B/Q) BEFORE scaling invariant
-            # Only valid when P is close to 4 (Porod regime)
-            # At this point invariant is still in A^-3 * cm^-1
-            if 3.95 <= P <= 4.05:
-                sv = 1e4 * np.pi * B / invariant
-                self.sv_value.setText(self._format_value(sv))
-            else:
-                self.sv_value.setText("N/A")
-
-            # Convert invariant from A^-3 * cm^-1 to cm^-4
-            invariant = invariant * 1e24
-
-            # Update invariant display
-            self.invariant_value.setText(self._format_value(invariant))
+            self.invariant_value.setText(
+                self._format_value(invariant_cm4) if invariant_cm4 is not None else "N/A"
+            )
+            self.sv_value.setText(
+                self._format_value(sv) if sv is not None else "N/A"
+            )
 
         except Exception as e:
             print(f"Error calculating Sv and Invariant: {e}")
@@ -1776,64 +1732,6 @@ class LevelParametersWidget(QWidget):
             traceback.print_exc()
             self.sv_value.setText("Error")
             self.invariant_value.setText("Error")
-
-    def _calculate_unified_intensity(self, q, G, Rg, P, B, RgCO, ETA, PACK, correlated):
-        """
-        Calculate unified model intensity for given Q vector.
-        Based on IR1A_SurfToVolCalcInvarVec from Igor code.
-        """
-        import numpy as np
-        from scipy.special import erf
-
-        # Calculate K value
-        K = 1.0 if P > 3 else 1.06
-
-        # Calculate Q* (erf correction)
-        # Avoid division by zero by ensuring both q and erf result are not too small
-        # Replace very small q values to avoid 0/0
-        q_safe = np.where(np.abs(q) < 1e-10, 1e-10, q)
-
-        erf_arg = K * q_safe * Rg / np.sqrt(6)
-        erf_val = erf(erf_arg)
-        erf_cubed = erf_val**3
-
-        # Replace zero or very small values to avoid division issues
-        erf_cubed = np.where(np.abs(erf_cubed) < 1e-10, 1e-10, erf_cubed)
-        qstar = q_safe / erf_cubed
-
-        # Ensure qstar is valid (no inf or nan)
-        qstar = np.where(np.isfinite(qstar), qstar, 1e-10)
-
-        # Calculate unified intensity
-        # Use original q (not q_safe) for exponential terms
-        intensity = G * np.exp(-q**2 * Rg**2 / 3) + (B / qstar**P) * np.exp(-RgCO**2 * q**2 / 3)
-
-        # Replace any NaN or inf with 0
-        intensity = np.where(np.isfinite(intensity), intensity, 0)
-
-        # Apply correlation correction if enabled
-        if correlated and PACK > 0 and ETA > 0:
-            # Calculate sphere amplitude (hard sphere structure factor)
-            sphere_amp = self._sphere_amplitude(q, ETA)
-            intensity = intensity / (1 + PACK * sphere_amp)
-
-        return intensity
-
-    def _sphere_amplitude(self, q, eta):
-        """Calculate sphere amplitude for structure factor correction."""
-        import numpy as np
-
-        # Based on hard sphere structure factor
-        # This is a simplified version - full implementation in Igor is more complex
-        qr = q * eta
-
-        # Avoid division by zero
-        qr = np.where(qr == 0, 1e-10, qr)
-
-        # Sphere form factor amplitude
-        amplitude = 3 * (np.sin(qr) - qr * np.cos(qr)) / qr**3
-
-        return amplitude
 
     def fix_limits(self):
         """
