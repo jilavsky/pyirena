@@ -40,8 +40,22 @@ def _css_modeling_results():
     }
 
 
+def _require_qt():
+    """Skip when the GUI stack (PySide6/PyQt6) is not installed.
+
+    Note: pytest.importorskip is not enough here — data_selector re-raises a
+    plain ImportError, which pytest >= 8.2 treats as a broken module rather
+    than a missing one.
+    """
+    try:
+        import pyirena.gui.data_selector  # noqa: F401
+    except ImportError:
+        pytest.skip("Qt (PySide6/PyQt6) not available")
+
+
 class TestReportIncludesFormFactorParams:
     def test_report_lists_ff_and_dist_params(self):
+        _require_qt()
         from pyirena.gui.data_selector import _build_report
 
         md = _build_report('sample.h5', modeling_results=_css_modeling_results())
@@ -88,7 +102,7 @@ def _make_css_modeling_result():
 
 class TestCsvIncludesFormFactorParams:
     def test_tabulate_emits_ff_columns(self, tmp_path, monkeypatch):
-        pytest.importorskip("pyirena.gui.data_selector")
+        _require_qt()
         try:
             try:
                 from PySide6.QtWidgets import QApplication, QListWidgetItem
