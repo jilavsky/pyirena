@@ -41,17 +41,20 @@ suite green.
 
 ## Remaining — high priority
 
-### 1. Close test gaps
-No direct tests for `core/`: `data_manipulation`, `data_merge`,
-`distributions`, `form_factors`, `fractals`, `simple_fits`, `waxs_peakfit`,
-`scattering_contrast`, `similarity`, `morphology`, `diffraction_lines`.
-Also untested: the `io/nxcansas_*` save/load round-trips — these guard the
-on-disk file format and are cheap to test with `tmp_path`. Suggested order:
-io round-trips first (highest value per line), then `form_factors` /
-`distributions` (pure functions, easy), then the rest.
+### 1. Close test gaps — first tranche DONE
+Done: `io/nxcansas_*` save/load round-trips (18 tests — unified, sizes,
+simple fits, WAXS peaks, fractal aggregates, data merge/manipulation
+writers, `load_result` dispatcher), `form_factors` (16), `distributions`
+(24 — this tranche caught and fixed a real bug: `lsw_pdf` was missing its
+(3/2)^(11/3) normalization, making `lsw_cdf` discontinuous at the cutoff).
+The 2 `test_modeling_report_csv` "failures" were pytest ≥ 8.2 skip-behavior,
+not bugs; they now skip cleanly without Qt.
 
-Also: 2 pre-existing failures in `test_modeling_report_csv.py` (present on
-`main` before the cleanup branch) need a fix or an updated expectation.
+Still without direct tests in `core/`: `data_manipulation`, `data_merge`,
+`fractals` (growth/params — io side is covered), `simple_fits` (only the
+Guinier path is exercised), `waxs_peakfit` (peak evaluation — io side is
+covered), `scattering_contrast`, `similarity`, `morphology`,
+`diffraction_lines`.
 
 ### 2. Finish the model-math unification
 - The inline local Guinier / power-law `curve_fit` models in
