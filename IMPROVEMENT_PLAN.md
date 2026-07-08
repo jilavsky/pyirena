@@ -40,22 +40,25 @@ Still open: the inline local Guinier / power-law `curve_fit` models in
 `api/control/unified_fit.py` — compare and unify the same way. Also
 `core/modeling.py:_sphere_amplitude` duplicates `unified.sphere_amplitude`.
 
-### 2. Exception-handling audit
-461 `except Exception` blocks; ~100 are silent `pass`. In `io/` and `state/`
-a swallowed exception can hide file corruption. Suggested policy:
+### 2. Exception-handling audit — io/state/core DONE, gui remains
+Logging infrastructure now exists (`pyirena/logging_setup.py`: rotating
+files in `~/.pyirena/logs/`, file=DEBUG, console=INFO, uncaught-exception
+hook, "Locate Logs…" button in the data selector). All broad silent
+`except Exception: pass` in `io/`, `state/`, `core/` now log with
+tracebacks.
 
-- `io/`, `state/`, `core/`: never swallow silently — log via `logging` and
-  re-raise or return an explicit error value.
-- `gui/`: swallowing is sometimes legitimate (e.g. removing plot items that
-  may already be gone) but should still `logger.debug()` the exception.
+Remaining: ~90 silent passes in `gui/` — legitimate for widget-lifetime
+races, but should get `log.debug(..., exc_info=True)` opportunistically
+when touching those files.
 
-Do this module-by-module, with the test suite green after each module.
+### 3. Adopt `logging` in place of `print()` — batch/io/state DONE
+`batch.py` (114 prints), `io/` progress messages, and `state_manager.py`
+are converted; console output for unconfigured scripts is preserved via
+`ensure_console_output()`. Deliberate pretty-printers
+(`print_*_results`) and CLI summaries intentionally keep `print()`.
 
-### 3. Adopt `logging` in place of `print()`
-~250 `print()` calls (117 in `batch.py`, 85 in `io/`). Introduce
-`logging.getLogger("pyirena.<module>")` per module, keep console output by
-default via a root handler in the CLI entry points, and give `batch.py`
-functions a `verbose`/`quiet` control. Do together with item 2.
+Remaining: ~30 prints in `gui/` panels (low stakes — GUI users see the
+log file anyway) and `core/` stragglers (~14, mostly `__main__` demos).
 
 ## Remaining — medium priority
 
