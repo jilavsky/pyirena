@@ -28,18 +28,17 @@ priority order.
 
 ## Remaining — high priority
 
-### 1. Unify GUI model math with `core/`
-`gui/unified_fit.py` reimplements the unified model
-(`_calculate_unified_intensity`, `_sphere_amplitude`, inline Guinier and
-power-law models around lines 1780–3300) in parallel with
-`core/unified.py:calculate_intensity()`. The GUI copy is admittedly
-"simplified" and will silently diverge from core fixes.
+### 1. Unify GUI model math with `core/` — MOSTLY DONE
+Fitting/plotting always used core math. The duplicated invariant/Sv
+computation (GUI `_calculate_unified_intensity`/`_sphere_amplitude`, batch
+`_compute_invariant_sv`) is now unified into
+`core.unified.compute_invariant_sv()` with pinned regression tests, and the
+`calculate_invariant()` Sv-units bug (missing 1e4) is fixed.
 
-Approach: first write a test comparing GUI and core outputs over a realistic
-(q, params) grid to quantify any divergence, then delete the GUI copies and
-call core. Do not merge without that comparison — the two may intentionally
-differ (e.g. structure-factor handling) and users' displayed values would
-change.
+Still open: the inline local Guinier / power-law `curve_fit` models in
+`gui/unified_fit.py` (~lines 3080–3330) overlap with the local-fit tools in
+`api/control/unified_fit.py` — compare and unify the same way. Also
+`core/modeling.py:_sphere_amplitude` duplicates `unified.sphere_amplitude`.
 
 ### 2. Exception-handling audit
 461 `except Exception` blocks; ~100 are silent `pass`. In `io/` and `state/`
