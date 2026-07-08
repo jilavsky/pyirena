@@ -27,11 +27,16 @@ Batch over many files:
 from __future__ import annotations
 
 import json
+import logging
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import numpy as np
+
+from pyirena.logging_setup import ensure_console_output as _ensure_console
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pyirena.core.simple_fits import SimpleFitModel
@@ -49,11 +54,11 @@ def _load_config(config_file: Union[str, Path]) -> Optional[Dict]:
         with open(config_file, 'r') as f:
             config = json.load(f)
     except Exception as e:
-        print(f"[pyirena.batch] Cannot read config file '{config_file}': {e}")
+        log.error(f"[pyirena.batch] Cannot read config file '{config_file}': {e}")
         return None
 
     if '_pyirena_config' not in config:
-        print(f"[pyirena.batch] '{config_file}' is not a pyIrena configuration file "
+        log.error(f"[pyirena.batch] '{config_file}' is not a pyIrena configuration file "
               f"(missing '_pyirena_config' header).")
         return None
 
@@ -74,7 +79,7 @@ def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
 
     data_file = Path(data_file)
     if not data_file.exists():
-        print(f"[pyirena.batch] Data file not found: '{data_file}'")
+        log.error(f"[pyirena.batch] Data file not found: '{data_file}'")
         return None
 
     ext = data_file.suffix.lower()
@@ -89,11 +94,11 @@ def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
             data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
             actual_file = data_file
     except Exception as e:
-        print(f"[pyirena.batch] Error reading '{data_file}': {e}")
+        log.error(f"[pyirena.batch] Error reading '{data_file}': {e}")
         return None
 
     if data is None:
-        print(f"[pyirena.batch] Could not read data from '{data_file}'")
+        log.error(f"[pyirena.batch] Could not read data from '{data_file}'")
         return None
 
     data['filepath'] = str(actual_file)
@@ -457,6 +462,7 @@ def fit_unified(
     >>> if result and result['uncertainties']:
     ...     print(result['uncertainties']['levels'][0]['Rg'])
     """
+    _ensure_console()
     data_file = Path(data_file)
     config_file = Path(config_file)
 
@@ -467,12 +473,12 @@ def fit_unified(
             return None
 
         if 'unified_fit' not in config:
-            print(f"[pyirena.batch] Config file '{config_file}' has no 'unified_fit' group.")
+            log.info(f"[pyirena.batch] Config file '{config_file}' has no 'unified_fit' group.")
             return None
 
         unified_state = config['unified_fit']
     except Exception:
-        print(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
         return None
 
     # --- Load data ---
@@ -481,7 +487,7 @@ def fit_unified(
         if data is None:
             return None
     except Exception:
-        print(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
         return None
 
     # --- Build model ---
@@ -489,7 +495,7 @@ def fit_unified(
         model = _state_to_model(unified_state)
         num_levels = model.num_levels
     except Exception:
-        print(f"[pyirena.batch] Error building model from config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error building model from config:\n{traceback.format_exc()}")
         return None
 
     # --- Apply Q range from cursor positions ---
@@ -508,28 +514,28 @@ def fit_unified(
         else:
             q_fit, intensity_fit, error_fit = Q, Intensity, Error
     except Exception:
-        print(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
         return None
 
     # --- Run fit ---
     try:
         fit_result = model.fit(q_fit, intensity_fit, error_fit)
     except Exception:
-        print(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
         return None
 
     # --- MC uncertainty analysis (optional) ---
     uncertainties = None
     if with_uncertainty and fit_result.get('success', False):
-        print(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
+        log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
         try:
             uncertainties = _mc_uncertainty_unified(
                 model, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
             )
             if uncertainties is None:
-                print("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
+                log.error("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
         except Exception:
-            print(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
+            log.error(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
 
     # --- Build return structure ---
     try:
@@ -583,7 +589,7 @@ def fit_unified(
             ),
         }
     except Exception:
-        print(f"[pyirena.batch] Error building result structure:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error building result structure:\n{traceback.format_exc()}")
         return None
 
     # --- Save to NXcanSAS ---
@@ -596,11 +602,11 @@ def fit_unified(
             )
             result['output_file'] = output_path
         except Exception:
-            print(f"[pyirena.batch] Warning: could not save NXcanSAS file:\n"
+            log.warning(f"[pyirena.batch] Warning: could not save NXcanSAS file:\n"
                   f"{traceback.format_exc()}")
             # Non-fatal: return result without output_file
 
-    print(f"[pyirena.batch] {result['message']}")
+    log.info(f"[pyirena.batch] {result['message']}")
     return result
 
 
@@ -665,6 +671,7 @@ def fit_sizes(
     ...     peak_r = result['data']['r_grid'][np.argmax(result['data']['distribution'])]
     ...     print(f"Peak radius = {peak_r:.1f} Å")
     """
+    _ensure_console()
     from pyirena.core.sizes import SizesDistribution
 
     data_file = Path(data_file)
@@ -677,12 +684,12 @@ def fit_sizes(
             return None
 
         if 'sizes' not in config:
-            print(f"[pyirena.batch] Config file '{config_file}' has no 'sizes' group.")
+            log.info(f"[pyirena.batch] Config file '{config_file}' has no 'sizes' group.")
             return None
 
         sizes_state = config['sizes']
     except Exception:
-        print(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
         return None
 
     # --- Load data ---
@@ -691,7 +698,7 @@ def fit_sizes(
         if data is None:
             return None
     except Exception:
-        print(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
         return None
 
     # --- Build SizesDistribution from config ---
@@ -722,7 +729,7 @@ def fit_sizes(
         s.tnnls_max_iter         = int(sizes_state.get('tnnls_max_iter', 300))
         s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run, matching GUI
     except Exception:
-        print(f"[pyirena.batch] Error building Sizes model from config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error building Sizes model from config:\n{traceback.format_exc()}")
         return None
 
     # --- Apply Q range from saved cursor positions ---
@@ -741,7 +748,7 @@ def fit_sizes(
         else:
             q_fit, intensity_fit, error_fit = Q, Intensity, Error
     except Exception:
-        print(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
         return None
 
     # --- Optional background pre-fits (mirrors the GUI "Fit All" sequence) ---
@@ -763,7 +770,7 @@ def fit_sizes(
                 Q, Intensity, float(pl_qmin), float(pl_qmax),
                 fit_B=fit_B, fit_P=fit_P,
             )
-            print(f"[pyirena.batch] Power-law pre-fit: {pl_res.get('message', '')}")
+            log.info(f"[pyirena.batch] Power-law pre-fit: {pl_res.get('message', '')}")
 
         bg_qmin = sizes_state.get('background_q_min')
         bg_qmax = sizes_state.get('background_q_max')
@@ -771,30 +778,30 @@ def fit_sizes(
             bg_res = s.fit_background_term(
                 Q, Intensity, float(bg_qmin), float(bg_qmax),
             )
-            print(f"[pyirena.batch] Background pre-fit: {bg_res.get('message', '')}")
+            log.info(f"[pyirena.batch] Background pre-fit: {bg_res.get('message', '')}")
     except Exception:
-        print(f"[pyirena.batch] Background pre-fit failed (continuing with "
+        log.error(f"[pyirena.batch] Background pre-fit failed (continuing with "
               f"configured values):\n{traceback.format_exc()}")
 
     # --- Run fit ---
     try:
         fit_result = s.fit(q_fit, intensity_fit, error_fit)
     except Exception:
-        print(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
         return None
 
     # --- MC uncertainty analysis (optional) ---
     distribution_std = None
     if with_uncertainty and fit_result.get('success', False):
-        print(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
+        log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
         try:
             distribution_std = _mc_uncertainty_sizes(
                 s, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
             )
             if distribution_std is None:
-                print("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
+                log.error("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
         except Exception:
-            print(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
+            log.error(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
 
     # --- Build return structure ---
     try:
@@ -885,7 +892,7 @@ def fit_sizes(
             ),
         }
     except Exception:
-        print(f"[pyirena.batch] Error building result structure:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error building result structure:\n{traceback.format_exc()}")
         return None
 
     # --- Save to NXcanSAS ---
@@ -942,10 +949,10 @@ def fit_sizes(
             )
             result['output_file'] = output_path
         except Exception:
-            print(f"[pyirena.batch] Warning: could not save NXcanSAS file:\n"
+            log.warning(f"[pyirena.batch] Warning: could not save NXcanSAS file:\n"
                   f"{traceback.format_exc()}")
 
-    print(f"[pyirena.batch] {result['message']}")
+    log.info(f"[pyirena.batch] {result['message']}")
     return result
 
 
@@ -1021,6 +1028,7 @@ def fit_pyirena(
     ...     if uf and uf['success']:
     ...         print(uf['parameters']['chi_squared'])
     """
+    _ensure_console()
     data_file = Path(data_file)
     config_file = Path(config_file)
 
@@ -1049,7 +1057,7 @@ def fit_pyirena(
         if config is None:
             return None
     except Exception:
-        print(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
         return None
 
     tools_to_run = [key for key in _TOOL_REGISTRY if key in config]
@@ -1057,18 +1065,18 @@ def fit_pyirena(
         tools_to_run = [t for t in tools_to_run if t in tools]
 
     if not tools_to_run:
-        print(f"[pyirena.batch] Config file '{config_file}' contains no recognised "
+        log.info(f"[pyirena.batch] Config file '{config_file}' contains no recognised "
               f"tool sections. Known tools: {list(_TOOL_REGISTRY)}")
         return None
 
     # --- Run each tool ---
     all_results: Dict[str, Optional[Dict]] = {}
     for tool in tools_to_run:
-        print(f"[pyirena.batch] Running '{tool}' on '{data_file.name}' ...")
+        log.info(f"[pyirena.batch] Running '{tool}' on '{data_file.name}' ...")
         try:
             all_results[tool] = _TOOL_REGISTRY[tool]()
         except Exception:
-            print(f"[pyirena.batch] Unhandled error in '{tool}':\n{traceback.format_exc()}")
+            log.error(f"[pyirena.batch] Unhandled error in '{tool}':\n{traceback.format_exc()}")
             all_results[tool] = None
 
     return {
@@ -1130,6 +1138,7 @@ def fit_simple(
         Fit result dict (same structure as ``SimpleFitModel.fit()``), with
         the result also saved to the HDF5 file.  Returns None on failure.
     """
+    _ensure_console()
     from pyirena.core.simple_fits import SimpleFitModel
     from pyirena.io.nxcansas_simple_fits import save_simple_fit_results
 
@@ -1144,7 +1153,7 @@ def fit_simple(
         model = SimpleFitModel.from_dict(config)
         model.n_mc_runs = n_mc_runs
     else:
-        print(f"[pyirena.batch.fit_simple] config must be a dict or SimpleFitModel, "
+        log.info(f"[pyirena.batch.fit_simple] config must be a dict or SimpleFitModel, "
               f"got {type(config).__name__}")
         return None
 
@@ -1169,7 +1178,7 @@ def fit_simple(
         mask &= np.isfinite(dI) & (dI > 0)
 
     if mask.sum() < 2:
-        print(f"[pyirena.batch.fit_simple] Too few data points after Q masking "
+        log.info(f"[pyirena.batch.fit_simple] Too few data points after Q masking "
               f"({mask.sum()} points, need ≥ 2).")
         return None
 
@@ -1179,7 +1188,7 @@ def fit_simple(
 
     # ── Initial fit ──────────────────────────────────────────────────────────
     if verbose:
-        print(f"[pyirena.batch] Fitting {model.model} to '{data_file.name}' ...")
+        log.info(f"[pyirena.batch] Fitting {model.model} to '{data_file.name}' ...")
 
     # Honor the GUI's "Fit?" checkboxes: parameters marked fixed are held
     # constant during fitting, matching SimpleFitsPanel._run_fit().
@@ -1188,17 +1197,17 @@ def fit_simple(
 
     if not result.get('success'):
         msg = result.get('error', 'Unknown error')
-        print(f"[pyirena.batch.fit_simple] Fit failed: {msg}")
+        log.error(f"[pyirena.batch.fit_simple] Fit failed: {msg}")
         return result
 
     if verbose:
         rchi2 = result.get('reduced_chi2')
-        print(f"[pyirena.batch] Fit succeeded.  Reduced χ² = {rchi2:.4g}")
+        log.info(f"[pyirena.batch] Fit succeeded.  Reduced χ² = {rchi2:.4g}")
 
     # ── Monte Carlo uncertainty ──────────────────────────────────────────────
     if with_uncertainty:
         if verbose:
-            print(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")
+            log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")
 
         dIf_safe = (dIf if dIf is not None
                     else np.maximum(If * 0.05, 1e-30))
@@ -1217,7 +1226,7 @@ def fit_simple(
                 for k, v in mc_params.items()
             }
             if verbose:
-                print(f"[pyirena.batch] MC uncertainty done "
+                log.info(f"[pyirena.batch] MC uncertainty done "
                       f"({sum(len(v) for v in mc_params.values()) // max(len(mc_params), 1)} "
                       f"successful runs).")
 
@@ -1234,9 +1243,9 @@ def fit_simple(
                 setup_state=setup_state,
             )
             if verbose:
-                print(f"[pyirena.batch] Results saved to '{data_file.name}'")
+                log.info(f"[pyirena.batch] Results saved to '{data_file.name}'")
         except Exception as exc:
-            print(f"[pyirena.batch.fit_simple] Could not save results: {exc}")
+            log.error(f"[pyirena.batch.fit_simple] Could not save results: {exc}")
 
     return result
 
@@ -1278,15 +1287,16 @@ def fit_simple_from_config(
         ``'success'`` and ``'message'`` keys guaranteed.
         Returns None if the config cannot be read.
     """
+    _ensure_console()
     config_file = Path(config_file)
     config = _load_config(config_file)
     if config is None:
-        print(f"[pyirena.batch.fit_simple_from_config] Cannot load config: {config_file}")
+        log.error(f"[pyirena.batch.fit_simple_from_config] Cannot load config: {config_file}")
         return None
 
     sf_cfg = config.get('simple_fits')
     if sf_cfg is None:
-        print(f"[pyirena.batch.fit_simple_from_config] No 'simple_fits' section in "
+        log.info(f"[pyirena.batch.fit_simple_from_config] No 'simple_fits' section in "
               f"'{config_file.name}'")
         return {'success': False, 'message': "No 'simple_fits' section in config file"}
 
@@ -1390,17 +1400,18 @@ def fit_waxs_peaks_from_config(
     ...     for pk in result['peaks']:
     ...         print(f"Q0={pk['Q0']['value']:.4f}  FWHM={pk['FWHM']['value']:.4f}")
     """
+    _ensure_console()
     config_file = Path(config_file)
     config = _load_config(config_file)
     if config is None:
         msg = f"Cannot load config: {config_file}"
-        print(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
+        log.info(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
         return {'success': False, 'message': msg}
 
     wp_cfg = config.get('waxs_peakfit')
     if wp_cfg is None:
         msg = f"No 'waxs_peakfit' section in '{config_file.name}'"
-        print(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
+        log.info(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
         return {'success': False, 'message': msg}
 
     q_min = wp_cfg.get('q_min')
@@ -1469,6 +1480,7 @@ def fit_waxs_peaks(
     dict or None
         Result dict from ``WAXSPeakFitModel.fit()``, or None on failure.
     """
+    _ensure_console()
     from pyirena.core.waxs_peakfit import (
         WAXSPeakFitModel, find_peaks_in_data, default_bg_params,
         cross_corr_q_shift, presearch_q0_per_peak, eval_model,
@@ -1477,7 +1489,7 @@ def fit_waxs_peaks(
 
     data_file = Path(data_file)
     if verbose:
-        print(f"[pyirena.batch.fit_waxs_peaks] {data_file.name}")
+        log.info(f"[pyirena.batch.fit_waxs_peaks] {data_file.name}")
 
     # ── Load data ────────────────────────────────────────────────────────────
     try:
@@ -1490,11 +1502,11 @@ def fit_waxs_peaks(
             data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
         if data is None:
             if verbose:
-                print(f"  [fit_waxs_peaks] Could not load data from {data_file.name}")
+                log.error(f"  [fit_waxs_peaks] Could not load data from {data_file.name}")
             return None
     except Exception as exc:
         if verbose:
-            print(f"  [fit_waxs_peaks] Load error: {exc}")
+            log.error(f"  [fit_waxs_peaks] Load error: {exc}")
         return None
 
     q   = np.asarray(data['Q'],        float)
@@ -1512,7 +1524,7 @@ def fit_waxs_peaks(
 
     if len(q_) < 5:
         if verbose:
-            print("  [fit_waxs_peaks] Too few data points in Q range.")
+            log.info("  [fit_waxs_peaks] Too few data points in Q range.")
         return None
 
     # ── Build model config ────────────────────────────────────────────────────
@@ -1533,11 +1545,11 @@ def fit_waxs_peaks(
             sg_window_frac= pf.get('sg_window_frac', 0.15),
         )
         if verbose:
-            print(f"  [fit_waxs_peaks] Auto-found {len(peaks)} peak(s).")
+            log.info(f"  [fit_waxs_peaks] Auto-found {len(peaks)} peak(s).")
 
     if not peaks:
         if verbose:
-            print("  [fit_waxs_peaks] No peaks defined; fitting background only.")
+            log.info("  [fit_waxs_peaks] No peaks defined; fitting background only.")
         peaks = []
 
     # ── Q0 pre-search ─────────────────────────────────────────────────────────
@@ -1559,14 +1571,14 @@ def fit_waxs_peaks(
                     if bool(pk.get("Q0", {}).get("fit", True)):
                         pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
                 if verbose:
-                    print(f"  [fit_waxs_peaks] Cross-corr. shift applied: {shift:+.4f} Å⁻¹")
+                    log.info(f"  [fit_waxs_peaks] Cross-corr. shift applied: {shift:+.4f} Å⁻¹")
         if run_scan:
             peaks = presearch_q0_per_peak(
                 q_, I_, bg_shape, bg_params, peaks,
                 search_window=ps_window, n_steps=ps_steps,
             )
             if verbose:
-                print(f"  [fit_waxs_peaks] Per-peak Q0 scan done "
+                log.info(f"  [fit_waxs_peaks] Per-peak Q0 scan done "
                       f"(window=±{ps_window:.3f} Å⁻¹, steps={ps_steps}).")
 
     # ── Fit ───────────────────────────────────────────────────────────────────
@@ -1577,12 +1589,12 @@ def fit_waxs_peaks(
                             bg_params=bg_params, peaks=peaks, weight_mode=weight_mode)
     except Exception as exc:
         if verbose:
-            print(f"  [fit_waxs_peaks] Fit error: {exc}")
+            log.error(f"  [fit_waxs_peaks] Fit error: {exc}")
         return None
 
     if verbose:
         status = "OK" if result.get('success') else "FAILED"
-        print(f"  [fit_waxs_peaks] {status}  "
+        log.info(f"  [fit_waxs_peaks] {status}  "
               f"reduced-χ² = {result.get('reduced_chi2', float('nan')):.4g}")
 
     # ── Save to HDF5 ──────────────────────────────────────────────────────────
@@ -1598,10 +1610,10 @@ def fit_waxs_peaks(
                 setup_state=setup_state,
             )
             if verbose:
-                print(f"  [fit_waxs_peaks] Saved to {data_file.name}.")
+                log.info(f"  [fit_waxs_peaks] Saved to {data_file.name}.")
         except Exception as exc:
             if verbose:
-                print(f"  [fit_waxs_peaks] Save error: {exc}")
+                log.error(f"  [fit_waxs_peaks] Save error: {exc}")
 
     return result
 
@@ -1647,6 +1659,7 @@ def merge_data(
         ``{'q', 'I', 'dI', 'dQ', 'scale', 'q_shift', 'background',
         'chi_squared', 'success', 'output_path'}``  or None on failure.
     """
+    _ensure_console()
     import json
     from pyirena.core.data_merge import DataMerge, MergeConfig
 
@@ -1670,13 +1683,13 @@ def merge_data(
     for label, q, I in (('DS1', q1, I1), ('DS2', q2, I2)):
         valid = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
         if not np.any(valid):
-            print(f"[merge_data] {label} has no valid (finite, positive) data points — skipping.")
+            log.error(f"[merge_data] {label} has no valid (finite, positive) data points — skipping.")
             return None
         if int(np.sum(valid)) < 3:
-            print(f"[merge_data] {label} has fewer than 3 valid data points — skipping.")
+            log.error(f"[merge_data] {label} has fewer than 3 valid data points — skipping.")
             return None
     if float(q1.max()) <= float(q2.min()):
-        print(f"[merge_data] No Q overlap: DS1 ends at {q1.max():.4g}, "
+        log.error(f"[merge_data] No Q overlap: DS1 ends at {q1.max():.4g}, "
               f"DS2 starts at {q2.min():.4g} — skipping.")
         return None
 
@@ -1686,14 +1699,14 @@ def merge_data(
         config_file = Path(config_file)
         if not config_file.exists():
             if verbose:
-                print(f"[merge_data] Config file not found: {config_file}")
+                log.error(f"[merge_data] Config file not found: {config_file}")
         else:
             try:
                 with open(config_file) as fh:
                     cfg_dict = json.load(fh)
             except Exception as exc:
                 if verbose:
-                    print(f"[merge_data] Cannot read config file: {exc}")
+                    log.error(f"[merge_data] Cannot read config file: {exc}")
 
     # Determine Q overlap range
     q_overlap_min = cfg_dict.get('q_overlap_min')
@@ -1703,7 +1716,7 @@ def merge_data(
         q_max1 = float(q1.max());  q_min2 = float(q2.min())
         if q_max1 <= q_min2:
             if verbose:
-                print(f"[merge_data] No Q overlap detected between DS1 "
+                log.info(f"[merge_data] No Q overlap detected between DS1 "
                       f"(max {q_max1:.4g}) and DS2 (min {q_min2:.4g}).")
             return None
         q_ov_lo = max(float(q1.min()), float(q2.min()))
@@ -1711,7 +1724,7 @@ def merge_data(
         q_overlap_min = q_ov_lo + 0.1 * (q_ov_hi - q_ov_lo)
         q_overlap_max = q_ov_hi - 0.1 * (q_ov_hi - q_ov_lo)
         if verbose:
-            print(f"[merge_data] Auto overlap range: "
+            log.info(f"[merge_data] Auto overlap range: "
                   f"[{q_overlap_min:.4g}, {q_overlap_max:.4g}] Å⁻¹")
 
     config = MergeConfig(
@@ -1729,16 +1742,16 @@ def merge_data(
     # ── Optimise ──────────────────────────────────────────────────────────────
     engine = DataMerge()
     if verbose:
-        print("[merge_data] Optimising merge …")
+        log.info("[merge_data] Optimising merge …")
     try:
         result = engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
     except Exception:
-        print(f"[merge_data] Merge optimisation failed for "
+        log.error(f"[merge_data] Merge optimisation failed for "
               f"'{file1.name}' + '{file2.name}':\n{traceback.format_exc()}")
         return None
     if verbose:
         status = "OK" if result.success else "FAILED"
-        print(f"[merge_data] {status}  scale={result.scale:.4g}  "
+        log.info(f"[merge_data] {status}  scale={result.scale:.4g}  "
               f"bg={result.background:.4g}  χ²={result.chi_squared:.4g}  "
               f"n_pts={result.n_overlap_points}  msg={result.message}")
 
@@ -1748,7 +1761,7 @@ def merge_data(
             q1, I1, dI1, dQ1, q2, I2, dI2, dQ2, result, config
         )
     except Exception:
-        print(f"[merge_data] Merge array assembly failed for "
+        log.error(f"[merge_data] Merge array assembly failed for "
               f"'{file1.name}' + '{file2.name}':\n{traceback.format_exc()}")
         return None
 
@@ -1785,10 +1798,10 @@ def merge_data(
                 ds2_path=file2,
             )
             if verbose:
-                print(f"[merge_data] Saved → {out_path}")
+                log.info(f"[merge_data] Saved → {out_path}")
         except Exception as exc:
             if verbose:
-                print(f"[merge_data] Save error: {exc}")
+                log.error(f"[merge_data] Save error: {exc}")
 
     return {
         'q': q_m, 'I': I_m, 'dI': dI_m, 'dQ': dQ_m,
@@ -1850,6 +1863,7 @@ def fit_modeling(
 
         Returns None if data loading or config reading fails fatally.
     """
+    _ensure_console()
     from pyirena.core.modeling import (
         ModelingEngine, ModelingConfig,
         SizeDistPopulation, UnifiedLevelPopulation, DiffractionPeakPopulation,
@@ -1959,10 +1973,10 @@ def fit_modeling(
             return None
         mod_cfg = config.get('modeling')
         if mod_cfg is None:
-            print(f"[pyirena.batch.fit_modeling] No 'modeling' section in '{config_file.name}'")
+            log.info(f"[pyirena.batch.fit_modeling] No 'modeling' section in '{config_file.name}'")
             return {'success': False, 'message': "No 'modeling' section in config file"}
     except Exception:
-        print(f"[pyirena.batch.fit_modeling] Error reading config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.fit_modeling] Error reading config:\n{traceback.format_exc()}")
         return None
 
     # --- Load data ---
@@ -1971,7 +1985,7 @@ def fit_modeling(
         if data is None:
             return None
     except Exception:
-        print(f"[pyirena.batch.fit_modeling] Error loading data:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.fit_modeling] Error loading data:\n{traceback.format_exc()}")
         return None
 
     q  = np.asarray(data['Q'],         dtype=float)
@@ -1997,7 +2011,7 @@ def fit_modeling(
             de_workers=int(mod_cfg.get('de_workers', 1)),
         )
     except Exception:
-        print(f"[pyirena.batch.fit_modeling] Error building ModelingConfig:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.fit_modeling] Error building ModelingConfig:\n{traceback.format_exc()}")
         return None
 
     # --- Run fit ---
@@ -2005,7 +2019,7 @@ def fit_modeling(
         engine = ModelingEngine()
         fit_result = engine.fit(modeling_config, q, I, dI)
     except Exception:
-        print(f"[pyirena.batch.fit_modeling] Fit error:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.fit_modeling] Fit error:\n{traceback.format_exc()}")
         return {'success': False, 'message': 'Modeling fit failed (see console for details)'}
 
     # --- Optional MC uncertainty ---
@@ -2015,7 +2029,7 @@ def fit_modeling(
             stds = engine.calculate_uncertainty_mc(modeling_config, q, I, dI, mc_runs)
             fit_result.params_std.update(stds)
         except Exception:
-            print(f"[pyirena.batch.fit_modeling] MC uncertainty error:\n{traceback.format_exc()}")
+            log.error(f"[pyirena.batch.fit_modeling] MC uncertainty error:\n{traceback.format_exc()}")
 
     # --- Save to HDF5 ---
     out_path = None
@@ -2037,11 +2051,11 @@ def fit_modeling(
                                   setup_state=mod_cfg)
             out_path = data_file
         except Exception:
-            print(f"[pyirena.batch.fit_modeling] Save error:\n{traceback.format_exc()}")
+            log.error(f"[pyirena.batch.fit_modeling] Save error:\n{traceback.format_exc()}")
 
     chi2_str = f"χ²/dof={fit_result.reduced_chi_squared:.4g}"
     msg = f"Modeling fit complete — {chi2_str}, {len(fit_result.pop_indices)} active population(s)"
-    print(f"[pyirena.batch] {msg}")
+    log.info(f"[pyirena.batch] {msg}")
 
     return {
         'success': True,
@@ -2096,6 +2110,7 @@ def fit_saxs_morph(
     -------
     dict or None    Same shape as :func:`fit_modeling`.
     """
+    _ensure_console()
     from pyirena.core.saxs_morph import (
         SaxsMorphEngine, SaxsMorphConfig,
         fit_power_law_bg, fit_flat_bg,
@@ -2112,10 +2127,10 @@ def fit_saxs_morph(
             return None
         sm_cfg = config.get('saxs_morph')
         if sm_cfg is None:
-            print(f"[pyirena.batch.fit_saxs_morph] No 'saxs_morph' section in '{config_file.name}'")
+            log.info(f"[pyirena.batch.fit_saxs_morph] No 'saxs_morph' section in '{config_file.name}'")
             return {'success': False, 'message': "No 'saxs_morph' section in config file"}
     except Exception:
-        print(f"[pyirena.batch.fit_saxs_morph] Error reading config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.fit_saxs_morph] Error reading config:\n{traceback.format_exc()}")
         return None
 
     # --- Load data ---
@@ -2124,7 +2139,7 @@ def fit_saxs_morph(
         if data is None:
             return None
     except Exception:
-        print(f"[pyirena.batch.fit_saxs_morph] Error loading data:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.fit_saxs_morph] Error loading data:\n{traceback.format_exc()}")
         return None
 
     q = np.asarray(data['Q'], dtype=float)
@@ -2141,10 +2156,10 @@ def fit_saxs_morph(
     if pl_qmin is not None and pl_qmax is not None and pl_qmax > pl_qmin:
         try:
             pl_B, pl_P = fit_power_law_bg(q, I, float(pl_qmin), float(pl_qmax))
-            print(f"[pyirena.batch.fit_saxs_morph] Power-law pre-fit: "
+            log.info(f"[pyirena.batch.fit_saxs_morph] Power-law pre-fit: "
                   f"B={pl_B:.4g}, P={pl_P:.4g}")
         except Exception:
-            print(f"[pyirena.batch.fit_saxs_morph] Power-law pre-fit failed:\n"
+            log.error(f"[pyirena.batch.fit_saxs_morph] Power-law pre-fit failed:\n"
                   f"{traceback.format_exc()}")
 
     # --- Step 2: Flat background pre-fit (if Q range provided) ---
@@ -2155,10 +2170,10 @@ def fit_saxs_morph(
         try:
             flat_bg = fit_flat_bg(q, I, float(bg_qmin), float(bg_qmax),
                                   power_law_B=pl_B, power_law_P=pl_P)
-            print(f"[pyirena.batch.fit_saxs_morph] Flat-bg pre-fit: "
+            log.info(f"[pyirena.batch.fit_saxs_morph] Flat-bg pre-fit: "
                   f"background={flat_bg:.4g}")
         except Exception:
-            print(f"[pyirena.batch.fit_saxs_morph] Flat-bg pre-fit failed:\n"
+            log.error(f"[pyirena.batch.fit_saxs_morph] Flat-bg pre-fit failed:\n"
                   f"{traceback.format_exc()}")
 
     # --- Build SaxsMorphConfig with the (possibly updated) bg values ---
@@ -2178,7 +2193,7 @@ def fit_saxs_morph(
             rng_seed=sm_cfg.get('rng_seed'),
         )
     except Exception:
-        print(f"[pyirena.batch.fit_saxs_morph] Error building SaxsMorphConfig:\n"
+        log.error(f"[pyirena.batch.fit_saxs_morph] Error building SaxsMorphConfig:\n"
               f"{traceback.format_exc()}")
         return None
 
@@ -2190,7 +2205,7 @@ def fit_saxs_morph(
             voxel_size_override=cfg.voxel_size_render,
         )
     except Exception:
-        print(f"[pyirena.batch.fit_saxs_morph] Calculate 3D failed:\n"
+        log.error(f"[pyirena.batch.fit_saxs_morph] Calculate 3D failed:\n"
               f"{traceback.format_exc()}")
         return {'success': False, 'message': 'SAXS Morph calculation failed'}
 
@@ -2201,14 +2216,14 @@ def fit_saxs_morph(
             save_saxs_morph_results(data_file, result)
             out_path = data_file
         except Exception:
-            print(f"[pyirena.batch.fit_saxs_morph] Save error:\n"
+            log.error(f"[pyirena.batch.fit_saxs_morph] Save error:\n"
                   f"{traceback.format_exc()}")
 
     chi2_str = f"χ²/dof={result.reduced_chi_squared:.4g}"
     msg = (f"SAXS Morph complete — {chi2_str}, "
            f"φ_actual={result.phi_actual:.3g}, "
            f"voxel={result.voxel_size}³")
-    print(f"[pyirena.batch] {msg}")
+    log.info(f"[pyirena.batch] {msg}")
 
     return {
         'success': True,
@@ -2252,6 +2267,7 @@ def manipulate_data(
     dict or None
         Result dict with keys: success, operation, output_file, message.
     """
+    _ensure_console()
     from pyirena.core.data_manipulation import (
         DataManipulation, ScaleConfig, TrimConfig, RebinConfig,
         SubtractConfig, DivideConfig,
@@ -2277,7 +2293,7 @@ def manipulate_data(
             result = engine.rebin(q, I, dI, dQ, RebinConfig(**cfg))
         elif operation == 'subtract':
             if buffer_file is None:
-                print("[pyirena.batch] buffer_file required for subtract")
+                log.info("[pyirena.batch] buffer_file required for subtract")
                 return None
             buf = _load_data(Path(buffer_file))
             if buf is None:
@@ -2290,7 +2306,7 @@ def manipulate_data(
             )
         elif operation == 'divide':
             if buffer_file is None:
-                print("[pyirena.batch] buffer_file (denominator) required for divide")
+                log.info("[pyirena.batch] buffer_file (denominator) required for divide")
                 return None
             den = _load_data(Path(buffer_file))
             if den is None:
@@ -2302,10 +2318,10 @@ def manipulate_data(
                 DivideConfig(**cfg),
             )
         else:
-            print(f"[pyirena.batch] Unknown operation: {operation}")
+            log.info(f"[pyirena.batch] Unknown operation: {operation}")
             return None
     except Exception:
-        print(f"[pyirena.batch.manipulate_data] Error:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.manipulate_data] Error:\n{traceback.format_exc()}")
         return None
 
     # Save
@@ -2323,12 +2339,12 @@ def manipulate_data(
             provenance=result.metadata,
         )
     except Exception:
-        print(f"[pyirena.batch.manipulate_data] Save error:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.manipulate_data] Save error:\n{traceback.format_exc()}")
         return None
 
     msg = f"{operation} complete: {len(result.q)} points → {out_path.name}"
     if verbose:
-        print(f"[pyirena.batch] {msg}")
+        log.info(f"[pyirena.batch] {msg}")
 
     return {
         'success': True,
@@ -2380,6 +2396,7 @@ def average_data(
         On success includes ``'rejected'``: list of ``(filename, p_value)``
         pairs for frames that were discarded by the similarity filter.
     """
+    _ensure_console()
     from pyirena.core.data_manipulation import DataManipulation
     from pyirena.io.nxcansas_data_manipulation import save_manipulated_data
 
@@ -2402,7 +2419,7 @@ def average_data(
         loaded_data.append(d)
 
     if len(datasets) < 2:
-        print("[pyirena.batch] Need at least 2 datasets to average")
+        log.info("[pyirena.batch] Need at least 2 datasets to average")
         return None
 
     # --- Optional similarity filter ---
@@ -2421,7 +2438,7 @@ def average_data(
         if verbose:
             for r in sim_results:
                 tag = "OK    " if r.accepted else "REJECT"
-                print(f"  [{tag}] {r.filename}  p={r.p_value:.4f}"
+                log.info(f"  [{tag}] {r.filename}  p={r.p_value:.4f}"
                       f"  C={r.longest_run}  N={r.n_points}")
         accepted_idx = [r.idx for r in sim_results if r.accepted]
         rejected_pairs = [(r.filename, r.p_value) for r in sim_results if not r.accepted]
@@ -2429,7 +2446,7 @@ def average_data(
         loaded_files = [loaded_files[i] for i in accepted_idx]
         loaded_data = [loaded_data[i] for i in accepted_idx]
         if len(datasets) < 2:
-            print("[pyirena.batch] Too few datasets remain after similarity filtering.")
+            log.info("[pyirena.batch] Too few datasets remain after similarity filtering.")
             return None
 
     result = DataManipulation.average(datasets, reference_index=0)
@@ -2448,12 +2465,12 @@ def average_data(
             provenance=result.metadata,
         )
     except Exception:
-        print(f"[pyirena.batch.average_data] Save error:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.average_data] Save error:\n{traceback.format_exc()}")
         return None
 
     msg = f"Average of {len(datasets)} datasets → {out_path.name}"
     if verbose:
-        print(f"[pyirena.batch] {msg}")
+        log.info(f"[pyirena.batch] {msg}")
 
     return {
         'success': True,
@@ -2514,11 +2531,12 @@ def igor_to_nexus(
         # h5xp works the same way
         igor_to_nexus("modern_export.h5xp")
     """
+    _ensure_console()
     from pyirena.io.pxp_to_nexus import extract_igor_experiment
 
     src_path = Path(igor_file)
     if not src_path.is_file():
-        print(f"[pyirena.batch.igor_to_nexus] File not found: {src_path}")
+        log.error(f"[pyirena.batch.igor_to_nexus] File not found: {src_path}")
         return None
 
     try:
@@ -2531,10 +2549,10 @@ def igor_to_nexus(
     except ValueError as exc:
         # Unsupported extension — translate to None-return per the
         # batch-API convention (caller already prints the path).
-        print(f"[pyirena.batch.igor_to_nexus] {exc}")
+        log.info(f"[pyirena.batch.igor_to_nexus] {exc}")
         return None
     except Exception:
-        print(f"[pyirena.batch.igor_to_nexus] Error:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch.igor_to_nexus] Error:\n{traceback.format_exc()}")
         return None
 
     files_list = [
@@ -2550,15 +2568,15 @@ def igor_to_nexus(
     ]
 
     if verbose:
-        print(f"[pyirena.batch.igor_to_nexus] {res.pxp_path}")
-        print(f"  output:   {res.output_root}")
-        print(f"  written:  {res.n_written}")
-        print(f"  skipped:  {res.n_skipped}")
-        print(f"  errors:   {res.n_errors}")
+        log.info(f"[pyirena.batch.igor_to_nexus] {res.pxp_path}")
+        log.info(f"  output:   {res.output_root}")
+        log.info(f"  written:  {res.n_written}")
+        log.info(f"  skipped:  {res.n_skipped}")
+        log.error(f"  errors:   {res.n_errors}")
         if res.n_unparseable_records:
-            print(f"  note:     {res.n_unparseable_records} wave record(s) could not be parsed")
+            log.error(f"  note:     {res.n_unparseable_records} wave record(s) could not be parsed")
         if res.n_igor8_longname_markers:
-            print(f"  WARNING:  {res.n_igor8_longname_markers} Igor-8 long-name "
+            log.warning(f"  WARNING:  {res.n_igor8_longname_markers} Igor-8 long-name "
                   f"record(s) seen — some samples likely missing. "
                   f"Re-save as .h5xp from Igor.")
 
@@ -2588,6 +2606,7 @@ def pxp_to_nexus(
        The old name is kept so existing scripts continue to work; new
        code should prefer ``igor_to_nexus``.
     """
+    _ensure_console()
     return igor_to_nexus(
         igor_file=pxp_file,
         output_folder=output_folder,
