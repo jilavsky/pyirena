@@ -53,6 +53,10 @@ from pyirena.io.h5xp_writer import (
 from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE
 from pyirena.io.schema import TOOL_REGISTRY
 
+import logging
+
+log = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Filename metadata parser
@@ -412,7 +416,7 @@ def _waxs_recompute_peak_area(pk_grp, with_std: bool):
                 try:
                     params_std[pn] = float(ds[()])
                 except Exception:
-                    pass
+                    log.debug("Could not read params_std[%s]", pn, exc_info=True)
         if with_std:
             return float(peak_area_std(shape, params, params_std))
         return float(peak_area(shape, params))

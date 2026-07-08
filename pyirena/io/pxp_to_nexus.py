@@ -1272,7 +1272,7 @@ def extract_igor_experiment(
                 if "Packed Data" in f:
                     return extract_h5xp_to_nexus(p, output_root, techniques, overwrite)
         except Exception:
-            pass
+            logger.debug("Could not open %s as h5xp", p, exc_info=True)
     raise ValueError(
         f"{p.name}: unsupported Igor experiment format. "
         f"Expected .pxp, .pxt, .h5xp, or .hxp."

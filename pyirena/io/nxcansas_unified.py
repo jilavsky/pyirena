@@ -12,6 +12,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 
+import logging
+
+log = logging.getLogger(__name__)
+
 
 def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
                          error: Optional[np.ndarray] = None,
@@ -324,7 +328,7 @@ def save_unified_fit_results(filepath: Path,
             from pyirena.io.setup_config import write_setup_config
             write_setup_config(unified_group, "unified_fit", setup_state)
 
-        print(f"Saved Unified Fit results to {filepath}")
+        log.info(f"Saved Unified Fit results to {filepath}")
 
 
 def load_unified_fit_results(filepath: Path) -> Dict:
@@ -409,10 +413,10 @@ def load_unified_fit_results(filepath: Path) -> Dict:
 
                 results['levels'].append(level_params)
 
-    print(f"Loaded Unified Fit results from {filepath}")
-    print(f"  - {results['num_levels']} levels")
-    print(f"  - χ² = {results['chi_squared']:.4f}")
-    print(f"  - Timestamp: {results['timestamp']}")
+    log.info(f"Loaded Unified Fit results from {filepath}")
+    log.debug(f"  - {results['num_levels']} levels, "
+              f"chi2 = {results['chi_squared']:.4f}, "
+              f"timestamp {results['timestamp']}")
 
     return results
 

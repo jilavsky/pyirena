@@ -6,9 +6,12 @@ The state file is human-readable and can be edited manually if needed.
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from copy import deepcopy
+
+log = logging.getLogger(__name__)
 
 
 def get_default_state_file() -> Path:
@@ -592,8 +595,7 @@ class StateManager:
             True if state was loaded, False if using defaults
         """
         if not self.state_file.exists():
-            print(f"State file not found: {self.state_file}")
-            print("Using default state")
+            log.info(f"State file not found: {self.state_file}; using default state")
             return False
 
         try:
@@ -613,12 +615,11 @@ class StateManager:
             # Apply any default-value migrations for changed schema versions
             self._migrate_state(loaded_sizes_version, loaded_ai_advisor_version,
                                 loaded_modeling_version)
-            print(f"Loaded state from: {self.state_file}")
+            log.info(f"Loaded state from: {self.state_file}")
             return True
 
         except Exception as e:
-            print(f"Error loading state file: {e}")
-            print("Using default state")
+            log.error(f"Error loading state file: {e}; using default state", exc_info=True)
             return False
 
     def save(self) -> bool:
@@ -636,11 +637,11 @@ class StateManager:
             with open(self.state_file, 'w') as f:
                 json.dump(self.state, f, indent=2)
 
-            print(f"Saved state to: {self.state_file}")
+            log.debug(f"Saved state to: {self.state_file}")
             return True
 
         except Exception as e:
-            print(f"Error saving state file: {e}")
+            log.error(f"Error saving state file: {e}", exc_info=True)
             return False
 
     def get(self, tool: str, key: Optional[str] = None, default: Any = None) -> Any:
@@ -721,11 +722,11 @@ class StateManager:
             with open(export_path, 'w') as f:
                 json.dump(tool_state, f, indent=2)
 
-            print(f"Exported {tool} state to: {export_path}")
+            log.info(f"Exported {tool} state to: {export_path}")
             return True
 
         except Exception as e:
-            print(f"Error exporting state: {e}")
+            log.error(f"Error exporting state: {e}", exc_info=True)
             return False
 
     def import_tool_state(self, tool: str, import_path: Path) -> bool:
@@ -744,11 +745,11 @@ class StateManager:
                 tool_state = json.load(f)
 
             self.state[tool] = tool_state
-            print(f"Imported {tool} state from: {import_path}")
+            log.info(f"Imported {tool} state from: {import_path}")
             return True
 
         except Exception as e:
-            print(f"Error importing state: {e}")
+            log.error(f"Error importing state: {e}", exc_info=True)
             return False
 
     def _migrate_state(self, loaded_sizes_version: int = None,

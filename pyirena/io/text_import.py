@@ -266,11 +266,13 @@ def _resolve_output_path(text_path: Path, preferred: Path) -> Path:
             if _PROVENANCE_ATTR in f.attrs:
                 return preferred   # Our file — safe to overwrite/reuse
     except Exception:
-        pass  # Can't read it → treat as foreign
+        # Can't read it → treat as foreign
+        logger.debug("Could not inspect %s; treating as foreign file", preferred,
+                     exc_info=True)
 
     # Foreign file: use fallback name
     fallback = text_path.with_name(text_path.stem + '_NX.h5')
-    print(
+    logger.info(
         f"[pyirena] Note: '{preferred.name}' already exists and was not created by "
         f"pyirena. Using '{fallback.name}' for the converted copy."
     )

@@ -24,6 +24,10 @@ from pyirena.io._nxcansas_common import (
     append_dq as _append_dq,
 )
 
+import logging
+
+log = logging.getLogger(__name__)
+
 # Default suffix per operation
 _OPERATION_SUFFIXES = {
     'scaled': '_scaled',
@@ -90,8 +94,8 @@ def save_manipulated_data(
     # See _strip_nonpositive_intensities() for the rationale.
     q, I, dI, dQ, n_stripped = _strip_nonpositive_intensities(q, I, dI, dQ)
     if n_stripped:
-        print(f"[data_manipulation] Stripped {n_stripped} non-positive/non-finite "
-              f"point(s) before saving '{operation}' result.")
+        log.info(f"[data_manipulation] Stripped {n_stripped} non-positive/non-finite "
+                 f"point(s) before saving '{operation}' result.")
     if len(q) < 2:
         raise ValueError(
             f"After stripping non-positive intensities only {len(q)} point(s) "
