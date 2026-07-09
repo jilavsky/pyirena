@@ -72,18 +72,29 @@ suite green.
 - `core/modeling.py:_sphere_amplitude` duplicates
   `core/unified.py:sphere_amplitude` — keep one.
 
+**Monolith splits — done** (one commit each, pure moves, no behavior change)
+- `batch.py` (2,616 lines) → `pyirena/batch/` package: `_common`,
+  `unified`, `sizes`, `simple`, `waxs`, `merge`, `modeling`,
+  `saxs_morph`, `manipulate`, `convert`, `pipeline`. Largest module now
+  485 lines. All previous imports (`from pyirena.batch import
+  fit_unified`, tests' `_compute_invariant_sv`) re-exported unchanged.
+- `gui/data_selector.py` (5,206 lines) → `pyirena/gui/data_selector/`
+  package: `_qt` (single PySide6/PyQt6 import shim), `plot_utils`,
+  `sorting`, `report`, `config_dialogs`, `results_windows`, `workers`,
+  `igor_import`, `panel`. All legacy names re-exported. Verified by
+  static analysis + stubbed-Qt import execution; **needs one manual GUI
+  launch check** (sandbox could not load Qt system libraries).
+
 ## Remaining — medium priority
 
-### 2. Split monolith modules
-- `gui/data_selector.py` (5,206 lines, 12 classes) → one module per class
-  under `gui/data_selector/`.
-- `batch.py` (2,616 lines, one function per analysis tool) → `batch/`
-  package, one module per tool, re-exporting the public names from
-  `batch/__init__.py` so `from pyirena.batch import fit_unified` keeps
-  working.
-- `gui/unified_fit.py` (4,340 lines) — shrinks further after item 1.
-
-Pure moves, no behavior change; one commit per split.
+### 2. Further monolith reduction (optional)
+- `gui/data_selector/panel.py` is still 2,794 lines (the
+  DataSelectorPanel class itself) — could be split by mixin/topic
+  (file list, plotting, batch actions, menus) if it keeps growing.
+- `gui/unified_fit.py` (4,340 lines) — shrinks further after item 1;
+  split along panel/widgets lines afterwards if desired.
+- `gui/modeling_panel.py` (3,814) and `gui/sizes_panel.py` (3,006) are
+  next in line by the same recipe as data_selector.
 
 ### 3. GUI logging follow-through
 - ~133 silent `except ...: pass` in `gui/` — many are legitimate
