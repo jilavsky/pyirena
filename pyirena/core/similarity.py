@@ -62,13 +62,27 @@ def _longest_run(arr: np.ndarray) -> int:
 def _A(n: int, c: int) -> int:
     """Count binary sequences of length n with no run of same symbol >= c.
 
-    Schilling (1990), Recurrence 2.  Memoised via lru_cache.
+    Schilling (1990), Recurrence 2, evaluated bottom-up.  (The naive
+    recursive form exceeded Python's recursion limit for n >~ 300 — i.e.
+    for perfectly ordinary SAXS datasets.)  Memoised via lru_cache.
     """
     if n <= 0:
         return 1
     if n < c:
         return 1 << n  # 2^n
-    return sum(_A(n - 1 - j, c) for j in range(c))
+    table = [0] * (n + 1)
+    for k in range(n + 1):
+        if k < c:
+            table[k] = 1 << k  # 2^k (k=0 -> 1)
+        else:
+            table[k] = sum(table[k - 1 - j] for j in range(c))
+    return table[n]
+
+
+def _log2_bigint(x: int) -> float:
+    """log2 of a (possibly huge) positive integer without float overflow."""
+    shift = max(x.bit_length() - 53, 0)
+    return math.log2(x >> shift) + shift
 
 
 def _cormap_p_value(n: int, c: int) -> float:
@@ -76,6 +90,11 @@ def _cormap_p_value(n: int, c: int) -> float:
 
     Low p-value means the observed run is unlikely to arise by chance, i.e.
     the two curves are statistically different.
+
+    Note: computed fully in log space on integer bit lengths.  The previous
+    float(delta) conversion overflowed for n >~ 1024 points and silently
+    returned p = 0 (flagging long datasets as different regardless of the
+    data), and math.exp2 required Python >= 3.11.
     """
     if n <= 0 or c <= 1:
         return 1.0
@@ -84,11 +103,7 @@ def _cormap_p_value(n: int, c: int) -> float:
     delta = (1 << n) - 2 * _A(n - 1, c - 1)
     if delta <= 0:
         return 0.0
-    # Convert to float in log space to handle very large integers safely
-    try:
-        return min(math.exp2(math.log2(float(delta)) - n), 1.0)
-    except (ValueError, OverflowError):
-        return 0.0
+    return min(2.0 ** (_log2_bigint(delta) - n), 1.0)
 
 
 def _interp_loglog(q_ref: np.ndarray, q_src: np.ndarray, I_src: np.ndarray) -> np.ndarray:

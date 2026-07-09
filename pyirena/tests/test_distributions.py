@@ -8,11 +8,8 @@ import pytest
 
 from pyirena.core.distributions import (
     gauss_pdf, gauss_cdf,
-    lognormal_pdf, lognormal_cdf,
-    lsw_pdf, lsw_cdf,
-    schulz_zimm_pdf, schulz_zimm_cdf,
-    ardell_pdf, ardell_cdf,
-    pdf, cdf,
+    lognormal_pdf, lsw_pdf, lsw_cdf,
+    schulz_zimm_pdf, pdf, cdf,
     generate_radius_grid,
 )
 
