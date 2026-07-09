@@ -465,7 +465,6 @@ def saveNXcanSAS(Sample,path, filename):
     Q = Sample["CalibratedData"]["Q"]
     Error = Sample["CalibratedData"]["Error"]
     dQ = Sample["CalibratedData"]["dQ"]
-    units = Sample["CalibratedData"]["units"]
     Kfactor = Sample["CalibratedData"]["Kfactor"] if "Kfactor" in Sample["CalibratedData"] else None
     OmegaFactor = Sample["CalibratedData"]["OmegaFactor"] if "OmegaFactor" in Sample["CalibratedData"] else None
     blankname = Sample["CalibratedData"]["blankname"] if "blankname" in Sample["CalibratedData"] else None
@@ -924,7 +923,7 @@ def save_dict_to_hdf5(dic, location, h5file):
             if isinstance(item, dict):
                 # Create a new group for nested dictionaries
                 logging.debug(f"Creating group: {path} + {key}")
-                group = h5file.create_group(path + key)
+                h5file.create_group(path + key)
                 recursively_save_dict_contents_to_group(h5file, path + key + '/', item)
             else:
                 # Save numpy arrays and other data types

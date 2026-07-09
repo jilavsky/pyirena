@@ -18,36 +18,18 @@ make_popout_button(widget) -> QPushButton
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 from typing import Optional
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-        QSlider, QSplitter, QDialog, QComboBox, QColorDialog, QFileDialog,
-        QMenu, QSizePolicy, QApplication,
-    )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QAction, QColor
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-            QSlider, QSplitter, QDialog, QComboBox, QColorDialog, QFileDialog,
-            QMenu, QSizePolicy, QApplication,
-        )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal
-        from PyQt6.QtGui import QAction, QColor
-    except ImportError:
-        from PyQt5.QtWidgets import (
-            QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-            QSlider, QDialog, QComboBox, QColorDialog, QFileDialog,
-            QMenu, QSizePolicy,
-        )
-        from PyQt5.QtCore import Qt
-        from PyQt5.QtGui import QAction, QColor
+from pyirena.gui._qt import (
+    QAction, QColor, QColorDialog, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget, Qt,
+)
 
 import pyqtgraph as pg
 
@@ -97,7 +79,7 @@ if HAS_PYVISTA:
         import vtk
         vtk.vtkObject.GlobalWarningDisplayOff()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -252,22 +234,22 @@ class Voxel3DViewer(QWidget):
     def _view_xy(self):
         if HAS_PYVISTA and self.plotter is not None:
             try: self.plotter.view_xy()
-            except Exception: pass
+            except Exception: log.debug("suppressed exception", exc_info=True)
 
     def _view_xz(self):
         if HAS_PYVISTA and self.plotter is not None:
             try: self.plotter.view_xz()
-            except Exception: pass
+            except Exception: log.debug("suppressed exception", exc_info=True)
 
     def _view_yz(self):
         if HAS_PYVISTA and self.plotter is not None:
             try: self.plotter.view_yz()
-            except Exception: pass
+            except Exception: log.debug("suppressed exception", exc_info=True)
 
     def _view_isometric(self):
         if HAS_PYVISTA and self.plotter is not None:
             try: self.plotter.view_isometric()
-            except Exception: pass
+            except Exception: log.debug("suppressed exception", exc_info=True)
 
     def _set_projection(self, parallel: bool):
         if not (HAS_PYVISTA and self.plotter is not None):
@@ -280,7 +262,7 @@ class Voxel3DViewer(QWidget):
                 self.plotter.disable_parallel_projection()
             self.plotter.render()
         except Exception as exc:
-            print(f'[Voxel3DViewer] projection toggle failed: {exc}')
+            log.warning('[Voxel3DViewer] projection toggle failed: %s', exc)
 
     # ----- Lighting handlers -----------------------------------------------
 
@@ -297,7 +279,7 @@ class Voxel3DViewer(QWidget):
         try:
             self.plotter.remove_all_lights()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             if mode == 'lightkit':
                 # PyVista's enable_lightkit sets up a key/fill/back/headlight
@@ -310,7 +292,7 @@ class Voxel3DViewer(QWidget):
                 self.plotter.add_light(light)
             self.plotter.render()
         except Exception as exc:
-            print(f'[Voxel3DViewer] lighting "{mode}" failed: {exc}')
+            log.warning('[Voxel3DViewer] lighting "%s" failed: %s', mode, exc)
 
     def _toggle_edl(self):
         """Toggle Eye-dome lighting (post-process edge enhancement).
@@ -329,7 +311,7 @@ class Voxel3DViewer(QWidget):
                 self.plotter.disable_eye_dome_lighting()
             self.plotter.render()
         except Exception as exc:
-            print(f'[Voxel3DViewer] EDL toggle failed: {exc}')
+            log.warning('[Voxel3DViewer] EDL toggle failed: %s', exc)
             self._edl_on = not self._edl_on   # revert state on failure
 
     def _toggle_ssao(self):
@@ -349,7 +331,7 @@ class Voxel3DViewer(QWidget):
                 self.plotter.disable_ssao()
             self.plotter.render()
         except Exception as exc:
-            print(f'[Voxel3DViewer] SSAO toggle failed: {exc}')
+            log.warning('[Voxel3DViewer] SSAO toggle failed: %s', exc)
             self._ssao_on = not self._ssao_on
 
     def _toggle_shadows(self):
@@ -369,7 +351,7 @@ class Voxel3DViewer(QWidget):
                 self.plotter.disable_shadows()
             self.plotter.render()
         except Exception as exc:
-            print(f'[Voxel3DViewer] shadows toggle failed: {exc}')
+            log.warning('[Voxel3DViewer] shadows toggle failed: %s', exc)
             self._shadows_on = not self._shadows_on
 
     # ----- disabled UI -----------------------------------------------------
@@ -424,12 +406,12 @@ class Voxel3DViewer(QWidget):
             try:
                 self.plotter.remove_actor(self._actor)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if self._bounds_actor is not None:
             try:
                 self.plotter.remove_actor(self._bounds_actor)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._actor = self.plotter.add_mesh(
             mesh, color=self._iso_color, smooth_shading=True,
@@ -499,13 +481,13 @@ class Voxel3DViewer(QWidget):
             try:
                 self.plotter.remove_actor(self._actor)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._actor = None
         if self._bounds_actor is not None:
             try:
                 self.plotter.remove_actor(self._bounds_actor)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._bounds_actor = None
         self._voxelgram = None
 
@@ -541,12 +523,12 @@ class Voxel3DViewer(QWidget):
             if ren_win is not None:
                 ren_win.Finalize()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Close the QtInteractor / Plotter
         try:
             plotter.close()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Drop our reference so late signals see None
         self.plotter = None
 
@@ -623,7 +605,7 @@ class Slice2DViewer(QWidget):
         try:
             self.image_view.ui.graphicsView.setBackground('w')
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.image_view.setStyleSheet('background-color: white;')
         # Black axes against white background — match the 3D viewer style.
         for ax_name in ('left', 'bottom', 'top', 'right'):
@@ -752,7 +734,7 @@ class Slice2DViewer(QWidget):
                     y=[0.0, 0.0, y_max, y_max, 0.0],
                 )
             except Exception as exc:
-                print(f'[Slice2DViewer] border resize failed: {exc}')
+                log.warning('[Slice2DViewer] border resize failed: %s', exc)
         self.slice_label.setText(f'Slice {idx + 1} / {N} ({coord_label})')
 
 
@@ -790,7 +772,7 @@ class _PopoutDialog(QDialog):
                 self._layout.addWidget(self._widget)
                 restored = True
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if not restored:
             # Original layout is gone — shut down the widget explicitly.
             shutdown = getattr(self._widget, 'shutdown', None)
@@ -798,7 +780,7 @@ class _PopoutDialog(QDialog):
                 try:
                     shutdown()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         super().closeEvent(evt)
 
 
@@ -947,7 +929,7 @@ class VoxelViewerWindow(QMainWindow):
             self.slice_viewer.set_voxelgram(vox, pitch)
             self.voxel3d_viewer.set_voxelgram(vox, pitch)
         except Exception as exc:
-            print(f"[VoxelViewerWindow] failed to display item {idx}: {exc}")
+            log.warning("[VoxelViewerWindow] failed to display item %s: %s", idx, exc)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -956,5 +938,5 @@ class VoxelViewerWindow(QMainWindow):
         try:
             self.voxel3d_viewer.shutdown()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         super().closeEvent(evt)

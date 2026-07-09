@@ -313,7 +313,6 @@ def peak_area_std(shape: str, params: Dict, params_std: Dict) -> float:
         sigma_ln = float(np.arcsinh(u) / s2ln2)
         if sigma_ln <= 0:
             return float("nan")
-        area    = A * Q0 * sigma_ln * np.sqrt(2.0 * np.pi) * np.exp(0.5 * sigma_ln ** 2)
         # ∂σ_ln/∂u = 1 / (√(1+u²)·√(2·ln2))
         dsigma_du = 1.0 / (np.sqrt(1.0 + u * u) * s2ln2)
         # ∂u/∂FWHM = 1/(2·Q0);  ∂u/∂Q0 = −FWHM/(2·Q0²)

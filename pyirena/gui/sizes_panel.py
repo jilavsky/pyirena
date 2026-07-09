@@ -5,28 +5,14 @@ Provides SizesFitGraphWindow (3-panel pyqtgraph plot: I(Q), residuals, P(r))
 and SizesFitPanel (controls + graph) for interactive particle size distribution
 fitting from SAS data using the SizesDistribution core class.
 """
+import logging
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-        QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox, QSplitter,
-        QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame, QTextEdit,
-        QTabWidget, QFileDialog, QGridLayout,
-    )
-    from PySide6.QtCore import Qt, Signal, QUrl
-    from PySide6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor, QDesktopServices
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-            QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox, QSplitter,
-            QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame, QTextEdit,
-            QTabWidget, QFileDialog,
-        )
-        from PyQt6.QtCore import Qt, Signal, QUrl
-        from PyQt6.QtGui import QDoubleValidator, QIntValidator, QBrush, QColor, QDesktopServices
-    except ImportError:
-        raise ImportError("Neither PySide6 nor PyQt6 found. Install with: pip install PySide6")
+log = logging.getLogger(__name__)
+
+
+from pyirena.gui._qt import (
+    QBrush, QCheckBox, QColor, QComboBox, QDesktopServices, QDoubleValidator, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTextEdit, QUrl, QVBoxLayout, QWidget, Qt,
+)
 
 import numpy as np
 from pathlib import Path
@@ -81,7 +67,7 @@ class ScrubbableLineEdit(QLineEdit):
             self.editingFinished.emit()
             event.accept()   # stop the enclosing QScrollArea from also scrolling
         except (ValueError, OverflowError):
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -476,7 +462,7 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self._error_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._error_item = None
 
         if error is None:
@@ -515,7 +501,7 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self._fit_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._fit_item = self.main_plot.plot(
             q, intensity_model,
             pen=pg.mkPen('#e74c3c', width=4),
@@ -528,7 +514,7 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.residuals_plot.removeItem(self._resid_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._resid_item = self.residuals_plot.plot(
             q, residuals,
             pen=None, symbol='o', symbolSize=3,
@@ -549,13 +535,13 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.distribution_plot.removeItem(self._dist_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             if (hasattr(self.distribution_plot, 'legend')
                     and self.distribution_plot.legend is not None):
                 try:
                     self.distribution_plot.legend.removeItem(self._dist_item)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
         r = np.asarray(r, dtype=float).ravel()
         y = np.asarray(distribution, dtype=float).ravel()
@@ -624,7 +610,7 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.distribution_plot.removeItem(self._dist_unc_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._dist_unc_item = None
 
         r = np.asarray(r, dtype=float).ravel()
@@ -680,7 +666,7 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.distribution_plot.removeItem(self._trust_bar_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._trust_bar_item = None
 
         if r is None or len(r) < 2 or q_min is None or q_max is None:
@@ -759,13 +745,13 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self._corrected_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             if (hasattr(self.main_plot, 'legend')
                     and self.main_plot.legend is not None):
                 try:
                     self.main_plot.legend.removeItem(self._corrected_item)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         q_ = np.asarray(q, dtype=float)
         I_ = np.asarray(I_corrected, dtype=float)
         self._corrected_item = self.main_plot.plot(
@@ -785,13 +771,13 @@ class SizesFitGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self._complex_bg_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             if (hasattr(self.main_plot, 'legend')
                     and self.main_plot.legend is not None):
                 try:
                     self.main_plot.legend.removeItem(self._complex_bg_item)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         q_ = np.asarray(q, dtype=float)
         bg_ = np.asarray(bg_values, dtype=float)
         # Only plot positive background values (log-log plot requires y > 0)
@@ -1766,7 +1752,7 @@ class SizesFitPanel(QWidget):
             edit.setText(eng_fmt_edit(val, sig=4))
             edit.editingFinished.emit()
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_frac_error_toggled(self):
         """Enable/disable the error-scale and fraction fields so only the
@@ -1899,7 +1885,7 @@ class SizesFitPanel(QWidget):
             try:
                 return float(raw_min), float(raw_max)
             except ValueError:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         # Fall back to cursor range
         cr = self.graph_window.get_cursor_range() if self.graph_window else None
         if cr is not None:
@@ -2188,13 +2174,13 @@ class SizesFitPanel(QWidget):
             try:
                 self.graph_window.main_plot.removeItem(self.graph_window._complex_bg_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self.graph_window._complex_bg_item = None
         if self.graph_window._corrected_item is not None:
             try:
                 self.graph_window.main_plot.removeItem(self.graph_window._corrected_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self.graph_window._corrected_item = None
         if s.power_law_B != 0.0 or s.background != 0.0:
             self.graph_window.plot_complex_background(q_full, bg_full, 'Complex bg')
@@ -2674,7 +2660,7 @@ class SizesFitPanel(QWidget):
             try:
                 self._apply_state(state)
             except Exception as exc:
-                print(f"Warning: could not restore sizes state: {exc}")
+                log.warning("Could not restore sizes state: %s", exc)
 
     def save_state(self):
         state = self._get_current_state()
@@ -2691,7 +2677,7 @@ class SizesFitPanel(QWidget):
             self.state_manager.update('sizes', self._get_current_state())
             self.state_manager.save()
         except Exception as exc:
-            print(f"Warning: could not auto-save sizes state on close: {exc}")
+            log.warning("Could not auto-save sizes state on close: %s", exc)
         super().closeEvent(event)
 
     def _load_setup_from_file(self):

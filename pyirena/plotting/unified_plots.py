@@ -191,7 +191,6 @@ def plot_porod_analysis(model, level_idx: int = 0):
 
     # If P ≈ 4, show Porod plateau
     if abs(level.P - 4.0) < 0.1:
-        porod_plateau = level.B * np.ones_like(model.q_data)
         ax.axhline(level.B, color='green', linestyle='--', linewidth=1.5,
                   label=f'Porod B={level.B:.4e}')
 

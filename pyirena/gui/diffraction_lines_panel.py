@@ -6,27 +6,18 @@ stick patterns via Dans_Diffraction, and emits a list of visible patterns to
 the WAXS graph window for overlay on the experimental I(Q) curve.
 """
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
-        QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea, QFrame,
-        QGroupBox, QColorDialog, QMenu, QSizePolicy,
-    )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QColor
-except ImportError:
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
-        QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea, QFrame,
-        QGroupBox, QColorDialog, QMenu, QSizePolicy,
-    )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal
-    from PyQt6.QtGui import QColor
+from pyirena.gui._qt import (
+    QCheckBox, QColor, QColorDialog, QDoubleSpinBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 from pyirena.core.diffraction_lines import (
     DiffractionPattern,
@@ -552,7 +543,7 @@ class DiffractionLinesPanel(QWidget):
                 if p is not None and p.name:
                     entry["name"] = p.name
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._entries.append(entry)
         row = _CifRowWidget(entry)

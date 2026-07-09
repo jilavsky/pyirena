@@ -11,17 +11,15 @@ tool-mismatch guard so the five panels don't repeat 30 lines of identical
 boilerplate each.  Keeping it in one place also makes the UX uniform.
 """
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-try:
-    from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
-    except ImportError:
-        from PyQt5.QtWidgets import QFileDialog, QMessageBox, QWidget  # type: ignore
+from pyirena.gui._qt import QFileDialog, QMessageBox, QWidget
 
 from pyirena.io.setup_config import (
     SetupConfigError, SetupConfigToolMismatch, read_setup_config,
@@ -139,6 +137,6 @@ def prompt_and_load_setup(
         try:
             on_status(f"{label} setup restored from {path.name}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     return path

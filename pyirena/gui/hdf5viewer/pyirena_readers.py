@@ -7,6 +7,10 @@ that doesn't have the expected data — it returns None in that case.
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 from pathlib import Path
 
@@ -90,7 +94,7 @@ def detect_available_data(filepath: str | Path) -> list[str]:
             if "entry/modeling_results" in f:
                 available.append("modeling")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return available
 
 
@@ -108,7 +112,7 @@ def _has_nxcansas(f: h5py.File) -> bool:
     try:
         f.visititems(_visitor)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return bool(found)
 
 
@@ -433,7 +437,7 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
             return read_metadata_value(filepath, spec.get("path", ""))
 
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return None
 
 
@@ -532,7 +536,7 @@ def _waxs_peak_area(pk_grp) -> float | None:
         try:
             return float(pk_grp["area"][()])
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return _waxs_recompute_area(pk_grp, with_std=False)
 
 
@@ -541,7 +545,7 @@ def _waxs_peak_area_std(pk_grp) -> float | None:
         try:
             return float(pk_grp["area_std"][()])
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return _waxs_recompute_area(pk_grp, with_std=True)
 
 
@@ -563,7 +567,7 @@ def _waxs_recompute_area(pk_grp, with_std: bool):
                 try:
                     params_std[pn] = float(ds[()])
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         if with_std:
             return float(peak_area_std(shape, params, params_std))
         return float(peak_area(shape, params))

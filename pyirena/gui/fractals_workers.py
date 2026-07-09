@@ -25,13 +25,7 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    from PySide6.QtCore import QThread, Signal
-except ImportError:
-    try:
-        from PyQt6.QtCore import QThread, pyqtSignal as Signal
-    except ImportError:
-        from PyQt5.QtCore import QThread, pyqtSignal as Signal
+from pyirena.gui._qt import QThread, Signal
 
 from pyirena.core.fractals import (
     FractalAggregate, GrowthConfig, OptimizerConfig,

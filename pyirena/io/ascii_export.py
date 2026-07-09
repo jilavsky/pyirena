@@ -258,7 +258,6 @@ def _read_metadata(f, entry_path: str) -> dict:
 
     # Sample
     if "entry/sample" in f and isinstance(f["entry/sample"], h5py.Group):
-        s = f["entry/sample"]
         md["sample_name"] = _dataset_value(f, "entry/sample/name")
         md["sample_title"] = _dataset_value(f, "entry/sample/title")
         md["sample_thickness"] = _dataset_value(f, "entry/sample/thickness")

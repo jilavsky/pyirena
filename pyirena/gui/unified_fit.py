@@ -1,42 +1,16 @@
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import sys
 from typing import List, Dict
 from pathlib import Path
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-        QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
-        QGridLayout, QMessageBox, QSplitter, QFileDialog,
-        QDialog, QComboBox, QRadioButton, QScrollArea
-    )
-    from PySide6.QtCore import Qt, Signal, QTimer, QUrl
-    from PySide6.QtGui import QFont, QDoubleValidator, QDesktopServices
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-            QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
-            QGridLayout, QMessageBox, QSplitter, QFileDialog,
-            QDialog, QComboBox, QRadioButton, QScrollArea
-        )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
-        from PyQt6.QtGui import QFont, QDoubleValidator, QDesktopServices
-    except ImportError:
-        try:
-            from PyQt5.QtWidgets import (
-                QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget, QGroupBox,
-                QGridLayout, QMessageBox, QSplitter, QFileDialog,
-                QDialog, QComboBox, QRadioButton, QScrollArea
-            )
-            from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
-            from PyQt5.QtGui import QFont, QDoubleValidator, QDesktopServices
-        except ImportError:
-            raise ImportError(
-                "No Qt found. Install with: pip install PySide6 or PyQt6 or PyQt5"
-            )
+from pyirena.gui._qt import (
+    QApplication, QCheckBox, QComboBox, QDesktopServices, QDialog, QDoubleValidator, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, QTabWidget, QTimer, QUrl, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 import pyqtgraph as pg
 
@@ -57,7 +31,7 @@ try:
     import anthropic as _anthropic_check  # noqa: F401
     _AI_ADVISOR_AVAILABLE = True
 except ImportError:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 class ScrubbableLineEdit(QLineEdit):
@@ -237,9 +211,9 @@ class DraggableCursor(pg.GraphicsObject):
 
     def paint(self, painter, option, widget):
         """Paint the cursor."""
-        print(f"DEBUG: paint() called for cursor at x={self.pos_x}")  # DEBUG
+        log.debug("paint() called for cursor at x=%s", self.pos_x)
         if self.plot_item is None:
-            print("DEBUG: plot_item is None, skipping paint")  # DEBUG
+            log.debug("plot_item is None, skipping paint")
             return
 
         try:
@@ -323,7 +297,7 @@ class DraggableCursor(pg.GraphicsObject):
             try:
                 painter.drawEllipse(QPointF(0, marker_y), float(marker_size_x), float(marker_size_y))
             except (OverflowError, ValueError):
-                pass  # Skip if still overflows
+                log.debug("suppressed exception", exc_info=True)  # Skip if still overflows
 
         elif self.symbol == 's':  # Square
             painter.setBrush(QBrush(QtCore.BrushStyle.NoBrush))
@@ -336,7 +310,7 @@ class DraggableCursor(pg.GraphicsObject):
                 )
                 painter.drawRect(rect)
             except (OverflowError, ValueError):
-                pass  # Skip if still overflows
+                log.debug("suppressed exception", exc_info=True)  # Skip if still overflows
 
         elif self.symbol == '+':  # Cross
             try:
@@ -349,7 +323,7 @@ class DraggableCursor(pg.GraphicsObject):
                     QPointF(0, float(marker_y + marker_size_y))
                 )
             except (OverflowError, ValueError):
-                pass  # Skip if still overflows
+                log.debug("suppressed exception", exc_info=True)  # Skip if still overflows
 
     def setPos(self, x, y=0):
         """Override setPos to only allow X movement."""
@@ -517,12 +491,12 @@ class UnifiedFitGraphWindow(QWidget):
             try:
                 line.sigPositionChanged.disconnect()
             except (TypeError, RuntimeError):
-                pass
+                log.debug("suppressed exception", exc_info=True)
             try:
                 if self.main_plot is not None:
                     self.main_plot.removeItem(line)
             except (RuntimeError, AttributeError):
-                pass
+                log.debug("suppressed exception", exc_info=True)
             setattr(self, attr, None)
 
     def init_plots(self, rebuild_porod=True):
@@ -765,8 +739,8 @@ class UnifiedFitGraphWindow(QWidget):
         q_log = np.log10(q_pos)
         y_log = np.log10(y_pos)
 
-        print(f"DEBUG: Converting position - Linear: Q={q_pos}, Y={y_pos}")
-        print(f"DEBUG: Log coordinates: Q_log={q_log}, Y_log={y_log}")
+        log.debug("Converting position - Linear: Q=%s, Y=%s", q_pos, y_pos)
+        log.debug("Log coordinates: Q_log=%s, Y_log=%s", q_log, y_log)
 
         # Create text item with white background box for visibility
         text_item = pg.TextItem(
@@ -780,7 +754,7 @@ class UnifiedFitGraphWindow(QWidget):
         text_item.setPos(q_log, y_log)
         self.main_plot.addItem(text_item)
         self.result_text_items.append(text_item)
-        print(f"DEBUG: Added text item at log coordinates Q_log={q_log}, Y_log={y_log}")
+        log.debug("Added text item at log coordinates Q_log=%s, Y_log=%s", q_log, y_log)
 
     def plot_data(self, q, intensity, error=None, label='Data'):
         """Plot experimental data on the main I-Q plot and the Porod tab."""
@@ -1038,12 +1012,12 @@ class UnifiedFitGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self.cursor_left_line)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if self.cursor_right_line is not None:
             try:
                 self.main_plot.removeItem(self.cursor_right_line)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         # IMPORTANT: Since X-axis is in log mode, InfiniteLine expects positions in log space!
         # Convert linear positions to log10
@@ -1094,7 +1068,7 @@ class UnifiedFitGraphWindow(QWidget):
                 # Defer snap-back so it never happens mid-drag inside pyqtgraph
                 QTimer.singleShot(0, self._snap_left_cursor)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _snap_left_cursor(self):
         """Deferred: snap left cursor back to last valid position."""
@@ -1104,7 +1078,7 @@ class UnifiedFitGraphWindow(QWidget):
         try:
             self.cursor_left_line.setValue(np.log10(self.cursor_left))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         finally:
             self._cursor_updating = False
 
@@ -1121,7 +1095,7 @@ class UnifiedFitGraphWindow(QWidget):
                 # Defer snap-back so it never happens mid-drag inside pyqtgraph
                 QTimer.singleShot(0, self._snap_right_cursor)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _snap_right_cursor(self):
         """Deferred: snap right cursor back to last valid position."""
@@ -1131,7 +1105,7 @@ class UnifiedFitGraphWindow(QWidget):
         try:
             self.cursor_right_line.setValue(np.log10(self.cursor_right))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         finally:
             self._cursor_updating = False
 
@@ -1546,7 +1520,7 @@ class LevelParametersWidget(QWidget):
             if self.estimate_b_check.isChecked():
                 self._calculate_and_set_b()
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.parameter_changed.emit()
 
     def _on_rg_changed(self):
@@ -1564,7 +1538,7 @@ class LevelParametersWidget(QWidget):
             if self.estimate_b_check.isChecked():
                 self._calculate_and_set_b()
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.parameter_changed.emit()
 
     def _on_b_changed(self):
@@ -1576,7 +1550,7 @@ class LevelParametersWidget(QWidget):
                 self.b_high.setText(self._format_value(value * 5))
                 self.b_value.setText(self._format_value(value))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Update Sv and Invariant when B changes
         self._update_calculated_values()
         self.parameter_changed.emit()
@@ -1597,7 +1571,7 @@ class LevelParametersWidget(QWidget):
             if self.estimate_b_check.isChecked():
                 self._calculate_and_set_b()
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Update Sv and Invariant when P changes
         self._update_calculated_values()
         self.parameter_changed.emit()
@@ -1614,7 +1588,7 @@ class LevelParametersWidget(QWidget):
                 self.eta_high.setText(self._format_value(high_val))
                 self.eta_value.setText(self._format_value(value))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.parameter_changed.emit()
 
     def _on_pack_changed(self):
@@ -1629,7 +1603,7 @@ class LevelParametersWidget(QWidget):
                 self.pack_high.setText(self._format_value(high_val))
                 self.pack_value.setText(self._format_value(value))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.parameter_changed.emit()
 
     def _on_correlations_changed(self, state):
@@ -1682,7 +1656,7 @@ class LevelParametersWidget(QWidget):
                 self.b_low.setText(self._format_value(B / 5.0))
                 self.b_high.setText(self._format_value(B * 5.0))
         except (ValueError, ZeroDivisionError):
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _update_calculated_values(self):
         """Trigger calculation update - needs to be called from parent with Q vector."""
@@ -1727,7 +1701,7 @@ class LevelParametersWidget(QWidget):
             )
 
         except Exception as e:
-            print(f"Error calculating Sv and Invariant: {e}")
+            log.warning("Error calculating Sv and Invariant: %s", e)
             import traceback
             traceback.print_exc()
             self.sv_value.setText("Error")
@@ -1751,7 +1725,7 @@ class LevelParametersWidget(QWidget):
                 self.g_low.setText(self._format_value(g_val * 0.2))
                 self.g_high.setText(self._format_value(g_val * 5))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Fix Rg limits: low >= 0.1; high = value*5 (no upper cap so value stays in range)
         try:
@@ -1762,7 +1736,7 @@ class LevelParametersWidget(QWidget):
                 self.rg_low.setText(self._format_value(low_val))
                 self.rg_high.setText(self._format_value(high_val))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Fix B limits
         try:
@@ -1771,7 +1745,7 @@ class LevelParametersWidget(QWidget):
                 self.b_low.setText(self._format_value(b_val * 0.2))
                 self.b_high.setText(self._format_value(b_val * 5))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Fix P limits - 0.5-1.5x, clamped to [1, 5]
         try:
@@ -1782,7 +1756,7 @@ class LevelParametersWidget(QWidget):
                 self.p_low.setText(self._format_value(low_val))
                 self.p_high.setText(self._format_value(high_val))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Fix ETA limits: low >= 0.1; high = value*5 (no upper cap)
         try:
@@ -1793,7 +1767,7 @@ class LevelParametersWidget(QWidget):
                 self.eta_low.setText(self._format_value(low_val))
                 self.eta_high.setText(self._format_value(high_val))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Fix PACK limits - absolute limits [0, 12]
         try:
@@ -1804,7 +1778,7 @@ class LevelParametersWidget(QWidget):
                 self.pack_low.setText(self._format_value(low_val))
                 self.pack_high.setText(self._format_value(high_val))
         except ValueError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def get_parameters(self) -> Dict:
         """Get all parameters for this level."""
@@ -3016,7 +2990,6 @@ class UnifiedFitPanel(QWidget):
             # Filter data to cursor range
             q = self.data['Q']
             intensity = self.data['Intensity']
-            error = self.data.get('Error')
 
             mask = (q >= q_min) & (q <= q_max)
             q_fit = q[mask]
@@ -3029,56 +3002,17 @@ class UnifiedFitPanel(QWidget):
                 )
                 return
 
-            # Estimate starting parameters from cursor range
-            # LocalRg = 2*pi / Q_avg (from Igor code line 494)
-            q_avg = (q_fit[0] + q_fit[-1]) / 2
-            local_rg = 2 * np.pi / q_avg
-
-            # LocalG = I_avg (from Igor code line 495)
-            local_g = (intensity_fit[0] + intensity_fit[-1]) / 2
-
-            # If not fitting a parameter, use current GUI value
-            if not params['fit_G']:
-                local_g = params['G']
-            if not params['fit_Rg']:
-                local_rg = params['Rg']
-
-            # Define Guinier model: I(q) = G * exp(-q^2 * Rg^2 / 3)
-            def guinier_model(q, G, Rg):
-                return G * np.exp(-q**2 * Rg**2 / 3)
-
-            # Prepare parameters for fitting
-            from scipy.optimize import curve_fit
-
-            # Initial guess
-            p0 = [local_g, local_rg]
-
-            # Setup which parameters to fit
-            # If a parameter is not being fit, we need to fix it
-            if not params['fit_G'] and not params['fit_Rg']:
-                # Both fixed - already handled above, shouldn't get here
-                return
-            elif not params['fit_G']:
-                # Fix G, fit only Rg
-                def model_fixed_g(q, Rg):
-                    return guinier_model(q, local_g, Rg)
-                p0_fit = [local_rg]
-                popt, pcov = curve_fit(model_fixed_g, q_fit, intensity_fit, p0=p0_fit)
-                fitted_g = local_g
-                fitted_rg = abs(popt[0])
-            elif not params['fit_Rg']:
-                # Fix Rg, fit only G
-                def model_fixed_rg(q, G):
-                    return guinier_model(q, G, local_rg)
-                p0_fit = [local_g]
-                popt, pcov = curve_fit(model_fixed_rg, q_fit, intensity_fit, p0=p0_fit)
-                fitted_g = abs(popt[0])
-                fitted_rg = local_rg
-            else:
-                # Fit both G and Rg
-                popt, pcov = curve_fit(guinier_model, q_fit, intensity_fit, p0=p0)
-                fitted_g = abs(popt[0])
-                fitted_rg = abs(popt[1])
+            # Delegate the actual fit to the shared core implementation (same
+            # Igor-faithful heuristic used by the api.control fit_local_guinier
+            # tool).  The GUI fit is unweighted, matching historical behaviour.
+            from pyirena.core.unified import fit_local_guinier as _core_guinier
+            result = _core_guinier(
+                q_fit, intensity_fit, error=None,
+                fit_G=params['fit_G'], fit_Rg=params['fit_Rg'],
+                G=params['G'], Rg=params['Rg'],
+            )
+            fitted_g = result['G']
+            fitted_rg = result['Rg']
 
             # Update GUI with fitted values
             level_widget.set_parameters({
@@ -3093,8 +3027,8 @@ class UnifiedFitPanel(QWidget):
             # Fix limits for this level
             level_widget.fix_limits()
 
-            # Calculate the local Guinier curve over the Q range used for fitting
-            guinier_calc = fitted_g * np.exp(-q_fit**2 * fitted_rg**2 / 3)
+            # Local Guinier curve over the Q range used for fitting (from core)
+            guinier_calc = result['model_I']
 
             # Redraw with the updated parameters, then overlay the local-fit
             # curve.  The overlay is always shown right after the fit and is
@@ -3173,59 +3107,17 @@ class UnifiedFitPanel(QWidget):
                 )
                 return
 
-            # Estimate starting parameters from cursor range
-            # P (slope) from log-log slope between cursors (Igor line 368)
-            # P = abs((log(I_A) - log(I_B)) / (log(Q_B) - log(Q_A)))
-            # Using first and last points in range
-            local_p = abs(
-                (np.log(intensity_fit[0]) - np.log(intensity_fit[-1])) /
-                (np.log(q_fit[-1]) - np.log(q_fit[0]))
+            # Delegate the actual fit to the shared core implementation (same
+            # Igor-faithful heuristic used by the api.control fit_local_power_law
+            # tool).  Non-positive intensities in the range are dropped by core.
+            from pyirena.core.unified import fit_local_power_law as _core_power_law
+            result = _core_power_law(
+                q_fit, intensity_fit, error=None,
+                fit_B=params['fit_B'], fit_P=params['fit_P'],
+                B=params['B'], P=params['P'],
             )
-
-            # B (prefactor) from I * Q^P at first cursor (Igor line 376)
-            local_b = intensity_fit[0] * (q_fit[0] ** local_p)
-
-            # If not fitting a parameter, use current GUI value
-            if not params['fit_P']:
-                local_p = params['P']
-            if not params['fit_B']:
-                local_b = params['B']
-
-            # Define power law model: I(q) = B * q^(-P)
-            def power_law_model(q, B, P):
-                return B * q**(-P)
-
-            # Prepare parameters for fitting
-            from scipy.optimize import curve_fit
-
-            # Initial guess
-            p0 = [local_b, local_p]
-
-            # Setup which parameters to fit
-            if not params['fit_B'] and not params['fit_P']:
-                # Both fixed - already handled above, shouldn't get here
-                return
-            elif not params['fit_B']:
-                # Fix B, fit only P
-                def model_fixed_b(q, P):
-                    return power_law_model(q, local_b, P)
-                p0_fit = [local_p]
-                popt, pcov = curve_fit(model_fixed_b, q_fit, intensity_fit, p0=p0_fit)
-                fitted_b = local_b
-                fitted_p = abs(popt[0])
-            elif not params['fit_P']:
-                # Fix P, fit only B
-                def model_fixed_p(q, B):
-                    return power_law_model(q, B, local_p)
-                p0_fit = [local_b]
-                popt, pcov = curve_fit(model_fixed_p, q_fit, intensity_fit, p0=p0_fit)
-                fitted_b = abs(popt[0])
-                fitted_p = local_p
-            else:
-                # Fit both B and P
-                popt, pcov = curve_fit(power_law_model, q_fit, intensity_fit, p0=p0)
-                fitted_b = abs(popt[0])
-                fitted_p = abs(popt[1])
+            fitted_b = result['B']
+            fitted_p = result['P']
 
             # Set P limits based on Igor code (lines 427-432)
             # P low limit = 1
@@ -3247,14 +3139,16 @@ class UnifiedFitPanel(QWidget):
             # Fix limits for this level
             level_widget.fix_limits()
 
-            # Calculate the local Porod/power-law curve over the Q range fitted
-            porod_calc = fitted_b * q_fit**(-fitted_p)
+            # Local Porod/power-law curve over the Q range fitted (from core;
+            # q_pos excludes any non-positive-intensity points that were dropped)
+            q_pos = result['q']
+            porod_calc = result['model_I']
 
             # Redraw with the updated parameters, then overlay the local-fit
             # curve.  The overlay is always shown right after the fit and is
             # wiped on the next redraw (it is inherently temporary).
             self.graph_unified()
-            self._draw_local_fit_overlay('porod', q_fit, porod_calc)
+            self._draw_local_fit_overlay('porod', q_pos, porod_calc)
 
             # Show success message
             from pyirena.gui.fmt_utils import eng_fmt as _efmt
@@ -3345,7 +3239,7 @@ class UnifiedFitPanel(QWidget):
                 )
                 self.graph_window.main_plot.addItem(bg_line)
         except (ValueError, TypeError):
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _draw_local_fit_overlay(self, kind, q, intensity):
         """Draw a single transient local-fit curve (Guinier or Porod) on both
@@ -3537,7 +3431,7 @@ class UnifiedFitPanel(QWidget):
         state = self.state_manager.get('unified_fit')
         if state:
             self.apply_state(state)
-            print("Loaded saved state")
+            log.info("Loaded saved state")
 
     def save_state(self):
         """Save current state."""
@@ -3906,7 +3800,7 @@ class UnifiedFitPanel(QWidget):
                     mc['ETA'][i].append(fitted_lv.ETA)
                     mc['PACK'][i].append(fitted_lv.PACK)
             except Exception:
-                pass  # Failed runs are silently skipped
+                log.debug("suppressed exception", exc_info=True)  # Failed runs are silently skipped
 
         # --- Compute statistics ---
         self.fit_uncertainties = self._empty_uncertainties()

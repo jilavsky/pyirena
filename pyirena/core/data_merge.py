@@ -6,6 +6,7 @@ overlap region using log-log interpolation, then concatenates the two datasets.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Optional, Tuple, List
 
 import numpy as np
 from scipy.optimize import minimize
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +405,8 @@ class DataMerge:
             if k is None:
                 continue
             if k in dict1:
-                print(f"[data_merge] Warning: duplicate key {k!r} in folder1: "
-                      f"{dict1[k]!r} and {f!r}. Using first.")
+                log.warning("Duplicate key %r in folder1: %r and %r. Using first.",
+                            k, dict1[k], f)
             else:
                 dict1[k] = f
 
@@ -413,8 +416,8 @@ class DataMerge:
             if k is None:
                 continue
             if k in dict2:
-                print(f"[data_merge] Warning: duplicate key {k!r} in folder2: "
-                      f"{dict2[k]!r} and {f!r}. Using first.")
+                log.warning("Duplicate key %r in folder2: %r and %r. Using first.",
+                            k, dict2[k], f)
             else:
                 dict2[k] = f
 

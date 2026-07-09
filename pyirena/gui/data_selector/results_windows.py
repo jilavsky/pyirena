@@ -4,12 +4,15 @@ pyirena.gui.data_selector.results_windows — stored-fit viewer windows and the 
 Split from the original monolithic data_selector.py (no behavior change).
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import List
 
 import numpy as np
 import pyqtgraph as pg
+
+log = logging.getLogger(__name__)
 
 from pyirena.gui.data_selector._qt import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QAbstractItemView, QTableWidget, QTableWidgetItem, Qt,
@@ -124,7 +127,7 @@ class GraphWindow(QWidget):
                 })
 
             except Exception as e:
-                print(f"Error loading {file_path}: {e}")
+                log.warning("Error loading %s: %s", file_path, e)
 
         self._redraw_items()
 

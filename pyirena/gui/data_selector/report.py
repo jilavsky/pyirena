@@ -3,6 +3,10 @@ pyirena.gui.data_selector.report — Markdown fit-report builder (_build_report)
 
 Split from the original monolithic data_selector.py (no behavior change).
 """
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import os
 from typing import Optional
@@ -291,7 +295,7 @@ def _build_report(file_path: str,
             if aspect_ratio is not None and not np.isnan(float(aspect_ratio)) and float(aspect_ratio) != 1.0:
                 L.append(f"| Aspect ratio | {_fmt(aspect_ratio, '.4f')} |")
         except (TypeError, ValueError):
-            pass
+            log.debug("suppressed exception", exc_info=True)
         L += [
             f"| Background | {_fmt(background, '.4e')} cm⁻¹ |",
             f"| Error scale | {_fmt(error_scale)} |",
@@ -301,7 +305,7 @@ def _build_report(file_path: str,
                 L.append(f"| Power law B | {_fmt(power_law_B, '.4e')} |")
                 L.append(f"| Power law P | {_fmt(power_law_P, '.4f')} |")
         except (TypeError, ValueError):
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if q_fit_min is not None and q_fit_max is not None:
             L.append(f"| Q range (fit) | {_fmt(q_fit_min)} – {_fmt(q_fit_max)} Å⁻¹ |")
         L.append("")

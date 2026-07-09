@@ -9,18 +9,12 @@ Requires:
 """
 
 try:
-    # Try PySide6 first
-    from PySide6 import QtWidgets, QtCore, QtGui
-    QT_BACKEND = "PySide6"
+    # Single import point for the whole gui package (PySide6 → PyQt6).
+    from pyirena.gui._qt import QtWidgets, QtCore, QtGui, QT_BINDING as QT_BACKEND
 except ImportError:
-    try:
-        # Fall back to PyQt6
-        from PyQt6 import QtWidgets, QtCore, QtGui
-        QT_BACKEND = "PyQt6"
-    except ImportError:
-        QT_BACKEND = None
-        QtWidgets = None
-        QtCore = None
-        QtGui = None
+    QT_BACKEND = None
+    QtWidgets = None
+    QtCore = None
+    QtGui = None
 
 __all__ = ["QT_BACKEND", "QtWidgets", "QtCore", "QtGui"]

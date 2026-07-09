@@ -181,16 +181,7 @@ class UnifiedFitModel:
         Returns:
             Sphere amplitude values
         """
-        q_eta = q * eta
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # Handle q*eta → 0 limit (result → 1)
-            result = np.where(
-                q_eta < 1e-10,
-                1.0,
-                3.0 * (np.sin(q_eta) - q_eta * np.cos(q_eta)) / (q_eta ** 3)
-            )
-        return result
+        return sphere_amplitude(q, eta)
 
     def calculate_level_intensity(self, q: np.ndarray, level_idx: int,
                                   prev_Rg: float = 0.0) -> np.ndarray:
@@ -646,6 +637,230 @@ class UnifiedFitModel:
         summary.append("=" * 70)
 
         return "\n".join(summary)
+
+
+def sphere_amplitude(q: np.ndarray, eta: float) -> np.ndarray:
+    """Born-Green sphere amplitude  f(q,η) = 3[sin(qη) − qη·cos(qη)] / (qη)³.
+
+    Module-level implementation shared by :meth:`UnifiedFitModel.sphere_amplitude`
+    and :mod:`pyirena.core.modeling` (structure-factor interference terms).
+    """
+    q_eta = np.asarray(q) * eta
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # q*eta → 0 limit is 1
+        return np.where(
+            q_eta < 1e-10,
+            1.0,
+            3.0 * (np.sin(q_eta) - q_eta * np.cos(q_eta)) / (q_eta ** 3),
+        )
+
+
+def fit_local_guinier(
+    q,
+    intensity,
+    error=None,
+    *,
+    fit_G: bool = True,
+    fit_Rg: bool = True,
+    G: Optional[float] = None,
+    Rg: Optional[float] = None,
+) -> Dict:
+    """Local single-level Guinier fit  I(q) = G·exp(−q²·Rg²/3) over the data given.
+
+    Mirrors the Igor ``IR1A_FitLocalGuinier`` heuristic and is the single
+    implementation shared by the GUI "Fit Rg/G btwn cursors" button
+    (:mod:`pyirena.gui.unified_fit`) and the ``fit_local_guinier`` control
+    tool (:mod:`pyirena.api.control.unified_fit`).
+
+    Parameters
+    ----------
+    q, intensity : array-like
+        Data already restricted to the fit sub-range.
+    error : array-like, optional
+        Per-point uncertainties; used as ``curve_fit`` sigma when all positive
+        (unweighted otherwise).
+    fit_G, fit_Rg : bool
+        Whether each parameter is optimised.  A parameter that is not fit is
+        held fixed at the corresponding ``G`` / ``Rg`` argument.
+    G, Rg : float, optional
+        Current/fixed values, required when the matching fit flag is False.
+
+    Returns
+    -------
+    dict with keys ``G``, ``Rg``, ``n_points``, ``chi_squared``,
+    ``reduced_chi_squared`` and ``model_I`` (model evaluated on ``q``).
+
+    Raises
+    ------
+    ValueError
+        Fewer than 3 points, or nothing selected to fit.
+    Exception
+        Propagated from :func:`scipy.optimize.curve_fit` if the fit fails.
+    """
+    from scipy.optimize import curve_fit  # noqa: PLC0415
+
+    q = np.asarray(q, dtype=float)
+    intensity = np.asarray(intensity, dtype=float)
+    if len(q) < 3:
+        raise ValueError(
+            f"Need at least 3 points for a local Guinier fit (got {len(q)})."
+        )
+    if not fit_G and not fit_Rg:
+        raise ValueError("At least one of G / Rg must be selected for fitting.")
+
+    # Starting estimates (Igor heuristic): Rg from the mid-Q, G from mean I
+    q_avg = (q[0] + q[-1]) / 2.0
+    g0 = (intensity[0] + intensity[-1]) / 2.0
+    rg0 = 2 * np.pi / q_avg if q_avg > 0 else 10.0
+    if not fit_G:
+        g0 = float(G)
+    if not fit_Rg:
+        rg0 = float(Rg)
+
+    sigma = None
+    if error is not None:
+        error = np.asarray(error, dtype=float)
+        if np.all(error > 0):
+            sigma = error
+
+    def model(q_, G_, Rg_):
+        return G_ * np.exp(-(q_ ** 2) * (Rg_ ** 2) / 3.0)
+
+    if fit_G and fit_Rg:
+        popt, _ = curve_fit(model, q, intensity, p0=[g0, rg0], sigma=sigma,
+                            absolute_sigma=False, maxfev=5000)
+        g_fit, rg_fit = abs(popt[0]), abs(popt[1])
+    elif fit_Rg:  # G fixed
+        popt, _ = curve_fit(lambda q_, Rg_: model(q_, g0, Rg_), q, intensity,
+                            p0=[rg0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        g_fit, rg_fit = g0, abs(popt[0])
+    else:  # Rg fixed
+        popt, _ = curve_fit(lambda q_, G_: model(q_, G_, rg0), q, intensity,
+                            p0=[g0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        g_fit, rg_fit = abs(popt[0]), rg0
+
+    g_fit, rg_fit = float(g_fit), float(rg_fit)
+    model_I = model(q, g_fit, rg_fit)
+    resid = (intensity - model_I) / (sigma if sigma is not None else 1.0)
+    chi_sq = float(np.sum(resid ** 2))
+    dof = max(len(q) - (int(fit_G) + int(fit_Rg)), 1)
+    return {
+        "G": g_fit,
+        "Rg": rg_fit,
+        "n_points": int(len(q)),
+        "chi_squared": chi_sq,
+        "reduced_chi_squared": chi_sq / dof,
+        "model_I": model_I,
+    }
+
+
+def fit_local_power_law(
+    q,
+    intensity,
+    error=None,
+    *,
+    fit_B: bool = True,
+    fit_P: bool = True,
+    B: Optional[float] = None,
+    P: Optional[float] = None,
+) -> Dict:
+    """Local single power-law (Porod) fit  I(q) = B·q⁻ᴾ over the data given.
+
+    Mirrors the Igor ``IR1A_FitLocalPorod`` heuristic and is the single
+    implementation shared by the GUI "Fit P/B btwn cursors" button
+    (:mod:`pyirena.gui.unified_fit`) and the ``fit_local_power_law`` control
+    tool (:mod:`pyirena.api.control.unified_fit`).
+
+    Non-positive intensities (and q ≤ 0) are dropped before fitting.
+
+    Parameters
+    ----------
+    q, intensity : array-like
+        Data already restricted to the fit sub-range.
+    error : array-like, optional
+        Per-point uncertainties; used as ``curve_fit`` sigma when all positive.
+    fit_B, fit_P : bool
+        Whether each parameter is optimised.  A parameter that is not fit is
+        held fixed at the corresponding ``B`` / ``P`` argument.
+    B, P : float, optional
+        Current/fixed values, required when the matching fit flag is False.
+
+    Returns
+    -------
+    dict with keys ``B``, ``P``, ``q`` (positive-only q actually used),
+    ``n_points``, ``chi_squared``, ``reduced_chi_squared`` and ``model_I``
+    (model evaluated on the returned ``q``).
+
+    Raises
+    ------
+    ValueError
+        Fewer than 3 positive points, or nothing selected to fit.
+    Exception
+        Propagated from :func:`scipy.optimize.curve_fit` if the fit fails.
+    """
+    from scipy.optimize import curve_fit  # noqa: PLC0415
+
+    q = np.asarray(q, dtype=float)
+    intensity = np.asarray(intensity, dtype=float)
+    if error is not None:
+        error = np.asarray(error, dtype=float)
+    if not fit_B and not fit_P:
+        raise ValueError("At least one of B / P must be selected for fitting.")
+
+    pos = (intensity > 0) & (q > 0)
+    q_pos = q[pos]
+    I_pos = intensity[pos]
+    err_pos = error[pos] if error is not None else None
+    if len(q_pos) < 3:
+        raise ValueError(
+            "Need at least 3 positive points for a local power-law fit "
+            f"(got {len(q_pos)})."
+        )
+
+    # Starting estimates (Igor heuristic): P from log-log slope, B from I·q^P
+    denom = np.log(q_pos[-1]) - np.log(q_pos[0])
+    p0 = abs((np.log(I_pos[0]) - np.log(I_pos[-1])) / denom) if denom != 0 else 4.0
+    b0 = I_pos[0] * (q_pos[0] ** p0)
+    if not fit_P:
+        p0 = float(P)
+    if not fit_B:
+        b0 = float(B)
+
+    sigma = None
+    if err_pos is not None and np.all(err_pos > 0):
+        sigma = err_pos
+
+    def model(q_, B_, P_):
+        return B_ * np.power(q_, -P_)
+
+    if fit_B and fit_P:
+        popt, _ = curve_fit(model, q_pos, I_pos, p0=[b0, p0], sigma=sigma,
+                            absolute_sigma=False, maxfev=5000)
+        b_fit, p_fit = abs(popt[0]), abs(popt[1])
+    elif fit_P:  # B fixed
+        popt, _ = curve_fit(lambda q_, P_: model(q_, b0, P_), q_pos, I_pos,
+                            p0=[p0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        b_fit, p_fit = b0, abs(popt[0])
+    else:  # P fixed
+        popt, _ = curve_fit(lambda q_, B_: model(q_, B_, p0), q_pos, I_pos,
+                            p0=[b0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        b_fit, p_fit = abs(popt[0]), p0
+
+    b_fit, p_fit = float(b_fit), float(p_fit)
+    model_I = model(q_pos, b_fit, p_fit)
+    resid = (I_pos - model_I) / (sigma if sigma is not None else 1.0)
+    chi_sq = float(np.sum(resid ** 2))
+    dof = max(len(q_pos) - (int(fit_B) + int(fit_P)), 1)
+    return {
+        "B": b_fit,
+        "P": p_fit,
+        "q": q_pos,
+        "n_points": int(len(q_pos)),
+        "chi_squared": chi_sq,
+        "reduced_chi_squared": chi_sq / dof,
+        "model_I": model_I,
+    }
 
 
 def compute_invariant_sv(

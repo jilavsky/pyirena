@@ -19,22 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
-        QCheckBox, QLabel, QLineEdit, QPushButton, QRadioButton,
-        QButtonGroup, QComboBox, QSpinBox, QGridLayout, QFrame,
-        QMessageBox, QSizePolicy,
-        QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
-    )
-    from PySide6.QtCore import Qt, Signal
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
-        QCheckBox, QLabel, QLineEdit, QPushButton, QRadioButton,
-        QComboBox, QSpinBox, QGridLayout, QMessageBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
-    )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QAbstractItemView, QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 from . import pyirena_readers as _readers
 from .export_to_igor_tab import ExportToIgorTab
@@ -786,7 +773,6 @@ class PlotControlsPanel(QWidget):
                 if y_arr is not None:
                     if x_arr is None:
                         x_arr = np.arange(len(y_arr), dtype=float)
-                    x_lbl = self._slot_x.split("/")[-1] if self._slot_x else "index"
                     y_lbl = self._slot_y.split("/")[-1]
                     curves.append({
                         "label": f"{stem}  {y_lbl}",

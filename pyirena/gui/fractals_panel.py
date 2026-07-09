@@ -15,6 +15,10 @@ FractalsGraphWindow  : main window — `data_selector` constructs and shows it.
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import math
 from pathlib import Path
@@ -22,37 +26,9 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
-        QTabWidget, QGroupBox, QMessageBox, QSplitter, QFileDialog,
-        QScrollArea, QFrame, QSizePolicy, QListWidget, QListWidgetItem,
-        QMenu, QAbstractItemView,
-    )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QFont, QAction
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
-            QTabWidget, QGroupBox, QMessageBox, QSplitter, QFileDialog,
-            QScrollArea, QFrame, QSizePolicy, QListWidget, QListWidgetItem,
-            QMenu, QAbstractItemView,
-        )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal
-        from PyQt6.QtGui import QFont, QAction
-    except ImportError:
-        from PyQt5.QtWidgets import (
-            QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
-            QTabWidget, QGroupBox, QMessageBox, QSplitter, QFileDialog,
-            QScrollArea, QFrame, QListWidget, QListWidgetItem,
-            QMenu, QAbstractItemView,
-        )
-        from PyQt5.QtCore import Qt
-        from PyQt5.QtGui import QAction
+from pyirena.gui._qt import (
+    QAbstractItemView, QAction, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget, QVBoxLayout, QWidget, Qt,
+)
 
 import pyqtgraph as pg
 
@@ -138,11 +114,11 @@ class FractalsGraphWindow(QMainWindow):
         try:
             self._growth_worker.shutdown()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             self._mc_worker.shutdown()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         super().closeEvent(evt)
 
 
@@ -725,7 +701,7 @@ class FractalsPanel(QWidget):
                 try:
                     self._load_unified_from_nexus(nexus_path)
                 except Exception as exc:
-                    print(f"[fractals] auto-load of {last_path} failed: {exc}")
+                    log.warning("[fractals] auto-load of %s failed: %s", last_path, exc)
             else:
                 # File no longer exists — drop the stale path
                 self.nexus_path_edit.clear()
@@ -1037,7 +1013,7 @@ class FractalsPanel(QWidget):
             agg.q = q
             agg.i_unified = intensity_unified(agg.params, q)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._aggregates.append(agg)
         self._refresh_aggregates_list()
         # Auto-select the newest one
@@ -1260,7 +1236,7 @@ class FractalsPanel(QWidget):
             self.slice_viewer.set_voxelgram(voxelgram, pitch_A)
             self.voxel3d_viewer.set_voxelgram(voxelgram, pitch_A)
         except Exception as exc:
-            print(f"[fractals] voxelization failed: {exc}")
+            log.warning("[fractals] voxelization failed: %s", exc)
 
     # ── I(Q) plotting ────────────────────────────────────────────────────
 
@@ -1283,7 +1259,7 @@ class FractalsPanel(QWidget):
             try:
                 self._legend.clear()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         items_for_y: list[float] = []
 
@@ -1489,7 +1465,7 @@ class FractalsPanel(QWidget):
                 self._aggregates.append(agg)
                 loaded += 1
             except Exception as exc:
-                print(f"[fractals] failed to load {e['group_path']}: {exc}")
+                log.warning("[fractals] failed to load %s: %s", e['group_path'], exc)
         self._refresh_aggregates_list()
         QMessageBox.information(self, "Loaded",
                                  f"Loaded {loaded} aggregate(s) from {path}.")

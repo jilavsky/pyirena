@@ -119,7 +119,7 @@ class TestCsvIncludesFormFactorParams:
         h5 = tmp_path / 'sample.h5'
         save_modeling_results(h5, _make_css_modeling_result())
 
-        app = QApplication.instance() or QApplication([])
+        _app = QApplication.instance() or QApplication([])
         panel = ds.DataSelectorPanel()
         panel.current_folder = str(tmp_path)
         panel.file_list.clear()

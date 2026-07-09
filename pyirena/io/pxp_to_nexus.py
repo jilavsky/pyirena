@@ -348,7 +348,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     try:
         from igor2.packed import (
             setup_packed_file_record_header, _RECORD_TYPE,
-            _UnknownRecord, _UnusedRecord, PACKEDRECTYPE_MASK,
+            _UnknownRecord, PACKEDRECTYPE_MASK,
             _byte_order, _need_to_reorder_bytes,
         )
         from igor2.record.folder import FolderStartRecord, FolderEndRecord
@@ -438,7 +438,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
             try:
                 rec = rtype(header, data, byte_order=byte_order)
                 records.append(rec)
-            except Exception as exc:
+            except Exception as exc:  # noqa: F841 - exc is read below (may be reassigned to exc2)
                 # If this looks like a v7 wave (long-name format from
                 # Igor Pro 8/10), patch the version field to 5 and retry.
                 # igor2 0.5.x doesn't know about v7 even though the

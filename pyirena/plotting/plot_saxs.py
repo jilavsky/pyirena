@@ -127,7 +127,6 @@ def plot_saxs(
         import matplotlib
         matplotlib.use('Agg')   # non-interactive backend for headless use
         import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
     except ImportError as exc:
         raise ImportError(
             "matplotlib is required for plot_saxs.  Install it with:\n"

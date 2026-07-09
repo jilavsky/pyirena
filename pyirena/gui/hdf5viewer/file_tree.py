@@ -12,26 +12,19 @@ Key design:
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import os
 import re
 from pathlib import Path
 from typing import Callable
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-        QPushButton, QLabel, QLineEdit, QComboBox, QFileDialog, QSizePolicy,
-    )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QFont, QBrush, QColor
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-        QPushButton, QLabel, QLineEdit, QComboBox, QFileDialog, QSizePolicy,
-    )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
-    from PyQt6.QtGui import QFont, QBrush, QColor      # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QBrush, QColor, QComboBox, QFileDialog, QFont, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 # ── Extensions treated as HDF5 files ───────────────────────────────────────
 HDF5_EXTENSIONS = {".h5", ".hdf5", ".hdf", ".nxs", ".h5xp"}
@@ -323,7 +316,7 @@ class FileTreeWidget(QWidget):
                     if self._dir_has_hdf5(entry.path):
                         return True
         except PermissionError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return False
 
     # ── Sort / filter ──────────────────────────────────────────────────────

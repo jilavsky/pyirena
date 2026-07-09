@@ -49,6 +49,8 @@ import numpy as np
 from scipy.optimize import least_squares, minimize, differential_evolution
 from scipy.special import erf as _scipy_erf
 
+from pyirena.core.unified import sphere_amplitude as _sphere_amplitude
+
 
 # Thread-count environment variables read by the common BLAS / OpenMP backends.
 # When running differential_evolution across worker processes we pin these to 1
@@ -405,18 +407,6 @@ class ModelingResult:
 # ──────────────────────────────────────────────────────────────────────────────
 # Structure-factor helpers  (stand-alone, no class state needed)
 # ──────────────────────────────────────────────────────────────────────────────
-
-def _sphere_amplitude(q: np.ndarray, eta: float) -> np.ndarray:
-    """Born-Green sphere amplitude  f(q,η) = 3[sin(qη) - qη·cos(qη)] / (qη)³."""
-    q_eta = q * eta
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return np.where(
-            q_eta < 1e-10,
-            1.0,
-            3.0 * (np.sin(q_eta) - q_eta * np.cos(q_eta)) / (q_eta ** 3),
-        )
-
 
 def _interferences_sf(q: np.ndarray, eta: float, pack: float) -> np.ndarray:
     """Born-Green interference structure factor: S(q) = 1/(1 + pack*f(q,eta))."""
@@ -1654,7 +1644,7 @@ class ModelingEngine:
             # search n_runs times would be needlessly slow.
             cfg_run.fit_method = 'local'
             try:
-                result = self.fit(cfg_run, q, I_pert, dI)
+                self.fit(cfg_run, q, I_pert, dI)
                 x_final, _, _, keys_run = self._pack_params(deepcopy(cfg_run))
                 if len(x_final) == len(keys):
                     for j, v in enumerate(x_final):

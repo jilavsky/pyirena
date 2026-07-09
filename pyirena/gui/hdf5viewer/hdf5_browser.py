@@ -10,23 +10,16 @@ Context menu on group nodes:  Plot NXcanSAS / Unified Fit / … if known type.
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import os
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-        QLabel, QLineEdit, QMenu, QSizePolicy, QAbstractItemView,
-    )
-    from PySide6.QtCore import Qt, Signal
-    from PySide6.QtGui import QFont, QAction
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
-        QLabel, QLineEdit, QMenu, QSizePolicy, QAbstractItemView,
-    )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal  # type: ignore[no-redef]
-    from PyQt6.QtGui import QFont, QAction             # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QAbstractItemView, QAction, QFont, QLabel, QLineEdit, QMenu, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 import h5py
 import numpy as np
@@ -55,7 +48,7 @@ def _classify_group(h5_group: h5py.Group) -> str | None:
         if css == "SASentry":
             return "nxcansas"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return None
 
 
@@ -226,7 +219,7 @@ class HDF5BrowserWidget(QWidget):
                             v = v.decode("utf-8", errors="replace")
                         val_str = f" = {v}"
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 info = f"{shape_str}  [{dtype_str}]{val_str}"
                 item = QTreeWidgetItem(parent, [name, info])
                 item.setData(0, _HDF5_PATH_ROLE, child_path)
@@ -268,7 +261,7 @@ class HDF5BrowserWidget(QWidget):
                 ))
                 attr_item.setFlags(attr_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
         """Lazily load children of a group item on first expand."""
@@ -406,7 +399,7 @@ class HDF5BrowserWidget(QWidget):
             try:
                 self._h5file.close()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._h5file = None
 
     def closeEvent(self, event) -> None:

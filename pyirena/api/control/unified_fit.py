@@ -1080,25 +1080,10 @@ def fit_local_guinier(
             code="TOO_FEW_POINTS",
         )
 
-    # Starting estimates (same heuristic as the GUI button)
-    q_avg = (float(q_fit[0]) + float(q_fit[-1])) / 2
-    g0    = float((I_fit[0] + I_fit[-1]) / 2)
-    rg0   = 2 * np.pi / q_avg if q_avg > 0 else 10.0
+    from pyirena.core.unified import fit_local_guinier as _core_guinier  # noqa: PLC0415
 
-    from scipy.optimize import curve_fit  # noqa: PLC0415
-
-    def guinier(q, G, Rg):
-        return G * np.exp(-(q ** 2) * (Rg ** 2) / 3.0)
-
-    sigma = err_fit if err_fit is not None and np.all(err_fit > 0) else None
     try:
-        popt, _ = curve_fit(
-            guinier, q_fit, I_fit,
-            p0=[g0, rg0],
-            sigma=sigma,
-            absolute_sigma=False,
-            maxfev=5000,
-        )
+        r = _core_guinier(q_fit, I_fit, error=err_fit)
     except Exception as exc:
         return make_error(
             f"Local Guinier fit failed: {exc}",
@@ -1106,23 +1091,15 @@ def fit_local_guinier(
             code="FIT_FAILED",
         )
 
-    g_fit  = float(abs(popt[0]))
-    rg_fit = float(abs(popt[1]))
-
-    model_I = guinier(q_fit, g_fit, rg_fit)
-    resid   = (I_fit - model_I) / (err_fit if sigma is not None else 1.0)
-    chi_sq  = float(np.sum(resid ** 2))
-    dof     = max(len(q_fit) - 2, 1)
-
     return {
         "ok":                  True,
-        "G":                   g_fit,
-        "Rg":                  rg_fit,
+        "G":                   r["G"],
+        "Rg":                  r["Rg"],
         "q_min":               float(q_fit[0]),
         "q_max":               float(q_fit[-1]),
-        "n_points":            int(len(q_fit)),
-        "chi_squared":         chi_sq,
-        "reduced_chi_squared": chi_sq / dof,
+        "n_points":            r["n_points"],
+        "chi_squared":         r["chi_squared"],
+        "reduced_chi_squared": r["reduced_chi_squared"],
     }
 
 
@@ -1174,39 +1151,16 @@ def fit_local_power_law(
         )
 
     # Reject non-positive intensities (log-slope estimate would crash)
-    pos = (I_fit > 0) & (q_fit > 0)
-    if int(np.sum(pos)) < 3:
+    if int(np.sum((I_fit > 0) & (q_fit > 0))) < 3:
         return make_error(
             "Not enough positive intensity values in range for a power-law fit.",
             code="TOO_FEW_POSITIVE",
         )
-    q_pos = q_fit[pos]
-    I_pos = I_fit[pos]
 
-    # Starting estimates from endpoints (same as GUI button)
-    log_q_first = float(np.log(q_pos[0]))
-    log_q_last  = float(np.log(q_pos[-1]))
-    log_I_first = float(np.log(I_pos[0]))
-    log_I_last  = float(np.log(I_pos[-1]))
-    denom = log_q_last - log_q_first
-    p0 = abs((log_I_first - log_I_last) / denom) if denom != 0 else 4.0
-    b0 = float(I_pos[0] * (q_pos[0] ** p0))
+    from pyirena.core.unified import fit_local_power_law as _core_power_law  # noqa: PLC0415
 
-    from scipy.optimize import curve_fit  # noqa: PLC0415
-
-    def power_law(q, B, P):
-        return B * np.power(q, -P)
-
-    err_pos = err_fit[pos] if err_fit is not None else None
-    sigma   = err_pos if err_pos is not None and np.all(err_pos > 0) else None
     try:
-        popt, _ = curve_fit(
-            power_law, q_pos, I_pos,
-            p0=[b0, p0],
-            sigma=sigma,
-            absolute_sigma=False,
-            maxfev=5000,
-        )
+        r = _core_power_law(q_fit, I_fit, error=err_fit)
     except Exception as exc:
         return make_error(
             f"Local power-law fit failed: {exc}",
@@ -1214,23 +1168,16 @@ def fit_local_power_law(
             code="FIT_FAILED",
         )
 
-    b_fit = float(abs(popt[0]))
-    p_fit = float(abs(popt[1]))
-
-    model_I = power_law(q_pos, b_fit, p_fit)
-    resid   = (I_pos - model_I) / (err_pos if sigma is not None else 1.0)
-    chi_sq  = float(np.sum(resid ** 2))
-    dof     = max(len(q_pos) - 2, 1)
-
+    q_pos = r["q"]
     return {
         "ok":                  True,
-        "P":                   p_fit,
-        "B":                   b_fit,
+        "P":                   r["P"],
+        "B":                   r["B"],
         "q_min":               float(q_pos[0]),
         "q_max":               float(q_pos[-1]),
-        "n_points":            int(len(q_pos)),
-        "chi_squared":         chi_sq,
-        "reduced_chi_squared": chi_sq / dof,
+        "n_points":            r["n_points"],
+        "chi_squared":         r["chi_squared"],
+        "reduced_chi_squared": r["reduced_chi_squared"],
     }
 
 

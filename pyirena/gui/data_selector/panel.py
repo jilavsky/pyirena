@@ -3,6 +3,10 @@ pyirena.gui.data_selector.panel — the DataSelectorPanel main widget and main()
 
 Split from the original monolithic data_selector.py (no behavior change).
 """
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import os
 import sys
@@ -1250,14 +1254,14 @@ class DataSelectorPanel(QWidget):
                             'I_error': raw.get('Error'),
                         }
                 except Exception:
-                    pass   # data load failure is non-fatal; section simply omitted
+                    log.debug("suppressed exception", exc_info=True)   # data load failure is non-fatal; section simply omitted
 
             # ── Load Unified Fit results (HDF5 only) ───────────────────────
             if show_fit and is_hdf:
                 try:
                     fit_results = load_unified_fit_results(Path(file_path))
                 except Exception:
-                    pass   # no fit group or unreadable — section omitted silently
+                    log.debug("suppressed exception", exc_info=True)   # no fit group or unreadable — section omitted silently
 
             # ── Load Size Distribution results (HDF5 only) ─────────────────
             if show_sizes and is_hdf:
@@ -1265,7 +1269,7 @@ class DataSelectorPanel(QWidget):
                     from pyirena.io.nxcansas_sizes import load_sizes_results
                     sizes_results = load_sizes_results(Path(file_path))
                 except Exception:
-                    pass   # no sizes group or unreadable — section omitted silently
+                    log.debug("suppressed exception", exc_info=True)   # no sizes group or unreadable — section omitted silently
 
             # ── Load Simple Fits results (HDF5 only) ───────────────────────
             if show_simple_fits and is_hdf:
@@ -1273,7 +1277,7 @@ class DataSelectorPanel(QWidget):
                     from pyirena.io.nxcansas_simple_fits import load_simple_fit_results
                     simple_fit_results = load_simple_fit_results(Path(file_path))
                 except Exception:
-                    pass   # no simple_fit_results group — section omitted silently
+                    log.debug("suppressed exception", exc_info=True)   # no simple_fit_results group — section omitted silently
 
             # ── Load WAXS Peak Fit results (HDF5 only) ─────────────────────
             if show_waxs_peakfit and is_hdf:
@@ -1281,7 +1285,7 @@ class DataSelectorPanel(QWidget):
                     from pyirena.io.nxcansas_waxs_peakfit import load_waxs_peakfit_results
                     waxs_peakfit_results = load_waxs_peakfit_results(Path(file_path))
                 except Exception:
-                    pass   # no waxs_peakfit_results group — section omitted silently
+                    log.debug("suppressed exception", exc_info=True)   # no waxs_peakfit_results group — section omitted silently
 
             # ── Load Modeling results (HDF5 only) ──────────────────────────
             if show_modeling and is_hdf:
@@ -1289,7 +1293,7 @@ class DataSelectorPanel(QWidget):
                     from pyirena.io.nxcansas_modeling import load_modeling_results
                     modeling_results = load_modeling_results(Path(file_path))
                 except Exception:
-                    pass   # no modeling_results group — section omitted silently
+                    log.debug("suppressed exception", exc_info=True)   # no modeling_results group — section omitted silently
 
             # ── Load SAXS Morph results (HDF5 only) ────────────────────────
             if show_saxs_morph and is_hdf:
@@ -1297,7 +1301,7 @@ class DataSelectorPanel(QWidget):
                     from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
                     saxs_morph_results = load_saxs_morph_results(Path(file_path))
                 except Exception:
-                    pass   # no saxs_morph_results group — section omitted silently
+                    log.debug("suppressed exception", exc_info=True)   # no saxs_morph_results group — section omitted silently
 
             # Nothing to write for this file?
             if (data_info is None and fit_results is None and sizes_results is None
@@ -1329,7 +1333,7 @@ class DataSelectorPanel(QWidget):
                 else:
                     subprocess.run(['xdg-open', str(out_path)], check=False)
             except Exception:
-                pass   # Opening is best-effort; don't fail the whole save
+                log.debug("suppressed exception", exc_info=True)   # Opening is best-effort; don't fail the whole save
 
         if saved:
             msg = f"Report(s) saved: {', '.join(saved)}"
@@ -1409,12 +1413,12 @@ class DataSelectorPanel(QWidget):
                         uf = load_unified_fit_results(Path(fp))
                         max_levels = max(max_levels, len(uf.get('levels', [])))
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if show_sizes:
                     try:
                         sz = load_sizes_results(Path(fp))
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if show_simple_fits:
                     try:
                         from pyirena.io.nxcansas_simple_fits import load_simple_fit_results
@@ -1424,14 +1428,14 @@ class DataSelectorPanel(QWidget):
                         for dname in sf.get('derived', {}):
                             sf_derived_names_seen[dname] = None
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if show_waxs_peakfit:
                     try:
                         from pyirena.io.nxcansas_waxs_peakfit import load_waxs_peakfit_results
                         wp = load_waxs_peakfit_results(Path(fp))
                         max_wp_peaks = max(max_wp_peaks, int(wp.get('n_peaks', 0)))
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if show_modeling:
                     try:
                         from pyirena.io.nxcansas_modeling import load_modeling_results
@@ -1441,13 +1445,13 @@ class DataSelectorPanel(QWidget):
                         )
                         max_mod_pops = max(max_mod_pops, n_enabled)
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if show_saxs_morph:
                     try:
                         from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
                         sm = load_saxs_morph_results(Path(fp))
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
             loaded.append((fname, uf, sz, sf, wp, mod, sm))
 
@@ -2748,14 +2752,14 @@ class DataSelectorPanel(QWidget):
             # Folder exists, use it
             self.last_folder = last_folder
             self.current_folder = last_folder
-            print(f"Restored last folder: {last_folder}")
+            log.info("Restored last folder: %s", last_folder)
         else:
             # Folder doesn't exist or wasn't saved, use home directory
             self.last_folder = str(Path.home())
             self.current_folder = None
             if last_folder:
-                print(f"Last folder no longer exists: {last_folder}")
-                print(f"Starting in home directory: {self.last_folder}")
+                log.info("Last folder no longer exists: %s", last_folder)
+                log.info("Starting in home directory: %s", self.last_folder)
 
     def save_last_folder(self, folder: str):
         """Save the current folder to state."""

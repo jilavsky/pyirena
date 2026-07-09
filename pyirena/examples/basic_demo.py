@@ -82,7 +82,7 @@ def demo_synthetic_data():
 
     # Perform fit
     print("\nPerforming fit...")
-    results = fit_model.fit(q, I_measured, I_error, verbose=0)
+    fit_model.fit(q, I_measured, I_error, verbose=0)
 
     # Display results
     print("\n" + fit_model.get_parameter_summary())
@@ -202,7 +202,7 @@ def demo_multi_level():
 
     # Perform fit
     print("\nPerforming fit...")
-    results = fit_model.fit(q, I_measured, I_error, verbose=0)
+    fit_model.fit(q, I_measured, I_error, verbose=0)
 
     # Display results
     print("\n" + fit_model.get_parameter_summary())
@@ -343,7 +343,7 @@ def demo_load_real_data(file_path: str):
 
         # Perform fit
         print("\nPerforming fit...")
-        results = fit_model.fit(
+        fit_model.fit(
             data['Q'], data['Intensity'], data['Error'],
             verbose=1
         )

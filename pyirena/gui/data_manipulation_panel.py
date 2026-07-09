@@ -19,33 +19,9 @@ from typing import Callable, Optional, List
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-        QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
-        QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
-        QAbstractItemView, QSizePolicy, QListWidgetItem,
-        QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
-        QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
-    )
-    from PySide6.QtCore import Qt, QUrl, QTimer
-    from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-            QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
-            QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
-            QAbstractItemView, QSizePolicy, QListWidgetItem,
-            QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
-            QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
-        )
-        from PyQt6.QtCore import Qt, QUrl, QTimer
-        from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
-    except ImportError:
-        raise ImportError(
-            "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
-        )
+from pyirena.gui._qt import (
+    QAbstractItemView, QApplication, QCheckBox, QColor, QComboBox, QDesktopServices, QDoubleSpinBox, QDoubleValidator, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QIcon, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPixmap, QPushButton, QScrollArea, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
+)
 
 import pyqtgraph as pg
 

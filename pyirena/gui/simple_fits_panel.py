@@ -7,28 +7,14 @@ interactive single-model fitting of SAS data.
 """
 
 from __future__ import annotations
+import logging
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox,
-        QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
-        QFileDialog,
-    )
-    from PySide6.QtCore import Qt, Signal, QUrl
-    from PySide6.QtGui import QDoubleValidator, QDesktopServices
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QSpinBox,
-            QSplitter, QMessageBox, QScrollArea, QGroupBox, QSizePolicy, QFrame,
-            QFileDialog,
-        )
-        from PyQt6.QtCore import Qt, Signal, QUrl
-        from PyQt6.QtGui import QDoubleValidator, QDesktopServices
-    except ImportError:
-        raise ImportError("Neither PySide6 nor PyQt6 found.  Install with: pip install PySide6")
+log = logging.getLogger(__name__)
+
+
+from pyirena.gui._qt import (
+    QCheckBox, QComboBox, QDesktopServices, QDoubleValidator, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QUrl, QVBoxLayout, QWidget, Qt,
+)
 
 import numpy as np
 from pathlib import Path
@@ -190,7 +176,7 @@ class SimpleFitsGraphWindow(QWidget):
                 try:
                     self.main_plot.removeItem(item)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             setattr(self, attr, None)
 
         # Plot new data with error bars
@@ -215,7 +201,7 @@ class SimpleFitsGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self._fit_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._fit_item = None
 
         item = plot_iq_model(self.main_plot, q_fit, I_model)
@@ -227,7 +213,7 @@ class SimpleFitsGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(self._fit_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._fit_item = None
         # Clear residuals plot back to just the zero line
         self.residuals_plot.clear()
@@ -427,7 +413,7 @@ class SimpleFitsGraphWindow(QWidget):
             try:
                 self.main_plot.removeItem(item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._annotation_items = []
 
     def add_result_annotation(self, text: str):
@@ -993,7 +979,7 @@ class SimpleFitsPanel(QWidget):
                 try:
                     self.model.params[name] = float(txt)
                 except ValueError:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
     def _auto_graph_model(self):
         """Sync parameter values and auto-redisplay model curve after edit."""
@@ -1175,7 +1161,7 @@ class SimpleFitsPanel(QWidget):
                 try:
                     self.model.params[name] = float(txt)
                 except ValueError:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         for name, edit in self._param_lo_edits.items():
             txt = edit.text().strip()
             lo = float(txt) if txt else None
@@ -1697,7 +1683,7 @@ class SimpleFitsPanel(QWidget):
                 self.q_min_display.setText(f'{float(q_min):.6g}')
                 self.q_max_display.setText(f'{float(q_max):.6g}')
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._build_param_widgets()
         self._update_bg_prefit_visibility()

@@ -12,6 +12,10 @@ Entry points
 * ``main()``        — ``pyirena-contrast`` CLI command.
 """
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import sys
 from pathlib import Path
@@ -19,33 +23,9 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox,
-        QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-        QScrollArea, QMessageBox, QFileDialog, QSplitter,
-        QAbstractItemView, QCheckBox, QInputDialog, QMenu,
-        QDialog, QListWidget,
-    )
-    from PySide6.QtCore import Qt, QUrl
-    from PySide6.QtGui import QColor, QFont, QAction, QDesktopServices
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox,
-            QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-            QScrollArea, QMessageBox, QFileDialog, QSplitter,
-            QAbstractItemView, QCheckBox, QInputDialog, QMenu,
-            QDialog, QListWidget,
-        )
-        from PyQt6.QtCore import Qt, QUrl
-        from PyQt6.QtGui import QColor, QFont, QAction, QDesktopServices
-    except ImportError:
-        raise ImportError(
-            "Neither PySide6 nor PyQt6 found.  Install with: pip install PySide6"
-        )
+from pyirena.gui._qt import (
+    QAbstractItemView, QAction, QApplication, QCheckBox, QColor, QComboBox, QDesktopServices, QDialog, QDoubleSpinBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QUrl, QVBoxLayout, QWidget, Qt,
+)
 
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
@@ -366,7 +346,6 @@ class ContrastGraphWindow(QWidget):
         self._ax_mu.clear()
         self._ax_tr.clear()
         # Re-add crosshair items (clear() removes them)
-        dash = pg.mkPen("#888888", width=1, style=Qt.PenStyle.DashLine)
         for i, ax in enumerate(self._axes_list):
             ax.addItem(self._vlines[i], ignoreBounds=True)
             ax.addItem(self._hlines[i], ignoreBounds=True)
@@ -1120,7 +1099,7 @@ class ContrastPanel(QWidget):
             self._contrast = contrast
             self._fill_results_table(comp1, comp2, contrast)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         self._show_graph_window()
         self._graph_win.update_scan(scan_data, comp1.name, comp2.name)

@@ -9,6 +9,10 @@ PeakRowWidget           — collapsible widget for one peak's parameters
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import copy
 import json
@@ -18,26 +22,9 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
-        QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
-        QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
-        QMessageBox, QFrame, QSizePolicy, QSpacerItem, QTabWidget,
-        QDialog, QDialogButtonBox,
-    )
-    from PySide6.QtCore import Qt, Signal, QTimer, QUrl
-    from PySide6.QtGui import QFont, QDoubleValidator, QDesktopServices
-except ImportError:
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
-        QLabel, QComboBox, QCheckBox, QPushButton, QLineEdit,
-        QDoubleSpinBox, QSpinBox, QScrollArea, QGroupBox, QFileDialog,
-        QMessageBox, QFrame, QTabWidget,
-        QDialog, QDialogButtonBox,
-    )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer, QUrl
-    from PyQt6.QtGui import QFont, QDoubleValidator, QDesktopServices
+from pyirena.gui._qt import (
+    QCheckBox, QComboBox, QDesktopServices, QDialog, QDialogButtonBox, QDoubleSpinBox, QDoubleValidator, QFileDialog, QFont, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget, QTimer, QUrl, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 from pyirena.core.waxs_peakfit import (
     PEAK_SHAPES, BG_SHAPES, BG_ADAPTIVE, _BG_ADAPTIVE_PARAMS,
@@ -846,7 +833,7 @@ class WAXSPeakFitGraphWindow(QWidget):
                 lbl_item.item.setFont(f)
                 lbl_item.item.setDefaultTextColor(pg.mkColor('#1a1a2e'))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Set x-range and cursor positions to data range
         qv = q_[mask & (q_ > 0)]
         if len(qv) >= 2:
@@ -1003,7 +990,6 @@ class WAXSPeakFitGraphWindow(QWidget):
             color = p.get("color", "#2980b9")
             user_scale = float(p.get("scale", 1.0))
             show_hkl = bool(p.get("show_hkl", False))
-            name = p.get("name", pat.name)
 
             # q_display = pattern.q shifted for any sample-to-detector
             # distance correction set in the Diffraction Lines tab. Falls
@@ -2241,7 +2227,7 @@ class WAXSPeakFitPanel(QWidget):
         try:
             self._save_state()
         except Exception as exc:
-            print(f"Warning: could not auto-save WAXS peak-fit state on close: {exc}")
+            log.warning("Could not auto-save WAXS peak-fit state on close: %s", exc)
         super().closeEvent(event)
 
     def _load_setup_from_file(self):
@@ -2339,7 +2325,7 @@ class WAXSPeakFitPanel(QWidget):
             try:
                 self._graph.main_plot.removeItem(self._result_annotation)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._result_annotation = None
 
         bg_shape  = self._bg_combo.currentText()
@@ -2396,7 +2382,7 @@ class WAXSPeakFitPanel(QWidget):
                 try:
                     config = json.loads(config_path.read_text(encoding='utf-8'))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 if '_pyirena_config' not in config:
                     QMessageBox.warning(
                         self, "Not a pyIrena File",
@@ -2577,7 +2563,7 @@ class WAXSPeakFitPanel(QWidget):
             sdd = _read_nxcansas_distance_mm(self._filepath) if is_nxcansas else None
             self._diffraction_panel.set_distance_from_data(sdd)
         except Exception:
-            pass   # diffraction overlay is non-critical
+            log.debug("suppressed exception", exc_info=True)   # diffraction overlay is non-critical
 
         # Load stored results if the file has them
         if is_nxcansas and filepath is not None:
@@ -2599,7 +2585,7 @@ class WAXSPeakFitPanel(QWidget):
             self._graph_model()
             self._set_status(f"Loaded stored results from {filepath.name}.")
         except KeyError:
-            pass   # no stored results — silently ignore
+            log.debug("suppressed exception", exc_info=True)   # no stored results — silently ignore
         except Exception as exc:
             self._set_status(f"Could not load stored results: {exc}", error=True)
 

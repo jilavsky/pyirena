@@ -11,23 +11,16 @@ State is saved/loaded via StateManager.
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 from pathlib import Path
 
-try:
-    from PySide6.QtWidgets import (
-        QMainWindow, QWidget, QSplitter, QStatusBar, QHBoxLayout,
-        QVBoxLayout, QLabel, QPushButton,
-    )
-    from PySide6.QtCore import Qt, QUrl
-    from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QMainWindow, QWidget, QSplitter, QStatusBar, QHBoxLayout,
-        QVBoxLayout, QLabel, QPushButton,
-    )
-    from PyQt6.QtCore import Qt, QUrl  # type: ignore[no-redef]
-    from PyQt6.QtGui import QAction, QCloseEvent, QDesktopServices  # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QAction, QCloseEvent, QDesktopServices, QHBoxLayout, QLabel, QMainWindow, QPushButton, QSplitter, QStatusBar, QUrl, QVBoxLayout, QWidget, Qt,
+)
 
 from .file_tree import FileTreeWidget
 from .hdf5_browser import HDF5BrowserWidget
@@ -403,7 +396,7 @@ class HDF5ViewerWindow(QMainWindow):
                     else:
                         y_val = float(collected)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             # Collect X value
             x_val: float | None = None
@@ -550,7 +543,7 @@ class HDF5ViewerWindow(QMainWindow):
             if flt:
                 self._file_tree.set_filter(flt)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _save_state(self) -> None:
         if self._state_manager is None:
@@ -564,7 +557,7 @@ class HDF5ViewerWindow(QMainWindow):
             self._state_manager.update("hdf5_viewer", st)
             self._state_manager.save()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # ── Window lifecycle ───────────────────────────────────────────────────
 

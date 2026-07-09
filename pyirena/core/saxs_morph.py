@@ -45,6 +45,7 @@ voxelgram is rendered at the user-selected ``voxel_size_render`` (up to 512).
 
 from __future__ import annotations
 
+import logging
 import math
 import warnings
 from copy import deepcopy
@@ -56,6 +57,8 @@ import numpy as np
 from scipy.optimize import least_squares, minimize
 from scipy.special import erfinv as _erfinv
 from scipy.integrate import simpson as _simpson
+
+log = logging.getLogger(__name__)
 
 
 # Hard memory ceiling for the per-iteration voxelgram during fitting.
@@ -390,7 +393,6 @@ def spectral_function(
     gamma = np.asarray(gamma, dtype=float)
 
     if k_grid is None:
-        r_max = float(r[-1] if r[-1] > 0 else 1.0)
         k_max = float(np.pi / max(r[1] - r[0], 1e-12)) if len(r) > 1 else 10.0
         k_grid = np.linspace(0.0, k_max, n_k)
 
@@ -1131,7 +1133,7 @@ class SaxsMorphEngine:
             from pyirena.core.morphology import compute_morphology_metrics
             morph_metrics = compute_morphology_metrics(voxelgram, pitch)
         except Exception as exc:
-            print(f"[saxs_morph] morphology metrics skipped: {exc}")
+            log.warning("Morphology metrics skipped: %s", exc)
             morph_metrics = None
 
         I_model = add_background(

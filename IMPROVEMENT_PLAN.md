@@ -62,15 +62,19 @@ suite green.
 - The 2 old `test_modeling_report_csv` "failures" were pytest ≥ 8.2
   skip-behavior, not bugs; they now skip cleanly without Qt.
 
-## Remaining — high priority
+## Done — high priority
 
-### 1. Finish the model-math unification
+### 1. Model-math unification — done
 - The inline local Guinier / power-law `curve_fit` models in
-  `gui/unified_fit.py` (~lines 3080–3330) overlap with the local-fit tools
-  in `api/control/unified_fit.py` — compare outputs, then unify into core
-  the same way as the invariant (pin numbers first).
-- `core/modeling.py:_sphere_amplitude` duplicates
-  `core/unified.py:sphere_amplitude` — keep one.
+  `gui/unified_fit.py` and the local-fit tools in
+  `api/control/unified_fit.py` now delegate to a single core
+  implementation: `core.unified.fit_local_guinier` and
+  `core.unified.fit_local_power_law`. Numbers pinned first by
+  `tests/test_local_fits.py` (GUI-unweighted and API-weighted paths both
+  reproduce their prior results exactly). The GUI power-law fit now also
+  drops non-positive points before fitting, matching the API.
+- `core/modeling.py:_sphere_amplitude` now imports the single module-level
+  `core.unified.sphere_amplitude`; the duplicate was removed.
 
 **Monolith splits — done** (one commit each, pure moves, no behavior change)
 - `batch.py` (2,616 lines) → `pyirena/batch/` package: `_common`,
@@ -85,46 +89,46 @@ suite green.
   static analysis + stubbed-Qt import execution; **needs one manual GUI
   launch check** (sandbox could not load Qt system libraries).
 
+## Done — medium priority
+
+### 3. GUI logging follow-through — done
+- 137 silent `except ...: pass` in `gui/` now emit
+  `log.debug(..., exc_info=True)` (file-only DEBUG, no console noise), each
+  file given a module logger.
+- `print()` in `gui/` panels and the non-demo `core/` diagnostics converted
+  to loggers; intentional CLI echoes and `gui/launch.py`'s
+  dependency-missing message were intentionally kept.
+- `pyirena/gui/_qt.py` shim added; ~30 GUI modules now import Qt names from
+  the single shim instead of repeating the PySide6/PyQt6 dual-import block.
+
+### 4. Ruff findings — done (63 → 0)
+- 45 F401: removed by the `_qt.py` shim migration (+ two stray non-Qt
+  unused imports).
+- 18 F841: each reviewed individually — dead assignments removed,
+  side-effect-only calls stripped of their unused target, QApplication refs
+  in tests renamed `_app`, and one genuine ruff false positive
+  (`pxp_to_nexus.py` reassigned-exception var) suppressed with a documented
+  `# noqa`.
+
+## Done — low priority
+
+- **CI job with GUI extras** — added a `test-gui` job installing `.[gui]`
+  and running the suite headless (`QT_QPA_PLATFORM=offscreen`).
+- **Single-source the version** — `__version__` now comes from
+  `importlib.metadata.version("pyirena")`.
+- **Trim CHANGELOG.md** — entries 0.7.2 and older archived to
+  `docs/CHANGELOG_archive.md` (2540 → ~830 lines).
+- **Repo clutter** — `codeFragments/`, `IgorCodeFragments/`, `planning/`,
+  and root `pyIrena_icon.png` excluded from the sdist (verified with
+  `python -m build`; the scratch dirs are kept in the working tree).
+
 ## Remaining — medium priority
 
 ### 2. Further monolith reduction (optional)
-- `gui/data_selector/panel.py` is still 2,794 lines (the
+- `gui/data_selector/panel.py` is still ~2,800 lines (the
   DataSelectorPanel class itself) — could be split by mixin/topic
   (file list, plotting, batch actions, menus) if it keeps growing.
-- `gui/unified_fit.py` (4,340 lines) — shrinks further after item 1;
-  split along panel/widgets lines afterwards if desired.
-- `gui/modeling_panel.py` (3,814) and `gui/sizes_panel.py` (3,006) are
+- `gui/unified_fit.py` (~4,300 lines) — split along panel/widgets lines
+  if desired.
+- `gui/modeling_panel.py` (~3,800) and `gui/sizes_panel.py` (~3,000) are
   next in line by the same recipe as data_selector.
-
-### 3. GUI logging follow-through
-- ~133 silent `except ...: pass` in `gui/` — many are legitimate
-  widget-lifetime races, but each should get
-  `log.debug(..., exc_info=True)` opportunistically when the file is next
-  touched.
-- ~32 `print()` in `gui/` panels and ~14 in `core/` (mostly `__main__`
-  demos) → logger.
-- A `pyirena/gui/_qt.py` shim for the repeated PySide6/PyQt6 dual-import
-  blocks (~15 files) would remove duplication *and* most of the remaining
-  lint noise (see item 4) in one move — do these together.
-
-### 4. Reduce remaining ruff findings (63)
-- 46 F401: unused names inside the PySide6/PyQt6 `try/except ImportError`
-  fallback blocks — solved for free by the `_qt.py` shim in item 3.
-- 17 F841 unused local variables — each needs a human decision (dead code
-  vs. intentionally discarded value).
-
-## Remaining — low priority
-
-- **CI job with GUI extras**: the optional-dep tests (periodictable/xraydb/
-  Dans_Diffraction) skip in CI because only `.[dev]` is installed; add one
-  job installing `.[gui]` so they run there too.
-
-- **Single-source the version**: `__version__` is duplicated in
-  `pyirena/__init__.py` and `pyproject.toml`. Use
-  `importlib.metadata.version("pyirena")` in `__init__.py`.
-- **Trim CHANGELOG.md** (141 KB): archive old entries to
-  `docs/CHANGELOG_archive.md`.
-- **Repo clutter**: `pyIrena_icon.png` (426 KB) in root; `codeFragments/`,
-  `IgorCodeFragments/`, `planning/` are development scratch — consider
-  moving to a separate branch or excluding from the sdist (verify with
-  `python -m build` + inspect the tarball).
