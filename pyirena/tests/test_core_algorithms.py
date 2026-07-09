@@ -339,6 +339,65 @@ class TestFractalGrowth:
         assert 1.0 <= p.dmin <= 3.0
         assert p.rg_aggregate > p.rg_primary > 0
 
+    def test_df_equals_dmin_times_c(self):
+        """Beaucage relation d_f = d_min * c must hold by construction."""
+        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        p = grow_aggregate(GrowthConfig(z=80, seed=11)).params
+        assert p.df == pytest.approx(p.dmin * p.c, rel=1e-10)
+
+    def test_compute_params_consistent_on_same_aggregate(self):
+        """Re-evaluating the same aggregate must give compatible dimensions
+        (path sampling is stochastic, so allow a loose tolerance)."""
+        from pyirena.core.fractals import (
+            grow_aggregate, GrowthConfig, compute_fractal_params,
+        )
+        agg = grow_aggregate(GrowthConfig(z=80, seed=11))
+        p2 = compute_fractal_params(agg.positions, agg.neighbor_list,
+                                    agg.neighbor_count, rg_primary=10.0,
+                                    num_test_paths=2500)
+        assert p2.df == pytest.approx(agg.params.df, rel=0.15)
+        assert p2.rg_aggregate == pytest.approx(agg.params.rg_aggregate, rel=1e-6)
+
+    def test_tiny_aggregate_returns_nan_params(self):
+        from pyirena.core.fractals import compute_fractal_params
+        pos = np.array([[0, 0, 0], [1, 0, 0]], dtype=np.int32)
+        nl = np.full((2, 26), -1, dtype=np.int32)
+        nc = np.array([1, 1], dtype=np.uint8)
+        p = compute_fractal_params(pos, nl, nc, rg_primary=10.0)
+        assert np.isnan(p.df)
+        assert p.z == 2
+
+
+class TestFractalIntensity:
+    def _params(self):
+        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        return grow_aggregate(GrowthConfig(z=80, seed=11)).params
+
+    def test_intensity_finite_positive(self):
+        from pyirena.core.fractals import intensity_unified
+        p = self._params()
+        q = np.logspace(-3, 0, 200)
+        I = intensity_unified(p, q)
+        assert np.isfinite(I).all()
+        assert (I > 0).all()
+
+    def test_low_q_plateau_equals_z(self):
+        """Guinier plateau of the aggregate level: I(q->0) -> G = z (+1
+        from the primary level)."""
+        from pyirena.core.fractals import intensity_unified
+        p = self._params()
+        I0 = intensity_unified(p, np.array([1e-4]))[0]
+        assert I0 == pytest.approx(p.z + 1, rel=0.05)
+
+    def test_high_q_porod_slope(self):
+        """Beyond the primary-particle knee the slope must approach -4."""
+        from pyirena.core.fractals import intensity_unified
+        p = self._params()
+        q = np.logspace(0.0, 0.7, 50)   # q*Rg_primary >> 1  (Rg_prim = 10)
+        I = intensity_unified(p, q)
+        slope = np.polyfit(np.log(q), np.log(I), 1)[0]
+        assert slope == pytest.approx(-4.0, abs=0.3)
+
 
 # ---------------------------------------------------------------------------
 # Simple-fit model registry (beyond the Guinier already covered)

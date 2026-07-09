@@ -78,8 +78,24 @@ class TestDiffractionLines:
                                              L_cal_mm=1000.0, delta_L_mm=50.0)
         assert (shifted > q).all() or (shifted < q).all()  # systematic shift
 
-    def test_compute_pattern_requires_dans(self):
+    def test_si_powder_pattern(self):
+        """Silicon (diamond cubic) against textbook peak positions."""
         pytest.importorskip("Dans_Diffraction")
-        # Smoke only: a full pattern needs a CIF file, which the repo's
-        # testData does not currently ship. Presence of the import path
-        # is verified; computation is covered manually.
+        import numpy as np
+        from pathlib import Path
+        from pyirena.core.diffraction_lines import compute_pattern
+
+        cif = Path(__file__).resolve().parents[2] / "testData" / "Si.cif"
+        if not cif.is_file():
+            pytest.skip("testData/Si.cif not present")
+        pat = compute_pattern(cif, wavelength_a=1.5406, q_min=1.0, q_max=6.0)
+        qs = np.sort(np.asarray(pat.q))
+        # (111), (220), (311) — d = 3.1355, 1.9201, 1.6375 A
+        assert qs[0] == pytest.approx(2.0039, abs=0.002)
+        assert qs[1] == pytest.approx(3.2723, abs=0.002)
+        assert qs[2] == pytest.approx(3.8372, abs=0.002)
+        # Diamond-cubic extinctions: nothing below (111)
+        assert (qs >= 2.0).all()
+        # (111) is the strongest line
+        strongest = np.asarray(pat.hkl)[np.argmax(pat.intensity)]
+        assert sorted(np.abs(strongest)) == [1, 1, 1]

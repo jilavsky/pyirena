@@ -39,30 +39,32 @@ suite green.
   log tracebacks; one promoted to WARNING (scattering_contrast silently
   omitted an element's f1 contribution when absent from Chantler tables).
 
+**Test gaps — closed** (~180 new tests; suite now ~370)
+- io round-trips for every `nxcansas_*` writer/reader pair, plus
+  `create_nxcansas_file`, data merge/manipulation writers and the
+  `load_result` dispatcher.
+- `form_factors` and `distributions` against physical limits and known
+  values (caught and fixed the missing LSW (3/2)^(11/3) normalization,
+  which made `lsw_cdf` discontinuous at the cutoff).
+- `data_manipulation`, `data_merge`, `morphology`, `waxs_peakfit` peak
+  math, `fractals` growth + `compute_fractal_params` (df = dmin·c) +
+  `intensity_unified` (plateau = z, Porod slope −4).
+- `similarity` / CorMap — caught and fixed two real bugs: recursion
+  overflow for n ≳ 300 points, and a float overflow returning p = 0 for
+  n ≳ 1024 (silently flagging long datasets as dissimilar). Pinned to an
+  exact analytic case.
+- All 14 simple-fit models: finite evaluation, fit self-consistency from
+  perturbed starts (parameter recovery for the 11 identifiable models,
+  curve reproduction for the 3 degenerate ones), dict round-trips.
+- `scattering_contrast` against textbook SLDs and `diffraction_lines`
+  against the Si powder pattern (new `testData/Si.cif` fixture; these
+  skip without the optional GUI extras).
+- The 2 old `test_modeling_report_csv` "failures" were pytest ≥ 8.2
+  skip-behavior, not bugs; they now skip cleanly without Qt.
+
 ## Remaining — high priority
 
-### 1. Close test gaps — first tranche DONE
-Done: `io/nxcansas_*` save/load round-trips (18 tests — unified, sizes,
-simple fits, WAXS peaks, fractal aggregates, data merge/manipulation
-writers, `load_result` dispatcher), `form_factors` (16), `distributions`
-(24 — this tranche caught and fixed a real bug: `lsw_pdf` was missing its
-(3/2)^(11/3) normalization, making `lsw_cdf` discontinuous at the cutoff).
-The 2 `test_modeling_report_csv` "failures" were pytest ≥ 8.2 skip-behavior,
-not bugs; they now skip cleanly without Qt.
-
-Tranche 2 DONE: `data_manipulation`, `data_merge`, `similarity` (CorMap —
-caught two real bugs: a RecursionError for datasets > ~300 points and a
-float overflow returning p=0 for > ~1024 points; both fixed),
-`morphology`, `waxs_peakfit` peak math, `fractals` growth,
-`simple_fits` (Power Law + Sphere), `scattering_contrast` and
-`diffraction_lines` (skip without GUI extras).
-
-Remaining gaps are modest: more simple-fit models (11 of 14 untested),
-`compute_fractal_params`/`intensity_unified` in fractals,
-`compute_pattern` needs a CIF fixture in testData, and CI installs no
-GUI extras so the optional-dep tests only run on developer machines.
-
-### 2. Finish the model-math unification
+### 1. Finish the model-math unification
 - The inline local Guinier / power-law `curve_fit` models in
   `gui/unified_fit.py` (~lines 3080–3330) overlap with the local-fit tools
   in `api/control/unified_fit.py` — compare outputs, then unify into core
@@ -72,18 +74,18 @@ GUI extras so the optional-dep tests only run on developer machines.
 
 ## Remaining — medium priority
 
-### 3. Split monolith modules
+### 2. Split monolith modules
 - `gui/data_selector.py` (5,206 lines, 12 classes) → one module per class
   under `gui/data_selector/`.
 - `batch.py` (2,616 lines, one function per analysis tool) → `batch/`
   package, one module per tool, re-exporting the public names from
   `batch/__init__.py` so `from pyirena.batch import fit_unified` keeps
   working.
-- `gui/unified_fit.py` (4,340 lines) — shrinks further after item 2.
+- `gui/unified_fit.py` (4,340 lines) — shrinks further after item 1.
 
 Pure moves, no behavior change; one commit per split.
 
-### 4. GUI logging follow-through
+### 3. GUI logging follow-through
 - ~133 silent `except ...: pass` in `gui/` — many are legitimate
   widget-lifetime races, but each should get
   `log.debug(..., exc_info=True)` opportunistically when the file is next
@@ -92,15 +94,19 @@ Pure moves, no behavior change; one commit per split.
   demos) → logger.
 - A `pyirena/gui/_qt.py` shim for the repeated PySide6/PyQt6 dual-import
   blocks (~15 files) would remove duplication *and* most of the remaining
-  lint noise (see item 5) in one move — do these together.
+  lint noise (see item 4) in one move — do these together.
 
-### 5. Reduce remaining ruff findings (63)
+### 4. Reduce remaining ruff findings (63)
 - 46 F401: unused names inside the PySide6/PyQt6 `try/except ImportError`
-  fallback blocks — solved for free by the `_qt.py` shim in item 4.
+  fallback blocks — solved for free by the `_qt.py` shim in item 3.
 - 17 F841 unused local variables — each needs a human decision (dead code
   vs. intentionally discarded value).
 
 ## Remaining — low priority
+
+- **CI job with GUI extras**: the optional-dep tests (periodictable/xraydb/
+  Dans_Diffraction) skip in CI because only `.[dev]` is installed; add one
+  job installing `.[gui]` so they run there too.
 
 - **Single-source the version**: `__version__` is duplicated in
   `pyirena/__init__.py` and `pyproject.toml`. Use
