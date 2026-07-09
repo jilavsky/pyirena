@@ -50,11 +50,17 @@ writers, `load_result` dispatcher), `form_factors` (16), `distributions`
 The 2 `test_modeling_report_csv` "failures" were pytest ≥ 8.2 skip-behavior,
 not bugs; they now skip cleanly without Qt.
 
-Still without direct tests in `core/`: `data_manipulation`, `data_merge`,
-`fractals` (growth/params — io side is covered), `simple_fits` (only the
-Guinier path is exercised), `waxs_peakfit` (peak evaluation — io side is
-covered), `scattering_contrast`, `similarity`, `morphology`,
-`diffraction_lines`.
+Tranche 2 DONE: `data_manipulation`, `data_merge`, `similarity` (CorMap —
+caught two real bugs: a RecursionError for datasets > ~300 points and a
+float overflow returning p=0 for > ~1024 points; both fixed),
+`morphology`, `waxs_peakfit` peak math, `fractals` growth,
+`simple_fits` (Power Law + Sphere), `scattering_contrast` and
+`diffraction_lines` (skip without GUI extras).
+
+Remaining gaps are modest: more simple-fit models (11 of 14 untested),
+`compute_fractal_params`/`intensity_unified` in fractals,
+`compute_pattern` needs a CIF fixture in testData, and CI installs no
+GUI extras so the optional-dep tests only run on developer machines.
 
 ### 2. Finish the model-math unification
 - The inline local Guinier / power-law `curve_fit` models in
