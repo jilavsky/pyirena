@@ -42,7 +42,6 @@ import h5py
 import numpy as np
 
 from pyirena.io.h5xp_writer import (
-    make_wave_note,
     open_h5xp,
     create_h5xp,
     write_iq_data,
@@ -51,8 +50,12 @@ from pyirena.io.h5xp_writer import (
     write_notebook,
     igor_notebook_name,
 )
-from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE, TOOL_CROSS_REF
+from pyirena.io.igor_names import SIMPLE_FIT_MODEL_WAVE
 from pyirena.io.schema import TOOL_REGISTRY
+
+import logging
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +416,7 @@ def _waxs_recompute_peak_area(pk_grp, with_std: bool):
                 try:
                     params_std[pn] = float(ds[()])
                 except Exception:
-                    pass
+                    log.debug("Could not read params_std[%s]", pn, exc_info=True)
         if with_std:
             return float(peak_area_std(shape, params, params_std))
         return float(peak_area(shape, params))

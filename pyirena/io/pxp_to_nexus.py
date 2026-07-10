@@ -86,9 +86,12 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import h5py
 
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 
@@ -345,7 +348,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     try:
         from igor2.packed import (
             setup_packed_file_record_header, _RECORD_TYPE,
-            _UnknownRecord, _UnusedRecord, PACKEDRECTYPE_MASK,
+            _UnknownRecord, PACKEDRECTYPE_MASK,
             _byte_order, _need_to_reorder_bytes,
         )
         from igor2.record.folder import FolderStartRecord, FolderEndRecord
@@ -435,7 +438,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
             try:
                 rec = rtype(header, data, byte_order=byte_order)
                 records.append(rec)
-            except Exception as exc:
+            except Exception as exc:  # noqa: F841 - exc is read below (may be reassigned to exc2)
                 # If this looks like a v7 wave (long-name format from
                 # Igor Pro 8/10), patch the version field to 5 and retry.
                 # igor2 0.5.x doesn't know about v7 even though the
@@ -1269,7 +1272,7 @@ def extract_igor_experiment(
                 if "Packed Data" in f:
                     return extract_h5xp_to_nexus(p, output_root, techniques, overwrite)
         except Exception:
-            pass
+            logger.debug("Could not open %s as h5xp", p, exc_info=True)
     raise ValueError(
         f"{p.name}: unsupported Igor experiment format. "
         f"Expected .pxp, .pxt, .h5xp, or .hxp."

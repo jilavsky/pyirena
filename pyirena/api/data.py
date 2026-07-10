@@ -1,7 +1,6 @@
 """Raw I(Q) reading and sample metadata for the api surface."""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 import h5py

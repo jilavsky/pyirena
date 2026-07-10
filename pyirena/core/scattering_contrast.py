@@ -25,11 +25,14 @@ Units returned:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
+import logging
+
+log = logging.getLogger(__name__)
 
 # Physical constants
 _R_E = 2.8179403227e-13   # classical electron radius [cm]
@@ -126,7 +129,7 @@ def get_isotopes_for_element(element_symbol: str) -> List[Tuple[str, float]]:
             if iso.neutron is not None and iso.neutron.b_c is not None:
                 result.append((str(iso.isotope), iso.neutron.b_c))
         except Exception:
-            pass
+            log.debug("Skipping isotope %s (no neutron data)", iso, exc_info=True)
     return result
 
 
@@ -471,7 +474,8 @@ def compute_anomalous(
                 z = xraydb.atomic_number(sym)
                 f1_total += cnt * z
             except Exception:
-                pass
+                log.warning("Element '%s' not found in Chantler tables nor as atomic "
+                            "number; its contribution to f1 is OMITTED", sym)
 
     n_mol_per_cm3 = comp.density * _N_A / comp.mol_weight
     xray_sld_anom_cm2 = n_mol_per_cm3 * f1_total * _R_E   # [cm⁻²]
@@ -666,7 +670,6 @@ def compute_anomalous_scan(
 def get_element_info(symbol: str) -> Dict[str, object]:
     """Return basic element info dict for display purposes."""
     import periodictable as pt
-    import xraydb
     try:
         el = pt.elements.symbol(symbol)
         z = el.number

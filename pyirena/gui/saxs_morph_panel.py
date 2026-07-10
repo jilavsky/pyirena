@@ -22,62 +22,37 @@ main()          — CLI: python -m pyirena.gui.saxs_morph_panel <file>
 """
 
 from __future__ import annotations
+import logging
 
-import os
+log = logging.getLogger(__name__)
+
+
 import sys
 import time
-from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
-        QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-        QScrollArea, QFrame, QSizePolicy,
-    )
-    from PySide6.QtCore import Qt, Signal, QThread, QTimer
-    from PySide6.QtGui import QFont, QDoubleValidator
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
-            QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-            QScrollArea, QFrame, QSizePolicy,
-        )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QThread, QTimer
-        from PyQt6.QtGui import QFont, QDoubleValidator
-    except ImportError:
-        from PyQt5.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
-            QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-            QScrollArea, QFrame, QSizePolicy,
-        )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QThread, QTimer
-        from PyQt5.QtGui import QFont, QDoubleValidator
+from pyirena.gui._qt import (
+    QApplication, QCheckBox, QComboBox, QDoubleValidator, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSplitter, QTabWidget, QThread, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 import pyqtgraph as pg
 
 from pyirena.core.saxs_morph import (
     SaxsMorphEngine, SaxsMorphConfig, SaxsMorphResult,
-    ALLOWED_VOXEL_SIZES, MAX_FIT_VOXEL_SIZE,
+    ALLOWED_VOXEL_SIZES,
 )
 from pyirena.io.nxcansas_saxs_morph import (
-    save_saxs_morph_results, load_saxs_morph_results,
+    save_saxs_morph_results,
 )
 from pyirena.gui.sas_plot import (
     make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
-    RadiusAxisItem, save_itx_from_plot, SASPlotStyle,
 )
 from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer, Slice2DViewer, make_popout_button,
-    HAS_PYVISTA, PYVISTA_INSTALL_HINT,
 )
 # SaxsMorphGraphWindow.show_voxelgram needs HAS_PYVISTA for conditional smoothing
 from pyirena.gui.data_loading import DataFileLoaderRow
@@ -275,7 +250,7 @@ class SaxsMorphGraphWindow(QWidget):
                 self.iq_plot.removeItem(self._cursor_left)
                 self.iq_plot.removeItem(self._cursor_right)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._cursor_left = _SafeInfiniteLine(
             pos=q_min_log, angle=90, movable=True,
@@ -353,7 +328,7 @@ class SaxsMorphGraphWindow(QWidget):
                 try:
                     self.iq_plot.removeItem(item)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         self._bg_curve_item = None
         self._corr_item = None
 
@@ -389,7 +364,7 @@ class SaxsMorphGraphWindow(QWidget):
                 try:
                     self.iq_plot.removeItem(item)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         self._bg_curve_item = None
         self._corr_item = None
 
@@ -399,7 +374,7 @@ class SaxsMorphGraphWindow(QWidget):
             try:
                 self.iq_plot.removeItem(self._model_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._model_item = self.iq_plot.plot(
             q, I_model,
             pen=pg.mkPen('#c0392b', width=2),
@@ -419,7 +394,7 @@ class SaxsMorphGraphWindow(QWidget):
             try:
                 self.iq_plot.removeItem(self._qmax_marker)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._qmax_marker = None
         if q_max_A is None or not np.isfinite(q_max_A) or q_max_A <= 0:
             return
@@ -447,7 +422,7 @@ class SaxsMorphGraphWindow(QWidget):
             try:
                 self.iq_plot.removeItem(self._qbox_marker)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._qbox_marker = None
         if q_box_A is None or not np.isfinite(q_box_A) or q_box_A <= 0:
             return
@@ -502,7 +477,7 @@ class SaxsMorphGraphWindow(QWidget):
             try:
                 self.iq_plot.removeItem(item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._annotation_items.clear()
 
     def set_status(self, msg: str, style: str = 'info'):
@@ -1814,7 +1789,7 @@ class SaxsMorphPanel(QWidget):
                         w.requestInterruption()
                         w.wait(2000)   # up to 2 s
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         # Then tear down the 3D viewer (PyVista + VTK)
         try:
             graph = getattr(self, 'graph', None)
@@ -1822,7 +1797,7 @@ class SaxsMorphPanel(QWidget):
             if viewer is not None and hasattr(viewer, 'shutdown'):
                 viewer.shutdown()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         super().closeEvent(event)
 
 
@@ -1831,6 +1806,9 @@ class SaxsMorphPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 def main():
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)
     panel = SaxsMorphPanel()
     panel.show()

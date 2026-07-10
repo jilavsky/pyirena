@@ -814,7 +814,7 @@ class SimpleFitModel:
                 derived['RepeatDist'] = (2.0 * np.pi / np.sqrt(abs(d_arg))
                                          if d_arg > 0 else float('nan'))
             except Exception:
-                pass
+                log.debug("Could not derive CorrLength/RepeatDist", exc_info=True)
         elif self.model == 'Unified Born Green':
             Rg1 = fitted.get('Rg1', 50.0)
             B1 = fitted.get('B1', 1e-3)

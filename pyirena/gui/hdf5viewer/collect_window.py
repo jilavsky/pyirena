@@ -11,24 +11,10 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
-        QToolBar, QLabel, QPushButton, QAbstractItemView, QHeaderView,
-        QFileDialog, QMessageBox,
-    )
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QAction
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
-        QToolBar, QLabel, QPushButton, QAbstractItemView, QHeaderView,
-        QFileDialog, QMessageBox,
-    )
-    from PyQt6.QtCore import Qt  # type: ignore[no-redef]
-    from PyQt6.QtGui import QAction  # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QAbstractItemView, QAction, QFileDialog, QHeaderView, QLabel, QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout, QWidget, Qt,
+)
 
-from . import export as _export
 
 
 class CollectWindow(QWidget):

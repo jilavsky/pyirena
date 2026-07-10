@@ -279,7 +279,7 @@ class TestExportJsonCarriesFitMethod:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         from pyirena.gui import modeling_panel as mp
 
-        app = QApplication.instance() or QApplication([])
+        _app = QApplication.instance() or QApplication([])
         panel = mp.ModelingPanel()
         panel.no_limits_cb.setChecked(False)
         gi = panel.fit_method_combo.findData('global')

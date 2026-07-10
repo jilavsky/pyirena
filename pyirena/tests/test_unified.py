@@ -4,7 +4,7 @@ Unit tests for the Unified Fit model.
 
 import numpy as np
 import pytest
-from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, compute_invariant_sv
 
 
 class TestUnifiedLevel:
@@ -166,6 +166,72 @@ class TestUnifiedFitModel:
         assert "Level 1" in summary
         assert "Rg" in summary
         assert "=" in summary
+
+
+class TestComputeInvariantSv:
+    """Regression tests for compute_invariant_sv().
+
+    The expected values were pinned from the pre-refactor implementations
+    (LevelParametersWidget.update_porod_surface_and_invariant in the GUI and
+    batch._compute_invariant_sv), which were verified to agree with each
+    other and with Igor Irena's IR1A_UpdatePorodSfcandInvariant.  If these
+    numbers change, GUI-displayed and batch-saved Invariant/Sv change too.
+    """
+
+    def test_porod_level_pinned(self):
+        inv, sv = compute_invariant_sv(100.0, 50.0, 1e-4, 4.0, 0.0, 0.0, 0.0, False)
+        assert inv == pytest.approx(3.417756004764339e+21, rel=1e-10)
+        assert sv == pytest.approx(919.1974644212241, rel=1e-10)
+
+    def test_porod_level_with_cutoff_pinned(self):
+        inv, sv = compute_invariant_sv(1000.0, 100.0, 2e-5, 4.0, 20.0, 0.0, 0.0, False)
+        assert inv == pytest.approx(2.611245870080375e+21, rel=1e-10)
+        assert sv == pytest.approx(240.62021042033047, rel=1e-10)
+
+    def test_correlated_level_pinned(self):
+        inv, sv = compute_invariant_sv(100.0, 50.0, 1e-4, 4.0, 0.0, 120.0, 2.0, True)
+        assert inv == pytest.approx(3.2115542177814733e+21, rel=1e-10)
+        assert sv == pytest.approx(978.215667727382, rel=1e-10)
+
+    def test_sv_only_in_porod_regime(self):
+        """Sv is None outside P = 3.95 - 4.05, invariant may still be valid."""
+        inv, sv = compute_invariant_sv(100.0, 50.0, 1e-4, 3.8, 0.0, 0.0, 0.0, False)
+        assert inv is not None and inv > 0
+        assert sv is None
+
+    def test_invalid_rg_returns_none(self):
+        assert compute_invariant_sv(100.0, 0.0, 1e-4, 4.0) == (None, None)
+        assert compute_invariant_sv(100.0, -5.0, 1e-4, 4.0) == (None, None)
+
+    def test_negative_invariant_returns_none(self):
+        """Bad extrapolation (large negative Porod tail) yields (None, None)."""
+        assert compute_invariant_sv(500.0, 80.0, 0.05, 2.5) == (None, None)
+
+    def test_guinier_only_level(self):
+        """B=0 still yields a finite (Guinier-only) invariant, like the GUI did."""
+        inv, sv = compute_invariant_sv(100.0, 50.0, 0.0, 4.0)
+        assert inv is not None and inv > 0
+        assert sv == 0.0
+
+    def test_batch_wrapper_delegates(self):
+        """batch._compute_invariant_sv must return identical values."""
+        from pyirena.batch import _compute_invariant_sv
+        args = (100.0, 50.0, 1e-4, 4.0, 0.0, 0.0, 0.0, False)
+        assert _compute_invariant_sv(*args) == compute_invariant_sv(*args)
+
+    def test_calculate_invariant_sv_units_match(self):
+        """calculate_invariant()'s Sv now carries the 1e4 A^-1 -> m^2/cm^3
+        conversion; over the same integration range it must equal
+        1e4*pi*B/invariant."""
+        model = UnifiedFitModel(num_levels=1)
+        model.levels[0].Rg = 50.0
+        model.levels[0].G = 100.0
+        model.levels[0].P = 4.0
+        model.levels[0].B = 1e-4
+        res = model.calculate_invariant(0, q_min=0.0, q_max=1.0)
+        assert res['surface_to_volume'] == pytest.approx(
+            1e4 * np.pi * model.levels[0].B / res['invariant'], rel=1e-12
+        )
 
 
 if __name__ == "__main__":

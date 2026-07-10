@@ -97,7 +97,7 @@ def test_parse_wave_note_section_without_end_marker():
 def test_technique_folders_table_is_data_driven():
     """The folder-name classification table is the single source of truth.
     A user can add a new mapping here without touching extractor code."""
-    from pyirena.io.pxp_to_nexus import TECHNIQUE_FOLDERS, _classify_folder
+    from pyirena.io.pxp_to_nexus import _classify_folder
 
     assert _classify_folder("USAXS") == "USAXS"
     assert _classify_folder("SAXS") == "SAXS"

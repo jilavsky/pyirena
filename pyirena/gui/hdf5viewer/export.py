@@ -6,17 +6,13 @@ Provides: JPEG, PNG, CSV, HDF5, ITX (Igor Pro text format), matplotlib figure.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
-except ImportError:
-    from PyQt6.QtWidgets import QFileDialog, QMessageBox  # type: ignore[no-redef]
+from pyirena.gui._qt import QFileDialog, QMessageBox
 
 if TYPE_CHECKING:
     from .graph_window import GraphWindow

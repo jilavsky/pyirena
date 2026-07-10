@@ -181,16 +181,7 @@ class UnifiedFitModel:
         Returns:
             Sphere amplitude values
         """
-        q_eta = q * eta
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # Handle q*eta → 0 limit (result → 1)
-            result = np.where(
-                q_eta < 1e-10,
-                1.0,
-                3.0 * (np.sin(q_eta) - q_eta * np.cos(q_eta)) / (q_eta ** 3)
-            )
-        return result
+        return sphere_amplitude(q, eta)
 
     def calculate_level_intensity(self, q: np.ndarray, level_idx: int,
                                   prev_Rg: float = 0.0) -> np.ndarray:
@@ -540,6 +531,12 @@ class UnifiedFitModel:
 
         Q = ∫₀^∞ I(q) q² dq
 
+        Note:
+            This integrates over an explicit [q_min, q_max] range (default:
+            the data range).  For the Igor-equivalent calculation used by the
+            GUI and batch API — fixed Qmax = 2*pi/(Rg/10) with Simpson
+            integration — use :func:`compute_invariant_sv` instead.
+
         Args:
             level_idx: Level index (0-based)
             q_min: Minimum q for integration [1/Angstrom]
@@ -573,19 +570,21 @@ class UnifiedFitModel:
         integrand = np.where(np.isfinite(integrand), integrand, 0.0)
         invariant = np.trapezoid(integrand, q)
 
-        # Add Porod tail contribution if applicable
-        if level.RgCO < 0.1 and abs(level.P - 4.0) < 0.5:
-            # Porod tail: -B * q_max^(3-P) / (3-P)
-            porod_tail = -level.B * q_max ** (3.0 - abs(level.P)) / (3.0 - abs(level.P))
-            invariant += porod_tail
+        # Add analytic Porod tail beyond q_max when there is no cutoff.
+        # Skip when P ~ 3 (the (3-P) denominator is singular there).
+        if level.RgCO < 0.1:
+            denom = 3.0 - abs(level.P)
+            if abs(denom) > 1e-6:
+                invariant += -level.B * q_max ** denom / denom
 
         # Convert from cm^-1 Angstrom^-3 to cm^-4
         invariant_cm4 = invariant * 1e24
 
-        # Calculate surface/volume ratio if P ≈ 4
+        # Surface/volume ratio, only meaningful in the Porod regime (P ~ 4).
+        # 1e4 converts pi*B/Q from A^-1 to m^2/cm^3 (matches Igor Irena).
         surf_to_vol = None
-        if abs(level.P - 4.0) < 0.05 and invariant > 0:
-            surf_to_vol = np.pi * level.B / invariant  # m^2/cm^3
+        if 3.95 <= level.P <= 4.05 and invariant > 0:
+            surf_to_vol = 1e4 * np.pi * level.B / invariant  # m^2/cm^3
 
         return {
             'invariant': invariant,
@@ -631,13 +630,321 @@ class UnifiedFitModel:
         summary.append(f"\nBackground: {self.background:.4e} cm⁻¹")
 
         if self.chi_squared is not None:
-            summary.append(f"\nFit Quality:")
+            summary.append("\nFit Quality:")
             summary.append(f"  χ² = {self.chi_squared:.4e}")
             summary.append(f"  Reduced χ² = {self.reduced_chi_squared:.4e}")
 
         summary.append("=" * 70)
 
         return "\n".join(summary)
+
+
+def sphere_amplitude(q: np.ndarray, eta: float) -> np.ndarray:
+    """Born-Green sphere amplitude  f(q,η) = 3[sin(qη) − qη·cos(qη)] / (qη)³.
+
+    Module-level implementation shared by :meth:`UnifiedFitModel.sphere_amplitude`
+    and :mod:`pyirena.core.modeling` (structure-factor interference terms).
+    """
+    q_eta = np.asarray(q) * eta
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # q*eta → 0 limit is 1
+        return np.where(
+            q_eta < 1e-10,
+            1.0,
+            3.0 * (np.sin(q_eta) - q_eta * np.cos(q_eta)) / (q_eta ** 3),
+        )
+
+
+def fit_local_guinier(
+    q,
+    intensity,
+    error=None,
+    *,
+    fit_G: bool = True,
+    fit_Rg: bool = True,
+    G: Optional[float] = None,
+    Rg: Optional[float] = None,
+) -> Dict:
+    """Local single-level Guinier fit  I(q) = G·exp(−q²·Rg²/3) over the data given.
+
+    Mirrors the Igor ``IR1A_FitLocalGuinier`` heuristic and is the single
+    implementation shared by the GUI "Fit Rg/G btwn cursors" button
+    (:mod:`pyirena.gui.unified_fit`) and the ``fit_local_guinier`` control
+    tool (:mod:`pyirena.api.control.unified_fit`).
+
+    Parameters
+    ----------
+    q, intensity : array-like
+        Data already restricted to the fit sub-range.
+    error : array-like, optional
+        Per-point uncertainties; used as ``curve_fit`` sigma when all positive
+        (unweighted otherwise).
+    fit_G, fit_Rg : bool
+        Whether each parameter is optimised.  A parameter that is not fit is
+        held fixed at the corresponding ``G`` / ``Rg`` argument.
+    G, Rg : float, optional
+        Current/fixed values, required when the matching fit flag is False.
+
+    Returns
+    -------
+    dict with keys ``G``, ``Rg``, ``n_points``, ``chi_squared``,
+    ``reduced_chi_squared`` and ``model_I`` (model evaluated on ``q``).
+
+    Raises
+    ------
+    ValueError
+        Fewer than 3 points, or nothing selected to fit.
+    Exception
+        Propagated from :func:`scipy.optimize.curve_fit` if the fit fails.
+    """
+    from scipy.optimize import curve_fit  # noqa: PLC0415
+
+    q = np.asarray(q, dtype=float)
+    intensity = np.asarray(intensity, dtype=float)
+    if len(q) < 3:
+        raise ValueError(
+            f"Need at least 3 points for a local Guinier fit (got {len(q)})."
+        )
+    if not fit_G and not fit_Rg:
+        raise ValueError("At least one of G / Rg must be selected for fitting.")
+
+    # Starting estimates (Igor heuristic): Rg from the mid-Q, G from mean I
+    q_avg = (q[0] + q[-1]) / 2.0
+    g0 = (intensity[0] + intensity[-1]) / 2.0
+    rg0 = 2 * np.pi / q_avg if q_avg > 0 else 10.0
+    if not fit_G:
+        g0 = float(G)
+    if not fit_Rg:
+        rg0 = float(Rg)
+
+    sigma = None
+    if error is not None:
+        error = np.asarray(error, dtype=float)
+        if np.all(error > 0):
+            sigma = error
+
+    def model(q_, G_, Rg_):
+        return G_ * np.exp(-(q_ ** 2) * (Rg_ ** 2) / 3.0)
+
+    if fit_G and fit_Rg:
+        popt, _ = curve_fit(model, q, intensity, p0=[g0, rg0], sigma=sigma,
+                            absolute_sigma=False, maxfev=5000)
+        g_fit, rg_fit = abs(popt[0]), abs(popt[1])
+    elif fit_Rg:  # G fixed
+        popt, _ = curve_fit(lambda q_, Rg_: model(q_, g0, Rg_), q, intensity,
+                            p0=[rg0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        g_fit, rg_fit = g0, abs(popt[0])
+    else:  # Rg fixed
+        popt, _ = curve_fit(lambda q_, G_: model(q_, G_, rg0), q, intensity,
+                            p0=[g0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        g_fit, rg_fit = abs(popt[0]), rg0
+
+    g_fit, rg_fit = float(g_fit), float(rg_fit)
+    model_I = model(q, g_fit, rg_fit)
+    resid = (intensity - model_I) / (sigma if sigma is not None else 1.0)
+    chi_sq = float(np.sum(resid ** 2))
+    dof = max(len(q) - (int(fit_G) + int(fit_Rg)), 1)
+    return {
+        "G": g_fit,
+        "Rg": rg_fit,
+        "n_points": int(len(q)),
+        "chi_squared": chi_sq,
+        "reduced_chi_squared": chi_sq / dof,
+        "model_I": model_I,
+    }
+
+
+def fit_local_power_law(
+    q,
+    intensity,
+    error=None,
+    *,
+    fit_B: bool = True,
+    fit_P: bool = True,
+    B: Optional[float] = None,
+    P: Optional[float] = None,
+) -> Dict:
+    """Local single power-law (Porod) fit  I(q) = B·q⁻ᴾ over the data given.
+
+    Mirrors the Igor ``IR1A_FitLocalPorod`` heuristic and is the single
+    implementation shared by the GUI "Fit P/B btwn cursors" button
+    (:mod:`pyirena.gui.unified_fit`) and the ``fit_local_power_law`` control
+    tool (:mod:`pyirena.api.control.unified_fit`).
+
+    Non-positive intensities (and q ≤ 0) are dropped before fitting.
+
+    Parameters
+    ----------
+    q, intensity : array-like
+        Data already restricted to the fit sub-range.
+    error : array-like, optional
+        Per-point uncertainties; used as ``curve_fit`` sigma when all positive.
+    fit_B, fit_P : bool
+        Whether each parameter is optimised.  A parameter that is not fit is
+        held fixed at the corresponding ``B`` / ``P`` argument.
+    B, P : float, optional
+        Current/fixed values, required when the matching fit flag is False.
+
+    Returns
+    -------
+    dict with keys ``B``, ``P``, ``q`` (positive-only q actually used),
+    ``n_points``, ``chi_squared``, ``reduced_chi_squared`` and ``model_I``
+    (model evaluated on the returned ``q``).
+
+    Raises
+    ------
+    ValueError
+        Fewer than 3 positive points, or nothing selected to fit.
+    Exception
+        Propagated from :func:`scipy.optimize.curve_fit` if the fit fails.
+    """
+    from scipy.optimize import curve_fit  # noqa: PLC0415
+
+    q = np.asarray(q, dtype=float)
+    intensity = np.asarray(intensity, dtype=float)
+    if error is not None:
+        error = np.asarray(error, dtype=float)
+    if not fit_B and not fit_P:
+        raise ValueError("At least one of B / P must be selected for fitting.")
+
+    pos = (intensity > 0) & (q > 0)
+    q_pos = q[pos]
+    I_pos = intensity[pos]
+    err_pos = error[pos] if error is not None else None
+    if len(q_pos) < 3:
+        raise ValueError(
+            "Need at least 3 positive points for a local power-law fit "
+            f"(got {len(q_pos)})."
+        )
+
+    # Starting estimates (Igor heuristic): P from log-log slope, B from I·q^P
+    denom = np.log(q_pos[-1]) - np.log(q_pos[0])
+    p0 = abs((np.log(I_pos[0]) - np.log(I_pos[-1])) / denom) if denom != 0 else 4.0
+    b0 = I_pos[0] * (q_pos[0] ** p0)
+    if not fit_P:
+        p0 = float(P)
+    if not fit_B:
+        b0 = float(B)
+
+    sigma = None
+    if err_pos is not None and np.all(err_pos > 0):
+        sigma = err_pos
+
+    def model(q_, B_, P_):
+        return B_ * np.power(q_, -P_)
+
+    if fit_B and fit_P:
+        popt, _ = curve_fit(model, q_pos, I_pos, p0=[b0, p0], sigma=sigma,
+                            absolute_sigma=False, maxfev=5000)
+        b_fit, p_fit = abs(popt[0]), abs(popt[1])
+    elif fit_P:  # B fixed
+        popt, _ = curve_fit(lambda q_, P_: model(q_, b0, P_), q_pos, I_pos,
+                            p0=[p0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        b_fit, p_fit = b0, abs(popt[0])
+    else:  # P fixed
+        popt, _ = curve_fit(lambda q_, B_: model(q_, B_, p0), q_pos, I_pos,
+                            p0=[b0], sigma=sigma, absolute_sigma=False, maxfev=5000)
+        b_fit, p_fit = abs(popt[0]), p0
+
+    b_fit, p_fit = float(b_fit), float(p_fit)
+    model_I = model(q_pos, b_fit, p_fit)
+    resid = (I_pos - model_I) / (sigma if sigma is not None else 1.0)
+    chi_sq = float(np.sum(resid ** 2))
+    dof = max(len(q_pos) - (int(fit_B) + int(fit_P)), 1)
+    return {
+        "B": b_fit,
+        "P": p_fit,
+        "q": q_pos,
+        "n_points": int(len(q_pos)),
+        "chi_squared": chi_sq,
+        "reduced_chi_squared": chi_sq / dof,
+        "model_I": model_I,
+    }
+
+
+def compute_invariant_sv(
+    G: float,
+    Rg: float,
+    B: float,
+    P: float,
+    RgCO: float = 0.0,
+    ETA: float = 0.0,
+    PACK: float = 0.0,
+    correlated: bool = False,
+) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Compute the scattering invariant and surface-to-volume ratio for one
+    Unified Fit level.
+
+    This is the Igor-faithful implementation (port of
+    ``IR1A_SurfToVolCalcInvarVec`` / ``IR1A_UpdatePorodSfcandInvariant``)
+    and the single source of truth used by both the GUI panel and the
+    batch API, so both report identical numbers.
+
+    Method
+    ------
+    - Evaluate the single-level unified intensity on 2000 points from
+      Q = 0 to Qmax = 2*pi / (Rg/10).
+    - Invariant = Simpson integral of I(Q)*Q^2, plus (when RgCO < 0.1 and
+      P is not ~3) the analytic Porod tail  -B * Qmax^(3-P) / (3-P).
+    - Sv = 1e4 * pi * B / invariant  [m^2/cm^3], reported only in the
+      Porod regime 3.95 <= P <= 4.05.
+
+    Returns
+    -------
+    (invariant_cm4, sv)
+        invariant in cm^-4 (converted from cm^-1 A^-3 via 1e24), or None
+        when not computable (Rg <= 0, or a negative invariant indicating a
+        bad extrapolation).  sv is None outside the Porod regime.
+    """
+    from scipy.integrate import simpson
+
+    if Rg <= 0:
+        return None, None
+    try:
+        maxQ = 2 * np.pi / (Rg / 10)
+        surf_q = np.linspace(0, maxQ, 2000)
+
+        # Single-level unified intensity, Igor-style q -> 0 regularization
+        K = 1.0 if P > 3 else 1.06
+        q_safe = np.where(np.abs(surf_q) < 1e-10, 1e-10, surf_q)
+        erf_cubed = erf(K * q_safe * Rg / np.sqrt(6)) ** 3
+        erf_cubed = np.where(np.abs(erf_cubed) < 1e-10, 1e-10, erf_cubed)
+        qstar = q_safe / erf_cubed
+        qstar = np.where(np.isfinite(qstar), qstar, 1e-10)
+        intensity = (G * np.exp(-surf_q ** 2 * Rg ** 2 / 3)
+                     + (B / qstar ** P) * np.exp(-RgCO ** 2 * surf_q ** 2 / 3))
+        intensity = np.where(np.isfinite(intensity), intensity, 0.0)
+        if correlated and PACK > 0 and ETA > 0:
+            qr = np.where(surf_q * ETA == 0, 1e-10, surf_q * ETA)
+            sphere_amp = 3 * (np.sin(qr) - qr * np.cos(qr)) / qr ** 3
+            intensity = intensity / (1 + PACK * sphere_amp)
+        # Handle the Q=0 point (use the Q=dQ value)
+        if intensity[0] == 0 or np.isnan(intensity[0]):
+            intensity[0] = intensity[1]
+
+        # Invariant = integral of I(Q)*Q^2 dQ
+        invariant = simpson(intensity * surf_q ** 2, x=surf_q)
+
+        # Analytic Porod tail beyond Qmax when there is no cutoff.
+        # Skip when P ~ 3: the integrand becomes B/Q which integrates to
+        # B*ln(Q), and the closed-form (3-P) denominator is singular.
+        if RgCO < 0.1:
+            denom = 3 - abs(P)
+            if abs(denom) > 1e-6:
+                invariant += -B * maxQ ** denom / denom
+
+        # Negative invariant means the extrapolation is invalid
+        if invariant <= 0:
+            return None, None
+
+        # Sv is only meaningful in the Porod regime (P ~ 4).
+        # 1e4 converts pi*B/Q from A^-1 to m^2/cm^3.
+        sv = 1e4 * np.pi * B / invariant if 3.95 <= P <= 4.05 else None
+        return invariant * 1e24, sv   # invariant converted to cm^-4
+    except Exception:
+        return None, None
 
 
 def load_data_from_nxcansas(file_path: str,

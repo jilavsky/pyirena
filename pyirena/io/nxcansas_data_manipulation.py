@@ -9,7 +9,6 @@ Handles:
 """
 from __future__ import annotations
 
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -18,19 +17,16 @@ import h5py
 import numpy as np
 
 from pyirena.io.nxcansas_unified import create_nxcansas_file
-from pyirena.io.hdf5 import find_matching_groups
+from pyirena.io._nxcansas_common import (
+    strip_nonpositive_intensities as _strip_nonpositive_intensities,
+    copy_and_strip_results as _copy_and_strip_results,
+    replace_nxcansas_data,
+    append_dq as _append_dq,
+)
 
+import logging
 
-# Known pyirena result group paths to strip when copying the source file
-_PYIRENA_RESULT_GROUPS = [
-    'entry/unified_fit_results',
-    'entry/sizes_results',
-    'entry/simple_fit_results',
-    'entry/waxs_peakfit_results',
-    'entry/data_merge_results',
-    'entry/modeling_results',
-    'entry/data_manipulation_results',
-]
+log = logging.getLogger(__name__)
 
 # Default suffix per operation
 _OPERATION_SUFFIXES = {
@@ -41,37 +37,6 @@ _OPERATION_SUFFIXES = {
     'sub': '_sub',
     'div': '_div',
 }
-
-
-def _strip_nonpositive_intensities(
-    q: np.ndarray,
-    I: np.ndarray,
-    dI: np.ndarray,
-    dQ: Optional[np.ndarray],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], int]:
-    """Drop any points with non-positive or non-finite Q or I.
-
-    Subtraction operations and similar can produce negative intensities at
-    sample-buffer boundaries.  Such points are not physically meaningful and
-    break downstream analysis (in particular log plots and the Size
-    Distribution fit).  Igor Pro's equivalent routines delete these points
-    before saving; we do the same.
-
-    Returns the cleaned arrays and the number of points removed.
-    """
-    q  = np.asarray(q,  dtype=float)
-    I  = np.asarray(I,  dtype=float)
-    dI = np.asarray(dI, dtype=float)
-    mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-    n_removed = int(np.sum(~mask))
-    if n_removed == 0:
-        return q, I, dI, dQ, 0
-    q  = q[mask]
-    I  = I[mask]
-    dI = dI[mask]
-    if dQ is not None:
-        dQ = np.asarray(dQ, dtype=float)[mask]
-    return q, I, dI, dQ, n_removed
 
 
 def save_manipulated_data(
@@ -129,8 +94,8 @@ def save_manipulated_data(
     # See _strip_nonpositive_intensities() for the rationale.
     q, I, dI, dQ, n_stripped = _strip_nonpositive_intensities(q, I, dI, dQ)
     if n_stripped:
-        print(f"[data_manipulation] Stripped {n_stripped} non-positive/non-finite "
-              f"point(s) before saving '{operation}' result.")
+        log.info(f"[data_manipulation] Stripped {n_stripped} non-positive/non-finite "
+                 f"point(s) before saving '{operation}' result.")
     if len(q) < 2:
         raise ValueError(
             f"After stripping non-positive intensities only {len(q)} point(s) "
@@ -147,7 +112,7 @@ def save_manipulated_data(
 
     if source_is_nxcansas:
         _copy_and_strip_results(source_path, out_path)
-        _replace_nxcansas_data(out_path, q, I, dI, dQ)
+        replace_nxcansas_data(out_path, q, I, dI, dQ, context="manipulated data")
     else:
         sample_name = stem
         create_nxcansas_file(out_path, q, I, error=dI, sample_name=sample_name)
@@ -161,91 +126,6 @@ def save_manipulated_data(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _copy_and_strip_results(src: Path, dst: Path) -> None:
-    """Copy *src* to *dst* then delete known pyirena result groups."""
-    shutil.copy2(src, dst)
-    with h5py.File(dst, 'a') as f:
-        for grp_path in _PYIRENA_RESULT_GROUPS:
-            if grp_path in f:
-                del f[grp_path]
-
-
-def _replace_nxcansas_data(
-    filepath: Path,
-    q: np.ndarray,
-    I: np.ndarray,
-    dI: np.ndarray,
-    dQ: Optional[np.ndarray],
-) -> None:
-    """Overwrite Q/I/Idev/Qdev arrays in the first NXcanSAS sasdata group."""
-    with h5py.File(filepath, 'a') as f:
-        sasdata_paths = find_matching_groups(
-            f,
-            required_attributes={'canSAS_class': 'SASdata'},
-            required_items={},
-        )
-        if not sasdata_paths:
-            sasdata_paths = find_matching_groups(
-                f,
-                required_attributes={'NX_class': 'NXdata'},
-                required_items={},
-            )
-        if not sasdata_paths:
-            raise RuntimeError(
-                f"Could not locate a sasdata/NXdata group in {filepath}. "
-                "Cannot replace manipulated data."
-            )
-
-        sasdata = f[sasdata_paths[0]]
-
-        for name, data, attrs in [
-            ('Q',    q,  {'units': '1/angstrom', 'long_name': 'Q'}),
-            ('I',    I,  {'units': '1/cm',       'long_name': 'Intensity'}),
-            ('Idev', dI, {'units': '1/cm',       'long_name': 'Uncertainties'}),
-        ]:
-            if name in sasdata:
-                del sasdata[name]
-            ds = sasdata.create_dataset(name, data=data)
-            for k, v in attrs.items():
-                ds.attrs[k] = v
-
-        if 'I' in sasdata:
-            sasdata['I'].attrs['uncertainties'] = 'Idev'
-
-        if dQ is not None:
-            if 'Qdev' in sasdata:
-                del sasdata['Qdev']
-            ds_qdev = sasdata.create_dataset('Qdev', data=dQ)
-            ds_qdev.attrs['units'] = '1/angstrom'
-            ds_qdev.attrs['long_name'] = 'Q resolution'
-            sasdata['Q'].attrs['resolutions'] = 'Qdev'
-        else:
-            if 'Qdev' in sasdata:
-                del sasdata['Qdev']
-            if 'Q' in sasdata and 'resolutions' in sasdata['Q'].attrs:
-                del sasdata['Q'].attrs['resolutions']
-
-        f.attrs['file_time'] = datetime.now().isoformat()
-
-
-def _append_dq(filepath: Path, dQ: np.ndarray, sample_name: str) -> None:
-    """Add a Qdev dataset to the sasdata group of a freshly-created NXcanSAS file."""
-    with h5py.File(filepath, 'a') as f:
-        sasdata_paths = find_matching_groups(
-            f,
-            required_attributes={'canSAS_class': 'SASdata'},
-            required_items={},
-        )
-        if sasdata_paths:
-            sasdata = f[sasdata_paths[0]]
-            if 'Qdev' not in sasdata:
-                ds = sasdata.create_dataset('Qdev', data=dQ)
-                ds.attrs['units'] = '1/angstrom'
-                ds.attrs['long_name'] = 'Q resolution'
-                if 'Q' in sasdata:
-                    sasdata['Q'].attrs['resolutions'] = 'Qdev'
-
 
 def _append_manipulation_provenance(
     filepath: Path,

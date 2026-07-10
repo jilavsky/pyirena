@@ -45,7 +45,7 @@ from typing import Optional
 
 import numpy as np
 
-from pyirena.api.control.errors import make_error, no_session, no_model, no_fit
+from pyirena.api.control.errors import make_error, no_session, no_fit
 from pyirena.api.control.session import get_session, fit_mask, Session
 
 # Inversion methods exposed to the agent.  MaxEnt is the recommended default.

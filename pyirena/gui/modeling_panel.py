@@ -15,6 +15,10 @@ main()         — standalone CLI entry: python -m pyirena.gui.modeling_panel <f
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import os
 import sys
@@ -24,34 +28,9 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
-        QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-        QScrollArea, QFrame, QSizePolicy, QDoubleSpinBox,
-    )
-    from PySide6.QtCore import Qt, Signal, QTimer
-    from PySide6.QtGui import QFont, QDoubleValidator
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
-            QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-            QScrollArea, QFrame, QSizePolicy, QDoubleSpinBox,
-        )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QTimer
-        from PyQt6.QtGui import QFont, QDoubleValidator
-    except ImportError:
-        from PyQt5.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QPushButton, QLabel, QLineEdit, QCheckBox, QSpinBox, QTabWidget,
-            QGroupBox, QMessageBox, QSplitter, QFileDialog, QComboBox,
-            QScrollArea, QFrame, QSizePolicy, QDoubleSpinBox,
-        )
-        from PyQt5.QtCore import Qt, pyqtSignal as Signal, QTimer
-        from PyQt5.QtGui import QFont, QDoubleValidator
+from pyirena.gui._qt import (
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QThread, QTimer, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 import pyqtgraph as pg
 
@@ -62,12 +41,12 @@ from pyirena.core.modeling import (
     GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
 )
 from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
+    plot_iq_data, set_robust_y_range, add_plot_annotation,
     RadiusAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.io.nxcansas_modeling import save_modeling_results, load_modeling_results
+from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1888,7 +1867,7 @@ class ModelingGraphWindow(QWidget):
                 self.iq_plot.removeItem(self._cursor_left_line)
                 self.iq_plot.removeItem(self._cursor_right_line)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._cursor_left_line = _SafeInfiniteLine(
             pos=q_min_log, angle=90, movable=True,
@@ -2022,14 +2001,14 @@ class ModelingGraphWindow(QWidget):
             try:
                 self.iq_plot.removeItem(self._total_item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._total_item = None
 
         for pi, item in list(self._pop_items.items()):
             try:
                 self.iq_plot.removeItem(item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._pop_items.clear()
 
     def clear_result_annotations(self):
@@ -2038,7 +2017,7 @@ class ModelingGraphWindow(QWidget):
             try:
                 self.iq_plot.removeItem(item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._annotation_items.clear()
 
     def add_result_annotation(self, text: str):
@@ -3346,7 +3325,6 @@ class ModelingPanel(QWidget):
 
     def export_json(self):
         """Export current population parameters as a JSON config file."""
-        import json
         default_path = str(Path(self._get_data_folder()) / 'pyirena_config.json')
         try:
             _save_opts = QFileDialog.Option.DontConfirmOverwrite | QFileDialog.Option.DontUseNativeDialog
@@ -3796,6 +3774,9 @@ if not hasattr(StateManager, 'set'):
 
 def main():
     """Standalone entry: python -m pyirena.gui.modeling_panel [hdf5_file]"""
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)
     panel = ModelingPanel()
     panel.show()
@@ -3805,7 +3786,7 @@ def main():
         if path.exists():
             panel.load_file(path)
         else:
-            print(f'File not found: {path}')
+            log.warning('File not found: %s', path)
 
     sys.exit(app.exec())
 

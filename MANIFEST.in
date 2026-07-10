@@ -16,3 +16,9 @@ global-exclude *.pyo
 global-exclude __pycache__
 global-exclude .DS_Store
 global-exclude *.ipf
+
+# Exclude development scratch and large assets from the sdist
+prune codeFragments
+prune IgorCodeFragments
+prune planning
+exclude pyIrena_icon.png

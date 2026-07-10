@@ -11,7 +11,6 @@ I(Q) is in the same ballpark as the input.
 """
 
 import numpy as np
-import pytest
 
 from pyirena.core.saxs_morph import (
     SaxsMorphConfig, SaxsMorphResult, SaxsMorphEngine,
@@ -288,7 +287,6 @@ class TestBerkInversion:
 
     def test_T_at_g_one_equals_phi_one_minus_phi(self):
         # Closed-form check: T(g→1, alfa) = phi(1-phi) where phi = 0.5(1-erf(alfa/√2))
-        from scipy.special import erf
         for phi in (0.1, 0.3, 0.5, 0.7, 0.9):
             alfa = alfa_threshold(phi)
             g_grid, T_grid = berk_lut(alfa, n=4000)

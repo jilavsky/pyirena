@@ -38,6 +38,10 @@ from pyirena.core.saxs_morph import (
     SaxsMorphConfig, SaxsMorphResult,
 )
 
+import logging
+
+log = logging.getLogger(__name__)
+
 
 GROUP_NAME = 'saxs_morph_results'
 
@@ -167,7 +171,7 @@ def save_saxs_morph_results(
             for k, v in mm.as_dict().items():
                 mg.create_dataset(k, data=_h5_scalar(v))
 
-    print(f"Saved SAXS Morph results to {filepath}")
+    log.info(f"Saved SAXS Morph results to {filepath}")
 
 
 def _save_1d(grp, name, arr, units: str):
@@ -287,8 +291,8 @@ def load_saxs_morph_results(
                 from pyirena.core.morphology import MorphologyMetrics
                 out['morphology_metrics'] = MorphologyMetrics.from_dict(mm_dict)
             except Exception as exc:
-                print(f"[load_saxs_morph_results] morphology metrics "
-                      f"could not be reconstructed: {exc}")
+                log.warning(f"[load_saxs_morph_results] morphology metrics "
+                            f"could not be reconstructed: {exc}")
                 out['morphology_metrics'] = mm_dict   # raw fallback
         else:
             out['morphology_metrics'] = None

@@ -29,7 +29,17 @@ References:
     Beaucage, G. (1996). J. Appl. Cryst. 29, 134-146
 """
 
-__version__ = "0.9.9"
+# Single-source the version from the installed package metadata
+# (pyproject.toml is the source of truth).  Fall back to a sentinel when
+# running from a source tree that was never installed (e.g. `python -c` in
+# a fresh checkout).
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+try:
+    __version__ = _pkg_version("pyirena")
+except PackageNotFoundError:  # pragma: no cover - only in uninstalled source trees
+    __version__ = "0.0.0+unknown"
+
 __author__ = "Jan Ilavsky"
 __email__ = "ilavsky@aps.anl.gov"
 
@@ -43,6 +53,7 @@ from pyirena.batch import (
     igor_to_nexus, pxp_to_nexus,
 )
 from pyirena.io.results import load_result, SUPPORTED_ANALYSES
+from pyirena.logging_setup import setup_logging, get_log_dir
 
 try:
     from pyirena.plotting.plot_saxs import plot_saxs
@@ -69,5 +80,7 @@ __all__ = [
     "pxp_to_nexus",
     "load_result",
     "SUPPORTED_ANALYSES",
+    "setup_logging",
+    "get_log_dir",
     "plot_saxs",
 ]

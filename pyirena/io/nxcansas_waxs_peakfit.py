@@ -55,6 +55,10 @@ from pyirena.core.waxs_peakfit import (
     peak_area_std,
 )
 
+import logging
+
+log = logging.getLogger(__name__)
+
 _GROUP = "entry/waxs_peakfit_results"
 _PROGRAM = "pyIrena waxs_peakfit"
 
@@ -288,7 +292,8 @@ def load_waxs_peakfit_results(filepath: Path) -> Dict:
                 try:
                     return float(grp[key][()])
                 except Exception:
-                    pass
+                    log.debug("Dataset '%s' unreadable; falling back to attribute", key,
+                              exc_info=True)
             return float(attrs.get(key, default))
 
         result: Dict = {

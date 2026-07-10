@@ -41,19 +41,18 @@ Quick-start example
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import numpy as np
 from pathlib import Path
 import pyqtgraph as pg
 
-try:
-    from PySide6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
-    from PySide6.QtCore import Qt, QPointF, QRectF
-    from PySide6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
-except ImportError:
-    from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
-    from PyQt6.QtCore import Qt, QPointF, QRectF
-    from PyQt6.QtGui import QPainterPath, QPainterPathStroker, QFont, QPen
+from pyirena.gui._qt import (
+    QFileDialog, QFont, QInputDialog, QMessageBox, QPainterPath, QPointF, QRectF, Qt,
+)
 
 
 # ===========================================================================
@@ -331,14 +330,14 @@ def _install_sendDragEvent_safeguard() -> None:
         import pyqtgraph.GraphicsScene.GraphicsScene as _mod
         Scene = _mod.GraphicsScene
     except (ImportError, AttributeError):
-        pass
+        log.debug("suppressed exception", exc_info=True)
     if Scene is None:
         try:
             from pyqtgraph.GraphicsScene import GraphicsScene as Scene
             if not isinstance(Scene, type):
                 Scene = None
         except (ImportError, AttributeError):
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if Scene is None:
         return
 
@@ -371,7 +370,7 @@ def _install_sendDragEvent_safeguard() -> None:
 try:
     _install_sendDragEvent_safeguard()
 except Exception:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 # ===========================================================================
@@ -790,13 +789,13 @@ def _get_item_color_hex(item: pg.PlotDataItem) -> str:
         if pen is not None:
             return pg.mkPen(pen).color().name()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         brush = item.opts.get('symbolBrush')
         if brush is not None:
             return pg.mkBrush(brush).color().name()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return '#000000'
 
 
@@ -1172,7 +1171,7 @@ def set_robust_y_range(plot: pg.PlotItem, I: np.ndarray) -> None:
         return
     log_i = np.log10(np.asarray(I)[valid])
     lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade
-    hi = np.percentile(log_i, 99) + 0.5   # 99th percentile plus half-decade (excludes extreme outliers)
+    hi = np.max(log_i) + 0.2   # 100th percentile plus 0.2-decade
     plot.setYRange(lo, hi, padding=0)
     # Prevent zooming to extreme y values (e.g. from cosmic rays or uncalibrated data).
     # Allow 3 extra decades of zoom room beyond the data range before hitting a hard limit.

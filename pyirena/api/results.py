@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import io
-import os
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import h5py
 import numpy as np

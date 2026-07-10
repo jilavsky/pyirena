@@ -7,8 +7,7 @@ persistence across restarts.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
 import numpy as np

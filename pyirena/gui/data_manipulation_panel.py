@@ -19,33 +19,9 @@ from typing import Callable, Optional, List
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-        QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
-        QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
-        QAbstractItemView, QSizePolicy, QListWidgetItem,
-        QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
-        QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
-    )
-    from PySide6.QtCore import Qt, QUrl, QTimer
-    from PySide6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-            QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
-            QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
-            QAbstractItemView, QSizePolicy, QListWidgetItem,
-            QTabWidget, QSpinBox, QDoubleSpinBox, QMenu,
-            QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
-        )
-        from PyQt6.QtCore import Qt, QUrl, QTimer
-        from PyQt6.QtGui import QDesktopServices, QDoubleValidator, QAction, QPixmap, QIcon, QColor
-    except ImportError:
-        raise ImportError(
-            "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
-        )
+from pyirena.gui._qt import (
+    QAbstractItemView, QApplication, QCheckBox, QColor, QComboBox, QDesktopServices, QDoubleSpinBox, QDoubleValidator, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QIcon, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPixmap, QPushButton, QScrollArea, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
+)
 
 import pyqtgraph as pg
 
@@ -1636,7 +1612,7 @@ class DataManipulationPanel(QWidget):
 
     def _on_similarity_check(self) -> None:
         """Run CorMap similarity analysis on the current Average selection."""
-        from pyirena.core.similarity import check_similarity, SIMILARITY_METHODS
+        from pyirena.core.similarity import check_similarity
 
         selected = self._fb.get_selected_filenames()
         if len(selected) < 2:
@@ -1890,7 +1866,7 @@ class DataManipulationPanel(QWidget):
 
     def _load_reference_file(self, filepath: str) -> Optional[dict]:
         """Load a reference data file, auto-detecting type by extension."""
-        from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
+        from pyirena.io.hdf5 import readGenericNXcanSAS, readTextFile
         from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         ext = fp.suffix.lower()
@@ -2265,6 +2241,9 @@ class DataManipulationPanel(QWidget):
 
 def main() -> None:
     """Entry point: ``pyirena-datamanip``."""
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     import argparse
 
     parser = argparse.ArgumentParser(

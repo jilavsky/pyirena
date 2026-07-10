@@ -6,33 +6,18 @@ parent's graph window.  Visualisation only — never modifies the Unified
 Fit model or level parameters.
 """
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QLabel, QPushButton, QDoubleSpinBox, QCheckBox,
-        QGroupBox, QTextEdit,
-    )
-    from PySide6.QtCore import Qt
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-            QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QLabel, QPushButton, QDoubleSpinBox, QCheckBox,
-            QGroupBox, QTextEdit,
-        )
-        from PyQt6.QtCore import Qt  # type: ignore[no-redef]
-    except ImportError:
-        from PyQt5.QtWidgets import (  # type: ignore[no-redef]
-            QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QLabel, QPushButton, QDoubleSpinBox, QCheckBox,
-            QGroupBox, QTextEdit,
-        )
-        from PyQt5.QtCore import Qt  # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget, Qt,
+)
 
 import pyqtgraph as pg
 
@@ -228,7 +213,7 @@ class FeatureIdentifierDialog(QWidget):
                 try:
                     sb.setValue(float(saved[key]))
                 except (TypeError, ValueError):
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         if "_show_advanced" in saved:
             self.show_advanced.setChecked(bool(saved["_show_advanced"]))
             self._advanced_box.setVisible(bool(saved["_show_advanced"]))
@@ -377,7 +362,7 @@ class FeatureIdentifierDialog(QWidget):
             try:
                 plot.removeItem(item)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._markers.clear()
 
     # ----------------------------------------------------------------------
@@ -446,7 +431,7 @@ class FeatureIdentifierDialog(QWidget):
         try:
             self._panel._feature_dialog = None  # noqa: SLF001
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         super().closeEvent(event)
 
 

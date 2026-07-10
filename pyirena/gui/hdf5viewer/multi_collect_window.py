@@ -11,20 +11,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-        QToolBar, QLabel, QPushButton, QAbstractItemView, QHeaderView,
-        QFileDialog, QMessageBox,
-    )
-    from PySide6.QtCore import Qt
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-        QToolBar, QLabel, QPushButton, QAbstractItemView, QHeaderView,
-        QFileDialog, QMessageBox,
-    )
-    from PyQt6.QtCore import Qt  # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QAbstractItemView, QFileDialog, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout, QWidget, Qt,
+)
 
 
 class MultiCollectWindow(QWidget):

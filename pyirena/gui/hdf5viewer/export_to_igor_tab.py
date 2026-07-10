@@ -13,24 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QCheckBox, QRadioButton,
-        QGroupBox, QPlainTextEdit, QProgressBar, QFileDialog,
-        QSizePolicy,
-    )
-    from PySide6.QtCore import Qt, QThread, Signal
-    from PySide6.QtGui import QFont
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QPushButton, QLabel, QLineEdit, QCheckBox, QRadioButton,
-        QGroupBox, QPlainTextEdit, QProgressBar, QFileDialog,
-        QSizePolicy,
-    )
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal as Signal  # type: ignore[no-redef]
-    from PyQt6.QtGui import QFont  # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QCheckBox, QFileDialog, QFont, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QThread, QVBoxLayout, QWidget, Signal,
+)
 
 
 # ---------------------------------------------------------------------------

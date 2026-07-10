@@ -16,6 +16,10 @@ Key features
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import itertools
 from typing import Any
@@ -23,24 +27,9 @@ from typing import Any
 import numpy as np
 import pyqtgraph as pg
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
-        QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
-        QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QSizePolicy, QRadioButton, QButtonGroup,
-    )
-    from PySide6.QtCore import Qt, Signal, QEvent
-    from PySide6.QtGui import QColor, QIcon, QAction
-except ImportError:
-    from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-        QWidget, QVBoxLayout, QToolBar, QDialog, QFormLayout, QLineEdit,
-        QDialogButtonBox, QLabel, QPushButton, QColorDialog, QComboBox,
-        QDoubleSpinBox, QHBoxLayout, QScrollArea, QGridLayout, QGroupBox,
-        QMessageBox, QSizePolicy, QRadioButton, QButtonGroup,
-    )
-    from PyQt6.QtCore import Qt, pyqtSignal as Signal, QEvent  # type: ignore[no-redef]
-    from PyQt6.QtGui import QColor, QIcon, QAction              # type: ignore[no-redef]
+from pyirena.gui._qt import (
+    QAction, QButtonGroup, QColor, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QEvent, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QToolBar, QVBoxLayout, QWidget, Qt, Signal,
+)
 
 from . import export as _export
 from pyirena.gui.sas_plot import add_slope_line_menu
@@ -427,7 +416,7 @@ class GraphWindow(QWidget):
         try:
             self._legend.clear()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         for curve in self._curves:
             ref = curve.get("plot_ref")
             label = curve.get("label") or ""
@@ -525,7 +514,7 @@ class GraphWindow(QWidget):
                 try:
                     self._plot.removeItem(curve["err_ref"])
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 curve["err_ref"] = None
                 curve["yerr"] = None
                 changed = True

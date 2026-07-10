@@ -14,6 +14,10 @@ API keys are stored in the OS keyring (never in state.json).
 Fallback: ANTHROPIC_API_KEY / OPENAI_API_KEY environment variables.
 """
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import base64
 import html as _html_mod
@@ -23,37 +27,9 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-try:
-    from PySide6.QtCore import Qt, QThread, QTimer, Signal
-    from PySide6.QtGui import QFont
-    from PySide6.QtWidgets import (
-        QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
-        QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-        QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
-        QWidget,
-    )
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
-except ImportError:
-    try:
-        from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal as Signal
-        from PyQt6.QtGui import QFont
-        from PyQt6.QtWidgets import (
-            QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
-            QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-            QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
-            QWidget,
-        )
-        from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
-    except ImportError:
-        from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal as Signal
-        from PyQt5.QtGui import QFont
-        from PyQt5.QtWidgets import (
-            QApplication, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
-            QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-            QRadioButton, QSizePolicy, QTextBrowser, QTextEdit, QVBoxLayout,
-            QWidget,
-        )
-        from PyQt5.QtCore import QBuffer, QByteArray, QIODevice
+from pyirena.gui._qt import (
+    QApplication, QBuffer, QDialog, QDialogButtonBox, QFont, QFormLayout, QGroupBox, QHBoxLayout, QIODevice, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QRadioButton, QTextBrowser, QThread, QTimer, QVBoxLayout, Qt, Signal,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +163,7 @@ def _get_api_key(provider: str) -> str:
         if key:
             return key
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # env-var fallback
     if provider == "anthropic":
         return os.environ.get("ANTHROPIC_API_KEY", "")
@@ -202,7 +178,7 @@ def _set_api_key(provider: str, key: str) -> None:
         import keyring
         keyring.set_password(_KEYRING_SERVICE, _KEYRING_KEYS.get(provider, provider), key)
     except Exception:
-        pass  # silently fall back to env var usage
+        log.debug("suppressed exception", exc_info=True)  # silently fall back to env var usage
 
 
 # ---------------------------------------------------------------------------
@@ -221,13 +197,13 @@ def _load_skills(tool_key: str) -> str:
         try:
             return user_path.read_text(encoding="utf-8")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     pkg_path = Path(__file__).parent / "ai_skills" / f"{tool_key}.md"
     if pkg_path.exists():
         try:
             return pkg_path.read_text(encoding="utf-8")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return ""
 
 

@@ -135,15 +135,19 @@ def _lsw_pdf_scalar(r: float, location: float) -> float:
     if u <= 0 or u >= 1.5:
         return 0.0
     # Classical LSW distribution (matrix-diffusion-controlled coarsening):
-    # f(u) = (4/9)*u²*(3/(3+u))^(7/3) * exp(-u/(1.5-u)) / (1.5-u)^(11/3)
-    # This is the form matched to the Igor IR1_LSWProbability convention.
+    # f(u) = (4/9)*u²*(3/(3+u))^(7/3) * ((3/2)/(1.5-u))^(11/3) * exp(-u/(1.5-u))
+    # The (3/2)^(11/3) factor normalises the density: ∫₀^1.5 f(u) du = 1.
+    # It was previously missing, which made lsw_cdf discontinuous at the
+    # 1.5·location cutoff (jumping from ~0.226 to the clamped 1.0) and
+    # distorted inverse-CDF radius grids for LSW. Downstream modeling
+    # renormalises numerically, so fitted results are unaffected.
     try:
         a = (4.0 / 9.0) * u ** 2
         b = (3.0 / (3.0 + u)) ** (7.0 / 3.0)
         denom = 1.5 - u
         if denom < 1e-12:
             return 0.0
-        c = math.exp(-u / denom) / denom ** (11.0 / 3.0)
+        c = (1.5 / denom) ** (11.0 / 3.0) * math.exp(-u / denom)
         return a * b * c / location   # Jacobian 1/location converts u→r
     except (OverflowError, ZeroDivisionError, ValueError):
         return 0.0

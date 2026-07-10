@@ -11,6 +11,10 @@ Entry points
 * ``main()`` — ``pyirena-datamerge`` CLI command.
 """
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 import json
 import os
@@ -21,37 +25,16 @@ from typing import Callable, Optional, List, Tuple
 
 import numpy as np
 
-try:
-    from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-        QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
-        QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
-        QAbstractItemView, QSizePolicy, QListWidgetItem,
-    )
-    from PySide6.QtCore import Qt, QUrl
-    from PySide6.QtGui import QDesktopServices
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-            QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
-            QListWidget, QMessageBox, QGroupBox, QFrame, QFileDialog,
-            QAbstractItemView, QSizePolicy, QListWidgetItem,
-        )
-        from PyQt6.QtCore import Qt, QUrl
-        from PyQt6.QtGui import QDesktopServices
-    except ImportError:
-        raise ImportError(
-            "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
-        )
+from pyirena.gui._qt import (
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDesktopServices, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QUrl, QVBoxLayout, QWidget,
+)
 
 import pyqtgraph as pg
 
 from pyirena.core.data_merge import DataMerge, MergeConfig, MergeResult
 from pyirena.state.state_manager import StateManager
 from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, plot_iq_model,
-    set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
+    make_sas_plot, set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
 )
 
 
@@ -1279,15 +1262,15 @@ class DataMergePanel(QWidget):
                     ds2_path=Path(path2),
                 )
                 status = "OK" if result.success else "WARN(not converged)"
-                print(f"[batch] {status}  {f1} + {f2} → {out.name}  "
-                      f"scale={result.scale:.4g}  BG={result.background:.4g}")
+                log.info("[batch] %s  %s + %s → %s  scale=%.4g  BG=%.4g",
+                         status, f1, f2, out.name, result.scale, result.background)
                 n_ok += 1
 
             except (KeyboardInterrupt, SystemExit):
                 raise  # always let the user abort
             except BaseException as exc:
                 reason = str(exc) or type(exc).__name__
-                print(f"[batch] FAIL {f1} + {f2}: {reason}")
+                log.warning("[batch] FAIL %s + %s: %s", f1, f2, reason)
                 failures.append((f1, f2, reason))
 
             QApplication.processEvents()
@@ -1476,7 +1459,7 @@ class DataMergePanel(QWidget):
             return data
         except Exception as exc:
             if quiet:
-                print(f"[batch] load error {fp.name}: {exc}")
+                log.warning("[batch] load error %s: %s", fp.name, exc)
             else:
                 QMessageBox.warning(self, "Load Error",
                                     f"Could not read {fp.name}:\n{exc}")
@@ -1520,7 +1503,7 @@ class DataMergePanel(QWidget):
                     lambda: self._update_cursor_display()
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     def _update_cursor_display(self) -> None:
         q_min, q_max = self._graph.get_overlap_range()
@@ -1677,6 +1660,9 @@ def main() -> None:
     With ``--file1`` and ``--file2``: runs a headless merge (no Qt needed).
     With ``--folder1`` and/or ``--folder2``: launches GUI with pre-filled folders.
     """
+    from pyirena.logging_setup import setup_logging, install_excepthook
+    setup_logging("gui")
+    install_excepthook()
     import argparse
 
     parser = argparse.ArgumentParser(

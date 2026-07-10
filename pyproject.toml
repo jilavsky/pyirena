@@ -72,6 +72,7 @@ mcp = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "ruff",
     "build",
     "twine",
 ]
@@ -114,3 +115,19 @@ testpaths = ["pyirena/tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = ["codeFragments", "IgorCodeFragments", "build", "temp", "scripts", "testData"]
+
+[tool.ruff.lint]
+# Default E/F rules, minus style conventions this codebase intentionally uses:
+#   E741 - "ambiguous" names like I (intensity) and l (level) are idiomatic in scattering code
+#   E701/E702 - compact one-line statements used in GUI code
+#   E402 - some modules must configure Qt/paths before imports
+ignore = ["E741", "E701", "E702", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+"pyirena/__init__.py" = ["F401"]
+"pyirena/**/__init__.py" = ["F401"]

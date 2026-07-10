@@ -82,7 +82,7 @@ def demo_synthetic_data():
 
     # Perform fit
     print("\nPerforming fit...")
-    results = fit_model.fit(q, I_measured, I_error, verbose=0)
+    fit_model.fit(q, I_measured, I_error, verbose=0)
 
     # Display results
     print("\n" + fit_model.get_parameter_summary())
@@ -202,7 +202,7 @@ def demo_multi_level():
 
     # Perform fit
     print("\nPerforming fit...")
-    results = fit_model.fit(q, I_measured, I_error, verbose=0)
+    fit_model.fit(q, I_measured, I_error, verbose=0)
 
     # Display results
     print("\n" + fit_model.get_parameter_summary())
@@ -289,19 +289,19 @@ def demo_with_correlations():
     print("\n" + "=" * 70)
     print("COMPARISON OF FIT QUALITY")
     print("=" * 70)
-    print(f"\nWithout correlations:")
+    print("\nWithout correlations:")
     print(f"  χ² = {results_no_corr['chi_squared']:.4e}")
     print(f"  Reduced χ² = {results_no_corr['reduced_chi_squared']:.4f}")
 
-    print(f"\nWith correlations:")
+    print("\nWith correlations:")
     print(f"  χ² = {results_corr['chi_squared']:.4e}")
     print(f"  Reduced χ² = {results_corr['reduced_chi_squared']:.4f}")
 
-    print(f"\nTrue correlation parameters:")
+    print("\nTrue correlation parameters:")
     print(f"  ETA  = {model_true.levels[0].ETA:.2f} Å")
     print(f"  PACK = {model_true.levels[0].PACK:.3f}")
 
-    print(f"\nFitted correlation parameters:")
+    print("\nFitted correlation parameters:")
     print(f"  ETA  = {fit_model_corr.levels[0].ETA:.2f} Å")
     print(f"  PACK = {fit_model_corr.levels[0].PACK:.3f}")
 
@@ -324,7 +324,7 @@ def demo_load_real_data(file_path: str):
         print(f"Loading data from: {file_path}")
         data = load_data_from_nxcansas(file_path)
 
-        print(f"Data loaded successfully:")
+        print("Data loaded successfully:")
         print(f"  Number of points: {len(data['Q'])}")
         print(f"  Q range: {data['Q'][0]:.4e} to {data['Q'][-1]:.4e} Å⁻¹")
         print(f"  I range: {np.min(data['Intensity']):.4e} to {np.max(data['Intensity']):.4e} cm⁻¹")
@@ -343,7 +343,7 @@ def demo_load_real_data(file_path: str):
 
         # Perform fit
         print("\nPerforming fit...")
-        results = fit_model.fit(
+        fit_model.fit(
             data['Q'], data['Intensity'], data['Error'],
             verbose=1
         )

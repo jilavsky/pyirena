@@ -21,20 +21,17 @@ a file can be opened either from the Data Selector or directly from the tool.
 """
 
 from __future__ import annotations
+import logging
+
+log = logging.getLogger(__name__)
+
 
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
-try:
-    from PySide6.QtWidgets import (
-        QWidget, QHBoxLayout, QLineEdit, QPushButton, QMessageBox, QInputDialog,
-    )
-    from PySide6.QtCore import Signal
-except ImportError:
-    from PyQt6.QtWidgets import (
-        QWidget, QHBoxLayout, QLineEdit, QPushButton, QMessageBox, QInputDialog,
-    )
-    from PyQt6.QtCore import pyqtSignal as Signal
+from pyirena.gui._qt import (
+    QHBoxLayout, QInputDialog, QLineEdit, QMessageBox, QPushButton, QWidget, Signal,
+)
 
 
 # ── Standalone helpers (no Qt parent required) ────────────────────────────────
@@ -236,7 +233,7 @@ class DataFileLoaderRow(QWidget):
             try:
                 self._state_manager.set('data_selector', 'last_folder', folder)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     def _on_open_clicked(self) -> None:
         try:

@@ -17,8 +17,6 @@ load_modeling_results(filepath)          → dict
 
 from __future__ import annotations
 
-import json
-import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -26,9 +24,12 @@ import h5py
 import numpy as np
 
 from pyirena.core.modeling import (
-    ModelingResult, ModelingConfig, SizeDistPopulation,
-    UnifiedLevelPopulation, DiffractionPeakPopulation,
+    ModelingResult,
 )
+
+import logging
+
+log = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -247,7 +248,7 @@ def save_modeling_results(
             from pyirena.io.setup_config import write_setup_config
             write_setup_config(grp, "modeling", setup_state)
 
-    print(f"Saved Modeling results to {filepath}")
+    log.info(f"Saved Modeling results to {filepath}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

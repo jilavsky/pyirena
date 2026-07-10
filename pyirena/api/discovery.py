@@ -4,7 +4,6 @@ These are the first calls an AI agent makes to orient itself.
 """
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +13,7 @@ import h5py
 
 from pyirena.api._paths import resolve_safe_file, resolve_safe_folder
 from pyirena.api.schemas import FileEntry, FileInspection, FolderSummary
-from pyirena.io.schema import TOOL_REGISTRY, available_tools
+from pyirena.io.schema import available_tools
 
 
 _DEFAULT_GLOBS = ("*.h5", "*.hdf5", "*.hdf", "*.nx", "*.nxs")
