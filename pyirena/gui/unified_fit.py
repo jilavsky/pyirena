@@ -860,7 +860,7 @@ class UnifiedFitGraphWindow(QWidget):
         if len(valid_I) >= 3:
             log_i = np.log10(valid_I)
             lo = float(np.percentile(log_i, 2)) - 0.5
-            hi = float(np.percentile(log_i, 99)) + 0.5
+            hi = float(np.max(log_i)) + 0.2
             self.main_plot.setYRange(lo, hi, padding=0)
             # Hard limits: 3 extra decades y zoom room + nearest-decade x bounds.
             limits = dict(yMin=lo - 3, yMax=hi + 3)

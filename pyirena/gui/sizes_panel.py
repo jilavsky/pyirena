@@ -435,8 +435,9 @@ class SizesFitGraphWindow(QWidget):
             return
         log_i = np.log10(np.asarray(intensity)[valid])
         lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade
-        hi = np.percentile(log_i, 99) + 0.5   # 99th percentile (excludes extreme outliers)
-        # In pyqtgraph log mode the ViewBox coordinate space is log10(data),
+        hi = np.max(log_i) + 0.2   # 100th percentile plus 0.2-decade
+        # In pyqtgraph log mo
+        # de the ViewBox coordinate space is log10(data),
         # so we pass log10 values directly to setYRange.
         self.main_plot.setYRange(lo, hi, padding=0)
         # Hard y limits: 3 extra decades of zoom room beyond the percentile range.

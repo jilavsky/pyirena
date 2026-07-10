@@ -1171,7 +1171,7 @@ def set_robust_y_range(plot: pg.PlotItem, I: np.ndarray) -> None:
         return
     log_i = np.log10(np.asarray(I)[valid])
     lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade
-    hi = np.percentile(log_i, 99) + 0.5   # 99th percentile plus half-decade (excludes extreme outliers)
+    hi = np.max(log_i) + 0.2   # 100th percentile plus 0.2-decade
     plot.setYRange(lo, hi, padding=0)
     # Prevent zooming to extreme y values (e.g. from cosmic rays or uncalibrated data).
     # Allow 3 extra decades of zoom room beyond the data range before hitting a hard limit.
