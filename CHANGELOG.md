@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distribution shape is affected. A ground-truth inversion test confirms the
   recovered Rg and mean radius now match the input distribution.
 
+- **Size Distribution — Monte Carlo confined to the resolvable size band.**
+  Monte Carlo contributions are now restricted to `r ∈ [π/Q_max, π/Q_min]` (the
+  standard McSAS size-range rule). Previously, radius bins outside the range the
+  data can constrain were left free, so Monte Carlo dropped stray contributions
+  into very large-r bins — which, being r²-weighted, wildly inflated (and
+  destabilised, run-to-run) the reported **Rg** — and into sub-resolution
+  small-r bins, producing a spurious spike that soaked up high-Q noise. On a real
+  USAXS dataset this brought Monte Carlo's Rg and peak radius into agreement with
+  MaxEnt and Regularization (previously Rg varied from ~2000 to ~19000 Å between
+  runs and the density peak sat at the smallest bin). The deterministic methods
+  already suppress these bins via their priors; this gives Monte Carlo the same
+  discipline.
+
 - **Size Distribution — Regularization robustness when χ² = M is unachievable.**
   When the discrepancy target χ² = M cannot be reached (fit-window error bars too
   small, or the model cannot describe the data at the window edges — typically
@@ -38,7 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Size Distribution methods guide** (`docs/sizes_methods.md`): updated the
   Regularization fallback description and added a *"Choosing the fit (inversion)
   window"* section explaining why background-dominated high-Q points destabilise
-  the inversion and how to pick the Q-range.
+  the inversion and how to pick the Q-range; a *"Reading the distribution plot on
+  a log radius axis"* note explaining the dV/dr-vs-dV/dln(r) visual effect (why a
+  distribution can look concentrated at tiny r yet report a large Rg); and a note
+  on the Monte Carlo resolvable size band and setting `R max ≈ π/Q_min`.
 
 ## [0.10.0] - 2026-07-10
 

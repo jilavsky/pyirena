@@ -245,6 +245,16 @@ per-bin mean and standard deviation of P(r) as ±1σ error bars.
 > **Note**: The number of MC contributions equals **N bins** (Size Grid setting).
 > Increase N_bins for finer size resolution and more contributions.
 
+> **Resolvable size band.** Monte Carlo contributions are confined to the range
+> the data can actually constrain, `r ∈ [π/Q_max, π/Q_min]` (the standard McSAS
+> rule). Bins outside this band are invisible to the fit; leaving them free let
+> earlier versions drop stray contributions into very large radii (which, being
+> r²-weighted, wildly inflated the reported **Rg**) or into sub-resolution small
+> radii (a spurious spike that soaked up high-Q noise). The deterministic methods
+> suppress those bins implicitly via their entropy / smoothness priors; the band
+> restriction gives Monte Carlo the same discipline. Set `R max` no larger than
+> ~`π/Q_min` so the size grid itself matches what the data resolve.
+
 ### When to use Monte Carlo
 
 - When you need a **model-independent uncertainty estimate** on P(r) — the
@@ -329,6 +339,24 @@ that, **pull the high-Q end back** to where I(Q) departs visibly from the
 background curve, and re-fit. Realistic error bars help too: overly tight
 errors (e.g. a small fixed fractional error) at high Q make the discrepancy
 principle unachievable and push every method toward over-fitting.
+
+### Reading the distribution plot on a log radius axis
+
+The distribution is plotted as **D(r) = dV/dr** (volume fraction per Å). When the
+radius axis is **logarithmic**, be careful interpreting where the "bulk" of the
+material is: equal *visual area* under D(r) does **not** correspond to equal
+volume, because the linear bin width shrinks toward small r. A small amount of
+volume in the smallest bins can therefore appear as a tall spike at r ≈ R_min
+even when it represents a negligible fraction of the total — while the
+physically dominant large-r volume looks compressed and small.
+
+If you want the plot's visual weight to match actual volume on a log axis, read
+it as **dV/dln(r) = r·D(r)** instead (volume per decade of radius). The reported
+**Rg** and **volume fraction** are integrals of the true distribution and are not
+affected by this plotting choice — so if a distribution *looks* concentrated at
+tiny r yet reports a large Rg, that is the log-axis effect, not an inconsistency.
+This is most visible with Monte Carlo, which (having no smoothness prior) is the
+method most prone to leaving a little volume in the smallest bins.
 
 ---
 

@@ -340,7 +340,7 @@ class SizesDistribution:
             elif method in ('tnnls', 'ipg', 'nnls'):
                 x_raw, n_iter = self._fit_tnnls(G, I, err)
             elif method == 'montecarlo':
-                x_raw, n_iter, x_raw_std = self._fit_montecarlo(G, I, err, r_grid)
+                x_raw, n_iter, x_raw_std = self._fit_montecarlo(G, I, err, r_grid, q=q)
             else:
                 return self._fail(f"Unknown method '{self.method}'.")
         except Exception as exc:
@@ -1068,6 +1068,7 @@ class SizesDistribution:
         err: np.ndarray,
         r_grid: np.ndarray,
         n_reps: Optional[int] = None,
+        q: Optional[np.ndarray] = None,
     ) -> tuple[np.ndarray, int, Optional[np.ndarray]]:
         """
         Monte Carlo Size Analysis (McSAS) inversion.
@@ -1110,6 +1111,13 @@ class SizesDistribution:
             Number of independent MC repetitions.  Defaults to
             ``self.montecarlo_n_repetitions``.  Pass ``1`` for a single-run fit
             (the ``distribution_std`` return value will be ``None``).
+        q : (M,) array, optional
+            The fitted Q values.  When supplied, Monte Carlo contributions are
+            confined to the resolvable size band  r ∈ [π/Q_max, π/Q_min]  (the
+            standard McSAS rule).  This prevents stray contributions in
+            unconstrained bins from inflating the r²-weighted Rg and from
+            over-fitting high-Q noise as a sub-resolution spike.  If omitted, all
+            bins are eligible (legacy behaviour).
 
         Returns
         -------
@@ -1126,6 +1134,29 @@ class SizesDistribution:
         n_rep = int(n_reps if n_reps is not None else self.montecarlo_n_repetitions)
         convergence = float(self.montecarlo_convergence)
         max_iter = int(self.montecarlo_max_iter)
+
+        # ── Restrict contributions to the RESOLVABLE size band ─────────────────
+        # A radius bin is only constrained by the data when its characteristic
+        # scattering feature falls inside the measured Q window.  The standard
+        # McSAS size-range rule is  r ∈ [π/Q_max, π/Q_min].  Bins outside this band
+        # are invisible to the fit, so unconstrained: left free, Monte Carlo drops
+        # stray contributions into them — a few huge-r bins wildly inflate the
+        # (r²-weighted) Rg, and sub-resolution small-r bins soak up high-Q noise as
+        # a spurious spike.  We forbid contributions outside the band; every other
+        # method suppresses these bins implicitly (entropy prior / smoothness), so
+        # this simply gives Monte Carlo the same discipline.
+        allowed_mask = np.ones(N, dtype=bool)
+        if q is not None and len(q) > 0:
+            qv = np.asarray(q, dtype=float)
+            qv = qv[np.isfinite(qv) & (qv > 0)]
+            if qv.size:
+                r_hi = np.pi / qv.min()      # largest resolvable radius
+                r_lo = np.pi / qv.max()      # smallest resolvable radius
+                band = (r_grid >= r_lo) & (r_grid <= r_hi)
+                if band.sum() >= 3:          # keep a sane number of active bins
+                    allowed_mask = band
+        allowed_idx = np.flatnonzero(allowed_mask)
+        n_allowed = allowed_idx.size
 
         rng = np.random.default_rng()
         inv_err2 = 1.0 / (err ** 2)               # (M,)
@@ -1144,8 +1175,9 @@ class SizesDistribution:
         total_iters = 0
 
         for rep in range(n_rep):
-            # ── Initialise: assign each of N_c contributions to a random bin ──
-            contrib_bins = rng.integers(0, N, size=N_c)      # (N_c,) bin indices
+            # ── Initialise: assign each of N_c contributions to a random bin
+            #    drawn only from the resolvable band ─────────────────────────────
+            contrib_bins = allowed_idx[rng.integers(0, n_allowed, size=N_c)]
             counts = np.bincount(contrib_bins, minlength=N).astype(float)  # (N,)
 
             g_sum = G @ counts                               # (M,)
@@ -1157,7 +1189,7 @@ class SizesDistribution:
             for rep_iters in range(1, max_iter + 1):
                 j = int(rng.integers(N_c))
                 k_old = int(contrib_bins[j])
-                k_new = int(rng.integers(N))
+                k_new = int(allowed_idx[rng.integers(n_allowed)])
 
                 if k_new == k_old:
                     continue
