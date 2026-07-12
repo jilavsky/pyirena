@@ -1550,72 +1550,142 @@ def recommend_sizes_setup(
 
     warnings: list[str] = []
 
-    # Background windows from segmentation.  Segments are ordered high-Q -> low-Q;
-    # kind in {background, guinier_plateau, power_law}.
-    bg_q_min = feat.get("background_q_min")
-    background_q_min = float(bg_q_min) if bg_q_min is not None else None
-    background_q_max = q_hi if background_q_min is not None else None
-
-    # Lowest-Q power-law segment -> power-law background window
+    # ── Low-Q power-law window (the steep upturn that is *background*, not a
+    #    particle) ────────────────────────────────────────────────────────────
+    # Segments are ordered high-Q -> low-Q; kind in {background, guinier_plateau,
+    # power_law}.  A broad size distribution scatters as a smoothly rolling,
+    # power-law-like region, so the detector often labels the whole particle
+    # region "power_law" too — we only treat the *lowest-Q* steep segment as the
+    # power-law background.
     pl_window = None
     power_law_segs = [seg for seg in segments if seg.get("kind") == "power_law"]
     if power_law_segs:
         low_seg = min(power_law_segs, key=lambda seg: seg.get("q_min", q_lo))
         pl_window = (float(low_seg["q_min"]), float(low_seg["q_max"]))
 
-    # Inversion (particle) Q-range: between the low-Q power law and the high-Q
-    # flat background, i.e. where the size information lives.
-    inv_q_min = pl_window[1] if pl_window is not None else q_lo
-    inv_q_max = background_q_min if background_q_min is not None else q_hi
-    if not (inv_q_min < inv_q_max):
-        inv_q_min, inv_q_max = q_lo, q_hi
+    # ── High-Q flat background window ──────────────────────────────────────────
+    # detect_features may hand us an explicit background segment, or (common for
+    # these data) label the high-Q flat tail a "guinier_plateau".  Accept the
+    # highest-Q flat-ish segment either way; otherwise fall back to the top Q decade.
+    bg_q_min = feat.get("background_q_min")
+    background_q_min = float(bg_q_min) if bg_q_min is not None else None
+    if background_q_min is None:
+        flat_kinds = [s for s in segments if s.get("kind") in ("background", "guinier_plateau")]
+        hi_flat = [s for s in flat_kinds if float(s.get("q_max", 0.0)) >= 0.5 * q_hi]
+        if hi_flat:
+            background_q_min = float(min(hi_flat, key=lambda s: s.get("q_min", q_hi))["q_min"])
+    if background_q_min is None and np.isfinite(q_hi):
+        background_q_min = q_hi / (10.0 ** 0.5)      # top ~half-decade as a fallback
+    background_q_max = q_hi if background_q_min is not None else None
+
+    # ── Estimate the background so the inversion range can be chosen where the
+    #    particle signal is clearly above it (the physically meaningful
+    #    criterion), not from Guinier knees. ────────────────────────────────────
+    flat_bg = _estimate_flat_bg(q, I, valid, background_q_min, background_q_max)
+    B_pl, P_pl = _estimate_power_law(q, I, valid, pl_window)
+    flat_floor = flat_bg if flat_bg > 0 else 1e-300
+    with np.errstate(over="ignore", invalid="ignore"):
+        bg_complex = B_pl * np.power(np.where(q > 0, q, np.nan), -P_pl) + flat_bg
+    bg_complex = np.where(np.isfinite(bg_complex) & (bg_complex > 0), bg_complex, flat_floor)
+    bg_flat = np.full_like(q, flat_floor, dtype=float)
+
+    # ── Inversion (particle) Q-range from the signal-to-background ratio ────────
+    # Keep the widest contiguous Q-band where I(q) ≥ sb_ratio·background, relaxing
+    # the ratio if the strict band is too short (weak but real signal).  Try the
+    # full complex background first — it best separates a genuine low-Q upturn —
+    # then fall back to the flat background only, which is robust when the
+    # power-law estimate is unreliable (e.g. it absorbed the particle signal).
+    inv_q_min = inv_q_max = None
+    sb_used = None
+    best_band = None          # widest band seen at any ratio (last-resort fallback)
+    best_span = -1.0
+    best_sb = None
+    for bg_curve in (bg_complex, bg_flat):
+        for sb_ratio in (2.0, 1.5, 1.2, 1.05):
+            band = _widest_band(q, I, bg_curve, valid, sb_ratio)
+            if band is None or band[1] <= band[0]:
+                continue
+            span_dec = float(np.log10(band[1] / band[0]))
+            if span_dec > best_span:
+                best_span, best_band, best_sb = span_dec, band, sb_ratio
+            if span_dec >= 0.5:          # accept only a genuinely usable band
+                inv_q_min, inv_q_max = band
+                sb_used = sb_ratio
+                break
+        if inv_q_min is not None:
+            break
+
+    # Last resort: no ratio gave ≥0.5 decades — take the widest band found.
+    if inv_q_min is None and best_band is not None:
+        inv_q_min, inv_q_max = best_band
+        sb_used = best_sb
+
+    have_range = inv_q_min is not None and inv_q_max is not None and inv_q_min < inv_q_max
+    if not have_range:
+        inv_q_min = pl_window[1] if pl_window is not None else q_lo
+        inv_q_max = background_q_min if background_q_min is not None else q_hi
+        if not (inv_q_min < inv_q_max):
+            inv_q_min, inv_q_max = q_lo, q_hi
         warnings.append(
-            "Could not separate a clean particle Q-range from background; "
-            "defaulting the inversion range to the full data."
+            "Could not isolate a Q-band where the particle signal clearly exceeds "
+            "the background; defaulting the inversion range — inspect the "
+            "background preview and adjust the cursors."
         )
 
-    # Radius range from the inversion Q-range:  r ≈ π/Q
-    r_min = float(np.pi / inv_q_max) if inv_q_max and np.isfinite(inv_q_max) else float("nan")
-    r_max = float(np.pi / inv_q_min) if inv_q_min and np.isfinite(inv_q_min) else float("nan")
+    inv_span_dec = float(np.log10(inv_q_max / inv_q_min)) if inv_q_min and inv_q_max else 0.0
 
-    # Suitability checks
-    if not knees:
+    # ── Radius grid from the inversion Q-range (nice, slightly-padded bounds) ──
+    from pyirena.core.form_factors import r_bounds_from_q_range  # noqa: PLC0415
+    r_min, r_max = r_bounds_from_q_range(inv_q_min, inv_q_max, pad=True)
+
+    # ── Suitability ────────────────────────────────────────────────────────────
+    # A size distribution is suitable whenever there is a usable particle-signal
+    # band between the low-Q power-law upturn and the high-Q flat background —
+    # which is exactly the common "broad distribution + power-law + flat bg" case
+    # (precipitates, pores in rocks/minerals).  A broad distribution has NO clean
+    # Guinier knee and looks like several power-law "levels", so those are NOT
+    # disqualifiers — they only add advisory notes.
+    log_decades = float(feat.get("log_decades", 0.0) or 0.0)
+    rec_nlevels = int(feat.get("recommended_nlevels", 0) or 0)
+
+    suitable = have_range and inv_span_dec >= 0.3
+
+    if not have_range:
         warnings.append(
-            "No Guinier knee detected — there is no clear size scale in this "
-            "data. A size distribution may not be meaningful."
+            "No clear particle-scattering band was found above the background — a "
+            "size distribution may not be meaningful for this curve."
+        )
+    elif inv_span_dec < 0.5:
+        warnings.append(
+            f"The particle-signal band spans only {inv_span_dec:.1f} decades of Q — "
+            "the size range that can be resolved is narrow."
         )
     if len(knees) > 1:
         warnings.append(
-            f"{len(knees)} knees detected (multiple populations / levels). The "
-            "Sizes tool fits a single distribution; consider Unified Fit, or "
-            "restrict the Q-range to one population."
+            f"{len(knees)} Guinier knees detected. If these are genuinely distinct "
+            "particle populations, Unified Fit is an alternative; a single broad "
+            "size distribution over the recommended range is still valid and is the "
+            "usual choice for precipitation / porosity data."
         )
-    log_decades = float(feat.get("log_decades", 0.0) or 0.0)
-    if log_decades < 1.0:
+    if sb_used is not None and sb_used < 2.0:
         warnings.append(
-            f"Only {log_decades:.1f} decades of Q — limited dynamic range for a "
-            "reliable inversion."
+            f"Particle signal is weak (used a signal/background ratio of {sb_used:.2f} "
+            "to define the range). Background subtraction quality matters more here — "
+            "check the background preview."
         )
-    rec_nlevels = int(feat.get("recommended_nlevels", 0) or 0)
-    if rec_nlevels >= 3:
-        warnings.append(
-            f"Feature detection suggests ~{rec_nlevels} structural levels; this "
-            "is likely too complex for a single size distribution."
-        )
-
-    suitable = bool(knees) and rec_nlevels <= 2
 
     return {
         "suitable": suitable,
         "recommended": {
-            "r_min": round(r_min, 3) if np.isfinite(r_min) else None,
-            "r_max": round(r_max, 3) if np.isfinite(r_max) else None,
+            "r_min": round(float(r_min), 3) if np.isfinite(r_min) else None,
+            "r_max": round(float(r_max), 3) if np.isfinite(r_max) else None,
             "inversion_q_min": inv_q_min,
             "inversion_q_max": inv_q_max,
             "power_law_q_min": pl_window[0] if pl_window else None,
             "power_law_q_max": pl_window[1] if pl_window else None,
             "background_q_min": background_q_min,
             "background_q_max": background_q_max,
+            "flat_background": float(flat_bg) if np.isfinite(flat_bg) else None,
         },
         "warnings": warnings,
         "features": {
@@ -1623,6 +1693,71 @@ def recommend_sizes_setup(
             "recommended_nlevels": rec_nlevels,
             "log_decades": log_decades,
             "guinier_knees": knees,
+            "signal_to_bg_ratio": sb_used,
+            "inversion_span_decades": round(inv_span_dec, 2),
             "segments": segments,
         },
     }
+
+
+def _estimate_flat_bg(q, I, valid, bg_q_min, bg_q_max) -> float:
+    """Robust flat-background level = median I over the high-Q flat window."""
+    if bg_q_min is None:
+        return 0.0
+    m = valid & (q >= bg_q_min)
+    if bg_q_max is not None:
+        m = m & (q <= bg_q_max)
+    vals = I[m]
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return 0.0
+    return float(np.median(vals))
+
+
+def _estimate_power_law(q, I, valid, pl_window) -> tuple[float, float]:
+    """Fit  I = B·q^(-P)  (log-log line) over the low-Q power-law window.
+
+    Returns (B, P); (0.0, 4.0) if it cannot be estimated (→ no power-law term).
+    """
+    if pl_window is None:
+        return 0.0, 4.0
+    m = valid & (q >= pl_window[0]) & (q <= pl_window[1]) & (I > 0)
+    if int(np.count_nonzero(m)) < 3:
+        return 0.0, 4.0
+    lq, lI = np.log(q[m]), np.log(I[m])
+    try:
+        slope, intercept = np.polyfit(lq, lI, 1)
+    except (np.linalg.LinAlgError, ValueError):
+        return 0.0, 4.0
+    P = float(-slope)
+    B = float(np.exp(intercept))
+    if not (np.isfinite(P) and np.isfinite(B)) or P <= 0:
+        return 0.0, 4.0
+    return B, P
+
+
+def _widest_band(q, I, bg_curve, valid, sb_ratio):
+    """Return (q_lo, q_hi) of the widest contiguous run where I ≥ sb_ratio·bg."""
+    m = valid & np.isfinite(I) & np.isfinite(bg_curve) & (I >= sb_ratio * bg_curve)
+    if not np.any(m):
+        return None
+    order = np.argsort(q)
+    qs, ms = q[order], m[order]
+    best_lo = best_hi = None
+    best_len = 0
+    i = 0
+    n = len(qs)
+    while i < n:
+        if ms[i]:
+            j = i
+            while j + 1 < n and ms[j + 1]:
+                j += 1
+            if (j - i) >= best_len:
+                best_len = j - i
+                best_lo, best_hi = float(qs[i]), float(qs[j])
+            i = j + 1
+        else:
+            i += 1
+    if best_lo is None:
+        return None
+    return best_lo, best_hi

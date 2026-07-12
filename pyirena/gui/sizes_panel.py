@@ -1125,6 +1125,20 @@ class SizesFitPanel(QWidget):
             row.addStretch()
             grid_layout.addLayout(row)
 
+        # "From Q range" — set both r min and r max from the cursor Q-range.
+        fromq_row = QHBoxLayout()
+        self.grid_from_q_btn = QPushButton("Set r min/max from Q range")
+        self.grid_from_q_btn.setToolTip(
+            "Set both r min and r max from the current cursor Q-range using\n"
+            "r ≈ π/Q, rounded outward to tidy values so the grid comfortably\n"
+            "brackets the resolvable size range (a too-tight grid piles the\n"
+            "distribution against an edge)."
+        )
+        self.grid_from_q_btn.clicked.connect(self._set_grid_from_q_range)
+        fromq_row.addWidget(self.grid_from_q_btn)
+        fromq_row.addStretch()
+        grid_layout.addLayout(fromq_row)
+
         bins_row = QHBoxLayout()
         bins_row.addWidget(QLabel("Number of bins:"))
         self.nbins_spin = QSpinBox()
@@ -1754,6 +1768,27 @@ class SizesFitPanel(QWidget):
             edit.editingFinished.emit()
         except ValueError:
             log.debug("suppressed exception", exc_info=True)
+
+    def _set_grid_from_q_range(self):
+        """Set r min / r max edits from the cursor Q-range (r ≈ π/Q, padded)."""
+        cursor_range = None
+        try:
+            cursor_range = self.graph_window.get_cursor_range()
+        except Exception:  # noqa: BLE001
+            log.debug("get_cursor_range failed", exc_info=True)
+        if cursor_range is None:
+            self.graph_window.show_error_message(
+                "Drag the cursors on the I(Q) graph to set a Q range first."
+            )
+            return
+        q_min, q_max = cursor_range
+        from pyirena.core.form_factors import r_bounds_from_q_range  # noqa: PLC0415
+        from pyirena.gui.fmt_utils import eng_fmt_edit  # noqa: PLC0415
+
+        r_min, r_max = r_bounds_from_q_range(q_min, q_max, pad=True)
+        self.rmin_edit.setText(eng_fmt_edit(r_min, sig=4))
+        self.rmax_edit.setText(eng_fmt_edit(r_max, sig=4))
+        self._on_param_changed()
 
     def _on_frac_error_toggled(self):
         """Enable/disable the error-scale and fraction fields so only the

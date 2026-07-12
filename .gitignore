@@ -110,3 +110,4 @@ dmypy.json
 *.audit.json
 *.session.json
 audit_*.json
+scratch_sizes_diagnosis/

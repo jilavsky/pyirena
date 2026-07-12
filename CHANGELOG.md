@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Size Distribution — "Set r min/max from Q range" button.** The Size Grid group
+  in the Sizes panel gains a button that fills both `r min` and `r max` from the
+  current cursor Q-range via `r ≈ π/Q`, rounded outward to tidy 1-2-5 values so
+  the grid comfortably brackets the resolvable range. Backed by a shared helper
+  `pyirena.core.form_factors.r_bounds_from_q_range()` used by the GUI and the
+  recommendation tool alike.
+
+### Changed
+
+- **Size Distribution — suitability & auto-setup recognise broad distributions.**
+  `recommend_sizes_setup` (exposed as the `suggest_sizes_setup` control tool, used
+  by pyirena-ai) no longer rejects the everyday case of a **broad size
+  distribution on a low-Q power law + high-Q flat background** (precipitates in
+  metals; pores in rocks/minerals/solids). Previously it required a Guinier knee
+  and ≤2 detected "levels", so these routine datasets were flagged *not suitable*
+  and the agent refused to fit them. Now:
+  - Suitability is based on whether a Q-band exists where the particle signal is
+    clearly above the fitted background (I(Q) ≳ 2× background, relaxing the ratio
+    when the signal is weak), not on Guinier knees or level counts.
+  - The inversion Q-range is chosen from that signal-to-background band (trying the
+    full complex background first, then flat-only), which also keeps the noisy,
+    background-dominated high-Q tail out of the inversion.
+  - The high-Q flat background is detected even when the feature detector labels it
+    a "guinier_plateau"; the estimated `flat_background` level is returned.
+  - Recommended `r_min`/`r_max` now come from `r_bounds_from_q_range` (tidy,
+    slightly-padded bounds) instead of raw π/Q.
+  - `recommended` gains `flat_background`; `features` gains `signal_to_bg_ratio`
+    and `inversion_span_decades`. "Multiple knees / several levels" is now an
+    advisory warning, not a hard *unsuitable* verdict.
+
 ### Fixed
 
 - **Size Distribution — Monte Carlo distribution shape.** The Monte Carlo

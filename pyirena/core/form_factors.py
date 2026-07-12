@@ -23,6 +23,8 @@ where φ_j is the volume fraction of particles in bin j (dimensionless).
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from numpy.polynomial.legendre import leggauss
 from scipy.special import j1 as _scipy_j1
@@ -721,3 +723,72 @@ def bin_widths(r_grid: np.ndarray) -> np.ndarray:
         dw[1:-1] = (r[2:] - r[:-2]) / 2.0
 
     return dw
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Q-range → radius-grid bounds
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _nice_round(value: float, direction: str) -> float:
+    """Round *value* outward to a 1-2-5 "nice" number.
+
+    direction='down' → largest nice number ≤ value  (for r_min)
+    direction='up'   → smallest nice number ≥ value  (for r_max)
+
+    Nice numbers are {1, 2, 5} × 10ᵏ.  Used so the suggested size grid has tidy,
+    slightly-padded limits (e.g. 43 → 40 down / 50 up, 1287 → 1000 / 2000).
+    """
+    if not np.isfinite(value) or value <= 0:
+        return value
+    exp = math.floor(math.log10(value))
+    base = 10.0 ** exp
+    mant = value / base                      # in [1, 10)
+    steps = (1.0, 2.0, 5.0, 10.0)
+    if direction == "down":
+        pick = steps[0]
+        for s in steps:
+            if s <= mant + 1e-9:
+                pick = s
+        return pick * base
+    else:  # up
+        for s in steps:
+            if s >= mant - 1e-9:
+                return s * base
+        return 10.0 * base
+
+
+def r_bounds_from_q_range(
+    q_min: float,
+    q_max: float,
+    pad: bool = True,
+) -> tuple[float, float]:
+    """Convert an inversion Q-range to radius-grid bounds (r_min, r_max) [Å].
+
+    Uses the standard resolvable-size relation ``r ≈ π/Q``:
+
+        r_min ≈ π / q_max      (smallest resolvable radius, from the high-Q end)
+        r_max ≈ π / q_min       (largest resolvable radius,  from the low-Q end)
+
+    With ``pad=True`` (default) the bounds are rounded *outward* to tidy 1-2-5
+    numbers so the grid comfortably brackets the resolvable range rather than
+    clipping exactly at π/Q — a too-tight grid piles the distribution at an edge.
+    Shared by the GUI "From Q range" button, ``recommend_sizes_setup``, and the
+    control-surface tools so all three agree.
+
+    Args:
+        q_min, q_max: inversion Q-range limits [Å⁻¹]  (q_min < q_max).
+        pad:          round outward to nice numbers (True) or return the exact
+                      π/Q values (False).
+
+    Returns:
+        (r_min, r_max) in Å.
+    """
+    q_min, q_max = float(q_min), float(q_max)
+    if q_min > q_max:
+        q_min, q_max = q_max, q_min
+    r_min = math.pi / q_max if q_max > 0 else float("nan")
+    r_max = math.pi / q_min if q_min > 0 else float("nan")
+    if pad:
+        r_min = _nice_round(r_min, "down")
+        r_max = _nice_round(r_max, "up")
+    return r_min, r_max
