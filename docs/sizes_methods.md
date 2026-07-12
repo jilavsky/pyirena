@@ -99,9 +99,19 @@ minimise  ||W^½ (I − G·x)||²  +  α ||L·x||²   subject to  x ≥ 0
   smooth; small α → follows data closely.
 
 The algorithm finds α by **binary search** in log₁₀ space so that the
-final χ² equals M (same target as MaxEnt).  If the target is not achievable
-(e.g. because background-corrected data contain negative values), it falls back
-to the L-curve elbow (the α that minimises χ² without imposing the target).
+final χ² equals M (same target as MaxEnt).  If the χ² = M target is **not
+achievable** — i.e. the smallest smoothing still leaves χ² > M — the fit falls
+back to the *smoothest* solution whose χ² is within a small factor
+(`regularization_fallback_factor`, default 1.05 → 5 %) of the minimum achievable
+χ². A warning is logged in this case. See *"Choosing the fit (inversion) window"*
+below, because an unachievable target almost always signals that the high-Q end
+of the window has been extended into the background.
+
+> **Note (changed in an unreleased build):** the earlier fallback selected the
+> *least-smoothed* (minimum-χ²) solution, which could collapse into a single huge
+> spike at the smallest radius bin and made the result very sensitive to the
+> exact high-Q cut-off. The current fallback selects the *smoothest* acceptable
+> solution instead, so it degrades gracefully.
 
 Non-negativity (x ≥ 0) is enforced exactly via
 `scipy.optimize.nnls` (Lawson-Hanson algorithm) on the augmented system
@@ -295,6 +305,30 @@ uniquely constrain the distribution.
 |-----------|---------|---------|
 | **Contrast (Δρ)²** | 1.0 | Scattering length density contrast in units of 10²⁰ cm⁻⁴. Scales the absolute amplitude of P(r): volume fraction = ∫P(r)dr / contrast. Getting this right is essential for a physically meaningful volume fraction. |
 | **Error scale** | 1.0 | Multiplies all measurement errors before fitting. Values > 1 make the fit trust the data less (more regularisation); < 1 does the opposite. Use only if your error bars are known to be systematically under- or over-estimated. |
+
+### Choosing the fit (inversion) window
+
+The Q-range you invert over matters as much as the method. All four methods
+assume every point in the window is *signal from the particles* (after the
+flat + power-law background is subtracted). Two rules of thumb:
+
+- **Low-Q end** should reach small enough Q to see the largest particles
+  (`Q_min ≲ π/R_max`). Truncating it too high loses the big sizes.
+- **High-Q end** should stop where the corrected signal still sits clearly
+  **above the background**. USAXS/SAXS data typically fall into a flat,
+  background-dominated, noisy plateau at high Q; the particle model cannot
+  describe that region, so including it does not add information — it injects
+  noise that the inversion tries to fit with spurious small particles.
+
+Including background-dominated high-Q points is the most common cause of a
+distribution that looks wrong despite a plausible χ². It shows up most sharply
+with **Regularization**, where it can drive the χ² = M target out of reach and
+trigger the fallback path (a warning is logged). The symptom is a distribution
+that changes a lot when you move the high-Q cut-off by a little. If you see
+that, **pull the high-Q end back** to where I(Q) departs visibly from the
+background curve, and re-fit. Realistic error bars help too: overly tight
+errors (e.g. a small fixed fractional error) at high Q make the discrepancy
+principle unachievable and push every method toward over-fitting.
 
 ---
 

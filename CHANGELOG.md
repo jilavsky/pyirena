@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Size Distribution — Monte Carlo distribution shape.** The Monte Carlo
+  (McSAS) method reported a volume distribution shifted to roughly 2× too large
+  in radius. Its solution vector `x = A·count` is already a per-bin *volume
+  fraction* (the G-matrix columns are intensity per unit volume fraction), but
+  the post-processing multiplied it by `V(r) = (4/3)πr³` again on the mistaken
+  assumption that it was a number distribution. That spurious r³ re-weighting is
+  removed, so Monte Carlo now flows through the same normalisation as MaxEnt,
+  TNNLS, and Regularization. χ² and volume fraction were already correct (they
+  are computed from the un-weighted solution), so only the displayed/saved
+  distribution shape is affected. A ground-truth inversion test confirms the
+  recovered Rg and mean radius now match the input distribution.
+
+- **Size Distribution — Regularization robustness when χ² = M is unachievable.**
+  When the discrepancy target χ² = M cannot be reached (fit-window error bars too
+  small, or the model cannot describe the data at the window edges — typically
+  noisy, background-dominated high-Q points), the fallback previously selected
+  the *least-smoothed* (minimum-χ²) solution. That could collapse into a single
+  huge spike at the smallest radius bin and made the result extremely sensitive
+  to the exact high-Q cut-off. The fallback now selects the *smoothest* solution
+  whose χ² is within a small factor (`regularization_fallback_factor`, default
+  1.05) of the achievable minimum χ², and logs a warning suggesting the user trim
+  the high-Q end of the inversion window. Results within a well-chosen fit window
+  are unchanged.
+
+### Documentation
+
+- **Size Distribution methods guide** (`docs/sizes_methods.md`): updated the
+  Regularization fallback description and added a *"Choosing the fit (inversion)
+  window"* section explaining why background-dominated high-Q points destabilise
+  the inversion and how to pick the Q-range.
+
 ## [0.10.0] - 2026-07-10
 
 ### Added

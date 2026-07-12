@@ -153,6 +153,11 @@ class SizesDistribution:
     # ── Regularization parameters ─────────────────────────────────────────────
     regularization_evalue: float = 1.0
     regularization_min_ratio: float = 1e-4
+    # When the chi²=M discrepancy target is unreachable (error bars too small or
+    # model/data mismatch at the fit-window edges), fall back to the smoothest
+    # solution whose chi² is within this factor of the achievable minimum chi².
+    # 1.05 → within 5 %.  Larger → smoother/more conservative fallback.
+    regularization_fallback_factor: float = 1.05
 
     # ── TNNLS parameters ──────────────────────────────────────────────────────
     tnnls_approach_param: float = 0.95
@@ -345,33 +350,21 @@ class SizesDistribution:
         # Post-process
         result = self._post_process(x_raw, r_grid, G, I, err)
 
-        # Monte Carlo (McSAS): the MC fit uses the standard G matrix (numerically stable,
-        # 6-decade dynamic range) so x_raw = A × count reflects the number distribution.
-        # Multiply by V(r) = (4/3)πr³ and renormalise to convert to volume distribution,
-        # matching the output of MaxEnt, Regularisation, and TNNLS for consistent display.
-        if method == 'montecarlo':
-            _V_r = (4.0 / 3.0) * np.pi * r_grid ** 3
-            dist_vol = result['distribution'] * _V_r
-            _vf_orig = result['volume_fraction']
-            _vf_new = float(np.trapezoid(dist_vol, r_grid))
-            _mc_scale = (_vf_orig / _vf_new) if _vf_new > 0 else 1.0
-            dist_vol *= _mc_scale
-            result['distribution'] = dist_vol
-            result['volume_fraction'] = float(np.trapezoid(dist_vol, r_grid))
-            if result['volume_fraction'] > 0:
-                result['rg'] = float(np.sqrt(
-                    np.trapezoid(r_grid ** 2 * dist_vol, r_grid) / result['volume_fraction']
-                ))
-            else:
-                result['rg'] = 0.0
+        # Monte Carlo (McSAS): the MC fit uses the standard G matrix whose columns
+        # G[:,k] = V(r_k)·F²_norm·contrast·1e-4 are the intensity per unit *volume
+        # fraction* of bin k.  The optimal scale A therefore makes x_raw = A·count a
+        # per-bin *volume fraction* already — identical in meaning to the x_raw
+        # produced by MaxEnt, Regularization, and TNNLS.  So MC flows through the
+        # same _post_process (x_raw / bin_width → volume distribution) with no extra
+        # weighting.  A previous version multiplied by V(r)=(4/3)πr³ here on the
+        # mistaken assumption that x_raw was a number distribution; that spurious r³
+        # re-weighting shifted the reported distribution to ~2× larger radius while
+        # χ² (computed from the correct x_raw in _post_process) still looked good.
 
         # Monte Carlo: add per-bin uncertainty from spread across repetitions
         if x_raw_std is not None:
             dw_safe = np.maximum(bin_widths(r_grid), 1e-300)
-            dist_std = x_raw_std / dw_safe
-            if method == 'montecarlo':
-                dist_std = dist_std * _V_r * _mc_scale
-            result['distribution_std'] = dist_std
+            result['distribution_std'] = x_raw_std / dw_safe
         else:
             result['distribution_std'] = None
 
@@ -847,22 +840,61 @@ class SizesDistribution:
             hi += 2.0
             _, c2_hi = _solve(hi)
 
-        # ── Fallback: chi² target not achievable ──────────────────────────────
+        # ── Fallback: chi² = M target not achievable ──────────────────────────
+        # The minimum achievable chi² (at the smallest alpha) already exceeds M.
+        # This happens when the fit-window error bars are too small and/or the
+        # model cannot describe the data at the window edges (typically the noisy,
+        # background-dominated high-Q points): the discrepancy principle chi²=M is
+        # then unreachable no matter how little smoothing is applied.
+        #
+        # In that regime chi²(alpha) is nearly flat over a wide alpha range (all
+        # solutions fit the data equally poorly), yet the DISTRIBUTIONS differ
+        # enormously — small alpha yields a spike (over-fitting the noise), large
+        # alpha yields a smooth curve.  The previous fallback returned the
+        # *minimum-chi²* (smallest-alpha) solution, i.e. the spikiest member of
+        # that family — the origin of the "single huge spike at the lowest bin"
+        # artifact and of the extreme sensitivity to the high-Q cut-off.
+        #
+        # Instead, apply the discrepancy principle *relative to the achievable
+        # floor*: seek the SMOOTHEST solution (largest alpha) whose chi² is still
+        # within a small factor of the minimum achievable chi².  This degrades
+        # gracefully and is far less sensitive to exactly where the fit window
+        # ends, while remaining faithful to the (genuinely poor) data misfit.
         if c2_lo > chi_target:
-            # The minimum achievable chi² exceeds chi_target.
-            # Find the L-curve elbow (minimum chi²) by a coarse scan and
-            # return that solution instead.
+            chi_fallback = self.regularization_fallback_factor * c2_lo
             log.warning(
-                "Regularization: chi² target %.1f not achievable "
-                "(minimum chi² %.1f); using L-curve elbow.", chi_target, c2_lo
+                "Regularization: chi²=M target %.1f not achievable "
+                "(minimum chi² %.1f); falling back to the smoothest solution "
+                "within %.0f%% of the achievable misfit (target chi² %.1f). "
+                "This usually means the fit-window error bars are too small or "
+                "the model cannot describe the high-Q edge — consider trimming "
+                "the high-Q end of the inversion window.",
+                float(M), c2_lo,
+                100.0 * (self.regularization_fallback_factor - 1.0), chi_fallback,
             )
-            scan_alphas = np.arange(-5.0, 16.0, 1.0)
-            scan_c2 = [_solve(la)[1] for la in scan_alphas]
-            best_log_alpha = float(scan_alphas[int(np.argmin(scan_c2))])
-            x, _ = _solve(best_log_alpha)
+            # chi²(alpha) is nearly flat over a wide alpha range here, so an
+            # equality search would stop at an arbitrary mid-plateau alpha and
+            # still return a spiky solution.  Instead find the LARGEST alpha
+            # (⇒ smoothest solution) whose chi² is still ≤ chi_fallback, i.e. the
+            # upper edge of the acceptable-misfit plateau.
+            a_lo, a_hi = lo, hi
+            for _ in range(20):          # ensure a_hi brackets from above
+                if _solve(a_hi)[1] > chi_fallback:
+                    break
+                a_hi += 2.0
+            n_iter = 0
+            for n_iter in range(1, 100):
+                mid = 0.5 * (a_lo + a_hi)
+                if _solve(mid)[1] <= chi_fallback:
+                    a_lo = mid
+                else:
+                    a_hi = mid
+                if a_hi - a_lo < 0.01:
+                    break
+            x, _ = _solve(a_lo)
             if x.max() > 0:
                 x = np.maximum(x, min_ratio * x.max())
-            return x, 0
+            return x, n_iter
 
         # ── Binary search on log₁₀(α) ────────────────────────────────────────
         n_iter = 0
