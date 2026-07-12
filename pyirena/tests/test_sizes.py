@@ -382,3 +382,130 @@ class TestHDF5IO:
         assert loaded['shape']  == s.shape
         assert loaded['method'] == s.method
         assert abs(loaded['chi_squared'] - result['chi_squared']) < 1e-6
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Q-range → radius-grid bounds helper
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestRBoundsFromQRange:
+    def test_exact_pi_over_q(self):
+        from pyirena.core.form_factors import r_bounds_from_q_range
+        r_min, r_max = r_bounds_from_q_range(1e-3, 0.1, pad=False)
+        assert r_min == pytest.approx(np.pi / 0.1, rel=1e-9)
+        assert r_max == pytest.approx(np.pi / 1e-3, rel=1e-9)
+
+    def test_padded_brackets_exact(self):
+        """Padded bounds must sit outside (or on) the exact π/Q range."""
+        from pyirena.core.form_factors import r_bounds_from_q_range
+        r_min_e, r_max_e = r_bounds_from_q_range(2.85e-4, 1.085e-2, pad=False)
+        r_min_p, r_max_p = r_bounds_from_q_range(2.85e-4, 1.085e-2, pad=True)
+        assert r_min_p <= r_min_e
+        assert r_max_p >= r_max_e
+        # nice 1-2-5 numbers
+        assert r_min_p == pytest.approx(200.0)
+        assert r_max_p == pytest.approx(20000.0)
+
+    def test_swapped_inputs_ok(self):
+        from pyirena.core.form_factors import r_bounds_from_q_range
+        a = r_bounds_from_q_range(0.1, 1e-3, pad=True)
+        b = r_bounds_from_q_range(1e-3, 0.1, pad=True)
+        assert a == b
+        assert a[0] < a[1]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# recommend_sizes_setup — suitability for the common data classes
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _broad_data(power_law_B=3e-9, power_law_P=4.0, flat=0.6,
+                r0=500.0, log_sigma=0.5, vf=0.01, contrast=100.0,
+                q_min=3e-4, q_max=0.3, n_q=400, noise=0.02, seed=0):
+    """Broad log-normal size distribution on a power-law + flat background."""
+    rng = np.random.default_rng(seed)
+    q = np.logspace(np.log10(q_min), np.log10(q_max), n_q)
+    rg = make_r_grid(20.0, 6000.0, 120, log_spacing=True)
+    dw = bin_widths(rg)
+    Dv = (1.0 / (rg * log_sigma * np.sqrt(2 * np.pi))
+          * np.exp(-(np.log(rg / r0)) ** 2 / (2 * log_sigma ** 2)))
+    Dv *= vf / float(np.trapezoid(Dv, rg))
+    G = build_g_matrix(q, rg, 'sphere', contrast)
+    I = G @ (Dv * dw) + power_law_B * q ** (-power_law_P) + flat
+    err = noise * I
+    I = I + err * rng.standard_normal(n_q)
+    return q, I, err
+
+
+class TestRecommendSizesSetup:
+    def test_broad_distribution_on_background_is_suitable(self):
+        """Broad distribution + power-law + flat bg — the everyday case."""
+        from pyirena.core.sizes import recommend_sizes_setup
+        q, I, err = _broad_data()
+        rec = recommend_sizes_setup(q, I, sigma=err)
+        assert rec["suitable"] is True
+        r = rec["recommended"]
+        # inversion window is a proper sub-range with the flat bg recovered
+        assert r["inversion_q_min"] < r["inversion_q_max"]
+        assert r["r_min"] is not None and r["r_max"] is not None
+        assert r["r_min"] < r["r_max"]
+        assert r["flat_background"] == pytest.approx(0.6, rel=0.25)
+        assert rec["features"]["signal_to_bg_ratio"] is not None
+
+    def test_solid_material_floating_slope_is_suitable(self):
+        from pyirena.core.sizes import recommend_sizes_setup
+        q, I, err = _broad_data(power_law_B=1e-7, power_law_P=3.5,
+                                flat=0.3, r0=300.0, seed=2)
+        rec = recommend_sizes_setup(q, I, sigma=err)
+        assert rec["suitable"] is True
+
+    def test_pure_background_is_not_suitable(self):
+        """Flat noise with no particle signal must be flagged unsuitable."""
+        from pyirena.core.sizes import recommend_sizes_setup
+        rng = np.random.default_rng(1)
+        q = np.logspace(-3, -0.5, 300)
+        I = 0.5 + 0.5 * 0.02 * rng.standard_normal(300)
+        err = 0.02 * np.abs(I)
+        rec = recommend_sizes_setup(q, I, sigma=err)
+        assert rec["suitable"] is False
+        assert rec["warnings"]
+
+    def test_multiple_knees_are_advisory_not_fatal(self):
+        """A broad distribution that reads as several 'levels' is still suitable."""
+        from pyirena.core.sizes import recommend_sizes_setup
+        q, I, err = _broad_data(seed=5)
+        rec = recommend_sizes_setup(q, I, sigma=err)
+        # even if the detector reports >=3 levels, suitability holds
+        assert rec["suitable"] is True
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Monte Carlo — no r³ over-weighting; contributions stay in the resolvable band
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestMonteCarloWiring:
+    def test_distribution_not_r3_shifted(self):
+        """MC volume distribution must peak near the true size, not ~2× larger.
+
+        The old r³ re-weighting bug pushed the volume-weighted mean radius to
+        roughly twice the truth; the resolvable-band restriction also keeps the
+        peak off the smallest bin.  Bounds are loose to stay robust to the RNG.
+        """
+        q, I, err, r_grid_true, dist_true = _synthetic_data(
+            r_true=200.0, r_sigma=40.0, q_min=1e-3, q_max=0.1,
+            r_min=50.0, r_max=600.0, n_bins=60,
+        )
+        s = SizesDistribution()
+        s.r_min, s.r_max, s.n_bins, s.log_spacing = 50.0, 600.0, 60, True
+        s.shape, s.contrast, s.method = 'sphere', 1.0, 'montecarlo'
+        s.montecarlo_n_repetitions = 8
+        s.montecarlo_max_iter = 40000
+        res = s.fit(q, I, err)
+        assert res["success"]
+        rg = res["r_grid"]
+        D = res["distribution"]
+        vf = res["volume_fraction"]
+        vmean = float(np.trapezoid(rg * D, rg) / vf)
+        # true volume-mean radius ~200; the r³ bug gave ~2× (>350).
+        assert 120.0 < vmean < 330.0
+        # peak not pinned at the smallest bin
+        assert rg[int(np.argmax(D))] > rg[0]
