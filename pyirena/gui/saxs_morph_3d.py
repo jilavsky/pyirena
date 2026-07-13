@@ -111,6 +111,10 @@ class Voxel3DViewer(QWidget):
         self._voxelgram = None
         self._pitch_A = 1.0
         self._mesh = None
+        # 'boundary' = isosurface at phase interface (current default)
+        # 'minority' = filled solid of the minority (0-valued) phase
+        # 'majority' = filled solid of the majority (1-valued) phase
+        self._display_mode = 'boundary'
 
         # ── Visual-tuning state ──────────────────────────────────────────
         # All toggles default to OFF / "default" so the initial render
@@ -132,6 +136,25 @@ class Voxel3DViewer(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        # ── Mode toolbar ────────────────────────────────────────────────
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(4, 2, 4, 0)
+        toolbar.addWidget(QLabel('3D mode:'))
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem('Boundary surface', 'boundary')
+        self._mode_combo.addItem('Minority phase filled', 'minority')
+        self._mode_combo.addItem('Majority phase filled', 'majority')
+        self._mode_combo.setToolTip(
+            'Boundary surface — isosurface at the phase interface\n'
+            'Minority phase filled — solid volume of the 0-valued (minority) phase\n'
+            'Majority phase filled — solid volume of the 1-valued (majority) phase'
+        )
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        toolbar.addWidget(self._mode_combo)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
 
         self.plotter = QtInteractor(self)
         self.plotter.set_background('white')
@@ -207,6 +230,21 @@ class Voxel3DViewer(QWidget):
             'are usually invisible because the light follows the camera.'
         )
         light_menu.addAction(a_shadows)
+
+        menu.addSeparator()
+
+        # ── Display mode submenu ─────────────────────────────────────────
+        mode_menu = menu.addMenu('Display mode')
+        for _label, _key in (
+            ('Boundary surface', 'boundary'),
+            ('Minority phase filled', 'minority'),
+            ('Majority phase filled', 'majority'),
+        ):
+            a = QAction(_label, self)
+            a.setCheckable(True)
+            a.setChecked(self._display_mode == _key)
+            a.triggered.connect(lambda *_, k=_key: self._set_display_mode(k))
+            mode_menu.addAction(a)
 
         menu.addSeparator()
 
@@ -354,6 +392,27 @@ class Voxel3DViewer(QWidget):
             log.warning('[Voxel3DViewer] shadows toggle failed: %s', exc)
             self._shadows_on = not self._shadows_on
 
+    # ----- Mode handlers ---------------------------------------------------
+
+    def _on_mode_changed(self, idx: int):
+        """Called when the toolbar combo changes."""
+        mode = self._mode_combo.itemData(idx)
+        if mode in ('boundary', 'minority', 'majority'):
+            self._display_mode = mode
+            self._rebuild_mesh()
+
+    def _set_display_mode(self, mode: str):
+        """Set display mode from context menu; syncs the toolbar combo silently."""
+        self._display_mode = mode
+        if hasattr(self, '_mode_combo'):
+            for i in range(self._mode_combo.count()):
+                if self._mode_combo.itemData(i) == mode:
+                    self._mode_combo.blockSignals(True)
+                    self._mode_combo.setCurrentIndex(i)
+                    self._mode_combo.blockSignals(False)
+                    break
+        self._rebuild_mesh()
+
     # ----- disabled UI -----------------------------------------------------
 
     def _build_disabled(self):
@@ -394,11 +453,30 @@ class Voxel3DViewer(QWidget):
             self._voxelgram.astype(np.float32).ravel(order='F')
         )
 
-        # Flying-edges isosurface is the fast path for binary data.
-        try:
-            mesh = grid.contour([0.5], scalars='phase', method='flying_edges')
-        except Exception:
-            mesh = grid.contour([0.5], scalars='phase')
+        # Build the display mesh according to the selected mode.
+        if self._display_mode in ('minority', 'majority'):
+            # Determine which binary value (0 or 1) has fewer voxels at runtime,
+            # so the labels are correct regardless of which encoded value the
+            # engine writes for the scatterer phase.
+            n_one = int(np.count_nonzero(self._voxelgram > 0.5))
+            minority_is_one = n_one * 2 < self._voxelgram.size
+            if self._display_mode == 'minority':
+                invert = not minority_is_one   # keep phase==1 if that is minority
+            else:
+                invert = minority_is_one       # keep phase==0 if phase==1 is minority
+            try:
+                mesh = grid.threshold(
+                    0.5, scalars='phase', invert=invert
+                ).extract_surface()
+            except Exception:
+                log.warning('[Voxel3DViewer] threshold failed; falling back to isosurface')
+                mesh = grid.contour([0.5], scalars='phase')
+        else:
+            # Flying-edges isosurface is the fast path for binary data.
+            try:
+                mesh = grid.contour([0.5], scalars='phase', method='flying_edges')
+            except Exception:
+                mesh = grid.contour([0.5], scalars='phase')
         self._mesh = mesh
 
         # Replace any existing actors
