@@ -131,6 +131,8 @@ class SimpleFitsGraphWindow(QWidget):
         ci.layout.setRowStretchFactor(2, 4)
         self._lin_row_stretch = 4      # remembered so hide/show can restore it
         self._lin_visible = True
+        self._resid_row_stretch = 1    # remembered so hide/show can restore it
+        self._resid_visible = True
 
         # Stretch=1 so the graphics widget expands vertically when the
         # window grows (default is 0 = stay at preferred size).  Other tools
@@ -215,17 +217,27 @@ class SimpleFitsGraphWindow(QWidget):
     # ── Invariant overlay (corrected data + running integral, right axis) ────
 
     def _ensure_right_axis(self):
-        """Create (once) a second ViewBox linked to the right axis.
+        """Create (once) a second ViewBox linked to the right axis and make
+        the axis visible and labelled.
 
         The main plot is in log-log mode, so its ViewBox coordinates are
         log10 units; items added to the right ViewBox must therefore be
         given log10(x), log10(y) data, and the right AxisItem is switched
         to log tick rendering.
+
+        The show/label part runs on EVERY call (not only on first creation):
+        switching to another model hides the right axis via
+        ``set_right_axis_visible(False)``, and returning to the Invariant
+        must bring both the axis and its label back.
         """
-        if self._right_vb is not None:
-            return
-        vb = pg.ViewBox()
-        self._right_vb = vb
+        if self._right_vb is None:
+            vb = pg.ViewBox()
+            self._right_vb = vb
+            self.main_plot.scene().addItem(vb)
+            self.main_plot.getAxis('right').linkToView(vb)
+            vb.setXLink(self.main_plot.vb)
+            self.main_plot.vb.sigResized.connect(self._sync_right_vb)
+        # (Re)show + (re)label every time — hideAxis() may have been called.
         self.main_plot.showAxis('right')
         axis = self.main_plot.getAxis('right')
         try:
@@ -233,10 +245,6 @@ class SimpleFitsGraphWindow(QWidget):
         except Exception:
             log.debug("right axis setLogMode failed", exc_info=True)
         axis.setLabel('∫q²I dq  (cm⁻⁴)')
-        self.main_plot.scene().addItem(vb)
-        axis.linkToView(vb)
-        vb.setXLink(self.main_plot.vb)
-        self.main_plot.vb.sigResized.connect(self._sync_right_vb)
         self._sync_right_vb()
 
     def _sync_right_vb(self):
@@ -295,6 +303,24 @@ class SimpleFitsGraphWindow(QWidget):
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
             self._inv_int_item = None
+
+    def set_residuals_visible(self, visible: bool):
+        """Show or hide the residuals panel.
+
+        Calculation models (Invariant) have no residuals; hiding the row lets
+        the I(Q) plot use the space.  Mirrors set_linearization_visible().
+        """
+        visible = bool(visible)
+        if visible == self._resid_visible:
+            return
+        self._resid_visible = visible
+        ci = self.graphics_layout.ci
+        if visible:
+            self.residuals_plot.show()
+            ci.layout.setRowStretchFactor(1, self._resid_row_stretch)
+        else:
+            self.residuals_plot.hide()
+            ci.layout.setRowStretchFactor(1, 0)
 
     def set_right_axis_visible(self, visible: bool):
         """Show/hide the right (invariant integral) axis."""
@@ -1123,7 +1149,10 @@ class SimpleFitsPanel(QWidget):
                 "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
                 "Set 'Passes' to control how many Monte Carlo replicates are used."
             )
-        # Hide the right (integral) axis when leaving the Invariant model
+        # Residuals do not apply to calculation models — free the space
+        self.graph_window.set_residuals_visible(not is_calc)
+        # Hide the right (integral) axis when leaving the Invariant model;
+        # plot_invariant() re-shows it (with label) on the next Calculate.
         self.graph_window.set_right_axis_visible(False if not is_calc else
                                                  self.graph_window._inv_int_item is not None)
 
