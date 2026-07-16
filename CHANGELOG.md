@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Simple Fits — Invariant (calculation model).** New `Invariant` entry in the
+  Simple Fits model selector calculates the Porod invariant
+  Q* = ∫q²·I(q) dq = 2π²·Δρ²·φ(1−φ) and, with contrast and absolute-scale data,
+  the two-phase volume fraction φ. Port of Igor Irena `IR3J_CalculateInvariant`
+  with the same numerics: data are extended to Q=0, background is removed with
+  the standard complex background (B·Q⁻ᴾ + flat, incl. the prefit-between-cursor
+  buttons), and the invariant is read where the running integral flattens
+  (QmaxUsed, smoothed-derivative plateau detection). Optional (off by default,
+  beyond Igor) Porod tail extension Kp/Qmax compensates high-Q truncation. The
+  running integral is drawn on a right axis of the I(Q) graph and stored in the
+  HDF5 file (`Q_integral`/`running_integral`); results land in `derived/`
+  (`Invariant` [cm⁻⁴], `VolumeFraction`, `PhiOneMinusPhi`, `QmaxUsed`,
+  optional `PorodTail`/`PorodKp`). Wired through GUI, JSON scripting, batch
+  (`fit_simple` with `model: "Invariant"`), MCP read tools, Data Selector
+  graph/report/tabulate, HDF5 Data Explorer trend plots, and Igor experiment
+  export (`SimFitInvariantI`, `SimFitInvariantIntegral` waves). Registry
+  entries now support a `calculation: True` flag for no-fit methods; χ²,
+  residuals, linearization and MC uncertainty are disabled/None for these.
+- **Developer guide: adding features.** New
+  `docs/developer_adding_features.md` — the master checklist of every wiring
+  point (core, GUI, HDF5, JSON/batch, MCP, Data Selector, Data Explorer, Igor
+  export, docs, tests) a new feature must touch, with the Invariant as a
+  worked case study.
+
 ## [1.0.0] - 2026-07-15
 
 ### Added

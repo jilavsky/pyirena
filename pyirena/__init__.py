@@ -45,7 +45,7 @@ __email__ = "ilavsky@aps.anl.gov"
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, load_data_from_nxcansas
 from pyirena.core.sizes import SizesDistribution
-from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY, MODEL_NAMES
+from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY, MODEL_NAMES, calculate_invariant
 from pyirena.core.fit_metrics import fit_quality_metrics
 from pyirena.batch import (
     fit_unified, fit_sizes, fit_simple, fit_pyirena,
@@ -68,6 +68,7 @@ __all__ = [
     "SimpleFitModel",
     "MODEL_REGISTRY",
     "MODEL_NAMES",
+    "calculate_invariant",
     "fit_quality_metrics",
     "fit_unified",
     "fit_sizes",

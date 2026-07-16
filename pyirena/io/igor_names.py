@@ -68,6 +68,10 @@ SIMPLE_FIT_MODEL_WAVE: dict[str, str] = {
     "Hermans":              "SimFitHermansI",
     "Hybrid Hermans":       "SimFitHybridHermansI",
     "Unified Born Green":   "SimFitUnifiedBornGreenI",
+    # Invariant is a calculation, not a fit; the "model" wave holds the
+    # background curve.  The running integral is exported separately as
+    # SimFitInvariantIntegral (vs SimFitInvariantIntegralQ).
+    "Invariant":            "SimFitInvariantI",
 }
 
 
@@ -321,6 +325,9 @@ RESULT_X_WAVE: dict[str, str] = {
     "SimFitSpheroidI":         "SimFitSpheroidQ",
     "SimFitPorodI":            "SimFitPorodQ",
     "SimFitPwrLawI":           "SimFitPwrLawQ",
+    # Invariant running integral (pyirena-only; SimFitInvariantI is handled
+    # by the SimFit<Name>I → SimFit<Name>Q regex below)
+    "SimFitInvariantIntegral": "SimFitInvariantIntegralQ",
     # SAXS Morph (pyirena-only wave names)
     "SAXSMorphModelI":         "SAXSMorphModelQ",
     "SAXSMorphDataI":          "SAXSMorphDataQ",

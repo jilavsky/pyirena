@@ -137,9 +137,18 @@ def fit_simple(
 
     if verbose:
         rchi2 = result.get('reduced_chi2')
-        log.info(f"[pyirena.batch] Fit succeeded.  Reduced χ² = {rchi2:.4g}")
+        if rchi2 is not None:
+            log.info(f"[pyirena.batch] Fit succeeded.  Reduced χ² = {rchi2:.4g}")
+        else:
+            derived = result.get('derived', {})
+            log.info(f"[pyirena.batch] Calculation done.  "
+                     + '  '.join(f'{k}={v:.4g}' for k, v in derived.items()))
 
     # ── Monte Carlo uncertainty ──────────────────────────────────────────────
+    if with_uncertainty and model.is_calculation:
+        log.info("[pyirena.batch] MC uncertainty is not applicable to "
+                 f"calculation model '{model.model}' — skipped.")
+        with_uncertainty = False
     if with_uncertainty:
         if verbose:
             log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")

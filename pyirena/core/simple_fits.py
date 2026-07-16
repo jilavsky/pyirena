@@ -24,6 +24,10 @@ From SystemSpecificModels:
   * Hybrid Hermans        — Hermans + two Unified-level contributions
   * Unified Born Green    — two-level Unified with structure factor
 
+Calculation (no least-squares) methods:
+  * Invariant            — Porod invariant Q* = ∫q²I(q)dq and volume fraction
+                           (registry entries with ``'calculation': True``)
+
 Usage example
 -------------
 >>> from pyirena.core.simple_fits import SimpleFitModel
@@ -323,6 +327,184 @@ def _ubg(q: np.ndarray, Rg1: float, B1: float, Pack: float,
 
 
 # ===========================================================================
+# Invariant calculation (no fitting — direct integration)
+# ===========================================================================
+
+def _invariant_formula(q: np.ndarray, Contrast: float) -> np.ndarray:
+    """Placeholder formula for the Invariant registry entry.
+
+    The Invariant is a calculation, not a fit; there is no model intensity.
+    Returning zeros means that with the complex background enabled the
+    "Graph model" curve shows just the background B·Q⁻ᴾ + flat — the curve
+    that will be subtracted before integration (matches the black background
+    curve in Igor's Simple Fits panel).
+    """
+    return np.zeros_like(q)
+
+
+def calculate_invariant(
+    q: np.ndarray,
+    intensity: np.ndarray,
+    contrast: float = 100.0,
+    bg_B: float = 0.0,
+    bg_P: float = 4.0,
+    bg_flat: float = 0.0,
+    porod_tail: bool = False,
+) -> dict:
+    """
+    Calculate the Porod invariant Q* = ∫q²I(q)dq and the two-phase volume
+    fraction.  Port of Igor Irena ``IR3J_CalculateInvariant``
+    (IR3_SimpleFits.ipf).
+
+    The method assumes a two-phase system with sharp interfaces on absolute
+    intensity scale [cm⁻¹], for which
+
+        Q* = 2π²·(Δρ)²·φ(1−φ)
+
+    holds independent of morphology.  Data are background-corrected with the
+    complex background (bg_B·q⁻ᵇᵍ_ᴾ + bg_flat), extended to Q=0 by repeating
+    the first integrand value (Igor behaviour — the contribution is
+    negligible, ≈ I₁q₁³), and integrated by the trapezoid rule.  The
+    invariant is read from the running integral at the point where its
+    smoothed derivative first turns negative (plateau detection), which
+    guards against slightly over/under-subtracted background at high Q.
+
+    Parameters
+    ----------
+    q : array
+        Scattering vector [Å⁻¹], ascending, already trimmed to the user's
+        Q range (cursors).
+    intensity : array
+        Measured intensity on absolute scale [cm⁻¹].
+    contrast : float
+        Scattering contrast Δρ² in units of 10²⁰ cm⁻⁴.
+    bg_B, bg_P, bg_flat : float
+        Complex background parameters; the background
+        ``bg_B·q^(−bg_P) + bg_flat`` is subtracted before integration.
+    porod_tail : bool
+        When True, extend the integral beyond QmaxUsed by the Porod tail
+        ∫_{Qmax}^{∞} Kp·q⁻⁴·q² dq = Kp/Qmax, with Kp estimated as the median
+        of I_corr·q⁴ over the last decade of points before QmaxUsed.
+        (Improvement over Igor, which truncates at QmaxUsed.)
+
+    Returns
+    -------
+    dict with keys:
+        success, error,
+        invariant          — Q* [cm⁻⁴] (10²⁴ × cm⁻¹Å⁻³), incl. tail if enabled
+        volume_fraction    — φ (lower root of φ(1−φ); NaN if unphysical)
+        phi_one_minus_phi  — raw φ(1−φ) value
+        q_max_used         — Q where the invariant was read [Å⁻¹]
+        porod_tail         — tail contribution [cm⁻⁴] (0 when disabled)
+        porod_kp           — estimated Porod constant [cm⁻¹Å⁻⁴] (NaN if off)
+        Q_integral         — Q grid of the running integral (incl. Q=0 point)
+        running_integral   — cumulative ∫q²I_corr dq [cm⁻⁴]
+        I_corrected        — background-corrected intensity on input grid
+        warning            — human-readable warning string or ''
+    """
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(intensity, dtype=float)
+
+    def _fail(msg: str) -> dict:
+        return {
+            'success': False, 'error': msg,
+            'invariant': float('nan'), 'volume_fraction': float('nan'),
+            'phi_one_minus_phi': float('nan'), 'q_max_used': float('nan'),
+            'porod_tail': 0.0, 'porod_kp': float('nan'),
+            'Q_integral': None, 'running_integral': None,
+            'I_corrected': None, 'warning': '',
+        }
+
+    mask = np.isfinite(q) & np.isfinite(I) & (q > 0)
+    q, I = q[mask], I[mask]
+    if len(q) < 5:
+        return _fail('Not enough valid data points for invariant (need ≥ 5).')
+    order = np.argsort(q)
+    q, I = q[order], I[order]
+
+    # ── Background subtraction ────────────────────────────────────────────
+    with np.errstate(divide='ignore', invalid='ignore'):
+        bg = np.where(q > 0, bg_B * q**(-bg_P), 0.0) + bg_flat
+    I_corr = I - bg
+
+    # ── Integrand q²·I, extended to Q=0 (Igor: integrand[0]=integrand[1]) ──
+    integrand = I_corr * q**2
+    q_ext = np.concatenate(([0.0], q))
+    integrand_ext = np.concatenate(([integrand[0]], integrand))
+
+    # ── Running (cumulative trapezoid) integral, converted to cm⁻⁴ ─────────
+    # I [cm⁻¹] × q² dq [Å⁻³]  →  cm⁻¹Å⁻³;  1 Å⁻³ = 10²⁴ cm⁻³.
+    dq = np.diff(q_ext)
+    seg = 0.5 * (integrand_ext[1:] + integrand_ext[:-1]) * dq
+    running = np.concatenate(([0.0], np.cumsum(seg))) * 1e24   # cm⁻⁴
+
+    # ── Plateau detection (Igor: smoothed derivative crosses zero) ─────────
+    with np.errstate(divide='ignore', invalid='ignore'):
+        deriv = np.gradient(running, q_ext)
+    n = len(deriv)
+    box = min(21, n if n % 2 == 1 else n - 1)   # centered boxcar ≈ Smooth/B 20
+    if box >= 3:
+        kernel = np.ones(box) / box
+        deriv_smth = np.convolve(deriv, kernel, mode='same')
+    else:
+        deriv_smth = deriv
+
+    warning = ''
+    neg = np.where(deriv_smth < 0)[0]
+    if len(neg) > 0 and neg[0] > 0:
+        idx = int(neg[0])
+    else:
+        idx = n - 1
+        warning = ('Running integral never flattened within the selected '
+                   'Q range — invariant taken at the last point. Consider '
+                   'extending Q max or checking the background.')
+    invariant = float(running[idx])
+    q_max_used = float(q_ext[idx])
+
+    # ── Optional Porod tail extension Kp/QmaxUsed ───────────────────────────
+    tail = 0.0
+    kp = float('nan')
+    if porod_tail and q_max_used > 0:
+        lo = max(q_max_used / 10 ** 0.5, q[0])   # last ~half-decade
+        sel = (q >= lo) & (q <= q_max_used) & (I_corr > 0)
+        if sel.sum() >= 3:
+            kp = float(np.median(I_corr[sel] * q[sel] ** 4))   # cm⁻¹Å⁻⁴
+            if kp > 0:
+                tail = kp / q_max_used * 1e24                  # cm⁻⁴
+                invariant += tail
+        else:
+            warning = (warning + ' ' if warning else '') + (
+                'Porod tail requested but too few positive points near '
+                'QmaxUsed to estimate Kp — tail not applied.')
+
+    # ── Volume fraction:  Q* = 2π²·Δρ²·φ(1−φ),  Δρ² in 10²⁰ cm⁻⁴ ──────────
+    phi = float('nan')
+    x = float('nan')
+    if contrast > 0:
+        x = invariant / (2.0 * np.pi**2 * contrast * 1e20)
+        if x > 0.249:
+            warning = (warning + ' ' if warning else '') + (
+                f'phi*(1-phi) = {x:.4g} > 0.249 — check absolute intensity '
+                'calibration and contrast; volume fraction set to NaN.')
+        elif x > 0:
+            phi = float((1.0 - np.sqrt(1.0 - 4.0 * x)) / 2.0)
+
+    return {
+        'success': True, 'error': None,
+        'invariant': invariant,
+        'volume_fraction': phi,
+        'phi_one_minus_phi': x,
+        'q_max_used': q_max_used,
+        'porod_tail': tail,
+        'porod_kp': kp,
+        'Q_integral': q_ext,
+        'running_integral': running,
+        'I_corrected': I_corr,
+        'warning': warning,
+    }
+
+
+# ===========================================================================
 # MODEL_REGISTRY
 # ===========================================================================
 # Each entry:
@@ -333,6 +515,9 @@ def _ubg(q: np.ndarray, Rg1: float, B1: float, Pack: float,
 #                     'guinier' | 'guinier_rod' | 'guinier_sheet' | 'porod'
 #   'complex_bg'    : True if a complex background (A·Q^-n + flat) can be
 #                     added; False if the formula already includes Background
+#   'calculation'   : (optional) True for direct-calculation methods with no
+#                     least-squares step (e.g. Invariant).  fit() routes these
+#                     to their calculate function; χ²/residuals are None.
 
 MODEL_REGISTRY: dict[str, dict] = {
     'Guinier': {
@@ -485,6 +670,16 @@ MODEL_REGISTRY: dict[str, dict] = {
         'linearization': None,
         'complex_bg': True,
     },
+    'Invariant': {
+        # Contrast Δρ² in 10²⁰ cm⁻⁴ (same convention/default as Igor Irena).
+        'params': [
+            ('Contrast', 100.0, 1e-30, None),
+        ],
+        'formula': _invariant_formula,
+        'linearization': None,
+        'complex_bg': True,
+        'calculation': True,
+    },
 }
 
 # Ordered list of all model names (for combo boxes etc.)
@@ -515,6 +710,9 @@ class SimpleFitModel:
     n_mc_runs : int
         Number of Monte Carlo runs used by the batch ``fit_simple()``
         uncertainty estimation.
+    invariant_porod_tail : bool
+        Invariant only — when True, extend the invariant integral beyond
+        QmaxUsed by the Porod tail Kp/QmaxUsed.
     """
 
     def __init__(self) -> None:
@@ -523,7 +721,15 @@ class SimpleFitModel:
         self.limits: dict[str, tuple] = {}
         self.use_complex_bg: bool = False
         self.n_mc_runs: int = 50
+        self.invariant_porod_tail: bool = False
         self._reset_to_defaults()
+
+    # ── Calculation-model helpers ─────────────────────────────────────────────
+
+    @property
+    def is_calculation(self) -> bool:
+        """True when the active model is a direct calculation (no least-squares)."""
+        return bool(MODEL_REGISTRY[self.model].get('calculation', False))
 
     # ── Model switching ───────────────────────────────────────────────────────
 
@@ -634,6 +840,10 @@ class SimpleFitModel:
             success, model, params, params_std, I_model, q, residuals,
             chi2, dof, derived, error (error message if success is False).
         """
+        # ── Calculation models (Invariant): no least-squares, delegate ───────
+        if self.is_calculation:
+            return self._run_calculation(q, intensity)
+
         q = np.asarray(q, dtype=float)
         I = np.asarray(intensity, dtype=float)
         # Track whether sigma is a true measurement uncertainty so we can
@@ -779,6 +989,74 @@ class SimpleFitModel:
             'reduced_chi2': chi2 / dof,
             'derived': derived,
             'error': None,
+        }
+
+    def _run_calculation(self, q: np.ndarray, intensity: np.ndarray) -> dict:
+        """Run a direct-calculation model (currently only 'Invariant').
+
+        Returns a dict shaped like ``fit()`` output so all downstream
+        consumers (GUI, HDF5 saver, batch, browsers) work unchanged:
+        χ²/dof/residuals are None, results land in ``derived``, and the
+        running-integral arrays are attached under ``extra_arrays`` (saved
+        as datasets by ``save_simple_fit_results``).  ``I_model`` is the
+        complex-background curve (the curve subtracted before integration).
+        """
+        q = np.asarray(q, dtype=float)
+        I = np.asarray(intensity, dtype=float)
+
+        contrast = float(self.params.get('Contrast', 100.0))
+        bg_B = bg_P = bg_flat = 0.0
+        if self.use_complex_bg:
+            bg_B    = float(self.params.get('BG_B',    0.0))
+            bg_P    = float(self.params.get('BG_P',    4.0))
+            bg_flat = float(self.params.get('BG_flat', 0.0))
+
+        res = calculate_invariant(
+            q, I,
+            contrast=contrast,
+            bg_B=bg_B, bg_P=bg_P, bg_flat=bg_flat,
+            porod_tail=self.invariant_porod_tail,
+        )
+        if not res['success']:
+            return self._failure(res['error'])
+
+        derived = {
+            'Invariant':        res['invariant'],          # [cm⁻⁴]
+            'VolumeFraction':   res['volume_fraction'],
+            'PhiOneMinusPhi':   res['phi_one_minus_phi'],
+            'QmaxUsed':         res['q_max_used'],          # [Å⁻¹]
+        }
+        if self.invariant_porod_tail:
+            derived['PorodTail'] = res['porod_tail']        # [cm⁻⁴]
+            derived['PorodKp']   = res['porod_kp']          # [cm⁻¹Å⁻⁴]
+
+        # I_model = background curve over the data grid (may be all-zero)
+        mask = np.isfinite(q) & (q > 0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            bg_curve = np.where(q > 0, bg_B * q**(-bg_P), 0.0) + bg_flat
+
+        specs = self._active_param_specs()
+        all_params = {n: self.params.get(n, v) for (n, v, lo, hi) in specs}
+
+        return {
+            'success': True,
+            'model': self.model,
+            'params': all_params,
+            'params_std': {n: 0.0 for n in all_params},
+            'I_model': bg_curve,
+            'q': q,
+            'residuals': None,
+            'chi2': None,
+            'dof': None,
+            'reduced_chi2': None,
+            'derived': derived,
+            'error': None,
+            'warning': res['warning'],
+            'extra_arrays': {
+                'Q_integral':       res['Q_integral'],
+                'running_integral': res['running_integral'],
+                'I_corrected':      res['I_corrected'],
+            },
         }
 
     def _failure(self, message: str) -> dict:
@@ -998,6 +1276,7 @@ class SimpleFitModel:
             'limits': {k: list(v) for k, v in self.limits.items()},
             'use_complex_bg': self.use_complex_bg,
             'n_mc_runs': self.n_mc_runs,
+            'invariant_porod_tail': self.invariant_porod_tail,
         }
 
     @classmethod
@@ -1012,6 +1291,7 @@ class SimpleFitModel:
         obj.limits = {k: tuple(v) for k, v in raw_lims.items()}
         obj.use_complex_bg = bool(d.get('use_complex_bg', False))
         obj.n_mc_runs = int(d.get('n_mc_runs', 50))
+        obj.invariant_porod_tail = bool(d.get('invariant_porod_tail', False))
         # Fill in any missing params/limits from registry defaults
         entry = MODEL_REGISTRY[obj.model]
         for name, default, lo, hi in entry['params']:

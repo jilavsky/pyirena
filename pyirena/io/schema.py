@@ -214,6 +214,11 @@ TOOL_REGISTRY: dict[str, dict] = {
             _scalar("param_P",    "params/P",    "",   "P (Porod exponent)"),
             _scalar("param_BG_B", "params/BG_B", "1/cm", "Background prefactor B"),
             _scalar("param_BG_P", "params/BG_P", "",     "Background exponent P"),
+            # Invariant (calculation model) — inputs and derived results
+            _scalar("param_Contrast",       "params/Contrast",         "10^20 cm^-4", "Contrast Δρ²"),
+            _scalar("derived_Invariant",    "derived/Invariant",       "1/cm^4", "Invariant Q*"),
+            _scalar("derived_VolumeFraction", "derived/VolumeFraction", "",      "Volume fraction φ"),
+            _scalar("derived_QmaxUsed",     "derived/QmaxUsed",        "1/angstrom", "Qmax used for invariant"),
         ],
         "sub_groups": None,
         # Note: model name is in group attribute @model; params/* keys vary per model.

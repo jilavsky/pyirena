@@ -47,8 +47,10 @@ def _fallback_lookup(
 
     Tries, in order:
       1. ``params/<leaf>`` (with sibling ``params_std/<leaf>`` for stddev)
-      2. ``<leaf>`` as a scalar dataset on the group root
-      3. ``<leaf>`` as a group attribute
+      2. ``derived/<leaf>`` (model-specific derived quantities, e.g.
+         Invariant, VolumeFraction, QmaxUsed, Thickness, CorrLength)
+      3. ``<leaf>`` as a scalar dataset on the group root
+      4. ``<leaf>`` as a group attribute
 
     where *leaf* = parameter with optional ``param_`` prefix stripped, so both
     ``Kp`` and ``param_Kp`` resolve to ``params/Kp``. Returns (None, None,
@@ -62,6 +64,11 @@ def _fallback_lookup(
     if val is not None:
         std_val = _read_scalar_dataset(grp, f"params_std/{leaf}")
         return val, std_val, None
+
+    # 1b) derived/<leaf> (Invariant, VolumeFraction, Thickness, …)
+    val = _read_scalar_dataset(grp, f"derived/{leaf}")
+    if val is not None:
+        return val, None, None
 
     # 2) Top-level scalar dataset on the group
     val = _read_scalar_dataset(grp, leaf)

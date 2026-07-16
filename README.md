@@ -241,6 +241,7 @@ and **AnythingLLM**:
 | Usage guide (scripting) | [docs/usage_guide.md](docs/usage_guide.md) |
 | AI integration (MCP) — install & configure | [docs/ai_integration.md](docs/ai_integration.md) |
 | AI integration (MCP) — tool reference for agents | [docs/ai_tools_reference.md](docs/ai_tools_reference.md) |
+| Developer: adding features (master checklist) | [docs/developer_adding_features.md](docs/developer_adding_features.md) |
 | Developer: adding form factors | [docs/developer_adding_form_factors.md](docs/developer_adding_form_factors.md) |
 | Developer: adding structure factors | [docs/developer_adding_structure_factors.md](docs/developer_adding_structure_factors.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
