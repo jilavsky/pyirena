@@ -591,8 +591,16 @@ def _collect_simple_fit(filepath, item: str, param_name: str) -> float | tuple |
                     if "params_std" in grp and base in grp["params_std"]:
                         return float(grp["params_std"][base][()])
                     return None
-                # Primary param — also fetch paired std
-                val = float(grp["params"][param_name][()])
+                # Primary param — also fetch paired std.  Model-specific
+                # derived quantities (Invariant, VolumeFraction, QmaxUsed,
+                # Thickness, CorrLength, …) live under derived/ instead of
+                # params/ — fall back there when params/ has no match.
+                if "params" in grp and param_name in grp["params"]:
+                    val = float(grp["params"][param_name][()])
+                elif "derived" in grp and param_name in grp["derived"]:
+                    return float(grp["derived"][param_name][()])
+                else:
+                    return None
                 if "params_std" in grp and param_name in grp["params_std"]:
                     std = float(grp["params_std"][param_name][()])
                     if np.isfinite(std):

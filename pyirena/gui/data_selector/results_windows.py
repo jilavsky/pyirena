@@ -707,13 +707,32 @@ class SimpleFitResultsWindow(QWidget):
 
             # ── model line — darker shade for clear contrast with data symbols
             fit_color = color.darker(280)   # ~36% brightness of the data colour
-            chi2_str = f'{chi2:.3f}' if (chi2 == chi2) else 'N/A'
-            fit_name = f'{label}  {model}  χ²={chi2_str}' if in_legend else None
-            self.ax_main.plot(
-                Q, I_model,
-                pen=pg.mkPen(fit_color, width=3.0),
-                name=fit_name,
-            )
+            derived = results.get('derived', {}) or {}
+            if model == 'Invariant':
+                # Calculation model: no fitted curve.  Show the background-
+                # corrected intensity (same units as the data) and put the
+                # invariant / volume fraction into the legend instead of χ².
+                I_line = results.get('I_corrected')
+                if I_line is None:
+                    I_line = I_model
+                phi = derived.get('VolumeFraction', float('nan'))
+                inv = derived.get('Invariant', float('nan'))
+                fit_name = (f'{label}  Invariant Q*={inv:.3g} cm⁻⁴  φ={phi:.3g}'
+                            if in_legend else None)
+                _mask = np.isfinite(I_line) & (np.asarray(I_line) > 0)
+                self.ax_main.plot(
+                    np.asarray(Q)[_mask], np.asarray(I_line)[_mask],
+                    pen=pg.mkPen(fit_color, width=3.0),
+                    name=fit_name,
+                )
+            else:
+                chi2_str = f'{chi2:.3f}' if (chi2 == chi2) else 'N/A'
+                fit_name = f'{label}  {model}  χ²={chi2_str}' if in_legend else None
+                self.ax_main.plot(
+                    Q, I_model,
+                    pen=pg.mkPen(fit_color, width=3.0),
+                    name=fit_name,
+                )
             if fit_name is not None and self.ax_main.legend is not None and self.ax_main.legend.items:
                 self.ax_main.legend.items[-1][1].setAttr('color', fit_color.name())
 

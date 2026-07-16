@@ -26,6 +26,8 @@ derived/
     - Guinier Sheet: Thickness  [Å]
     - Treubner-Strey: CorrLength [Å], RepeatDist [Å]
     - Unified Born Green: Rad [Å], G1, Rg2 [Å]
+    - Invariant: Invariant [cm⁻⁴], VolumeFraction, PhiOneMinusPhi,
+      QmaxUsed [Å⁻¹], and (optional) PorodTail [cm⁻⁴], PorodKp [cm⁻¹Å⁻⁴]
 
 Datasets
 --------
@@ -34,6 +36,12 @@ I_model       — fitted model intensity
 residuals     — (I_data − I_model) / error  (stored if available)
 intensity_data — measured intensity (stored if provided)
 intensity_error — measurement uncertainty (stored if provided)
+
+Extra arrays (calculation models — Invariant)
+---------------------------------------------
+Q_integral        — Q grid of the running invariant integral [Å⁻¹]
+running_integral  — cumulative ∫q²·I_corr dq  [1/cm⁴]
+I_corrected       — background-corrected intensity [1/cm]
 """
 
 from __future__ import annotations
@@ -112,6 +120,11 @@ def save_simple_fit_results(
         if model_obj is not None:
             grp.attrs['use_complex_bg'] = bool(model_obj.use_complex_bg)
             grp.attrs['n_mc_runs']      = int(model_obj.n_mc_runs)
+            grp.attrs['invariant_porod_tail'] = bool(
+                getattr(model_obj, 'invariant_porod_tail', False))
+
+        if result.get('warning'):
+            grp.attrs['warning'] = str(result['warning'])
 
         q = result.get('q')
         if q is not None:
@@ -146,6 +159,20 @@ def save_simple_fit_results(
                                compression='gzip')
             grp['intensity_error'].attrs['units'] = '1/cm'
 
+        # Extra arrays from calculation models (e.g. Invariant running integral)
+        _EXTRA_UNITS = {
+            'Q_integral':       '1/angstrom',
+            'running_integral': '1/cm^4',
+            'I_corrected':      '1/cm',
+        }
+        for name, arr in (result.get('extra_arrays') or {}).items():
+            if arr is None:
+                continue
+            ds = grp.create_dataset(name, data=np.asarray(arr, dtype='f8'),
+                                    compression='gzip')
+            if name in _EXTRA_UNITS:
+                ds.attrs['units'] = _EXTRA_UNITS[name]
+
         # ── Parameters ────────────────────────────────────────────────────────
         params = result.get('params', {})
         if params:
@@ -179,7 +206,12 @@ def save_simple_fit_results(
         # Robust fit-quality metrics under fit_quality/.  Computed from the
         # consistent fit-range (data, model, error) triple if not supplied.
         from pyirena.io.nxcansas_fit_quality import write_fit_quality
-        if (fit_quality is None and q is not None and I_model is not None
+        # Calculation models (Invariant) have no least-squares fit: I_model is
+        # just the background curve, so fit-quality metrics would be
+        # meaningless.  They are recognisable by chi2 being None.
+        _is_calculation = result.get('chi2') is None and result.get('success')
+        if (fit_quality is None and not _is_calculation
+                and q is not None and I_model is not None
                 and intensity_data is not None
                 and len(intensity_data) == len(I_model) == len(q)):
             from pyirena.core.fit_metrics import fit_quality_metrics
@@ -237,6 +269,7 @@ def load_simple_fit_results(filepath: Path) -> dict:
         for k in (
             'model', 'success', 'dof', 'q_min', 'q_max',
             'use_complex_bg', 'n_mc_runs', 'timestamp', 'program',
+            'invariant_porod_tail', 'warning',
         ):
             result[k] = grp.attrs.get(k)
         # chi_squared / reduced_chi_squared: try dataset (new) then attr (old)
@@ -255,6 +288,10 @@ def load_simple_fit_results(filepath: Path) -> dict:
         result['residuals'] = grp['residuals'][:] if 'residuals' in grp else None
         result['intensity_data']  = grp['intensity_data'][:]  if 'intensity_data'  in grp else None
         result['intensity_error'] = grp['intensity_error'][:] if 'intensity_error' in grp else None
+
+        # Extra arrays (Invariant running integral etc.)
+        for name in ('Q_integral', 'running_integral', 'I_corrected'):
+            result[name] = grp[name][:] if name in grp else None
 
         # Robust fit-quality metrics (None for files written before this feature)
         from pyirena.io.nxcansas_fit_quality import read_fit_quality

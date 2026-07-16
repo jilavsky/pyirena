@@ -130,7 +130,7 @@ The spheroid orientational average is computed with Gauss-Legendre quadrature
 Both models support complex background.  A flat background can be added via the
 complex background option (set B = 0, flat = desired value).
 
-### Correlation models
+### Correlation models and Invariant
 
 | Model | Formula / description |
 |-------|-----------------------|
@@ -143,6 +143,74 @@ complex background option (set B = 0, flat = desired value).
 
 Treubner-Strey derives correlation length ξ = (A/C2)^¼/√2 and repeat distance d.
 These appear in the "Derived" section of the results.
+
+### Invariant (calculation — no fitting)
+
+The **Invariant** entry in the model selector is not a fit: it directly
+integrates the data to obtain the Porod invariant
+
+```
+Q* = ∫ q²·I(q) dq  =  2π² · Δρ² · φ(1−φ)
+```
+
+which is exact for any two-phase system with sharp interfaces, independent of
+morphology.  This makes it a very robust way to obtain volume fractions for
+polydisperse single-"particle"-type systems (porosity in rocks, precipitates,
+voids) — no model, no fitting, just calibrated data and a contrast value.
+
+Workflow:
+
+1. Load data and select **Invariant** as the model.
+2. If a background must be removed, check **Complex background** and use the
+   **Fit B/P btwn cursors** / **Fit Flat btwn cursors** prefit buttons on a
+   background-dominated Q region — the background `B·Q⁻ᴾ + flat` is
+   subtracted from the data before integration.  The Q window used by each
+   prefit button is **remembered** (shown below the Invariant options and
+   stored with the setup).  Check **"Refit background from saved ranges"**
+   to re-run these prefits automatically before every Calculate — in the
+   GUI *and* in scripted/batch runs.  This is essential for scripting:
+   the invariant is only as good as the background subtraction, so batch
+   runs re-determine B/P/flat per file from the saved windows instead of
+   trusting exported values.  The BG_P "Fit?" checkbox controls whether
+   the power-law prefit fits both B and P or holds P and fits B only.
+3. Enter **Contrast** Δρ² in units of 10²⁰ cm⁻⁴ (default 100; use the
+   Scattering Contrast calculator if needed).
+4. Position the cursors over the Q range to integrate and press
+   **Calculate Invariant**.
+
+The graph shows the background-corrected data (green), the background curve,
+and the running integral `∫q²I dq` on the **right axis** (red) — analogous to
+the integrated-volume-fraction curve in the Size Distribution tool.  The
+invariant is read at the point where the running integral flattens (smoothed
+derivative crosses zero); this Q value is reported as **QmaxUsed** and guards
+against a slightly over-subtracted background at high Q.
+
+Details and options:
+
+- **Extrapolation to Q = 0** is always applied (the first integrand value is
+  repeated at Q = 0, following Igor Irena).  Its contribution is ~I₁q₁³ —
+  negligible for any reasonable q_min — so there is no user control for it.
+- **Extend by Porod tail (Kp/Qmax)** (optional, off by default = Igor
+  behaviour): adds the analytic high-Q tail `∫_{Qmax}^{∞} Kp·q⁻² dq = Kp/Qmax`
+  to compensate for measurement truncation.  Kp is estimated as the median of
+  `(I−bg)·q⁴` over the last half-decade before QmaxUsed.
+- **Volume fraction**: with data on absolute scale [cm⁻¹] and correct
+  contrast, φ is obtained by solving `φ(1−φ) = Q*/(2π²Δρ²)` (lower root,
+  φ < 0.5 — the invariant cannot distinguish φ from 1−φ).  If
+  `φ(1−φ) > 0.249` the value is unphysical: φ is set to NaN and a warning
+  points at calibration/contrast problems.
+
+Results stored in `derived/`: `Invariant` [cm⁻⁴], `VolumeFraction`,
+`PhiOneMinusPhi`, `QmaxUsed` [Å⁻¹], and — when the tail option is on —
+`PorodTail` [cm⁻⁴] and `PorodKp` [cm⁻¹Å⁻⁴].  The running integral is stored
+as `Q_integral` / `running_integral` datasets and is exported to Igor
+experiments as the `SimFitInvariantIntegral` wave.
+
+**Caveats**: requires absolute intensity calibration and desmeared data
+(slit-smeared USAXS must be desmeared first); q² amplifies background errors
+at high Q, so background subtraction matters; systems with more than two
+phases or diffuse interfaces bias the result.  χ², residuals, linearization
+and Monte Carlo uncertainty do not apply and are disabled for this model.
 
 ---
 
@@ -351,6 +419,27 @@ result = fit_simple("sample.h5",
                     config={'model': 'Sphere',
                             'params': {'Scale': 1e6, 'R': 100.0}},
                     with_uncertainty=True, n_mc_runs=100)
+
+# Invariant (calculation — no fitting): volume fraction from Q*
+result = fit_simple("sample.h5", config={
+    'model': 'Invariant',
+    'use_complex_bg': True,                  # subtract B·Q⁻ᴾ + flat first
+    'params': {'Contrast': 100.0,            # Δρ² in 10²⁰ cm⁻⁴
+               'BG_B': 0.0, 'BG_P': 4.0, 'BG_flat': 0.05},
+    'invariant_porod_tail': False,           # True → add Kp/Qmax tail
+    # Recommended for batch: refit the background per file from saved
+    # Q windows (recorded by the GUI prefit buttons) before calculating.
+    'bg_prefit': {
+        'enabled': True,
+        'power_law': {'use': True, 'q_min': 1e-4, 'q_max': 8e-4,
+                      'fit_P': True},        # low-Q upturn window
+        'flat':      {'use': True, 'q_min': 0.4, 'q_max': 1.0},  # high-Q
+    },
+}, q_min=0.001, q_max=0.3)
+if result and result['success']:
+    d = result['derived']
+    print(f"Q* = {d['Invariant']:.4g} cm⁻⁴,  φ = {d['VolumeFraction']:.4g},"
+          f"  QmaxUsed = {d['QmaxUsed']:.4g} Å⁻¹")
 
 # Batch: use pyirena_config.json (exported from GUI)
 from pathlib import Path

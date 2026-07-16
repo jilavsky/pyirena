@@ -1035,7 +1035,11 @@ class PlotControlsPanel(QWidget):
             self._collect_index.setEnabled(True)
 
         elif type_text == "Simple Fits":
-            self._collect_item.addItems(["Rg", "I0", "Rg_err", "I0_err", "chi2"])
+            self._collect_item.addItems([
+                "Rg", "I0", "Rg_err", "I0_err", "chi2",
+                # Invariant (calculation model) inputs and results
+                "Invariant", "VolumeFraction", "QmaxUsed", "Contrast",
+            ])
             self._collect_index.setEnabled(False)
 
         elif type_text == "Modeling":

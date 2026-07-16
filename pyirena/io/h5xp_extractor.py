@@ -497,8 +497,21 @@ def _extract_simple_fits(grp: h5py.Group, h5xp: h5py.File,
         for name, ds in grp["params"].items():
             if isinstance(ds, h5py.Dataset) and ds.shape == ():
                 params[name] = float(ds[()])
+    # Derived quantities (Invariant, VolumeFraction, QmaxUsed, Thickness, …)
+    if "derived" in grp:
+        for name, ds in grp["derived"].items():
+            if isinstance(ds, h5py.Dataset) and ds.shape == ():
+                params[name] = float(ds[()])
 
     write_result_wave(h5xp, folder, igor_name, q_model, I_model, params, category)
+
+    # Invariant running integral (calculation models) as its own wave pair
+    q_int = _array(grp, "Q_integral")
+    run_int = _array(grp, "running_integral")
+    if q_int is not None and run_int is not None:
+        write_result_wave(h5xp, folder, "SimFitInvariantIntegral",
+                          q_int, run_int, params, category)
+
     return True
 
 

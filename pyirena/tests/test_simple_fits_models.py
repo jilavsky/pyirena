@@ -26,6 +26,10 @@ IDENTIFIABLE = [
 ]
 DEGENERATE = ["Treubner-Strey", "Benedetti-Ciccariello", "Hybrid Hermans"]
 
+# Calculation models: no least-squares step, no model intensity curve.
+# Tested separately in test_invariant.py.
+CALCULATION = ["Invariant"]
+
 
 def _self_consistency(name, perturbation=1.1):
     """Generate curve at defaults, fit from perturbed start, return
@@ -61,10 +65,13 @@ def _self_consistency(name, perturbation=1.1):
 class TestModelRegistry:
     def test_all_models_present(self):
         assert set(MODEL_NAMES) == set(MODEL_REGISTRY)
-        assert set(IDENTIFIABLE) | set(DEGENERATE) == set(MODEL_NAMES)
+        assert (set(IDENTIFIABLE) | set(DEGENERATE) | set(CALCULATION)
+                == set(MODEL_NAMES))
 
     @pytest.mark.parametrize("name", MODEL_NAMES)
     def test_compute_finite_positive(self, name):
+        if MODEL_REGISTRY[name].get("calculation"):
+            pytest.skip("calculation model has no model intensity curve")
         m = SimpleFitModel()
         m.set_model(name)
         I = m.compute(Q)

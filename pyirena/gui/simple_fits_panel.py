@@ -66,6 +66,11 @@ class SimpleFitsGraphWindow(QWidget):
         self._cursor_b       = None
         self._annotation_items: list = []
         self._parent_ref     = parent
+        # Invariant display: corrected data (main vb) + running integral
+        # on a second ViewBox tied to the right axis (Igor-style overlay).
+        self._inv_corr_item  = None   # PlotDataItem, bg-corrected data (green)
+        self._inv_int_item   = None   # PlotDataItem, running integral (right axis)
+        self._right_vb       = None   # pg.ViewBox for the right axis
         self.init_ui()
 
     def init_ui(self):
@@ -126,6 +131,8 @@ class SimpleFitsGraphWindow(QWidget):
         ci.layout.setRowStretchFactor(2, 4)
         self._lin_row_stretch = 4      # remembered so hide/show can restore it
         self._lin_visible = True
+        self._resid_row_stretch = 1    # remembered so hide/show can restore it
+        self._resid_visible = True
 
         # Stretch=1 so the graphics widget expands vertically when the
         # window grows (default is 0 = stay at preferred size).  Other tools
@@ -207,6 +214,124 @@ class SimpleFitsGraphWindow(QWidget):
         item = plot_iq_model(self.main_plot, q_fit, I_model)
         self._fit_item = item
 
+    # ── Invariant overlay (corrected data + running integral, right axis) ────
+
+    def _ensure_right_axis(self):
+        """Create (once) a second ViewBox linked to the right axis and make
+        the axis visible and labelled.
+
+        The main plot is in log-log mode, so its ViewBox coordinates are
+        log10 units; items added to the right ViewBox must therefore be
+        given log10(x), log10(y) data, and the right AxisItem is switched
+        to log tick rendering.
+
+        The show/label part runs on EVERY call (not only on first creation):
+        switching to another model hides the right axis via
+        ``set_right_axis_visible(False)``, and returning to the Invariant
+        must bring both the axis and its label back.
+        """
+        if self._right_vb is None:
+            vb = pg.ViewBox()
+            self._right_vb = vb
+            self.main_plot.scene().addItem(vb)
+            self.main_plot.getAxis('right').linkToView(vb)
+            vb.setXLink(self.main_plot.vb)
+            self.main_plot.vb.sigResized.connect(self._sync_right_vb)
+        # (Re)show + (re)label every time — hideAxis() may have been called.
+        self.main_plot.showAxis('right')
+        axis = self.main_plot.getAxis('right')
+        try:
+            axis.setLogMode(True)
+        except Exception:
+            log.debug("right axis setLogMode failed", exc_info=True)
+        axis.setLabel('∫q²I dq  (cm⁻⁴)')
+        self._sync_right_vb()
+
+    def _sync_right_vb(self):
+        if self._right_vb is not None:
+            self._right_vb.setGeometry(self.main_plot.vb.sceneBoundingRect())
+
+    def plot_invariant(self, q_int, running_integral, q=None, I_corrected=None):
+        """Overlay the invariant running integral (right axis, log) and the
+        background-corrected data (green, main axis).
+
+        All inputs in physical (linear) units; log10 applied here because the
+        right ViewBox bypasses pyqtgraph's automatic log transform.
+        """
+        self.clear_invariant()
+
+        # Background-corrected data on the main (left) axis
+        if q is not None and I_corrected is not None:
+            q_arr = np.asarray(q, float)
+            Ic = np.asarray(I_corrected, float)
+            m = np.isfinite(q_arr) & np.isfinite(Ic) & (q_arr > 0) & (Ic > 0)
+            if m.sum() > 1:
+                self._inv_corr_item = self.main_plot.plot(
+                    q_arr[m], Ic[m],
+                    pen=pg.mkPen(0, 150, 0, width=1),
+                    name='I − bg',
+                )
+
+        # Running integral on the right axis
+        qi = np.asarray(q_int, float)
+        ri = np.asarray(running_integral, float)
+        m = np.isfinite(qi) & np.isfinite(ri) & (qi > 0) & (ri > 0)
+        if m.sum() > 1:
+            self._ensure_right_axis()
+            item = pg.PlotDataItem(
+                np.log10(qi[m]), np.log10(ri[m]),
+                pen=pg.mkPen(200, 0, 0, width=2),
+            )
+            self._right_vb.addItem(item)
+            self._inv_int_item = item
+            self._right_vb.setYRange(
+                float(np.log10(ri[m]).min()), float(np.log10(ri[m]).max()),
+                padding=0.05,
+            )
+
+    def clear_invariant(self):
+        """Remove invariant overlay items (corrected data + running integral)."""
+        if self._inv_corr_item is not None:
+            try:
+                self.main_plot.removeItem(self._inv_corr_item)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+            self._inv_corr_item = None
+        if self._inv_int_item is not None and self._right_vb is not None:
+            try:
+                self._right_vb.removeItem(self._inv_int_item)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+            self._inv_int_item = None
+
+    def set_residuals_visible(self, visible: bool):
+        """Show or hide the residuals panel.
+
+        Calculation models (Invariant) have no residuals; hiding the row lets
+        the I(Q) plot use the space.  Mirrors set_linearization_visible().
+        """
+        visible = bool(visible)
+        if visible == self._resid_visible:
+            return
+        self._resid_visible = visible
+        ci = self.graphics_layout.ci
+        if visible:
+            self.residuals_plot.show()
+            ci.layout.setRowStretchFactor(1, self._resid_row_stretch)
+        else:
+            self.residuals_plot.hide()
+            ci.layout.setRowStretchFactor(1, 0)
+
+    def set_right_axis_visible(self, visible: bool):
+        """Show/hide the right (invariant integral) axis."""
+        if visible:
+            self.main_plot.showAxis('right')
+        else:
+            try:
+                self.main_plot.hideAxis('right')
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
     def clear_fit(self):
         """Remove the model curve and residuals (called on model/param change)."""
         if self._fit_item is not None:
@@ -227,6 +352,8 @@ class SimpleFitsGraphWindow(QWidget):
         # Clear linearization
         self.lin_plot.clear()
         self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
+        # Clear invariant overlay
+        self.clear_invariant()
 
     def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
         """Plot (I−model)/err residuals.  *q* in linear units; *residuals* linear.
@@ -579,6 +706,53 @@ class SimpleFitsPanel(QWidget):
         options_row.addWidget(self.complex_bg_check)
         layout.addLayout(options_row)
 
+        # ── Invariant-only options (hidden unless model is a calculation) ─────
+        inv_col = QVBoxLayout()
+        inv_col.setContentsMargins(0, 0, 0, 0)
+        inv_col.setSpacing(2)
+
+        inv_row1 = QHBoxLayout()
+        self.porod_tail_check = QCheckBox('Extend by Porod tail (Kp/Qmax)')
+        self.porod_tail_check.setToolTip(
+            'Extend the invariant integral beyond QmaxUsed by the analytic\n'
+            'Porod tail ∫Kp·q⁻²dq = Kp/Qmax.  Kp is estimated as the median\n'
+            'of (I−bg)·q⁴ over the last half-decade before QmaxUsed.\n'
+            'Compensates for the high-Q truncation of the measurement\n'
+            '(Igor Irena does not apply this correction).'
+        )
+        self.porod_tail_check.stateChanged.connect(self._on_porod_tail_changed)
+        inv_row1.addWidget(self.porod_tail_check)
+        inv_row1.addStretch()
+        inv_col.addLayout(inv_row1)
+
+        inv_row2 = QHBoxLayout()
+        self.bg_refit_check = QCheckBox('Refit background from saved ranges')
+        self.bg_refit_check.setToolTip(
+            'Before every Calculate — in the GUI and in scripted/batch runs —\n'
+            're-determine the complex background from the Q ranges remembered\n'
+            'when you last used "Fit B/P btwn cursors" / "Fit Flat btwn\n'
+            'cursors" (power-law first, then flat).  This makes scripted\n'
+            'invariant results robust: the background is refit per file\n'
+            'instead of assuming the exported B/P/flat values apply.\n'
+            'BG_P is refit only if its "Fit?" box was checked when the\n'
+            'range was recorded.  Requires "Complex background".'
+        )
+        self.bg_refit_check.stateChanged.connect(self._on_bg_refit_changed)
+        inv_row2.addWidget(self.bg_refit_check)
+        inv_row2.addStretch()
+        inv_col.addLayout(inv_row2)
+
+        self._bg_prefit_ranges_lbl = QLabel('')
+        self._bg_prefit_ranges_lbl.setStyleSheet(
+            'font-size: 10px; color: #7f8c8d; font-style: italic;')
+        self._bg_prefit_ranges_lbl.setWordWrap(True)
+        inv_col.addWidget(self._bg_prefit_ranges_lbl)
+
+        self._invariant_options_row = QWidget()
+        self._invariant_options_row.setLayout(inv_col)
+        self._invariant_options_row.setVisible(False)
+        layout.addWidget(self._invariant_options_row)
+
         # ── Parameters ────────────────────────────────────────────────────────
         self.params_box = QGroupBox('Parameters')
         self.params_box_layout = QVBoxLayout()
@@ -842,6 +1016,15 @@ class SimpleFitsPanel(QWidget):
         entry = MODEL_REGISTRY[self.model.model]
         n_model_params = len(entry['params'])
         use_bg = self.model.use_complex_bg and entry['complex_bg']
+        is_calc = bool(entry.get('calculation', False))
+        # Calculation models have no least-squares step: the "Fit?" column is
+        # hidden for model params (values are taken as entered).  The BG_*
+        # rows keep their checkbox — it controls whether the background
+        # prefit (buttons + saved-range replay) refits that term (currently
+        # BG_P: fit both B and P vs. hold P and fit B only).
+        if is_calc and self._fit_col_header_lbl is not None:
+            self._fit_col_header_lbl.setVisible(
+                self.model.use_complex_bg and entry['complex_bg'])
 
         param_specs = list(entry['params'])
         if use_bg:
@@ -868,6 +1051,7 @@ class SimpleFitsPanel(QWidget):
             fit_chk = QCheckBox()
             fit_chk.setChecked(not saved_fixed.get(name, False))
             fit_chk.setToolTip(f'Fit {name}?  Uncheck to hold fixed during fitting.')
+            fit_chk.setVisible((not is_calc) or name.startswith('BG_'))
             grid.addWidget(fit_chk, row, 0, alignment=Qt.AlignmentFlag.AlignCenter)
             self._param_fit_checks[name] = fit_chk
 
@@ -934,6 +1118,7 @@ class SimpleFitsPanel(QWidget):
         self._saved_param_fixed = {}   # reset "Fit?" state for new model
         self._build_param_widgets()
         self._update_bg_prefit_visibility()
+        self._update_invariant_ui()
         self.fit_result = None
         self.chi2_label.setText('—')
         self.rchi2_label.setText('—')
@@ -956,8 +1141,89 @@ class SimpleFitsPanel(QWidget):
                 self.model.limits.setdefault(name, (lo, hi))
         self._build_param_widgets()
         self._update_bg_prefit_visibility()
+        self._update_invariant_ui()
         self.graph_window.clear_fit()
         self.graph_window.clear_result_annotations()
+
+    def _on_porod_tail_changed(self, state):
+        """Sync the Porod-tail option into the model object."""
+        self.model.invariant_porod_tail = bool(state)
+
+    def _on_bg_refit_changed(self, state):
+        """Sync the background-refit-replay option into the model object."""
+        bp = dict(self.model.bg_prefit or {})
+        bp['enabled'] = bool(state)
+        self.model.bg_prefit = bp
+        self._refresh_bg_prefit_label()
+
+    def _refresh_bg_prefit_label(self):
+        """Show which background windows are remembered for prefit replay."""
+        if not hasattr(self, '_bg_prefit_ranges_lbl'):
+            return
+        bp = self.model.bg_prefit or {}
+        parts = []
+        pl = bp.get('power_law') or {}
+        if pl.get('use'):
+            p_txt = 'B,P' if pl.get('fit_P', True) else 'B only'
+            parts.append(f"power-law ({p_txt}): {pl['q_min']:.4g}–{pl['q_max']:.4g} Å⁻¹")
+        fl = bp.get('flat') or {}
+        if fl.get('use'):
+            parts.append(f"flat: {fl['q_min']:.4g}–{fl['q_max']:.4g} Å⁻¹")
+        if parts:
+            self._bg_prefit_ranges_lbl.setText('Saved ranges — ' + ' · '.join(parts))
+        else:
+            self._bg_prefit_ranges_lbl.setText(
+                'No saved ranges yet — use the "Fit B/P / Fit Flat btwn '
+                'cursors" buttons to record them.')
+
+    def _update_invariant_ui(self):
+        """Adjust controls for calculation models (Invariant) vs fit models."""
+        is_calc = self.model.is_calculation
+        self._invariant_options_row.setVisible(is_calc)
+        if is_calc:
+            # Refit-replay only makes sense with the complex background on
+            has_bg = self.model.use_complex_bg
+            self.bg_refit_check.setEnabled(has_bg)
+            if not has_bg:
+                self.bg_refit_check.setToolTip(
+                    'Enable "Complex background" first — the refit replay\n'
+                    're-determines B·Q⁻ᴾ + flat from the saved Q ranges.')
+            self._refresh_bg_prefit_label()
+            self.fit_btn.setText('Calculate Invariant')
+            self.fit_btn.setToolTip(
+                'Calculate the invariant Q* = ∫q²·(I−bg) dq over the cursor Q range.\n'
+                'The invariant is read where the running integral flattens\n'
+                '(QmaxUsed).  With contrast and absolute intensities, the\n'
+                'volume fraction φ is derived from Q* = 2π²·Δρ²·φ(1−φ).'
+            )
+            self.graph_model_btn.setToolTip(
+                'Display the current background curve (B·Q⁻ᴾ + flat) — the\n'
+                'curve subtracted from the data before integration.'
+            )
+            self.unc_btn.setEnabled(False)
+            self.unc_btn.setToolTip(
+                'Monte Carlo uncertainty is not applicable to the Invariant\n'
+                'calculation (no least-squares fit).'
+            )
+        else:
+            self.fit_btn.setText('Fit')
+            self.fit_btn.setToolTip(
+                "Fit the selected model to the loaded data using the current Q range.\n"
+                "Checked parameters are varied; unchecked parameters are held fixed."
+            )
+            self.graph_model_btn.setToolTip(
+                'Compute and display the current model curve without fitting.')
+            self.unc_btn.setEnabled(True)
+            self.unc_btn.setToolTip(
+                "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
+                "Set 'Passes' to control how many Monte Carlo replicates are used."
+            )
+        # Residuals do not apply to calculation models — free the space
+        self.graph_window.set_residuals_visible(not is_calc)
+        # Hide the right (integral) axis when leaving the Invariant model;
+        # plot_invariant() re-shows it (with label) on the next Calculate.
+        self.graph_window.set_right_axis_visible(False if not is_calc else
+                                                 self.graph_window._inv_int_item is not None)
 
     def _on_no_limits_changed(self, state):
         """Show/hide the lo/hi bound columns when 'No limits?' is toggled."""
@@ -1109,6 +1375,13 @@ class SimpleFitsPanel(QWidget):
             B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
 
         self._set_param_value('BG_B', B)
+        # Remember the window so scripted runs can replay this prefit
+        # per file (used by the Invariant; harmless for fit models).
+        bp = dict(self.model.bg_prefit or {})
+        bp['power_law'] = {'use': True, 'q_min': q_min, 'q_max': q_max,
+                           'fit_P': bool(fit_p)}
+        self.model.bg_prefit = bp
+        self._refresh_bg_prefit_label()
         self._collect_model()
         self._auto_graph_model()
         self._refresh_linearization()
@@ -1139,6 +1412,11 @@ class SimpleFitsPanel(QWidget):
 
         flat = fit_flat_bg(q, I, q_min, q_max, power_law_B=B, power_law_P=P)
         self._set_param_value('BG_flat', flat)
+        # Remember the window so scripted runs can replay this prefit per file
+        bp = dict(self.model.bg_prefit or {})
+        bp['flat'] = {'use': True, 'q_min': q_min, 'q_max': q_max}
+        self.model.bg_prefit = bp
+        self._refresh_bg_prefit_label()
         self._collect_model()
         self._auto_graph_model()
         self._refresh_linearization()
@@ -1249,6 +1527,11 @@ class SimpleFitsPanel(QWidget):
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
 
+        # Calculation models (Invariant) take a separate path — no least squares
+        if self.model.is_calculation:
+            self._run_invariant()
+            return
+
         # Read cursor positions into display fields and get Q range
         self._get_q_range()
 
@@ -1310,6 +1593,95 @@ class SimpleFitsPanel(QWidget):
 
         # Update all plots
         self._update_plots(result)
+        self.save_state()
+
+    # ── Invariant calculation ─────────────────────────────────────────────────
+
+    def _run_invariant(self):
+        """Run the Invariant calculation over the cursor Q range and plot it."""
+        self._get_q_range()
+        model = self._collect_model()
+        model.invariant_porod_tail = self.porod_tail_check.isChecked()
+
+        # Background prefit replay: refit BG terms over the saved Q windows
+        # using the FULL data (windows usually lie outside the integration
+        # range), exactly as a scripted run will.  Refit values are written
+        # back into the widgets so the user sees what was used.
+        prefit_note = ''
+        if (model.bg_prefit or {}).get('enabled'):
+            # Honor the current BG_P "Fit?" checkbox at replay time
+            bp = dict(model.bg_prefit)
+            pl = dict(bp.get('power_law') or {})
+            if pl:
+                chk = self._param_fit_checks.get('BG_P')
+                if chk is not None:
+                    pl['fit_P'] = chk.isChecked()
+                bp['power_law'] = pl
+                model.bg_prefit = bp
+            applied = model.prefit_background(
+                self.data['Q'], self.data['Intensity'])
+            for name in ('BG_B', 'BG_P', 'BG_flat'):
+                if name in applied:
+                    self._set_param_value(name, applied[name])
+            if applied.get('warning'):
+                prefit_note = f"  ⚠ prefit: {applied['warning']}"
+            elif applied:
+                prefit_note = '  (background refit from saved ranges)'
+
+        q, I, dI = self._get_filtered_data()
+        if q is None or len(q) < 5:
+            QMessageBox.warning(self, 'Too few points',
+                                'Not enough data points in the selected Q range '
+                                '(need ≥ 5).')
+            return
+
+        result = model.fit(q, I, dI)   # delegates to the calculation path
+        if not result['success']:
+            QMessageBox.critical(self, 'Calculation failed',
+                                 f"Invariant failed:\n{result.get('error', 'Unknown error')}")
+            self.status_label.setText('Invariant calculation FAILED.')
+            return
+
+        self.fit_result = result
+        self.chi2_label.setText('—')
+        self.rchi2_label.setText('—')
+
+        # Background curve (what was subtracted) via the standard model-curve slot
+        I_model = result.get('I_model')
+        if I_model is not None and np.any(np.asarray(I_model) > 0):
+            valid = np.isfinite(I_model) & (I_model > 0)
+            if valid.sum() > 1:
+                self.graph_window.plot_fit(q[valid], I_model[valid])
+
+        # Corrected data + running integral overlay (Igor-style, right axis)
+        extra = result.get('extra_arrays') or {}
+        if extra.get('Q_integral') is not None:
+            self.graph_window.plot_invariant(
+                extra['Q_integral'], extra['running_integral'],
+                q=q, I_corrected=extra.get('I_corrected'),
+            )
+
+        # Hide the linearization panel (not applicable)
+        self._refresh_linearization()
+
+        # Status line with the key numbers
+        from pyirena.gui.fmt_utils import eng_fmt
+        d = result.get('derived', {})
+        inv  = d.get('Invariant', float('nan'))
+        phi  = d.get('VolumeFraction', float('nan'))
+        qmax = d.get('QmaxUsed', float('nan'))
+        msg = (f'Invariant Q* = {eng_fmt(inv)} cm⁻⁴ | '
+               f'φ = {phi:.4g} | QmaxUsed = {qmax:.4g} Å⁻¹')
+        if self.porod_tail_check.isChecked():
+            tail = d.get('PorodTail', 0.0)
+            if inv > 0:
+                msg += f' | Porod tail = {100.0 * tail / inv:.2g}%'
+        warning = result.get('warning', '')
+        if warning:
+            msg += f'  ⚠ {warning}'
+        msg += prefit_note
+        self.status_label.setText(msg)
+
         self.save_state()
 
     # ── Uncertainty ───────────────────────────────────────────────────────────
@@ -1632,6 +2004,9 @@ class SimpleFitsPanel(QWidget):
         self.model.model = model_name
         self.model.use_complex_bg = bool(state.get('use_complex_bg', False))
         self.model.n_mc_runs = int(state.get('n_mc_runs', 10))
+        self.model.invariant_porod_tail = bool(
+            state.get('invariant_porod_tail', False))
+        self.model.bg_prefit = dict(state.get('bg_prefit') or {})
 
         saved_params = state.get('params', {})
         saved_limits = state.get('param_limits', {})
@@ -1674,6 +2049,15 @@ class SimpleFitsPanel(QWidget):
 
         self.n_runs_spin.setValue(self.model.n_mc_runs)
 
+        self.porod_tail_check.blockSignals(True)
+        self.porod_tail_check.setChecked(self.model.invariant_porod_tail)
+        self.porod_tail_check.blockSignals(False)
+
+        self.bg_refit_check.blockSignals(True)
+        self.bg_refit_check.setChecked(
+            bool((self.model.bg_prefit or {}).get('enabled', False)))
+        self.bg_refit_check.blockSignals(False)
+
         # Restore cursor positions if saved
         q_min = state.get('q_min')
         q_max = state.get('q_max')
@@ -1687,6 +2071,7 @@ class SimpleFitsPanel(QWidget):
 
         self._build_param_widgets()
         self._update_bg_prefit_visibility()
+        self._update_invariant_ui()
 
     def _collect_state(self) -> dict:
         """Return a snapshot of the current panel state.
@@ -1711,6 +2096,8 @@ class SimpleFitsPanel(QWidget):
             'param_limits': {k: list(v) for k, v in self.model.limits.items()},
             'param_fixed': param_fixed,
             'n_mc_runs': self.n_runs_spin.value(),
+            'invariant_porod_tail': self.porod_tail_check.isChecked(),
+            'bg_prefit': dict(self.model.bg_prefit or {}),
         }
 
     def save_state(self):
