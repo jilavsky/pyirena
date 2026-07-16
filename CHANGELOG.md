@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   export (`SimFitInvariantI`, `SimFitInvariantIntegral` waves). Registry
   entries now support a `calculation: True` flag for no-fit methods; χ²,
   residuals, linearization and MC uncertainty are disabled/None for these.
+- **Simple Fits — background prefit replay for the Invariant.** The
+  "Fit B/P btwn cursors" / "Fit Flat btwn cursors" buttons now remember the
+  Q windows they were used on (`bg_prefit` in the model/state/JSON/HDF5
+  setup). A new "Refit background from saved ranges" checkbox (Invariant
+  options) re-runs those prefits on the full data before every Calculate —
+  identically in the GUI and in scripted/batch runs — so batch invariant
+  results re-determine the background per file instead of trusting exported
+  B/P/flat values. The BG_* "Fit?" checkboxes remain visible in Invariant
+  mode (BG_P's controls fit-both vs. hold-P prefit). Also fixed: right-axis
+  label now survives model switching, and the residuals panel is hidden for
+  calculation models.
 - **Developer guide: adding features.** New
   `docs/developer_adding_features.md` — the master checklist of every wiring
   point (core, GUI, HDF5, JSON/batch, MCP, Data Selector, Data Explorer, Igor

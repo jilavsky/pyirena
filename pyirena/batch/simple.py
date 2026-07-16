@@ -102,6 +102,19 @@ def fit_simple(
     dI = data.get('Error', data.get('error', None))
     dI = np.asarray(dI, dtype=float) if dI is not None else None
 
+    # ── Background prefit replay (Invariant) ────────────────────────────────
+    # Re-determine the complex background from the Q ranges the GUI user
+    # recorded (bg_prefit), using the FULL data — the background windows
+    # usually lie outside the integration range applied below.
+    if model.is_calculation and (model.bg_prefit or {}).get('enabled'):
+        applied = model.prefit_background(q, I)
+        if verbose and applied:
+            vals = '  '.join(f'{k}={v:.4g}' for k, v in applied.items()
+                             if k != 'warning')
+            log.info(f"[pyirena.batch] Background prefit replayed: {vals}")
+        if applied.get('warning'):
+            log.warning(f"[pyirena.batch] Background prefit: {applied['warning']}")
+
     # ── Apply Q range mask ───────────────────────────────────────────────────
     mask = np.ones(len(q), dtype=bool)
     if q_min is not None:

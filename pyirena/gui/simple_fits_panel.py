@@ -707,7 +707,11 @@ class SimpleFitsPanel(QWidget):
         layout.addLayout(options_row)
 
         # ── Invariant-only options (hidden unless model is a calculation) ─────
-        inv_row = QHBoxLayout()
+        inv_col = QVBoxLayout()
+        inv_col.setContentsMargins(0, 0, 0, 0)
+        inv_col.setSpacing(2)
+
+        inv_row1 = QHBoxLayout()
         self.porod_tail_check = QCheckBox('Extend by Porod tail (Kp/Qmax)')
         self.porod_tail_check.setToolTip(
             'Extend the invariant integral beyond QmaxUsed by the analytic\n'
@@ -717,10 +721,35 @@ class SimpleFitsPanel(QWidget):
             '(Igor Irena does not apply this correction).'
         )
         self.porod_tail_check.stateChanged.connect(self._on_porod_tail_changed)
-        inv_row.addWidget(self.porod_tail_check)
-        inv_row.addStretch()
+        inv_row1.addWidget(self.porod_tail_check)
+        inv_row1.addStretch()
+        inv_col.addLayout(inv_row1)
+
+        inv_row2 = QHBoxLayout()
+        self.bg_refit_check = QCheckBox('Refit background from saved ranges')
+        self.bg_refit_check.setToolTip(
+            'Before every Calculate — in the GUI and in scripted/batch runs —\n'
+            're-determine the complex background from the Q ranges remembered\n'
+            'when you last used "Fit B/P btwn cursors" / "Fit Flat btwn\n'
+            'cursors" (power-law first, then flat).  This makes scripted\n'
+            'invariant results robust: the background is refit per file\n'
+            'instead of assuming the exported B/P/flat values apply.\n'
+            'BG_P is refit only if its "Fit?" box was checked when the\n'
+            'range was recorded.  Requires "Complex background".'
+        )
+        self.bg_refit_check.stateChanged.connect(self._on_bg_refit_changed)
+        inv_row2.addWidget(self.bg_refit_check)
+        inv_row2.addStretch()
+        inv_col.addLayout(inv_row2)
+
+        self._bg_prefit_ranges_lbl = QLabel('')
+        self._bg_prefit_ranges_lbl.setStyleSheet(
+            'font-size: 10px; color: #7f8c8d; font-style: italic;')
+        self._bg_prefit_ranges_lbl.setWordWrap(True)
+        inv_col.addWidget(self._bg_prefit_ranges_lbl)
+
         self._invariant_options_row = QWidget()
-        self._invariant_options_row.setLayout(inv_row)
+        self._invariant_options_row.setLayout(inv_col)
         self._invariant_options_row.setVisible(False)
         layout.addWidget(self._invariant_options_row)
 
@@ -989,9 +1018,13 @@ class SimpleFitsPanel(QWidget):
         use_bg = self.model.use_complex_bg and entry['complex_bg']
         is_calc = bool(entry.get('calculation', False))
         # Calculation models have no least-squares step: the "Fit?" column is
-        # meaningless, so hide it (values are always taken as entered).
+        # hidden for model params (values are taken as entered).  The BG_*
+        # rows keep their checkbox — it controls whether the background
+        # prefit (buttons + saved-range replay) refits that term (currently
+        # BG_P: fit both B and P vs. hold P and fit B only).
         if is_calc and self._fit_col_header_lbl is not None:
-            self._fit_col_header_lbl.setVisible(False)
+            self._fit_col_header_lbl.setVisible(
+                self.model.use_complex_bg and entry['complex_bg'])
 
         param_specs = list(entry['params'])
         if use_bg:
@@ -1018,7 +1051,7 @@ class SimpleFitsPanel(QWidget):
             fit_chk = QCheckBox()
             fit_chk.setChecked(not saved_fixed.get(name, False))
             fit_chk.setToolTip(f'Fit {name}?  Uncheck to hold fixed during fitting.')
-            fit_chk.setVisible(not is_calc)
+            fit_chk.setVisible((not is_calc) or name.startswith('BG_'))
             grid.addWidget(fit_chk, row, 0, alignment=Qt.AlignmentFlag.AlignCenter)
             self._param_fit_checks[name] = fit_chk
 
@@ -1108,6 +1141,7 @@ class SimpleFitsPanel(QWidget):
                 self.model.limits.setdefault(name, (lo, hi))
         self._build_param_widgets()
         self._update_bg_prefit_visibility()
+        self._update_invariant_ui()
         self.graph_window.clear_fit()
         self.graph_window.clear_result_annotations()
 
@@ -1115,11 +1149,46 @@ class SimpleFitsPanel(QWidget):
         """Sync the Porod-tail option into the model object."""
         self.model.invariant_porod_tail = bool(state)
 
+    def _on_bg_refit_changed(self, state):
+        """Sync the background-refit-replay option into the model object."""
+        bp = dict(self.model.bg_prefit or {})
+        bp['enabled'] = bool(state)
+        self.model.bg_prefit = bp
+        self._refresh_bg_prefit_label()
+
+    def _refresh_bg_prefit_label(self):
+        """Show which background windows are remembered for prefit replay."""
+        if not hasattr(self, '_bg_prefit_ranges_lbl'):
+            return
+        bp = self.model.bg_prefit or {}
+        parts = []
+        pl = bp.get('power_law') or {}
+        if pl.get('use'):
+            p_txt = 'B,P' if pl.get('fit_P', True) else 'B only'
+            parts.append(f"power-law ({p_txt}): {pl['q_min']:.4g}–{pl['q_max']:.4g} Å⁻¹")
+        fl = bp.get('flat') or {}
+        if fl.get('use'):
+            parts.append(f"flat: {fl['q_min']:.4g}–{fl['q_max']:.4g} Å⁻¹")
+        if parts:
+            self._bg_prefit_ranges_lbl.setText('Saved ranges — ' + ' · '.join(parts))
+        else:
+            self._bg_prefit_ranges_lbl.setText(
+                'No saved ranges yet — use the "Fit B/P / Fit Flat btwn '
+                'cursors" buttons to record them.')
+
     def _update_invariant_ui(self):
         """Adjust controls for calculation models (Invariant) vs fit models."""
         is_calc = self.model.is_calculation
         self._invariant_options_row.setVisible(is_calc)
         if is_calc:
+            # Refit-replay only makes sense with the complex background on
+            has_bg = self.model.use_complex_bg
+            self.bg_refit_check.setEnabled(has_bg)
+            if not has_bg:
+                self.bg_refit_check.setToolTip(
+                    'Enable "Complex background" first — the refit replay\n'
+                    're-determines B·Q⁻ᴾ + flat from the saved Q ranges.')
+            self._refresh_bg_prefit_label()
             self.fit_btn.setText('Calculate Invariant')
             self.fit_btn.setToolTip(
                 'Calculate the invariant Q* = ∫q²·(I−bg) dq over the cursor Q range.\n'
@@ -1306,6 +1375,13 @@ class SimpleFitsPanel(QWidget):
             B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
 
         self._set_param_value('BG_B', B)
+        # Remember the window so scripted runs can replay this prefit
+        # per file (used by the Invariant; harmless for fit models).
+        bp = dict(self.model.bg_prefit or {})
+        bp['power_law'] = {'use': True, 'q_min': q_min, 'q_max': q_max,
+                           'fit_P': bool(fit_p)}
+        self.model.bg_prefit = bp
+        self._refresh_bg_prefit_label()
         self._collect_model()
         self._auto_graph_model()
         self._refresh_linearization()
@@ -1336,6 +1412,11 @@ class SimpleFitsPanel(QWidget):
 
         flat = fit_flat_bg(q, I, q_min, q_max, power_law_B=B, power_law_P=P)
         self._set_param_value('BG_flat', flat)
+        # Remember the window so scripted runs can replay this prefit per file
+        bp = dict(self.model.bg_prefit or {})
+        bp['flat'] = {'use': True, 'q_min': q_min, 'q_max': q_max}
+        self.model.bg_prefit = bp
+        self._refresh_bg_prefit_label()
         self._collect_model()
         self._auto_graph_model()
         self._refresh_linearization()
@@ -1522,6 +1603,31 @@ class SimpleFitsPanel(QWidget):
         model = self._collect_model()
         model.invariant_porod_tail = self.porod_tail_check.isChecked()
 
+        # Background prefit replay: refit BG terms over the saved Q windows
+        # using the FULL data (windows usually lie outside the integration
+        # range), exactly as a scripted run will.  Refit values are written
+        # back into the widgets so the user sees what was used.
+        prefit_note = ''
+        if (model.bg_prefit or {}).get('enabled'):
+            # Honor the current BG_P "Fit?" checkbox at replay time
+            bp = dict(model.bg_prefit)
+            pl = dict(bp.get('power_law') or {})
+            if pl:
+                chk = self._param_fit_checks.get('BG_P')
+                if chk is not None:
+                    pl['fit_P'] = chk.isChecked()
+                bp['power_law'] = pl
+                model.bg_prefit = bp
+            applied = model.prefit_background(
+                self.data['Q'], self.data['Intensity'])
+            for name in ('BG_B', 'BG_P', 'BG_flat'):
+                if name in applied:
+                    self._set_param_value(name, applied[name])
+            if applied.get('warning'):
+                prefit_note = f"  ⚠ prefit: {applied['warning']}"
+            elif applied:
+                prefit_note = '  (background refit from saved ranges)'
+
         q, I, dI = self._get_filtered_data()
         if q is None or len(q) < 5:
             QMessageBox.warning(self, 'Too few points',
@@ -1573,6 +1679,7 @@ class SimpleFitsPanel(QWidget):
         warning = result.get('warning', '')
         if warning:
             msg += f'  ⚠ {warning}'
+        msg += prefit_note
         self.status_label.setText(msg)
 
         self.save_state()
@@ -1899,6 +2006,7 @@ class SimpleFitsPanel(QWidget):
         self.model.n_mc_runs = int(state.get('n_mc_runs', 10))
         self.model.invariant_porod_tail = bool(
             state.get('invariant_porod_tail', False))
+        self.model.bg_prefit = dict(state.get('bg_prefit') or {})
 
         saved_params = state.get('params', {})
         saved_limits = state.get('param_limits', {})
@@ -1945,6 +2053,11 @@ class SimpleFitsPanel(QWidget):
         self.porod_tail_check.setChecked(self.model.invariant_porod_tail)
         self.porod_tail_check.blockSignals(False)
 
+        self.bg_refit_check.blockSignals(True)
+        self.bg_refit_check.setChecked(
+            bool((self.model.bg_prefit or {}).get('enabled', False)))
+        self.bg_refit_check.blockSignals(False)
+
         # Restore cursor positions if saved
         q_min = state.get('q_min')
         q_max = state.get('q_max')
@@ -1984,6 +2097,7 @@ class SimpleFitsPanel(QWidget):
             'param_fixed': param_fixed,
             'n_mc_runs': self.n_runs_spin.value(),
             'invariant_porod_tail': self.porod_tail_check.isChecked(),
+            'bg_prefit': dict(self.model.bg_prefit or {}),
         }
 
     def save_state(self):

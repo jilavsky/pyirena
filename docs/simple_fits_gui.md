@@ -164,7 +164,15 @@ Workflow:
 2. If a background must be removed, check **Complex background** and use the
    **Fit B/P btwn cursors** / **Fit Flat btwn cursors** prefit buttons on a
    background-dominated Q region — the background `B·Q⁻ᴾ + flat` is
-   subtracted from the data before integration.
+   subtracted from the data before integration.  The Q window used by each
+   prefit button is **remembered** (shown below the Invariant options and
+   stored with the setup).  Check **"Refit background from saved ranges"**
+   to re-run these prefits automatically before every Calculate — in the
+   GUI *and* in scripted/batch runs.  This is essential for scripting:
+   the invariant is only as good as the background subtraction, so batch
+   runs re-determine B/P/flat per file from the saved windows instead of
+   trusting exported values.  The BG_P "Fit?" checkbox controls whether
+   the power-law prefit fits both B and P or holds P and fits B only.
 3. Enter **Contrast** Δρ² in units of 10²⁰ cm⁻⁴ (default 100; use the
    Scattering Contrast calculator if needed).
 4. Position the cursors over the Q range to integrate and press
@@ -419,6 +427,14 @@ result = fit_simple("sample.h5", config={
     'params': {'Contrast': 100.0,            # Δρ² in 10²⁰ cm⁻⁴
                'BG_B': 0.0, 'BG_P': 4.0, 'BG_flat': 0.05},
     'invariant_porod_tail': False,           # True → add Kp/Qmax tail
+    # Recommended for batch: refit the background per file from saved
+    # Q windows (recorded by the GUI prefit buttons) before calculating.
+    'bg_prefit': {
+        'enabled': True,
+        'power_law': {'use': True, 'q_min': 1e-4, 'q_max': 8e-4,
+                      'fit_P': True},        # low-Q upturn window
+        'flat':      {'use': True, 'q_min': 0.4, 'q_max': 1.0},  # high-Q
+    },
 }, q_min=0.001, q_max=0.3)
 if result and result['success']:
     d = result['derived']

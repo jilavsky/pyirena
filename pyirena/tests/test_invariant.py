@@ -124,6 +124,128 @@ class TestModelRouting:
         assert m2.model == "Invariant"
         assert m2.invariant_porod_tail is True
 
+    def test_bg_prefit_serialization_round_trip(self):
+        m = SimpleFitModel()
+        m.set_model("Invariant")
+        m.bg_prefit = {
+            "enabled": True,
+            "power_law": {"use": True, "q_min": 1e-4, "q_max": 5e-4,
+                          "fit_P": True},
+            "flat": {"use": True, "q_min": 0.5, "q_max": 1.0},
+        }
+        m2 = SimpleFitModel.from_dict(m.to_dict())
+        assert m2.bg_prefit == m.bg_prefit
+        # Old dicts without the key must load with the default
+        d = m.to_dict()
+        del d["bg_prefit"]
+        m3 = SimpleFitModel.from_dict(d)
+        assert m3.bg_prefit == {}
+
+
+class TestBackgroundPrefitReplay:
+    """Prefit replay: refit BG terms from saved Q windows before calculating."""
+
+    # Flat background well above the sphere's high-Q signal (median sphere
+    # intensity in the window is ~1e-4 cm^-1), so the flat window is truly
+    # background-dominated — as it must be for a valid flat prefit.
+    FLAT = 0.05
+    FLAT_WIN = (0.5, 1.0)
+
+    def _model(self, enabled=True):
+        m = SimpleFitModel()
+        m.set_model("Invariant")
+        m.use_complex_bg = True
+        m._reset_to_defaults()
+        m.params["Contrast"] = CONTRAST_1E20
+        # Deliberately wrong exported values — replay must fix them
+        m.params["BG_flat"] = 123.0
+        m.params["BG_B"] = 0.0
+        m.bg_prefit = {
+            "enabled": enabled,
+            "flat": {"use": True, "q_min": self.FLAT_WIN[0],
+                     "q_max": self.FLAT_WIN[1]},
+        }
+        return m
+
+    def test_replay_refits_flat_and_recovers_phi(self):
+        m = self._model(enabled=True)
+        I_bg = I_SPHERE + self.FLAT
+        applied = m.prefit_background(Q, I_bg)
+        assert applied["BG_flat"] == pytest.approx(self.FLAT, rel=0.05)
+        result = m.fit(Q, I_bg)
+        assert result["derived"]["VolumeFraction"] == pytest.approx(PHI, rel=0.03)
+
+    def test_replay_disabled_returns_empty(self):
+        m = self._model(enabled=False)
+        assert m.prefit_background(Q, I_SPHERE + self.FLAT) == {}
+        # and the wrong exported flat stays in place
+        assert m.params["BG_flat"] == 123.0
+
+    def test_replay_requires_complex_bg(self):
+        m = self._model(enabled=True)
+        m.use_complex_bg = False
+        assert m.prefit_background(Q, I_SPHERE + self.FLAT) == {}
+
+    def test_replay_warns_on_empty_window(self):
+        m = self._model(enabled=True)
+        m.bg_prefit["flat"] = {"use": True, "q_min": 5.0, "q_max": 10.0}
+        applied = m.prefit_background(Q, I_SPHERE + self.FLAT)
+        assert "warning" in applied
+        assert "BG_flat" not in applied
+
+    def test_power_law_replay(self):
+        # Add a q^-4 power-law background dominating the window (the sphere's
+        # own Porod tail acts like an effective B of ~4e-5, so B_true must be
+        # much larger for a clean single-component window) and refit B at
+        # fixed P.
+        B_true = 1e-2
+        I_bg = I_SPHERE + B_true * Q**-4.0
+        m = SimpleFitModel()
+        m.set_model("Invariant")
+        m.use_complex_bg = True
+        m._reset_to_defaults()
+        m.params["Contrast"] = CONTRAST_1E20
+        m.params["BG_P"] = 4.0
+        m.bg_prefit = {
+            "enabled": True,
+            "power_law": {"use": True, "q_min": 0.5, "q_max": 1.0,
+                          "fit_P": False},
+        }
+        applied = m.prefit_background(Q, I_bg)
+        assert applied["BG_B"] == pytest.approx(B_true, rel=0.1)
+
+    def test_batch_replay_end_to_end(self, tmp_path):
+        import h5py
+        from pyirena.batch.simple import fit_simple
+
+        fp = tmp_path / "sphere_bg.h5"
+        with h5py.File(fp, "w") as f:
+            e = f.create_group("entry")
+            e.attrs["NX_class"] = "NXentry"
+            s = e.create_group("sasdata")
+            s.attrs["NX_class"] = "NXdata"
+            s.attrs["signal"] = "I"
+            s.attrs["I_axes"] = "Q"
+            s.create_dataset("Q", data=Q)
+            s.create_dataset("I", data=I_SPHERE + self.FLAT)
+
+        config = {
+            "model": "Invariant",
+            "use_complex_bg": True,
+            # Wrong exported flat — the per-file replay must correct it
+            "params": {"Contrast": CONTRAST_1E20, "BG_B": 0.0,
+                       "BG_P": 4.0, "BG_flat": 123.0},
+            "bg_prefit": {
+                "enabled": True,
+                "flat": {"use": True, "q_min": self.FLAT_WIN[0],
+                         "q_max": self.FLAT_WIN[1]},
+            },
+        }
+        result = fit_simple(fp, config, verbose=False)
+        assert result is not None and result["success"]
+        assert result["derived"]["VolumeFraction"] == pytest.approx(PHI, rel=0.03)
+        assert result["params"]["BG_flat"] == pytest.approx(self.FLAT, rel=0.05)
+
 
 class TestHdf5RoundTrip:
     def test_save_and_load(self, tmp_path):

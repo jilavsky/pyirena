@@ -248,6 +248,16 @@ The Invariant (added July 2026) is the template for a **calculation method**
   items in a bare ViewBox).
 - Guards added for calculation models: skip fit-quality metrics in the saver
   (`chi2 is None`), skip MC uncertainty in batch.
+- **Prefit replay** (a lesson learned mid-feature): the invariant depends
+  critically on background subtraction, and exported B/P/flat values rarely
+  transfer between files.  The fix was to make the GUI's
+  "Fit … btwn cursors" buttons *record their Q windows* into a
+  `bg_prefit` dict on the model (serialised like everything else), plus a
+  `prefit_background(q, I)` method that both the GUI Calculate and
+  `batch.fit_simple()` invoke with the FULL data before calculating.
+  General principle: **if a scripted run cannot reproduce an interactive
+  step, persist the step's inputs (ranges), not just its outputs
+  (values).**
 
 ## Conventions
 

@@ -713,6 +713,19 @@ class SimpleFitModel:
     invariant_porod_tail : bool
         Invariant only — when True, extend the invariant integral beyond
         QmaxUsed by the Porod tail Kp/QmaxUsed.
+    bg_prefit : dict
+        Remembered background prefit setup, recorded by the GUI when the
+        "Fit B/P btwn cursors" / "Fit Flat btwn cursors" buttons are used::
+
+            {'enabled':   bool,        # replay before Invariant calculation
+             'power_law': {'use': bool, 'q_min': float, 'q_max': float,
+                           'fit_P': bool},
+             'flat':      {'use': bool, 'q_min': float, 'q_max': float}}
+
+        When ``enabled``, callers invoke :meth:`prefit_background` with the
+        FULL data (not the integration-trimmed range) before ``fit()`` so
+        that scripted/batch runs re-determine the background per file the
+        same way the GUI user did interactively.  Invariant only.
     """
 
     def __init__(self) -> None:
@@ -722,6 +735,7 @@ class SimpleFitModel:
         self.use_complex_bg: bool = False
         self.n_mc_runs: int = 50
         self.invariant_porod_tail: bool = False
+        self.bg_prefit: dict = {}
         self._reset_to_defaults()
 
     # ── Calculation-model helpers ─────────────────────────────────────────────
@@ -730,6 +744,85 @@ class SimpleFitModel:
     def is_calculation(self) -> bool:
         """True when the active model is a direct calculation (no least-squares)."""
         return bool(MODEL_REGISTRY[self.model].get('calculation', False))
+
+    def prefit_background(self, q: np.ndarray, intensity: np.ndarray) -> dict:
+        """Refit the complex-background terms over the remembered Q ranges.
+
+        Replays the GUI's "Fit B/P btwn cursors" / "Fit Flat btwn cursors"
+        actions from the ranges stored in :attr:`bg_prefit`, updating
+        ``BG_B`` / ``BG_P`` / ``BG_flat`` in :attr:`params`.  This makes the
+        Invariant calculation robust in scripted/batch runs: the background
+        is re-determined per file instead of assuming exported values fit.
+
+        Call with the FULL data arrays — the saved background windows
+        typically lie outside the integration (cursor) range.
+
+        Order matters and matches the GUI workflow: power-law first, then
+        flat (the flat estimate subtracts the current power-law).
+
+        Returns
+        -------
+        dict — refit values actually applied, e.g.
+        ``{'BG_B': …, 'BG_P': …, 'BG_flat': …}``.  Empty when
+        ``bg_prefit['enabled']`` is False, ``use_complex_bg`` is False, or
+        no section is in use.  A ``'warning'`` key is added when a saved
+        window contains too few points in this dataset.
+        """
+        applied: dict = {}
+        cfg = self.bg_prefit or {}
+        if not cfg.get('enabled') or not self.use_complex_bg:
+            return applied
+
+        from pyirena.core.saxs_morph import (
+            fit_power_law_bg, fit_power_law_bg_fixed_p, fit_flat_bg,
+        )
+
+        q = np.asarray(q, dtype=float)
+        I = np.asarray(intensity, dtype=float)
+        mask = np.isfinite(q) & np.isfinite(I) & (q > 0)
+        q, I = q[mask], I[mask]
+        warnings = []
+
+        def _n_in(q_min, q_max):
+            return int(np.sum((q >= q_min) & (q <= q_max)))
+
+        pl = cfg.get('power_law') or {}
+        if pl.get('use'):
+            q_min, q_max = float(pl['q_min']), float(pl['q_max'])
+            if _n_in(q_min, q_max) >= 2:
+                if pl.get('fit_P', True):
+                    B, P = fit_power_law_bg(q, I, q_min, q_max)
+                    self.params['BG_P'] = float(P)
+                    applied['BG_P'] = float(P)
+                else:
+                    P = float(self.params.get('BG_P', 4.0))
+                    B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
+                self.params['BG_B'] = float(B)
+                applied['BG_B'] = float(B)
+            else:
+                warnings.append(
+                    f'power-law window [{q_min:g}, {q_max:g}] has <2 points '
+                    'in this dataset — BG_B/BG_P not refit')
+
+        fl = cfg.get('flat') or {}
+        if fl.get('use'):
+            q_min, q_max = float(fl['q_min']), float(fl['q_max'])
+            if _n_in(q_min, q_max) >= 1:
+                flat = fit_flat_bg(
+                    q, I, q_min, q_max,
+                    power_law_B=float(self.params.get('BG_B', 0.0)),
+                    power_law_P=float(self.params.get('BG_P', 4.0)),
+                )
+                self.params['BG_flat'] = float(flat)
+                applied['BG_flat'] = float(flat)
+            else:
+                warnings.append(
+                    f'flat window [{q_min:g}, {q_max:g}] has no points '
+                    'in this dataset — BG_flat not refit')
+
+        if warnings:
+            applied['warning'] = '; '.join(warnings)
+        return applied
 
     # ── Model switching ───────────────────────────────────────────────────────
 
@@ -1277,6 +1370,7 @@ class SimpleFitModel:
             'use_complex_bg': self.use_complex_bg,
             'n_mc_runs': self.n_mc_runs,
             'invariant_porod_tail': self.invariant_porod_tail,
+            'bg_prefit': dict(self.bg_prefit) if self.bg_prefit else {},
         }
 
     @classmethod
@@ -1292,6 +1386,7 @@ class SimpleFitModel:
         obj.use_complex_bg = bool(d.get('use_complex_bg', False))
         obj.n_mc_runs = int(d.get('n_mc_runs', 50))
         obj.invariant_porod_tail = bool(d.get('invariant_porod_tail', False))
+        obj.bg_prefit = dict(d.get('bg_prefit') or {})
         # Fill in any missing params/limits from registry defaults
         entry = MODEL_REGISTRY[obj.model]
         for name, default, lo, hi in entry['params']:
