@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 import os
 
 from pyirena.gui._qt import (
-    QAbstractItemView, QAction, QFont, QLabel, QLineEdit, QMenu, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
+    QAbstractItemView, QAction, QCheckBox, QFont, QLabel, QLineEdit, QMenu, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
 )
 
 import h5py
@@ -84,6 +84,7 @@ class HDF5BrowserWidget(QWidget):
         super().__init__(parent)
         self._filepath: str | None = None
         self._h5file:   h5py.File | None = None
+        self._show_all_attrs = False
         self._build_ui()
 
     # ── UI construction ────────────────────────────────────────────────────
@@ -110,6 +111,14 @@ class HDF5BrowserWidget(QWidget):
         )
         self._file_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(self._file_label)
+
+        self._show_all_attrs_cb = QCheckBox("Show all attributes")
+        self._show_all_attrs_cb.setToolTip(
+            "Show every HDF5 attribute on each item, not just the commonly "
+            "used ones (NX_class, units, analysis_type, ...)."
+        )
+        self._show_all_attrs_cb.toggled.connect(self._on_show_all_attrs_toggled)
+        layout.addWidget(self._show_all_attrs_cb)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Name", "Info"])
@@ -235,14 +244,22 @@ class HDF5BrowserWidget(QWidget):
         h5_node: h5py.HLObject,
         h5_path: str,
     ) -> None:
-        """Add a few important attributes as sub-items for discoverability."""
+        """Add attributes as sub-items for discoverability.
+
+        By default only a curated "interesting" subset is shown; when
+        ``self._show_all_attrs`` is set, every attribute is shown except
+        ones starting with "_" (internal bookkeeping, e.g. _pyirena_config,
+        never meant for the user).
+        """
         interesting = {
             "NX_class", "canSAS_class", "signal", "axes", "I_axes",
             "analysis_type", "program", "units", "n_peaks",
         }
         try:
             for key in h5_node.attrs:
-                if key not in interesting:
+                if key.startswith("_"):
+                    continue
+                if not self._show_all_attrs and key not in interesting:
                     continue
                 val = h5_node.attrs[key]
                 if isinstance(val, (bytes, np.bytes_)):
@@ -262,6 +279,35 @@ class HDF5BrowserWidget(QWidget):
                 attr_item.setFlags(attr_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+
+    def _on_show_all_attrs_toggled(self, checked: bool) -> None:
+        """Re-render attribute sub-items in place, keeping expand state."""
+        self._show_all_attrs = checked
+        if self._h5file is None:
+            return
+        root = self._tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            self._refresh_attrs(root.child(i))
+
+    def _refresh_attrs(self, item: QTreeWidgetItem) -> None:
+        """Recursively rebuild attribute sub-items of *item* and its children."""
+        h5_path = item.data(0, _HDF5_PATH_ROLE)
+        if h5_path is not None and self._h5file is not None:
+            # Drop existing attribute sub-items (they carry no HDF5 path).
+            for i in reversed(range(item.childCount())):
+                child = item.child(i)
+                if child.data(0, _HDF5_PATH_ROLE) is None:
+                    item.removeChild(child)
+            try:
+                node = self._h5file[h5_path]
+                self._add_key_attrs(item, node, h5_path)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.data(0, _HDF5_PATH_ROLE) is not None:
+                self._refresh_attrs(child)
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
         """Lazily load children of a group item on first expand."""

@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enforced with a hard error on files lacking `dQl`. Saved results record
   `slit_length` / `data_is_slit_smeared` and an ideal (`*_ideal`) model curve
   alongside the smeared one. See `docs/slit_smearing.md`.
+- **Data Explorer — "Show all attributes" checkbox.** The HDF5 tree browser
+  previously only surfaced a curated set of attributes (`NX_class`, `units`,
+  `analysis_type`, ...), silently hiding others such as `data_is_slit_smeared`
+  / `slit_length` on `unified_fit_results`. A new checkbox above the tree
+  toggles between the curated set and every attribute on a node; internal
+  bookkeeping (`_pyirena_config` and any other `_`-prefixed attribute) stays
+  hidden either way. Toggling preserves the tree's current expand state.
 - **Data Merge — slit-smearing provenance.** Merging a slit-smeared USAXS curve
   with a pinhole SAXS curve produces a slit-smeared output: the merged file
   gets a `dQl` dataset (so downstream tools auto-detect it) and the merge
