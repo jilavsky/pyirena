@@ -23,6 +23,7 @@ import pyqtgraph as pg
 
 from pyirena.core.simple_fits import SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state.state_manager import StateManager
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.sas_plot import (
@@ -411,10 +412,15 @@ class SimpleFitsGraphWindow(QWidget):
         Y_fit = lin_result['Y_fit']
         q_raw = lin_result.get('q')   # original Q values from linearize()
 
-        self.lin_plot.setTitle(
+        _title = (
             f"{lin_result['y_label']} vs {lin_result['x_label']}   "
             f"slope={lin_result['slope']:.4g}  intercept={lin_result['intercept']:.4g}  "
-            f"R²={lin_result['r_squared']:.4f}",
+            f"R²={lin_result['r_squared']:.4f}"
+        )
+        if lin_result.get('best_effort_smeared'):
+            _title = "⚠ ideal-space (best effort) — data are slit smeared\n" + _title
+        self.lin_plot.setTitle(
+            _title,
             color='#333333', size='9pt',
         )
         self.lin_plot.setLabel('left',   lin_result['y_label'])
@@ -553,7 +559,7 @@ class SimpleFitsGraphWindow(QWidget):
 # SimpleFitsPanel
 # ===========================================================================
 
-class SimpleFitsPanel(QWidget):
+class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     """
     Simple Fits interactive panel.
 
@@ -645,6 +651,7 @@ class SimpleFitsPanel(QWidget):
         self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         layout.addWidget(self.data_loader)
+        self._build_slit_row(layout)
 
         # ── Model selector ────────────────────────────────────────────────────
         model_row = QHBoxLayout()
@@ -1266,10 +1273,40 @@ class SimpleFitsPanel(QWidget):
             label=display_name,
             filepath=hdf5_path,
             is_nxcansas=True,
+            slit_length=float(data.get('slit_length', 0.0) or 0.0),
+            is_slit_smeared=bool(data.get('is_slit_smeared', False)),
         )
 
+    def _reload_data_with_smearing(self, prefer_slit_smeared):
+        """Reload the current file's desmeared or slit-smeared dataset."""
+        fp = self.data.get('filepath') if self.data else None
+        if not fp:
+            return
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            from pathlib import Path as _P
+            d = readGenericNXcanSAS(str(_P(fp).parent), _P(fp).name,
+                                    prefer_slit_smeared=prefer_slit_smeared)
+            if d is None:
+                return
+            self.set_data(
+                np.asarray(d['Q'], dtype=float), np.asarray(d['Intensity'], dtype=float),
+                d.get('Error'), label=self.data.get('label', 'Data'),
+                filepath=fp, is_nxcansas=True,
+                slit_length=float(d.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(d.get('is_slit_smeared', False)),
+            )
+        except Exception as exc:
+            self.status_label.setText(f"Could not reload data: {exc}")
+
+    def _replot_after_slit_change(self):
+        if self.data is not None:
+            self.graph_window.plot_data(
+                self.data['Q'], self.data['Intensity'],
+                self.data.get('Error'), label=self.data.get('label', 'Data'))
+
     def set_data(self, q, intensity, error=None, label='Data',
-                 filepath=None, is_nxcansas=False):
+                 filepath=None, is_nxcansas=False, slit_length=0.0, is_slit_smeared=False):
         """Load SAS data into the panel and plot it."""
         self.data = {
             'Q': np.asarray(q, dtype=float),
@@ -1278,7 +1315,10 @@ class SimpleFitsPanel(QWidget):
             'label': label,
             'filepath': filepath,
             'is_nxcansas': is_nxcansas,
+            'slit_length': slit_length,
+            'is_slit_smeared': is_slit_smeared,
         }
+        self._refresh_slit_ui_from_data(slit_length, is_slit_smeared, filepath)
         self.fit_result = None
         self.chi2_label.setText('—')
         self.rchi2_label.setText('—')
@@ -1363,8 +1403,12 @@ class SimpleFitsPanel(QWidget):
         fit_p_chk = self._param_fit_checks.get('BG_P')
         fit_p = fit_p_chk.isChecked() if fit_p_chk is not None else True
 
+        # Smear the prefit model when the data are slit smeared, so B/P are
+        # ideal-space (the main fit smears the background too — F1).
+        sl = self.current_slit_length() if self.slit_active() else 0.0
+
         if fit_p:
-            B, P = fit_power_law_bg(q, I, q_min, q_max)
+            B, P = fit_power_law_bg(q, I, q_min, q_max, slit_length=sl)
             self._set_param_value('BG_P', P)
         else:
             # Hold P at the user's current value; fit only the prefactor B.
@@ -1372,7 +1416,7 @@ class SimpleFitsPanel(QWidget):
                 P = float(self._param_value_edits['BG_P'].text())
             except (KeyError, ValueError):
                 P = self.model.params.get('BG_P', 4.0)
-            B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
+            B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P, slit_length=sl)
 
         self._set_param_value('BG_B', B)
         # Remember the window so scripted runs can replay this prefit
@@ -1410,7 +1454,9 @@ class SimpleFitsPanel(QWidget):
         except (KeyError, ValueError):
             P = self.model.params.get('BG_P', 4.0)
 
-        flat = fit_flat_bg(q, I, q_min, q_max, power_law_B=B, power_law_P=P)
+        sl = self.current_slit_length() if self.slit_active() else 0.0
+        flat = fit_flat_bg(q, I, q_min, q_max, power_law_B=B, power_law_P=P,
+                           slit_length=sl)
         self._set_param_value('BG_flat', flat)
         # Remember the window so scripted runs can replay this prefit per file
         bp = dict(self.model.bg_prefit or {})
@@ -1450,6 +1496,9 @@ class SimpleFitsPanel(QWidget):
             hi = float(txt) if txt else None
             lo, _ = self.model.limits.get(name, (None, None))
             self.model.limits[name] = (lo, hi)
+        # Slit smearing (analytic models smeared; Invariant disabled on SMR data).
+        self.model.use_slit_smearing = self.slit_active()
+        self.model.slit_length = self.current_slit_length()
         return self.model
 
     def _collect_fixed_params(self) -> dict:
@@ -1526,6 +1575,11 @@ class SimpleFitsPanel(QWidget):
         if self.data is None:
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
+
+        # Push slit-smearing state onto the model before any path (the Invariant
+        # calculation path reads it to refuse smeared data with a clear message).
+        self.model.use_slit_smearing = self.slit_active()
+        self.model.slit_length = self.current_slit_length()
 
         # Calculation models (Invariant) take a separate path — no least squares
         if self.model.is_calculation:

@@ -1991,6 +1991,8 @@ class DataSelectorPanel(QWidget):
             self.unified_fit_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.unified_fit_window.show()
             self.unified_fit_window.raise_()
@@ -2026,6 +2028,8 @@ class DataSelectorPanel(QWidget):
             self.sizes_fit_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.sizes_fit_window.show()
             self.sizes_fit_window.raise_()
@@ -2062,6 +2066,8 @@ class DataSelectorPanel(QWidget):
             self.modeling_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.modeling_window.show()
             self.modeling_window.raise_()
@@ -2112,6 +2118,8 @@ class DataSelectorPanel(QWidget):
             self.simple_fits_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.simple_fits_window.show()
             self.simple_fits_window.raise_()

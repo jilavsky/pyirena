@@ -20,7 +20,9 @@ from scipy.special import erf, gamma
 from scipy.optimize import least_squares
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
-import warnings 
+import warnings
+
+from pyirena.core.smearing import SlitSmearer
 
 
 @dataclass
@@ -130,6 +132,26 @@ class UnifiedLevel:
 
         return LOW_LIMIT <= difference <= HIGH_LIMIT
 
+    def slit_smearing_note(self, slit_length: float = 0.0) -> str:
+        """Soft warning when this level's feature is washed out by the slit.
+
+        A level of radius of gyration ``Rg`` scatters around ``Q ~ 1/Rg``.  When
+        that lies below the slit length (``Rg > π/slit_length``), slit smearing
+        strongly damps the feature and the fitted parameters are weakly
+        determined.  Returns a human-readable note (empty when not applicable);
+        does not change :meth:`check_physical_feasibility` (which judges the
+        ideal-space parameters).  E3 in the slit-smearing plan.
+        """
+        sl = float(slit_length or 0.0)
+        if sl <= 0 or self.Rg <= 0 or (self.G <= 0 and self.Rg > 1e9):
+            return ''
+        rg_limit = np.pi / sl
+        if self.Rg > rg_limit:
+            return (f"Rg={self.Rg:.4g} Å exceeds π/slit_length≈{rg_limit:.4g} Å "
+                    f"— this feature is largely washed out by slit smearing; "
+                    f"its parameters are weakly determined.")
+        return ''
+
 
 class UnifiedFitModel:
     """
@@ -158,9 +180,14 @@ class UnifiedFitModel:
         self.error_data: Optional[np.ndarray] = None
         self.dq_data: Optional[np.ndarray] = None
 
-        # Slit smearing parameters
+        # Slit smearing parameters.  When use_slit_smearing is on and
+        # slit_length > 0, the *model* is evaluated on an extended q grid and
+        # convolved with the slit before comparison with data (the data are
+        # never modified).  _smearer caches the (q, SL) smearing operator across
+        # fit iterations; see pyirena.core.smearing.
         self.use_slit_smearing: bool = False
         self.slit_length: float = 0.0
+        self._smearer: Optional[SlitSmearer] = None
 
         # Fit results
         self.fit_result = None
@@ -266,32 +293,59 @@ class UnifiedFitModel:
 
         return intensity
 
-    def apply_slit_smearing(self, q: np.ndarray, intensity: np.ndarray) -> np.ndarray:
-        """
-        Apply slit smearing correction to the calculated intensity.
+    def _get_smearer(self, q: np.ndarray) -> Optional[SlitSmearer]:
+        """Return the cached slit smearer for grid ``q``, rebuilding on change.
 
-        This is a simplified implementation. For production use, implement
-        proper slit smearing integration over the slit length.
+        Returns ``None`` when smearing is disabled or the slit length is zero,
+        so callers fall back to the ideal (pinhole) model.  Within a fit loop
+        ``q`` is fixed, so the operator is built once and reused every
+        iteration (one sparse matvec per residual call — negligible cost).
+        """
+        if not self.use_slit_smearing or self.slit_length <= 0:
+            return None
+        q = np.asarray(q, dtype=float)
+        cached = self._smearer
+        if (cached is not None
+                and cached.slit_length == self.slit_length
+                and cached.q.shape == q.shape
+                and np.array_equal(cached.q, q)):
+            return cached
+        self._smearer = SlitSmearer(q, self.slit_length)
+        return self._smearer
+
+    def calculate_intensity_smeared(self, q: np.ndarray) -> np.ndarray:
+        """Total model intensity with slit smearing applied when active.
+
+        Evaluates the ideal model on an extended q grid and convolves it with
+        the slit (Lake infinite-slit-length integral), mirroring Igor's
+        ``IR1A_UnifiedCalculateIntensity``.  Falls back to the ideal model
+        (:meth:`calculate_intensity`) when smearing is off.  The constant
+        background smears to itself, so it needs no special handling.
+        """
+        smearer = self._get_smearer(q)
+        if smearer is None:
+            return self.calculate_intensity(q)
+        return smearer.smear_model(self.calculate_intensity)
+
+    def apply_slit_smearing(self, q: np.ndarray, intensity: np.ndarray) -> np.ndarray:
+        """Slit-smear an already-tabulated intensity curve.
+
+        Kept for backward compatibility; uses :func:`smearing.smear_curve`
+        (power-law extrapolation beyond qmax).  Prefer
+        :meth:`calculate_intensity_smeared`, which evaluates the analytic model
+        on an extended grid and avoids extrapolation entirely.
 
         Args:
             q: Scattering vector [1/Angstrom]
             intensity: Calculated intensity [cm^-1]
 
         Returns:
-            Slit-smeared intensity [cm^-1]
+            Slit-smeared intensity [cm^-1] (unchanged when smearing is off).
         """
         if not self.use_slit_smearing or self.slit_length <= 0:
             return intensity
-
-        # Simplified slit smearing: convolve with rectangular slit function
-        # For proper implementation, see Lake (1967) or Strobl (1970)
-        warnings.warn("Slit smearing is simplified. Use proper integration for production.")
-
-        # Check if q range is sufficient
-        if q[-1] < 3 * self.slit_length:
-            warnings.warn(f"Q range should extend to at least 3*slit_length = {3*self.slit_length:.4f}")
-
-        return intensity  # Placeholder - implement proper smearing if needed
+        from pyirena.core.smearing import smear_curve
+        return smear_curve(q, intensity, self.slit_length)
 
     def _pack_parameters(self) -> np.ndarray:
         """Pack all fittable parameters into a 1D array."""
@@ -386,10 +440,9 @@ class UnifiedFitModel:
         """Calculate weighted residuals for fitting."""
         self._unpack_parameters(params)
 
-        model_intensity = self.calculate_intensity(self.q_data)
-
-        if self.use_slit_smearing:
-            model_intensity = self.apply_slit_smearing(self.q_data, model_intensity)
+        # Slit-smear the model (no-op when smearing is off) so it is compared to
+        # the (smeared) data on the same footing.
+        model_intensity = self.calculate_intensity_smeared(self.q_data)
 
         # Calculate weighted residuals
         if self.error_data is not None and np.any(self.error_data > 0):
@@ -484,10 +537,8 @@ class UnifiedFitModel:
         # Unpack final parameters
         self._unpack_parameters(self.fit_result.x)
 
-        # Calculate final fit
-        self.fit_intensity = self.calculate_intensity(self.q_data)
-        if self.use_slit_smearing:
-            self.fit_intensity = self.apply_slit_smearing(self.q_data, self.fit_intensity)
+        # Calculate final fit (smeared to match the data when smearing is on).
+        self.fit_intensity = self.calculate_intensity_smeared(self.q_data)
 
         # Calculate chi-squared
         residuals = self._residuals(self.fit_result.x)
@@ -536,6 +587,13 @@ class UnifiedFitModel:
             the data range).  For the Igor-equivalent calculation used by the
             GUI and batch API — fixed Qmax = 2*pi/(Rg/10) with Simpson
             integration — use :func:`compute_invariant_sv` instead.
+
+            The invariant is ALWAYS computed from the ideal (pinhole) model
+            intensity — even when the data are slit smeared and the fit used
+            slit smearing.  This is valid because the fitted parameters are
+            ideal-space; the smearing only affects the comparison with data.
+            Callers should label it "from ideal model" when data are slit
+            smeared (Unified Fit Q1 decision, 2026-07-20).
 
         Args:
             level_idx: Level index (0-based)
@@ -665,6 +723,7 @@ def fit_local_guinier(
     fit_Rg: bool = True,
     G: Optional[float] = None,
     Rg: Optional[float] = None,
+    slit_length: float = 0.0,
 ) -> Dict:
     """Local single-level Guinier fit  I(q) = G·exp(−q²·Rg²/3) over the data given.
 
@@ -685,11 +744,17 @@ def fit_local_guinier(
         held fixed at the corresponding ``G`` / ``Rg`` argument.
     G, Rg : float, optional
         Current/fixed values, required when the matching fit flag is False.
+    slit_length : float, optional
+        Slit (half-)length [1/Å].  When > 0 the pure-Guinier model is slit
+        smeared before comparison, so the fitted ``G``/``Rg`` are ideal-space
+        parameters consistent with slit-smeared data.  ``0`` (default) = pinhole.
 
     Returns
     -------
     dict with keys ``G``, ``Rg``, ``n_points``, ``chi_squared``,
-    ``reduced_chi_squared`` and ``model_I`` (model evaluated on ``q``).
+    ``reduced_chi_squared`` and ``model_I`` (model evaluated on ``q``).  A
+    ``warning`` key is present (string) when the fit window is below the slit
+    length (E2 — weakly determined smeared local fit).
 
     Raises
     ------
@@ -709,6 +774,17 @@ def fit_local_guinier(
     if not fit_G and not fit_Rg:
         raise ValueError("At least one of G / Rg must be selected for fitting.")
 
+    warning = None
+    smearer = None
+    if slit_length and slit_length > 0:
+        smearer = SlitSmearer(q, slit_length)
+        if q[-1] < slit_length:
+            warning = (
+                f"Fit range qmax={q[-1]:.4g} is below the slit length "
+                f"{slit_length:.4g}; smeared local Guinier fit is weakly "
+                "determined."
+            )
+
     # Starting estimates (Igor heuristic): Rg from the mid-Q, G from mean I
     q_avg = (q[0] + q[-1]) / 2.0
     g0 = (intensity[0] + intensity[-1]) / 2.0
@@ -725,7 +801,10 @@ def fit_local_guinier(
             sigma = error
 
     def model(q_, G_, Rg_):
-        return G_ * np.exp(-(q_ ** 2) * (Rg_ ** 2) / 3.0)
+        ideal = lambda x: G_ * np.exp(-(x ** 2) * (Rg_ ** 2) / 3.0)
+        if smearer is None:
+            return ideal(q_)
+        return smearer.smear_model(ideal)
 
     if fit_G and fit_Rg:
         popt, _ = curve_fit(model, q, intensity, p0=[g0, rg0], sigma=sigma,
@@ -745,7 +824,7 @@ def fit_local_guinier(
     resid = (intensity - model_I) / (sigma if sigma is not None else 1.0)
     chi_sq = float(np.sum(resid ** 2))
     dof = max(len(q) - (int(fit_G) + int(fit_Rg)), 1)
-    return {
+    result = {
         "G": g_fit,
         "Rg": rg_fit,
         "n_points": int(len(q)),
@@ -753,6 +832,9 @@ def fit_local_guinier(
         "reduced_chi_squared": chi_sq / dof,
         "model_I": model_I,
     }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def fit_local_power_law(
@@ -764,6 +846,7 @@ def fit_local_power_law(
     fit_P: bool = True,
     B: Optional[float] = None,
     P: Optional[float] = None,
+    slit_length: float = 0.0,
 ) -> Dict:
     """Local single power-law (Porod) fit  I(q) = B·q⁻ᴾ over the data given.
 
@@ -818,6 +901,17 @@ def fit_local_power_law(
             f"(got {len(q_pos)})."
         )
 
+    warning = None
+    smearer = None
+    if slit_length and slit_length > 0:
+        smearer = SlitSmearer(q_pos, slit_length)
+        if q_pos[-1] < slit_length:
+            warning = (
+                f"Fit range qmax={q_pos[-1]:.4g} is below the slit length "
+                f"{slit_length:.4g}; smeared local power-law fit is weakly "
+                "determined."
+            )
+
     # Starting estimates (Igor heuristic): P from log-log slope, B from I·q^P
     denom = np.log(q_pos[-1]) - np.log(q_pos[0])
     p0 = abs((np.log(I_pos[0]) - np.log(I_pos[-1])) / denom) if denom != 0 else 4.0
@@ -832,7 +926,10 @@ def fit_local_power_law(
         sigma = err_pos
 
     def model(q_, B_, P_):
-        return B_ * np.power(q_, -P_)
+        ideal = lambda x: B_ * np.power(x, -P_)
+        if smearer is None:
+            return ideal(q_)
+        return smearer.smear_model(ideal)
 
     if fit_B and fit_P:
         popt, _ = curve_fit(model, q_pos, I_pos, p0=[b0, p0], sigma=sigma,
@@ -852,7 +949,7 @@ def fit_local_power_law(
     resid = (I_pos - model_I) / (sigma if sigma is not None else 1.0)
     chi_sq = float(np.sum(resid ** 2))
     dof = max(len(q_pos) - (int(fit_B) + int(fit_P)), 1)
-    return {
+    result = {
         "B": b_fit,
         "P": p_fit,
         "q": q_pos,
@@ -861,6 +958,9 @@ def fit_local_power_law(
         "reduced_chi_squared": chi_sq / dof,
         "model_I": model_I,
     }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def compute_invariant_sv(

@@ -22,6 +22,8 @@ from pyirena.io._nxcansas_common import (
     copy_and_strip_results as _copy_and_strip_results,
     replace_nxcansas_data,
     append_dq as _append_dq,
+    append_dql as _append_dql,
+    drop_smr_entries as _drop_smr_entries,
 )
 
 import logging
@@ -106,6 +108,13 @@ def save_merged_data(
         # Copy DS1 file, strip results, replace data arrays
         _copy_and_strip_results(ds1_path, out_path)
         replace_nxcansas_data(out_path, q, I, dI, dQ, context="merged data")
+        # The copied file may contain a stale slit-smeared (_SMR) twin of DS1
+        # that no longer matches the merged default entry — drop it so a later
+        # prefer_slit_smeared load can't silently return the wrong curve.
+        n_smr = _drop_smr_entries(out_path)
+        if n_smr:
+            log.info(f"[data_merge] Removed {n_smr} stale _SMR entry(ies) "
+                     f"from the merged output.")
     else:
         # Create fresh NXcanSAS file
         sample_name = stem
@@ -113,6 +122,12 @@ def save_merged_data(
         # Add dQ if available
         if dQ is not None:
             _append_dq(out_path, dQ, sample_name)
+
+    # When the merged curve is slit smeared, mark the output so downstream
+    # tools auto-detect it (writes scalar dQl + Q@resolutions).
+    sl_merged = float(merge_result_dict.get('slit_length_merged', 0.0) or 0.0)
+    if sl_merged > 0:
+        _append_dql(out_path, sl_merged)
 
     # Append provenance group
     _append_merge_provenance(out_path, merge_result_dict, ds1_path, ds2_path)

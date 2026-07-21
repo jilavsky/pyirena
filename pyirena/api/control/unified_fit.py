@@ -224,16 +224,24 @@ def _render_fit_image(session: Session, width: int, height: int, dpi: int = 120)
 # Category A — Session lifecycle
 # ---------------------------------------------------------------------------
 
-def open_dataset(file_path: str) -> dict:
+def open_dataset(file_path: str, use_slit_smeared: bool = False) -> dict:
     """Load a NXcanSAS HDF5 file and create a new fitting session.
+
+    Parameters
+    ----------
+    use_slit_smeared : bool
+        When True, load the file's slit-smeared (``_SMR``) dataset if present.
+        Model smearing is then enabled automatically at the file-derived slit
+        length when a Unified Fit model is created for the session.
 
     Returns
     -------
     dict with keys: session_id, summary (file, n_points, q_min, q_max,
-    intensity_min, intensity_max, label).
+    intensity_min, intensity_max, label, is_slit_smeared, slit_length,
+    has_slit_smeared_entry).
     On failure returns an error dict.
     """
-    from pyirena.io.hdf5 import readGenericNXcanSAS
+    from pyirena.io.hdf5 import readGenericNXcanSAS, file_has_smr_entry
 
     fp = Path(file_path)
     if not fp.exists():
@@ -244,7 +252,8 @@ def open_dataset(file_path: str) -> dict:
         )
 
     try:
-        data = readGenericNXcanSAS(str(fp.parent), fp.name)
+        data = readGenericNXcanSAS(
+            str(fp.parent), fp.name, prefer_slit_smeared=use_slit_smeared)
     except Exception as exc:
         return make_error(
             f"Could not read '{file_path}': {exc}",
@@ -275,8 +284,17 @@ def open_dataset(file_path: str) -> dict:
     if isinstance(label, bytes):
         label = label.decode("utf-8", errors="replace")
 
+    is_slit_smeared = bool(data.get("is_slit_smeared", False))
+    slit_length = float(data.get("slit_length", 0.0) or 0.0)
+    try:
+        has_smr_entry = file_has_smr_entry(str(fp.parent), fp.name)
+    except Exception:
+        has_smr_entry = False
+
     session = create_session(file_path=str(fp), q=q, intensity=I, error=err,
-                             label=str(label))
+                             label=str(label),
+                             is_slit_smeared=is_slit_smeared,
+                             slit_length=slit_length)
 
     valid = np.isfinite(q) & np.isfinite(I)
     return {
@@ -289,6 +307,10 @@ def open_dataset(file_path: str) -> dict:
             "q_max":         float(np.nanmax(q[valid])),
             "intensity_min": float(np.nanmin(I[valid & (I > 0)])) if np.any(valid & (I > 0)) else None,
             "intensity_max": float(np.nanmax(I[valid])),
+            # Slit-smearing status so the AI advisor can explain/enable it.
+            "is_slit_smeared":        is_slit_smeared,
+            "slit_length":            slit_length,
+            "has_slit_smeared_entry": has_smr_entry,
         },
     }
 
@@ -412,6 +434,11 @@ def select_model(
         s.model = UnifiedFitModel(num_levels=nlevels)
         s.model_name = "unified_fit"
         s.last_fit_result = None
+        # Auto-enable slit smearing when the session's data are slit smeared
+        # (SasView-style: slit-length presence drives model smearing).
+        if s.is_slit_smeared and s.slit_length > 0:
+            s.model.use_slit_smearing = True
+            s.model.slit_length = s.slit_length
 
     return {
         "ok":            True,
@@ -1083,7 +1110,8 @@ def fit_local_guinier(
     from pyirena.core.unified import fit_local_guinier as _core_guinier  # noqa: PLC0415
 
     try:
-        r = _core_guinier(q_fit, I_fit, error=err_fit)
+        r = _core_guinier(q_fit, I_fit, error=err_fit,
+                          slit_length=s.slit_length if s.is_slit_smeared else 0.0)
     except Exception as exc:
         return make_error(
             f"Local Guinier fit failed: {exc}",
@@ -1091,7 +1119,7 @@ def fit_local_guinier(
             code="FIT_FAILED",
         )
 
-    return {
+    out = {
         "ok":                  True,
         "G":                   r["G"],
         "Rg":                  r["Rg"],
@@ -1101,6 +1129,9 @@ def fit_local_guinier(
         "chi_squared":         r["chi_squared"],
         "reduced_chi_squared": r["reduced_chi_squared"],
     }
+    if r.get("warning"):
+        out["warning"] = r["warning"]
+    return out
 
 
 def fit_local_power_law(
@@ -1160,7 +1191,8 @@ def fit_local_power_law(
     from pyirena.core.unified import fit_local_power_law as _core_power_law  # noqa: PLC0415
 
     try:
-        r = _core_power_law(q_fit, I_fit, error=err_fit)
+        r = _core_power_law(q_fit, I_fit, error=err_fit,
+                           slit_length=s.slit_length if s.is_slit_smeared else 0.0)
     except Exception as exc:
         return make_error(
             f"Local power-law fit failed: {exc}",
@@ -1169,7 +1201,7 @@ def fit_local_power_law(
         )
 
     q_pos = r["q"]
-    return {
+    out = {
         "ok":                  True,
         "P":                   r["P"],
         "B":                   r["B"],
@@ -1179,6 +1211,9 @@ def fit_local_power_law(
         "chi_squared":         r["chi_squared"],
         "reduced_chi_squared": r["reduced_chi_squared"],
     }
+    if r.get("warning"):
+        out["warning"] = r["warning"]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1393,6 +1428,11 @@ def run_fit(
         "random_seed":         random_seed,
         "parameters_updated":  updated,
         "quality":             quality,
+        # Report smearing state so the AI advisor can explain that fitted
+        # parameters are ideal-space and the model was compared smeared.
+        "slit_smearing_applied": bool(getattr(s.model, "use_slit_smearing", False)
+                                       and getattr(s.model, "slit_length", 0.0) > 0),
+        "slit_length":           float(getattr(s.model, "slit_length", 0.0)),
     }
 
 

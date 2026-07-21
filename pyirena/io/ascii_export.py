@@ -229,8 +229,18 @@ def _read_sasdata(f, entry_path: str) -> dict:
     if f"{sasdata_path}/{i_axes}" in f:
         for k, v in f[f"{sasdata_path}/{i_axes}"].attrs.items():
             q_attrs[k] = v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v
-    res_key = q_attrs.get("resolutions")
+    # resolutions may be a single pointer ("Qdev") or comma-separated for
+    # slit-smeared data ("dQw,dQl"): the per-point width dQw is the Qdev column;
+    # the scalar dQl is the slit length recorded in the header.
+    res_raw = q_attrs.get("resolutions")
+    res_key = res_raw.split(",")[0].strip() if res_raw else None
     Qdev = _dataset_value(f, f"{sasdata_path}/{res_key}") if res_key else None
+    slit_length = None
+    if res_raw and "dQl" in res_raw and f"{sasdata_path}/dQl" in f:
+        try:
+            slit_length = float(np.asarray(_dataset_value(f, f"{sasdata_path}/dQl")).ravel()[0])
+        except Exception:
+            slit_length = None
 
     return {
         "Q": np.asarray(Q, dtype=float) if Q is not None else None,
@@ -244,6 +254,7 @@ def _read_sasdata(f, entry_path: str) -> dict:
         "blankname": int_attrs.get("blankname"),
         "thickness": int_attrs.get("thickness"),
         "label": int_attrs.get("label"),
+        "slit_length": slit_length,
     }
 
 
@@ -402,6 +413,12 @@ def _format_data_header(
         lines.append(
             f"# Q range 1/A = {_format_scalar_for_header(q_min)} to "
             f"{_format_scalar_for_header(q_max)}"
+        )
+
+    if primary.get("slit_length") is not None:
+        lines.append(
+            f"# slit_length 1/A = {_format_scalar_for_header(primary['slit_length'])}"
+            "  (slit-smeared data)"
         )
 
     units_I = primary.get("units_I") or "1/cm"

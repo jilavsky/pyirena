@@ -32,3 +32,15 @@ files keep growing or become hard to navigate.
 - `gui/unified_fit.py` (~4,300 lines) — split along panel/widget lines.
 - `gui/modeling_panel.py` (~3,800 lines) and `gui/sizes_panel.py` (~3,000 lines) —
   same recipe as `data_selector`.
+
+## Test suite TODO (address off the slit-smearing branch)
+
+- **Hanging test:** `pyirena/tests/test_modeling_global_fit.py::TestExportJsonCarriesFitMethod::test_export_includes_selected_fit_method`
+  hangs indefinitely and must be deselected to run the suite. Confirmed
+  **pre-existing** — it hangs on a clean checkout of `main`/HEAD too, unrelated
+  to the slit-smearing work. Likely a `scipy.optimize` global-fit path or a
+  multiprocessing/`differential_evolution` worker that never returns in the test
+  environment. Investigate: add a timeout guard, force serial workers in the
+  test, or mock the export path. Until fixed, run:
+  `pytest --deselect "pyirena/tests/test_modeling_global_fit.py::TestExportJsonCarriesFitMethod::test_export_includes_selected_fit_method"`
+  (rest of the suite is green: 439 passed, 5 skipped as of 2026-07-21).

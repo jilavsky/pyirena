@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Slit smearing across all fitting tools (USAXS/Matilda).** pyIrena can fit
+  slit-smeared USAXS data directly by smearing the **model** to match the data
+  (Lake infinite-slit, `I_sm(q)=(1/SL)∫₀^SL I(√(q²+l²))dl`) — the data are never
+  modified and fitted parameters are always ideal-space (pinhole-equivalent).
+  Core engine `pyirena/core/smearing.py` (`SlitSmearer`, `smear_model`,
+  `smear_curve`, a fixed sparse operator `W` so a fit loop costs one matvec per
+  iteration). Slit-smeared data are detected from NXcanSAS (`Q@resolutions`
+  containing `dQl` + a scalar `dQl`); files with both a desmeared and a
+  slit-smeared copy (Matilda) show a **"Slit smeared data"** checkbox to select
+  which to load. Wired through **Unified Fit** (all levels + background + local
+  Guinier/Porod cursor fits + "Show selected level" overlay; invariant computed
+  from the ideal model), **Size Distribution** (G matrix smeared once, recovered
+  distribution is ideal-space), **Simple Fits** (each analytic model smeared;
+  Invariant disabled on smeared data with a message), and **Modeling** (total +
+  per-population curves smeared). **Fractals** smears its comparison overlay.
+  GUI control shared via `pyirena/gui/slit_smearing_ui.py::SlitSmearingMixin`
+  (used by every fitting panel, incl. Unified Fit). Scripting/MCP contract:
+  `load_slit_smeared: true` (+ optional `slit_length`) in a tool's JSON block,
+  enforced with a hard error on files lacking `dQl`. Saved results record
+  `slit_length` / `data_is_slit_smeared` and an ideal (`*_ideal`) model curve
+  alongside the smeared one. See `docs/slit_smearing.md`.
+- **Data Merge — slit-smearing provenance.** Merging a slit-smeared USAXS curve
+  with a pinhole SAXS curve produces a slit-smeared output: the merged file
+  gets a `dQl` dataset (so downstream tools auto-detect it) and the merge
+  provenance records `slit_length_ds1/ds2` and `slit_length_merged`. Two inputs
+  with different nonzero slit lengths warn (the larger is kept). Optimization is
+  unchanged — the slit length sits at/below the SAXS Qmin, negligible in the
+  overlap.
+
+### Changed
+
+- **Data Manipulation — slit-smearing safety.** Subtract/divide refuse to mix a
+  slit-smeared curve with a pinhole one (or two different slit lengths); the
+  check now lives in the core engine (`DataManipulation.check_slit_compatible`),
+  so batch scripting inherits it. Manipulation/merge outputs drop any stale
+  `_SMR` twin entry copied from the source and clear an orphaned `dQl`, so a
+  later slit-smeared load can't return an inconsistent curve.
+- **Create Report** notes when a tool's saved results used slit smearing
+  (Unified/Sizes/Simple/Modeling), reading `slit_length` from the HDF5 file.
+
+### Fixed
+
+- **Simple Fits — displayed model is now slit smeared.** "Graph model" and
+  auto-graph previously drew the ideal (sharp) curve even with smearing on, so
+  Sphere/Spheroid/Teubner-Strey oscillations looked unsmeared; `compute()` now
+  smears, matching the fit. Guinier/Porod linearization is labelled best-effort
+  (ideal-space) for smeared data (no closed-form linearization exists).
+- **Background prefits are ideal-space under smearing** (Size Distribution and
+  Simple Fits): the prefit power-law/flat is now smeared before comparison, so
+  the returned B/P/flat are not double-smeared by the main fit.
+- **Modeling** saves the ideal (pinhole) model curve (`model_I_ideal`) alongside
+  the smeared one, and no longer reuses a wrong-length cached G matrix when
+  producing that ideal curve.
+- **Fractals** no longer silently shows an unsmeared overlay when smearing the
+  comparison curve fails — it logs and flags the discrepancy.
+
 ## [1.0.1] - 2026-07-15
 
 ### Added

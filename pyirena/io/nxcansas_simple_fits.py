@@ -142,6 +142,16 @@ def save_simple_fit_results(
             grp.create_dataset('I_model', data=I_model.astype('f8'), compression='gzip')
             grp['I_model'].attrs['units'] = 'arb'
 
+        # Slit-smearing provenance + ideal (pinhole) model curve.
+        grp.attrs['slit_length'] = float(result.get('slit_length', 0.0) or 0.0)
+        grp.attrs['data_is_slit_smeared'] = bool(result.get('data_is_slit_smeared', False))
+        I_model_ideal = result.get('I_model_ideal')
+        if I_model_ideal is not None:
+            grp.create_dataset('I_model_ideal',
+                               data=np.asarray(I_model_ideal, dtype='f8'),
+                               compression='gzip')
+            grp['I_model_ideal'].attrs['units'] = 'arb'
+
         residuals = result.get('residuals')
         if residuals is not None:
             grp.create_dataset('residuals', data=residuals.astype('f8'), compression='gzip')
@@ -312,6 +322,10 @@ def load_simple_fit_results(filepath: Path) -> dict:
         if 'derived' in grp:
             for name, ds in grp['derived'].items():
                 result['derived'][name] = float(ds[()])
+
+        # Slit-smearing provenance (absent in legacy files → pinhole defaults)
+        result['slit_length'] = float(grp.attrs.get('slit_length', 0.0))
+        result['data_is_slit_smeared'] = bool(grp.attrs.get('data_is_slit_smeared', False))
 
     return result
 

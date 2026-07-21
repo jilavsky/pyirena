@@ -736,6 +736,12 @@ class SimpleFitModel:
         self.n_mc_runs: int = 50
         self.invariant_porod_tail: bool = False
         self.bg_prefit: dict = {}
+        # Slit smearing: analytic models are smeared before comparison with
+        # slit-smeared data, so fitted parameters are ideal-space.  The
+        # Invariant calculation model cannot be computed from smeared data
+        # without desmearing and is disabled when smearing is active (Q5).
+        self.use_slit_smearing: bool = False
+        self.slit_length: float = 0.0
         self._reset_to_defaults()
 
     # ── Calculation-model helpers ─────────────────────────────────────────────
@@ -786,17 +792,23 @@ class SimpleFitModel:
         def _n_in(q_min, q_max):
             return int(np.sum((q >= q_min) & (q <= q_max)))
 
+        # Smear the prefit models when the data are slit smeared so the
+        # replayed background is ideal-space and consistent with a smeared main
+        # model (F1).  (Note: the Invariant itself refuses smeared data, but
+        # prefit_background is also usable ahead of complex-background fits.)
+        sl = float(self.slit_length) if (self.use_slit_smearing and self.slit_length > 0) else 0.0
+
         pl = cfg.get('power_law') or {}
         if pl.get('use'):
             q_min, q_max = float(pl['q_min']), float(pl['q_max'])
             if _n_in(q_min, q_max) >= 2:
                 if pl.get('fit_P', True):
-                    B, P = fit_power_law_bg(q, I, q_min, q_max)
+                    B, P = fit_power_law_bg(q, I, q_min, q_max, slit_length=sl)
                     self.params['BG_P'] = float(P)
                     applied['BG_P'] = float(P)
                 else:
                     P = float(self.params.get('BG_P', 4.0))
-                    B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P)
+                    B = fit_power_law_bg_fixed_p(q, I, q_min, q_max, P, slit_length=sl)
                 self.params['BG_B'] = float(B)
                 applied['BG_B'] = float(B)
             else:
@@ -812,6 +824,7 @@ class SimpleFitModel:
                     q, I, q_min, q_max,
                     power_law_B=float(self.params.get('BG_B', 0.0)),
                     power_law_P=float(self.params.get('BG_P', 4.0)),
+                    slit_length=sl,
                 )
                 self.params['BG_flat'] = float(flat)
                 applied['BG_flat'] = float(flat)
@@ -853,13 +866,24 @@ class SimpleFitModel:
 
         Returns the model intensity array (same shape as *q*).
         Negative or non-finite values are replaced with NaN.
+
+        When slit smearing is active the analytic model is smeared (Lake
+        infinite-slit) before it is returned, so the displayed "Graph model"
+        curve matches what the fit compares against the slit-smeared data.
+        Without this, form-factor oscillations (e.g. Sphere) would be drawn
+        sharp even though the fit sees them smeared.
         """
         q = np.asarray(q, dtype=float)
         func = self._build_fit_func()
         specs = self._active_param_specs()
         vals = [s[1] for s in specs]
         with np.errstate(divide='ignore', invalid='ignore'):
-            result = func(q, *vals)
+            if self.use_slit_smearing and self.slit_length > 0:
+                from pyirena.core.smearing import SlitSmearer
+                smearer = SlitSmearer(q, self.slit_length)
+                result = smearer.smear_model(lambda qq: func(qq, *vals))
+            else:
+                result = func(q, *vals)
         return np.where(np.isfinite(result) & (result > 0), result, np.nan)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -971,6 +995,35 @@ class SimpleFitModel:
 
         base_func = self._build_fit_func()
 
+        # ── Slit smearing: wrap the analytic model so it is smeared before
+        # comparison with the (smeared) data.  The model is analytic, so
+        # smearing it on the given q grid's extended range is exact (E2 handled
+        # by build_extended_q inside SlitSmearer).  A single SlitSmearer is held
+        # across the whole fit — q is constant, so the extended grid and sparse
+        # W are built once instead of on every objective/Jacobian evaluation.
+        _slit_warning = None
+        if self.use_slit_smearing and self.slit_length > 0:
+            from pyirena.core.smearing import SlitSmearer
+            _raw_func = base_func
+            _fit_smearer = SlitSmearer(qf, self.slit_length)
+
+            def base_func(q_arr, *vals):  # noqa: F811 - intentional shadow
+                q_arr = np.asarray(q_arr, dtype=float)
+                # Fast path: the fit always evaluates on qf, so reuse the
+                # cached operator.  Any other grid (e.g. full-data plotting)
+                # falls back to a one-off smear on that grid.
+                if q_arr.shape == qf.shape and q_arr is qf:
+                    return _fit_smearer.smear_model(lambda qq: _raw_func(qq, *vals))
+                from pyirena.core.smearing import smear_model as _smear_model
+                return _smear_model(lambda qq: _raw_func(qq, *vals),
+                                    q_arr, self.slit_length)
+
+            if float(np.max(qf)) < self.slit_length:
+                _slit_warning = (
+                    f"Fit range qmax={float(np.max(qf)):.4g} is below the slit "
+                    f"length {self.slit_length:.4g}; smeared fit is weakly determined."
+                )
+
         # ── All parameters fixed: just evaluate the model ─────────────────────
         if not free_names:
             all_vals = [fixed.get(n, v) for (n, v, lo, hi) in specs]
@@ -1069,18 +1122,29 @@ class SimpleFitModel:
 
         derived = self._compute_derived(fitted_params)
 
+        # Ideal (pinhole) model curve for saving alongside the smeared one.
+        I_model_ideal = None
+        if self.use_slit_smearing and self.slit_length > 0:
+            raw = self._build_fit_func()
+            all_vals_opt = [fitted_params[n] for n in all_names]
+            I_model_ideal = raw(q, *all_vals_opt)
+
         return {
             'success': True,
             'model': self.model,
             'params': fitted_params,
             'params_std': param_std,
             'I_model': I_model,
+            'I_model_ideal': I_model_ideal,
             'q': q,
             'residuals': residuals_full,
             'chi2': chi2,
             'dof': dof,
             'reduced_chi2': chi2 / dof,
             'derived': derived,
+            'slit_length': float(self.slit_length) if self.use_slit_smearing else 0.0,
+            'data_is_slit_smeared': bool(self.use_slit_smearing and self.slit_length > 0),
+            'warning': _slit_warning,
             'error': None,
         }
 
@@ -1094,6 +1158,16 @@ class SimpleFitModel:
         as datasets by ``save_simple_fit_results``).  ``I_model`` is the
         complex-background curve (the curve subtracted before integration).
         """
+        # Invariant integrates the DATA directly; slit-smeared data cannot be
+        # integrated to a correct invariant without desmearing (Q5).  Refuse
+        # with a clear message rather than returning a wrong number.
+        if self.use_slit_smearing and self.slit_length > 0:
+            return self._failure(
+                "Invariant cannot be computed from slit-smeared data without "
+                "desmearing. Load the desmeared dataset, or use Unified Fit "
+                "(its invariant is model-based and works from smeared data)."
+            )
+
         q = np.asarray(q, dtype=float)
         I = np.asarray(intensity, dtype=float)
 
@@ -1345,6 +1419,13 @@ class SimpleFitModel:
             ss_tot = np.sum(w * (Y_r - Y_mean_w)**2)
             r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
 
+        # Slit-smeared data have no closed-form Guinier/Porod linearization:
+        # the transform and the analytic model line are ideal-space, so the
+        # points will not fall on the line the way they do for pinhole data.
+        # This is a deliberate best-effort display (see Simple Fits docs); the
+        # panel surfaces the caveat in its title.
+        best_effort = bool(self.use_slit_smearing and self.slit_length > 0)
+
         return {
             'x_label':   x_label,
             'y_label':   y_label,
@@ -1357,6 +1438,7 @@ class SimpleFitModel:
             'slope':     float(slope),
             'intercept': float(intercept),
             'r_squared': float(r_sq),
+            'best_effort_smeared': best_effort,
         }
 
     # ── Serialisation ─────────────────────────────────────────────────────────
@@ -1371,6 +1453,8 @@ class SimpleFitModel:
             'n_mc_runs': self.n_mc_runs,
             'invariant_porod_tail': self.invariant_porod_tail,
             'bg_prefit': dict(self.bg_prefit) if self.bg_prefit else {},
+            'use_slit_smearing': self.use_slit_smearing,
+            'slit_length': self.slit_length,
         }
 
     @classmethod
@@ -1387,6 +1471,8 @@ class SimpleFitModel:
         obj.n_mc_runs = int(d.get('n_mc_runs', 50))
         obj.invariant_porod_tail = bool(d.get('invariant_porod_tail', False))
         obj.bg_prefit = dict(d.get('bg_prefit') or {})
+        obj.use_slit_smearing = bool(d.get('use_slit_smearing', False))
+        obj.slit_length = float(d.get('slit_length', 0.0) or 0.0)
         # Fill in any missing params/limits from registry defaults
         entry = MODEL_REGISTRY[obj.model]
         for name, default, lo, hi in entry['params']:

@@ -92,6 +92,10 @@ def manipulate_data(
                 buf['Q'], buf['Intensity'],
                 buf.get('Error', buf['Intensity'] * 0.05),
                 SubtractConfig(**cfg),
+                is_slit_smeared_sample=bool(data.get('is_slit_smeared', False)),
+                slit_length_sample=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared_buffer=bool(buf.get('is_slit_smeared', False)),
+                slit_length_buffer=float(buf.get('slit_length', 0.0) or 0.0),
             )
         elif operation == 'divide':
             if buffer_file is None:
@@ -105,6 +109,10 @@ def manipulate_data(
                 den['Q'], den['Intensity'],
                 den.get('Error', den['Intensity'] * 0.05),
                 DivideConfig(**cfg),
+                is_slit_smeared_num=bool(data.get('is_slit_smeared', False)),
+                slit_length_num=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared_den=bool(den.get('is_slit_smeared', False)),
+                slit_length_den=float(den.get('slit_length', 0.0) or 0.0),
             )
         else:
             log.info(f"[pyirena.batch] Unknown operation: {operation}")
@@ -126,6 +134,9 @@ def manipulate_data(
             q=result.q, I=result.I, dI=result.dI, dQ=result.dQ,
             operation=result.operation,
             provenance=result.metadata,
+            slit_length=float(
+                result.metadata.get('slit_length',
+                                    data.get('slit_length', 0.0)) or 0.0),
         )
     except Exception:
         log.error(f"[pyirena.batch.manipulate_data] Save error:\n{traceback.format_exc()}")

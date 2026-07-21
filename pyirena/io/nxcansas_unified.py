@@ -193,7 +193,9 @@ def save_unified_fit_results(filepath: Path,
                              error: Optional[np.ndarray] = None,
                              uncertainties: Optional[Dict] = None,
                              setup_state: Optional[Dict] = None,
-                             fit_quality: Optional[Dict] = None) -> None:
+                             fit_quality: Optional[Dict] = None,
+                             slit_length: float = 0.0,
+                             intensity_model_ideal: Optional[np.ndarray] = None) -> None:
     """
     Save Unified Fit results to NXcanSAS HDF5 file.
 
@@ -221,6 +223,14 @@ def save_unified_fit_results(filepath: Path,
             ``_pyirena_config`` JSON attribute on ``unified_fit_results`` so the
             GUI can restore every control (fit flags, bounds, link options,
             cursors, …) after an AI-driven run.
+        slit_length: Slit (half-)length in 1/Å used for smearing.  When > 0 the
+            fit was slit smeared: ``intensity_model`` is the SMEARED model (it
+            matches the data) and ``intensity_model_ideal`` should carry the
+            pinhole model.  Stored as the ``slit_length`` /
+            ``data_is_slit_smeared`` attributes so downstream readers can offer
+            a smeared/ideal toggle.  ``0.0`` (default) => pinhole fit.
+        intensity_model_ideal: Pinhole (ideal) model on the same Q grid, written
+            as ``intensity_model_ideal`` only when ``slit_length > 0``.
     """
     timestamp = datetime.now().isoformat()
 
@@ -255,6 +265,12 @@ def save_unified_fit_results(filepath: Path,
         unified_group.attrs['program'] = 'pyirena'
         unified_group.attrs['timestamp'] = timestamp
         unified_group.attrs['num_levels'] = np.int32(num_levels)
+        # Slit-smearing provenance: when slit_length > 0 the stored
+        # intensity_model is the SMEARED curve (it matches the data), and
+        # intensity_model_ideal (below) holds the pinhole model.  These attrs
+        # are the discriminator legacy readers lack.
+        unified_group.attrs['slit_length'] = np.float64(slit_length)
+        unified_group.attrs['data_is_slit_smeared'] = np.int32(1 if slit_length > 0 else 0)
         # Store fit results as scalar datasets (browseable/collectable in HDF5 viewer)
         unified_group.create_dataset('background', data=float(background))
         unified_group.create_dataset('chi_squared', data=float(chi_squared))
@@ -278,10 +294,22 @@ def save_unified_fit_results(filepath: Path,
             ds_err.attrs['units'] = '1/cm'
             ds_err.attrs['long_name'] = 'Experimental uncertainty'
 
-        # Store model intensity
+        # Store model intensity (SMEARED when the fit used slit smearing, so it
+        # matches the data it was fitted to; name kept for back-compat).
         ds_model = unified_group.create_dataset('intensity_model', data=intensity_model)
         ds_model.attrs['units'] = '1/cm'
-        ds_model.attrs['long_name'] = 'Unified Fit model intensity'
+        ds_model.attrs['long_name'] = (
+            'Unified Fit model intensity (slit smeared)' if slit_length > 0
+            else 'Unified Fit model intensity'
+        )
+
+        # Store the ideal (pinhole) model alongside so downstream consumers can
+        # offer a smeared/ideal toggle.  Only written for slit-smeared fits.
+        if slit_length > 0 and intensity_model_ideal is not None:
+            ds_ideal = unified_group.create_dataset(
+                'intensity_model_ideal', data=intensity_model_ideal)
+            ds_ideal.attrs['units'] = '1/cm'
+            ds_ideal.attrs['long_name'] = 'Unified Fit model intensity (ideal/pinhole)'
 
         # Store residuals
         ds_resid = unified_group.create_dataset('residuals', data=residuals)
@@ -383,6 +411,15 @@ def load_unified_fit_results(filepath: Path) -> Dict:
             results['intensity_error'] = unified['intensity_error'][:]
         else:
             results['intensity_error'] = None
+
+        # Slit-smearing provenance (absent => legacy pinhole file).
+        results['slit_length'] = float(unified.attrs.get('slit_length', 0.0))
+        results['data_is_slit_smeared'] = bool(
+            unified.attrs.get('data_is_slit_smeared', 0))
+        results['intensity_model_ideal'] = (
+            unified['intensity_model_ideal'][:]
+            if 'intensity_model_ideal' in unified else None
+        )
 
         # Robust fit-quality metrics (None for files written before this feature)
         from pyirena.io.nxcansas_fit_quality import read_fit_quality

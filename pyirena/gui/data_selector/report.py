@@ -150,6 +150,13 @@ def _build_report(file_path: str,
             f"| Residuals std dev | {np.std(residuals):.4f} |",
             f"| Max \\|residual\\| | {np.max(np.abs(residuals)):.4f} |",
         ]
+        _uf_sl = fit_results.get('slit_length', 0.0) or 0.0
+        if _uf_sl > 0:
+            L.append(
+                f"| Slit smearing | Enabled — SL = {_ef(_uf_sl)} Å⁻¹; "
+                "fitted parameters are ideal-space (pinhole-equivalent); "
+                "invariant computed from ideal model |"
+            )
         L += _quality_report_rows(fit_results.get('fit_quality'))
         L.append("")
 
@@ -277,6 +284,12 @@ def _build_report(file_path: str,
                 f"| Residuals mean | {np.mean(residuals):.4f} |",
                 f"| Residuals std dev | {np.std(residuals):.4f} |",
             ]
+        _sd_sl = sizes_results.get('slit_length', 0.0) or 0.0
+        if _sd_sl > 0:
+            L.append(
+                f"| Slit smearing | Enabled — SL = {_fmt(_sd_sl)} Å⁻¹; "
+                "G matrix smeared (W@G); recovered distribution is ideal-space |"
+            )
         L += _quality_report_rows(sizes_results.get('fit_quality'))
         L.append("")
 
@@ -406,6 +419,12 @@ def _build_report(file_path: str,
             f"| Q range (fit) | {_sf_fmt(sf_q_min)} – {_sf_fmt(sf_q_max)} Å⁻¹ |",
             f"| Complex background | {sf_complex} |",
         ]
+        _sf_sl = simple_fit_results.get('slit_length', 0.0) or 0.0
+        if _sf_sl > 0:
+            L.append(
+                f"| Slit smearing | Enabled — SL = {_sf_fmt(_sf_sl)} Å⁻¹; "
+                "fitted parameters are ideal-space; Invariant not available for smeared data |"
+            )
         L += _quality_report_rows(simple_fit_results.get('fit_quality'))
         L.append("")
 
@@ -539,6 +558,12 @@ def _build_report(file_path: str,
             f"| Q min | {_mr_fmt(mr.get('q_min'))} Å⁻¹ |",
             f"| Q max | {_mr_fmt(mr.get('q_max'))} Å⁻¹ |",
         ]
+        _mr_sl = mr.get('slit_length', 0.0) or 0.0
+        if _mr_sl > 0:
+            L.append(
+                f"| Slit smearing | Enabled — SL = {_mr_fmt(_mr_sl)} Å⁻¹; "
+                "fitted parameters are ideal-space |"
+            )
         L += _quality_report_rows(mr.get('fit_quality'))
         L.append("")
         for pop in pops:

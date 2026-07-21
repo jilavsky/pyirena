@@ -148,8 +148,11 @@ def fit_sizes(
         return None
 
     # --- Load data ---
+    # JSON keys (canonical): "load_slit_smeared" picks the file's _SMR dataset;
+    # "slit_length" optionally overrides the file-derived value.
+    load_slit_smeared = bool(sizes_state.get('load_slit_smeared', False))
     try:
-        data = _load_data(data_file)
+        data = _load_data(data_file, load_slit_smeared=load_slit_smeared)
         if data is None:
             return None
     except Exception:
@@ -183,6 +186,14 @@ def fit_sizes(
         s.tnnls_approach_param   = float(sizes_state.get('tnnls_approach_param', 0.95))
         s.tnnls_max_iter         = int(sizes_state.get('tnnls_max_iter', 300))
         s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run, matching GUI
+        # Slit smearing: enable when the loaded data are slit smeared or the
+        # config asks for it; slit length is file-derived unless overridden.
+        cfg_sl = sizes_state.get('slit_length')
+        sl = float(cfg_sl) if cfg_sl else float(data.get('slit_length', 0.0) or 0.0)
+        if (bool(data.get('is_slit_smeared')) or bool(sizes_state.get('use_slit_smearing'))) and sl > 0:
+            s.use_slit_smearing = True
+            s.slit_length = sl
+            log.info(f"[pyirena.batch] Sizes slit smearing enabled (SL={sl:.4g} 1/A).")
     except Exception:
         log.error(f"[pyirena.batch] Error building Sizes model from config:\n{traceback.format_exc()}")
         return None
@@ -281,6 +292,9 @@ def fit_sizes(
             'volume_fraction': vf,
             'rg':              rg,
             'n_iterations':    fit_result.get('n_iterations', 0),
+            # Slit-smearing provenance
+            'slit_length':          float(s.slit_length) if s.use_slit_smearing else 0.0,
+            'data_is_slit_smeared': bool(s.use_slit_smearing),
             # Model / grid setup
             'method':          s.method,
             'shape':           s.shape,
@@ -401,6 +415,7 @@ def fit_sizes(
                 distribution_std=std_to_save,
                 fit_quality=fq_metrics,
                 setup_state=sizes_state,
+                intensity_model_ideal=fit_result.get('model_intensity_ideal'),
             )
             result['output_file'] = output_path
         except Exception:

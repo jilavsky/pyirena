@@ -152,9 +152,15 @@ def read_unified_fit(path: str, include_arrays: bool = False,
     result.Q = _arr(raw, "Q", max_points, include_arrays)
     result.intensity_data = _arr(raw, "intensity_data", max_points, include_arrays)
     result.intensity_model = _arr(raw, "intensity_model", max_points, include_arrays)
+    result.intensity_model_ideal = _arr(raw, "intensity_model_ideal", max_points, include_arrays)
     result.intensity_error = _arr(raw, "intensity_error", max_points, include_arrays)
     result.residuals = _arr(raw, "residuals", max_points, include_arrays)
     result.fit_quality = raw.get("fit_quality")
+    # Slit-smearing provenance (absent => legacy pinhole file).
+    if raw.get("slit_length") is not None:
+        result.slit_length = float(raw["slit_length"])
+    if raw.get("data_is_slit_smeared") is not None:
+        result.data_is_slit_smeared = bool(raw["data_is_slit_smeared"])
     return result.to_dict()
 
 

@@ -787,6 +787,9 @@ class FractalsPanel(QWidget):
             self._loaded_I = np.asarray(data.get("Intensity"), dtype=float)
             err = data.get("Error")
             self._loaded_dI = np.asarray(err, dtype=float) if err is not None else None
+            # Slit-smearing: when the loaded data are slit smeared, the model
+            # curves shown over them are smeared too (comparison-only).
+            self._loaded_slit_length = float(data.get("slit_length", 0.0) or 0.0)
         except Exception:
             # Use the Unified-fit's stored experimental data as a fallback
             self._loaded_q = np.asarray(uf.get("Q"), dtype=float)
@@ -1251,6 +1254,35 @@ class FractalsPanel(QWidget):
         n = int(self.qn_spin.value())
         return np.logspace(np.log10(qmin), np.log10(qmax), n)
 
+    def _smear_for_display(self, q, I):
+        """Slit-smear a tabulated model curve for overlay on slit-smeared data.
+
+        Returns ``I`` unchanged when the loaded data are pinhole (or when the
+        arrays are unusable).  Fractal model intensities are tabulated on their
+        own q grid, so the tabulated-curve smearer (power-law extrapolation) is
+        used.
+        """
+        sl = float(getattr(self, "_loaded_slit_length", 0.0) or 0.0)
+        if sl <= 0 or q is None or I is None:
+            return I
+        try:
+            from pyirena.core.smearing import smear_curve
+            return smear_curve(np.asarray(q, float), np.asarray(I, float), sl)
+        except Exception:
+            # Never silently show an unsmeared curve as if it were smeared —
+            # that would be a misleading overlay.  Log the failure and flag it
+            # in the status bar so the discrepancy is visible.
+            log.warning("Slit smearing of the fractal overlay failed; showing "
+                        "the unsmeared curve.", exc_info=True)
+            if hasattr(self, "status_label") and self.status_label is not None:
+                try:
+                    self.status_label.setText(
+                        "⚠ slit smearing of the model overlay failed — "
+                        "curve shown UNSMEARED (see log).")
+                except Exception:
+                    pass
+            return I
+
     def _refresh_plot(self):
         # Drop ALL plot items + clear the legend so the next batch of
         # entries replaces (rather than appends to) any previous ones.
@@ -1286,8 +1318,10 @@ class FractalsPanel(QWidget):
         if self._active is not None:
             self._ensure_active_q_and_unified()
             q_active = self._active.q
-            i_uni = self._active.i_unified
-            i_mc = self._active.i_montecarlo
+            # Smear the model curves for overlay when the loaded data are slit
+            # smeared, so the comparison is like-for-like.
+            i_uni = self._smear_for_display(q_active, self._active.i_unified)
+            i_mc = self._smear_for_display(q_active, self._active.i_montecarlo)
 
             # Defensive shape check — if any earlier code path left arrays
             # of mismatched length, recompute i_unified once more so the

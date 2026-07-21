@@ -227,7 +227,15 @@ class StateManager:
             "display_local": False,
             "no_limits": False,
             "skip_fit_check": False,
-            "store_local": False
+            "store_local": False,
+            # Slit smearing (schema_version 2, added 2026-07-20).  Additive keys
+            # with safe "off" defaults, so old state files load as pinhole via
+            # _merge_state without an explicit migration.  use_slit_smearing is
+            # auto-enabled when slit-smeared data (dQl) are loaded; slit_length
+            # (1/Å) is file-derived but user-editable in the GUI.
+            "schema_version": 2,
+            "use_slit_smearing": False,
+            "slit_length": 0.0,
         },
         "waxs_peakfit": {
             "schema_version": 1,

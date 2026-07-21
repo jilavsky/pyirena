@@ -1055,6 +1055,8 @@ class DataMergePanel(QWidget):
             qshift_dataset=qshift_map[self._qshift_combo.currentText()],
             method=self._method_combo.currentData() or 'interpolation',
             split_at_left_cursor=self._split_chk.isChecked(),
+            slit_length_ds1=float(self._data1.get('slit_length', 0.0) or 0.0),
+            slit_length_ds2=float(self._data2.get('slit_length', 0.0) or 0.0),
         )
 
         _dI1 = self._data1.get('Error')
@@ -1088,6 +1090,14 @@ class DataMergePanel(QWidget):
         q_m, I_m, dI_m, dQ_m = self._engine.merge(
             q1, I1, dI1, dQ1, q2, I2, dI2, dQ2, result, config
         )
+
+        # Surface the merged slit-smearing provenance (and warn on mismatch).
+        if result.is_slit_smeared_merged:
+            self._status.setText(
+                status_txt +
+                f"   |  merged output is slit smeared (dQl={result.slit_length_merged:.4g} 1/Å)")
+        if result.slit_warning:
+            QMessageBox.warning(self, "Slit-length mismatch", result.slit_warning)
         self._last_q_merged = q_m
         self._last_I_merged = I_m
         self._last_dI_merged = dI_m
@@ -1239,6 +1249,8 @@ class DataMergePanel(QWidget):
                     qshift_dataset=qshift_map[self._qshift_combo.currentText()],
                     method=self._method_combo.currentData() or 'interpolation',
                     split_at_left_cursor=self._split_chk.isChecked(),
+                    slit_length_ds1=float(d1.get('slit_length', 0.0) or 0.0),
+                    slit_length_ds2=float(d2.get('slit_length', 0.0) or 0.0),
                 )
                 result = self._engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
                 q_m, I_m, dI_m, dQ_m = self._engine.merge(
@@ -1252,6 +1264,10 @@ class DataMergePanel(QWidget):
                     'scale_dataset': config.scale_dataset, 'fit_scale': config.fit_scale,
                     'qshift_dataset': config.qshift_dataset, 'fit_qshift': config.fit_qshift,
                     'split_at_left_cursor': config.split_at_left_cursor,
+                    'slit_length_ds1': config.slit_length_ds1,
+                    'slit_length_ds2': config.slit_length_ds2,
+                    'slit_length_merged': result.slit_length_merged,
+                    'is_slit_smeared_merged': result.is_slit_smeared_merged,
                 }
                 out = save_merged_data(
                     output_folder=Path(self._out_folder),
@@ -1456,6 +1472,11 @@ class DataMergePanel(QWidget):
                 data = readGenericNXcanSAS(str(fp.parent), fp.name)
                 data['is_nxcansas'] = True
             data['filepath'] = filepath
+            # Slit-smearing provenance: NXcanSAS files carry it (dQl); text /
+            # generic-HDF5 files do not, so default to pinhole.  These drive the
+            # merged output's slit provenance (dQl written to the merged file).
+            data.setdefault('slit_length', 0.0)
+            data.setdefault('is_slit_smeared', False)
             return data
         except Exception as exc:
             if quiet:
@@ -1596,6 +1617,10 @@ class DataMergePanel(QWidget):
             'scale_dataset': c.scale_dataset, 'fit_scale': c.fit_scale,
             'qshift_dataset': c.qshift_dataset, 'fit_qshift': c.fit_qshift,
             'split_at_left_cursor': c.split_at_left_cursor,
+            'slit_length_ds1': c.slit_length_ds1,
+            'slit_length_ds2': c.slit_length_ds2,
+            'slit_length_merged': r.slit_length_merged,
+            'is_slit_smeared_merged': r.is_slit_smeared_merged,
         }
 
     def _current_config_dict(self) -> dict:

@@ -174,6 +174,9 @@ class FeatureDetectResult:
     q_min_analysed: Optional[float] = None
     q_max_analysed: Optional[float] = None
     n_segments_found: int = 0
+    warnings: list[str] = field(default_factory=list)
+    """Non-fatal advisories, e.g. that detection ran on slit-smeared data where
+    knee/peak shapes are broadened and the detected features are approximate."""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -546,6 +549,7 @@ def detect_features(
     I: np.ndarray,
     sigma_I: Optional[np.ndarray] = None,
     config: Optional[FeatureDetectConfig] = None,
+    slit_length: float = 0.0,
 ) -> FeatureDetectResult:
     """Segment an I(Q) curve into power-law slope regions and derive knees.
 
@@ -555,6 +559,11 @@ def detect_features(
     I : array of intensity
     sigma_I : optional array of intensity uncertainty
     config : FeatureDetectConfig; defaults to FeatureDetectConfig()
+    slit_length : float, optional
+        Slit (half-)length of the data in 1/Å.  When > 0 the input is slit
+        smeared: knees and peaks are broadened, so the detected features (and
+        recommended Guinier windows) are approximate.  Detection still runs on
+        the data as-is; a note is added to ``result.warnings`` (E3).
 
     Returns
     -------
@@ -562,6 +571,14 @@ def detect_features(
     """
     if config is None:
         config = FeatureDetectConfig()
+
+    _slit_warning = ''
+    if slit_length and slit_length > 0:
+        _slit_warning = (
+            f"Feature detection ran on slit-smeared data (slit length "
+            f"{slit_length:.4g} 1/Å): knee/peak shapes are broadened and the "
+            f"detected features are approximate. Prefer the desmeared data for "
+            f"precise feature Q values.")
 
     q = np.asarray(q, dtype=float)
     I = np.asarray(I, dtype=float)
@@ -657,6 +674,7 @@ def detect_features(
         q_min_analysed=float(q[0]),
         q_max_analysed=float(q[-1]),
         n_segments_found=len(segments),
+        warnings=[_slit_warning] if _slit_warning else [],
     )
 
 

@@ -92,12 +92,27 @@ def save_modeling_results(
         grp.create_dataset('background', data=float(result.config.background))
         grp.create_dataset('q_min', data=float(result.config.q_min))
         grp.create_dataset('q_max', data=float(result.config.q_max))
+        # Slit-smearing provenance (model_I is the SMEARED curve when active).
+        grp.attrs['slit_length'] = float(getattr(result.config, 'slit_length', 0.0) or 0.0)
+        grp.attrs['data_is_slit_smeared'] = bool(
+            getattr(result.config, 'use_slit_smearing', False)
+            and getattr(result.config, 'slit_length', 0.0) > 0)
 
         # ── Model arrays ──────────────────────────────────────────────────
         ds_q = grp.create_dataset('model_q', data=result.model_q)
         ds_q.attrs['units'] = '1/angstrom'
         ds_I = grp.create_dataset('model_I', data=result.model_I)
         ds_I.attrs['units'] = '1/cm'
+        ds_I.attrs['long_name'] = ('Total model intensity (slit smeared)'
+                                   if getattr(result, 'model_I_ideal', None) is not None
+                                   else 'Total model intensity')
+        # Ideal (pinhole) total — only present when slit smearing was used, so
+        # downstream plots/readers can offer a smeared/ideal toggle (parity with
+        # Unified/Sizes/Simple).
+        if getattr(result, 'model_I_ideal', None) is not None:
+            ds_Ii = grp.create_dataset('model_I_ideal', data=result.model_I_ideal)
+            ds_Ii.attrs['units'] = '1/cm'
+            ds_Ii.attrs['long_name'] = 'Total model intensity (ideal / pinhole)'
 
         # ── Per-population groups ─────────────────────────────────────────
         cfg = result.config
@@ -299,12 +314,17 @@ def load_modeling_results(
             'timestamp':           grp.attrs.get('timestamp', ''),
             'model_q':             grp['model_q'][()] if 'model_q' in grp else None,
             'model_I':             grp['model_I'][()] if 'model_I' in grp else None,
+            'model_I_ideal':       grp['model_I_ideal'][()] if 'model_I_ideal' in grp else None,
             'populations':         [],
         }
 
         # Robust fit-quality metrics (None for files written before this feature)
         from pyirena.io.nxcansas_fit_quality import read_fit_quality
         result['fit_quality'] = read_fit_quality(grp)
+
+        # Slit-smearing provenance (absent in legacy files → pinhole defaults)
+        result['slit_length'] = float(grp.attrs.get('slit_length', 0.0))
+        result['data_is_slit_smeared'] = bool(grp.attrs.get('data_is_slit_smeared', False))
 
         # ── Per-population groups ──────────────────────────────────────────
         for key in sorted(grp.keys()):

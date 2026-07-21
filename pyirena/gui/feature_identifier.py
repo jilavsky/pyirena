@@ -253,8 +253,14 @@ class FeatureIdentifierDialog(QWidget):
         if err is not None:
             err = np.asarray(err, dtype=float)
         cfg = self._current_cfg()
+        # Slit-smeared data → detection is approximate (E3); pass the slit
+        # length so the result carries an advisory shown in the summary.
+        slit_length = 0.0
+        if bool(self._panel.data.get("is_slit_smeared", False)):
+            slit_length = float(self._panel.data.get("slit_length", 0.0) or 0.0)
         try:
-            result = detect_features(q, I, sigma_I=err, config=cfg)
+            result = detect_features(q, I, sigma_I=err, config=cfg,
+                                     slit_length=slit_length)
         except Exception as exc:  # pragma: no cover
             self.summary.setPlainText(f"Detection failed: {exc}")
             return
@@ -371,6 +377,10 @@ class FeatureIdentifierDialog(QWidget):
 
     def _render_summary(self, result):
         lines: list[str] = []
+        for w in getattr(result, "warnings", []) or []:
+            lines.append(f"⚠ {w}")
+        if getattr(result, "warnings", None):
+            lines.append("")
         lines.append(f"Q analysed: [{result.q_min_analysed:.4g}, "
                      f"{result.q_max_analysed:.4g}]   "
                      f"({result.log_decades:.2f} decades, "

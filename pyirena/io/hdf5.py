@@ -181,6 +181,30 @@ def _attr_first_str(value):
     return value.strip()
 
 
+def _attr_all_str(value):
+    """Normalise an HDF5 attribute to a list of tokens, splitting on commas.
+
+    Unlike :func:`_attr_first_str` (which returns only the first token), this
+    preserves every token — needed to detect the NXcanSAS slit-length
+    declaration ``Q@resolutions = 'dQw,dQl'``, where ``dQl`` is the second
+    token.
+    """
+    if value is None:
+        return []
+    if hasattr(value, 'ndim') and getattr(value, 'ndim', 0) >= 1:
+        tokens = [t for t in np.asarray(value).ravel().tolist()]
+    elif isinstance(value, (list, tuple)):
+        tokens = list(value)
+    else:
+        tokens = [value]
+    out = []
+    for tok in tokens:
+        if isinstance(tok, bytes):
+            tok = tok.decode('utf-8', errors='replace')
+        out.extend(part.strip() for part in str(tok).split(',') if part.strip())
+    return out
+
+
 def find_all_sasdata(hdf5_file):
     """Find every plottable SAS data group in an open HDF5 file.
 
@@ -279,16 +303,21 @@ def _filter_smr(datasets):
     return non_smr if non_smr else datasets
 
 
-def _ordered_sasdata(f):
-    """Selectable SAS curves, SMR entries excluded, with ``@default`` first.
+def _ordered_sasdata(f, include_smr=False):
+    """Selectable SAS curves with the ``@default`` dataset first.
 
-    So ``[0]`` is always the file's canonical desmeared dataset, while the
-    rest preserve file order for the dataset picker.  Slit-smeared copies
-    (``_SMR`` entries written by Matilda) are stripped here so that USAXS
-    files presenting two copies of the same data never trigger the picker or
-    the multi-dataset CLI warning.
+    So ``[0]`` is always the file's canonical dataset (the one NXcanSAS marks
+    ``@default`` — desmeared for Matilda USAXS files), while the rest preserve
+    file order for the dataset picker.
+
+    By default, slit-smeared copies (``_SMR`` entries written by Matilda) are
+    stripped so that USAXS files presenting two copies of the same data never
+    trigger the picker or the multi-dataset CLI warning.  Pass
+    ``include_smr=True`` (used by the GUI "Slit smeared data" option) to keep
+    them so the user can select the smeared curve.
     """
-    datasets = _filter_smr(_selectable_sasdata(f))
+    selectable = _selectable_sasdata(f)
+    datasets = selectable if include_smr else _filter_smr(selectable)
     default_path = _resolve_default_path(f)
     if default_path:
         for i, d in enumerate(datasets):
@@ -296,6 +325,28 @@ def _ordered_sasdata(f):
                 datasets.insert(0, datasets.pop(i))
                 break
     return datasets
+
+
+def _smr_sibling_path(f, default_path):
+    """Path to the ``_SMR`` slit-smeared sibling of a desmeared SASdata group.
+
+    Matilda writes the desmeared curve under ``entry/<name>/sasdata`` and its
+    slit-smeared twin under ``entry/<name>_SMR/sasdata``.  Given the desmeared
+    (``@default``) path, return the smeared sibling's path, or ``None`` when the
+    file has no slit-smeared entry.
+    """
+    if not default_path:
+        # No resolved default: fall back to any SMR dataset present.
+        smr = [d for d in _selectable_sasdata(f) if _is_smr(d)]
+        return smr[0]['path'] if smr else None
+    parts = default_path.rsplit('/', 1)
+    if len(parts) == 2:
+        entry, leaf = parts
+        candidate = f"{entry}_SMR/{leaf}"
+        if candidate in f:
+            return candidate
+    smr = [d for d in _selectable_sasdata(f) if _is_smr(d)]
+    return smr[0]['path'] if smr else None
 
 
 def _read_one_sasdata(f, data_path):
@@ -373,6 +424,23 @@ def _read_one_sasdata(f, data_path):
         dQ = dataset[()]
         dQ_attributes = dataset.attrs
 
+    # --- Slit-smearing metadata (NXcanSAS slit-length resolution) ------------
+    # Slit-smeared data declare Q@resolutions="dQw,dQl": the per-point width
+    # dQw becomes dQ (above), and the scalar dQl is the slit (half-)length that
+    # drives model smearing.  Presence of dQl -> the loaded curve IS slit
+    # smeared; absence -> pinhole (slit_length 0.0).  This transparent,
+    # attribute-driven detection matches how SasView decides to smear, so files
+    # from any NXcanSAS pipeline (not just Matilda's ``_SMR`` naming) work.
+    slit_length = 0.0
+    resolution_tokens = _attr_all_str(Q_attributes.get('resolutions'))
+    has_dql = 'dQl' in resolution_tokens or f"{data_path}/dQl" in f
+    if has_dql and f"{data_path}/dQl" in f:
+        try:
+            slit_length = float(np.asarray(f[f"{data_path}/dQl"][()]).ravel()[0])
+        except Exception:
+            slit_length = 0.0
+    is_slit_smeared = slit_length > 0
+
     return {
         'Intensity': intensity,
         'Q': Q,
@@ -388,25 +456,47 @@ def _read_one_sasdata(f, data_path):
         "blankname": blankname,
         "thickness": thickness,
         'label': label,
+        # Canonical slit-smearing fields carried end-to-end (see slit-smearing
+        # plan §3.2): slit_length in 1/Å (0.0 => pinhole), is_slit_smeared bool.
+        'slit_length': slit_length,
+        'is_slit_smeared': is_slit_smeared,
     }
 
 
-def list_nxcansas_datasets(path, filename):
+def list_nxcansas_datasets(path, filename, include_smr=False):
     """List every SAS data group in an NXcanSAS file (without loading arrays).
 
     Convenience wrapper around :func:`find_all_sasdata` that opens the file.
     Used by the GUI to offer a dataset picker and by the CLI to report how
     many datasets a multi-dataset file contains.
 
+    Parameters
+    ----------
+    include_smr : bool
+        When True, keep slit-smeared (``_SMR``) entries in the list so the GUI
+        can offer them for selection.  Default False (desmeared only).
+
     Returns a list of ``{'path', 'entry', 'name'}`` dicts (see
     :func:`find_all_sasdata`).
     """
     Filepath = os.path.join(path, filename)
     with h5py.File(Filepath, 'r') as f:
-        return _ordered_sasdata(f)
+        return _ordered_sasdata(f, include_smr=include_smr)
 
 
-def readGenericNXcanSAS(path, filename, data_path=None):
+def file_has_smr_entry(path, filename):
+    """True when the NXcanSAS file contains a slit-smeared (``_SMR``) dataset.
+
+    Lets the GUI decide whether to show the "Slit smeared data" checkbox for a
+    given file (only Matilda-style files carrying both a desmeared and a
+    slit-smeared copy need it).
+    """
+    Filepath = os.path.join(path, filename)
+    with h5py.File(Filepath, 'r') as f:
+        return any(_is_smr(d) for d in _selectable_sasdata(f))
+
+
+def readGenericNXcanSAS(path, filename, data_path=None, prefer_slit_smeared=False):
     """Read NXcanSAS data from a NeXus file.
 
     Only the minimum required to plot/analyse is needed: a Q/I(/Idev) triplet
@@ -439,6 +529,21 @@ def readGenericNXcanSAS(path, filename, data_path=None):
                 return _read_one_sasdata(f, data_path)
             logging.warning(f"Requested data path '{data_path}' not found in {filename}.")
             return None
+
+        # Slit-smeared preference: load the _SMR sibling of the @default
+        # dataset when one exists (used by the "Slit smeared data" option).
+        if prefer_slit_smeared:
+            default_path = _resolve_default_path(f)
+            if default_path is None:
+                ordered = _ordered_sasdata(f)
+                default_path = ordered[0]['path'] if ordered else None
+            smr_path = _smr_sibling_path(f, default_path)
+            if smr_path is not None:
+                return _read_one_sasdata(f, smr_path)
+            logging.info(
+                f"{filename}: prefer_slit_smeared=True but no slit-smeared "
+                "(_SMR) entry found; loading the default (desmeared) dataset."
+            )
 
         datasets = _ordered_sasdata(f)
         if not datasets:

@@ -189,8 +189,11 @@ def fit_modeling(
         return None
 
     # --- Load data ---
+    # "load_slit_smeared" picks the file's _SMR dataset; smearing is then
+    # auto-enabled at the file-derived (or config-overridden) slit length.
+    load_slit_smeared = bool(mod_cfg.get('load_slit_smeared', False))
     try:
-        data = _load_data(data_file)
+        data = _load_data(data_file, load_slit_smeared=load_slit_smeared)
         if data is None:
             return None
     except Exception:
@@ -218,10 +221,20 @@ def fit_modeling(
             n_mc_runs=int(mod_cfg.get('n_mc_runs', n_mc_runs)),
             fit_method=str(mod_cfg.get('fit_method', 'local')),
             de_workers=int(mod_cfg.get('de_workers', 1)),
+            use_slit_smearing=bool(data.get('is_slit_smeared'))
+                              or bool(mod_cfg.get('use_slit_smearing', False)),
+            slit_length=(float(mod_cfg['slit_length']) if mod_cfg.get('slit_length')
+                         else float(data.get('slit_length', 0.0) or 0.0)),
         )
     except Exception:
         log.error(f"[pyirena.batch.fit_modeling] Error building ModelingConfig:\n{traceback.format_exc()}")
         return None
+    # Guard: smearing requested but no slit length available.
+    if modeling_config.use_slit_smearing and modeling_config.slit_length <= 0:
+        modeling_config.use_slit_smearing = False
+    if modeling_config.use_slit_smearing:
+        log.info(f"[pyirena.batch.fit_modeling] Slit smearing enabled "
+                 f"(SL={modeling_config.slit_length:.4g} 1/A).")
 
     # --- Run fit ---
     try:

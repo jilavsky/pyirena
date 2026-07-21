@@ -93,7 +93,13 @@ def fit_simple(
         return None
 
     # ── Load data ────────────────────────────────────────────────────────────
-    data = _load_data(data_file)
+    # "load_slit_smeared" (config dict key, or model attr) picks the file's _SMR
+    # dataset; smearing is then auto-enabled at the file-derived slit length.
+    load_slit_smeared = bool(
+        (config.get('load_slit_smeared') if isinstance(config, dict) else False)
+        or getattr(model, 'use_slit_smearing', False)
+    )
+    data = _load_data(data_file, load_slit_smeared=load_slit_smeared)
     if data is None:
         return None
 
@@ -101,6 +107,12 @@ def fit_simple(
     I = np.asarray(data.get('Intensity', data.get('intensity', [])), dtype=float)
     dI = data.get('Error', data.get('error', None))
     dI = np.asarray(dI, dtype=float) if dI is not None else None
+
+    # Auto-enable model smearing when the loaded curve is slit smeared (unless
+    # a slit length was already set explicitly on the model/config).
+    if data.get('is_slit_smeared') and not (model.use_slit_smearing and model.slit_length > 0):
+        model.use_slit_smearing = True
+        model.slit_length = float(data.get('slit_length', 0.0) or 0.0)
 
     # ── Background prefit replay (Invariant) ────────────────────────────────
     # Re-determine the complex background from the Q ranges the GUI user

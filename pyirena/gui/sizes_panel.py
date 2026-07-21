@@ -21,6 +21,7 @@ import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot, add_slope_line_menu
 from pyirena.state.state_manager import StateManager
 
@@ -858,7 +859,7 @@ def _style_axes(plot_item):
 # SizesFitPanel
 # ─────────────────────────────────────────────────────────────────────────────
 
-class SizesFitPanel(QWidget):
+class SizesFitPanel(SlitSmearingMixin, QWidget):
     """
     Main Sizes Distribution panel for pyIrena.
 
@@ -998,6 +999,7 @@ class SizesFitPanel(QWidget):
         self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         layout.addWidget(self.data_loader)
+        self._build_slit_row(layout)
 
         # ── Tab widget ───────────────────────────────────────────────────────
         tabs = QTabWidget()
@@ -1845,9 +1847,43 @@ class SizesFitPanel(QWidget):
             label=display_name,
             filepath=hdf5_path,
             is_nxcansas=True,
+            slit_length=float(data.get('slit_length', 0.0) or 0.0),
+            is_slit_smeared=bool(data.get('is_slit_smeared', False)),
         )
 
-    def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
+    def _reload_data_with_smearing(self, prefer_slit_smeared):
+        """Reload the current file's desmeared or slit-smeared dataset."""
+        fp = self.data.get('filepath') if self.data else None
+        if not fp:
+            return
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            import numpy as _np
+            p = Path(fp)
+            d = readGenericNXcanSAS(str(p.parent), p.name,
+                                    prefer_slit_smeared=prefer_slit_smeared)
+            if d is None:
+                return
+            self.set_data(
+                _np.asarray(d['Q'], dtype=float),
+                _np.asarray(d['Intensity'], dtype=float),
+                d.get('Error'),
+                label=self.data.get('label', 'Data'), filepath=fp, is_nxcansas=True,
+                slit_length=float(d.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(d.get('is_slit_smeared', False)),
+            )
+        except Exception as exc:
+            self.status_label.setText(f"Could not reload data: {exc}")
+
+    def _replot_after_slit_change(self):
+        """Redraw the loaded data after a slit-setting change (no refit)."""
+        if self.data is not None and self.graph_window:
+            self.graph_window.plot_data(
+                self.data['Q'], self.data['Intensity'],
+                self.data.get('Error'), self.data.get('label', 'Data'))
+
+    def set_data(self, q, intensity, error=None, label='Data', filepath=None,
+                 is_nxcansas=False, slit_length=0.0, is_slit_smeared=False):
         """Set the SAS data to be fitted."""
         self.data = {
             'Q': q,
@@ -1856,7 +1892,10 @@ class SizesFitPanel(QWidget):
             'label': label,
             'filepath': filepath,
             'is_nxcansas': is_nxcansas,
+            'slit_length': slit_length,
+            'is_slit_smeared': is_slit_smeared,
         }
+        self._refresh_slit_ui_from_data(slit_length, is_slit_smeared, filepath)
         self.fit_result = None
         self._last_distribution = None
         self._mc_rg_std = None
@@ -1910,6 +1949,10 @@ class SizesFitPanel(QWidget):
         s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run
         s.montecarlo_convergence = float(self.montecarlo_conv_edit.text() or 1.0)
         s.montecarlo_max_iter = self.montecarlo_maxiter_spin.value()
+        # Slit smearing: smear the G matrix so the recovered distribution is
+        # ideal-space when fitting slit-smeared data.
+        s.use_slit_smearing = self.slit_active()
+        s.slit_length = self.current_slit_length()
         return s
 
     def _get_bg_fit_q_range(self, q_min_edit, q_max_edit) -> tuple:
@@ -2932,6 +2975,9 @@ class SizesFitPanel(QWidget):
             params['volume_fraction'] = result.get('volume_fraction')
             params['rg'] = result.get('rg')
             params['n_iterations'] = result.get('n_iterations')
+            # Slit-smearing provenance (stored as attrs via the params whitelist).
+            params['slit_length'] = float(result.get('slit_length', 0.0) or 0.0)
+            params['data_is_slit_smeared'] = bool(result.get('data_is_slit_smeared', False))
 
             # Use the q/I/err the fit actually used (post internal NaN/non-positive
             # mask) so all stored arrays have matching lengths.  Falls back to the
@@ -2961,6 +3007,7 @@ class SizesFitPanel(QWidget):
                 distribution_std=result.get('distribution_std'),
                 setup_state=setup_state,
                 fit_quality=getattr(self, '_last_quality_metrics', None),
+                intensity_model_ideal=result.get('model_intensity_ideal'),
             )
 
             self.graph_window.show_success_message(

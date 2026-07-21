@@ -41,7 +41,9 @@ def _load_config(config_file: Union[str, Path]) -> Optional[Dict]:
     return config
 
 
-def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
+def _load_data(
+    data_file: Union[str, Path], load_slit_smeared: bool = False
+) -> Optional[Dict]:
     """Load SAS data from a text (.dat/.txt) or HDF5 (.h5/.hdf5) file.
 
     Text files are converted to a cleaned NXcanSAS HDF5 sibling via
@@ -49,7 +51,16 @@ def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
     receive ``is_nxcansas=True`` and a valid HDF5 filepath.  The sibling
     is cached by mtime and reused on subsequent calls.
 
-    Returns a dict with keys: Q, Intensity, Error (may be None).
+    Parameters
+    ----------
+    load_slit_smeared : bool
+        When True, load the slit-smeared (``_SMR``) sibling of the file's
+        default dataset if one exists (JSON config key ``"load_slit_smeared"``).
+        The returned dict carries ``slit_length`` (1/Å) and ``is_slit_smeared``
+        so downstream fitting can enable model smearing.
+
+    Returns a dict with keys: Q, Intensity, Error (may be None), plus
+    ``slit_length`` and ``is_slit_smeared``.
     """
     from pyirena.io.hdf5 import readGenericNXcanSAS
 
@@ -64,10 +75,16 @@ def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
             h5_file = ensure_nxcansas_sibling(data_file)
-            data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)
+            data = readGenericNXcanSAS(
+                str(h5_file.parent), h5_file.name,
+                prefer_slit_smeared=load_slit_smeared,
+            )
             actual_file = h5_file
         else:
-            data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
+            data = readGenericNXcanSAS(
+                str(data_file.parent), data_file.name,
+                prefer_slit_smeared=load_slit_smeared,
+            )
             actual_file = data_file
     except Exception as e:
         log.error(f"[pyirena.batch] Error reading '{data_file}': {e}")
@@ -80,4 +97,18 @@ def _load_data(data_file: Union[str, Path]) -> Optional[Dict]:
     data['filepath'] = str(actual_file)
     data['is_nxcansas'] = True
     data.setdefault('label', data_file.stem)
+    data.setdefault('slit_length', 0.0)
+    data.setdefault('is_slit_smeared', False)
+
+    # Enforcement: asking for slit-smeared data but the loaded curve has no
+    # slit length is a configuration error — fail loudly rather than silently
+    # fitting a pinhole model to (what the user believes is) smeared data.
+    if load_slit_smeared and not data.get('is_slit_smeared'):
+        log.error(
+            f"[pyirena.batch] 'load_slit_smeared' was requested but "
+            f"'{data_file.name}' has no slit-smeared dataset (no dQl). "
+            "Remove the flag or provide slit-smeared data."
+        )
+        return None
+
     return data

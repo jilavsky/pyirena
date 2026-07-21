@@ -240,7 +240,16 @@ def _save_to_nexus(data: Dict, model: UnifiedFitModel,
             level_dict['Sv'] = sv
         levels.append(level_dict)
 
-    intensity_model = model.calculate_intensity(data['Q'])
+    # When slit smearing is active, the curve that matches the data (and is
+    # stored as intensity_model) is the SMEARED model; the ideal (pinhole) model
+    # is saved alongside as intensity_model_ideal.
+    slit_length = float(model.slit_length) if model.use_slit_smearing else 0.0
+    intensity_model_ideal = None
+    if slit_length > 0:
+        intensity_model = model.calculate_intensity_smeared(data['Q'])
+        intensity_model_ideal = model.calculate_intensity(data['Q'])
+    else:
+        intensity_model = model.calculate_intensity(data['Q'])
     if data.get('Error') is not None:
         residuals = (data['Intensity'] - intensity_model) / data['Error']
     else:
@@ -267,6 +276,8 @@ def _save_to_nexus(data: Dict, model: UnifiedFitModel,
         error=data.get('Error'),
         uncertainties=uncertainties,
         setup_state=setup_state,
+        slit_length=slit_length,
+        intensity_model_ideal=intensity_model_ideal,
     )
 
     return output_path
@@ -357,8 +368,14 @@ def fit_unified(
         return None
 
     # --- Load data ---
+    # JSON keys (canonical, see slit-smearing plan §5.1):
+    #   "load_slit_smeared": true  -> load the file's slit-smeared (_SMR) dataset
+    #   "slit_length": <float>     -> optional override of the file-derived SL
+    # When slit-smeared data are loaded, model smearing is enabled automatically
+    # (SasView-style: slit-length presence drives smearing).
+    load_slit_smeared = bool(unified_state.get('load_slit_smeared', False))
     try:
-        data = _load_data(data_file)
+        data = _load_data(data_file, load_slit_smeared=load_slit_smeared)
         if data is None:
             return None
     except Exception:
@@ -369,6 +386,25 @@ def fit_unified(
     try:
         model = _state_to_model(unified_state)
         num_levels = model.num_levels
+        # Enable slit smearing when the loaded curve is slit smeared, or when
+        # the config explicitly requests it.  slit_length is file-derived unless
+        # overridden in the config.
+        cfg_slit_length = unified_state.get('slit_length')
+        data_slit_length = float(data.get('slit_length', 0.0) or 0.0)
+        slit_length = float(cfg_slit_length) if cfg_slit_length else data_slit_length
+        want_smearing = (
+            bool(data.get('is_slit_smeared'))
+            or bool(unified_state.get('use_slit_smearing'))
+        )
+        if want_smearing and slit_length > 0:
+            model.use_slit_smearing = True
+            model.slit_length = slit_length
+            log.info(f"[pyirena.batch] Slit smearing enabled (SL={slit_length:.4g} 1/A).")
+        elif want_smearing and slit_length <= 0:
+            log.warning(
+                "[pyirena.batch] Slit smearing requested but no slit length "
+                "available (no dQl and no 'slit_length' in config); fitting pinhole."
+            )
     except Exception:
         log.error(f"[pyirena.batch] Error building model from config:\n{traceback.format_exc()}")
         return None
@@ -414,7 +450,8 @@ def fit_unified(
 
     # --- Build return structure ---
     try:
-        intensity_model = model.calculate_intensity(Q)
+        # Smeared model matches the (smeared) data when smearing is on.
+        intensity_model = model.calculate_intensity_smeared(Q)
         if Error is not None:
             residuals = (Intensity - intensity_model) / Error
         else:

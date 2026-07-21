@@ -5,7 +5,21 @@ Test data: `testData/BoehNaNO2_10m_34_84min_0923.h5` (Matilda USAXS file with bo
 desmeared and slit-smeared entries; slit length dQl = 0.017700 1/A, Q range
 1.04e-4 – 0.30 1/A for both entries)
 
-Status: PLANNING — written 2026-07-18, execution over multiple future sessions.
+Status: IMPLEMENTED — written 2026-07-18; Phases 1–8 executed 2026-07-20 after
+Jan validated Unified Fit interactively (+ fixed the "Show selected level"
+overlay to smear). Full suite green: 430 passed, 5 skipped (1 pre-existing
+GUI-export hang deselected, unrelated).
+
+Fully wired (core smearing + GUI checkbox/SL field + save-both-curves +
+data-selector + batch load_slit_smeared): Unified Fit, Size Distribution,
+Simple Fits, Modeling. Fractals: comparison-plot smearing + slit capture on
+load. Simple Fits Invariant: disabled on smeared data with a message (Q5).
+Data Manipulation: mixed-operand subtract/divide guard. Shared GUI mixin:
+pyirena/gui/slit_smearing_ui.py. User doc: docs/slit_smearing.md.
+
+Deferred (utility-tier, low priority): full desmeared/smeared dataset-SELECTION
+UI for Data Merge & Data Manipulation (they load the @default entry; provenance
+dQl is preserved through the copy-based save). saxsMorph hook (out of scope).
 
 ---
 
@@ -418,7 +432,43 @@ indicator, fit, toggle ideal/smeared display curve, save, reopen.
 
 ---
 
-## 8. Open questions to confirm with Jan before/while coding
+## 8. Open questions — RESOLVED with Jan (2026-07-20)
+
+- **Q1 — l-grid resolution**: RESOLVED — 200 trapezoid points over [0, SL] is
+  fine. Implemented as `DEFAULT_N_L = 200` in `core/smearing.py`.
+- **Q2 — GUI default / dataset selection**: RESOLVED (changed from original
+  plan) — SasView model. Load whatever NXcanSAS `@default` designates as "the
+  data"; **slit-length (`dQl`) presence drives model smearing automatically**.
+  The "Slit smeared data" checkbox appears only when a file carries BOTH a
+  desmeared and a slit-smeared copy (Matilda); it then selects which dataset
+  pyIrena loads (toggling reloads from file). A single dataset with `dQl` smears
+  automatically with no checkbox needed. Implemented via
+  `readGenericNXcanSAS(prefer_slit_smeared=...)` + `file_has_smr_entry`.
+- **Q3 — merged-curve declaration**: RESOLVED — merged slit-smeared USAXS +
+  pinhole SAXS is treated as slit smeared throughout (SL ≤ qmin(SAXS), impact
+  negligible at high q). Keep a provenance note. (Phase 7.)
+- **Q4 — Modeling mixed datasets / SL override**: RESOLVED — file-derived SL is
+  the most trusted; expose an editable field repopulated from the file, rarely
+  changed. Implemented for Unified Fit (editable `slit_length` field). (Modeling
+  in Phase 6.)
+- **Q5 — invariant on slit-smeared data**: RESOLVED — split decision:
+  - **Unified Fit**: invariant is computed from the fitted MODEL parameters
+    (analytic, ideal-space), so it is computed from the **ideal model** with a
+    visible "from ideal model" note — NOT disabled. (`calculate_invariant`
+    already uses the ideal level intensity; docstring note added.)
+  - **Simple Fits data-integration invariant**: cannot be computed from smeared
+    data without desmearing → **disable with an explanatory message** when
+    slit-smeared data are loaded. (Phase 5.)
+
+### Canonical naming (locked, for the Matilda JSON contract)
+- Data-loading block key: `load_slit_smeared: true` (batch/config, control API
+  `use_slit_smeared`, MCP `use_slit_smeared`) — picks the `_SMR` dataset.
+- Model/behaviour: `use_slit_smearing` (bool) + `slit_length` (float, 1/Å).
+- Reported data property: `is_slit_smeared` (bool).
+- Enforcement: requesting slit-smeared data on a file with no `dQl` is a hard
+  error (batch returns None with a clear message), not a silent pinhole fit.
+
+## 8b. Original open questions (superseded by §8)
 
 - **Q1 — l-grid resolution**: Igor mimics data spacing (≈N points over the
   slit). Proposal: fixed 100–200 log-ish points over [0, SL] for W
@@ -443,22 +493,42 @@ indicator, fit, toggle ideal/smeared display curve, save, reopen.
 
 Each phase ends green (`pytest pyirena/tests`) and committable.
 
-**Phase 1 — Core smearing engine** (no UI):
+**Phase 1 — Core smearing engine** (no UI):  ✅ DONE 2026-07-20.
 `core/smearing.py` + `tests/test_smearing.py` units 1–6 + integration test 7
 (the DSM→SMR file check). This validates the math before any wiring.
-~1 session.
+Real-data DSM→SMR reproduction: median 0.114%, 90th pct 0.211% (matches the
+planning prototype). Fit-loop cost ~0.11 ms/eval.
 
-**Phase 2 — Data plumbing**:
-`io/hdf5.py` (SMR-aware `_read_one_sasdata`, `prefer_slit_smeared`,
-`include_smr`), `list_nxcansas_datasets`, data selector option, `set_data`
-signatures (all panels accept + store slit_length; no behavior yet),
-`ascii_export` header. Tests: loader returns SL for test file; picker lists
-both entries. ~1 session.
+**Phase 2 — Data plumbing**:  ✅ DONE 2026-07-20.
+`io/hdf5.py`: SMR-aware `_read_one_sasdata` (reads `dQl`→`slit_length`, sets
+`is_slit_smeared`; new `_attr_all_str`), `readGenericNXcanSAS(prefer_slit_smeared=)`,
+`_ordered_sasdata(include_smr=)`, `list_nxcansas_datasets(include_smr=)`, new
+`file_has_smr_entry` + `_smr_sibling_path`. batch `_load_data(load_slit_smeared=)`
+with hard-error enforcement. (Data-selector + set_data wiring folded into Phase 3.
+NOTE: `ascii_export` slit header still TODO — moved to Phase 8 polish.)
 
-**Phase 3 — Unified Fit end-to-end** (reference implementation):
-core model + local fits + GUI + save/load both curves + control API + batch.
-Integration tests 8, 9, 12. This is the template PR for every other tool.
-~1–2 sessions incl. debugging.
+**Phase 3 — Unified Fit end-to-end** (reference implementation):  ✅ DONE 2026-07-20.
+- Core (`core/unified.py`): `SlitSmearer` cache on the model,
+  `calculate_intensity_smeared`, `_residuals`/`fit` route through it;
+  `apply_slit_smearing` now a real tabulated helper; local Guinier/Porod fits
+  take `slit_length` (E2 warning); invariant note added.
+- Persistence: `state_manager` unified_fit `schema_version:2` + `use_slit_smearing`
+  + `slit_length` (additive, merge-safe); `nxcansas_unified` save/load
+  `slit_length`/`data_is_slit_smeared` attrs + `intensity_model_ideal`.
+- Scripting: batch `fit_unified` reads `load_slit_smeared`/`slit_length`,
+  auto-enables smearing, saves both curves.
+- Control API/MCP: `open_dataset(use_slit_smeared=)` reports
+  `is_slit_smeared`/`slit_length`/`has_slit_smeared_entry`; model auto-smears;
+  `run_fit` reports `slit_smearing_applied`; local fits pass SL; MCP tool doc
+  updated. `UnifiedFitResult` dataclass + `read_unified_fit` carry slit fields.
+- GUI (`gui/unified_fit.py`): "Slit smeared data" checkbox (selects dataset when
+  both exist, reloads from file) + editable `slit_length` field + status label;
+  fit/graph/save use the smeared model; local-fit E2 warnings to status bar;
+  state round-trips.
+- Tests: smearing units + integration 7, Unified-fit recovers-ideal-params (8),
+  save/load round-trip (9), control-API (12). GUI smoke verified headless.
+  REMAINING for Jan: interactive GUI test on the DSM+SMR file. Optional
+  ideal/pinhole overlay toggle deferred (plan §5.1) — not required to fit.
 
 **Phase 4 — Size Distribution**: G-matrix smearing + background terms + GUI
 + save. Test 10. ~1 session.
