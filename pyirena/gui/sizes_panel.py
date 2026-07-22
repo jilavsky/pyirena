@@ -2033,8 +2033,17 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             else:
                 x_raw = np.ones(len(r_grid)) / len(r_grid)
 
-            complex_bg = s.compute_complex_background(q)
-            I_model = G @ x_raw + complex_bg
+            # Slit smearing: smear the model scattering + background so the
+            # displayed curve matches the (smeared) data (mirrors the fit).
+            if s.use_slit_smearing and s.slit_length > 0:
+                from pyirena.core.smearing import SlitSmearer
+                _sm = SlitSmearer(q, s.slit_length)
+                G_ext = build_g_matrix(_sm.q_ext, r_grid, s.shape, s.contrast, **s.shape_params)
+                model_scatter = _sm.smear_columns(G_ext) @ x_raw
+            else:
+                model_scatter = G @ x_raw
+            complex_bg = self._display_background(s, q)
+            I_model = model_scatter + complex_bg
 
             # Plot — display errors match what is used for fitting
             disp_err = self._effective_error(
@@ -2046,7 +2055,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
             # Show complex background and corrected data when background is non-trivial
             q_full = self.data['Q']
-            bg_full = s.compute_complex_background(q_full)
+            bg_full = self._display_background(s, q_full)
             if s.power_law_B != 0.0 or s.background != 0.0:
                 self.graph_window.plot_complex_background(q_full, bg_full, 'Complex bg')
                 I_corrected = self.data['Intensity'] - bg_full
@@ -2158,8 +2167,12 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             # background curve all share the same length.  Falls back to the
             # input q if the result lacks this key (legacy fit objects).
             q_used = result.get('q', q)
+            # model_intensity is the SMEARED distribution scattering when
+            # smearing is on; add the SMEARED background so the red model+bg
+            # curve overlays the (smeared) data instead of the ideal (pinhole)
+            # curve, which misfits at low q.
             I_model_bg_subtracted = result['model_intensity']
-            complex_bg_q = s.compute_complex_background(q_used)
+            complex_bg_q = self._display_background(s, q_used)
             I_model_display = I_model_bg_subtracted + complex_bg_q
             residuals = result.get('residuals', None)
 
@@ -2175,7 +2188,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             # Show complex background model and corrected data
             # (corrected data limited to the cursor Q range used for the fit)
             q_full = self.data['Q']
-            bg_full = s.compute_complex_background(q_full)
+            bg_full = self._display_background(s, q_full)
             if s.power_law_B != 0.0 or s.background != 0.0:
                 self.graph_window.plot_complex_background(q_full, bg_full, 'Complex bg')
                 I_corrected = self.data['Intensity'] - bg_full
@@ -2243,6 +2256,19 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             self.status_label.setText("Fit failed")
             import traceback; traceback.print_exc()
 
+    # ── Slit-smearing display helpers ─────────────────────────────────────────
+
+    def _display_background(self, s, q):
+        """Complex background for display/subtraction — SMEARED when smearing is
+        active, so the curve overlays the (smeared) data and ``I − bg`` is
+        correct.  Mirrors the main fit, which subtracts smear(bg) from the data.
+        """
+        q = np.asarray(q, dtype=float)
+        if getattr(s, 'use_slit_smearing', False) and s.slit_length > 0:
+            from pyirena.core.smearing import SlitSmearer
+            return SlitSmearer(q, s.slit_length).smear_model(s.compute_complex_background)
+        return s.compute_complex_background(q)
+
     # ── Background fit actions ────────────────────────────────────────────────
 
     def _replot_background_preview(self):
@@ -2252,16 +2278,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             return
         s = self._collect_params()
         q_full = self.data['Q']
-        # Slit-smeared data: display (and subtract) the SMEARED background so the
-        # curve matches the data — the fit stores ideal-space B/P, whose ideal
-        # curve sits below the smeared data and looks "not fitted".  This mirrors
-        # the main fit, which subtracts smear(bg) from the smeared data.
-        if s.use_slit_smearing and s.slit_length > 0:
-            from pyirena.core.smearing import SlitSmearer
-            _sm = SlitSmearer(np.asarray(q_full, float), s.slit_length)
-            bg_full = _sm.smear_model(s.compute_complex_background)
-        else:
-            bg_full = s.compute_complex_background(q_full)
+        # Display (and subtract) the SMEARED background on slit-smeared data so
+        # the curve matches the data (see _display_background).
+        bg_full = self._display_background(s, q_full)
         # Remove old background/corrected items and redraw
         if self.graph_window._complex_bg_item is not None:
             try:

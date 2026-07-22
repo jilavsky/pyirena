@@ -108,6 +108,9 @@ class _DatasetSelectorWidget(QWidget):
         self.folder_changed_callback: Optional[Callable] = None
         # Optional callback invoked when the text filter changes.
         self.filter_changed_callback: Optional[Callable] = None
+        # Optional callback(bool) invoked when the "Use slit-smeared copy"
+        # checkbox is toggled (set by DataMergePanel).
+        self.slit_toggled_callback: Optional[Callable] = None
 
         self._build_ui()
 
@@ -169,8 +172,34 @@ class _DatasetSelectorWidget(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.file_list, stretch=1)
 
+        # "Use slit-smeared copy" — shown only when the loaded file carries both
+        # a desmeared and a slit-smeared (USAXS) copy (Matilda).  Selects which
+        # copy to merge; a slit-smeared choice makes the merged output smeared.
+        self.slit_check = QCheckBox("Use slit-smeared copy")
+        self.slit_check.setToolTip(
+            "This file has both a desmeared and a slit-smeared (USAXS) copy.\n"
+            "Check to merge using the slit-smeared data — the merged output is\n"
+            "then written slit smeared (dQl) so downstream tools detect it."
+        )
+        self.slit_check.setVisible(False)
+        self.slit_check.stateChanged.connect(self._on_slit_toggled)
+        layout.addWidget(self.slit_check)
+
         self.setMinimumWidth(200)
         self.setMaximumWidth(260)
+
+    def _on_slit_toggled(self, _state) -> None:
+        if self.slit_toggled_callback is not None:
+            self.slit_toggled_callback(self.slit_check.isChecked())
+
+    def set_slit_check(self, visible: bool, checked: bool) -> None:
+        """Show/hide + set the slit checkbox without emitting the toggle callback."""
+        self.slit_check.blockSignals(True)
+        try:
+            self.slit_check.setVisible(visible)
+            self.slit_check.setChecked(checked)
+        finally:
+            self.slit_check.blockSignals(False)
 
     # ------------------------------------------------------------------ #
     #  Public helpers                                                      #
@@ -643,6 +672,10 @@ class DataMergePanel(QWidget):
         self._ds2 = _DatasetSelectorWidget(2)
         self._ds1.file_list.itemDoubleClicked.connect(self._on_ds1_double_clicked)
         self._ds2.file_list.itemDoubleClicked.connect(self._on_ds2_double_clicked)
+        # "Use slit-smeared copy" checkbox per dataset (shown only when the
+        # loaded file has both copies) → reload that dataset accordingly.
+        self._ds1.slit_toggled_callback = lambda chk: self._reload_ds_smearing(1, chk)
+        self._ds2.slit_toggled_callback = lambda chk: self._reload_ds_smearing(2, chk)
         # Re-check Batch button enable state whenever selection changes
         self._ds1.file_list.itemSelectionChanged.connect(self._check_enable_batch_btn)
         self._ds2.file_list.itemSelectionChanged.connect(self._check_enable_batch_btn)
@@ -944,10 +977,11 @@ class DataMergePanel(QWidget):
             return
         self._data1 = data
         self._graph.plot_ds1(data['Q'], data['Intensity'], data.get('Error'))
+        self._refresh_ds_slit_check(self._ds1, data)
         self._init_cursors_from_data()
         self._update_cursor_display()
         self._check_enable_buttons()
-        self._status.setText(f"DS1 loaded: {fname}")
+        self._status.setText(f"DS1 loaded: {fname}{self._slit_suffix(data)}")
 
     def _on_ds2_double_clicked(self, item: QListWidgetItem) -> None:
         fname = item.text()
@@ -959,10 +993,69 @@ class DataMergePanel(QWidget):
             return
         self._data2 = data
         self._graph.plot_ds2(data['Q'], data['Intensity'], data.get('Error'))
+        self._refresh_ds_slit_check(self._ds2, data)
         self._init_cursors_from_data()
         self._update_cursor_display()
         self._check_enable_buttons()
-        self._status.setText(f"DS2 loaded: {fname}")
+        self._status.setText(f"DS2 loaded: {fname}{self._slit_suffix(data)}")
+
+    @staticmethod
+    def _slit_suffix(data: dict) -> str:
+        """Short status suffix noting the loaded copy's smearing state."""
+        if data.get('is_slit_smeared'):
+            return "  (slit-smeared)"
+        return ""
+
+    def _refresh_ds_slit_check(self, selector, data: dict) -> None:
+        """Show the 'Use slit-smeared copy' checkbox when the file has both a
+        desmeared and a slit-smeared copy; reflect which one is loaded."""
+        has_smr = False
+        fp = data.get('filepath')
+        if fp:
+            try:
+                from pyirena.io.hdf5 import file_has_smr_entry
+                p = Path(fp)
+                has_smr = file_has_smr_entry(str(p.parent), p.name)
+            except Exception:
+                has_smr = False
+        # Also show it if the loaded curve is already slit smeared (single-copy
+        # file), so the user can see/relax that choice.
+        visible = bool(has_smr or data.get('is_slit_smeared'))
+        selector.set_slit_check(visible, bool(data.get('is_slit_smeared')))
+
+    def _reload_ds_smearing(self, dataset_number: int, prefer_slit_smeared: bool) -> None:
+        """Reload DS1/DS2 selecting the desmeared or slit-smeared copy."""
+        selector = self._ds1 if dataset_number == 1 else self._ds2
+        cur = self._data1 if dataset_number == 1 else self._data2
+        if not cur or not cur.get('filepath'):
+            return
+        fp = Path(cur['filepath'])
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            data = readGenericNXcanSAS(str(fp.parent), fp.name,
+                                       prefer_slit_smeared=prefer_slit_smeared)
+        except Exception as exc:
+            QMessageBox.warning(self, "Reload Error",
+                                f"Could not reload {fp.name}:\n{exc}")
+            # Revert the checkbox to the actual loaded state
+            selector.set_slit_check(True, bool(cur.get('is_slit_smeared')))
+            return
+        if data is None:
+            return
+        data['is_nxcansas'] = True
+        data['filepath'] = str(fp)
+        data.setdefault('slit_length', 0.0)
+        data.setdefault('is_slit_smeared', False)
+        if dataset_number == 1:
+            self._data1 = data
+            self._graph.plot_ds1(data['Q'], data['Intensity'], data.get('Error'))
+        else:
+            self._data2 = data
+            self._graph.plot_ds2(data['Q'], data['Intensity'], data.get('Error'))
+        self._init_cursors_from_data()
+        self._update_cursor_display()
+        self._status.setText(
+            f"DS{dataset_number} reloaded{self._slit_suffix(data)}")
 
     def _on_fit_scale_toggled(self, checked: bool) -> None:
         """When 'Fit scale' is unchecked, let the user type a fixed scale value."""

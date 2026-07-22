@@ -404,6 +404,11 @@ output file, recording the full merge provenance:
 
 ## Slit smearing (USAXS)
 
+When an input file carries **both** a desmeared and a slit-smeared (USAXS) copy
+(Matilda), a **"Use slit-smeared copy"** checkbox appears under that dataset's
+file list. It loads the desmeared `@default` entry by default; check it to merge
+the slit-smeared data instead.
+
 Merging a slit-smeared curve (typically the low-Q USAXS dataset) with a pinhole
 one produces a **slit-smeared output**: the merged file gets a `dQl` dataset so
 downstream tools auto-detect it, and the provenance records the input and merged

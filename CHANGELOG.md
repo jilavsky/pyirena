@@ -91,6 +91,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   panels and hides widgets. The Size Distribution control panel is now
   user-widenable via the splitter (420 px minimum instead of a hard-fixed
   width).
+- **Size Distribution — fitted model + background now displayed slit-smeared.**
+  The fit was correct, but the result plot added the *ideal* (pinhole)
+  background to the (smeared) model scattering and drew the ideal "Complex bg"
+  curve, so the red model+background curve visibly misfit the smeared data. All
+  three display paths (fit result, "Graph model", background preview) now show
+  the smeared background — and the "Graph model" preview smears the scattering
+  too — matching the data.
+- **Data Merge — select the slit-smeared copy.** When a merge input file carries
+  both a desmeared and a slit-smeared (USAXS) copy, a **"Use slit-smeared copy"**
+  checkbox appears under that dataset's file list; checking it reloads the
+  slit-smeared data so the merged output is written slit smeared (`dQl`).
+  Previously only the desmeared `@default` entry could be loaded, so the
+  provenance plumbing added earlier had no way to be triggered from the GUI.
 
 ## [1.0.1] - 2026-07-15
 
