@@ -899,9 +899,12 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self.graph_window = SizesFitGraphWindow()
         main_splitter.addWidget(self.graph_window)
 
-        main_splitter.setSizes([400, 800])
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 2)
+        main_splitter.setSizes([420, 800])
+        # Control panel keeps its width on window resize (stretch 0); the graph
+        # absorbs the extra space (stretch 1).  The splitter handle stays
+        # draggable so the user can still widen the controls when needed.
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
         self.main_splitter = main_splitter
 
         root_layout = QVBoxLayout()
@@ -932,20 +935,22 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
     def _create_control_panel(self) -> QWidget:
         """Build the left control panel (tabbed) inside a scroll area."""
-        # Outer container with fixed width
+        # 420 px is the comfortable default, but the panel is user-widenable via
+        # the splitter (Preferred policy, minimum-but-not-fixed width) so wider
+        # controls are never clipped.
         outer = QWidget()
-        outer.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        outer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         outer.setMinimumWidth(420)
-        outer.setMaximumWidth(420)
 
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # Scroll area so controls don't get clipped on short screens
+        # Scroll area so controls don't get clipped on short screens.  Allow a
+        # horizontal scrollbar as a last resort if the panel is dragged narrow.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         inner = QWidget()
@@ -2247,7 +2252,16 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             return
         s = self._collect_params()
         q_full = self.data['Q']
-        bg_full = s.compute_complex_background(q_full)
+        # Slit-smeared data: display (and subtract) the SMEARED background so the
+        # curve matches the data — the fit stores ideal-space B/P, whose ideal
+        # curve sits below the smeared data and looks "not fitted".  This mirrors
+        # the main fit, which subtracts smear(bg) from the smeared data.
+        if s.use_slit_smearing and s.slit_length > 0:
+            from pyirena.core.smearing import SlitSmearer
+            _sm = SlitSmearer(np.asarray(q_full, float), s.slit_length)
+            bg_full = _sm.smear_model(s.compute_complex_background)
+        else:
+            bg_full = s.compute_complex_background(q_full)
         # Remove old background/corrected items and redraw
         if self.graph_window._complex_bg_item is not None:
             try:

@@ -96,6 +96,25 @@ class UnifiedLevel:
         if self.mass_fractal and self.Rg > 0:
             self.B = (self.G * self.P / self.Rg ** self.P) * np.exp(np.log(gamma(self.P / 2.0)))
 
+    @property
+    def fit_ETA_effective(self) -> bool:
+        """Whether ETA is a live fit parameter.
+
+        ETA (and PACK) only enter the model through the correlation term
+        (``correlations and PACK > 0``).  With correlations off they have zero
+        effect on the intensity, so fitting them makes the least-squares problem
+        rank-deficient — the solver thrashes for thousands of no-op evaluations
+        (badly amplified when slit smearing makes each eval evaluate the model
+        on the extended grid).  Gate ETA/PACK on ``correlations`` so they are
+        only ever free when they actually matter.
+        """
+        return self.fit_ETA and self.correlations
+
+    @property
+    def fit_PACK_effective(self) -> bool:
+        """Whether PACK is a live fit parameter (see :meth:`fit_ETA_effective`)."""
+        return self.fit_PACK and self.correlations
+
     def check_physical_feasibility(self) -> bool:
         """
         Check if the level parameters represent a physically meaningful set.
@@ -360,9 +379,9 @@ class UnifiedFitModel:
                 params.append(level.P)
             if level.fit_B and not level.link_B and not level.mass_fractal:
                 params.append(level.B)
-            if level.fit_ETA:
+            if level.fit_ETA_effective:
                 params.append(level.ETA)
-            if level.fit_PACK:
+            if level.fit_PACK_effective:
                 params.append(level.PACK)
             if level.fit_RgCO and not level.link_RGCO:
                 params.append(level.RgCO)
@@ -389,10 +408,10 @@ class UnifiedFitModel:
             if level.fit_B and not level.link_B and not level.mass_fractal:
                 level.B = params[idx]
                 idx += 1
-            if level.fit_ETA:
+            if level.fit_ETA_effective:
                 level.ETA = params[idx]
                 idx += 1
-            if level.fit_PACK:
+            if level.fit_PACK_effective:
                 level.PACK = params[idx]
                 idx += 1
             if level.fit_RgCO and not level.link_RGCO:
@@ -420,10 +439,10 @@ class UnifiedFitModel:
             if level.fit_B and not level.link_B and not level.mass_fractal:
                 lower.append(level.B_limits[0])
                 upper.append(level.B_limits[1])
-            if level.fit_ETA:
+            if level.fit_ETA_effective:
                 lower.append(level.ETA_limits[0])
                 upper.append(level.ETA_limits[1])
-            if level.fit_PACK:
+            if level.fit_PACK_effective:
                 lower.append(level.PACK_limits[0])
                 upper.append(level.PACK_limits[1])
             if level.fit_RgCO and not level.link_RGCO:

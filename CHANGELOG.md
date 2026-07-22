@@ -71,6 +71,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   producing that ideal curve.
 - **Fractals** no longer silently shows an unsmeared overlay when smearing the
   comparison curve fails — it logs and flags the discrepancy.
+- **Unified Fit — large slit-smeared fit slowdown fixed (~50× on affected
+  fits).** ETA/PACK are now only free fit parameters when a level's
+  *correlations* are enabled. With correlations off they have no effect on the
+  model, so fitting them made the least-squares problem rank-deficient and the
+  solver thrashed for thousands of no-op iterations — cheap for pinhole data but
+  badly amplified by slit smearing (each iteration evaluates the model on the
+  extended grid). A real 2-level USAXS fit dropped from ~2.5 s to ~0.05 s with
+  identical χ² and parameters. Also speeds up pinhole fits and fixes a latent
+  correctness issue (fitting parameters that cannot change the fit).
+- **Size Distribution — power-law/complex background now displayed and
+  subtracted slit-smeared.** The background preview drew and subtracted the
+  *ideal* (pinhole) background on slit-smeared data, so the curve sat below the
+  data and looked unfitted and `I−bg` was wrong; it now smears the background
+  for both display and subtraction, matching the fit.
+- **Size Distribution / Modeling panels — layout no longer forced too wide.**
+  The shared "Slit smeared data" control row is now compact (short labels;
+  status text on its own wrapped line), so it no longer stretches narrow control
+  panels and hides widgets. The Size Distribution control panel is now
+  user-widenable via the splitter (420 px minimum instead of a hard-fixed
+  width).
 
 ## [1.0.1] - 2026-07-15
 

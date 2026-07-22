@@ -29,9 +29,13 @@ from __future__ import annotations
 from pathlib import Path
 
 try:  # PySide6 first, fall back to PyQt6 (project-wide convention)
-    from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QWidget
+    from PySide6.QtWidgets import (
+        QCheckBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
+    )
 except ImportError:  # pragma: no cover - exercised only on PyQt6 installs
-    from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QWidget
+    from PyQt6.QtWidgets import (
+        QCheckBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
+    )
 
 
 class SlitSmearingMixin:
@@ -44,8 +48,17 @@ class SlitSmearingMixin:
         self._has_smr_sibling = False
         self._updating_slit_ui = False
 
+        # Compact controls on one row; the (potentially long) status text goes
+        # on its own word-wrapped line below so it never forces the control
+        # panel wider than the fitting widgets need — narrow panels (Sizes /
+        # Modeling) were being stretched by a single wide slit row.
+        outer = QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(1)
+
         row = QHBoxLayout()
-        self.slit_smear_check = QCheckBox("Slit smeared data")
+        row.setContentsMargins(0, 0, 0, 0)
+        self.slit_smear_check = QCheckBox("Slit smeared")
         self.slit_smear_check.setToolTip(
             "When checked, the model is slit smeared (Lake infinite-slit) before\n"
             "comparison with the data, so fitted parameters are ideal-space.\n"
@@ -54,23 +67,29 @@ class SlitSmearingMixin:
         )
         self.slit_smear_check.stateChanged.connect(self._on_slit_smear_changed)
         row.addWidget(self.slit_smear_check)
-        row.addSpacing(8)
-        row.addWidget(QLabel("Slit length (1/Å):"))
+        row.addSpacing(6)
+        row.addWidget(QLabel("SL (1/Å):"))
         self.slit_length_edit = QLineEdit("0.0")
-        self.slit_length_edit.setFixedWidth(90)
+        self.slit_length_edit.setFixedWidth(80)
         self.slit_length_edit.setToolTip(
             "Slit (half-)length dQl in 1/Å.  File-derived; edit to override.\n"
             "Rarely changed — the file value is the most trusted."
         )
         self.slit_length_edit.editingFinished.connect(self._on_slit_length_edited)
         row.addWidget(self.slit_length_edit)
-        self.slit_status_label = QLabel("")
-        self.slit_status_label.setStyleSheet("color:#666;font-style:italic;")
-        row.addWidget(self.slit_status_label)
         row.addStretch()
+        outer.addLayout(row)
+
+        self.slit_status_label = QLabel("")
+        self.slit_status_label.setStyleSheet("color:#666;font-style:italic;font-size:10px;")
+        self.slit_status_label.setWordWrap(True)
+        outer.addWidget(self.slit_status_label)
 
         self.slit_row_widget = QWidget()
-        self.slit_row_widget.setLayout(row)
+        self.slit_row_widget.setLayout(outer)
+        # Don't let this row dictate the panel's minimum width.
+        self.slit_row_widget.setMaximumWidth(16777215)
+        self.slit_status_label.setMinimumWidth(0)
         self.slit_row_widget.setVisible(False)   # shown once data is loaded
         layout.addWidget(self.slit_row_widget)
 
@@ -109,11 +128,16 @@ class SlitSmearingMixin:
             self.slit_smear_check.setChecked(bool(is_slit_smeared))
             self.slit_length_edit.setText(f"{self._slit_length:.5g}")
             if self._has_smr_sibling:
-                self.slit_status_label.setText("file has desmeared + slit-smeared copies")
+                self.slit_status_label.setText("desmeared + smeared in file")
+                self.slit_status_label.setToolTip(
+                    "File has both a desmeared and a slit-smeared copy; the "
+                    "checkbox selects which pyIrena loads.")
             elif is_slit_smeared:
                 self.slit_status_label.setText("slit-smeared data")
+                self.slit_status_label.setToolTip("")
             else:
                 self.slit_status_label.setText("pinhole data")
+                self.slit_status_label.setToolTip("")
         finally:
             self._updating_slit_ui = False
         self._sync_smearing_hook()

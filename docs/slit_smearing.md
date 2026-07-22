@@ -62,6 +62,22 @@ changed — the file value is the most trusted).
 | **Data Merge** | Merging a slit-smeared curve (typically low-Q USAXS) with a pinhole one yields a slit-smeared output: the merged file gets a `dQl` dataset and provenance records the input/merged slit lengths. Two different nonzero slit lengths warn (larger kept). Optimization is unchanged (slit length ≤ SAXS Qmin ⇒ negligible in the overlap). |
 | **Data Manipulation** | Subtract/divide refuse to mix a smeared curve with a pinhole one (or different slit lengths); the guard lives in the core engine so batch inherits it. Outputs drop any stale `_SMR` twin and orphaned `dQl`. |
 
+## Performance
+
+Model-side smearing evaluates the model on an **extended, refined q grid**
+(≈ 8× the data points) every fit iteration, so a slit-smeared fit is inherently
+a few times slower per iteration than a pinhole fit. This is expected and small
+in absolute terms.
+
+What is *not* acceptable is a fit that iterates far more than it should. In
+Unified Fit, `ETA`/`PACK` only affect the model when a level's **correlations**
+are enabled; they are therefore treated as free parameters only in that case.
+Leaving them "fit" with correlations off would otherwise make the optimiser
+thrash over parameters that cannot change the fit — cheap for pinhole data but
+heavily amplified by the extended grid (this previously made some slit-smeared
+fits ~50× slower). If a slit-smeared fit feels unexpectedly slow, check that
+only parameters that actually affect the model are marked for fitting.
+
 ## Saved results
 
 Every fitting tool's result group records:
