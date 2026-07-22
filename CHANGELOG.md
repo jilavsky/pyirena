@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b1] - 2026-07-22
+
 ### Added
 
 - **Slit smearing across all fitting tools (USAXS/Matilda).** pyIrena can fit
