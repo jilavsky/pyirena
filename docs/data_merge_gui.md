@@ -402,6 +402,17 @@ output file, recording the full merge provenance:
 
 ---
 
+## Slit smearing (USAXS)
+
+Merging a slit-smeared curve (typically the low-Q USAXS dataset) with a pinhole
+one produces a **slit-smeared output**: the merged file gets a `dQl` dataset so
+downstream tools auto-detect it, and the provenance records the input and merged
+slit lengths (`slit_length_ds1/ds2`, `slit_length_merged`). Two inputs with
+*different* nonzero slit lengths warn (the larger is kept). The optimisation
+itself is unchanged — the slit length sits at or below the SAXS Qmin, so its
+effect in the overlap region is negligible. See
+**[Slit smearing](slit_smearing.md)** for the full reference.
+
 ## Optimisation details
 
 ### Algorithm

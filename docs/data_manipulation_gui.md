@@ -311,6 +311,16 @@ frames discarded by the similarity filter).
 
 ---
 
+## Slit smearing (USAXS)
+
+Subtract and divide **refuse to mix** a slit-smeared curve with a pinhole one
+(or two different slit lengths), since that would silently produce a wrong
+result; the guard lives in the core engine so batch scripting inherits it.
+Manipulation outputs also drop any stale `_SMR` (slit-smeared twin) entry copied
+from the source and clear an orphaned `dQl`, so a later slit-smeared load can't
+return an inconsistent curve. See **[Slit smearing](slit_smearing.md)** for the
+full reference.
+
 ## Interpolation and uncertainty propagation
 
 When combining datasets on different Q grids (average, subtract, divide),

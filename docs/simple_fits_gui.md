@@ -458,6 +458,19 @@ if sf and sf['success']:
 
 For the full batch API reference, see [batch_api.md](batch_api.md).
 
+## Slit smearing (USAXS)
+
+When slit-smeared USAXS data are loaded (an NXcanSAS `dQl`, e.g. from Matilda),
+a **"Slit smeared"** control row appears and each analytic model is smeared
+before comparison, so the displayed "Graph model" curve matches the data
+(e.g. Sphere/Spheroid oscillations are correctly smoothed) and fitted parameters
+remain ideal-space. Guinier/Porod **linearization** has no closed form for
+smeared data, so it is drawn best-effort (ideal-space) and labelled as such. The
+**Invariant** integrates the data directly, which is invalid for smeared data,
+so it is **disabled with a message** — load the desmeared dataset, or use Unified
+Fit's model-based invariant. See **[Slit smearing](slit_smearing.md)** for the
+full reference.
+
 ## Fit Quality
 
 Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized

@@ -666,6 +666,16 @@ config = ModelingConfig(
 )
 ```
 
+## Slit smearing (USAXS)
+
+When slit-smeared USAXS data are loaded (an NXcanSAS `dQl`, e.g. from Matilda),
+a **"Slit smeared"** control row appears and the total model — all populations,
+structure factors, and background — is smeared before comparison with the data,
+so fitted parameters remain ideal-space (pinhole-equivalent). The saved HDF5
+records both the smeared model and the ideal (`model_I_ideal`) curve. See
+**[Slit smearing](slit_smearing.md)** for the full reference and scripting
+contract.
+
 ## Fit Quality
 
 Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized
