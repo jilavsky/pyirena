@@ -98,6 +98,32 @@ def readTextFile(path, filename, error_fraction=0.05):
         return None
 
 
+class NoScatteringDataError(ValueError):
+    """Raised when a loaded SAS file has no usable Q/Intensity data.
+
+    Covers both missing datasets and datasets that are present but empty or
+    0-dimensional — the signature of a sample that did not scatter, an
+    aborted measurement, or a corrupted file. A single exception type raised
+    at the point of loading lets every caller (GUI panels, the batch API)
+    show one clear message instead of each hitting a different downstream
+    numpy error (``len() of unsized object``, ``too many indices for
+    array``, mismatched broadcast shapes, ...).
+    """
+
+
+def _require_scattering_data(Q, Intensity, filename):
+    """Raise :class:`NoScatteringDataError` if Q/Intensity are empty or scalar."""
+    def _bad(arr):
+        return arr is None or np.ndim(arr) == 0 or np.size(arr) == 0
+
+    if _bad(Q) or _bad(Intensity):
+        raise NoScatteringDataError(
+            f"'{filename}' has no usable scattering data (Q/Intensity arrays "
+            "are empty). The sample likely did not scatter, the measurement "
+            "was aborted, or the file is corrupted. Skip this file."
+        )
+
+
 def readSimpleHDF5(path, filename):
     """
     Read simple HDF5 files with basic structure (e.g., /entry1/data1/Q and /entry1/data1/I).
@@ -138,6 +164,8 @@ def readSimpleHDF5(path, filename):
                             dQ = f[dq_path][()]
                             break
 
+                    _require_scattering_data(Q, I, filename)
+
                     logging.info(f"Successfully read simple HDF5 file {filename} using path {base}")
                     return {
                         'Intensity': I,
@@ -148,6 +176,8 @@ def readSimpleHDF5(path, filename):
 
             logging.warning(f"No recognizable data structure found in {filename}")
             return None
+    except NoScatteringDataError:
+        raise
     except Exception as e:
         logging.error(f"Error reading simple HDF5 file {filename}: {e}")
         return None
@@ -440,6 +470,8 @@ def _read_one_sasdata(f, data_path):
         except Exception:
             slit_length = 0.0
     is_slit_smeared = slit_length > 0
+
+    _require_scattering_data(Q, intensity, os.path.basename(getattr(f, 'filename', '') or data_path))
 
     return {
         'Intensity': intensity,

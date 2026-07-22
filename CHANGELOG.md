@@ -58,6 +58,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clear error for non-scattering / empty data files, instead of a different
+  cryptic crash per tool.** A file whose Q/Intensity arrays are empty (sample
+  didn't scatter, aborted measurement, corrupted file) used to load
+  "successfully" and then crash deep inside each tool with an unrelated numpy
+  error (`len() of unsized object`, `too many indices for array: array is
+  0-dimensional`, mismatched broadcast shapes, ...). `readGenericNXcanSAS` /
+  `readSimpleHDF5` (`pyirena/io/hdf5.py`) now raise a single
+  `NoScatteringDataError` right at load time with a message that says what's
+  actually wrong, shown identically by every tool (Unified Fit, Size
+  Distribution, Modeling, Simple Fits, SAXS Morph, Data Selector "Create
+  Graph"). The batch API (`_load_data` and all `fit_*` functions) already
+  catches load errors per file and returns `None`, so unattended/scripted
+  batch runs now skip a bad file with one clear log line instead of risking a
+  crash — verified across `fit_simple`, `fit_sizes`, and the Data Selector's
+  batch-script worker. "Create Graph" now also reports which files were
+  skipped and why instead of silently plotting nothing for them.
 - **Simple Fits — displayed model is now slit smeared.** "Graph model" and
   auto-graph previously drew the ideal (sharp) curve even with smearing on, so
   Sphere/Spheroid/Teubner-Strey oscillations looked unsmeared; `compute()` now

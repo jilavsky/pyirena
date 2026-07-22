@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 from pyirena.gui.data_selector._qt import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QAbstractItemView, QTableWidget, QTableWidgetItem, Qt,
+    QMessageBox,
 )
 from pyirena.gui.sas_plot import add_slope_line_menu
 from pyirena.io.hdf5 import readGenericNXcanSAS
@@ -95,6 +96,7 @@ class GraphWindow(QWidget):
         self._plot_cache = []
         legend_idx = _legend_indices(len(file_paths), max_legend_items)
         colors = _gen_colors(len(file_paths))
+        skipped = []   # (filename, reason) — reported to the user after the loop
 
         for idx, file_path in enumerate(file_paths):
             color = colors[idx]
@@ -113,6 +115,7 @@ class GraphWindow(QWidget):
                     data = readGenericNXcanSAS(path, filename)
 
                 if data is None:
+                    skipped.append((filename, "no readable SAS data found"))
                     continue
 
                 q   = np.asarray(data['Q'],        dtype=float)
@@ -128,8 +131,18 @@ class GraphWindow(QWidget):
 
             except Exception as e:
                 log.warning("Error loading %s: %s", file_path, e)
+                skipped.append((os.path.basename(file_path), str(e)))
 
         self._redraw_items()
+
+        if skipped:
+            preview = '\n'.join(f"- {name}: {reason}" for name, reason in skipped[:8])
+            if len(skipped) > 8:
+                preview += f"\n(+{len(skipped) - 8} more)"
+            QMessageBox.warning(
+                self, "Some files could not be plotted",
+                f"{len(skipped)} of {len(file_paths)} file(s) were skipped:\n\n{preview}",
+            )
 
         # Set x-axis to the actual Q range of all loaded data so data from
         # instruments with very different Q ranges is always in view.
