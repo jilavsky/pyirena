@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Import Igor Experiment: Irena/Nika "Use QRS Names" data not recognised.**
+  Igor experiments (`.h5xp`/`.pxp`) whose reduced 1-D data followed the common
+  Irena/Nika "Use QRS Names" convention — waves named `Q_<folder>` /
+  `R_<folder>` / `S_<folder>` (uppercase prefix, data-folder name as suffix;
+  R = intensity, S = error) — imported as **zero** samples: every folder was
+  silently skipped. The importer's wave-name picker tables only knew pyirena's
+  own lowercase `q_<folder>` output and a few other conventions. Added the
+  uppercase QRS triple to all three techniques (USAXS/SAXS/WAXS) in both
+  `WAVE_PICKERS_H5XP` and `WAVE_PICKERS` in `pyirena/io/pxp_to_nexus.py`. A real
+  desktop-SAXS (Xenocs, ANSTO) file that previously imported 0/44 samples now
+  imports 44/44. *Note: a follow-up will make Igor wave-name matching fully
+  case-insensitive, since Igor names are case-insensitive by design.*
 - **"Teubner-Strey" model name typo.** The Simple Fits model was misspelled
   "Treubner-Strey" (the model is named for M. Teubner & R. Strey, J. Chem.
   Phys. 87, 1987) in the registry key, internal function name, derived-value
