@@ -9,7 +9,7 @@ The viewer supports results from all pyirena analysis tools: **Unified Fit**
 (including Guinier analysis, Porod's law exponents, and fractal/agglomerate
 models), **Size Distribution** (volume/number distributions, cumulative distributions, and I(Q) models),
 **WAXS Peak Fit** (diffraction peak fitting), **Simple Fits** (Guinier, Porod,
-Debye-Bueche, Treubner-Strey, and other models), and **Data Merge**
+Debye-Bueche, Teubner-Strey, and other models), and **Data Merge**
 (merged SAXS/USAXS datasets).
 
 ---
@@ -213,7 +213,7 @@ Choose a **Type** and **Item** from the combo boxes:
 | Unified Fit | Rg, G, B, P, ETA, PACK (per level); background; chi2. Covers Guinier knee parameters and Porod law exponents. |
 | WAXS Peak Fit | Q0, A, FWHM (per peak); chi2. Suitable for diffraction peak fitting results. |
 | Size Distribution | chi2, volume_fraction. Covers volume-weighted size distribution models. |
-| Simple Fits | any fitted parameter by name; chi2. Covers Guinier, Porod, Debye-Bueche, Treubner-Strey, and other models. |
+| Simple Fits | any fitted parameter by name; chi2. Covers Guinier, Porod, Debye-Bueche, Teubner-Strey, and other models. |
 | Custom HDF5 path | any dataset or `path@attribute` in the file |
 
 When MC uncertainty has been calculated, the standard deviation is collected
@@ -431,5 +431,5 @@ collection via the HDF5 Viewer:
 | Unified Fit | Guinier analysis, Porod's law (power-law exponent), fractal dimension, Beaucage model |
 | Size Distribution | size distribution, volume/number P(r), cumulative distributions, particle size |
 | WAXS Peak Fit | diffraction peak fitting, d-spacing, FWHM |
-| Simple Fits | Guinier, Porod, Debye-Bueche (two-phase model), Treubner-Strey (microemulsion / lamellar), power law, Lorentzian, Gaussian |
+| Simple Fits | Guinier, Porod, Debye-Bueche (two-phase model), Teubner-Strey (microemulsion / lamellar), power law, Lorentzian, Gaussian |
 | Data Merge | SAXS/USAXS merge, scale matching, background subtraction |

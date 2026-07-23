@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Teubner-Strey" model name typo.** The Simple Fits model was misspelled
+  "Treubner-Strey" (the model is named for M. Teubner & R. Strey, J. Chem.
+  Phys. 87, 1987) in the registry key, internal function name, derived-value
+  docs, and the Igor-compatibility wave name (`SimFitTreubnerStreyI` →
+  `SimFitTeubnerStreyI`). Corrected throughout `pyirena/core/simple_fits.py`,
+  `pyirena/io/igor_names.py`, docs, and README. Old saved GUI state,
+  NXcanSAS result files, and JSON exports that stored the misspelled name
+  keep loading correctly — `SimpleFitModel.set_model()`,
+  `SimpleFitModel.from_dict()`, and the Simple Fits panel's `load_state()`
+  all transparently map the legacy spelling to the corrected one via a new
+  `_resolve_model_name()` helper, so no existing files need to be migrated.
+
 ## [1.1.0b1] - 2026-07-22
 
 ### Added

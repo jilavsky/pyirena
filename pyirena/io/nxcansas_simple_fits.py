@@ -24,7 +24,7 @@ params_std/
 derived/
     Model-specific computed quantities:
     - Guinier Sheet: Thickness  [Å]
-    - Treubner-Strey: CorrLength [Å], RepeatDist [Å]
+    - Teubner-Strey: CorrLength [Å], RepeatDist [Å]
     - Unified Born Green: Rad [Å], G1, Rg2 [Å]
     - Invariant: Invariant [cm⁻⁴], VolumeFraction, PhiOneMinusPhi,
       QmaxUsed [Å⁻¹], and (optional) PorodTail [cm⁻⁴], PorodKp [cm⁻¹Å⁻⁴]

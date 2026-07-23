@@ -124,7 +124,7 @@ Four inversion methods: MaxEnt, Regularization, TNNLS, and Monte Carlo.
 
 ### Simple Fits
 13 direct analytical models: Guinier, Guinier-Porod, Porod, Sphere, Spheroid,
-Debye-Bueche, Treubner-Strey, Power Law, and more. Each with linearization plots
+Debye-Bueche, Teubner-Strey, Power Law, and more. Each with linearization plots
 and Monte Carlo uncertainty estimation.
 
 - [Simple Fits GUI guide](docs/simple_fits_gui.md)

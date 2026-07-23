@@ -18,7 +18,7 @@ From SimpleFits:
 
 From SystemSpecificModels:
   * Debye-Bueche         — Prefactor·Eta²·ξ³/(1+Q²ξ²)²
-  * Treubner-Strey        — Prefactor/(A+C1·Q²+C2·Q⁴)
+  * Teubner-Strey        — Prefactor/(A+C1·Q²+C2·Q⁴)
   * Benedetti-Ciccariello — coated-interface Porod law
   * Hermans               — lamellar structure (complex exponential form)
   * Hybrid Hermans        — Hermans + two Unified-level contributions
@@ -178,7 +178,7 @@ def _debye_bueche(q: np.ndarray, Prefactor: float, Eta: float,
     return Prefactor * Eta**2 * CorrLength**3 / (1.0 + q**2 * CorrLength**2)**2
 
 
-def _treubner_strey(q: np.ndarray, Prefactor: float, A: float,
+def _teubner_strey(q: np.ndarray, Prefactor: float, A: float,
                     C1: float, C2: float) -> np.ndarray:
     """I(Q) = Prefactor/(A + C1·Q² + C2·Q⁴)"""
     denom = A + C1 * q**2 + C2 * q**4
@@ -604,14 +604,14 @@ MODEL_REGISTRY: dict[str, dict] = {
         'linearization': None,
         'complex_bg': True,
     },
-    'Treubner-Strey': {
+    'Teubner-Strey': {
         'params': [
             ('Prefactor', 1.0,    1e-30, None),
             ('A',         0.1,    1e-30, None),
             ('C1',        -30.0,  None,  None),
             ('C2',        5000.0, 1e-30, None),
         ],
-        'formula': _treubner_strey,
+        'formula': _teubner_strey,
         'linearization': None,
         'complex_bg': True,
     },
@@ -684,6 +684,26 @@ MODEL_REGISTRY: dict[str, dict] = {
 
 # Ordered list of all model names (for combo boxes etc.)
 MODEL_NAMES: list[str] = list(MODEL_REGISTRY.keys())
+
+# ---------------------------------------------------------------------------
+# Legacy model-name aliases.
+#
+# "Teubner-Strey" (M. Teubner & R. Strey, J. Chem. Phys. 87, 1987) was
+# misspelled "Treubner-Strey" through pyIrena 1.1.0b1.  Result files, saved
+# GUI state, and exported h5xp waves written by those versions persist the
+# old spelling as plain strings (e.g. the ``model`` attribute on
+# ``simple_fit_results`` in NXcanSAS files, or the ``simple_fits.model``
+# entry in the app's saved StateManager config).  ``_resolve_model_name``
+# lets everything that turns an arbitrary string into a registry lookup
+# accept either spelling so those older files keep loading correctly.
+_LEGACY_MODEL_ALIASES: dict[str, str] = {
+    'Treubner-Strey': 'Teubner-Strey',
+}
+
+
+def _resolve_model_name(name: str) -> str:
+    """Map a legacy (misspelled) model name to its current registry key."""
+    return _LEGACY_MODEL_ALIASES.get(name, name)
 
 
 # ===========================================================================
@@ -840,7 +860,14 @@ class SimpleFitModel:
     # ── Model switching ───────────────────────────────────────────────────────
 
     def set_model(self, model_name: str) -> None:
-        """Switch to a different model and reset params to registry defaults."""
+        """Switch to a different model and reset params to registry defaults.
+
+        Accepts legacy (pre-1.1.0) model-name spellings via
+        :func:`_resolve_model_name` — e.g. ``'Treubner-Strey'`` is
+        transparently mapped to ``'Teubner-Strey'`` — so older saved state
+        and result files keep working after the name was corrected.
+        """
+        model_name = _resolve_model_name(model_name)
         if model_name not in MODEL_REGISTRY:
             raise ValueError(
                 f"Unknown model '{model_name}'.  "
@@ -1248,7 +1275,7 @@ class SimpleFitModel:
         if self.model == 'Guinier Sheet':
             Rg = fitted.get('Rg', 0.0)
             derived['Thickness'] = Rg * 2.0 * np.sqrt(3.0)
-        elif self.model == 'Treubner-Strey':
+        elif self.model == 'Teubner-Strey':
             A = fitted.get('A', 1e-4)
             C1 = fitted.get('C1', 0.0)
             C2 = fitted.get('C2', 1e-8)
@@ -1461,7 +1488,7 @@ class SimpleFitModel:
     def from_dict(cls, d: dict) -> 'SimpleFitModel':
         """Deserialise from a plain dict."""
         obj = cls.__new__(cls)
-        obj.model = d.get('model', 'Guinier')
+        obj.model = _resolve_model_name(d.get('model', 'Guinier'))
         if obj.model not in MODEL_REGISTRY:
             obj.model = 'Guinier'
         obj.params = dict(d.get('params', {}))

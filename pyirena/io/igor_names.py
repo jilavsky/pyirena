@@ -63,7 +63,7 @@ SIMPLE_FIT_MODEL_WAVE: dict[str, str] = {
     # pyirena-only models (no Igor AllCurrentlyAllowedTypes entry):
     "Debye Polymer Chain":  "SimFitDebyePolymerI",
     "Debye-Bueche":         "SimFitDebyeBuecheI",
-    "Treubner-Strey":       "SimFitTreubnerStreyI",
+    "Teubner-Strey":        "SimFitTeubnerStreyI",
     "Benedetti-Ciccariello": "SimFitBenedettiI",
     "Hermans":              "SimFitHermansI",
     "Hybrid Hermans":       "SimFitHybridHermansI",

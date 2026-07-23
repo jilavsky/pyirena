@@ -21,7 +21,9 @@ from pathlib import Path
 
 import pyqtgraph as pg
 
-from pyirena.core.simple_fits import SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY
+from pyirena.core.simple_fits import (
+    SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY, _resolve_model_name,
+)
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state.state_manager import StateManager
@@ -1115,6 +1117,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     def _on_model_changed(self, model_name: str):
         """Switch model and rebuild parameter widgets."""
         self.save_state()
+        model_name = _resolve_model_name(model_name)
         self.model.set_model(model_name)
         self.model.use_complex_bg = self.complex_bg_check.isChecked()
         if self.model.use_complex_bg and MODEL_REGISTRY[model_name]['complex_bg']:
@@ -2049,7 +2052,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     def load_state(self):
         """Restore panel state from StateManager."""
         state = self.state_manager.get('simple_fits') or {}
-        model_name = state.get('model', 'Guinier')
+        # Accept legacy (pre-1.1.0) model-name spellings, e.g. the
+        # "Treubner-Strey" typo, so old saved state / result files still
+        # restore the correct model instead of silently falling back.
+        model_name = _resolve_model_name(state.get('model', 'Guinier'))
         if model_name not in MODEL_NAMES:
             model_name = 'Guinier'
 

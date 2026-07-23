@@ -334,7 +334,7 @@ result = fit_simple("sample.h5",
 | `Sphere` | Scale, R |
 | `Spheroid` | Scale, R, Beta |
 | `Debye-Bueche` | Prefactor, Eta, CorrLength |
-| `Treubner-Strey` | Prefactor, A, C1, C2 |
+| `Teubner-Strey` | Prefactor, A, C1, C2 |
 | `Benedetti-Ciccariello` | SolidSLD, VoidSLD, LayerSLD, Sp, t |
 | `Hermans` | B, s, d1, d2, sigma1, sigma2 |
 | `Hybrid Hermans` | Hermans params + G2, Rg2, G3, Rg3, B3, P3 |

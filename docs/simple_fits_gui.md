@@ -135,13 +135,13 @@ complex background option (set B = 0, flat = desired value).
 | Model | Formula / description |
 |-------|-----------------------|
 | **Debye-Bueche** | `I(Q) = Prefactor·Eta²·ξ³/(1+Q²ξ²)²` — two-phase random media |
-| **Treubner-Strey** | `I(Q) = Prefactor/(A + C1·Q² + C2·Q⁴)` — micro-emulsion / lamellar |
+| **Teubner-Strey** | `I(Q) = Prefactor/(A + C1·Q² + C2·Q⁴)` — micro-emulsion / lamellar |
 | **Benedetti-Ciccariello** | Correlated two-phase model with interfacial layer; derives from SLD contrast |
 | **Hermans** | Paracrystalline lamellar model; complex exponentials for d1, d2, σ1, σ2 |
 | **Hybrid Hermans** | Hermans + one Guinier term + one Unified Fit level |
 | **Unified Born Green** | Two-level Unified model with Born-Green structure factor S(Q); gives correlation length ξ and inter-particle distance |
 
-Treubner-Strey derives correlation length ξ = (A/C2)^¼/√2 and repeat distance d.
+Teubner-Strey derives correlation length ξ = (A/C2)^¼/√2 and repeat distance d.
 These appear in the "Derived" section of the results.
 
 ### Invariant (calculation — no fitting)
