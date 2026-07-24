@@ -7,8 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b2] - 2026-07-24
+
+Beta 2 is a cleanup / hardening release on top of the 1.1.0b1 slit-smearing
+beta. It closes gaps found in an independent code review — the control/MCP
+write surface, packaging metadata, and CI — with **no change to the fitting
+science or numerical results**.
+
+### Security
+
+- **Control / MCP file access is now confined to `PYIRENA_DATA_ROOT`.** The
+  read-only `pyirena.api` discovery/data tools already resolved user paths
+  through `resolve_safe*`, but the mutating control tools
+  (`open_dataset`, `save_fit`, `save_sizes_fit` — all exposed as MCP tools)
+  built `Path(...)` directly, so setting `PYIRENA_DATA_ROOT` did **not** confine
+  the part of the API that can read *and* write HDF5 files. All three now
+  resolve inputs with `resolve_safe_file()` and write targets with
+  `resolve_safe(..., must_exist=False)`, rejecting absolute paths and `..`
+  traversal outside the root with a `PATH_NOT_ALLOWED` error dict (never an
+  exception across the API boundary). The stale "information disclosure only"
+  note in `api/_paths.py` was corrected.
+
 ### Fixed
 
+- **Control API saved slit-smeared fits as if they were pinhole fits.** A
+  control-/MCP-driven Unified Fit or Size Distribution on slit-smeared data
+  stored `slit_length = 0` and no ideal (pinhole) model curve, silently losing
+  the slit-smearing provenance that the batch and GUI paths record.
+  `save_fit()` now writes the smeared model, the ideal `intensity_model_ideal`
+  curve, and `slit_length`; `save_sizes_fit()` now writes `slit_length`,
+  `data_is_slit_smeared`, and `intensity_model_ideal`. The `open_dataset`
+  JSON schema also gained the `use_slit_smeared` property (the function always
+  accepted it, but schema-driven clients could not request the `_SMR` dataset).
+- **Control API `output_path` produced an incomplete data file.** Saving a fit
+  to a *new* `output_path` passed the path straight to the result writer, which
+  created a results-only HDF5 (no reduced-data SASdata group) that
+  `readGenericNXcanSAS()` could not reopen as reduced data. Both save functions
+  now seed a new target from the source file (`copy_and_strip_results`, reduced
+  data + metadata, stale results stripped) before appending — the original file
+  is never modified.
+- **Declared NumPy floor now matches the code (NumPy ≥ 2.0).** The core calls
+  `numpy.trapezoid` (a NumPy 2.0 API) in ~30 places, but `pyproject.toml`
+  declared `numpy>=1.22` and the conda recipe `numpy>=1.20`, so an install on
+  NumPy 1.x would crash. The floors were raised to `numpy>=2.0` in both.
+- **Slit-smearing engine now validates its inputs** (`core/smearing.py`). When
+  smearing is active (slit length > 0), `build_smearing_matrix`, `smear_curve`,
+  and `build_extended_q` raise a clear `ValueError` on non-finite, unsorted, or
+  too-short `q`, on `n_l < 2`, and on a q/intensity length mismatch — instead of
+  returning silently wrong output or a cryptic `IndexError`. The `slit_length
+  <= 0` no-op contract is preserved (inputs pass through untouched), so the
+  already-sanitised fit paths are unaffected.
 - **Import Igor Experiment: Irena/Nika "Use QRS Names" data not recognised.**
   Igor experiments (`.h5xp`/`.pxp`) whose reduced 1-D data followed the common
   Irena/Nika "Use QRS Names" convention — waves named `Q_<folder>` /
@@ -32,6 +80,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SimpleFitModel.from_dict()`, and the Simple Fits panel's `load_state()`
   all transparently map the legacy spelling to the corrected one via a new
   `_resolve_model_name()` helper, so no existing files need to be migrated.
+
+### Changed / Internal
+
+- **Packaging metadata cleaned up.** Added a real `plotting` extra
+  (`pip install pyirena[plotting]`, referenced by the docs but previously
+  undefined); `import pyirena` no longer eagerly imports matplotlib (the
+  `plot_saxs` convenience export is now lazy via module `__getattr__`);
+  migrated to the SPDX `license = "MIT"` form (+ `license-files`) ahead of the
+  setuptools deprecation; the conda recipe now matches `pyproject.toml`
+  (Python ≥ 3.9, NumPy ≥ 2.0, SciPy ≥ 1.8, and the previously-missing `igor2`
+  dependency) with a documented `sha256` placeholder; and the test suite is no
+  longer packaged into the built wheel/sdist (developers and the conda recipe
+  build from the source archive).
+- **CI is green and bounded.** Fixed the 12 outstanding `ruff` findings so the
+  lint job passes; added `pytest-timeout` with a 300 s per-test watchdog so one
+  hung test can no longer stall a CI job; and fixed the long-hanging
+  `test_export_includes_selected_fit_method` — it blocked forever on an
+  unmocked modal `QMessageBox` overwrite confirmation, now auto-accepted.
+- **New contract tests.** The full MCP surface (68 tools) and all 51 control
+  JSON schemas are now checked for structural validity and schema↔signature
+  parity (this would have caught the `use_slit_smeared` schema gap); new
+  behaviour tests cover control-API path confinement, `output_path`
+  completeness, and slit-smearing provenance on save; and the slit-smearing
+  input validation is covered by unit tests.
+- **Docs / repo hygiene.** `docs/distribution.md` no longer tells maintainers to
+  edit a version string in `pyirena/__init__.py` (the version is single-sourced
+  from `pyproject.toml`); `publish.yml` now verifies the release tag equals the
+  `pyproject.toml` version before publishing to PyPI; and the tracked
+  `scratch_sizes_diagnosis/` development directory (already gitignored) was
+  removed from version control.
 
 ## [1.1.0b1] - 2026-07-22
 

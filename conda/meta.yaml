@@ -1,5 +1,5 @@
 {% set name = "pyirena" %}
-{% set version = "1.1.0b1" %}
+{% set version = "1.1.0b2" %}
 
 package:
   name: {{ name|lower }}
@@ -7,6 +7,10 @@ package:
 
 source:
   url: https://github.com/jilavsky/{{ name }}/archive/v{{ version }}.tar.gz
+  # sha256 of the release tarball above. Fill in at release time, e.g.:
+  #   curl -sL <url> | shasum -a 256
+  # (see docs/distribution.md). Kept as a Jinja variable so a forgotten value
+  # fails `conda build` loudly rather than shipping a wrong/blank checksum.
   sha256: {{ sha256 }}
 
 build:
@@ -16,15 +20,16 @@ build:
 
 requirements:
   host:
-    - python >=3.8
+    - python >=3.9
     - pip
-    - setuptools >=61.0
+    - setuptools >=77.0
     - wheel
   run:
-    - python >=3.8
-    - numpy >=1.20.0
-    - scipy >=1.7.0
+    - python >=3.9
+    - numpy >=2.0
+    - scipy >=1.8.0
     - h5py >=3.0.0
+    - igor2 >=0.5.13
 
 test:
   imports:

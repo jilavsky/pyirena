@@ -71,6 +71,42 @@ DEFAULT_REFINE = 8
 DEFAULT_MIN_SPAN_FACTOR = 3.0
 
 
+def _validate_smearing_inputs(
+    q: np.ndarray,
+    n_l: int,
+    intensity: Optional[np.ndarray] = None,
+) -> None:
+    """Validate public smearing inputs (only reached when SL > 0).
+
+    Converts the silent-bad-output and cryptic-IndexError cases (non-finite q,
+    unsorted q, single-point/empty q, ``n_l < 2``, length mismatch) into clear
+    ``ValueError``s. Callers invoke this *after* the ``slit_length <= 0`` no-op
+    path returns, so the "SL <= 0 passes input through untouched" contract is
+    preserved and the already-sanitised fit paths are unaffected.
+    """
+    q = np.asarray(q, dtype=float)
+    if q.ndim != 1 or q.size < 2:
+        raise ValueError(
+            f"slit smearing needs a 1-D q grid with at least 2 points "
+            f"(got shape {q.shape})."
+        )
+    if not np.all(np.isfinite(q)):
+        raise ValueError("slit smearing requires all-finite q values (found NaN/Inf).")
+    if not np.all(np.diff(q) > 0):
+        raise ValueError(
+            "slit smearing requires a strictly increasing q grid "
+            "(sort/deduplicate q before smearing)."
+        )
+    if n_l < 2:
+        raise ValueError(f"slit smearing needs n_l >= 2 trapezoid points (got {n_l}).")
+    if intensity is not None:
+        intensity = np.asarray(intensity, dtype=float)
+        if intensity.shape != q.shape:
+            raise ValueError(
+                f"q and intensity length mismatch: {q.shape} vs {intensity.shape}."
+            )
+
+
 def build_extended_q(
     q: np.ndarray,
     slit_length: float,
@@ -111,6 +147,10 @@ def build_extended_q(
     q = np.asarray(q, dtype=float)
     if slit_length <= 0 or q.size < 2:
         return q.copy()
+    if not np.all(np.isfinite(q)) or not np.all(np.diff(q) > 0):
+        raise ValueError(
+            "build_extended_q requires a finite, strictly increasing q grid."
+        )
 
     # --- interior geometric refinement (keeps original nodes) ----------------
     if refine and refine > 1:
@@ -182,12 +222,20 @@ def build_smearing_matrix(
         # Strict no-op: identity onto q itself.
         return sparse.identity(n, format="csr", dtype=float), q.copy()
 
+    _validate_smearing_inputs(q, n_l)
+
     if q_ext is None:
         q_ext = build_extended_q(
             q, slit_length, min_span_factor=min_span_factor, refine=refine
         )
     else:
         q_ext = np.asarray(q_ext, dtype=float)
+        if (q_ext.ndim != 1 or q_ext.size < 2
+                or not np.all(np.isfinite(q_ext))
+                or not np.all(np.diff(q_ext) > 0)):
+            raise ValueError(
+                "q_ext must be a finite, strictly increasing 1-D grid."
+            )
 
     # Trapezoid weights over l in [0, SL], normalised by 1/SL.
     l = np.linspace(0.0, slit_length, n_l)
@@ -287,6 +335,8 @@ def smear_curve(
     intensity = np.asarray(intensity, dtype=float)
     if slit_length <= 0:
         return intensity.copy()
+
+    _validate_smearing_inputs(q, n_l, intensity=intensity)
 
     qmax = float(q[-1])
     l = np.linspace(0.0, slit_length, n_l)

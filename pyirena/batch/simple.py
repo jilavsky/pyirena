@@ -166,7 +166,7 @@ def fit_simple(
             log.info(f"[pyirena.batch] Fit succeeded.  Reduced χ² = {rchi2:.4g}")
         else:
             derived = result.get('derived', {})
-            log.info(f"[pyirena.batch] Calculation done.  "
+            log.info("[pyirena.batch] Calculation done.  "
                      + '  '.join(f'{k}={v:.4g}' for k, v in derived.items()))
 
     # ── Monte Carlo uncertainty ──────────────────────────────────────────────

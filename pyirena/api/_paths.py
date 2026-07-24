@@ -9,8 +9,11 @@ Without PYIRENA_DATA_ROOT set: paths are accepted as long as they resolve
 to an absolute path and exist. With it set: paths are resolved against the
 root and rejected if they escape via .. traversal or symlinks.
 
-Read-only: there are no write operations in pyirena.api v1, so the threat
-model is information disclosure only.
+Both reads and writes must be confined: the control surface (api.control,
+exposed as MCP tools) can open datasets *and* save fit results to HDF5, so
+PYIRENA_DATA_ROOT bounds where an agent may read and where it may write.
+Use resolve_safe_file() for inputs and resolve_safe(path, must_exist=False)
+for output/write destinations.
 """
 from __future__ import annotations
 

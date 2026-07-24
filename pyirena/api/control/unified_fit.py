@@ -31,6 +31,9 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._paths import (
+    PathSecurityError, resolve_safe, resolve_safe_file,
+)
 from pyirena.api.control.errors import (
     bad_param, make_error, no_fit, no_model, no_session,
 )
@@ -243,8 +246,15 @@ def open_dataset(file_path: str, use_slit_smeared: bool = False) -> dict:
     """
     from pyirena.io.hdf5 import readGenericNXcanSAS, file_has_smr_entry
 
-    fp = Path(file_path)
-    if not fp.exists():
+    try:
+        fp = resolve_safe_file(file_path)
+    except PathSecurityError as exc:
+        return make_error(
+            str(exc),
+            suggestion="Open a file inside PYIRENA_DATA_ROOT.",
+            code="PATH_NOT_ALLOWED",
+        )
+    except (FileNotFoundError, IsADirectoryError):
         return make_error(
             f"File not found: '{file_path}'",
             suggestion="Check the path and try again.",
@@ -1801,7 +1811,32 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
     from pyirena.io.nxcansas_unified import save_unified_fit_results
 
     model = s.model
-    target = Path(output_path) if output_path else Path(s.file_path)
+
+    # Confine the write target to PYIRENA_DATA_ROOT (when set) for both an
+    # explicit output_path and the default in-place save.
+    try:
+        src = resolve_safe(s.file_path, must_exist=False)
+        target = resolve_safe(output_path, must_exist=False) if output_path else src
+    except PathSecurityError as exc:
+        return make_error(
+            str(exc),
+            suggestion="Save to a path inside PYIRENA_DATA_ROOT.",
+            code="PATH_NOT_ALLOWED",
+        )
+
+    # Saving to a *new* location must yield a complete, re-openable NXcanSAS
+    # file — not a results-only stub. Seed it from the source (reduced data +
+    # metadata, stale results stripped); the original is never modified.
+    if target != src and not target.exists():
+        from pyirena.io._nxcansas_common import copy_and_strip_results
+        try:
+            copy_and_strip_results(src, target)
+        except Exception as exc:
+            return make_error(
+                f"Could not create output file '{target}' from source: {exc}",
+                suggestion="Check the source file exists and the target is writable.",
+                code="SAVE_ERROR",
+            )
 
     # Convert UnifiedLevel objects to the dict format expected by nxcansas_unified
     levels_dicts = [
@@ -1811,7 +1846,18 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
         }
         for lv in model.levels
     ]
-    resid = model.I_data - model.fit_intensity
+
+    # Under slit smearing the curve that matches the data is the SMEARED model;
+    # the ideal (pinhole) model is saved alongside it (parity with batch/GUI).
+    slit_length = float(model.slit_length) if model.use_slit_smearing else 0.0
+    intensity_model_ideal = None
+    if slit_length > 0:
+        intensity_model = model.calculate_intensity_smeared(model.q_data)
+        intensity_model_ideal = model.calculate_intensity(model.q_data)
+    else:
+        intensity_model = model.calculate_intensity(model.q_data)
+
+    resid = model.I_data - intensity_model
     norm_resid = (resid / model.error_data
                   if model.error_data is not None else resid)
 
@@ -1820,13 +1866,15 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
             filepath=target,
             q=model.q_data,
             intensity_data=model.I_data,
-            intensity_model=model.fit_intensity,
+            intensity_model=intensity_model,
             residuals=norm_resid,
             levels=levels_dicts,
             background=model.background,
             chi_squared=float(s.last_fit_result.get("chi_squared", float("nan"))),
             num_levels=model.num_levels,
             error=model.error_data,
+            slit_length=slit_length,
+            intensity_model_ideal=intensity_model_ideal,
             # Embed the full setup so the GUI can "Load Setup from File…"
             # and resume exactly where pyirena-ai left off.
             setup_state=_session_to_gui_state(s),

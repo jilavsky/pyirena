@@ -290,6 +290,14 @@ class TestExportJsonCarriesFitMethod:
             mp.QFileDialog, 'getSaveFileName',
             staticmethod(lambda *a, **k: (str(out), '')),
         )
+        # The second export_json() below writes to a file that already has a
+        # 'modeling' section, which pops a modal "Update Modeling Section?"
+        # confirmation. Auto-accept it — an unmocked modal QMessageBox.question
+        # blocks Qt's C++ modal loop forever, even under offscreen Qt.
+        monkeypatch.setattr(
+            mp.QMessageBox, 'question',
+            staticmethod(lambda *a, **k: mp.QMessageBox.StandardButton.Yes),
+        )
         panel.export_json()
 
         data = json.loads(out.read_text())

@@ -820,7 +820,8 @@ def fit_local_guinier(
             sigma = error
 
     def model(q_, G_, Rg_):
-        ideal = lambda x: G_ * np.exp(-(x ** 2) * (Rg_ ** 2) / 3.0)
+        def ideal(x):
+            return G_ * np.exp(-(x ** 2) * (Rg_ ** 2) / 3.0)
         if smearer is None:
             return ideal(q_)
         return smearer.smear_model(ideal)
@@ -945,7 +946,8 @@ def fit_local_power_law(
         sigma = err_pos
 
     def model(q_, B_, P_):
-        ideal = lambda x: B_ * np.power(x, -P_)
+        def ideal(x):
+            return B_ * np.power(x, -P_)
         if smearer is None:
             return ideal(q_)
         return smearer.smear_model(ideal)

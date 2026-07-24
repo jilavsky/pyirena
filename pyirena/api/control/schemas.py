@@ -29,6 +29,15 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": "Absolute or relative path to the NXcanSAS HDF5 file.",
                 },
+                "use_slit_smeared": {
+                    "type": "boolean",
+                    "description": (
+                        "Load the file's slit-smeared (_SMR) dataset if present. "
+                        "Model smearing is then enabled automatically at the "
+                        "file-derived slit length. Default false (desmeared/pinhole)."
+                    ),
+                    "default": False,
+                },
             },
             "required": ["file_path"],
         },
@@ -581,6 +590,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "session_id": {"type": "string"},
                 "width":  {"type": "integer", "default": 1024, "description": "Image width in pixels."},
                 "height": {"type": "integer", "default": 768,  "description": "Image height in pixels."},
+                "format": {"type": "string", "default": "png", "description": "Image format (e.g. 'png')."},
             },
             "required": ["session_id"],
         },
@@ -868,6 +878,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "session_id": {"type": "string"},
                 "width": {"type": "integer", "default": 1024},
                 "height": {"type": "integer", "default": 768},
+                "dpi": {"type": "integer", "default": 120, "description": "Figure resolution (dots per inch)."},
             },
             "required": ["session_id"],
         },
@@ -933,6 +944,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "session_id": {"type": "string"},
                 "width": {"type": "integer", "default": 1024},
                 "height": {"type": "integer", "default": 900},
+                "dpi": {"type": "integer", "default": 120, "description": "Figure resolution (dots per inch)."},
             },
             "required": ["session_id"],
         },

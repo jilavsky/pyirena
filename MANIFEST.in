@@ -7,8 +7,9 @@ include requirements.txt
 # Include examples
 recursive-include pyirena/examples *.py *.ipynb *.md
 
-# Include tests
-recursive-include pyirena/tests *.py
+# Tests are intentionally NOT packaged into the sdist/wheel — end users don't
+# need them. They live in the git repo / GitHub source archive, which is what
+# developers and the conda recipe (source: GitHub archive) build from.
 
 # Exclude unnecessary files
 global-exclude *.pyc

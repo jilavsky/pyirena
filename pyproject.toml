@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyirena"
-version = "1.1.0b1"
+version = "1.1.0b2"
 description = "Python tools for small-angle scattering data analysis."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Jan Ilavsky", email = "ilavsky@anl.gov"}
 ]
@@ -23,7 +24,6 @@ keywords = [
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -35,7 +35,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy>=1.22.0",
+    # numpy.trapezoid (used throughout core/) requires NumPy >= 2.0.
+    "numpy>=2.0",
     "scipy>=1.8.0",
     "h5py>=3.0.0",
     "igor2>=0.5.13",
@@ -69,9 +70,15 @@ mcp = [
     "mcp>=1.0.0",
     "matplotlib>=3.5.0",
 ]
+plotting = [
+    # Headless plotting helpers in pyirena.plotting (plot_saxs, unified/Guinier/
+    # Porod overlays). Matplotlib only — no GUI toolkit required.
+    "matplotlib>=3.5.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "pytest-timeout",
     "ruff",
     "build",
     "twine",
@@ -80,6 +87,7 @@ all = [
     "pyirena[gui]",
     "pyirena[gui3d]",
     "pyirena[mcp]",
+    "pyirena[plotting]",
     "pyirena[dev]",
 ]
 
@@ -102,6 +110,11 @@ pyirena-mcp = "pyirena.mcp.server:main"
 
 [tool.setuptools.packages.find]
 include = ["pyirena*"]
+# The test suite is not shipped in the built distributions — end users don't
+# need ~255 KB of tests. Developers and the conda recipe build from the git /
+# GitHub source archive, which still carries them. (MANIFEST.in also no longer
+# recursive-includes the tests, so include-package-data can't pull them in.)
+exclude = ["pyirena.tests*"]
 
 [tool.setuptools.package-data]
 pyirena = ["py.typed"]
@@ -115,6 +128,10 @@ testpaths = ["pyirena/tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+# Per-test watchdog (pytest-timeout): a single hung test (e.g. an unmocked
+# modal Qt dialog) can no longer stall the whole CI job indefinitely.
+timeout = 300
+timeout_method = "thread"
 
 [tool.ruff]
 line-length = 100

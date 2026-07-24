@@ -47,7 +47,8 @@ def test_noop_identity_matrix():
 
 def test_noop_smear_model_and_curve():
     q = _log_q()
-    fn = lambda x: x ** -4.0
+    def fn(x):
+        return x ** -4.0
     np.testing.assert_array_equal(smear_model(fn, q, 0.0), fn(q))
     np.testing.assert_array_equal(smear_curve(q, fn(q), 0.0), fn(q))
 
@@ -103,12 +104,14 @@ def test_power_law_smeared_slopes():
 def test_guinier_vs_quadrature():
     SL = 0.015
     G, Rg = 100.0, 50.0
-    model = lambda x: G * np.exp(-(x ** 2) * Rg ** 2 / 3.0)
+    def model(x):
+        return G * np.exp(-(x ** 2) * Rg ** 2 / 3.0)
     q = np.geomspace(2e-3, 0.2, 60)
     I_sm = smear_model(model, q, SL)
 
     def quad_ref(qi):
-        integrand = lambda t: model(np.sqrt(qi ** 2 + t ** 2))
+        def integrand(t):
+            return model(np.sqrt(qi ** 2 + t ** 2))
         val, _ = quad(integrand, 0.0, SL, limit=200)
         return val / SL
 
@@ -131,12 +134,14 @@ def test_matrix_vs_quadrature_smooth():
     rng = np.random.default_rng(0)
     # A smooth positive curve: sum of a few power laws + a Guinier bump.
     a, b, c = rng.uniform(0.5, 2.0, 3)
-    model = lambda x: 10 * x ** -a + 0.1 * x ** -b + 5 * np.exp(-(x ** 2) * (30.0) ** 2 / 3.0) * c
+    def model(x):
+        return 10 * x ** -a + 0.1 * x ** -b + 5 * np.exp(-(x ** 2) * (30.0) ** 2 / 3.0) * c
     q = np.geomspace(3e-3, 0.15, 50)
     I_sm = smear_model(model, q, SL)
 
     def quad_ref(qi):
-        integrand = lambda t: model(np.sqrt(qi ** 2 + t ** 2))
+        def integrand(t):
+            return model(np.sqrt(qi ** 2 + t ** 2))
         val, _ = quad(integrand, 0.0, SL, limit=200)
         return val / SL
 
@@ -175,7 +180,8 @@ def test_subrange_indexing_matches_full_grid():
     # to what those points get in the full smear (never smear a sub-range alone).
     SL = 0.015
     q = np.geomspace(1e-3, 0.2, 120)
-    model = lambda x: 50 * x ** -3.5 + 0.02
+    def model(x):
+        return 50 * x ** -3.5 + 0.02
     full = smear_model(model, q, SL)
     lo, hi = 20, 60
     # Re-deriving via the smearer and slicing must give the same numbers.
@@ -289,3 +295,57 @@ def test_local_guinier_smearing_warns_below_slit():
     I = 100 * np.exp(-(q ** 2) * 200.0 ** 2 / 3.0)
     r = fit_local_guinier(q, I, slit_length=0.02)
     assert "warning" in r and "slit length" in r["warning"]
+
+
+# --------------------------------------------------------------------------- #
+# 9. Public input-contract validation (only enforced when SL > 0)
+# --------------------------------------------------------------------------- #
+def test_validation_noop_passes_bad_input_through_when_sl_zero():
+    """SL <= 0 must stay a strict no-op even for NaN/unsorted q (contract)."""
+    q = _log_q()
+    bad = q.copy()
+    bad[5] = np.nan
+    I = q ** -3.0
+    np.testing.assert_array_equal(smear_curve(bad, I, 0.0), I)
+    W, q_ext = build_smearing_matrix(bad, 0.0)
+    assert q_ext.shape == bad.shape
+
+
+def test_validation_rejects_nan_q():
+    q = _log_q()
+    q[10] = np.nan
+    I = _log_q() ** -3.0
+    with pytest.raises(ValueError, match="finite"):
+        SlitSmearer(q, 0.015)
+    with pytest.raises(ValueError, match="finite"):
+        smear_curve(q, I, 0.015)
+
+
+def test_validation_rejects_unsorted_q():
+    q = _log_q()
+    with pytest.raises(ValueError, match="strictly increasing"):
+        SlitSmearer(q[::-1], 0.015)
+    swapped = q.copy()
+    swapped[3], swapped[4] = swapped[4], swapped[3]
+    with pytest.raises(ValueError, match="strictly increasing"):
+        build_smearing_matrix(swapped, 0.015)
+
+
+def test_validation_rejects_length_mismatch():
+    q = _log_q(n=60)
+    with pytest.raises(ValueError, match="length mismatch"):
+        smear_curve(q, (q[:50]) ** -3.0, 0.015)
+
+
+def test_validation_rejects_small_grid_and_n_l():
+    q = _log_q()
+    with pytest.raises(ValueError, match="n_l"):
+        build_smearing_matrix(q, 0.015, n_l=1)
+    with pytest.raises(ValueError, match="at least 2 points"):
+        SlitSmearer(q[:1], 0.015)
+
+
+def test_validation_rejects_bad_q_ext():
+    q = _log_q()
+    with pytest.raises(ValueError, match="q_ext"):
+        build_smearing_matrix(q, 0.015, q_ext=q[::-1].copy())

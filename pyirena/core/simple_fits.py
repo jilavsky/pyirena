@@ -1225,7 +1225,6 @@ class SimpleFitModel:
             derived['PorodKp']   = res['porod_kp']          # [cm⁻¹Å⁻⁴]
 
         # I_model = background curve over the data grid (may be all-zero)
-        mask = np.isfinite(q) & (q > 0)
         with np.errstate(divide='ignore', invalid='ignore'):
             bg_curve = np.where(q > 0, bg_B * q**(-bg_P), 0.0) + bg_flat
 
