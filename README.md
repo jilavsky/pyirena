@@ -12,6 +12,7 @@ GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/US
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+**Current beta release: v1.1.0b2**
 ---
 
 ## Installation
@@ -27,6 +28,18 @@ pip install "pyirena[gui]"
 ```
 This installs pyirena with all GUI dependencies (PySide6, pyqtgraph, etc.). For the
 core library only (no GUI), use `pip install pyirena`.
+
+**Beta version from PyPI**
+To install a specific beta rather than whatever is newest:
+
+```bash
+pip install --pre "pyirena[gui]"
+```
+or: 
+
+```bash
+pip install "pyirena[gui]==1.1.0b2"
+```
 
 **From source (for development):**
 
