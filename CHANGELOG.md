@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Data Selector — GitHub-based update notification.** Replaces the retired
+  Igor Pro APS/ANL-server version check (which also is not applicable to
+  pyIrena). On startup, and at most once a week thereafter, the Data Selector
+  reads GitHub's public `releases/latest` endpoint (pre-releases/betas are
+  excluded automatically) and shows an info banner with a link to the GitHub
+  releases page when a newer stable version is available.
+  Stdlib-only (`urllib.request`, no new dependency), fails completely
+  silently offline/on any error, and never blocks startup — the network call
+  runs on a background `QThread` (`UpdateCheckWorker`). New
+  `pyirena/version_check.py`; opt-out via a new **"Check for new pyIrena
+  releases on startup"** checkbox in Data Selector's Configure… dialog
+  (`check_for_updates`, default on). See `docs/gui_quickstart.md`.
+
 ## [1.1.0b2] - 2026-07-24
 
 Beta 2 is a cleanup / hardening release on top of the 1.1.0b1 slit-smearing

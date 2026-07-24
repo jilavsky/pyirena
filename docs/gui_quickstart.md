@@ -133,6 +133,21 @@ The graph displays:
 - **Grid** for easy reading
 - **Axis labels**: Q (Å⁻¹) and Intensity (cm⁻¹)
 
+### Checking for Updates
+
+The Data Selector checks GitHub for a new **stable** pyIrena release on
+startup, and at most once a week thereafter. If a newer version is
+available, a small banner appears below the title bar with a link to the
+GitHub releases page — otherwise nothing is shown.
+
+- The check runs in the background and never delays startup.
+- If you're offline, or GitHub can't be reached, the check fails silently —
+  no error, no popup.
+- Pre-release versions (betas, release candidates) are never reported as
+  "latest"; only full stable releases trigger the notice.
+- To turn this off, open **Configure…** in the Data Selector and uncheck
+  **"Check for new pyIrena releases on startup"**.
+
 ## Test Data
 
 The package includes synthetic test data in `testData/`:
@@ -171,6 +186,7 @@ python create_test_data.py
 - [x] Batch fitting via "… (script)" buttons (reads `pyirena_config.json`)
 - [x] Export/Import Parameters for all three fit tools (shared JSON config format)
 - [x] All fit results stored in NXcanSAS HDF5 alongside raw data
+- [x] GitHub-based update notification (weekly check, opt-out in Configure…)
 
 ## Using the Unified Fit Model
 

@@ -172,6 +172,18 @@ class DataSelectorConfigDialog(QDialog):
     # ---------------------------------------------------------------------------
     FIELD_SPECS = [
         {
+            'group':   'General',
+            'key':     'check_for_updates',
+            'label':   'Check for new pyIrena releases on startup',
+            'tooltip': (
+                'Checks GitHub for a new stable pyIrena release, at most once a week.\n'
+                'Never blocks startup and fails silently if offline.\n'
+                'Default: on'
+            ),
+            'type':    'bool',
+            'default': True,
+        },
+        {
             'group':    'Text File Options',
             'key':      'error_fraction',
             'label':    'Generated uncertainty fraction',

@@ -38,7 +38,8 @@ from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices
 from pyirena.gui.data_selector.report import _build_report
 from pyirena.gui.data_selector.results_windows import GraphWindow, SimpleFitResultsWindow, SizeDistResultsWindow, TabulateResultsWindow, UnifiedFitResultsWindow, WAXSPeakFitResultsWindow
 from pyirena.gui.data_selector.sorting import _SORT_KEYS
-from pyirena.gui.data_selector.workers import BatchWorker
+from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
+from pyirena.version_check import is_newer, should_check_now
 
 
 class DataSelectorPanel(QWidget):
@@ -94,6 +95,57 @@ class DataSelectorPanel(QWidget):
         self.sort_combo.blockSignals(False)
         self.sort_file_list()   # apply restored sort order to the initial file list
 
+        self._update_check_worker = None
+        self._init_update_check()
+
+    def _init_update_check(self):
+        """Show a cached update notice immediately, then check GitHub if it's due."""
+        if not self.state_manager.get('data_selector', 'check_for_updates', True):
+            return
+
+        import pyirena
+        self._show_update_notice_if_newer(
+            self.state_manager.get('data_selector', 'latest_known_version', '') or '',
+            pyirena.__version__,
+        )
+
+        if should_check_now(self.state_manager):
+            self._update_check_worker = UpdateCheckWorker()
+            self._update_check_worker.finished_check.connect(self._on_update_check_finished)
+            self._update_check_worker.start()
+
+    def _show_update_notice_if_newer(self, latest: str, current: str):
+        if latest and is_newer(latest, current):
+            self.update_notice_label.setText(
+                f'<a href="https://github.com/jilavsky/pyirena/releases">'
+                f'pyIrena {latest} is available</a> — you have {current}.'
+            )
+            self.update_notice_label.setVisible(True)
+
+    def _on_update_check_finished(self, tag: str):
+        """Slot for UpdateCheckWorker.finished_check — runs on the main thread."""
+        from datetime import datetime
+        import pyirena
+
+        self.state_manager.set('data_selector', 'last_update_check', datetime.now().isoformat())
+        if tag:
+            self.state_manager.set('data_selector', 'latest_known_version', tag)
+        self.state_manager.save()
+
+        if tag:
+            self._show_update_notice_if_newer(tag, pyirena.__version__)
+
+    def closeEvent(self, event):
+        """Give the background update-check thread a bounded moment to finish first.
+
+        Destroying a running QThread aborts the process, so if the panel is closed
+        while the (network-bounded, <=3s) check is still in flight, wait for it
+        rather than crash.
+        """
+        if self._update_check_worker is not None and self._update_check_worker.isRunning():
+            self._update_check_worker.wait(3500)
+        super().closeEvent(event)
+
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("pyIrena - Data Selector")
@@ -146,6 +198,20 @@ class DataSelectorPanel(QWidget):
         title_row.addWidget(_help_btn)
         title_row.addSpacing(5)
         content_layout.addLayout(title_row)
+
+        # Update notice — hidden unless a newer stable release is known (see
+        # pyirena.version_check); clicking the link opens the GitHub releases page.
+        self.update_notice_label = QLabel()
+        self.update_notice_label.setOpenExternalLinks(True)
+        self.update_notice_label.setStyleSheet("""
+            QLabel {
+                color: #1a6fb0;
+                font-size: 11px;
+                padding: 2px 4px;
+            }
+        """)
+        self.update_notice_label.setVisible(False)
+        content_layout.addWidget(self.update_notice_label)
 
         # Folder selection section
         folder_layout = QHBoxLayout()

@@ -46,6 +46,9 @@ class StateManager:
         "data_selector": {
             "last_folder": "",
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
+            "check_for_updates": True,   # weekly GitHub release check, see pyirena.version_check
+            "last_update_check": "",     # ISO timestamp of last check attempt (success or failure)
+            "latest_known_version": "",  # last version tag GitHub reported as latest stable
         },
         "hdf5_viewer": {
             "last_folder": "",
