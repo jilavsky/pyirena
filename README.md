@@ -7,12 +7,12 @@ Python tools for small-angle scattering (SAS) data analysis. A port of the Igor 
 GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/USAXS data.
 
 **Current release: v1.0.1**
+**Current beta release: v1.1.0b2**
 
 [![PyPI version](https://img.shields.io/pypi/v/pyirena.svg)](https://pypi.org/project/pyirena/)
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Current beta release: v1.1.0b2**
 ---
 
 ## Installation
