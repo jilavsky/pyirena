@@ -80,6 +80,7 @@ class GraphWindow(QWidget):
         self,
         file_paths: List[str],
         error_fraction: float = 0.05,
+        q_unit: str = '1/A',
         max_legend_items: int = 12,
     ):
         """
@@ -89,6 +90,7 @@ class GraphWindow(QWidget):
             file_paths:       List of file paths to plot.
             error_fraction:   Fraction used to synthesise uncertainty for 2-column
                               text files.
+            q_unit:           Assumed Q unit of text files; converted to 1/Å on load.
             max_legend_items: Maximum number of entries shown in the legend.
                               When there are more files, only first, last, and
                               evenly-spaced intermediate files are labelled.
@@ -104,11 +106,12 @@ class GraphWindow(QWidget):
                 path, filename = os.path.split(file_path)
                 _, ext = os.path.splitext(filename)
 
-                if ext.lower() in ('.txt', '.dat'):
+                if ext.lower() in ('.txt', '.dat', '.csv'):
                     # Convert-once: creates/reuses a cleaned NXcanSAS sibling
                     h5_path = ensure_nxcansas_sibling(
                         Path(file_path),
                         error_fraction=error_fraction,
+                        q_unit=q_unit,
                     )
                     data = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                 else:

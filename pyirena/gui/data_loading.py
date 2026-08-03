@@ -113,18 +113,20 @@ def load_data_file(
     parent: QWidget,
     file_path: str,
     error_fraction: float = 0.05,
+    q_unit: str = '1/A',
 ) -> Optional[tuple]:
     """Load one SAS file for use by a fitting tool.
 
-    Text files (.txt/.dat) are converted to a cleaned NXcanSAS HDF5 sibling
-    on first use (see ``pyirena.io.text_import``).  All callers receive
-    ``is_nxcansas=True`` and a valid HDF5 filepath.
+    Text files (.txt/.dat/.csv) are converted to a cleaned NXcanSAS HDF5
+    sibling on first use (see ``pyirena.io.text_import``).  All callers
+    receive ``is_nxcansas=True`` and a valid HDF5 filepath.
 
     Parameters
     ----------
     parent         : QWidget to use as dialog parent for error messages.
     file_path      : Path to the data file (text or HDF5).
     error_fraction : Fractional uncertainty to synthesize when absent.
+    q_unit         : Assumed Q unit of text files; converted to 1/Å on load.
 
     Returns
     -------
@@ -138,8 +140,8 @@ def load_data_file(
 
     fp = Path(file_path)
     try:
-        if fp.suffix.lower() in ('.txt', '.dat'):
-            h5_path = ensure_nxcansas_sibling(fp, error_fraction=error_fraction)
+        if fp.suffix.lower() in ('.txt', '.dat', '.csv'):
+            h5_path = ensure_nxcansas_sibling(fp, error_fraction=error_fraction, q_unit=q_unit)
             data = read_nxcansas_with_picker(
                 parent, str(h5_path.parent), h5_path.name
             )
@@ -188,6 +190,7 @@ class DataFileLoaderRow(QWidget):
         super().__init__(parent)
         self._state_manager = state_manager
         self._error_fraction: float = 0.05
+        self._q_unit: str = '1/A'
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -205,7 +208,7 @@ class DataFileLoaderRow(QWidget):
         btn = QPushButton("Open…")
         btn.setFixedWidth(60)
         btn.setToolTip(
-            "Open an NXcanSAS/HDF5 or ASCII text (.dat/.txt) file.\n"
+            "Open an NXcanSAS/HDF5 or ASCII text (.dat/.txt/.csv) file.\n"
             "Text files are automatically cleaned and converted to NXcanSAS."
         )
         btn.clicked.connect(self._on_open_clicked)
@@ -220,6 +223,10 @@ class DataFileLoaderRow(QWidget):
     def set_error_fraction(self, value: float) -> None:
         """Override the default 5 % fractional uncertainty used for text files."""
         self._error_fraction = value
+
+    def set_q_unit(self, value: str) -> None:
+        """Override the assumed Q unit (default '1/A') used for text files."""
+        self._q_unit = value
 
     # ── Internal ──────────────────────────────────────────────────────────
 
@@ -245,20 +252,23 @@ class DataFileLoaderRow(QWidget):
             self,
             "Open SAS data file",
             self._last_folder(),
-            "SAS data (*.h5 *.hdf5 *.hdf *.nxs *.dat *.txt);;All files (*)",
+            "SAS data (*.h5 *.hdf5 *.hdf *.nxs *.dat *.txt *.csv);;All files (*)",
         )
         if not path:
             return
 
         self._save_last_folder(str(Path(path).parent))
 
-        # Sync error_fraction from state manager if available
+        # Sync error_fraction / q_unit from state manager if available
         if self._state_manager is not None:
             self._error_fraction = self._state_manager.get(
                 'data_selector', 'error_fraction', 0.05
             )
+            self._q_unit = self._state_manager.get(
+                'data_selector', 'q_unit', '1/A'
+            )
 
-        res = load_data_file(self, path, error_fraction=self._error_fraction)
+        res = load_data_file(self, path, error_fraction=self._error_fraction, q_unit=self._q_unit)
         if res is None:
             return
         data, hdf5_path, display_name = res

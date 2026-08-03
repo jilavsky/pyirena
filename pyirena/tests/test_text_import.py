@@ -123,6 +123,10 @@ class TestConvertedSiblingPath:
         p = Path('/some/folder/sample_123.txt')
         assert converted_sibling_path(p) == Path('/some/folder/sample_123.h5')
 
+    def test_csv_to_h5(self):
+        p = Path('/some/folder/sample_123.csv')
+        assert converted_sibling_path(p) == Path('/some/folder/sample_123.h5')
+
 
 # ── ensure_nxcansas_sibling ───────────────────────────────────────────────────
 
@@ -214,6 +218,64 @@ class TestEnsureNxcanSASSibling:
         mtime2 = h5b.stat().st_mtime
         assert mtime2 > mtime1
 
+    def test_q_unit_converts_and_records_provenance(self, tmp_path):
+        """q_unit='1/nm' scales Q by 0.1 and is recorded in provenance."""
+        import h5py
+        txt = tmp_path / 'sample.dat'
+        _write_text_file(txt, rows=[(1.0, 100.0, 5.0), (2.0, 50.0, 2.5)])
+        h5 = ensure_nxcansas_sibling(txt, q_unit='1/nm')
+        with h5py.File(h5, 'r') as f:
+            assert f.attrs['pyirena_q_unit'] == '1/nm'
+            q_data = None
+            def _find_q(name, obj):
+                nonlocal q_data
+                if hasattr(obj, 'shape') and name.endswith('/Q'):
+                    q_data = obj[()]
+            f.visititems(_find_q)
+        np.testing.assert_allclose(sorted(q_data), [0.1, 0.2])
+
+    def test_q_unit_change_invalidates_cache(self, tmp_path):
+        """Changing q_unit on an unmodified source file must force reconversion,
+        not silently reuse a sibling converted with the previous unit."""
+        import h5py
+        txt = tmp_path / 'sample.dat'
+        _write_text_file(txt, rows=[(1.0, 100.0, 5.0), (2.0, 50.0, 2.5)])
+
+        h5_a = ensure_nxcansas_sibling(txt, q_unit='1/A')
+        with h5py.File(h5_a, 'r') as f:
+            q_data = None
+            def _find_q(name, obj):
+                nonlocal q_data
+                if hasattr(obj, 'shape') and name.endswith('/Q'):
+                    q_data = obj[()]
+            f.visititems(_find_q)
+        np.testing.assert_allclose(sorted(q_data), [1.0, 2.0])
+
+        # Same source file, no mtime change — but a different q_unit must
+        # still trigger reconversion rather than reusing the '1/A' sibling.
+        h5_nm = ensure_nxcansas_sibling(txt, q_unit='1/nm')
+        assert h5_nm == h5_a   # same path (no collision)
+        with h5py.File(h5_nm, 'r') as f:
+            assert f.attrs['pyirena_q_unit'] == '1/nm'
+            q_data = None
+            f.visititems(_find_q)
+        np.testing.assert_allclose(sorted(q_data), [0.1, 0.2])
+
+    def test_old_sibling_without_q_unit_attr_treated_as_native(self, tmp_path):
+        """A sibling from before this feature (no pyirena_q_unit attr) must be
+        treated as '1/A' for cache-validity purposes — reused when q_unit='1/A'
+        is requested, not spuriously invalidated."""
+        import h5py
+        txt = tmp_path / 'sample.dat'
+        _write_text_file(txt)
+        h5 = ensure_nxcansas_sibling(txt)
+        with h5py.File(h5, 'a') as f:
+            del f.attrs['pyirena_q_unit']
+        mtime1 = h5.stat().st_mtime
+        time.sleep(0.05)
+        h5b = ensure_nxcansas_sibling(txt, q_unit='1/A')
+        assert h5b.stat().st_mtime == mtime1   # reused, not regenerated
+
     def test_collision_guard_uses_fallback(self, tmp_path):
         """If <stem>.h5 is a foreign file, fallback to <stem>_NX.h5."""
         txt = tmp_path / 'sample.dat'
@@ -243,6 +305,32 @@ class TestEnsureNxcanSASSibling:
         ])
         with pytest.raises(RuntimeError, match="No valid data points"):
             ensure_nxcansas_sibling(txt)
+
+    def test_reads_comma_delimited_csv(self, tmp_path):
+        """A comma-separated .csv file (no header) must convert like .dat/.txt."""
+        import h5py
+        csv = tmp_path / 'sample.csv'
+        rows = [
+            (0.01, 100.0, 5.0),
+            (0.02, 80.0,  4.0),
+            (0.05, 30.0,  1.5),
+            (0.10, 10.0,  0.5),
+        ]
+        with open(csv, 'w') as f:
+            for q, i, e in rows:
+                f.write(f"{q},{i},{e}\n")
+        h5 = ensure_nxcansas_sibling(csv)
+        assert h5.exists()
+        assert h5.stem == 'sample'
+        with h5py.File(h5, 'r') as f:
+            q_data = None
+            def _find_q(name, obj):
+                nonlocal q_data
+                if hasattr(obj, 'shape') and name.endswith('/Q'):
+                    q_data = obj[()]
+            f.visititems(_find_q)
+        assert q_data is not None
+        np.testing.assert_allclose(sorted(q_data), sorted(r[0] for r in rows))
 
     def test_regression_sibling_has_sasdata_group(self, tmp_path):
         """Regression: the produced file must contain a sasdata group so that

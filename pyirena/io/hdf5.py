@@ -9,9 +9,27 @@ import six  #what is this for???
 import logging
 
 
-def readTextFile(path, filename, error_fraction=0.05):
+# Q-unit conversion for text-file import: multiply the raw Q (and dQ) column
+# by this factor to get 1/Å, pyIrena's native unit. Keys mirror the choices
+# in the Data Selector's Configure → "Text File Options" → "Q unit in text
+# files" setting.
+Q_UNIT_TO_ANGSTROM = {
+    '1/A':  1.0,      # native — no conversion
+    '1/nm': 0.1,       # 1 nm = 10 Å
+    '1/pm': 100.0,     # 1 pm = 0.01 Å
+    '1/um': 1e-4,      # 1 µm = 1e4 Å
+    '1/mm': 1e-7,      # 1 mm = 1e7 Å
+}
+
+
+def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
     """
-    Read text data files (.dat, .txt) with Q, Intensity, and optional Error columns.
+    Read text data files (.dat, .txt, .csv) with Q, Intensity, and optional
+    Error columns.
+
+    The column delimiter (whitespace or comma) is auto-detected from the
+    first non-empty, non-comment line, so comma-separated (.csv) files are
+    handled the same way as whitespace-separated (.dat/.txt) files.
 
     Files with only 2 columns (Q and I) are accepted. In that case the uncertainty
     is generated as  Error = Intensity * error_fraction  so that downstream tools
@@ -22,11 +40,22 @@ def readTextFile(path, filename, error_fraction=0.05):
         filename: File name
         error_fraction: Fraction of intensity used to generate uncertainty when no
                         error column is present in the file (default 0.05 = 5%).
+        q_unit: Unit of the Q (and dQ) column in the file. One of
+                ``Q_UNIT_TO_ANGSTROM``'s keys. Q is converted to 1/Å
+                (pyIrena's native unit) on read. Default '1/A' (no conversion).
 
     Returns:
         dict: Dictionary with 'Q', 'Intensity', 'Error', 'dQ' keys
               Returns None if file cannot be read
+
+    Raises:
+        ValueError: If q_unit is not a recognized unit key.
     """
+    if q_unit not in Q_UNIT_TO_ANGSTROM:
+        raise ValueError(
+            f"Unknown q_unit '{q_unit}'; must be one of {sorted(Q_UNIT_TO_ANGSTROM)}"
+        )
+
     filepath = os.path.join(path, filename)
 
     try:
@@ -34,6 +63,17 @@ def readTextFile(path, filename, error_fraction=0.05):
         # First, read all lines to find where numeric data starts
         with open(filepath, 'r') as f:
             lines = f.readlines()
+
+        # Detect the column delimiter from the first data-bearing line:
+        # a comma present outside of a comment means a comma-separated file.
+        delimiter = None   # None == whitespace, np.loadtxt's default
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if ',' in line:
+                delimiter = ','
+            break
 
         # Find the first line with numeric data
         skip_rows = 0
@@ -45,7 +85,7 @@ def readTextFile(path, filename, error_fraction=0.05):
                 continue
             # Try to parse first value as float
             try:
-                parts = line.split()
+                parts = line.split(delimiter)
                 float(parts[0])
                 # This is numeric data, start here
                 skip_rows = i
@@ -56,7 +96,7 @@ def readTextFile(path, filename, error_fraction=0.05):
                 continue
 
         # Now read data with proper skip_rows
-        data = np.loadtxt(filepath, comments='#', skiprows=skip_rows)
+        data = np.loadtxt(filepath, comments='#', skiprows=skip_rows, delimiter=delimiter)
 
         if data.ndim == 1:
             # Single row, reshape
@@ -69,6 +109,14 @@ def readTextFile(path, filename, error_fraction=0.05):
 
         Q = data[:, 0]
         I = data[:, 1]
+
+        # Convert Q (and dQ, which shares Q's units) to 1/Å if needed
+        q_scale = Q_UNIT_TO_ANGSTROM[q_unit]
+        if q_scale != 1.0:
+            Q = Q * q_scale
+            logging.info(
+                f"{filename}: Q converted from {q_unit} to 1/Å (×{q_scale:g})"
+            )
 
         # Check for error column; generate from intensity if absent
         if data.shape[1] >= 3:
@@ -84,6 +132,8 @@ def readTextFile(path, filename, error_fraction=0.05):
         dQ = None
         if data.shape[1] >= 4:
             dQ = data[:, 3]
+            if q_scale != 1.0:
+                dQ = dQ * q_scale
 
         logging.info(f"Successfully read text file {filename} with {len(Q)} data points")
         return {

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Q-unit selector for text-file import.** Text files (`.dat`/`.txt`/`.csv`)
+  carry no unit metadata, so pyIrena assumed Q was always in 1/Å. A new
+  *Data Selector → Configure → Text File Options → Q unit in text files*
+  setting (default 1/Å, also offering 1/nm, 1/pm, 1/µm, 1/mm) lets you tell
+  pyIrena what unit your files actually use; Q (and dQ) is converted to 1/Å
+  on import. Applied everywhere text files are read: Data Selector, Data
+  Merge, Data Manipulation, the `pyirena.batch` API (`fit_sizes`,
+  `fit_unified`, `fit_waxs`, `merge_data`, etc.), and
+  `pyirena.plotting.plot_saxs`. The assumed unit is recorded in the
+  converted HDF5 sibling's provenance, and changing the setting for a file
+  you've already converted automatically invalidates the stale cached
+  sibling rather than silently reusing it. See
+  [Q units](docs/data_import_and_cleaning.md#q-units).
+- **CSV file support in Data Selector, Data Merge, and Data Manipulation.**
+  Comma-separated `.csv` files are now recognized alongside `.dat`/`.txt`
+  everywhere those text formats were already supported:
+  - Data Selector's "Text Files" / "All Supported Files" filters, and the
+    load / plot / report / ASCII-export paths (auto-converted to a cleaned
+    NXcanSAS `.h5` sibling on first use).
+  - Data Merge's and Data Manipulation's file-type dropdown (now
+    **Text (.dat/.txt/.csv)**) and reference-file loader.
+  The underlying text reader (`readTextFile`) now auto-detects a comma
+  delimiter from the first data-bearing line, so headerless or
+  header-labeled CSV exports (e.g. `Q,I,dI` columns) parse the same way as
+  whitespace-separated files.
 - **Data Selector — GitHub-based update notification.** Replaces the retired
   Igor Pro APS/ANL-server version check (which also is not applicable to
   pyIrena). On startup, and at most once a week thereafter, the Data Selector

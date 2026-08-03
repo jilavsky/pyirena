@@ -80,7 +80,10 @@ Three parameters may be free or fixed:
 
 - Click **Select Folder…** in the DS1 column and choose the folder containing
   your lower-Q files.  Repeat for DS2.
-- Select a **Type** (HDF5 NXcanSAS, HDF5 Generic, or Text .dat/.txt).
+- Select a **Type** (HDF5 NXcanSAS, HDF5 Generic, or Text .dat/.txt/.csv).
+  Text files are assumed to be in the Q unit set in the Data Selector's
+  *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
+  [Q units](data_import_and_cleaning.md#q-units).
 - Use the **Filter** field to narrow the file list.
 - **Double-click** a file to load it and display it on the plot.
 

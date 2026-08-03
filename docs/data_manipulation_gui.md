@@ -68,7 +68,10 @@ The tool is available three ways:
 ### File browser (left panel)
 
 - **Select Folder** --- choose the folder containing your data files.
-- **Type** --- file format: HDF5 Nexus (NXcanSAS), HDF5 Generic, or Text (.dat/.txt).
+- **Type** --- file format: HDF5 Nexus (NXcanSAS), HDF5 Generic, or Text (.dat/.txt/.csv).
+  Text files are assumed to be in the Q unit set in the Data Selector's
+  *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
+  [Q units](data_import_and_cleaning.md#q-units).
 - **Sort** --- 10 sort options: filename, temperature, time, order number, pressure
   (ascending or descending).
 - **Filter** --- type text to filter filenames (case-insensitive substring match).

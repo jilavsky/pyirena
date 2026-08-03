@@ -40,11 +40,11 @@ from pyirena.gui.sas_plot import (
 # Constants
 # ---------------------------------------------------------------------------
 
-_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt)"]
+_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt/.csv)"]
 _FILE_TYPE_EXTS = {
-    "HDF5 Nexus":       ('.h5', '.hdf5', '.hdf'),
-    "HDF5 Generic":     ('.h5', '.hdf5', '.hdf'),
-    "Text (.dat/.txt)": ('.dat', '.txt'),
+    "HDF5 Nexus":            ('.h5', '.hdf5', '.hdf'),
+    "HDF5 Generic":          ('.h5', '.hdf5', '.hdf'),
+    "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
 }
 
 # Sort helpers — same as hdf5viewer/file_tree.py
@@ -1104,8 +1104,9 @@ class DataManipulationPanel(QWidget):
         fp = Path(filepath)
         file_type = self._fb.get_file_type()
         try:
-            if file_type == "Text (.dat/.txt)":
-                data = readTextFile(str(fp.parent), fp.name)
+            if file_type == "Text (.dat/.txt/.csv)":
+                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
+                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),
@@ -1857,7 +1858,7 @@ class DataManipulationPanel(QWidget):
         start = self._fb.current_folder or str(Path.home())
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Reference Q Grid", start,
-            "HDF5/Text (*.h5 *.hdf5 *.hdf *.dat *.txt);;All files (*)",
+            "HDF5/Text (*.h5 *.hdf5 *.hdf *.dat *.txt *.csv);;All files (*)",
         )
         if not path:
             return
@@ -1875,8 +1876,9 @@ class DataManipulationPanel(QWidget):
         fp = Path(filepath)
         ext = fp.suffix.lower()
         try:
-            if ext in ('.dat', '.txt'):
-                data = readTextFile(str(fp.parent), fp.name)
+            if ext in ('.dat', '.txt', '.csv'):
+                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
+                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),

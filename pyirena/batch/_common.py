@@ -49,7 +49,10 @@ def _load_data(
     Text files are converted to a cleaned NXcanSAS HDF5 sibling via
     ``ensure_nxcansas_sibling`` before loading, so all callers always
     receive ``is_nxcansas=True`` and a valid HDF5 filepath.  The sibling
-    is cached by mtime and reused on subsequent calls.
+    is cached by mtime and reused on subsequent calls.  The Q column is
+    converted to 1/Å using the Q-unit assumption configured in the Data
+    Selector's Configure dialog (Text File Options → Q unit in text files;
+    ``state_manager``'s ``data_selector.q_unit``, default ``'1/A'``).
 
     Parameters
     ----------
@@ -74,7 +77,9 @@ def _load_data(
     try:
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            h5_file = ensure_nxcansas_sibling(data_file)
+            from pyirena.state.state_manager import StateManager
+            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
+            h5_file = ensure_nxcansas_sibling(data_file, q_unit=q_unit)
             data = readGenericNXcanSAS(
                 str(h5_file.parent), h5_file.name,
                 prefer_slit_smeared=load_slit_smeared,

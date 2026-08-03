@@ -167,7 +167,9 @@ def fit_waxs_peaks(
         ext = data_file.suffix.lower()
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            h5_file = ensure_nxcansas_sibling(data_file)
+            from pyirena.state.state_manager import StateManager
+            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
+            h5_file = ensure_nxcansas_sibling(data_file, q_unit=q_unit)
             data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)
         else:
             data = readGenericNXcanSAS(str(data_file.parent), data_file.name)

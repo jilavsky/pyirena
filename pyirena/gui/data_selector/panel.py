@@ -51,7 +51,7 @@ class DataSelectorPanel(QWidget):
 
     # File extensions for different data types
     HDF5_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
-    TEXT_EXTENSIONS = ['.txt', '.dat']
+    TEXT_EXTENSIONS = ['.txt', '.dat', '.csv']
 
     def __init__(self):
         super().__init__()
@@ -245,7 +245,7 @@ class DataSelectorPanel(QWidget):
 
         self.file_type_combo = QComboBox()
         self.file_type_combo.addItem("HDF5 Files (.hdf, .h5, .hdf5)", "hdf5")
-        self.file_type_combo.addItem("Text Files (.txt, .dat)", "text")
+        self.file_type_combo.addItem("Text Files (.txt, .dat, .csv)", "text")
         self.file_type_combo.addItem("All Supported Files", "all")
         self.file_type_combo.currentIndexChanged.connect(self.refresh_file_list)
         self.file_type_combo.setMaximumWidth(140)
@@ -1122,6 +1122,7 @@ class DataSelectorPanel(QWidget):
         ]
 
         error_fraction    = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        q_unit            = self.state_manager.get('data_selector', 'q_unit', '1/A')
         max_legend_items  = int(self.state_manager.get('data_selector', 'max_legend_items', 12))
         plotted = []
 
@@ -1133,6 +1134,7 @@ class DataSelectorPanel(QWidget):
                 self.graph_window.plot_data(
                     file_paths,
                     error_fraction=error_fraction,
+                    q_unit=q_unit,
                     max_legend_items=max_legend_items,
                 )
                 plotted.append("data")
@@ -1288,6 +1290,7 @@ class DataSelectorPanel(QWidget):
         ]
 
         error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        q_unit = self.state_manager.get('data_selector', 'q_unit', '1/A')
         saved, skipped = [], []
 
         for file_path in file_paths:
@@ -1306,9 +1309,9 @@ class DataSelectorPanel(QWidget):
             if show_data:
                 try:
                     dir_path, filename = os.path.split(file_path)
-                    if ext.lower() in ['.txt', '.dat']:
+                    if ext.lower() in ['.txt', '.dat', '.csv']:
                         h5_path = ensure_nxcansas_sibling(
-                            Path(file_path), error_fraction=error_fraction)
+                            Path(file_path), error_fraction=error_fraction, q_unit=q_unit)
                         raw = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                     else:
                         raw = readGenericNXcanSAS(dir_path, filename)
@@ -1934,6 +1937,7 @@ class DataSelectorPanel(QWidget):
         include_header = bool(sm.get('data_selector', 'ascii_include_header', True))
         include_models = bool(sm.get('data_selector', 'ascii_include_models', True))
         err_frac       = float(sm.get('data_selector', 'error_fraction', 0.05))
+        q_unit         = sm.get('data_selector', 'q_unit', '1/A')
 
         # Data checkbox gates the primary .dat file; model checkboxes gate
         # their respective model .dat files.
@@ -1967,9 +1971,9 @@ class DataSelectorPanel(QWidget):
 
         for fp in file_paths:
             # Auto-convert text files to NXcanSAS before ASCII export
-            if fp.suffix.lower() in ('.txt', '.dat'):
+            if fp.suffix.lower() in ('.txt', '.dat', '.csv'):
                 try:
-                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac)
+                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac, q_unit=q_unit)
                 except Exception as exc:
                     errors.append((fp.name, f'conversion failed: {exc}'))
                     continue
@@ -2031,7 +2035,8 @@ class DataSelectorPanel(QWidget):
     def _load_data_for_tool(self, file_path: str):
         """Thin wrapper — delegates to the shared function in data_loading."""
         error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
-        return _load_data_file_fn(self, file_path, error_fraction=error_fraction)
+        q_unit = self.state_manager.get('data_selector', 'q_unit', '1/A')
+        return _load_data_file_fn(self, file_path, error_fraction=error_fraction, q_unit=q_unit)
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""

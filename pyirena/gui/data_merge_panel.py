@@ -42,11 +42,11 @@ from pyirena.gui.sas_plot import (
 # Constants
 # ---------------------------------------------------------------------------
 
-_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt)"]
+_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt/.csv)"]
 _FILE_TYPE_EXTS = {
-    "HDF5 Nexus":       ('.h5', '.hdf5', '.hdf'),
-    "HDF5 Generic":     ('.h5', '.hdf5', '.hdf'),
-    "Text (.dat/.txt)": ('.dat', '.txt'),
+    "HDF5 Nexus":            ('.h5', '.hdf5', '.hdf'),
+    "HDF5 Generic":          ('.h5', '.hdf5', '.hdf'),
+    "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
 }
 
 # Colours specific to this tool
@@ -1546,8 +1546,9 @@ class DataMergePanel(QWidget):
         from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         try:
-            if file_type == "Text (.dat/.txt)":
-                data = readTextFile(str(fp.parent), fp.name)
+            if file_type == "Text (.dat/.txt/.csv)":
+                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
+                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),

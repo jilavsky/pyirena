@@ -25,15 +25,26 @@ The cleaning report (counts per rule) is written into the HDF5 file under
 Naming convention
 -----------------
 The converted file is placed next to the original text file with the same
-stem and a ``.h5`` extension: ``mydata.dat`` → ``mydata.h5``.
+stem and a ``.h5`` extension: ``mydata.dat`` → ``mydata.h5`` (also applies
+to ``.txt`` and ``.csv`` sources).
 
 Collision guard: if ``mydata.h5`` already exists and was NOT created by
 pyirena (no provenance marker), the fallback name ``mydata_NX.h5`` is used
 and a one-line notice is printed.
 
-Caching: if the sibling already exists, has the provenance marker, and is
-newer than the text file, it is returned as-is without re-reading the source.
-Pass ``force=True`` to always regenerate.
+Caching: if the sibling already exists, has the provenance marker, is newer
+than the text file, and was converted with the same ``q_unit``, it is
+returned as-is without re-reading the source. Pass ``force=True`` to always
+regenerate.
+
+Q units
+-------
+Text files carry no unit metadata, so pyIrena assumes Q is already in 1/Å
+(its native unit) unless told otherwise via the ``q_unit`` parameter (one of
+``pyirena.io.hdf5.Q_UNIT_TO_ANGSTROM``'s keys). The assumed unit is recorded
+in the converted file's provenance (``source.q_unit_assumed`` metadata and
+the ``pyirena_q_unit`` HDF5 attribute), and changing it for a given file
+invalidates any previously cached sibling.
 """
 
 from __future__ import annotations
@@ -48,6 +59,11 @@ logger = logging.getLogger(__name__)
 
 # Marker attribute written to HDF5 root to identify files we created.
 _PROVENANCE_ATTR = 'pyirena_converted_from'
+
+# Q-unit assumed at conversion time, written alongside the provenance marker
+# so a later change to the Q-unit setting invalidates a stale cached sibling
+# even though its mtime still looks up to date.
+_Q_UNIT_ATTR = 'pyirena_q_unit'
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -136,6 +152,7 @@ def converted_sibling_path(text_path: Path) -> Path:
 def ensure_nxcansas_sibling(
     text_path: Path,
     error_fraction: float = 0.05,
+    q_unit: str = '1/A',
     force: bool = False,
 ) -> Path:
     """Return an up-to-date NXcanSAS HDF5 sibling for a text SAS file.
@@ -145,9 +162,15 @@ def ensure_nxcansas_sibling(
 
     Parameters
     ----------
-    text_path : Path   Path to the source ``.dat`` / ``.txt`` file.
+    text_path : Path   Path to the source ``.dat`` / ``.txt`` / ``.csv`` file.
     error_fraction : float
         Fraction of I used to synthesize missing uncertainties (default 0.05).
+    q_unit : str
+        Unit of the Q (and dQ) column in the source file — one of
+        ``pyirena.io.hdf5.Q_UNIT_TO_ANGSTROM``'s keys (default ``'1/A'``,
+        i.e. already in pyIrena's native unit, no conversion).  A non-default
+        unit forces reconversion of a previously cached sibling that was
+        made with a different unit — see ``_is_valid_sibling``.
     force : bool
         Re-convert even if an up-to-date sibling already exists.
 
@@ -171,13 +194,13 @@ def ensure_nxcansas_sibling(
     out_path = _resolve_output_path(text_path, preferred)
 
     # ── Cache check ───────────────────────────────────────────────────────
-    if not force and _is_valid_sibling(out_path, text_path):
+    if not force and _is_valid_sibling(out_path, text_path, q_unit):
         logger.debug("ensure_nxcansas_sibling: reusing cached '%s'", out_path.name)
         return out_path
 
     # ── Read raw text ─────────────────────────────────────────────────────
     raw = readTextFile(str(text_path.parent), text_path.name,
-                       error_fraction=error_fraction)
+                       error_fraction=error_fraction, q_unit=q_unit)
     if raw is None:
         raise RuntimeError(f"Could not read text file: '{text_path}'")
 
@@ -200,6 +223,9 @@ def ensure_nxcansas_sibling(
     # ── Build provenance metadata ──────────────────────────────────────────
     cleaning_lines = [
         f"Converted from: {text_path.name}",
+        f"Q unit assumed: {q_unit}" + (
+            "" if q_unit == '1/A' else " (converted to 1/Å)"
+        ),
         f"Original points: {report['n_original']}",
         f"Kept: {report['n_kept']}",
         f"Removed (Q<=0 or non-finite Q): {report['n_q_removed']}",
@@ -210,6 +236,7 @@ def ensure_nxcansas_sibling(
         'source.converted_from':    text_path.name,
         'source.conversion_notes':  '; '.join(cleaning_lines),
         'source.error_fraction':    str(error_fraction),
+        'source.q_unit_assumed':    q_unit,
     }
 
     # ── Write HDF5 ────────────────────────────────────────────────────────
@@ -223,10 +250,12 @@ def ensure_nxcansas_sibling(
         metadata=metadata,
     )
 
-    # Write the provenance marker so the collision guard can identify our files
+    # Write the provenance markers so the collision guard can identify our
+    # files, and so a later q_unit change can invalidate this cached sibling.
     import h5py
     with h5py.File(out_path, 'a') as f:
         f.attrs[_PROVENANCE_ATTR] = text_path.name
+        f.attrs[_Q_UNIT_ATTR] = q_unit
 
     logger.info("ensure_nxcansas_sibling: wrote '%s' (%d pts)", out_path.name, len(Q))
     return out_path
@@ -234,14 +263,19 @@ def ensure_nxcansas_sibling(
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _is_valid_sibling(sibling: Path, source: Path) -> bool:
-    """True if sibling exists, has our marker, and is newer than source."""
+def _is_valid_sibling(sibling: Path, source: Path, q_unit: str = '1/A') -> bool:
+    """True if sibling exists, has our marker, is newer than source, and was
+    converted with the same ``q_unit`` requested now (older siblings without
+    a recorded unit are treated as ``'1/A'``, matching pre-feature behavior).
+    """
     if not sibling.exists():
         return False
     try:
         import h5py
         with h5py.File(sibling, 'r') as f:
             if _PROVENANCE_ATTR not in f.attrs:
+                return False
+            if f.attrs.get(_Q_UNIT_ATTR, '1/A') != q_unit:
                 return False
         src_mtime = source.stat().st_mtime
         sib_mtime = sibling.stat().st_mtime
