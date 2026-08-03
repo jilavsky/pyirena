@@ -21,6 +21,7 @@ import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot, add_slope_line_menu
 from pyirena.state.state_manager import StateManager
 
@@ -858,7 +859,7 @@ def _style_axes(plot_item):
 # SizesFitPanel
 # ─────────────────────────────────────────────────────────────────────────────
 
-class SizesFitPanel(QWidget):
+class SizesFitPanel(SlitSmearingMixin, QWidget):
     """
     Main Sizes Distribution panel for pyIrena.
 
@@ -898,9 +899,12 @@ class SizesFitPanel(QWidget):
         self.graph_window = SizesFitGraphWindow()
         main_splitter.addWidget(self.graph_window)
 
-        main_splitter.setSizes([400, 800])
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 2)
+        main_splitter.setSizes([420, 800])
+        # Control panel keeps its width on window resize (stretch 0); the graph
+        # absorbs the extra space (stretch 1).  The splitter handle stays
+        # draggable so the user can still widen the controls when needed.
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
         self.main_splitter = main_splitter
 
         root_layout = QVBoxLayout()
@@ -931,20 +935,22 @@ class SizesFitPanel(QWidget):
 
     def _create_control_panel(self) -> QWidget:
         """Build the left control panel (tabbed) inside a scroll area."""
-        # Outer container with fixed width
+        # 420 px is the comfortable default, but the panel is user-widenable via
+        # the splitter (Preferred policy, minimum-but-not-fixed width) so wider
+        # controls are never clipped.
         outer = QWidget()
-        outer.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        outer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         outer.setMinimumWidth(420)
-        outer.setMaximumWidth(420)
 
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # Scroll area so controls don't get clipped on short screens
+        # Scroll area so controls don't get clipped on short screens.  Allow a
+        # horizontal scrollbar as a last resort if the panel is dragged narrow.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         inner = QWidget()
@@ -998,6 +1004,7 @@ class SizesFitPanel(QWidget):
         self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         layout.addWidget(self.data_loader)
+        self._build_slit_row(layout)
 
         # ── Tab widget ───────────────────────────────────────────────────────
         tabs = QTabWidget()
@@ -1845,9 +1852,43 @@ class SizesFitPanel(QWidget):
             label=display_name,
             filepath=hdf5_path,
             is_nxcansas=True,
+            slit_length=float(data.get('slit_length', 0.0) or 0.0),
+            is_slit_smeared=bool(data.get('is_slit_smeared', False)),
         )
 
-    def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
+    def _reload_data_with_smearing(self, prefer_slit_smeared):
+        """Reload the current file's desmeared or slit-smeared dataset."""
+        fp = self.data.get('filepath') if self.data else None
+        if not fp:
+            return
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            import numpy as _np
+            p = Path(fp)
+            d = readGenericNXcanSAS(str(p.parent), p.name,
+                                    prefer_slit_smeared=prefer_slit_smeared)
+            if d is None:
+                return
+            self.set_data(
+                _np.asarray(d['Q'], dtype=float),
+                _np.asarray(d['Intensity'], dtype=float),
+                d.get('Error'),
+                label=self.data.get('label', 'Data'), filepath=fp, is_nxcansas=True,
+                slit_length=float(d.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(d.get('is_slit_smeared', False)),
+            )
+        except Exception as exc:
+            self.status_label.setText(f"Could not reload data: {exc}")
+
+    def _replot_after_slit_change(self):
+        """Redraw the loaded data after a slit-setting change (no refit)."""
+        if self.data is not None and self.graph_window:
+            self.graph_window.plot_data(
+                self.data['Q'], self.data['Intensity'],
+                self.data.get('Error'), self.data.get('label', 'Data'))
+
+    def set_data(self, q, intensity, error=None, label='Data', filepath=None,
+                 is_nxcansas=False, slit_length=0.0, is_slit_smeared=False):
         """Set the SAS data to be fitted."""
         self.data = {
             'Q': q,
@@ -1856,7 +1897,10 @@ class SizesFitPanel(QWidget):
             'label': label,
             'filepath': filepath,
             'is_nxcansas': is_nxcansas,
+            'slit_length': slit_length,
+            'is_slit_smeared': is_slit_smeared,
         }
+        self._refresh_slit_ui_from_data(slit_length, is_slit_smeared, filepath)
         self.fit_result = None
         self._last_distribution = None
         self._mc_rg_std = None
@@ -1910,6 +1954,10 @@ class SizesFitPanel(QWidget):
         s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run
         s.montecarlo_convergence = float(self.montecarlo_conv_edit.text() or 1.0)
         s.montecarlo_max_iter = self.montecarlo_maxiter_spin.value()
+        # Slit smearing: smear the G matrix so the recovered distribution is
+        # ideal-space when fitting slit-smeared data.
+        s.use_slit_smearing = self.slit_active()
+        s.slit_length = self.current_slit_length()
         return s
 
     def _get_bg_fit_q_range(self, q_min_edit, q_max_edit) -> tuple:
@@ -1985,8 +2033,17 @@ class SizesFitPanel(QWidget):
             else:
                 x_raw = np.ones(len(r_grid)) / len(r_grid)
 
-            complex_bg = s.compute_complex_background(q)
-            I_model = G @ x_raw + complex_bg
+            # Slit smearing: smear the model scattering + background so the
+            # displayed curve matches the (smeared) data (mirrors the fit).
+            if s.use_slit_smearing and s.slit_length > 0:
+                from pyirena.core.smearing import SlitSmearer
+                _sm = SlitSmearer(q, s.slit_length)
+                G_ext = build_g_matrix(_sm.q_ext, r_grid, s.shape, s.contrast, **s.shape_params)
+                model_scatter = _sm.smear_columns(G_ext) @ x_raw
+            else:
+                model_scatter = G @ x_raw
+            complex_bg = self._display_background(s, q)
+            I_model = model_scatter + complex_bg
 
             # Plot — display errors match what is used for fitting
             disp_err = self._effective_error(
@@ -1998,7 +2055,7 @@ class SizesFitPanel(QWidget):
 
             # Show complex background and corrected data when background is non-trivial
             q_full = self.data['Q']
-            bg_full = s.compute_complex_background(q_full)
+            bg_full = self._display_background(s, q_full)
             if s.power_law_B != 0.0 or s.background != 0.0:
                 self.graph_window.plot_complex_background(q_full, bg_full, 'Complex bg')
                 I_corrected = self.data['Intensity'] - bg_full
@@ -2110,8 +2167,12 @@ class SizesFitPanel(QWidget):
             # background curve all share the same length.  Falls back to the
             # input q if the result lacks this key (legacy fit objects).
             q_used = result.get('q', q)
+            # model_intensity is the SMEARED distribution scattering when
+            # smearing is on; add the SMEARED background so the red model+bg
+            # curve overlays the (smeared) data instead of the ideal (pinhole)
+            # curve, which misfits at low q.
             I_model_bg_subtracted = result['model_intensity']
-            complex_bg_q = s.compute_complex_background(q_used)
+            complex_bg_q = self._display_background(s, q_used)
             I_model_display = I_model_bg_subtracted + complex_bg_q
             residuals = result.get('residuals', None)
 
@@ -2127,7 +2188,7 @@ class SizesFitPanel(QWidget):
             # Show complex background model and corrected data
             # (corrected data limited to the cursor Q range used for the fit)
             q_full = self.data['Q']
-            bg_full = s.compute_complex_background(q_full)
+            bg_full = self._display_background(s, q_full)
             if s.power_law_B != 0.0 or s.background != 0.0:
                 self.graph_window.plot_complex_background(q_full, bg_full, 'Complex bg')
                 I_corrected = self.data['Intensity'] - bg_full
@@ -2195,6 +2256,19 @@ class SizesFitPanel(QWidget):
             self.status_label.setText("Fit failed")
             import traceback; traceback.print_exc()
 
+    # ── Slit-smearing display helpers ─────────────────────────────────────────
+
+    def _display_background(self, s, q):
+        """Complex background for display/subtraction — SMEARED when smearing is
+        active, so the curve overlays the (smeared) data and ``I − bg`` is
+        correct.  Mirrors the main fit, which subtracts smear(bg) from the data.
+        """
+        q = np.asarray(q, dtype=float)
+        if getattr(s, 'use_slit_smearing', False) and s.slit_length > 0:
+            from pyirena.core.smearing import SlitSmearer
+            return SlitSmearer(q, s.slit_length).smear_model(s.compute_complex_background)
+        return s.compute_complex_background(q)
+
     # ── Background fit actions ────────────────────────────────────────────────
 
     def _replot_background_preview(self):
@@ -2204,7 +2278,9 @@ class SizesFitPanel(QWidget):
             return
         s = self._collect_params()
         q_full = self.data['Q']
-        bg_full = s.compute_complex_background(q_full)
+        # Display (and subtract) the SMEARED background on slit-smeared data so
+        # the curve matches the data (see _display_background).
+        bg_full = self._display_background(s, q_full)
         # Remove old background/corrected items and redraw
         if self.graph_window._complex_bg_item is not None:
             try:
@@ -2932,6 +3008,9 @@ class SizesFitPanel(QWidget):
             params['volume_fraction'] = result.get('volume_fraction')
             params['rg'] = result.get('rg')
             params['n_iterations'] = result.get('n_iterations')
+            # Slit-smearing provenance (stored as attrs via the params whitelist).
+            params['slit_length'] = float(result.get('slit_length', 0.0) or 0.0)
+            params['data_is_slit_smeared'] = bool(result.get('data_is_slit_smeared', False))
 
             # Use the q/I/err the fit actually used (post internal NaN/non-positive
             # mask) so all stored arrays have matching lengths.  Falls back to the
@@ -2961,6 +3040,7 @@ class SizesFitPanel(QWidget):
                 distribution_std=result.get('distribution_std'),
                 setup_state=setup_state,
                 fit_quality=getattr(self, '_last_quality_metrics', None),
+                intensity_model_ideal=result.get('model_intensity_ideal'),
             )
 
             self.graph_window.show_success_message(

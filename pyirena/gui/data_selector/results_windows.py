@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 from pyirena.gui.data_selector._qt import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QAbstractItemView, QTableWidget, QTableWidgetItem, Qt,
+    QMessageBox,
 )
 from pyirena.gui.sas_plot import add_slope_line_menu
 from pyirena.io.hdf5 import readGenericNXcanSAS
@@ -79,6 +80,7 @@ class GraphWindow(QWidget):
         self,
         file_paths: List[str],
         error_fraction: float = 0.05,
+        q_unit: str = '1/A',
         max_legend_items: int = 12,
     ):
         """
@@ -88,6 +90,7 @@ class GraphWindow(QWidget):
             file_paths:       List of file paths to plot.
             error_fraction:   Fraction used to synthesise uncertainty for 2-column
                               text files.
+            q_unit:           Assumed Q unit of text files; converted to 1/Å on load.
             max_legend_items: Maximum number of entries shown in the legend.
                               When there are more files, only first, last, and
                               evenly-spaced intermediate files are labelled.
@@ -95,6 +98,7 @@ class GraphWindow(QWidget):
         self._plot_cache = []
         legend_idx = _legend_indices(len(file_paths), max_legend_items)
         colors = _gen_colors(len(file_paths))
+        skipped = []   # (filename, reason) — reported to the user after the loop
 
         for idx, file_path in enumerate(file_paths):
             color = colors[idx]
@@ -102,17 +106,19 @@ class GraphWindow(QWidget):
                 path, filename = os.path.split(file_path)
                 _, ext = os.path.splitext(filename)
 
-                if ext.lower() in ('.txt', '.dat'):
+                if ext.lower() in ('.txt', '.dat', '.csv'):
                     # Convert-once: creates/reuses a cleaned NXcanSAS sibling
                     h5_path = ensure_nxcansas_sibling(
                         Path(file_path),
                         error_fraction=error_fraction,
+                        q_unit=q_unit,
                     )
                     data = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                 else:
                     data = readGenericNXcanSAS(path, filename)
 
                 if data is None:
+                    skipped.append((filename, "no readable SAS data found"))
                     continue
 
                 q   = np.asarray(data['Q'],        dtype=float)
@@ -128,8 +134,18 @@ class GraphWindow(QWidget):
 
             except Exception as e:
                 log.warning("Error loading %s: %s", file_path, e)
+                skipped.append((os.path.basename(file_path), str(e)))
 
         self._redraw_items()
+
+        if skipped:
+            preview = '\n'.join(f"- {name}: {reason}" for name, reason in skipped[:8])
+            if len(skipped) > 8:
+                preview += f"\n(+{len(skipped) - 8} more)"
+            QMessageBox.warning(
+                self, "Some files could not be plotted",
+                f"{len(skipped)} of {len(file_paths)} file(s) were skipped:\n\n{preview}",
+            )
 
         # Set x-axis to the actual Q range of all loaded data so data from
         # instruments with very different Q ranges is always in view.

@@ -68,7 +68,10 @@ The tool is available three ways:
 ### File browser (left panel)
 
 - **Select Folder** --- choose the folder containing your data files.
-- **Type** --- file format: HDF5 Nexus (NXcanSAS), HDF5 Generic, or Text (.dat/.txt).
+- **Type** --- file format: HDF5 Nexus (NXcanSAS), HDF5 Generic, or Text (.dat/.txt/.csv).
+  Text files are assumed to be in the Q unit set in the Data Selector's
+  *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
+  [Q units](data_import_and_cleaning.md#q-units).
 - **Sort** --- 10 sort options: filename, temperature, time, order number, pressure
   (ascending or descending).
 - **Filter** --- type text to filter filenames (case-insensitive substring match).
@@ -310,6 +313,16 @@ returns the same plus `rejected` (list of `(filename, p_value)` pairs for
 frames discarded by the similarity filter).
 
 ---
+
+## Slit smearing (USAXS)
+
+Subtract and divide **refuse to mix** a slit-smeared curve with a pinhole one
+(or two different slit lengths), since that would silently produce a wrong
+result; the guard lives in the core engine so batch scripting inherits it.
+Manipulation outputs also drop any stale `_SMR` (slit-smeared twin) entry copied
+from the source and clear an orphaned `dQl`, so a later slit-smeared load can't
+return an inconsistent curve. See **[Slit smearing](slit_smearing.md)** for the
+full reference.
 
 ## Interpolation and uncertainty propagation
 

@@ -132,6 +132,11 @@ def merge_data(
             log.info(f"[merge_data] Auto overlap range: "
                   f"[{q_overlap_min:.4g}, {q_overlap_max:.4g}] Å⁻¹")
 
+    # Slit-smearing provenance of the two inputs (from the NXcanSAS dQl).
+    # A config override is allowed but the file-derived value is trusted.
+    sl1 = float(cfg_dict.get('slit_length_ds1', data1.get('slit_length', 0.0)) or 0.0)
+    sl2 = float(cfg_dict.get('slit_length_ds2', data2.get('slit_length', 0.0)) or 0.0)
+
     config = MergeConfig(
         q_overlap_min=float(q_overlap_min),
         q_overlap_max=float(q_overlap_max),
@@ -142,6 +147,8 @@ def merge_data(
         fixed_qshift_value=float(cfg_dict.get('fixed_qshift_value', 0.0)),
         qshift_dataset=int(cfg_dict.get('qshift_dataset', 0)),
         split_at_left_cursor=bool(cfg_dict.get('split_at_left_cursor', False)),
+        slit_length_ds1=sl1,
+        slit_length_ds2=sl2,
     )
 
     # ── Optimise ──────────────────────────────────────────────────────────────
@@ -192,7 +199,13 @@ def merge_data(
             'qshift_dataset': config.qshift_dataset,
             'fit_qshift': config.fit_qshift,
             'split_at_left_cursor': config.split_at_left_cursor,
+            'slit_length_ds1': config.slit_length_ds1,
+            'slit_length_ds2': config.slit_length_ds2,
+            'slit_length_merged': result.slit_length_merged,
+            'is_slit_smeared_merged': result.is_slit_smeared_merged,
         }
+        if result.slit_warning and verbose:
+            log.warning(f"[merge_data] {result.slit_warning}")
         try:
             out_path = save_merged_data(
                 output_folder=Path(output_folder),
@@ -215,5 +228,7 @@ def merge_data(
         'background': result.background,
         'chi_squared': result.chi_squared,
         'success': result.success,
+        'slit_length_merged': result.slit_length_merged,
+        'is_slit_smeared_merged': result.is_slit_smeared_merged,
         'output_path': str(out_path) if out_path else None,
     }

@@ -80,6 +80,38 @@ class DataManipulation:
     """
 
     # ------------------------------------------------------------------
+    #  Slit-smearing compatibility (shared by every caller)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def check_slit_compatible(
+        is_smeared_a: bool, slit_length_a: float,
+        is_smeared_b: bool, slit_length_b: float,
+        op: str = 'operation',
+    ) -> tuple[bool, str]:
+        """Return ``(ok, message)`` for combining two curves in *op*.
+
+        Subtracting/dividing two curves is only valid when both share the same
+        slit-smearing status and (if smeared) the same slit length — mixing a
+        slit-smeared curve with a pinhole one, or two different slit lengths,
+        would silently produce a physically wrong result.  Every caller (GUI
+        and batch) routes through this so the rule cannot drift.
+        """
+        a_sm = bool(is_smeared_a)
+        b_sm = bool(is_smeared_b)
+        a_sl = float(slit_length_a or 0.0)
+        b_sl = float(slit_length_b or 0.0)
+        if a_sm != b_sm:
+            return False, (
+                f"Cannot {op}: one dataset is slit-smeared and the other is not. "
+                "Use datasets with matching smearing status.")
+        if a_sm and b_sm and abs(a_sl - b_sl) > 1e-6 * max(a_sl, b_sl, 1e-9):
+            return False, (
+                f"Cannot {op}: datasets have different slit lengths "
+                f"({a_sl:.4g} vs {b_sl:.4g} 1/Å).")
+        return True, ''
+
+    # ------------------------------------------------------------------
     #  Scale + Background
     # ------------------------------------------------------------------
 
@@ -290,13 +322,29 @@ class DataManipulation:
         I_buffer: np.ndarray,
         dI_buffer: np.ndarray,
         config: SubtractConfig,
+        *,
+        is_slit_smeared_sample: bool = False,
+        slit_length_sample: float = 0.0,
+        is_slit_smeared_buffer: bool = False,
+        slit_length_buffer: float = 0.0,
     ) -> ManipResult:
         """``I_out = I_sample - buffer_scale * I_buffer``.
 
         Buffer is interpolated onto the sample's Q grid.
         If *auto_scale* is True, *buffer_scale* is computed from
         :meth:`auto_scale_buffer` over the cursor Q range first.
+
+        Raises ``ValueError`` if the two curves have incompatible slit-smearing
+        status (see :meth:`check_slit_compatible`).  The result inherits the
+        (matching) slit status via ``metadata['slit_length']`` /
+        ``metadata['is_slit_smeared']`` so the saver can mark the output.
         """
+        ok, msg = DataManipulation.check_slit_compatible(
+            is_slit_smeared_sample, slit_length_sample,
+            is_slit_smeared_buffer, slit_length_buffer, op='subtract')
+        if not ok:
+            raise ValueError(msg)
+
         scale = config.buffer_scale
         if config.auto_scale and config.auto_q_min is not None and config.auto_q_max is not None:
             scale = DataManipulation.auto_scale_buffer(
@@ -324,7 +372,11 @@ class DataManipulation:
             dI=dI_out,
             dQ=dQ_out,
             operation='sub',
-            metadata={'buffer_scale': float(scale), 'auto_scale': config.auto_scale},
+            metadata={
+                'buffer_scale': float(scale), 'auto_scale': config.auto_scale,
+                'is_slit_smeared': bool(is_slit_smeared_sample),
+                'slit_length': float(slit_length_sample or 0.0),
+            },
         )
 
     # ------------------------------------------------------------------
@@ -341,11 +393,25 @@ class DataManipulation:
         I_den: np.ndarray,
         dI_den: np.ndarray,
         config: DivideConfig,
+        *,
+        is_slit_smeared_num: bool = False,
+        slit_length_num: float = 0.0,
+        is_slit_smeared_den: bool = False,
+        slit_length_den: float = 0.0,
     ) -> ManipResult:
         r"""Compute ``I_out = I_num / (scale * I_den - background)``.
 
         Denominator is interpolated onto the numerator's Q grid.
+
+        Raises ``ValueError`` if numerator and denominator have incompatible
+        slit-smearing status (see :meth:`check_slit_compatible`).
         """
+        ok, msg = DataManipulation.check_slit_compatible(
+            is_slit_smeared_num, slit_length_num,
+            is_slit_smeared_den, slit_length_den, op='divide')
+        if not ok:
+            raise ValueError(msg)
+
         s = config.denominator_scale
         bg = config.denominator_background
 
@@ -385,6 +451,8 @@ class DataManipulation:
             metadata={
                 'denominator_scale': s,
                 'denominator_background': bg,
+                'is_slit_smeared': bool(is_slit_smeared_num),
+                'slit_length': float(slit_length_num or 0.0),
             },
         )
 

@@ -70,6 +70,7 @@ def save_sizes_results(
     distribution_std: Optional[np.ndarray] = None,
     setup_state: Optional[dict] = None,
     fit_quality: Optional[dict] = None,
+    intensity_model_ideal: Optional[np.ndarray] = None,
 ) -> None:
     """
     Save size distribution fitting results to an NXcanSAS HDF5 file.
@@ -150,6 +151,8 @@ def save_sizes_results(
             'power_law_q_min', 'power_law_q_max',
             'background_q_min', 'background_q_max',
             'cursor_q_min', 'cursor_q_max',
+            # Slit-smearing provenance.
+            'slit_length', 'data_is_slit_smeared',
         )
         for k in _attr_keys:
             if k in params and params[k] is not None:
@@ -159,6 +162,11 @@ def save_sizes_results(
         grp.create_dataset('Q',                 data=q.astype('f8'),              compression='gzip')
         grp.create_dataset('intensity_data',    data=intensity_data.astype('f8'), compression='gzip')
         grp.create_dataset('intensity_model',   data=intensity_model.astype('f8'), compression='gzip')
+        # Ideal (pinhole) model alongside the smeared one, for slit-smeared fits.
+        if intensity_model_ideal is not None:
+            grp.create_dataset('intensity_model_ideal',
+                               data=np.asarray(intensity_model_ideal, dtype='f8'),
+                               compression='gzip')
         grp.create_dataset('residuals',         data=residuals.astype('f8'),      compression='gzip')
         grp.create_dataset('r_grid',            data=r_grid.astype('f8'),         compression='gzip')
         grp.create_dataset('distribution',      data=distribution.astype('f8'),   compression='gzip')
@@ -270,9 +278,14 @@ def load_sizes_results(filepath: Path) -> dict:
         result['Q']              = grp['Q'][:]
         result['intensity_data'] = grp['intensity_data'][:]
         result['intensity_model'] = grp['intensity_model'][:]
+        result['intensity_model_ideal'] = (
+            grp['intensity_model_ideal'][:] if 'intensity_model_ideal' in grp else None)
         result['residuals']      = grp['residuals'][:]
         result['r_grid']         = grp['r_grid'][:]
         result['distribution']   = grp['distribution'][:]
+        # Slit-smearing provenance (absent => legacy pinhole file).
+        result['slit_length'] = float(grp.attrs.get('slit_length', 0.0))
+        result['data_is_slit_smeared'] = bool(grp.attrs.get('data_is_slit_smeared', 0))
 
         if 'intensity_error' in grp:
             result['intensity_error'] = grp['intensity_error'][:]

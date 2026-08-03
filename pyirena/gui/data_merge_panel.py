@@ -42,11 +42,11 @@ from pyirena.gui.sas_plot import (
 # Constants
 # ---------------------------------------------------------------------------
 
-_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt)"]
+_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt/.csv)"]
 _FILE_TYPE_EXTS = {
-    "HDF5 Nexus":       ('.h5', '.hdf5', '.hdf'),
-    "HDF5 Generic":     ('.h5', '.hdf5', '.hdf'),
-    "Text (.dat/.txt)": ('.dat', '.txt'),
+    "HDF5 Nexus":            ('.h5', '.hdf5', '.hdf'),
+    "HDF5 Generic":          ('.h5', '.hdf5', '.hdf'),
+    "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
 }
 
 # Colours specific to this tool
@@ -108,6 +108,9 @@ class _DatasetSelectorWidget(QWidget):
         self.folder_changed_callback: Optional[Callable] = None
         # Optional callback invoked when the text filter changes.
         self.filter_changed_callback: Optional[Callable] = None
+        # Optional callback(bool) invoked when the "Use slit-smeared copy"
+        # checkbox is toggled (set by DataMergePanel).
+        self.slit_toggled_callback: Optional[Callable] = None
 
         self._build_ui()
 
@@ -169,8 +172,34 @@ class _DatasetSelectorWidget(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.file_list, stretch=1)
 
+        # "Use slit-smeared copy" — shown only when the loaded file carries both
+        # a desmeared and a slit-smeared (USAXS) copy (Matilda).  Selects which
+        # copy to merge; a slit-smeared choice makes the merged output smeared.
+        self.slit_check = QCheckBox("Use slit-smeared copy")
+        self.slit_check.setToolTip(
+            "This file has both a desmeared and a slit-smeared (USAXS) copy.\n"
+            "Check to merge using the slit-smeared data — the merged output is\n"
+            "then written slit smeared (dQl) so downstream tools detect it."
+        )
+        self.slit_check.setVisible(False)
+        self.slit_check.stateChanged.connect(self._on_slit_toggled)
+        layout.addWidget(self.slit_check)
+
         self.setMinimumWidth(200)
         self.setMaximumWidth(260)
+
+    def _on_slit_toggled(self, _state) -> None:
+        if self.slit_toggled_callback is not None:
+            self.slit_toggled_callback(self.slit_check.isChecked())
+
+    def set_slit_check(self, visible: bool, checked: bool) -> None:
+        """Show/hide + set the slit checkbox without emitting the toggle callback."""
+        self.slit_check.blockSignals(True)
+        try:
+            self.slit_check.setVisible(visible)
+            self.slit_check.setChecked(checked)
+        finally:
+            self.slit_check.blockSignals(False)
 
     # ------------------------------------------------------------------ #
     #  Public helpers                                                      #
@@ -643,6 +672,10 @@ class DataMergePanel(QWidget):
         self._ds2 = _DatasetSelectorWidget(2)
         self._ds1.file_list.itemDoubleClicked.connect(self._on_ds1_double_clicked)
         self._ds2.file_list.itemDoubleClicked.connect(self._on_ds2_double_clicked)
+        # "Use slit-smeared copy" checkbox per dataset (shown only when the
+        # loaded file has both copies) → reload that dataset accordingly.
+        self._ds1.slit_toggled_callback = lambda chk: self._reload_ds_smearing(1, chk)
+        self._ds2.slit_toggled_callback = lambda chk: self._reload_ds_smearing(2, chk)
         # Re-check Batch button enable state whenever selection changes
         self._ds1.file_list.itemSelectionChanged.connect(self._check_enable_batch_btn)
         self._ds2.file_list.itemSelectionChanged.connect(self._check_enable_batch_btn)
@@ -944,10 +977,11 @@ class DataMergePanel(QWidget):
             return
         self._data1 = data
         self._graph.plot_ds1(data['Q'], data['Intensity'], data.get('Error'))
+        self._refresh_ds_slit_check(self._ds1, data)
         self._init_cursors_from_data()
         self._update_cursor_display()
         self._check_enable_buttons()
-        self._status.setText(f"DS1 loaded: {fname}")
+        self._status.setText(f"DS1 loaded: {fname}{self._slit_suffix(data)}")
 
     def _on_ds2_double_clicked(self, item: QListWidgetItem) -> None:
         fname = item.text()
@@ -959,10 +993,69 @@ class DataMergePanel(QWidget):
             return
         self._data2 = data
         self._graph.plot_ds2(data['Q'], data['Intensity'], data.get('Error'))
+        self._refresh_ds_slit_check(self._ds2, data)
         self._init_cursors_from_data()
         self._update_cursor_display()
         self._check_enable_buttons()
-        self._status.setText(f"DS2 loaded: {fname}")
+        self._status.setText(f"DS2 loaded: {fname}{self._slit_suffix(data)}")
+
+    @staticmethod
+    def _slit_suffix(data: dict) -> str:
+        """Short status suffix noting the loaded copy's smearing state."""
+        if data.get('is_slit_smeared'):
+            return "  (slit-smeared)"
+        return ""
+
+    def _refresh_ds_slit_check(self, selector, data: dict) -> None:
+        """Show the 'Use slit-smeared copy' checkbox when the file has both a
+        desmeared and a slit-smeared copy; reflect which one is loaded."""
+        has_smr = False
+        fp = data.get('filepath')
+        if fp:
+            try:
+                from pyirena.io.hdf5 import file_has_smr_entry
+                p = Path(fp)
+                has_smr = file_has_smr_entry(str(p.parent), p.name)
+            except Exception:
+                has_smr = False
+        # Also show it if the loaded curve is already slit smeared (single-copy
+        # file), so the user can see/relax that choice.
+        visible = bool(has_smr or data.get('is_slit_smeared'))
+        selector.set_slit_check(visible, bool(data.get('is_slit_smeared')))
+
+    def _reload_ds_smearing(self, dataset_number: int, prefer_slit_smeared: bool) -> None:
+        """Reload DS1/DS2 selecting the desmeared or slit-smeared copy."""
+        selector = self._ds1 if dataset_number == 1 else self._ds2
+        cur = self._data1 if dataset_number == 1 else self._data2
+        if not cur or not cur.get('filepath'):
+            return
+        fp = Path(cur['filepath'])
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            data = readGenericNXcanSAS(str(fp.parent), fp.name,
+                                       prefer_slit_smeared=prefer_slit_smeared)
+        except Exception as exc:
+            QMessageBox.warning(self, "Reload Error",
+                                f"Could not reload {fp.name}:\n{exc}")
+            # Revert the checkbox to the actual loaded state
+            selector.set_slit_check(True, bool(cur.get('is_slit_smeared')))
+            return
+        if data is None:
+            return
+        data['is_nxcansas'] = True
+        data['filepath'] = str(fp)
+        data.setdefault('slit_length', 0.0)
+        data.setdefault('is_slit_smeared', False)
+        if dataset_number == 1:
+            self._data1 = data
+            self._graph.plot_ds1(data['Q'], data['Intensity'], data.get('Error'))
+        else:
+            self._data2 = data
+            self._graph.plot_ds2(data['Q'], data['Intensity'], data.get('Error'))
+        self._init_cursors_from_data()
+        self._update_cursor_display()
+        self._status.setText(
+            f"DS{dataset_number} reloaded{self._slit_suffix(data)}")
 
     def _on_fit_scale_toggled(self, checked: bool) -> None:
         """When 'Fit scale' is unchecked, let the user type a fixed scale value."""
@@ -1055,6 +1148,8 @@ class DataMergePanel(QWidget):
             qshift_dataset=qshift_map[self._qshift_combo.currentText()],
             method=self._method_combo.currentData() or 'interpolation',
             split_at_left_cursor=self._split_chk.isChecked(),
+            slit_length_ds1=float(self._data1.get('slit_length', 0.0) or 0.0),
+            slit_length_ds2=float(self._data2.get('slit_length', 0.0) or 0.0),
         )
 
         _dI1 = self._data1.get('Error')
@@ -1088,6 +1183,14 @@ class DataMergePanel(QWidget):
         q_m, I_m, dI_m, dQ_m = self._engine.merge(
             q1, I1, dI1, dQ1, q2, I2, dI2, dQ2, result, config
         )
+
+        # Surface the merged slit-smearing provenance (and warn on mismatch).
+        if result.is_slit_smeared_merged:
+            self._status.setText(
+                status_txt +
+                f"   |  merged output is slit smeared (dQl={result.slit_length_merged:.4g} 1/Å)")
+        if result.slit_warning:
+            QMessageBox.warning(self, "Slit-length mismatch", result.slit_warning)
         self._last_q_merged = q_m
         self._last_I_merged = I_m
         self._last_dI_merged = dI_m
@@ -1239,6 +1342,8 @@ class DataMergePanel(QWidget):
                     qshift_dataset=qshift_map[self._qshift_combo.currentText()],
                     method=self._method_combo.currentData() or 'interpolation',
                     split_at_left_cursor=self._split_chk.isChecked(),
+                    slit_length_ds1=float(d1.get('slit_length', 0.0) or 0.0),
+                    slit_length_ds2=float(d2.get('slit_length', 0.0) or 0.0),
                 )
                 result = self._engine.optimize(q1, I1, dI1, q2, I2, dI2, config)
                 q_m, I_m, dI_m, dQ_m = self._engine.merge(
@@ -1252,6 +1357,10 @@ class DataMergePanel(QWidget):
                     'scale_dataset': config.scale_dataset, 'fit_scale': config.fit_scale,
                     'qshift_dataset': config.qshift_dataset, 'fit_qshift': config.fit_qshift,
                     'split_at_left_cursor': config.split_at_left_cursor,
+                    'slit_length_ds1': config.slit_length_ds1,
+                    'slit_length_ds2': config.slit_length_ds2,
+                    'slit_length_merged': result.slit_length_merged,
+                    'is_slit_smeared_merged': result.is_slit_smeared_merged,
                 }
                 out = save_merged_data(
                     output_folder=Path(self._out_folder),
@@ -1437,8 +1546,9 @@ class DataMergePanel(QWidget):
         from pyirena.io.text_import import clean_sas_arrays
         fp = Path(filepath)
         try:
-            if file_type == "Text (.dat/.txt)":
-                data = readTextFile(str(fp.parent), fp.name)
+            if file_type == "Text (.dat/.txt/.csv)":
+                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
+                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),
@@ -1456,6 +1566,11 @@ class DataMergePanel(QWidget):
                 data = readGenericNXcanSAS(str(fp.parent), fp.name)
                 data['is_nxcansas'] = True
             data['filepath'] = filepath
+            # Slit-smearing provenance: NXcanSAS files carry it (dQl); text /
+            # generic-HDF5 files do not, so default to pinhole.  These drive the
+            # merged output's slit provenance (dQl written to the merged file).
+            data.setdefault('slit_length', 0.0)
+            data.setdefault('is_slit_smeared', False)
             return data
         except Exception as exc:
             if quiet:
@@ -1596,6 +1711,10 @@ class DataMergePanel(QWidget):
             'scale_dataset': c.scale_dataset, 'fit_scale': c.fit_scale,
             'qshift_dataset': c.qshift_dataset, 'fit_qshift': c.fit_qshift,
             'split_at_left_cursor': c.split_at_left_cursor,
+            'slit_length_ds1': c.slit_length_ds1,
+            'slit_length_ds2': c.slit_length_ds2,
+            'slit_length_merged': r.slit_length_merged,
+            'is_slit_smeared_merged': r.is_slit_smeared_merged,
         }
 
     def _current_config_dict(self) -> dict:

@@ -47,6 +47,7 @@ from pyirena.gui.sas_plot import (
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.io.nxcansas_modeling import save_modeling_results
+from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state import StateManager
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2168,7 +2169,7 @@ class _MCWorker(QThread):
 # Main panel
 # ──────────────────────────────────────────────────────────────────────────────
 
-class ModelingPanel(QWidget):
+class ModelingPanel(SlitSmearingMixin, QWidget):
     """Main Modeling tool panel: left controls + right graph in a QSplitter."""
 
     def __init__(self, parent=None):
@@ -2251,6 +2252,7 @@ class ModelingPanel(QWidget):
         self.data_loader = DataFileLoaderRow(state_manager=self._state)
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         lay.addWidget(self.data_loader)
+        self._build_slit_row(lay)
 
         # ── Q range display + No limits ──────────────────────────────────
         q_row = QHBoxLayout()
@@ -2884,7 +2886,36 @@ class ModelingPanel(QWidget):
         self.set_data(q, I, dI,
                       filename=display_name,
                       filepath=hdf5_path,
-                      is_nxcansas=True)
+                      is_nxcansas=True,
+                      slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                      is_slit_smeared=bool(data.get('is_slit_smeared', False)))
+
+    def _reload_data_with_smearing(self, prefer_slit_smeared):
+        """Reload the current file's desmeared or slit-smeared dataset."""
+        fp = self._file_path
+        if not fp:
+            return
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            import numpy as _np
+            d = readGenericNXcanSAS(str(Path(fp).parent), Path(fp).name,
+                                    prefer_slit_smeared=prefer_slit_smeared)
+            if d is None:
+                return
+            I = _np.asarray(d['Intensity'], dtype=float)
+            err = d.get('Error')
+            dI = _np.asarray(err, dtype=float) if err is not None else _np.full_like(I, 0.05 * I)
+            self.set_data(_np.asarray(d['Q'], dtype=float), I, dI,
+                          filename=Path(fp).name,
+                          filepath=str(fp), is_nxcansas=True,
+                          slit_length=float(d.get('slit_length', 0.0) or 0.0),
+                          is_slit_smeared=bool(d.get('is_slit_smeared', False)))
+        except Exception as exc:
+            self.graph.set_status(f"Could not reload data: {exc}", 'error')
+
+    def _replot_after_slit_change(self):
+        if getattr(self, '_data_q', None) is not None:
+            self.graph_model(silent=True)
 
     def set_data(
         self,
@@ -2894,6 +2925,8 @@ class ModelingPanel(QWidget):
         filename: str,
         filepath: str = '',
         is_nxcansas: bool = True,
+        slit_length: float = 0.0,
+        is_slit_smeared: bool = False,
     ):
         """Accept pre-loaded Q/I/dI arrays (called from Data Selector)."""
         q = np.asarray(q, dtype=float)
@@ -2904,6 +2937,7 @@ class ModelingPanel(QWidget):
         self._data_q = q
         self._data_I = I
         self._data_dI = dI
+        self._refresh_slit_ui_from_data(slit_length, is_slit_smeared, filepath)
 
         self.data_loader.set_filename(filename)
         self.graph._itx_sample_label = filename   # route ITX export into this sample's folder
@@ -2979,6 +3013,8 @@ class ModelingPanel(QWidget):
             n_mc_runs=self.n_runs_spin.value(),
             fit_method=self._current_fit_method(),
             de_workers=self.de_workers_spin.value(),
+            use_slit_smearing=self.slit_active(),
+            slit_length=self.current_slit_length(),
         )
 
     def _write_config_back(self, config: ModelingConfig):
@@ -3021,7 +3057,7 @@ class ModelingPanel(QWidget):
                 return
 
             self._engine.clear_cache()
-            I_total, pop_idx, pop_I, pop_dist = self._engine.total_intensity(
+            I_total, pop_idx, pop_I, pop_dist = self._engine.total_intensity_maybe_smeared(
                 config, q, use_cache=True
             )
 

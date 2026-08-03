@@ -31,6 +31,9 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._paths import (
+    PathSecurityError, resolve_safe, resolve_safe_file,
+)
 from pyirena.api.control.errors import (
     bad_param, make_error, no_fit, no_model, no_session,
 )
@@ -224,19 +227,34 @@ def _render_fit_image(session: Session, width: int, height: int, dpi: int = 120)
 # Category A — Session lifecycle
 # ---------------------------------------------------------------------------
 
-def open_dataset(file_path: str) -> dict:
+def open_dataset(file_path: str, use_slit_smeared: bool = False) -> dict:
     """Load a NXcanSAS HDF5 file and create a new fitting session.
+
+    Parameters
+    ----------
+    use_slit_smeared : bool
+        When True, load the file's slit-smeared (``_SMR``) dataset if present.
+        Model smearing is then enabled automatically at the file-derived slit
+        length when a Unified Fit model is created for the session.
 
     Returns
     -------
     dict with keys: session_id, summary (file, n_points, q_min, q_max,
-    intensity_min, intensity_max, label).
+    intensity_min, intensity_max, label, is_slit_smeared, slit_length,
+    has_slit_smeared_entry).
     On failure returns an error dict.
     """
-    from pyirena.io.hdf5 import readGenericNXcanSAS
+    from pyirena.io.hdf5 import readGenericNXcanSAS, file_has_smr_entry
 
-    fp = Path(file_path)
-    if not fp.exists():
+    try:
+        fp = resolve_safe_file(file_path)
+    except PathSecurityError as exc:
+        return make_error(
+            str(exc),
+            suggestion="Open a file inside PYIRENA_DATA_ROOT.",
+            code="PATH_NOT_ALLOWED",
+        )
+    except (FileNotFoundError, IsADirectoryError):
         return make_error(
             f"File not found: '{file_path}'",
             suggestion="Check the path and try again.",
@@ -244,7 +262,8 @@ def open_dataset(file_path: str) -> dict:
         )
 
     try:
-        data = readGenericNXcanSAS(str(fp.parent), fp.name)
+        data = readGenericNXcanSAS(
+            str(fp.parent), fp.name, prefer_slit_smeared=use_slit_smeared)
     except Exception as exc:
         return make_error(
             f"Could not read '{file_path}': {exc}",
@@ -275,8 +294,17 @@ def open_dataset(file_path: str) -> dict:
     if isinstance(label, bytes):
         label = label.decode("utf-8", errors="replace")
 
+    is_slit_smeared = bool(data.get("is_slit_smeared", False))
+    slit_length = float(data.get("slit_length", 0.0) or 0.0)
+    try:
+        has_smr_entry = file_has_smr_entry(str(fp.parent), fp.name)
+    except Exception:
+        has_smr_entry = False
+
     session = create_session(file_path=str(fp), q=q, intensity=I, error=err,
-                             label=str(label))
+                             label=str(label),
+                             is_slit_smeared=is_slit_smeared,
+                             slit_length=slit_length)
 
     valid = np.isfinite(q) & np.isfinite(I)
     return {
@@ -289,6 +317,10 @@ def open_dataset(file_path: str) -> dict:
             "q_max":         float(np.nanmax(q[valid])),
             "intensity_min": float(np.nanmin(I[valid & (I > 0)])) if np.any(valid & (I > 0)) else None,
             "intensity_max": float(np.nanmax(I[valid])),
+            # Slit-smearing status so the AI advisor can explain/enable it.
+            "is_slit_smeared":        is_slit_smeared,
+            "slit_length":            slit_length,
+            "has_slit_smeared_entry": has_smr_entry,
         },
     }
 
@@ -412,6 +444,11 @@ def select_model(
         s.model = UnifiedFitModel(num_levels=nlevels)
         s.model_name = "unified_fit"
         s.last_fit_result = None
+        # Auto-enable slit smearing when the session's data are slit smeared
+        # (SasView-style: slit-length presence drives model smearing).
+        if s.is_slit_smeared and s.slit_length > 0:
+            s.model.use_slit_smearing = True
+            s.model.slit_length = s.slit_length
 
     return {
         "ok":            True,
@@ -1083,7 +1120,8 @@ def fit_local_guinier(
     from pyirena.core.unified import fit_local_guinier as _core_guinier  # noqa: PLC0415
 
     try:
-        r = _core_guinier(q_fit, I_fit, error=err_fit)
+        r = _core_guinier(q_fit, I_fit, error=err_fit,
+                          slit_length=s.slit_length if s.is_slit_smeared else 0.0)
     except Exception as exc:
         return make_error(
             f"Local Guinier fit failed: {exc}",
@@ -1091,7 +1129,7 @@ def fit_local_guinier(
             code="FIT_FAILED",
         )
 
-    return {
+    out = {
         "ok":                  True,
         "G":                   r["G"],
         "Rg":                  r["Rg"],
@@ -1101,6 +1139,9 @@ def fit_local_guinier(
         "chi_squared":         r["chi_squared"],
         "reduced_chi_squared": r["reduced_chi_squared"],
     }
+    if r.get("warning"):
+        out["warning"] = r["warning"]
+    return out
 
 
 def fit_local_power_law(
@@ -1160,7 +1201,8 @@ def fit_local_power_law(
     from pyirena.core.unified import fit_local_power_law as _core_power_law  # noqa: PLC0415
 
     try:
-        r = _core_power_law(q_fit, I_fit, error=err_fit)
+        r = _core_power_law(q_fit, I_fit, error=err_fit,
+                           slit_length=s.slit_length if s.is_slit_smeared else 0.0)
     except Exception as exc:
         return make_error(
             f"Local power-law fit failed: {exc}",
@@ -1169,7 +1211,7 @@ def fit_local_power_law(
         )
 
     q_pos = r["q"]
-    return {
+    out = {
         "ok":                  True,
         "P":                   r["P"],
         "B":                   r["B"],
@@ -1179,6 +1221,9 @@ def fit_local_power_law(
         "chi_squared":         r["chi_squared"],
         "reduced_chi_squared": r["reduced_chi_squared"],
     }
+    if r.get("warning"):
+        out["warning"] = r["warning"]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1393,6 +1438,11 @@ def run_fit(
         "random_seed":         random_seed,
         "parameters_updated":  updated,
         "quality":             quality,
+        # Report smearing state so the AI advisor can explain that fitted
+        # parameters are ideal-space and the model was compared smeared.
+        "slit_smearing_applied": bool(getattr(s.model, "use_slit_smearing", False)
+                                       and getattr(s.model, "slit_length", 0.0) > 0),
+        "slit_length":           float(getattr(s.model, "slit_length", 0.0)),
     }
 
 
@@ -1761,7 +1811,32 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
     from pyirena.io.nxcansas_unified import save_unified_fit_results
 
     model = s.model
-    target = Path(output_path) if output_path else Path(s.file_path)
+
+    # Confine the write target to PYIRENA_DATA_ROOT (when set) for both an
+    # explicit output_path and the default in-place save.
+    try:
+        src = resolve_safe(s.file_path, must_exist=False)
+        target = resolve_safe(output_path, must_exist=False) if output_path else src
+    except PathSecurityError as exc:
+        return make_error(
+            str(exc),
+            suggestion="Save to a path inside PYIRENA_DATA_ROOT.",
+            code="PATH_NOT_ALLOWED",
+        )
+
+    # Saving to a *new* location must yield a complete, re-openable NXcanSAS
+    # file — not a results-only stub. Seed it from the source (reduced data +
+    # metadata, stale results stripped); the original is never modified.
+    if target != src and not target.exists():
+        from pyirena.io._nxcansas_common import copy_and_strip_results
+        try:
+            copy_and_strip_results(src, target)
+        except Exception as exc:
+            return make_error(
+                f"Could not create output file '{target}' from source: {exc}",
+                suggestion="Check the source file exists and the target is writable.",
+                code="SAVE_ERROR",
+            )
 
     # Convert UnifiedLevel objects to the dict format expected by nxcansas_unified
     levels_dicts = [
@@ -1771,7 +1846,18 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
         }
         for lv in model.levels
     ]
-    resid = model.I_data - model.fit_intensity
+
+    # Under slit smearing the curve that matches the data is the SMEARED model;
+    # the ideal (pinhole) model is saved alongside it (parity with batch/GUI).
+    slit_length = float(model.slit_length) if model.use_slit_smearing else 0.0
+    intensity_model_ideal = None
+    if slit_length > 0:
+        intensity_model = model.calculate_intensity_smeared(model.q_data)
+        intensity_model_ideal = model.calculate_intensity(model.q_data)
+    else:
+        intensity_model = model.calculate_intensity(model.q_data)
+
+    resid = model.I_data - intensity_model
     norm_resid = (resid / model.error_data
                   if model.error_data is not None else resid)
 
@@ -1780,13 +1866,15 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
             filepath=target,
             q=model.q_data,
             intensity_data=model.I_data,
-            intensity_model=model.fit_intensity,
+            intensity_model=intensity_model,
             residuals=norm_resid,
             levels=levels_dicts,
             background=model.background,
             chi_squared=float(s.last_fit_result.get("chi_squared", float("nan"))),
             num_levels=model.num_levels,
             error=model.error_data,
+            slit_length=slit_length,
+            intensity_model_ideal=intensity_model_ideal,
             # Embed the full setup so the GUI can "Load Setup from File…"
             # and resume exactly where pyirena-ai left off.
             setup_state=_session_to_gui_state(s),

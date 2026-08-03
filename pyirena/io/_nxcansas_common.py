@@ -126,6 +126,13 @@ def replace_nxcansas_data(
         if 'I' in sasdata:
             sasdata['I'].attrs['uncertainties'] = 'Idev'
 
+        # A stale scalar slit length (dQl) from the source file no longer
+        # matches the rewritten Q/I (point count may have changed).  Drop it
+        # here; callers that produce slit-smeared output re-add it explicitly
+        # via append_dql() after this call.
+        if 'dQl' in sasdata:
+            del sasdata['dQl']
+
         # Qdev (Q resolution) — add only if provided
         if dQ is not None:
             if 'Qdev' in sasdata:
@@ -161,3 +168,66 @@ def append_dq(filepath: Path, dQ: np.ndarray, sample_name: str) -> None:
                 ds.attrs['long_name'] = 'Q resolution'
                 if 'Q' in sasdata:
                     sasdata['Q'].attrs['resolutions'] = 'Qdev'
+
+
+def append_dql(filepath: Path, slit_length: float) -> None:
+    """Mark the first sasdata group as slit smeared by writing a scalar ``dQl``.
+
+    Adds the slit (half-)length as a ``dQl`` dataset and includes ``dQl`` in
+    the ``Q@resolutions`` attribute (SasView / NXcanSAS convention, alongside a
+    per-point ``dQw``/``Qdev`` if present).  This is what downstream pyirena
+    readers use to auto-detect slit smearing (see ``readGenericNXcanSAS``).
+    No-op when ``slit_length <= 0``.
+    """
+    if not slit_length or slit_length <= 0:
+        return
+    with h5py.File(filepath, 'a') as f:
+        sasdata_paths = find_matching_groups(
+            f, required_attributes={'canSAS_class': 'SASdata'}, required_items={},
+        )
+        if not sasdata_paths:
+            return
+        sasdata = f[sasdata_paths[0]]
+        if 'dQl' in sasdata:
+            del sasdata['dQl']
+        ds = sasdata.create_dataset('dQl', data=float(slit_length))
+        ds.attrs['units'] = '1/angstrom'
+        ds.attrs['long_name'] = 'Slit length (half-height)'
+        if 'Q' in sasdata:
+            existing = sasdata['Q'].attrs.get('resolutions', '')
+            tokens = [t.strip() for t in str(existing).split(',') if t.strip()]
+            # Per-point width token first (dQw preferred; keep Qdev if that's
+            # what is present), then the slit length dQl.
+            if 'Qdev' in sasdata and 'Qdev' not in tokens and 'dQw' not in tokens:
+                tokens = ['Qdev'] + tokens
+            if 'dQl' not in tokens:
+                tokens.append('dQl')
+            sasdata['Q'].attrs['resolutions'] = ','.join(tokens)
+
+
+def drop_smr_entries(filepath: Path) -> int:
+    """Delete any ``*_SMR`` (slit-smeared twin) entry groups from *filepath*.
+
+    Matilda writes both a desmeared default entry and a ``<name>_SMR`` slit-
+    smeared copy.  When a tool rewrites only the default entry (merge /
+    manipulation), the ``_SMR`` twin would otherwise survive with stale,
+    now-inconsistent data.  Removing it prevents a later
+    ``prefer_slit_smeared`` load from silently returning the wrong curve.
+
+    Returns the number of groups removed.
+    """
+    removed = 0
+    with h5py.File(filepath, 'a') as f:
+        entry = f.get('entry')
+        # Top-level entries may also be siblings of 'entry' in some layouts;
+        # scan both the root and the 'entry' group for *_SMR children.
+        scopes = []
+        if isinstance(entry, h5py.Group):
+            scopes.append(entry)
+        scopes.append(f)
+        for scope in scopes:
+            for key in list(scope.keys()):
+                if key.endswith('_SMR') and isinstance(scope.get(key), h5py.Group):
+                    del scope[key]
+                    removed += 1
+    return removed

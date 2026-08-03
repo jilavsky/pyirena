@@ -167,6 +167,35 @@ class TestUnifiedFitModel:
         assert "Rg" in summary
         assert "=" in summary
 
+    def test_eta_pack_not_fitted_without_correlations(self):
+        """ETA/PACK must not be free parameters when correlations are off.
+
+        With correlations disabled, ETA and PACK have no effect on the model,
+        so fitting them makes the least-squares problem rank-deficient and the
+        solver thrashes (badly amplified by slit smearing).  Regression guard:
+        the packed parameter vector must exclude ETA/PACK unless correlations
+        are on, regardless of the fit_ETA / fit_PACK flags.
+        """
+        model = UnifiedFitModel(num_levels=1)
+        model.fit_background = False
+        lvl = model.levels[0]
+        lvl.fit_Rg = lvl.fit_G = lvl.fit_P = lvl.fit_B = False
+        lvl.fit_ETA = lvl.fit_PACK = True
+
+        # correlations off → ETA/PACK excluded
+        lvl.correlations = False
+        assert lvl.fit_ETA_effective is False
+        assert lvl.fit_PACK_effective is False
+        assert len(model._pack_parameters()) == 0
+        lo, hi = model._get_bounds()
+        assert len(lo) == 0 and len(hi) == 0
+
+        # correlations on → ETA/PACK included
+        lvl.correlations = True
+        assert lvl.fit_ETA_effective is True
+        assert lvl.fit_PACK_effective is True
+        assert len(model._pack_parameters()) == 2
+
 
 class TestComputeInvariantSv:
     """Regression tests for compute_invariant_sv().

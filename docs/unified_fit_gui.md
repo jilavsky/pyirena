@@ -278,6 +278,18 @@ See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for detailed int
 
 Also check the **residuals plot**: it now shows rescaled residuals `r' = r/σ(robust)`, which compare scatter against the data's own noise floor rather than (possibly unreliable) reported σ. Structure in the rescaled plot (long stretches of same-sign) indicates a systematic model problem; random scatter indicates a mis-scaled σ only.
 
+## Slit smearing (USAXS)
+
+When slit-smeared USAXS data are loaded (an NXcanSAS `dQl`, e.g. from Matilda),
+a **"Slit smeared"** control row appears and the model is smeared to match the
+data — all levels, the background, the local Guinier/Porod cursor fits, and the
+"Show selected level" overlay. Fitted parameters remain ideal-space
+(pinhole-equivalent); the invariant is computed from the ideal model. Note that
+`ETA`/`PACK` are only fitted when a level's **correlations** are enabled — leave
+them unchecked otherwise, or the fit will iterate needlessly (slit-smeared fits
+amplify this). See **[Slit smearing](slit_smearing.md)** for the full reference,
+scripting contract, and performance notes.
+
 ## References
 
 - Beaucage, G. "Approximations Leading to a Unified Exponential/Power-Law Approach to Small-Angle Scattering" *J. Appl. Cryst.* (1995) **28**, 717-728

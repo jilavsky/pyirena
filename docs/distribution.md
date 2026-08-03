@@ -18,25 +18,27 @@ conda install conda-build anaconda-client
 
 ## Version Management
 
-Before each release, update the version number in:
+The version is **single-sourced** from `pyproject.toml`. `pyirena.__version__`
+is read at runtime from the installed package metadata
+(`importlib.metadata.version("pyirena")`), so there is no version string to edit
+in `pyirena/__init__.py`.
 
-1. `pyproject.toml`:
+Before each release, update:
+
+1. `pyproject.toml` — the one source of truth:
    ```toml
    [project]
    version = "0.1.0"  # Update this
    ```
 
-2. `pyirena/__init__.py`:
-   ```python
-   __version__ = "0.1.0"  # Update this
-   ```
-
-3. `conda/meta.yaml`:
+2. `conda/meta.yaml` — the conda recipe is a separate build, so its version and
+   the source-tarball `sha256` are bumped by hand:
    ```yaml
-   {% set version = "0.1.0" %}  # Update this
+   {% set version = "0.1.0" %}   # Update this
+   # then set the real sha256 of the release tarball (see the comment in the file)
    ```
 
-4. `CHANGELOG.md`:
+3. `CHANGELOG.md`:
    ```markdown
    ## [0.1.0] - 2024-02-13
    ### Added
@@ -51,11 +53,8 @@ Before each release, update the version number in:
 # Ensure all tests pass
 pytest
 
-# Ensure code is formatted
-black pyirena/
-
-# Check for any issues
-flake8 pyirena/
+# Lint (the project uses ruff)
+ruff check pyirena
 ```
 
 ### 2. Build Distribution
@@ -181,8 +180,8 @@ git push origin v0.1.0
 ## Pre-release Checklist
 
 - [ ] All tests passing
-- [ ] Code formatted with black
-- [ ] Version numbers updated in all files
+- [ ] Lint clean (`ruff check pyirena`)
+- [ ] Version updated in `pyproject.toml` (and `conda/meta.yaml` + sha256)
 - [ ] CHANGELOG.md updated
 - [ ] Documentation reviewed and updated
 - [ ] Examples tested
@@ -211,10 +210,9 @@ Update `MANIFEST.in` to include necessary files.
 ### Version mismatch
 
 Ensure version is consistent in:
-- `pyproject.toml`
-- `pyirena/__init__.py`
-- `conda/meta.yaml`
-- Git tag
+- `pyproject.toml` (the single source; `pyirena.__version__` is derived from it)
+- `conda/meta.yaml` (separate conda build)
+- Git tag (the publish workflow verifies `v<pyproject version>` == the tag)
 
 ### Build fails on certain platforms
 

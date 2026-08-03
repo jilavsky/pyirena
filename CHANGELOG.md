@@ -5,6 +5,270 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.0b3] - 2026-08-03
+
+### Added
+
+- **Q-unit selector for text-file import.** Text files (`.dat`/`.txt`/`.csv`)
+  carry no unit metadata, so pyIrena assumed Q was always in 1/Å. A new
+  *Data Selector → Configure → Text File Options → Q unit in text files*
+  setting (default 1/Å, also offering 1/nm, 1/pm, 1/µm, 1/mm) lets you tell
+  pyIrena what unit your files actually use; Q (and dQ) is converted to 1/Å
+  on import. Applied everywhere text files are read: Data Selector, Data
+  Merge, Data Manipulation, the `pyirena.batch` API (`fit_sizes`,
+  `fit_unified`, `fit_waxs`, `merge_data`, etc.), and
+  `pyirena.plotting.plot_saxs`. The assumed unit is recorded in the
+  converted HDF5 sibling's provenance, and changing the setting for a file
+  you've already converted automatically invalidates the stale cached
+  sibling rather than silently reusing it. See
+  [Q units](docs/data_import_and_cleaning.md#q-units).
+- **CSV file support in Data Selector, Data Merge, and Data Manipulation.**
+  Comma-separated `.csv` files are now recognized alongside `.dat`/`.txt`
+  everywhere those text formats were already supported:
+  - Data Selector's "Text Files" / "All Supported Files" filters, and the
+    load / plot / report / ASCII-export paths (auto-converted to a cleaned
+    NXcanSAS `.h5` sibling on first use).
+  - Data Merge's and Data Manipulation's file-type dropdown (now
+    **Text (.dat/.txt/.csv)**) and reference-file loader.
+  The underlying text reader (`readTextFile`) now auto-detects a comma
+  delimiter from the first data-bearing line, so headerless or
+  header-labeled CSV exports (e.g. `Q,I,dI` columns) parse the same way as
+  whitespace-separated files.
+- **Data Selector — GitHub-based update notification.** Replaces the retired
+  Igor Pro APS/ANL-server version check (which also is not applicable to
+  pyIrena). On startup, and at most once a week thereafter, the Data Selector
+  reads GitHub's public `releases/latest` endpoint (pre-releases/betas are
+  excluded automatically) and shows an info banner with a link to the GitHub
+  releases page when a newer stable version is available.
+  Stdlib-only (`urllib.request`, no new dependency), fails completely
+  silently offline/on any error, and never blocks startup — the network call
+  runs on a background `QThread` (`UpdateCheckWorker`). New
+  `pyirena/version_check.py`; opt-out via a new **"Check for new pyIrena
+  releases on startup"** checkbox in Data Selector's Configure… dialog
+  (`check_for_updates`, default on). See `docs/gui_quickstart.md`.
+
+## [1.1.0b2] - 2026-07-24
+
+Beta 2 is a cleanup / hardening release on top of the 1.1.0b1 slit-smearing
+beta. It closes gaps found in an independent code review — the control/MCP
+write surface, packaging metadata, and CI — with **no change to the fitting
+science or numerical results**.
+
+### Security
+
+- **Control / MCP file access is now confined to `PYIRENA_DATA_ROOT`.** The
+  read-only `pyirena.api` discovery/data tools already resolved user paths
+  through `resolve_safe*`, but the mutating control tools
+  (`open_dataset`, `save_fit`, `save_sizes_fit` — all exposed as MCP tools)
+  built `Path(...)` directly, so setting `PYIRENA_DATA_ROOT` did **not** confine
+  the part of the API that can read *and* write HDF5 files. All three now
+  resolve inputs with `resolve_safe_file()` and write targets with
+  `resolve_safe(..., must_exist=False)`, rejecting absolute paths and `..`
+  traversal outside the root with a `PATH_NOT_ALLOWED` error dict (never an
+  exception across the API boundary). The stale "information disclosure only"
+  note in `api/_paths.py` was corrected.
+
+### Fixed
+
+- **Control API saved slit-smeared fits as if they were pinhole fits.** A
+  control-/MCP-driven Unified Fit or Size Distribution on slit-smeared data
+  stored `slit_length = 0` and no ideal (pinhole) model curve, silently losing
+  the slit-smearing provenance that the batch and GUI paths record.
+  `save_fit()` now writes the smeared model, the ideal `intensity_model_ideal`
+  curve, and `slit_length`; `save_sizes_fit()` now writes `slit_length`,
+  `data_is_slit_smeared`, and `intensity_model_ideal`. The `open_dataset`
+  JSON schema also gained the `use_slit_smeared` property (the function always
+  accepted it, but schema-driven clients could not request the `_SMR` dataset).
+- **Control API `output_path` produced an incomplete data file.** Saving a fit
+  to a *new* `output_path` passed the path straight to the result writer, which
+  created a results-only HDF5 (no reduced-data SASdata group) that
+  `readGenericNXcanSAS()` could not reopen as reduced data. Both save functions
+  now seed a new target from the source file (`copy_and_strip_results`, reduced
+  data + metadata, stale results stripped) before appending — the original file
+  is never modified.
+- **Declared NumPy floor now matches the code (NumPy ≥ 2.0).** The core calls
+  `numpy.trapezoid` (a NumPy 2.0 API) in ~30 places, but `pyproject.toml`
+  declared `numpy>=1.22` and the conda recipe `numpy>=1.20`, so an install on
+  NumPy 1.x would crash. The floors were raised to `numpy>=2.0` in both.
+- **Slit-smearing engine now validates its inputs** (`core/smearing.py`). When
+  smearing is active (slit length > 0), `build_smearing_matrix`, `smear_curve`,
+  and `build_extended_q` raise a clear `ValueError` on non-finite, unsorted, or
+  too-short `q`, on `n_l < 2`, and on a q/intensity length mismatch — instead of
+  returning silently wrong output or a cryptic `IndexError`. The `slit_length
+  <= 0` no-op contract is preserved (inputs pass through untouched), so the
+  already-sanitised fit paths are unaffected.
+- **Import Igor Experiment: Irena/Nika "Use QRS Names" data not recognised.**
+  Igor experiments (`.h5xp`/`.pxp`) whose reduced 1-D data followed the common
+  Irena/Nika "Use QRS Names" convention — waves named `Q_<folder>` /
+  `R_<folder>` / `S_<folder>` (uppercase prefix, data-folder name as suffix;
+  R = intensity, S = error) — imported as **zero** samples: every folder was
+  silently skipped. The importer's wave-name picker tables only knew pyirena's
+  own lowercase `q_<folder>` output and a few other conventions. Added the
+  uppercase QRS triple to all three techniques (USAXS/SAXS/WAXS) in both
+  `WAVE_PICKERS_H5XP` and `WAVE_PICKERS` in `pyirena/io/pxp_to_nexus.py`. A real
+  desktop-SAXS (Xenocs, ANSTO) file that previously imported 0/44 samples now
+  imports 44/44. *Note: a follow-up will make Igor wave-name matching fully
+  case-insensitive, since Igor names are case-insensitive by design.*
+- **"Teubner-Strey" model name typo.** The Simple Fits model was misspelled
+  "Treubner-Strey" (the model is named for M. Teubner & R. Strey, J. Chem.
+  Phys. 87, 1987) in the registry key, internal function name, derived-value
+  docs, and the Igor-compatibility wave name (`SimFitTreubnerStreyI` →
+  `SimFitTeubnerStreyI`). Corrected throughout `pyirena/core/simple_fits.py`,
+  `pyirena/io/igor_names.py`, docs, and README. Old saved GUI state,
+  NXcanSAS result files, and JSON exports that stored the misspelled name
+  keep loading correctly — `SimpleFitModel.set_model()`,
+  `SimpleFitModel.from_dict()`, and the Simple Fits panel's `load_state()`
+  all transparently map the legacy spelling to the corrected one via a new
+  `_resolve_model_name()` helper, so no existing files need to be migrated.
+
+### Changed / Internal
+
+- **Packaging metadata cleaned up.** Added a real `plotting` extra
+  (`pip install pyirena[plotting]`, referenced by the docs but previously
+  undefined); `import pyirena` no longer eagerly imports matplotlib (the
+  `plot_saxs` convenience export is now lazy via module `__getattr__`);
+  migrated to the SPDX `license = "MIT"` form (+ `license-files`) ahead of the
+  setuptools deprecation; the conda recipe now matches `pyproject.toml`
+  (Python ≥ 3.9, NumPy ≥ 2.0, SciPy ≥ 1.8, and the previously-missing `igor2`
+  dependency) with a documented `sha256` placeholder; and the test suite is no
+  longer packaged into the built wheel/sdist (developers and the conda recipe
+  build from the source archive).
+- **CI is green and bounded.** Fixed the 12 outstanding `ruff` findings so the
+  lint job passes; added `pytest-timeout` with a 300 s per-test watchdog so one
+  hung test can no longer stall a CI job; and fixed the long-hanging
+  `test_export_includes_selected_fit_method` — it blocked forever on an
+  unmocked modal `QMessageBox` overwrite confirmation, now auto-accepted.
+- **New contract tests.** The full MCP surface (68 tools) and all 51 control
+  JSON schemas are now checked for structural validity and schema↔signature
+  parity (this would have caught the `use_slit_smeared` schema gap); new
+  behaviour tests cover control-API path confinement, `output_path`
+  completeness, and slit-smearing provenance on save; and the slit-smearing
+  input validation is covered by unit tests.
+- **Docs / repo hygiene.** `docs/distribution.md` no longer tells maintainers to
+  edit a version string in `pyirena/__init__.py` (the version is single-sourced
+  from `pyproject.toml`); `publish.yml` now verifies the release tag equals the
+  `pyproject.toml` version before publishing to PyPI; and the tracked
+  `scratch_sizes_diagnosis/` development directory (already gitignored) was
+  removed from version control.
+
+## [1.1.0b1] - 2026-07-22
+
+### Added
+
+- **Slit smearing across all fitting tools (USAXS/Matilda).** pyIrena can fit
+  slit-smeared USAXS data directly by smearing the **model** to match the data
+  (Lake infinite-slit, `I_sm(q)=(1/SL)∫₀^SL I(√(q²+l²))dl`) — the data are never
+  modified and fitted parameters are always ideal-space (pinhole-equivalent).
+  Core engine `pyirena/core/smearing.py` (`SlitSmearer`, `smear_model`,
+  `smear_curve`, a fixed sparse operator `W` so a fit loop costs one matvec per
+  iteration). Slit-smeared data are detected from NXcanSAS (`Q@resolutions`
+  containing `dQl` + a scalar `dQl`); files with both a desmeared and a
+  slit-smeared copy (Matilda) show a **"Slit smeared data"** checkbox to select
+  which to load. Wired through **Unified Fit** (all levels + background + local
+  Guinier/Porod cursor fits + "Show selected level" overlay; invariant computed
+  from the ideal model), **Size Distribution** (G matrix smeared once, recovered
+  distribution is ideal-space), **Simple Fits** (each analytic model smeared;
+  Invariant disabled on smeared data with a message), and **Modeling** (total +
+  per-population curves smeared). **Fractals** smears its comparison overlay.
+  GUI control shared via `pyirena/gui/slit_smearing_ui.py::SlitSmearingMixin`
+  (used by every fitting panel, incl. Unified Fit). Scripting/MCP contract:
+  `load_slit_smeared: true` (+ optional `slit_length`) in a tool's JSON block,
+  enforced with a hard error on files lacking `dQl`. Saved results record
+  `slit_length` / `data_is_slit_smeared` and an ideal (`*_ideal`) model curve
+  alongside the smeared one. See `docs/slit_smearing.md`.
+- **Data Explorer — "Show all attributes" checkbox.** The HDF5 tree browser
+  previously only surfaced a curated set of attributes (`NX_class`, `units`,
+  `analysis_type`, ...), silently hiding others such as `data_is_slit_smeared`
+  / `slit_length` on `unified_fit_results`. A new checkbox above the tree
+  toggles between the curated set and every attribute on a node; internal
+  bookkeeping (`_pyirena_config` and any other `_`-prefixed attribute) stays
+  hidden either way. Toggling preserves the tree's current expand state.
+- **Data Merge — slit-smearing provenance.** Merging a slit-smeared USAXS curve
+  with a pinhole SAXS curve produces a slit-smeared output: the merged file
+  gets a `dQl` dataset (so downstream tools auto-detect it) and the merge
+  provenance records `slit_length_ds1/ds2` and `slit_length_merged`. Two inputs
+  with different nonzero slit lengths warn (the larger is kept). Optimization is
+  unchanged — the slit length sits at/below the SAXS Qmin, negligible in the
+  overlap.
+
+### Changed
+
+- **Data Manipulation — slit-smearing safety.** Subtract/divide refuse to mix a
+  slit-smeared curve with a pinhole one (or two different slit lengths); the
+  check now lives in the core engine (`DataManipulation.check_slit_compatible`),
+  so batch scripting inherits it. Manipulation/merge outputs drop any stale
+  `_SMR` twin entry copied from the source and clear an orphaned `dQl`, so a
+  later slit-smeared load can't return an inconsistent curve.
+- **Create Report** notes when a tool's saved results used slit smearing
+  (Unified/Sizes/Simple/Modeling), reading `slit_length` from the HDF5 file.
+
+### Fixed
+
+- **Clear error for non-scattering / empty data files, instead of a different
+  cryptic crash per tool.** A file whose Q/Intensity arrays are empty (sample
+  didn't scatter, aborted measurement, corrupted file) used to load
+  "successfully" and then crash deep inside each tool with an unrelated numpy
+  error (`len() of unsized object`, `too many indices for array: array is
+  0-dimensional`, mismatched broadcast shapes, ...). `readGenericNXcanSAS` /
+  `readSimpleHDF5` (`pyirena/io/hdf5.py`) now raise a single
+  `NoScatteringDataError` right at load time with a message that says what's
+  actually wrong, shown identically by every tool (Unified Fit, Size
+  Distribution, Modeling, Simple Fits, SAXS Morph, Data Selector "Create
+  Graph"). The batch API (`_load_data` and all `fit_*` functions) already
+  catches load errors per file and returns `None`, so unattended/scripted
+  batch runs now skip a bad file with one clear log line instead of risking a
+  crash — verified across `fit_simple`, `fit_sizes`, and the Data Selector's
+  batch-script worker. "Create Graph" now also reports which files were
+  skipped and why instead of silently plotting nothing for them.
+- **Simple Fits — displayed model is now slit smeared.** "Graph model" and
+  auto-graph previously drew the ideal (sharp) curve even with smearing on, so
+  Sphere/Spheroid/Teubner-Strey oscillations looked unsmeared; `compute()` now
+  smears, matching the fit. Guinier/Porod linearization is labelled best-effort
+  (ideal-space) for smeared data (no closed-form linearization exists).
+- **Background prefits are ideal-space under smearing** (Size Distribution and
+  Simple Fits): the prefit power-law/flat is now smeared before comparison, so
+  the returned B/P/flat are not double-smeared by the main fit.
+- **Modeling** saves the ideal (pinhole) model curve (`model_I_ideal`) alongside
+  the smeared one, and no longer reuses a wrong-length cached G matrix when
+  producing that ideal curve.
+- **Fractals** no longer silently shows an unsmeared overlay when smearing the
+  comparison curve fails — it logs and flags the discrepancy.
+- **Unified Fit — large slit-smeared fit slowdown fixed (~50× on affected
+  fits).** ETA/PACK are now only free fit parameters when a level's
+  *correlations* are enabled. With correlations off they have no effect on the
+  model, so fitting them made the least-squares problem rank-deficient and the
+  solver thrashed for thousands of no-op iterations — cheap for pinhole data but
+  badly amplified by slit smearing (each iteration evaluates the model on the
+  extended grid). A real 2-level USAXS fit dropped from ~2.5 s to ~0.05 s with
+  identical χ² and parameters. Also speeds up pinhole fits and fixes a latent
+  correctness issue (fitting parameters that cannot change the fit).
+- **Size Distribution — power-law/complex background now displayed and
+  subtracted slit-smeared.** The background preview drew and subtracted the
+  *ideal* (pinhole) background on slit-smeared data, so the curve sat below the
+  data and looked unfitted and `I−bg` was wrong; it now smears the background
+  for both display and subtraction, matching the fit.
+- **Size Distribution / Modeling panels — layout no longer forced too wide.**
+  The shared "Slit smeared data" control row is now compact (short labels;
+  status text on its own wrapped line), so it no longer stretches narrow control
+  panels and hides widgets. The Size Distribution control panel is now
+  user-widenable via the splitter (420 px minimum instead of a hard-fixed
+  width).
+- **Size Distribution — fitted model + background now displayed slit-smeared.**
+  The fit was correct, but the result plot added the *ideal* (pinhole)
+  background to the (smeared) model scattering and drew the ideal "Complex bg"
+  curve, so the red model+background curve visibly misfit the smeared data. All
+  three display paths (fit result, "Graph model", background preview) now show
+  the smeared background — and the "Graph model" preview smears the scattering
+  too — matching the data.
+- **Data Merge — select the slit-smeared copy.** When a merge input file carries
+  both a desmeared and a slit-smeared (USAXS) copy, a **"Use slit-smeared copy"**
+  checkbox appears under that dataset's file list; checking it reloads the
+  slit-smeared data so the merged output is written slit smeared (`dQl`).
+  Previously only the desmeared `@default` entry could be loaded, so the
+  provenance plumbing added earlier had no way to be triggered from the GUI.
+
 ## [1.0.1] - 2026-07-15
 
 ### Added

@@ -6,7 +6,7 @@ the fit then starts from parameters perturbed by 10% and must reproduce
 the curve. For the models without parameter degeneracies the fitted
 parameters themselves must return to the defaults.
 
-Treubner-Strey, Benedetti-Ciccariello and Hybrid Hermans have (near-)
+Teubner-Strey, Benedetti-Ciccariello and Hybrid Hermans have (near-)
 degenerate parameter sets — different parameter values can produce the
 same curve — so for those only curve reproduction is required.
 """
@@ -24,7 +24,7 @@ IDENTIFIABLE = [
     "Debye Polymer Chain", "Sphere", "Spheroid", "Debye-Bueche",
     "Hermans", "Unified Born Green",
 ]
-DEGENERATE = ["Treubner-Strey", "Benedetti-Ciccariello", "Hybrid Hermans"]
+DEGENERATE = ["Teubner-Strey", "Benedetti-Ciccariello", "Hybrid Hermans"]
 
 # Calculation models: no least-squares step, no model intensity curve.
 # Tested separately in test_invariant.py.
@@ -102,3 +102,24 @@ class TestSerialization:
         assert m2.model == name
         assert m2.params == m.params
         np.testing.assert_allclose(m2.compute(Q), m.compute(Q))
+
+
+class TestLegacyModelNameAlias:
+    """'Teubner-Strey' was misspelled 'Treubner-Strey' through 1.1.0b1.
+
+    Saved GUI state, exported h5xp waves, and NXcanSAS result files written
+    by those versions persist the old spelling as a plain string, so both
+    entry points that turn an arbitrary string into a model selection must
+    keep accepting it.
+    """
+
+    def test_set_model_accepts_legacy_spelling(self):
+        m = SimpleFitModel()
+        m.set_model("Treubner-Strey")
+        assert m.model == "Teubner-Strey"
+        assert set(m.params) == {name for name, *_ in
+                                  MODEL_REGISTRY["Teubner-Strey"]["params"]}
+
+    def test_from_dict_accepts_legacy_spelling(self):
+        m2 = SimpleFitModel.from_dict({"model": "Treubner-Strey"})
+        assert m2.model == "Teubner-Strey"

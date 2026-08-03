@@ -30,6 +30,13 @@ is no need to write configuration code by hand.
 
 ## Quick start
 
+**Note on text-file Q units:** `.dat`/`.txt` inputs are assumed to be in 1/Å
+unless the Data Selector's *Configure → Text File Options → Q unit in text
+files* setting says otherwise — every batch function converts Q (and dQ) to
+1/Å per that same setting before fitting, so a script and the GUI behave
+identically for the same file. See
+[Q units](data_import_and_cleaning.md#q-units) for details.
+
 ```python
 from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_modeling, fit_saxs_morph, fit_pyirena
 
@@ -334,7 +341,7 @@ result = fit_simple("sample.h5",
 | `Sphere` | Scale, R |
 | `Spheroid` | Scale, R, Beta |
 | `Debye-Bueche` | Prefactor, Eta, CorrLength |
-| `Treubner-Strey` | Prefactor, A, C1, C2 |
+| `Teubner-Strey` | Prefactor, A, C1, C2 |
 | `Benedetti-Ciccariello` | SolidSLD, VoidSLD, LayerSLD, Sp, t |
 | `Hermans` | B, s, d1, d2, sigma1, sigma2 |
 | `Hybrid Hermans` | Hermans params + G2, Rg2, G3, Rg3, B3, P3 |

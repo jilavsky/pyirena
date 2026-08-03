@@ -40,11 +40,11 @@ from pyirena.gui.sas_plot import (
 # Constants
 # ---------------------------------------------------------------------------
 
-_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt)"]
+_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt/.csv)"]
 _FILE_TYPE_EXTS = {
-    "HDF5 Nexus":       ('.h5', '.hdf5', '.hdf'),
-    "HDF5 Generic":     ('.h5', '.hdf5', '.hdf'),
-    "Text (.dat/.txt)": ('.dat', '.txt'),
+    "HDF5 Nexus":            ('.h5', '.hdf5', '.hdf'),
+    "HDF5 Generic":          ('.h5', '.hdf5', '.hdf'),
+    "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
 }
 
 # Sort helpers — same as hdf5viewer/file_tree.py
@@ -1104,8 +1104,9 @@ class DataManipulationPanel(QWidget):
         fp = Path(filepath)
         file_type = self._fb.get_file_type()
         try:
-            if file_type == "Text (.dat/.txt)":
-                data = readTextFile(str(fp.parent), fp.name)
+            if file_type == "Text (.dat/.txt/.csv)":
+                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
+                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),
@@ -1123,6 +1124,10 @@ class DataManipulationPanel(QWidget):
                 data = readGenericNXcanSAS(str(fp.parent), fp.name)
                 data['is_nxcansas'] = True
             data['filepath'] = filepath
+            # Slit-smearing provenance drives the compatibility guard and the
+            # output's dQl; text / generic-HDF5 files default to pinhole.
+            data.setdefault('slit_length', 0.0)
+            data.setdefault('is_slit_smeared', False)
             return data
         except Exception as exc:
             QMessageBox.warning(self, "Load Error", f"Could not read {fp.name}:\n{exc}")
@@ -1853,7 +1858,7 @@ class DataManipulationPanel(QWidget):
         start = self._fb.current_folder or str(Path.home())
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Reference Q Grid", start,
-            "HDF5/Text (*.h5 *.hdf5 *.hdf *.dat *.txt);;All files (*)",
+            "HDF5/Text (*.h5 *.hdf5 *.hdf *.dat *.txt *.csv);;All files (*)",
         )
         if not path:
             return
@@ -1871,8 +1876,9 @@ class DataManipulationPanel(QWidget):
         fp = Path(filepath)
         ext = fp.suffix.lower()
         try:
-            if ext in ('.dat', '.txt'):
-                data = readTextFile(str(fp.parent), fp.name)
+            if ext in ('.dat', '.txt', '.csv'):
+                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
+                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),
@@ -1942,6 +1948,13 @@ class DataManipulationPanel(QWidget):
         data = self._get_or_load(source_filename)
         is_nxcansas = data.get('is_nxcansas', False) if data else False
 
+        # Slit length for the output: subtract/divide record it in the result
+        # metadata (operands guaranteed to match); scale/trim/rebin preserve the
+        # source's smearing, so fall back to the source data value.
+        slit_length_out = float(
+            result.metadata.get('slit_length',
+                                 (data.get('slit_length', 0.0) if data else 0.0)) or 0.0)
+
         try:
             out_path = save_manipulated_data(
                 output_folder=Path(self._out_folder),
@@ -1953,6 +1966,7 @@ class DataManipulationPanel(QWidget):
                 dQ=result.dQ,
                 operation=result.operation,
                 provenance=result.metadata,
+                slit_length=slit_length_out,
             )
             self._status.setText(f"Saved: {out_path.name}")
             return out_path
@@ -2028,6 +2042,19 @@ class DataManipulationPanel(QWidget):
             msg += f", {errors} error(s)"
         self._status.setText(msg)
 
+    def _slit_compatible(self, a: dict, b: dict, op: str) -> bool:
+        """Guard: subtract/divide of two curves is only valid when both have the
+        same slit-smearing status (and matching slit length).  Delegates to the
+        core :meth:`DataManipulation.check_slit_compatible` (the single source of
+        truth, also enforced in the engine and batch) and shows its message."""
+        ok, msg = DataManipulation.check_slit_compatible(
+            bool(a.get('is_slit_smeared', False)), float(a.get('slit_length', 0.0) or 0.0),
+            bool(b.get('is_slit_smeared', False)), float(b.get('slit_length', 0.0) or 0.0),
+            op=op)
+        if not ok:
+            self._status.setText(msg)
+        return ok
+
     def _run_operation(self, tab: int, filename: str) -> Optional[ManipResult]:
         """Run the current tab's operation on a single file."""
         data = self._get_or_load(filename)
@@ -2070,6 +2097,8 @@ class DataManipulationPanel(QWidget):
                 buf_data = self._get_or_load(self._buffer_file)
                 if buf_data is None:
                     return None
+                if not self._slit_compatible(data, buf_data, "subtract"):
+                    return None
                 scale = float(self._sub_scale_edit.text() or "1")
                 auto = self._sub_auto_chk.isChecked()
                 auto_qmin = auto_qmax = None
@@ -2081,10 +2110,16 @@ class DataManipulationPanel(QWidget):
                     buf_data['Q'], buf_data['Intensity'],
                     buf_data.get('Error', buf_data['Intensity'] * 0.05),
                     SubtractConfig(scale, auto, auto_qmin, auto_qmax),
+                    is_slit_smeared_sample=bool(data.get('is_slit_smeared', False)),
+                    slit_length_sample=float(data.get('slit_length', 0.0) or 0.0),
+                    is_slit_smeared_buffer=bool(buf_data.get('is_slit_smeared', False)),
+                    slit_length_buffer=float(buf_data.get('slit_length', 0.0) or 0.0),
                 )
             elif tab == _TAB_DIVIDE:
                 den_data = self._get_or_load(self._denominator_file)
                 if den_data is None:
+                    return None
+                if not self._slit_compatible(data, den_data, "divide"):
                     return None
                 s = float(self._div_scale_edit.text() or "1")
                 bg = float(self._div_bg_edit.text() or "0")
@@ -2093,6 +2128,10 @@ class DataManipulationPanel(QWidget):
                     den_data['Q'], den_data['Intensity'],
                     den_data.get('Error', den_data['Intensity'] * 0.05),
                     DivideConfig(s, bg),
+                    is_slit_smeared_num=bool(data.get('is_slit_smeared', False)),
+                    slit_length_num=float(data.get('slit_length', 0.0) or 0.0),
+                    is_slit_smeared_den=bool(den_data.get('is_slit_smeared', False)),
+                    slit_length_den=float(den_data.get('slit_length', 0.0) or 0.0),
                 )
         except Exception as exc:
             self._status.setText(f"Error processing {filename}: {exc}")

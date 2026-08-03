@@ -38,7 +38,8 @@ from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices
 from pyirena.gui.data_selector.report import _build_report
 from pyirena.gui.data_selector.results_windows import GraphWindow, SimpleFitResultsWindow, SizeDistResultsWindow, TabulateResultsWindow, UnifiedFitResultsWindow, WAXSPeakFitResultsWindow
 from pyirena.gui.data_selector.sorting import _SORT_KEYS
-from pyirena.gui.data_selector.workers import BatchWorker
+from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
+from pyirena.version_check import is_newer, should_check_now
 
 
 class DataSelectorPanel(QWidget):
@@ -50,7 +51,7 @@ class DataSelectorPanel(QWidget):
 
     # File extensions for different data types
     HDF5_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
-    TEXT_EXTENSIONS = ['.txt', '.dat']
+    TEXT_EXTENSIONS = ['.txt', '.dat', '.csv']
 
     def __init__(self):
         super().__init__()
@@ -93,6 +94,57 @@ class DataSelectorPanel(QWidget):
         self.sort_combo.setCurrentIndex(saved_sort)
         self.sort_combo.blockSignals(False)
         self.sort_file_list()   # apply restored sort order to the initial file list
+
+        self._update_check_worker = None
+        self._init_update_check()
+
+    def _init_update_check(self):
+        """Show a cached update notice immediately, then check GitHub if it's due."""
+        if not self.state_manager.get('data_selector', 'check_for_updates', True):
+            return
+
+        import pyirena
+        self._show_update_notice_if_newer(
+            self.state_manager.get('data_selector', 'latest_known_version', '') or '',
+            pyirena.__version__,
+        )
+
+        if should_check_now(self.state_manager):
+            self._update_check_worker = UpdateCheckWorker()
+            self._update_check_worker.finished_check.connect(self._on_update_check_finished)
+            self._update_check_worker.start()
+
+    def _show_update_notice_if_newer(self, latest: str, current: str):
+        if latest and is_newer(latest, current):
+            self.update_notice_label.setText(
+                f'<a href="https://github.com/jilavsky/pyirena/releases">'
+                f'pyIrena {latest} is available</a> — you have {current}.'
+            )
+            self.update_notice_label.setVisible(True)
+
+    def _on_update_check_finished(self, tag: str):
+        """Slot for UpdateCheckWorker.finished_check — runs on the main thread."""
+        from datetime import datetime
+        import pyirena
+
+        self.state_manager.set('data_selector', 'last_update_check', datetime.now().isoformat())
+        if tag:
+            self.state_manager.set('data_selector', 'latest_known_version', tag)
+        self.state_manager.save()
+
+        if tag:
+            self._show_update_notice_if_newer(tag, pyirena.__version__)
+
+    def closeEvent(self, event):
+        """Give the background update-check thread a bounded moment to finish first.
+
+        Destroying a running QThread aborts the process, so if the panel is closed
+        while the (network-bounded, <=3s) check is still in flight, wait for it
+        rather than crash.
+        """
+        if self._update_check_worker is not None and self._update_check_worker.isRunning():
+            self._update_check_worker.wait(3500)
+        super().closeEvent(event)
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -147,6 +199,20 @@ class DataSelectorPanel(QWidget):
         title_row.addSpacing(5)
         content_layout.addLayout(title_row)
 
+        # Update notice — hidden unless a newer stable release is known (see
+        # pyirena.version_check); clicking the link opens the GitHub releases page.
+        self.update_notice_label = QLabel()
+        self.update_notice_label.setOpenExternalLinks(True)
+        self.update_notice_label.setStyleSheet("""
+            QLabel {
+                color: #1a6fb0;
+                font-size: 11px;
+                padding: 2px 4px;
+            }
+        """)
+        self.update_notice_label.setVisible(False)
+        content_layout.addWidget(self.update_notice_label)
+
         # Folder selection section
         folder_layout = QHBoxLayout()
         self.folder_button = QPushButton("Select Data Folder")
@@ -179,7 +245,7 @@ class DataSelectorPanel(QWidget):
 
         self.file_type_combo = QComboBox()
         self.file_type_combo.addItem("HDF5 Files (.hdf, .h5, .hdf5)", "hdf5")
-        self.file_type_combo.addItem("Text Files (.txt, .dat)", "text")
+        self.file_type_combo.addItem("Text Files (.txt, .dat, .csv)", "text")
         self.file_type_combo.addItem("All Supported Files", "all")
         self.file_type_combo.currentIndexChanged.connect(self.refresh_file_list)
         self.file_type_combo.setMaximumWidth(140)
@@ -1056,6 +1122,7 @@ class DataSelectorPanel(QWidget):
         ]
 
         error_fraction    = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        q_unit            = self.state_manager.get('data_selector', 'q_unit', '1/A')
         max_legend_items  = int(self.state_manager.get('data_selector', 'max_legend_items', 12))
         plotted = []
 
@@ -1067,6 +1134,7 @@ class DataSelectorPanel(QWidget):
                 self.graph_window.plot_data(
                     file_paths,
                     error_fraction=error_fraction,
+                    q_unit=q_unit,
                     max_legend_items=max_legend_items,
                 )
                 plotted.append("data")
@@ -1222,6 +1290,7 @@ class DataSelectorPanel(QWidget):
         ]
 
         error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
+        q_unit = self.state_manager.get('data_selector', 'q_unit', '1/A')
         saved, skipped = [], []
 
         for file_path in file_paths:
@@ -1240,9 +1309,9 @@ class DataSelectorPanel(QWidget):
             if show_data:
                 try:
                     dir_path, filename = os.path.split(file_path)
-                    if ext.lower() in ['.txt', '.dat']:
+                    if ext.lower() in ['.txt', '.dat', '.csv']:
                         h5_path = ensure_nxcansas_sibling(
-                            Path(file_path), error_fraction=error_fraction)
+                            Path(file_path), error_fraction=error_fraction, q_unit=q_unit)
                         raw = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                     else:
                         raw = readGenericNXcanSAS(dir_path, filename)
@@ -1868,6 +1937,7 @@ class DataSelectorPanel(QWidget):
         include_header = bool(sm.get('data_selector', 'ascii_include_header', True))
         include_models = bool(sm.get('data_selector', 'ascii_include_models', True))
         err_frac       = float(sm.get('data_selector', 'error_fraction', 0.05))
+        q_unit         = sm.get('data_selector', 'q_unit', '1/A')
 
         # Data checkbox gates the primary .dat file; model checkboxes gate
         # their respective model .dat files.
@@ -1901,9 +1971,9 @@ class DataSelectorPanel(QWidget):
 
         for fp in file_paths:
             # Auto-convert text files to NXcanSAS before ASCII export
-            if fp.suffix.lower() in ('.txt', '.dat'):
+            if fp.suffix.lower() in ('.txt', '.dat', '.csv'):
                 try:
-                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac)
+                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac, q_unit=q_unit)
                 except Exception as exc:
                     errors.append((fp.name, f'conversion failed: {exc}'))
                     continue
@@ -1965,7 +2035,8 @@ class DataSelectorPanel(QWidget):
     def _load_data_for_tool(self, file_path: str):
         """Thin wrapper — delegates to the shared function in data_loading."""
         error_fraction = self.state_manager.get('data_selector', 'error_fraction', 0.05)
-        return _load_data_file_fn(self, file_path, error_fraction=error_fraction)
+        q_unit = self.state_manager.get('data_selector', 'q_unit', '1/A')
+        return _load_data_file_fn(self, file_path, error_fraction=error_fraction, q_unit=q_unit)
 
     def launch_unified_fit(self):
         """Launch the Unified Fit model panel with selected data."""
@@ -1991,6 +2062,8 @@ class DataSelectorPanel(QWidget):
             self.unified_fit_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.unified_fit_window.show()
             self.unified_fit_window.raise_()
@@ -2026,6 +2099,8 @@ class DataSelectorPanel(QWidget):
             self.sizes_fit_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.sizes_fit_window.show()
             self.sizes_fit_window.raise_()
@@ -2062,6 +2137,8 @@ class DataSelectorPanel(QWidget):
             self.modeling_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.modeling_window.show()
             self.modeling_window.raise_()
@@ -2112,6 +2189,8 @@ class DataSelectorPanel(QWidget):
             self.simple_fits_window.set_data(
                 data['Q'], data['Intensity'], data.get('Error'),
                 display_name, filepath=hdf5_path, is_nxcansas=True,
+                slit_length=float(data.get('slit_length', 0.0) or 0.0),
+                is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
             self.simple_fits_window.show()
             self.simple_fits_window.raise_()

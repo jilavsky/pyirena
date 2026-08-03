@@ -74,3 +74,13 @@ class BatchWorker(QThread):
                 messages.append(f"✗ {fname}: {exc}")
 
         self.finished.emit(n_ok, n_fail, messages)
+
+
+class UpdateCheckWorker(QThread):
+    """Background thread that checks GitHub for the latest stable pyIrena release."""
+
+    finished_check = Signal(str)   # latest release tag, or "" on failure/no result
+
+    def run(self):
+        from pyirena.version_check import fetch_latest_release_tag
+        self.finished_check.emit(fetch_latest_release_tag() or "")

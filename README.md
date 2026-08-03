@@ -8,7 +8,7 @@ GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/US
 
 **Current release: v1.0.1**
 
-**Current beta release: v1.1.0b2**
+**Current beta release: v1.1.0b3**
 
 [![PyPI version](https://img.shields.io/pypi/v/pyirena.svg)](https://pypi.org/project/pyirena/)
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -30,17 +30,25 @@ pip install "pyirena[gui]"
 This installs pyirena with all GUI dependencies (PySide6, pyqtgraph, etc.). For the
 core library only (no GUI), use `pip install pyirena`.
 
-**Beta version from PyPI**
-To install a specific beta rather than whatever is newest:
+**Trying a pre-release (beta) version:**
+
+Beta releases (e.g. `1.1.0b3`) are published to PyPI ahead of a stable release
+for early testing. `pip` does not install pre-releases by default, so pass
+`--pre` explicitly:
 
 ```bash
 pip install --pre "pyirena[gui]"
 ```
-or: 
+
+To install a specific beta rather than whatever is newest:
 
 ```bash
-pip install "pyirena[gui]==1.1.0b2"
+pip install "pyirena[gui]==1.1.0b3"
 ```
+
+Pre-releases may contain incomplete or breaking changes — see
+[CHANGELOG.md](CHANGELOG.md) for what's new, and please report issues at
+https://github.com/jilavsky/pyirena/issues.
 
 **From source (for development):**
 
@@ -118,7 +126,7 @@ Four inversion methods: MaxEnt, Regularization, TNNLS, and Monte Carlo.
 
 ### Simple Fits
 13 direct analytical models: Guinier, Guinier-Porod, Porod, Sphere, Spheroid,
-Debye-Bueche, Treubner-Strey, Power Law, and more. Each with linearization plots
+Debye-Bueche, Teubner-Strey, Power Law, and more. Each with linearization plots
 and Monte Carlo uncertainty estimation.
 
 - [Simple Fits GUI guide](docs/simple_fits_gui.md)

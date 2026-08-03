@@ -25,6 +25,12 @@ SAXS / WAXS — pxp and h5xp (Igor-exported):
     ``R_Qvec``, ``R_Int``, ``R_Error``        (+ optional ``w_<folder>``
     as dQ if present in the same folder)
 
+All techniques — pxp and h5xp (Irena/Nika "Use QRS Names"):
+    ``Q_<folder>``, ``R_<folder>``, ``S_<folder>``  (+ optional ``dQ_<folder>``)
+    The uppercase Q/R/S prefix with the data-folder name as suffix is the
+    default layout Irena/Nika produces when data is imported with the
+    "Use QRS Names" option (R = intensity/"Result", S = error/"Sigma").
+
 Samples that contain none of the above (e.g. blanks holding only raw
 detector counts) are silently skipped — they appear as ``skipped`` in
 the per-file summary.
@@ -149,13 +155,19 @@ WAVE_PICKERS: dict[str, list[tuple[str, str, str, str | None]]] = {
     "USAXS": [
         # Desmeared primary: matches the chosen "DSM_* only" policy.
         ("DSM_Qvec", "DSM_Int", "DSM_Error", "DSM_dQ"),
+        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
+        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
     ],
     "SAXS": [
         # R_* is the unified Q/I/error triple emitted by the SAXS reduction.
         ("R_Qvec", "R_Int", "R_Error", None),
+        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
+        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
     ],
     "WAXS": [
         ("R_Qvec", "R_Int", "R_Error", None),
+        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
+        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
     ],
 }
 
@@ -184,6 +196,8 @@ WAVE_PICKERS_H5XP: dict[str, list[tuple[str, str, str, str | None]]] = {
     "USAXS": [
         # pyirena-produced h5xp (write_iq_data default)
         ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
+        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
         # pyirena-produced h5xp (older uppercase variant)
         ("Q", "R", "S", "dQ"),
         # Igor-exported h5xp: desmeared USAXS waves (same as pxp convention)
@@ -194,6 +208,8 @@ WAVE_PICKERS_H5XP: dict[str, list[tuple[str, str, str, str | None]]] = {
     "SAXS": [
         # pyirena-produced h5xp
         ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
+        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
         ("Q", "R", "S", "dQ"),
         # Igor-exported h5xp: reduced SAXS waves (same as pxp convention)
         ("R_Qvec", "R_Int", "R_Error", None),
@@ -201,6 +217,8 @@ WAVE_PICKERS_H5XP: dict[str, list[tuple[str, str, str, str | None]]] = {
     "WAXS": [
         # pyirena-produced h5xp
         ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
+        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
+        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
         ("Q", "R", "S", "dQ"),
         # Igor-exported h5xp: reduced WAXS waves (same as pxp convention)
         ("R_Qvec", "R_Int", "R_Error", None),

@@ -2,25 +2,30 @@
 
 pyIrena's native container format is **NXcanSAS HDF5** (`.h5`).  All fitting
 tools, result saving, and the Data Selector's result-viewer panels require
-HDF5.  Text files (`.dat`, `.txt`) are a common input format from many
+HDF5.  Text files (`.dat`, `.txt`, `.csv`) are a common input format from many
 instruments, but cannot store fit results.
 
 ## How it works
 
-When you select a `.dat` or `.txt` file in the Data Selector — whether to
-plot it, open it in a fitting tool, or export it to ASCII — pyIrena
-automatically:
+When you select a `.dat`, `.txt`, or `.csv` file in the Data Selector —
+whether to plot it, open it in a fitting tool, or export it to ASCII —
+pyIrena automatically:
 
-1. **Reads** the text file (Q, I, and optionally dI and dQ columns).
+1. **Reads** the text file (Q, I, and optionally dI and dQ columns). The
+   column delimiter (whitespace/tab or comma) is auto-detected from the
+   first data-bearing line, so `.csv` exports work whether or not they
+   include a header row. Q (and dQ) is converted to 1/Å using the configured
+   Q-unit assumption — see [Q units](#q-units) below.
 2. **Cleans** the data (see rules below).
 3. **Writes** a cleaned NXcanSAS HDF5 sibling file next to the original:
    `mydata.dat` → `mydata.h5`
 4. **Uses the sibling** for all subsequent operations.
 
 This happens silently on first use.  The sibling is **cached by modification
-time**: if it already exists and is newer than the text file, it is reused
-without re-reading the source.  Deleting `mydata.h5` or touching `mydata.dat`
-forces reconversion.
+time**: if it already exists, is newer than the text file, and was converted
+with the currently configured Q unit, it is reused without re-reading the
+source.  Deleting `mydata.h5`, touching `mydata.dat`, or changing the Q-unit
+setting forces reconversion.
 
 ## Cleaning rules
 
@@ -47,6 +52,35 @@ direct-beam channel).  They make log-Q axes undefined and must be excluded.
 The `error_fraction` default is **0.05** (5 % of intensity).  You can change
 it in *Data Selector → Configure → Text File Options → Generated uncertainty
 fraction*.
+
+## Q units
+
+Text files carry no unit metadata (unlike NXcanSAS HDF5, which always
+records Q's unit), so pyIrena has to assume one.  The default assumption is
+**1/Å** — pyIrena's native unit, used everywhere internally and in NXcanSAS
+output — meaning no conversion happens by default.
+
+If your text data comes from an instrument or facility that reports Q in a
+different unit (European instruments commonly use 1/nm), select the correct
+one in *Data Selector → Configure → Text File Options → Q unit in text
+files*.  Q (and dQ, which shares Q's units) is converted to 1/Å on import:
+
+| Selected unit | Conversion to 1/Å |
+|---------------|--------------------|
+| 1/Å (default) | ×1 (no change) |
+| 1/nm          | ×0.1 |
+| 1/pm          | ×100 |
+| 1/µm          | ×0.0001 |
+| 1/mm          | ×1e-7 |
+
+The assumed unit is recorded in the converted file's provenance (visible
+under `entry/notes/` and as the HDF5 attribute `pyirena_q_unit`), and
+changing the setting for a file you've already converted forces
+reconversion the next time it's used — you don't need to delete the
+cached `.h5` or touch the source file yourself.
+
+This setting has no effect on HDF5/NXcanSAS files — those always carry
+their own `units` attribute.
 
 ## Naming and collision guard
 
@@ -84,8 +118,10 @@ exactly as it does for native HDF5 data:
 
 ## Batch API
 
-`pyirena.batch` functions (`fit_sizes`, `fit_unified`, etc.) apply the same
-conversion automatically:
+`pyirena.batch` functions (`fit_sizes`, `fit_unified`, etc.), `fit_waxs_peaks`,
+and `pyirena.plotting.plot_saxs` all apply the same conversion automatically,
+including the configured Q-unit assumption (they read it from the same state
+file the Data Selector's Configure dialog writes to):
 
 ```python
 from pyirena.batch import fit_sizes
@@ -98,9 +134,11 @@ print(result['output_file'])   # → .../sample42.h5
 ## Data Merge and Data Manipulation
 
 These panels read text files directly (they are pre-processing tools that
-*produce* NXcanSAS output).  The same cleaning rules (Q ≤ 0 removed,
-I ≤ 0 removed, zero errors synthesized) are applied to their text input
-in-memory before any further processing.
+*produce* NXcanSAS output).  Their **Type** dropdown includes
+**Text (.dat/.txt/.csv)** alongside the HDF5 options.  The same cleaning
+rules (Q ≤ 0 removed, I ≤ 0 removed, zero errors synthesized) and the same
+configured Q-unit conversion are applied to their text input in-memory
+before any further processing.
 
 ## Low-level API
 
@@ -121,4 +159,7 @@ print(report)
 # Force reconversion even if a sibling already exists
 from pathlib import Path
 h5_path = ensure_nxcansas_sibling(Path("mydata.dat"), force=True)
+
+# Convert Q from 1/nm to 1/Å on import
+h5_path = ensure_nxcansas_sibling(Path("mydata.dat"), q_unit="1/nm")
 ```

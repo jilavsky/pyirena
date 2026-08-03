@@ -30,6 +30,11 @@ class Session:
     fit_q_min: Optional[float] = None
     fit_q_max: Optional[float] = None
 
+    # Slit smearing: is_slit_smeared reflects the loaded data; slit_length (1/Å)
+    # is applied to the model when a model is created for this session.
+    is_slit_smeared: bool = False
+    slit_length: float = 0.0
+
     # Last fit output
     last_fit_result: Optional[dict] = None
 
@@ -43,6 +48,8 @@ def create_session(
     intensity: np.ndarray,
     error: Optional[np.ndarray] = None,
     label: str = "",
+    is_slit_smeared: bool = False,
+    slit_length: float = 0.0,
 ) -> Session:
     sid = str(uuid.uuid4())[:8]
     session = Session(
@@ -52,6 +59,8 @@ def create_session(
         intensity=np.asarray(intensity, dtype=float),
         error=np.asarray(error, dtype=float) if error is not None else None,
         label=label,
+        is_slit_smeared=is_slit_smeared,
+        slit_length=slit_length,
     )
     _SESSIONS[sid] = session
     return session

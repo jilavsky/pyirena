@@ -46,6 +46,10 @@ class StateManager:
         "data_selector": {
             "last_folder": "",
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
+            "q_unit": "1/A",   # assumed Q unit in .dat/.txt/.csv files; converted to 1/A on import
+            "check_for_updates": True,   # weekly GitHub release check, see pyirena.version_check
+            "last_update_check": "",     # ISO timestamp of last check attempt (success or failure)
+            "latest_known_version": "",  # last version tag GitHub reported as latest stable
         },
         "hdf5_viewer": {
             "last_folder": "",
@@ -227,7 +231,15 @@ class StateManager:
             "display_local": False,
             "no_limits": False,
             "skip_fit_check": False,
-            "store_local": False
+            "store_local": False,
+            # Slit smearing (schema_version 2, added 2026-07-20).  Additive keys
+            # with safe "off" defaults, so old state files load as pinhole via
+            # _merge_state without an explicit migration.  use_slit_smearing is
+            # auto-enabled when slit-smeared data (dQl) are loaded; slit_length
+            # (1/Å) is file-derived but user-editable in the GUI.
+            "schema_version": 2,
+            "use_slit_smearing": False,
+            "slit_length": 0.0,
         },
         "waxs_peakfit": {
             "schema_version": 1,

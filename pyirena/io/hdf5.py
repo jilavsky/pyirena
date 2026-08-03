@@ -9,9 +9,27 @@ import six  #what is this for???
 import logging
 
 
-def readTextFile(path, filename, error_fraction=0.05):
+# Q-unit conversion for text-file import: multiply the raw Q (and dQ) column
+# by this factor to get 1/Å, pyIrena's native unit. Keys mirror the choices
+# in the Data Selector's Configure → "Text File Options" → "Q unit in text
+# files" setting.
+Q_UNIT_TO_ANGSTROM = {
+    '1/A':  1.0,      # native — no conversion
+    '1/nm': 0.1,       # 1 nm = 10 Å
+    '1/pm': 100.0,     # 1 pm = 0.01 Å
+    '1/um': 1e-4,      # 1 µm = 1e4 Å
+    '1/mm': 1e-7,      # 1 mm = 1e7 Å
+}
+
+
+def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
     """
-    Read text data files (.dat, .txt) with Q, Intensity, and optional Error columns.
+    Read text data files (.dat, .txt, .csv) with Q, Intensity, and optional
+    Error columns.
+
+    The column delimiter (whitespace or comma) is auto-detected from the
+    first non-empty, non-comment line, so comma-separated (.csv) files are
+    handled the same way as whitespace-separated (.dat/.txt) files.
 
     Files with only 2 columns (Q and I) are accepted. In that case the uncertainty
     is generated as  Error = Intensity * error_fraction  so that downstream tools
@@ -22,11 +40,22 @@ def readTextFile(path, filename, error_fraction=0.05):
         filename: File name
         error_fraction: Fraction of intensity used to generate uncertainty when no
                         error column is present in the file (default 0.05 = 5%).
+        q_unit: Unit of the Q (and dQ) column in the file. One of
+                ``Q_UNIT_TO_ANGSTROM``'s keys. Q is converted to 1/Å
+                (pyIrena's native unit) on read. Default '1/A' (no conversion).
 
     Returns:
         dict: Dictionary with 'Q', 'Intensity', 'Error', 'dQ' keys
               Returns None if file cannot be read
+
+    Raises:
+        ValueError: If q_unit is not a recognized unit key.
     """
+    if q_unit not in Q_UNIT_TO_ANGSTROM:
+        raise ValueError(
+            f"Unknown q_unit '{q_unit}'; must be one of {sorted(Q_UNIT_TO_ANGSTROM)}"
+        )
+
     filepath = os.path.join(path, filename)
 
     try:
@@ -34,6 +63,17 @@ def readTextFile(path, filename, error_fraction=0.05):
         # First, read all lines to find where numeric data starts
         with open(filepath, 'r') as f:
             lines = f.readlines()
+
+        # Detect the column delimiter from the first data-bearing line:
+        # a comma present outside of a comment means a comma-separated file.
+        delimiter = None   # None == whitespace, np.loadtxt's default
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if ',' in line:
+                delimiter = ','
+            break
 
         # Find the first line with numeric data
         skip_rows = 0
@@ -45,7 +85,7 @@ def readTextFile(path, filename, error_fraction=0.05):
                 continue
             # Try to parse first value as float
             try:
-                parts = line.split()
+                parts = line.split(delimiter)
                 float(parts[0])
                 # This is numeric data, start here
                 skip_rows = i
@@ -56,7 +96,7 @@ def readTextFile(path, filename, error_fraction=0.05):
                 continue
 
         # Now read data with proper skip_rows
-        data = np.loadtxt(filepath, comments='#', skiprows=skip_rows)
+        data = np.loadtxt(filepath, comments='#', skiprows=skip_rows, delimiter=delimiter)
 
         if data.ndim == 1:
             # Single row, reshape
@@ -69,6 +109,14 @@ def readTextFile(path, filename, error_fraction=0.05):
 
         Q = data[:, 0]
         I = data[:, 1]
+
+        # Convert Q (and dQ, which shares Q's units) to 1/Å if needed
+        q_scale = Q_UNIT_TO_ANGSTROM[q_unit]
+        if q_scale != 1.0:
+            Q = Q * q_scale
+            logging.info(
+                f"{filename}: Q converted from {q_unit} to 1/Å (×{q_scale:g})"
+            )
 
         # Check for error column; generate from intensity if absent
         if data.shape[1] >= 3:
@@ -84,6 +132,8 @@ def readTextFile(path, filename, error_fraction=0.05):
         dQ = None
         if data.shape[1] >= 4:
             dQ = data[:, 3]
+            if q_scale != 1.0:
+                dQ = dQ * q_scale
 
         logging.info(f"Successfully read text file {filename} with {len(Q)} data points")
         return {
@@ -96,6 +146,32 @@ def readTextFile(path, filename, error_fraction=0.05):
     except Exception as e:
         logging.error(f"Error reading text file {filename}: {e}")
         return None
+
+
+class NoScatteringDataError(ValueError):
+    """Raised when a loaded SAS file has no usable Q/Intensity data.
+
+    Covers both missing datasets and datasets that are present but empty or
+    0-dimensional — the signature of a sample that did not scatter, an
+    aborted measurement, or a corrupted file. A single exception type raised
+    at the point of loading lets every caller (GUI panels, the batch API)
+    show one clear message instead of each hitting a different downstream
+    numpy error (``len() of unsized object``, ``too many indices for
+    array``, mismatched broadcast shapes, ...).
+    """
+
+
+def _require_scattering_data(Q, Intensity, filename):
+    """Raise :class:`NoScatteringDataError` if Q/Intensity are empty or scalar."""
+    def _bad(arr):
+        return arr is None or np.ndim(arr) == 0 or np.size(arr) == 0
+
+    if _bad(Q) or _bad(Intensity):
+        raise NoScatteringDataError(
+            f"'{filename}' has no usable scattering data (Q/Intensity arrays "
+            "are empty). The sample likely did not scatter, the measurement "
+            "was aborted, or the file is corrupted. Skip this file."
+        )
 
 
 def readSimpleHDF5(path, filename):
@@ -138,6 +214,8 @@ def readSimpleHDF5(path, filename):
                             dQ = f[dq_path][()]
                             break
 
+                    _require_scattering_data(Q, I, filename)
+
                     logging.info(f"Successfully read simple HDF5 file {filename} using path {base}")
                     return {
                         'Intensity': I,
@@ -148,6 +226,8 @@ def readSimpleHDF5(path, filename):
 
             logging.warning(f"No recognizable data structure found in {filename}")
             return None
+    except NoScatteringDataError:
+        raise
     except Exception as e:
         logging.error(f"Error reading simple HDF5 file {filename}: {e}")
         return None
@@ -179,6 +259,30 @@ def _attr_first_str(value):
     if ',' in value:
         value = value.split(',')[0]
     return value.strip()
+
+
+def _attr_all_str(value):
+    """Normalise an HDF5 attribute to a list of tokens, splitting on commas.
+
+    Unlike :func:`_attr_first_str` (which returns only the first token), this
+    preserves every token — needed to detect the NXcanSAS slit-length
+    declaration ``Q@resolutions = 'dQw,dQl'``, where ``dQl`` is the second
+    token.
+    """
+    if value is None:
+        return []
+    if hasattr(value, 'ndim') and getattr(value, 'ndim', 0) >= 1:
+        tokens = [t for t in np.asarray(value).ravel().tolist()]
+    elif isinstance(value, (list, tuple)):
+        tokens = list(value)
+    else:
+        tokens = [value]
+    out = []
+    for tok in tokens:
+        if isinstance(tok, bytes):
+            tok = tok.decode('utf-8', errors='replace')
+        out.extend(part.strip() for part in str(tok).split(',') if part.strip())
+    return out
 
 
 def find_all_sasdata(hdf5_file):
@@ -279,16 +383,21 @@ def _filter_smr(datasets):
     return non_smr if non_smr else datasets
 
 
-def _ordered_sasdata(f):
-    """Selectable SAS curves, SMR entries excluded, with ``@default`` first.
+def _ordered_sasdata(f, include_smr=False):
+    """Selectable SAS curves with the ``@default`` dataset first.
 
-    So ``[0]`` is always the file's canonical desmeared dataset, while the
-    rest preserve file order for the dataset picker.  Slit-smeared copies
-    (``_SMR`` entries written by Matilda) are stripped here so that USAXS
-    files presenting two copies of the same data never trigger the picker or
-    the multi-dataset CLI warning.
+    So ``[0]`` is always the file's canonical dataset (the one NXcanSAS marks
+    ``@default`` — desmeared for Matilda USAXS files), while the rest preserve
+    file order for the dataset picker.
+
+    By default, slit-smeared copies (``_SMR`` entries written by Matilda) are
+    stripped so that USAXS files presenting two copies of the same data never
+    trigger the picker or the multi-dataset CLI warning.  Pass
+    ``include_smr=True`` (used by the GUI "Slit smeared data" option) to keep
+    them so the user can select the smeared curve.
     """
-    datasets = _filter_smr(_selectable_sasdata(f))
+    selectable = _selectable_sasdata(f)
+    datasets = selectable if include_smr else _filter_smr(selectable)
     default_path = _resolve_default_path(f)
     if default_path:
         for i, d in enumerate(datasets):
@@ -296,6 +405,28 @@ def _ordered_sasdata(f):
                 datasets.insert(0, datasets.pop(i))
                 break
     return datasets
+
+
+def _smr_sibling_path(f, default_path):
+    """Path to the ``_SMR`` slit-smeared sibling of a desmeared SASdata group.
+
+    Matilda writes the desmeared curve under ``entry/<name>/sasdata`` and its
+    slit-smeared twin under ``entry/<name>_SMR/sasdata``.  Given the desmeared
+    (``@default``) path, return the smeared sibling's path, or ``None`` when the
+    file has no slit-smeared entry.
+    """
+    if not default_path:
+        # No resolved default: fall back to any SMR dataset present.
+        smr = [d for d in _selectable_sasdata(f) if _is_smr(d)]
+        return smr[0]['path'] if smr else None
+    parts = default_path.rsplit('/', 1)
+    if len(parts) == 2:
+        entry, leaf = parts
+        candidate = f"{entry}_SMR/{leaf}"
+        if candidate in f:
+            return candidate
+    smr = [d for d in _selectable_sasdata(f) if _is_smr(d)]
+    return smr[0]['path'] if smr else None
 
 
 def _read_one_sasdata(f, data_path):
@@ -373,6 +504,25 @@ def _read_one_sasdata(f, data_path):
         dQ = dataset[()]
         dQ_attributes = dataset.attrs
 
+    # --- Slit-smearing metadata (NXcanSAS slit-length resolution) ------------
+    # Slit-smeared data declare Q@resolutions="dQw,dQl": the per-point width
+    # dQw becomes dQ (above), and the scalar dQl is the slit (half-)length that
+    # drives model smearing.  Presence of dQl -> the loaded curve IS slit
+    # smeared; absence -> pinhole (slit_length 0.0).  This transparent,
+    # attribute-driven detection matches how SasView decides to smear, so files
+    # from any NXcanSAS pipeline (not just Matilda's ``_SMR`` naming) work.
+    slit_length = 0.0
+    resolution_tokens = _attr_all_str(Q_attributes.get('resolutions'))
+    has_dql = 'dQl' in resolution_tokens or f"{data_path}/dQl" in f
+    if has_dql and f"{data_path}/dQl" in f:
+        try:
+            slit_length = float(np.asarray(f[f"{data_path}/dQl"][()]).ravel()[0])
+        except Exception:
+            slit_length = 0.0
+    is_slit_smeared = slit_length > 0
+
+    _require_scattering_data(Q, intensity, os.path.basename(getattr(f, 'filename', '') or data_path))
+
     return {
         'Intensity': intensity,
         'Q': Q,
@@ -388,25 +538,47 @@ def _read_one_sasdata(f, data_path):
         "blankname": blankname,
         "thickness": thickness,
         'label': label,
+        # Canonical slit-smearing fields carried end-to-end (see slit-smearing
+        # plan §3.2): slit_length in 1/Å (0.0 => pinhole), is_slit_smeared bool.
+        'slit_length': slit_length,
+        'is_slit_smeared': is_slit_smeared,
     }
 
 
-def list_nxcansas_datasets(path, filename):
+def list_nxcansas_datasets(path, filename, include_smr=False):
     """List every SAS data group in an NXcanSAS file (without loading arrays).
 
     Convenience wrapper around :func:`find_all_sasdata` that opens the file.
     Used by the GUI to offer a dataset picker and by the CLI to report how
     many datasets a multi-dataset file contains.
 
+    Parameters
+    ----------
+    include_smr : bool
+        When True, keep slit-smeared (``_SMR``) entries in the list so the GUI
+        can offer them for selection.  Default False (desmeared only).
+
     Returns a list of ``{'path', 'entry', 'name'}`` dicts (see
     :func:`find_all_sasdata`).
     """
     Filepath = os.path.join(path, filename)
     with h5py.File(Filepath, 'r') as f:
-        return _ordered_sasdata(f)
+        return _ordered_sasdata(f, include_smr=include_smr)
 
 
-def readGenericNXcanSAS(path, filename, data_path=None):
+def file_has_smr_entry(path, filename):
+    """True when the NXcanSAS file contains a slit-smeared (``_SMR``) dataset.
+
+    Lets the GUI decide whether to show the "Slit smeared data" checkbox for a
+    given file (only Matilda-style files carrying both a desmeared and a
+    slit-smeared copy need it).
+    """
+    Filepath = os.path.join(path, filename)
+    with h5py.File(Filepath, 'r') as f:
+        return any(_is_smr(d) for d in _selectable_sasdata(f))
+
+
+def readGenericNXcanSAS(path, filename, data_path=None, prefer_slit_smeared=False):
     """Read NXcanSAS data from a NeXus file.
 
     Only the minimum required to plot/analyse is needed: a Q/I(/Idev) triplet
@@ -439,6 +611,21 @@ def readGenericNXcanSAS(path, filename, data_path=None):
                 return _read_one_sasdata(f, data_path)
             logging.warning(f"Requested data path '{data_path}' not found in {filename}.")
             return None
+
+        # Slit-smeared preference: load the _SMR sibling of the @default
+        # dataset when one exists (used by the "Slit smeared data" option).
+        if prefer_slit_smeared:
+            default_path = _resolve_default_path(f)
+            if default_path is None:
+                ordered = _ordered_sasdata(f)
+                default_path = ordered[0]['path'] if ordered else None
+            smr_path = _smr_sibling_path(f, default_path)
+            if smr_path is not None:
+                return _read_one_sasdata(f, smr_path)
+            logging.info(
+                f"{filename}: prefer_slit_smeared=True but no slit-smeared "
+                "(_SMR) entry found; loading the default (desmeared) dataset."
+            )
 
         datasets = _ordered_sasdata(f)
         if not datasets:

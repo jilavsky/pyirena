@@ -172,6 +172,18 @@ class DataSelectorConfigDialog(QDialog):
     # ---------------------------------------------------------------------------
     FIELD_SPECS = [
         {
+            'group':   'General',
+            'key':     'check_for_updates',
+            'label':   'Check for new pyIrena releases on startup',
+            'tooltip': (
+                'Checks GitHub for a new stable pyIrena release, at most once a week.\n'
+                'Never blocks startup and fails silently if offline.\n'
+                'Default: on'
+            ),
+            'type':    'bool',
+            'default': True,
+        },
+        {
             'group':    'Text File Options',
             'key':      'error_fraction',
             'label':    'Generated uncertainty fraction',
@@ -185,6 +197,27 @@ class DataSelectorConfigDialog(QDialog):
             'min':      0.0,
             'max':      100.0,
             'decimals': 4,
+        },
+        {
+            'group':   'Text File Options',
+            'key':     'q_unit',
+            'label':   'Q unit in text files',
+            'tooltip': (
+                'pyIrena stores and displays Q in 1/Å (inverse Angstrom).\n'
+                'If your .dat/.txt/.csv files report Q in a different unit\n'
+                '(e.g. European instruments often use 1/nm), select it here\n'
+                'and Q (and dQ) will be converted to 1/Å automatically on import.\n'
+                'Does not affect HDF5/NXcanSAS files, which carry their own units.'
+            ),
+            'type':    'choice',
+            'choices': [
+                ('1/Å (Angstrom⁻¹) — default', '1/A'),
+                ('1/nm (nanometer⁻¹)',          '1/nm'),
+                ('1/pm (picometer⁻¹)',          '1/pm'),
+                ('1/µm (micron⁻¹)',             '1/um'),
+                ('1/mm (millimeter⁻¹)',         '1/mm'),
+            ],
+            'default': '1/A',
         },
         {
             'group':   'Graph Options',
@@ -288,17 +321,6 @@ class DataSelectorConfigDialog(QDialog):
         # -----------------------------------------------------------------------
         # Future settings — just append a dict here, no other code changes needed
         # -----------------------------------------------------------------------
-        # {
-        #     'group':   'Text File Options',
-        #     'key':     'q_units_scale',
-        #     'label':   'Q unit scale factor',
-        #     'tooltip': 'Multiply Q by this factor on load (1.0 = no change)',
-        #     'type':    'float',
-        #     'default': 1.0,
-        #     'min':     0.0,
-        #     'max':     1000.0,
-        #     'decimals': 6,
-        # },
         # {
         #     'group':   'Display',
         #     'key':     'plot_color',

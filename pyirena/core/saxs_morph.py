@@ -874,12 +874,18 @@ def derive_phi_from_invariant(
 def fit_power_law_bg(
     q: np.ndarray, I: np.ndarray,
     q_min: float, q_max: float,
+    slit_length: float = 0.0,
 ) -> tuple[float, float]:
     """Linear least-squares fit of log10(I) = log10(B) - P * log10(Q) over [q_min, q_max].
 
     Returns (B, P) where I_pl(Q) = B * Q**(-P).  Suitable for a low-Q
     window where the data is dominated by a power-law tail (e.g. Porod's
     Q^-4 in a sharp-interface system).
+
+    When ``slit_length > 0`` the data are slit smeared, so the ideal power-law
+    is smeared before comparison (a non-linear fit); the returned (B, P) are
+    then ideal-space and consistent with a downstream fit that also smears the
+    background — avoiding double-smearing.
 
     Falls back to (0.0, 4.0) if the window contains fewer than 2 valid
     (positive Q, positive I) points.
@@ -889,8 +895,28 @@ def fit_power_law_bg(
     mask = (q >= q_min) & (q <= q_max) & (q > 0) & (I > 0)
     if mask.sum() < 2:
         return 0.0, 4.0
-    lq = np.log10(q[mask])
-    lI = np.log10(I[mask])
+    q_w, I_w = q[mask], I[mask]
+
+    if slit_length and slit_length > 0:
+        from scipy.optimize import curve_fit as _curve_fit
+        from pyirena.core.smearing import SlitSmearer
+        sm = SlitSmearer(q_w, slit_length)
+        # Ideal-space seed from the log-log line, then refine with smearing.
+        lq, lI = np.log10(q_w), np.log10(I_w)
+        slope, intercept = np.polyfit(lq, lI, 1)
+        P0, B0 = float(-slope), float(10.0 ** intercept)
+
+        def _model(_qq, B, P):
+            return sm.smear_model(lambda x: B * np.power(x, -P))
+        try:
+            popt, _ = _curve_fit(_model, q_w, I_w, p0=[max(B0, 1e-30), P0],
+                                 bounds=([0.0, 0.1], [np.inf, 12.0]), maxfev=10000)
+            return float(popt[0]), float(popt[1])
+        except Exception:
+            return B0, P0
+
+    lq = np.log10(q_w)
+    lI = np.log10(I_w)
     # lI = log10(B) - P * lq    →    polyfit returns [slope, intercept]
     slope, intercept = np.polyfit(lq, lI, 1)
     P = float(-slope)
@@ -902,6 +928,7 @@ def fit_flat_bg(
     q: np.ndarray, I: np.ndarray,
     q_min: float, q_max: float,
     power_law_B: float = 0.0, power_law_P: float = 4.0,
+    slit_length: float = 0.0,
 ) -> float:
     """Estimate flat background as the median of (I - power_law) over [q_min, q_max].
 
@@ -910,6 +937,10 @@ def fit_flat_bg(
 
     Median is preferred over mean because high-Q data points often have a
     long-tailed noise distribution.
+
+    When ``slit_length > 0`` the subtracted power-law is smeared first so the
+    flat estimate is consistent with a smeared background (the flat term itself
+    is invariant under slit smearing).
     """
     q = np.asarray(q, dtype=float)
     I = np.asarray(I, dtype=float)
@@ -918,13 +949,20 @@ def fit_flat_bg(
         return 0.0
     q_w = q[mask]
     I_w = I[mask]
-    pl = power_law_B * np.maximum(q_w, 1e-30) ** -power_law_P
+    if slit_length and slit_length > 0 and power_law_B != 0.0:
+        from pyirena.core.smearing import SlitSmearer
+        sm = SlitSmearer(q_w, slit_length)
+        pl = sm.smear_model(
+            lambda x: power_law_B * np.maximum(x, 1e-30) ** -power_law_P)
+    else:
+        pl = power_law_B * np.maximum(q_w, 1e-30) ** -power_law_P
     return float(np.median(I_w - pl))
 
 
 def fit_power_law_bg_fixed_p(
     q: np.ndarray, I: np.ndarray,
     q_min: float, q_max: float, P: float,
+    slit_length: float = 0.0,
 ) -> float:
     """Estimate the power-law prefactor B for a **fixed** exponent P.
 
@@ -934,6 +972,10 @@ def fit_power_law_bg_fixed_p(
     a low-count Porod tail.  Companion to :func:`fit_power_law_bg` (which fits
     both B and P); use this when the P "Fit?" checkbox is unchecked.
 
+    When ``slit_length > 0`` the estimate is ideal-space: because smearing is
+    linear, ``smear(B·q⁻ᴾ) = B·smear(q⁻ᴾ)``, so B is the median of
+    ``I / smear(q⁻ᴾ)`` — consistent with a downstream smeared background.
+
     Falls back to ``0.0`` if the window contains fewer than 1 valid
     (positive Q, positive I) point.
     """
@@ -942,7 +984,16 @@ def fit_power_law_bg_fixed_p(
     mask = (q >= q_min) & (q <= q_max) & (q > 0) & (I > 0)
     if not np.any(mask):
         return 0.0
-    return float(np.median(I[mask] * q[mask] ** P))
+    q_w, I_w = q[mask], I[mask]
+    if slit_length and slit_length > 0:
+        from pyirena.core.smearing import SlitSmearer
+        sm = SlitSmearer(q_w, slit_length)
+        basis = sm.smear_model(lambda x: np.power(x, -P))   # smear(q^-P)
+        good = basis > 0
+        if not np.any(good):
+            return 0.0
+        return float(np.median(I_w[good] / basis[good]))
+    return float(np.median(I_w * q_w ** P))
 
 
 # ---------------------------------------------------------------------------

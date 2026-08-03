@@ -55,10 +55,18 @@ from pyirena.batch import (
 from pyirena.io.results import load_result, SUPPORTED_ANALYSES
 from pyirena.logging_setup import setup_logging, get_log_dir
 
-try:
-    from pyirena.plotting.plot_saxs import plot_saxs
-except ImportError:
-    pass  # matplotlib not installed
+def __getattr__(name):
+    """Lazily expose optional plotting helpers (PEP 562).
+
+    Importing ``pyirena`` must not drag in matplotlib: ``pyirena.plotting``
+    imports it eagerly, so a bare ``import pyirena`` used to pay the (~0.2 s,
+    plus font-cache build on a cold start) matplotlib import cost even for
+    headless/core use. ``plot_saxs`` is now resolved only when first accessed.
+    """
+    if name == "plot_saxs":
+        from pyirena.plotting.plot_saxs import plot_saxs
+        return plot_saxs
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "UnifiedFitModel",

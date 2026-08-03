@@ -45,6 +45,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._paths import PathSecurityError, resolve_safe
 from pyirena.api.control.errors import make_error, no_session, no_fit
 from pyirena.api.control.session import get_session, fit_mask, Session
 
@@ -781,7 +782,32 @@ def save_sizes_fit(session_id: str, output_path: Optional[str] = None) -> dict:
 
     m = s.model
     res = s.last_fit_result
-    target = Path(output_path) if output_path else Path(s.file_path)
+
+    # Confine the write target to PYIRENA_DATA_ROOT (when set) for both an
+    # explicit output_path and the default in-place save.
+    try:
+        src = resolve_safe(s.file_path, must_exist=False)
+        target = resolve_safe(output_path, must_exist=False) if output_path else src
+    except PathSecurityError as exc:
+        return make_error(
+            str(exc),
+            suggestion="Save to a path inside PYIRENA_DATA_ROOT.",
+            code="PATH_NOT_ALLOWED",
+        )
+
+    # Saving to a *new* location must yield a complete, re-openable NXcanSAS
+    # file — not a results-only stub. Seed it from the source (reduced data +
+    # metadata, stale results stripped); the original is never modified.
+    if target != src and not target.exists():
+        from pyirena.io._nxcansas_common import copy_and_strip_results  # noqa: PLC0415
+        try:
+            copy_and_strip_results(src, target)
+        except Exception as exc:
+            return make_error(
+                f"Could not create output file '{target}' from source: {exc}",
+                suggestion="Check the source file exists and the target is writable.",
+                code="SAVE_ERROR",
+            )
 
     q_fit = np.asarray(res["q"], dtype=float)
     I_data = np.asarray(res["I_data"], dtype=float)
@@ -801,6 +827,11 @@ def save_sizes_fit(session_id: str, output_path: Optional[str] = None) -> dict:
         "rg": float(res.get("rg", float("nan"))),
         "peak_r": peak_r,
         "n_iterations": int(res.get("n_iterations", 0)),
+        # Slit-smearing provenance (parity with batch/GUI): recovered
+        # distribution is ideal-space; record the slit length used to smear the
+        # model and that the loaded data were slit-smeared.
+        "slit_length": float(m.slit_length) if m.use_slit_smearing else 0.0,
+        "data_is_slit_smeared": bool(m.use_slit_smearing),
         "method": m.method,
         "shape": m.shape,
         "contrast": m.contrast,
@@ -856,6 +887,7 @@ def save_sizes_fit(session_id: str, output_path: Optional[str] = None) -> dict:
             distribution_std=res.get("distribution_std"),
             fit_quality=fq_metrics,
             setup_state=_model_to_gui_state(s),
+            intensity_model_ideal=res.get("model_intensity_ideal"),
         )
     except Exception as exc:
         return make_error(

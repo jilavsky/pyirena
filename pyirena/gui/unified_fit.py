@@ -19,6 +19,7 @@ from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.sas_plot import (
     RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot, add_slope_line_menu,
 )
+from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state import StateManager
 
 # AI advisor — optional; buttons hidden if anthropic/keyring not installed
@@ -1896,9 +1897,19 @@ class LevelParametersWidget(QWidget):
             level = UnifiedLevel(Rg=rg, G=g, P=p, B=b)
             is_feasible = level.check_physical_feasibility()
 
+            # Soft slit-smearing note (E3): flag features washed out by the slit.
+            slit_note = ''
+            if getattr(self, 'model', None) is not None and getattr(
+                    self.model, 'use_slit_smearing', False):
+                slit_note = level.slit_smearing_note(
+                    float(getattr(self.model, 'slit_length', 0.0) or 0.0))
+
             # Update label text and color
             if is_feasible:
-                self.feasibility_label.setText("Level feasible")
+                self.feasibility_label.setText(
+                    "Level feasible  ⚠ slit-limited" if slit_note else "Level feasible")
+                if slit_note:
+                    self.feasibility_label.setToolTip(slit_note)
                 self.feasibility_label.setStyleSheet("""
                     QLabel {
                         background-color: #888888;
@@ -1939,9 +1950,15 @@ This will be merged into unified_fit_pyqtgraph.py
 """
 
 
-class UnifiedFitPanel(QWidget):
+class UnifiedFitPanel(SlitSmearingMixin, QWidget):
     """
     Main Unified Fit panel for pyIrena with state management.
+
+    Uses the shared :class:`SlitSmearingMixin` for the "Slit smeared data"
+    control row and its handlers; the panel supplies a ``_sync_smearing_to_model``
+    hook (pushed onto the held :class:`UnifiedFitModel`) and a
+    ``_reload_data_with_smearing`` implementation for the desmeared/smeared
+    dataset toggle.
     """
 
     def __init__(self, parent=None):
@@ -1950,6 +1967,15 @@ class UnifiedFitPanel(QWidget):
         self.data = None
         self.model = UnifiedFitModel()
         self.fit_result = None
+
+        # Slit-smearing UI state (see slit-smearing plan §5.1).
+        # _slit_length is the current file-derived (or user-edited) slit length;
+        # _has_smr_sibling => the file has both desmeared and slit-smeared
+        # copies, so the checkbox selects which one to load; _updating_slit_ui
+        # guards against reentrant reloads while the UI is being synced.
+        self._slit_length = 0.0
+        self._has_smr_sibling = False
+        self._updating_slit_ui = False
 
         # State management
         self.state_manager = StateManager()
@@ -2079,6 +2105,12 @@ class UnifiedFitPanel(QWidget):
         self.data_loader = DataFileLoaderRow(state_manager=self.state_manager)
         self.data_loader.data_loaded.connect(self._on_loader_data_loaded)
         layout.addWidget(self.data_loader)
+
+        # ── Slit smearing row (shared SlitSmearingMixin) ────────────────
+        # Builds the "Slit smeared data" checkbox + editable slit-length field
+        # + status label (hidden until data is loaded).  Handlers live in the
+        # mixin; this panel supplies _sync_smearing_to_model + _reload_data_with_smearing.
+        self._build_slit_row(layout)
 
         # ── Controls: levels, no limits, Identify Features ─────────────
         top_controls = QHBoxLayout()
@@ -2539,10 +2571,19 @@ class UnifiedFitPanel(QWidget):
             label=display_name,
             filepath=hdf5_path,
             is_nxcansas=True,
+            slit_length=float(data.get('slit_length', 0.0) or 0.0),
+            is_slit_smeared=bool(data.get('is_slit_smeared', False)),
         )
 
-    def set_data(self, q, intensity, error=None, label='Data', filepath=None, is_nxcansas=False):
-        """Set the data to be fitted."""
+    def set_data(self, q, intensity, error=None, label='Data', filepath=None,
+                 is_nxcansas=False, slit_length=0.0, is_slit_smeared=False):
+        """Set the data to be fitted.
+
+        ``slit_length`` (1/Å) and ``is_slit_smeared`` come from the NXcanSAS
+        loader (dQl presence).  When the loaded curve is slit smeared, model
+        smearing is enabled automatically (SasView-style); the user can override
+        via the "Slit smeared data" checkbox and the slit-length field.
+        """
         self.data = {
             'Q': q,
             'Intensity': intensity,
@@ -2550,7 +2591,12 @@ class UnifiedFitPanel(QWidget):
             'label': label,
             'filepath': filepath,
             'is_nxcansas': is_nxcansas,
+            'slit_length': slit_length,
+            'is_slit_smeared': is_slit_smeared,
         }
+
+        # Update slit-smearing UI + model from the loaded data.
+        self._refresh_slit_ui_from_data(slit_length, is_slit_smeared, filepath)
 
         if hasattr(self, 'data_loader'):
             self.data_loader.set_filename(label)
@@ -2568,6 +2614,74 @@ class UnifiedFitPanel(QWidget):
         # Update status
         if hasattr(self, 'status_label'):
             self.status_label.setText(f"Loaded: {label} ({len(q)} points)")
+
+    # ── Slit smearing (row + handlers live in SlitSmearingMixin) ────────────
+    def _sync_smearing_to_model(self):
+        """Push the current slit-smearing UI state onto the fitting model.
+
+        Called by the mixin (via ``_sync_smearing_hook``) after any slit-UI
+        change and from the fit/graph paths.  Unified Fit holds a persistent
+        model object, so it needs this; the other panels read ``slit_active()``
+        at fit time and do not define it.
+        """
+        use = bool(self.slit_smear_check.isChecked()) if hasattr(self, 'slit_smear_check') else False
+        try:
+            sl = float(self.slit_length_edit.text()) if hasattr(self, 'slit_length_edit') else 0.0
+        except (ValueError, TypeError):
+            sl = self._slit_length
+        self._slit_length = sl
+        self.model.use_slit_smearing = bool(use and sl > 0)
+        self.model.slit_length = sl if use else 0.0
+
+    def _replot_after_slit_change(self):
+        """Mixin hook: redraw the unified curve after a slit-setting change."""
+        if self.data is not None:
+            self.graph_unified()
+
+    def _reload_data_with_smearing(self, prefer_slit_smeared):
+        """Mixin hook: reload the file's desmeared or slit-smeared dataset."""
+        fp = self.data.get('filepath') if self.data else None
+        if not fp:
+            return
+        try:
+            from pyirena.io.hdf5 import readGenericNXcanSAS
+            p = Path(fp)
+            data = readGenericNXcanSAS(
+                str(p.parent), p.name, prefer_slit_smeared=prefer_slit_smeared)
+        except Exception as exc:
+            # Reload failed — revert the checkbox so the UI matches the still-
+            # loaded (unchanged) dataset (F10 nit), then report.
+            self._updating_slit_ui = True
+            try:
+                self.slit_smear_check.setChecked(not prefer_slit_smeared)
+            finally:
+                self._updating_slit_ui = False
+            self.status_label.setText(f"Could not reload data: {exc}")
+            return
+        if data is None:
+            self._updating_slit_ui = True
+            try:
+                self.slit_smear_check.setChecked(not prefer_slit_smeared)
+            finally:
+                self._updating_slit_ui = False
+            self.status_label.setText("Could not reload data from file.")
+            return
+        import numpy as _np
+        self.set_data(
+            _np.asarray(data['Q'], dtype=float),
+            _np.asarray(data['Intensity'], dtype=float),
+            data.get('Error'),
+            label=self.data.get('label', 'Data'),
+            filepath=fp,
+            is_nxcansas=True,
+            slit_length=float(data.get('slit_length', 0.0) or 0.0),
+            is_slit_smeared=bool(data.get('is_slit_smeared', False)),
+        )
+
+    def _model_curve(self, q):
+        """Total model intensity for display — smeared when smearing is active."""
+        self._sync_smearing_to_model()
+        return self.model.calculate_intensity_smeared(q)
 
     def graph_unified(self):
         """Graph the unified fit with current parameters."""
@@ -2611,7 +2725,7 @@ class UnifiedFitPanel(QWidget):
             self.model.background = background
 
             # Calculate
-            intensity_calc = self.model.calculate_intensity(self.data['Q'])
+            intensity_calc = self._model_curve(self.data['Q'])
 
             # Preserve user zoom: save ranges if the user has manually zoomed
             # (PyQtGraph disables auto-range when the user pans/zooms)
@@ -2785,6 +2899,9 @@ class UnifiedFitPanel(QWidget):
             self.model.levels = levels
             self.model.background = background
             self.model.fit_background = fit_background
+            # Apply slit smearing to the model so the fit compares the smeared
+            # model to the (smeared) data and returns ideal-space parameters.
+            self._sync_smearing_to_model()
 
             # Get cursor range and filter data
             cursor_range = self.graph_window.get_cursor_range()
@@ -2856,7 +2973,7 @@ class UnifiedFitPanel(QWidget):
             self.background_value.setText(eng_fmt_edit(result['background'], sig=3))
 
             # Calculate and plot
-            intensity_calc = self.model.calculate_intensity(self.data['Q'])
+            intensity_calc = self._model_curve(self.data['Q'])
 
             self.graph_window.init_plots()
             self.graph_window.plot_data(
@@ -3010,9 +3127,13 @@ class UnifiedFitPanel(QWidget):
                 q_fit, intensity_fit, error=None,
                 fit_G=params['fit_G'], fit_Rg=params['fit_Rg'],
                 G=params['G'], Rg=params['Rg'],
+                slit_length=(self._slit_length
+                             if self.model.use_slit_smearing else 0.0),
             )
             fitted_g = result['G']
             fitted_rg = result['Rg']
+            if result.get('warning'):
+                self.status_label.setText(result['warning'])
 
             # Update GUI with fitted values
             level_widget.set_parameters({
@@ -3115,9 +3236,13 @@ class UnifiedFitPanel(QWidget):
                 q_fit, intensity_fit, error=None,
                 fit_B=params['fit_B'], fit_P=params['fit_P'],
                 B=params['B'], P=params['P'],
+                slit_length=(self._slit_length
+                             if self.model.use_slit_smearing else 0.0),
             )
             fitted_b = result['B']
             fitted_p = result['P']
+            if result.get('warning'):
+                self.status_label.setText(result['warning'])
 
             # Set P limits based on Igor code (lines 427-432)
             # P low limit = 1
@@ -3189,7 +3314,10 @@ class UnifiedFitPanel(QWidget):
 
         Used when 'Show selected level?' is checked.  The curve is the level's
         own scattering only (``calculate_level_intensity`` — no background), so
-        the user can see how each level sits under the full model.
+        the user can see how each level sits under the full model.  When slit
+        smearing is active the level curve is smeared too, so it sits correctly
+        under the (smeared) model and data rather than showing an ideal curve
+        the smeared data never follows.
         """
         if self.data is None:
             return
@@ -3198,15 +3326,20 @@ class UnifiedFitPanel(QWidget):
         if idx < 0 or idx >= num_levels:
             return  # selected tab is a disabled/unused level
 
+        q = np.asarray(self.data['Q'], dtype=float)
         try:
             prev_Rg = self.model.levels[idx - 1].Rg if idx > 0 else 0.0
-            lvl_I = self.model.calculate_level_intensity(
-                np.asarray(self.data['Q'], dtype=float), idx, prev_Rg
-            )
+            self._sync_smearing_to_model()
+            smearer = self.model._get_smearer(q)
+            if smearer is not None:
+                lvl_I = smearer.smear_model(
+                    lambda qq: self.model.calculate_level_intensity(qq, idx, prev_Rg)
+                )
+            else:
+                lvl_I = self.model.calculate_level_intensity(q, idx, prev_Rg)
         except Exception:
             return
 
-        q = np.asarray(self.data['Q'], dtype=float)
         lvl_I = np.asarray(lvl_I, dtype=float)
         valid = (q > 0) & (lvl_I > 0) & np.isfinite(q) & np.isfinite(lvl_I)
         if not np.any(valid):
@@ -3290,7 +3423,11 @@ class UnifiedFitPanel(QWidget):
             'cursor_right': self.graph_window.cursor_right,
             'update_auto': self.update_auto_check.isChecked(),
             'display_local': self.display_local_check.isChecked(),
-            'no_limits': self.no_limits_check.isChecked()
+            'no_limits': self.no_limits_check.isChecked(),
+            # Slit smearing (canonical keys — see slit-smearing plan §5.1).
+            'use_slit_smearing': (bool(self.slit_smear_check.isChecked())
+                                  if hasattr(self, 'slit_smear_check') else False),
+            'slit_length': float(getattr(self, '_slit_length', 0.0) or 0.0),
         }
 
         # Get all level parameters
@@ -3358,6 +3495,18 @@ class UnifiedFitPanel(QWidget):
         self.update_auto_check.setChecked(state.get('update_auto', False))
         self.display_local_check.setChecked(state.get('display_local', False))
         self.no_limits_check.setChecked(state.get('no_limits', False))
+
+        # Slit smearing: restore length + on/off (guard against reentrant
+        # reload — apply_state must not trigger a file reload).
+        if hasattr(self, 'slit_smear_check'):
+            self._updating_slit_ui = True
+            try:
+                self._slit_length = float(state.get('slit_length', 0.0) or 0.0)
+                self.slit_length_edit.setText(f"{self._slit_length:.5g}")
+                self.slit_smear_check.setChecked(bool(state.get('use_slit_smearing', False)))
+            finally:
+                self._updating_slit_ui = False
+            self._sync_smearing_to_model()
 
         # Set cursor positions
         if state.get('cursor_left') is not None:
@@ -3644,7 +3793,7 @@ class UnifiedFitPanel(QWidget):
             self.model.background = self.parameter_backup['background']
 
             # Recalculate
-            intensity_calc = self.model.calculate_intensity(self.data['Q'])
+            intensity_calc = self._model_curve(self.data['Q'])
 
             # Re-plot
             self.graph_window.init_plots()
@@ -3991,8 +4140,17 @@ class UnifiedFitPanel(QWidget):
             else:
                 chi_squared = 0.0
 
-            # Calculate model intensity
-            intensity_model = self.model.calculate_intensity(self.data['Q'])
+            # Calculate model intensity.  When slit smearing is active the
+            # stored intensity_model is the SMEARED curve (matches the data);
+            # the ideal (pinhole) model is saved alongside as *_ideal.
+            self._sync_smearing_to_model()
+            slit_length = float(self.model.slit_length) if self.model.use_slit_smearing else 0.0
+            intensity_model_ideal = None
+            if slit_length > 0:
+                intensity_model = self.model.calculate_intensity_smeared(self.data['Q'])
+                intensity_model_ideal = self.model.calculate_intensity(self.data['Q'])
+            else:
+                intensity_model = self.model.calculate_intensity(self.data['Q'])
 
             # Calculate residuals
             if self.data.get('Error') is not None:
@@ -4034,6 +4192,8 @@ class UnifiedFitPanel(QWidget):
                 error=self.data.get('Error'),
                 uncertainties=self.fit_uncertainties,
                 setup_state=setup_state,
+                slit_length=slit_length,
+                intensity_model_ideal=intensity_model_ideal,
             )
 
             self.status_label.setText(f"Saved results to {output_path.name}")

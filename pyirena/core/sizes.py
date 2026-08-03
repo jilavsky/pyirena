@@ -205,6 +205,14 @@ class SizesDistribution:
         self.rg = None
         self.n_iterations = None
 
+        # Slit smearing.  When active, the whole G matrix is smeared once
+        # (G_sm = W @ G(q_ext)) so every inversion method (MaxEnt/Reg/TNNLS/MC)
+        # inherits smearing unchanged and the recovered distribution is
+        # ideal-space.  The power-law background is smeared too; a flat
+        # background smears to itself.  See pyirena.core.smearing.
+        self.use_slit_smearing = False
+        self.slit_length = 0.0
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def fit(
@@ -260,8 +268,20 @@ class SizesDistribution:
         # mask above filtered out.
         I_observed = I.copy()
 
-        # Subtract complex background (B·q^(-P) + flat)
-        I = I - self.compute_complex_background(q)
+        # Slit smearing operator (None => pinhole no-op).  Built once on the
+        # cleaned q grid and reused for the background and the G matrix.
+        smearer = None
+        if self.use_slit_smearing and self.slit_length > 0:
+            from pyirena.core.smearing import SlitSmearer
+            smearer = SlitSmearer(q, self.slit_length)
+
+        # Subtract complex background (B·q^(-P) + flat).  When the data are slit
+        # smeared the background is smeared too before subtraction (the flat
+        # part is invariant; the power-law part is not).
+        if smearer is not None:
+            I = I - smearer.smear_model(self.compute_complex_background)
+        else:
+            I = I - self.compute_complex_background(q)
 
         # Fractional error: replace any file/measured uncertainties with a
         # user-chosen fraction of the observed intensity.  Based on the observed
@@ -283,9 +303,17 @@ class SizesDistribution:
                 err = err * float(self.error_scale)
                 err = np.maximum(err, 1e-300)
 
-        # Build G matrix
+        # Build G matrix.  When smearing, evaluate G on the extended grid and
+        # apply the smearing operator to every column once; the inversion
+        # machinery then sees a smeared forward model and returns an
+        # ideal-space distribution.
         r_grid = make_r_grid(self.r_min, self.r_max, self.n_bins, self.log_spacing)
-        G = self._build_g_matrix(q, r_grid)
+        if smearer is not None:
+            G_ideal = self._build_g_matrix(q, r_grid)
+            G = smearer.smear_columns(self._build_g_matrix(smearer.q_ext, r_grid))
+        else:
+            G_ideal = None
+            G = self._build_g_matrix(q, r_grid)
 
         # Fit
         _sky_note: str | None = None
@@ -349,6 +377,14 @@ class SizesDistribution:
 
         # Post-process
         result = self._post_process(x_raw, r_grid, G, I, err)
+
+        # Slit-smearing provenance.  model_intensity (from _post_process) is the
+        # SMEARED distribution scattering when smearing is on; also expose the
+        # ideal (pinhole) curve so downstream can save/plot both.  The
+        # distribution itself is ideal-space by construction.
+        result['slit_length'] = float(self.slit_length) if smearer is not None else 0.0
+        result['data_is_slit_smeared'] = smearer is not None
+        result['model_intensity_ideal'] = (G_ideal @ x_raw) if G_ideal is not None else None
 
         # Monte Carlo (McSAS): the MC fit uses the standard G matrix whose columns
         # G[:,k] = V(r_k)·F²_norm·contrast·1e-4 are the intensity per unit *volume
@@ -449,10 +485,26 @@ class SizesDistribution:
                 'B': self.power_law_B, 'P': self.power_law_P,
             }
 
+        # Slit smearing: the data are slit smeared, so the power-law model must
+        # be smeared before comparison — otherwise the prefit returns
+        # smeared-space B/P which the main fit would smear a second time
+        # (double-smearing).  A single SlitSmearer on qf builds W once and is
+        # reused across curve_fit iterations.  The flat background is invariant
+        # under smearing, so only the q^-P term needs it.
+        _smearer = None
+        if self.use_slit_smearing and self.slit_length > 0:
+            from pyirena.core.smearing import SlitSmearer
+            _smearer = SlitSmearer(qf, self.slit_length)
+
+        def _pl(q_, B, P):
+            if _smearer is not None and q_ is qf:
+                return _smearer.smear_model(lambda qq: B * np.power(qq, -P))
+            return B * np.power(q_, -P)
+
         try:
             if fit_B and fit_P:
                 def model(q_, B, P):
-                    return B * np.power(q_, -P)
+                    return _pl(q_, B, P)
                 p0 = [max(self.power_law_B, float(If.mean())), self.power_law_P]
                 popt, _ = curve_fit(model, qf, If, p0=p0,
                                     bounds=([0.0, 0.1], [np.inf, 12.0]),
@@ -462,7 +514,7 @@ class SizesDistribution:
             elif fit_B:
                 P_fixed = self.power_law_P
                 def model(q_, B):
-                    return B * np.power(q_, -P_fixed)
+                    return _pl(q_, B, P_fixed)
                 p0 = [max(self.power_law_B, float(If.mean()))]
                 popt, _ = curve_fit(model, qf, If, p0=p0,
                                     bounds=([0.0], [np.inf]), maxfev=10000)
@@ -477,7 +529,7 @@ class SizesDistribution:
                         'B': self.power_law_B, 'P': self.power_law_P,
                     }
                 def model(q_, P):
-                    return B_fixed * np.power(q_, -P)
+                    return _pl(q_, B_fixed, P)
                 p0 = [self.power_law_P]
                 popt, _ = curve_fit(model, qf, If, p0=p0,
                                     bounds=([0.1], [12.0]), maxfev=10000)
@@ -533,7 +585,16 @@ class SizesDistribution:
 
         with np.errstate(divide='ignore', invalid='ignore'):
             if self.power_law_B != 0.0:
-                pl = self.power_law_B * np.power(qf, -self.power_law_P)
+                # Smear the subtracted power-law when the data are slit smeared,
+                # so the flat background is estimated consistently with the
+                # main fit (flat itself is invariant under smearing).
+                if self.use_slit_smearing and self.slit_length > 0:
+                    from pyirena.core.smearing import SlitSmearer
+                    _sm = SlitSmearer(qf, self.slit_length)
+                    pl = _sm.smear_model(
+                        lambda qq: self.power_law_B * np.power(qq, -self.power_law_P))
+                else:
+                    pl = self.power_law_B * np.power(qf, -self.power_law_P)
                 pl = np.where(np.isfinite(pl), pl, 0.0)
             else:
                 pl = np.zeros(len(qf))

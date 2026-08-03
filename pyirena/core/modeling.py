@@ -378,6 +378,12 @@ class ModelingConfig:
     # the global method; the serial path is unchanged. Falls back to serial
     # automatically if multiprocessing fails on the host.
     de_workers: int = 1
+    # Slit smearing: when enabled the total model intensity is slit smeared
+    # before comparison with (slit-smeared) data, so fitted parameters are
+    # ideal-space.  Structure factors are part of the ideal model and are
+    # applied before smearing (they live inside total_intensity).
+    use_slit_smearing: bool = False
+    slit_length: float = 0.0
 
 
 @dataclass
@@ -390,7 +396,7 @@ class ModelingResult:
     timestamp: str
 
     model_q: np.ndarray              # Q-array used for fitting
-    model_I: np.ndarray              # Total model intensity
+    model_I: np.ndarray              # Total model intensity (slit smeared when smearing on)
 
     # Per-population arrays (only enabled populations; order matches enabled pops)
     pop_indices: list                # list of int — original population indices
@@ -402,6 +408,11 @@ class ModelingResult:
 
     # MC uncertainty: {pop_i_paramname: std} and {'background': std}
     params_std: dict = field(default_factory=dict)
+
+    # Ideal (pinhole) total on model_q; only set when slit smearing was used
+    # (None otherwise).  Saved alongside model_I so downstream plots/readers can
+    # offer a smeared/ideal toggle (parity with Unified/Sizes/Simple).
+    model_I_ideal: Optional[np.ndarray] = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -936,6 +947,57 @@ class ModelingEngine:
         # Cleared at the start of every fit() call.
         self._fit_g_cache: dict[int, np.ndarray] = {}
         self._fit_g_keys:  dict[int, str] = {}
+        # Cached slit smearer, rebuilt when (q, slit_length) change.
+        self._smearer = None
+
+    # ── Slit smearing ─────────────────────────────────────────────────────────
+
+    def _get_smearer(self, q: np.ndarray, config: "ModelingConfig"):
+        """Cached SlitSmearer for (q, slit_length); None when smearing is off."""
+        if not getattr(config, 'use_slit_smearing', False) or config.slit_length <= 0:
+            return None
+        q = np.asarray(q, dtype=float)
+        sm = self._smearer
+        if (sm is not None and sm.slit_length == config.slit_length
+                and sm.q.shape == q.shape and np.array_equal(sm.q, q)):
+            return sm
+        from pyirena.core.smearing import SlitSmearer
+        self._smearer = SlitSmearer(q, config.slit_length)
+        return self._smearer
+
+    def total_intensity_maybe_smeared(
+        self, config: "ModelingConfig", q: np.ndarray, use_cache: bool = True,
+    ):
+        """total_intensity, slit-smeared when config requests it.
+
+        Evaluates all populations + background on the extended grid and applies
+        the smearing operator to the total and to each per-population curve, so
+        both the fit and the plotted overlays are consistent with the data.
+        """
+        smearer = self._get_smearer(q, config)
+        if smearer is None:
+            return self.total_intensity(config, q, use_cache=use_cache)
+        I_ext, pop_idx, pop_I_ext, pop_dist = self.total_intensity(
+            config, smearer.q_ext, use_cache=False)
+        I_total = smearer.smear(I_ext)
+        pop_I = [smearer.smear(Ip) for Ip in pop_I_ext]
+        return I_total, pop_idx, pop_I, pop_dist
+
+    def total_intensity_ideal(self, config: "ModelingConfig", q: np.ndarray):
+        """Ideal (pinhole) total on the data grid, or None when smearing is off.
+
+        Cheap companion to :meth:`total_intensity_maybe_smeared` for saving the
+        ``model_I_ideal`` curve: a single unsmeared evaluation on *q*.
+
+        Uses the q-keyed full cache (``use_cache=True``), NOT the fit-time smart
+        cache: that smart cache keys G on (radius grid, population) but not on
+        *q*, so mixing it with the smeared path's ``q_ext`` evaluation in the
+        same fit would reuse a wrong-length G.
+        """
+        if self._get_smearer(q, config) is None:
+            return None
+        I_ideal, _, _, _ = self.total_intensity(config, q, use_cache=True)
+        return I_ideal
 
     # ── Radius grid ──────────────────────────────────────────────────────────
 
@@ -1328,7 +1390,7 @@ class ModelingEngine:
     ) -> np.ndarray:
         """Weighted residuals for least_squares."""
         self._unpack_params(x, keys, config)
-        I_model, _, _, _ = self.total_intensity(config, q, use_cache=False)
+        I_model, _, _, _ = self.total_intensity_maybe_smeared(config, q, use_cache=False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             resid = (I - I_model) / np.maximum(sigma, 1e-30)
@@ -1492,7 +1554,7 @@ class ModelingEngine:
 
         if len(x0) == 0:
             # Nothing to fit — just evaluate
-            I_model, pop_idx, pop_I, pop_dist = self.total_intensity(
+            I_model, pop_idx, pop_I, pop_dist = self.total_intensity_maybe_smeared(
                 cfg, q_fit, use_cache=True
             )
             resid = (I_fit - I_model) / dI_fit
@@ -1571,7 +1633,7 @@ class ModelingEngine:
             # Write best-fit params back to original config
             self._unpack_params(x_best, keys, config)
 
-            I_model, pop_idx, pop_I, pop_dist = self.total_intensity(
+            I_model, pop_idx, pop_I, pop_dist = self.total_intensity_maybe_smeared(
                 cfg, q_fit, use_cache=False
             )
             resid = (I_fit - I_model) / dI_fit
@@ -1579,6 +1641,9 @@ class ModelingEngine:
             dof = max(len(q_fit) - len(x0), 1)
 
         rchi2 = chi2 / dof
+
+        # Ideal (pinhole) total for saving — None unless smearing was used.
+        model_I_ideal = self.total_intensity_ideal(cfg, q_fit)
 
         # ── Derived quantities per population ─────────────────────────────
         derived = []
@@ -1603,6 +1668,7 @@ class ModelingEngine:
             volume_dists=vol_dists,
             number_dists=num_dists,
             derived=derived,
+            model_I_ideal=model_I_ideal,
         )
 
     # ── Monte-Carlo uncertainty ──────────────────────────────────────────────

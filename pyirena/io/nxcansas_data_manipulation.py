@@ -22,6 +22,8 @@ from pyirena.io._nxcansas_common import (
     copy_and_strip_results as _copy_and_strip_results,
     replace_nxcansas_data,
     append_dq as _append_dq,
+    append_dql as _append_dql,
+    drop_smr_entries as _drop_smr_entries,
 )
 
 import logging
@@ -50,6 +52,7 @@ def save_manipulated_data(
     operation: str,
     provenance: dict,
     output_stem_suffix: Optional[str] = None,
+    slit_length: float = 0.0,
 ) -> Path:
     """Save manipulated SAS data to a NXcanSAS HDF5 file.
 
@@ -113,11 +116,26 @@ def save_manipulated_data(
     if source_is_nxcansas:
         _copy_and_strip_results(source_path, out_path)
         replace_nxcansas_data(out_path, q, I, dI, dQ, context="manipulated data")
+        # A copied Matilda file may contain a stale slit-smeared (_SMR) twin
+        # of the source that no longer matches the manipulated default entry —
+        # drop it so a later prefer_slit_smeared load can't silently return the
+        # wrong curve (F2).
+        n_smr = _drop_smr_entries(out_path)
+        if n_smr:
+            log.info(f"[data_manipulation] Removed {n_smr} stale _SMR entry(ies) "
+                     f"from the '{operation}' output.")
     else:
         sample_name = stem
         create_nxcansas_file(out_path, q, I, error=dI, sample_name=sample_name)
         if dQ is not None:
             _append_dq(out_path, dQ, sample_name)
+
+    # When the manipulated curve is itself slit smeared (e.g. a single-entry
+    # slit-smeared source, or subtract/divide of two matching smeared curves),
+    # re-mark the output.  replace_nxcansas_data() dropped the source's stale
+    # dQl, so this restores a *consistent* one for the new arrays.
+    if slit_length and slit_length > 0:
+        _append_dql(out_path, float(slit_length))
 
     _append_manipulation_provenance(out_path, operation, provenance, source_path)
     return out_path

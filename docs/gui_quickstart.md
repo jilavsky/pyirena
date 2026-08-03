@@ -92,7 +92,7 @@ The folder path appears next to the button, and files are automatically loaded.
 
 Use the dropdown to filter by file type:
 - **HDF5 Files** (.hdf, .h5, .hdf5) - Default
-- **Text Files** (.txt, .dat) - For ASCII data
+- **Text Files** (.txt, .dat, .csv) - For ASCII data
 - **All Supported Files** - Show all
 
 #### 3. Filter Files (Optional)
@@ -133,6 +133,21 @@ The graph displays:
 - **Grid** for easy reading
 - **Axis labels**: Q (Å⁻¹) and Intensity (cm⁻¹)
 
+### Checking for Updates
+
+The Data Selector checks GitHub for a new **stable** pyIrena release on
+startup, and at most once a week thereafter. If a newer version is
+available, a small banner appears below the title bar with a link to the
+GitHub releases page — otherwise nothing is shown.
+
+- The check runs in the background and never delays startup.
+- If you're offline, or GitHub can't be reached, the check fails silently —
+  no error, no popup.
+- Pre-release versions (betas, release candidates) are never reported as
+  "latest"; only full stable releases trigger the notice.
+- To turn this off, open **Configure…** in the Data Selector and uncheck
+  **"Check for new pyIrena releases on startup"**.
+
 ## Test Data
 
 The package includes synthetic test data in `testData/`:
@@ -161,7 +176,7 @@ python create_test_data.py
 - [x] File list with scroll, sort (A→Z, Z→A, newest, oldest), and text filter
 - [x] Multiple file selection (Ctrl/Shift-click, double-click to plot)
 - [x] Graph window: log-log I(Q) vs Q, multiple datasets, colour-coded legend
-- [x] NXcanSAS HDF5 support; text file support (.txt, .dat)
+- [x] NXcanSAS HDF5 support; text file support (.txt, .dat, .csv)
 - [x] Zoom/pan with hard ViewBox limits (x: nearest decade ±1; y: P99 range ±3 decades)
 - [x] **Unified Fit** — Beaucage hierarchical model, 1–5 levels, correlation function
 - [x] **Size Distribution** — four inversion methods, complex background, MC uncertainty
@@ -171,6 +186,7 @@ python create_test_data.py
 - [x] Batch fitting via "… (script)" buttons (reads `pyirena_config.json`)
 - [x] Export/Import Parameters for all three fit tools (shared JSON config format)
 - [x] All fit results stored in NXcanSAS HDF5 alongside raw data
+- [x] GitHub-based update notification (weekly check, opt-out in Configure…)
 
 ## Using the Unified Fit Model
 
@@ -310,7 +326,7 @@ The GUI supports two HDF5 formats:
 
 The GUI first tries to read full NXcanSAS structure using `pyirena.io.hdf5.readGenericNXcanSAS()`. If that fails, it automatically falls back to the simple HDF5 reader `readSimpleHDF5()`.
 
-### Text Files (.txt, .dat)
+### Text Files (.txt, .dat, .csv)
 
 Supported format:
 ```
@@ -325,13 +341,26 @@ Supported format:
 ...
 ```
 
+Comma-separated `.csv` files are supported the same way, with or without a
+header row:
+```
+Q,I,dI
+1.000000e-03,1.000003e+10,3.000009e+08
+1.047452e-03,8.307389e+09,2.492217e+08
+...
+```
+
 **Features:**
 - Comment lines starting with `#` are ignored
 - Header rows (column names) are automatically detected and skipped
 - At least 2 columns required: Q and Intensity
 - Optional 3rd column: Error/uncertainty
 - Optional 4th column: dQ/Q resolution
-- Data can be space or tab delimited
+- Delimiter (whitespace/tab or comma) is auto-detected per file
+- Q (and dQ) is assumed to be in 1/Å by default; if your files use a
+  different unit (e.g. 1/nm), set it in *Configure → Text File Options →
+  Q unit in text files* and it will be converted to 1/Å automatically —
+  see [Q units](data_import_and_cleaning.md#q-units) for details
 - Scientific notation supported
 - Robust parser handles various text file formats
 

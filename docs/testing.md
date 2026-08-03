@@ -250,7 +250,7 @@ Test:
 
 ### File Type Test
 
-1. Switch to "Text Files (.txt, .dat)" in dropdown
+1. Switch to "Text Files (.txt, .dat, .csv)" in dropdown
 2. Verify .dat files appear:
    ```
    ☐ complexUnified.dat

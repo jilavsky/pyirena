@@ -65,6 +65,12 @@ class MergeConfig:
     qshift_dataset: int = 0
     method: str = 'interpolation'
     split_at_left_cursor: bool = False
+    # Slit-smearing provenance of the two inputs (1/Å; 0 = pinhole).  The
+    # optimization itself is smearing-blind: the slit length sits at or below
+    # the SAXS Qmin, so its effect in the overlap region is negligible.  These
+    # fields only drive the provenance of the merged output.
+    slit_length_ds1: float = 0.0
+    slit_length_ds2: float = 0.0
 
 
 @dataclass
@@ -96,6 +102,10 @@ class MergeResult:
     chi_squared: float = float('nan')
     n_overlap_points: int = 0
     message: str = ''
+    # Slit-smearing provenance of the merged curve (set by merge()).
+    slit_length_merged: float = 0.0
+    is_slit_smeared_merged: bool = False
+    slit_warning: str = ''
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +119,37 @@ class DataMerge:
     METHODS: dict[str, str] = {
         'interpolation': 'Log-log linear interpolation',
     }
+
+    # ------------------------------------------------------------------ #
+    #  Slit-smearing provenance                                           #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def merged_slit_length(sl1: float, sl2: float) -> Tuple[float, bool, str]:
+        """Decide the merged curve's slit length from the two input lengths.
+
+        Physics (USAXS/Matilda): the low-Q dataset is typically slit smeared
+        and the high-Q (SAXS) dataset pinhole.  The slit length sits at or
+        below the SAXS Qmin, so its effect in the overlap is negligible — the
+        merged curve is treated as slit smeared with the (single) nonzero slit
+        length.  If both inputs are smeared with *different* nonzero lengths,
+        that is ambiguous: keep the larger and warn.
+
+        Returns ``(slit_length_merged, is_slit_smeared_merged, warning)``.
+        """
+        sl1 = float(sl1 or 0.0)
+        sl2 = float(sl2 or 0.0)
+        both = sl1 > 0 and sl2 > 0
+        warning = ''
+        if both and abs(sl1 - sl2) > 1e-6 * max(sl1, sl2):
+            merged = max(sl1, sl2)
+            warning = (
+                f"Both datasets are slit smeared with different slit lengths "
+                f"({sl1:.4g} vs {sl2:.4g} 1/Å); merged output uses the larger "
+                f"({merged:.4g}). Verify this is intended.")
+        else:
+            merged = sl1 if sl1 > 0 else sl2
+        return merged, merged > 0, warning
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -328,6 +369,14 @@ class DataMerge:
             dQ_merged is None if both dQ1 and dQ2 are None.
             All arrays are sorted ascending by Q.
         """
+        # Stamp the merged curve's slit-smearing provenance onto the result so
+        # callers (GUI/batch/I-O) can write dQl and warn on mismatch.
+        sl_merged, is_smeared, sl_warn = self.merged_slit_length(
+            config.slit_length_ds1, config.slit_length_ds2)
+        result.slit_length_merged = sl_merged
+        result.is_slit_smeared_merged = is_smeared
+        result.slit_warning = sl_warn
+
         q1_adj, I1_adj, q2_adj, I2_adj = self._apply_params(
             q1, I1, q2, I2,
             background=result.background,

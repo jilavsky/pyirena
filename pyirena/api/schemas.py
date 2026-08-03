@@ -275,9 +275,13 @@ class UnifiedFitResult(_BaseToolResult):
     levels: list = field(default_factory=list)   # list of UnifiedFitLevel
     Q: Optional[list] = None
     intensity_data: Optional[list] = None
-    intensity_model: Optional[list] = None
+    intensity_model: Optional[list] = None        # smeared model when slit-smeared
+    intensity_model_ideal: Optional[list] = None  # ideal/pinhole model (slit fits only)
     intensity_error: Optional[list] = None
     residuals: Optional[list] = None
+    # Slit-smearing provenance (0 / False for legacy pinhole result files).
+    slit_length: Optional[float] = None
+    data_is_slit_smeared: Optional[bool] = None
 
 
 @dataclass

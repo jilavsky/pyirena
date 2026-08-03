@@ -80,7 +80,10 @@ Three parameters may be free or fixed:
 
 - Click **Select Folder…** in the DS1 column and choose the folder containing
   your lower-Q files.  Repeat for DS2.
-- Select a **Type** (HDF5 NXcanSAS, HDF5 Generic, or Text .dat/.txt).
+- Select a **Type** (HDF5 NXcanSAS, HDF5 Generic, or Text .dat/.txt/.csv).
+  Text files are assumed to be in the Q unit set in the Data Selector's
+  *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
+  [Q units](data_import_and_cleaning.md#q-units).
 - Use the **Filter** field to narrow the file list.
 - **Double-click** a file to load it and display it on the plot.
 
@@ -401,6 +404,22 @@ output file, recording the full merge provenance:
 | `timestamp` (attr) | ISO-8601 timestamp of the merge |
 
 ---
+
+## Slit smearing (USAXS)
+
+When an input file carries **both** a desmeared and a slit-smeared (USAXS) copy
+(Matilda), a **"Use slit-smeared copy"** checkbox appears under that dataset's
+file list. It loads the desmeared `@default` entry by default; check it to merge
+the slit-smeared data instead.
+
+Merging a slit-smeared curve (typically the low-Q USAXS dataset) with a pinhole
+one produces a **slit-smeared output**: the merged file gets a `dQl` dataset so
+downstream tools auto-detect it, and the provenance records the input and merged
+slit lengths (`slit_length_ds1/ds2`, `slit_length_merged`). Two inputs with
+*different* nonzero slit lengths warn (the larger is kept). The optimisation
+itself is unchanged — the slit length sits at or below the SAXS Qmin, so its
+effect in the overlap region is negligible. See
+**[Slit smearing](slit_smearing.md)** for the full reference.
 
 ## Optimisation details
 

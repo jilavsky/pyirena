@@ -373,6 +373,16 @@ backstop.
 See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
 interpretation of these numbers.
 
+## Slit smearing (USAXS)
+
+When slit-smeared USAXS data are loaded (an NXcanSAS `dQl`, e.g. from Matilda),
+the G matrix is smeared once (`G_smeared = W · G(q_ext)`), so every inversion
+method above inherits smearing unchanged and the recovered distribution is
+ideal-space (pinhole-equivalent). The power-law/complex background is smeared
+too — the background preview shows the *smeared* curve so it overlays the data.
+See **[Slit smearing](slit_smearing.md)** for the full reference and the
+scripting contract.
+
 ## References
 
 - J. Skilling & R.K. Bryan, *MNRAS* **211**, 111 (1984) — MaxEnt algorithm.

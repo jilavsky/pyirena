@@ -493,6 +493,91 @@ def test_parse_wave_note_handles_h5xp_colon_format():
 
 
 # ---------------------------------------------------------------------------
+# h5xp — Irena/Nika "Use QRS Names" convention (uppercase Q_/R_/S_ + suffix)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def qrs_names_h5xp(tmp_path: Path) -> Path:
+    """Create an h5xp mirroring the Irena/Nika "Use QRS Names" layout.
+
+    Real desktop SAXS instruments (e.g. Xenocs) reduced through Irena/Nika
+    store each dataset as ``Packed Data/SAS/ImportedData/<folder>/`` holding
+    waves ``Q_<folder>`` / ``R_<folder>`` / ``S_<folder>`` (uppercase prefix,
+    data-folder name as suffix; R = intensity, S = error). This is written
+    with raw h5py — not pyirena's writer — so it faithfully reproduces the
+    on-disk structure the importer meets in the wild rather than pyirena's
+    own ``q_<folder>`` output.
+    """
+    import numpy as np
+
+    path = tmp_path / "qrs_names.h5xp"
+    n = 40
+    q = np.logspace(-2.7, -0.5, n)
+    intensity = 1.0 / (1.0 + (q * 25) ** 2)
+    err = 0.1 * intensity
+
+    samples = ["20250512_18740_0_00003_sub", "20250512_18740_0_00025_sub"]
+    with h5py.File(path, "w") as f:
+        imported = f.create_group("Packed Data/SAS/ImportedData")
+        for s in samples:
+            g = imported.create_group(s)
+            g.create_dataset(f"Q_{s}", data=q)
+            g.create_dataset(f"R_{s}", data=intensity)
+            g.create_dataset(f"S_{s}", data=err)
+    return path
+
+
+def test_wave_pickers_h5xp_include_uppercase_qrs_convention():
+    """The QRS-names triple must be registered for every technique in the
+    h5xp picker table (regression: previously only lowercase ``q_<folder>``
+    was present, so Irena-reduced desktop SAXS files imported as 0 samples)."""
+    from pyirena.io.pxp_to_nexus import WAVE_PICKERS_H5XP, WAVE_PICKERS
+
+    qrs = ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>")
+    for tech in ("USAXS", "SAXS", "WAXS"):
+        assert qrs in WAVE_PICKERS_H5XP[tech], f"missing from h5xp {tech}"
+        assert qrs in WAVE_PICKERS[tech], f"missing from pxp {tech}"
+
+
+def test_h5xp_qrs_names_convention_imports_all_samples(qrs_names_h5xp, tmp_path):
+    """Regression: an Irena "Use QRS Names" h5xp (Q_/R_/S_ + folder suffix)
+    must import every sample, not skip them all."""
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+
+    out_dir = tmp_path / "out"
+    result = extract_h5xp_to_nexus(qrs_names_h5xp, output_root=out_dir)
+
+    assert result.n_written == 2
+    assert result.n_skipped == 0
+    assert result.n_errors == 0
+    # SAS folder maps to the SAXS technique
+    written = sorted(p.name for p in (out_dir / "SAXS").rglob("*.h5"))
+    assert written == [
+        "20250512_18740_0_00003_sub.h5",
+        "20250512_18740_0_00025_sub.h5",
+    ]
+
+
+def test_h5xp_qrs_names_data_is_intact(qrs_names_h5xp, tmp_path):
+    """The R_ wave must land as intensity and S_ as error (Idev)."""
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
+    from pyirena.io.hdf5 import find_matching_groups
+
+    out_dir = tmp_path / "out"
+    extract_h5xp_to_nexus(qrs_names_h5xp, output_root=out_dir)
+
+    f0 = next((out_dir / "SAXS").rglob("*.h5"))
+    with h5py.File(f0, "r") as f:
+        paths = find_matching_groups(f, {"canSAS_class": "SASdata"}, {})
+        assert paths
+        sas = f[paths[0]]
+        assert sas["Q"].shape == (40,)
+        assert sas["I"].shape == (40,)
+        assert "Idev" in sas               # S_ wave → error column
+        assert "Qdev" not in sas           # no dQ_ wave in the fixture
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

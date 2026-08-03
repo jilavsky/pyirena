@@ -344,13 +344,20 @@ def _ctrl_image_result(result: dict, session_id: str) -> list[Any]:
 # --- Session lifecycle ---
 
 @mcp.tool()
-def pyirena_ctrl_open_dataset(file_path: str) -> dict:
+def pyirena_ctrl_open_dataset(file_path: str, use_slit_smeared: bool = False) -> dict:
     """Load a NXcanSAS HDF5 file and open a fitting session.
 
     Returns a session_id you must pass to every other pyirena_ctrl_ tool.
-    Also returns a data summary (Q range, n_points, intensity range).
+    Also returns a data summary (Q range, n_points, intensity range) plus
+    slit-smearing status: ``is_slit_smeared``, ``slit_length`` (1/Å), and
+    ``has_slit_smeared_entry`` (True when the file also carries a slit-smeared
+    ``_SMR`` dataset alongside the desmeared one).
+
+    Set ``use_slit_smeared=True`` to load the file's slit-smeared dataset; the
+    Unified Fit model then smears automatically at the file's slit length, and
+    the fitted parameters are ideal-space (pinhole-equivalent).
     """
-    return _ctrl.open_dataset(file_path)
+    return _ctrl.open_dataset(file_path, use_slit_smeared=use_slit_smeared)
 
 
 @mcp.tool()
