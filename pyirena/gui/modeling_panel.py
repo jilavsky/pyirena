@@ -2141,23 +2141,40 @@ class _FitWorker(QThread):
 
 class _MCWorker(QThread):
     """Runs ModelingEngine.calculate_uncertainty_mc() off the GUI thread."""
-    progress = Signal(int, int)  # (current_run, total_runs)
+    progress = Signal(int, int)  # (passes_done, total_runs)
     finished = Signal(dict)      # stds dict
     error    = Signal(str)
 
-    def __init__(self, engine, config, q, I, dI, n_runs, parent=None):
+    def __init__(self, engine, config, q, I, dI, n_runs, workers=None, parent=None):
         super().__init__(parent)
         self._engine = engine
         self._config = config
         self._q, self._I, self._dI = q, I, dI
         self._n_runs = n_runs
+        self._workers = workers
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation — polled between MC passes.
+
+        A pass already in flight is not interrupted, so this takes effect within
+        roughly one pass; the uncertainties from completed passes are kept.
+        """
+        self._cancelled = True
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
 
     def run(self):
         try:
+            worker = self
             stds = self._engine.calculate_uncertainty_mc(
                 self._config, self._q, self._I, self._dI,
                 n_runs=self._n_runs,
                 progress_cb=lambda i, n: self.progress.emit(i, n),
+                cancel_cb=lambda: worker._cancelled,
+                workers=self._workers,
             )
             self.finished.emit(stds)
         except Exception as exc:
@@ -2187,6 +2204,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self._state = StateManager()
         self._fit_worker: Optional[_FitWorker] = None
         self._mc_worker: Optional[_MCWorker] = None
+        self._mc_progress: tuple = (0, 0)   # (passes done, total) for the status line
         self._pre_fit_state: Optional[dict] = None   # snapshot for Revert
 
         # Throttled autoupdate (ported from Unified Fit): single-shot timer,
@@ -2565,7 +2583,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         lay.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
                              'Reset all parameters to their default values.'))
 
-        # Row 5: Passes + Calc. Uncertainty (MC)
+        # Row 5: Passes + cores + Calc. Uncertainty (MC)
         out5 = QHBoxLayout()
         out5.addWidget(QLabel('Passes:'))
         self.n_runs_spin = QSpinBox()
@@ -2573,6 +2591,27 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.n_runs_spin.setValue(10)
         self.n_runs_spin.setFixedWidth(60)
         out5.addWidget(self.n_runs_spin)
+
+        # Worker processes for the MC passes. Unlike the Global search 'cores'
+        # spinner this one is always enabled — MC passes are independent of the
+        # fit method. 0 shows as 'auto'.
+        out5.addWidget(QLabel('cores:'))
+        self.mc_workers_spin = QSpinBox()
+        self.mc_workers_spin.setRange(0, max(1, os.cpu_count() or 1))
+        self.mc_workers_spin.setValue(0)
+        self.mc_workers_spin.setSpecialValueText('auto')
+        self.mc_workers_spin.setFixedWidth(56)
+        self.mc_workers_spin.setToolTip(
+            "Worker processes for the Monte-Carlo passes.\n"
+            "auto = all cores but two (the default); 1 = serial.\n"
+            "Each pass is an independent refit, so this scales nearly linearly\n"
+            "for slow models (complex form factors, several populations).\n"
+            "Short runs stay serial automatically — starting worker processes\n"
+            "would cost more than it saves. If the host cannot start workers,\n"
+            "the passes fall back to serial."
+        )
+        out5.addWidget(self.mc_workers_spin)
+
         self.btn_mc = QPushButton('Calc. Uncertainty (MC)')
         self.btn_mc.setMinimumHeight(26)
         self.btn_mc.setStyleSheet(
@@ -2583,7 +2622,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         )
         self.btn_mc.setToolTip(
             "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
-            "Set 'Passes' to control how many Monte Carlo replicates are used."
+            "Set 'Passes' to control how many Monte Carlo replicates are used, and\n"
+            "'cores' to spread them over worker processes.\n"
+            "Click again while running to cancel; completed passes are still used."
         )
         self.btn_mc.clicked.connect(self.calc_uncertainty_mc)
         self.btn_mc.setEnabled(False)
@@ -2618,6 +2659,10 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             max(self.de_workers_spin.minimum(),
                 min(dw, self.de_workers_spin.maximum())))
         self.n_runs_spin.setValue(mod_state.get('n_mc_runs', 10))
+        mw = int(mod_state.get('mc_workers', 0))
+        self.mc_workers_spin.setValue(
+            max(self.mc_workers_spin.minimum(),
+                min(mw, self.mc_workers_spin.maximum())))
 
         pops = mod_state.get('populations', [])
         for i, pw in enumerate(self._pop_widgets):
@@ -2650,6 +2695,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             'fit_method':    self.fit_method_combo.currentData() or 'local',
             'de_workers':    self.de_workers_spin.value(),
             'n_mc_runs':     self.n_runs_spin.value(),
+            'mc_workers':    self.mc_workers_spin.value(),
             'q_min':         None,
             'q_max':         None,
             'populations':   [pw.to_full_dict() for pw in self._pop_widgets],
@@ -3013,6 +3059,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             n_mc_runs=self.n_runs_spin.value(),
             fit_method=self._current_fit_method(),
             de_workers=self.de_workers_spin.value(),
+            mc_workers=self.mc_workers_spin.value(),
             use_slit_smearing=self.slit_active(),
             slit_length=self.current_slit_length(),
         )
@@ -3276,21 +3323,36 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     def calc_uncertainty_mc(self):
         """Start Monte-Carlo uncertainty estimation in a background thread."""
+        # If MC is already running, treat the click as a cancel request — same
+        # pattern as the Fit button. Passes already in flight finish, so this
+        # takes effect within roughly one pass.
+        if self._mc_worker is not None and self._mc_worker.isRunning():
+            self._mc_worker.cancel()
+            self.btn_mc.setEnabled(False)
+            self.graph.set_status(
+                'Cancelling MC — waiting for passes in flight …', 'working')
+            return
+
         if self._last_result is None or self._data_q is None:
             QMessageBox.information(self, 'No result', 'Run a fit first.')
             return
 
-        if self._mc_worker is not None and self._mc_worker.isRunning():
-            return
-
         n = self.n_runs_spin.value()
-        self.btn_mc.setEnabled(False)
+        self._mc_progress = (0, n)
+        self.btn_mc.setText('Cancel MC')
+        self.btn_mc.setStyleSheet(
+            'QPushButton {background: #e74c3c; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #c0392b;}'
+            'QPushButton:disabled {background: #bdc3c7;}'
+        )
         self.btn_fit.setEnabled(False)
         self.graph.set_status(f'Starting MC — 0 / {n} passes …', 'working')
 
         self._mc_worker = _MCWorker(
             self._engine, deepcopy(self._last_result.config),
             self._data_q, self._data_I, self._data_dI, n_runs=n,
+            workers=self.mc_workers_spin.value(),
             parent=self,
         )
         self._mc_worker.progress.connect(self._on_mc_progress)
@@ -3298,22 +3360,47 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self._mc_worker.error.connect(self._on_mc_error)
         self._mc_worker.start()
 
-    def _on_mc_progress(self, current: int, total: int):
-        self.graph.set_status(f'MC uncertainty — pass {current} / {total} …', 'working')
+    def _restore_mc_button(self):
+        """Restore the MC button to its normal appearance after a run/cancel."""
+        self.btn_mc.setText('Calc. Uncertainty (MC)')
+        self.btn_mc.setStyleSheet(
+            'QPushButton {background: #16a085; color: white; font-weight: bold;'
+            ' border-radius: 4px;}'
+            'QPushButton:hover {background: #1abc9c;}'
+            'QPushButton:disabled {background: #8ac4bc; color: #f8f8f8;}'
+        )
+        self.btn_mc.setEnabled(True)
+
+    def _on_mc_progress(self, done: int, total: int):
+        # Passes complete out of order when running in parallel, so this is a
+        # completion count rather than a pass index.
+        self._mc_progress = (done, total)
+        self.graph.set_status(f'MC uncertainty — {done} / {total} passes …', 'working')
 
     def _on_mc_done(self, stds: dict):
         if self._last_result is not None:
             self._last_result.params_std = stds
 
-        self.btn_mc.setEnabled(True)
+        cancelled = self._mc_worker is not None and self._mc_worker.cancelled
+        done, total = getattr(self, '_mc_progress', (0, 0))
+        self._restore_mc_button()
         self.btn_fit.setEnabled(True)
 
         if stds:
             from pyirena.gui.fmt_utils import eng_fmt
-            lines = ['MC uncertainties (±1σ):'] + [
+            header = ('MC uncertainties (±1σ, cancelled after '
+                      f'{done} of {total} passes):' if cancelled
+                      else 'MC uncertainties (±1σ):')
+            lines = [header] + [
                 f'  {k}: ± {eng_fmt(v)}' for k, v in sorted(stds.items())
             ]
-            self.graph.set_status('\n'.join(lines), 'success')
+            self.graph.set_status('\n'.join(lines), 'warning' if cancelled else 'success')
+        elif cancelled:
+            self.graph.set_status(
+                f'MC cancelled after {done} of {total} passes — too few to '
+                'estimate uncertainty (need at least 2).',
+                'warning',
+            )
         else:
             self.graph.set_status(
                 'MC uncertainty: no fittable parameters or too few successful runs.',
@@ -3322,7 +3409,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     def _on_mc_error(self, msg: str):
         self.graph.set_status(f'MC error: {msg}', 'error')
-        self.btn_mc.setEnabled(True)
+        self._restore_mc_button()
         self.btn_fit.setEnabled(True)
 
     # ── Save / Export ─────────────────────────────────────────────────────────
@@ -3428,6 +3515,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             'fit_method':     mc.fit_method,
             'de_workers':     mc.de_workers,
             'n_mc_runs':      mc.n_mc_runs,
+            'mc_workers':     mc.mc_workers,
             'q_min':          mc.q_min,
             'q_max':          mc.q_max,
             'populations':    [_pop_to_dict(p) for p in mc.populations],

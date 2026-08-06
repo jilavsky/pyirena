@@ -33,6 +33,7 @@ def fit_modeling(
     save_to_nexus: bool = True,
     with_uncertainty: bool = False,
     n_mc_runs: int = 10,
+    mc_workers: Optional[int] = None,
 ) -> Optional[Dict]:
     """Fit a Modeling (parametric size distribution) model using a pyIrena config file.
 
@@ -57,6 +58,16 @@ def fit_modeling(
     n_mc_runs : int, optional
         Number of MC runs (used only when *with_uncertainty* is True).
         Default 10.
+    mc_workers : int, optional
+        Worker processes for the MC passes, overriding the config file's
+        ``mc_workers``. 0 = auto (cpu_count - 2), 1 = serial, N > 1 = explicit.
+        Each pass is an independent refit, so this scales nearly linearly for
+        slow models. Short runs stay serial automatically, and the passes fall
+        back to serial if the host cannot start worker processes.
+
+        Note that parallelism belongs at one level only: when driving many files
+        through :func:`pyirena.batch.pipeline`, leave this at 1 rather than
+        nesting pools inside a per-file loop.
 
     Returns
     -------
@@ -221,6 +232,8 @@ def fit_modeling(
             n_mc_runs=int(mod_cfg.get('n_mc_runs', n_mc_runs)),
             fit_method=str(mod_cfg.get('fit_method', 'local')),
             de_workers=int(mod_cfg.get('de_workers', 1)),
+            mc_workers=int(mc_workers if mc_workers is not None
+                           else mod_cfg.get('mc_workers', 0)),
             use_slit_smearing=bool(data.get('is_slit_smeared'))
                               or bool(mod_cfg.get('use_slit_smearing', False)),
             slit_length=(float(mod_cfg['slit_length']) if mod_cfg.get('slit_length')

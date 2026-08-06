@@ -327,7 +327,7 @@ class StateManager:
             "similarity_normalize_scale": True,
         },
         "modeling": {
-            "schema_version": 4,
+            "schema_version": 5,
             "q_min": None,
             "q_max": None,
             "background": 0.0,
@@ -336,6 +336,9 @@ class StateManager:
             "fit_method": "local",
             "de_workers": 1,
             "n_mc_runs": 10,
+            # Worker processes for Monte-Carlo uncertainty passes (new in
+            # schema_version 5). 0 = auto (cpu_count - 2), 1 = serial, N = explicit.
+            "mc_workers": 0,
             "populations": [
                 # Population 0 — enabled by default
                 {
@@ -882,6 +885,14 @@ class StateManager:
             modeling.setdefault('de_workers',
                                 self.DEFAULT_STATE['modeling']['de_workers'])
             modeling['schema_version'] = 4
+            self.state['modeling'] = modeling
+
+        if stored_modeling_version < 5 <= target_modeling_version:
+            # schema_version 4 → 5: mc_workers added (parallel Monte-Carlo
+            # uncertainty passes). Old states pick up the auto default (0).
+            modeling.setdefault('mc_workers',
+                                self.DEFAULT_STATE['modeling']['mc_workers'])
+            modeling['schema_version'] = 5
             self.state['modeling'] = modeling
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:

@@ -39,6 +39,7 @@ import warnings
 import hashlib
 import json
 import os
+import time
 import contextlib
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -108,6 +109,150 @@ class _DEObjective:
         if self.log_mask.any():
             x[self.log_mask] = 10.0 ** x[self.log_mask]
         return self.engine._chi2(x, self.keys, self.cfg, self.q, self.I, self.sigma)
+
+
+# ── Monte-Carlo uncertainty: parallel machinery ───────────────────────────────
+#
+# One MC pass = perturb the data, refit, keep the fitted parameters. Passes are
+# independent, so they distribute over worker processes with no coordination.
+# A pool costs roughly a second to start (spawn re-imports numpy/scipy in every
+# worker), so it only pays off once the remaining passes are slow enough; the
+# first pass is timed in-process to decide. See ``_MC_PARALLEL_MIN_SECONDS``.
+
+# Projected serial cost of the remaining passes, below which the pool is skipped.
+_MC_PARALLEL_MIN_SECONDS = 5.0
+
+# Process-local engine, created on first use inside each worker.
+_MC_ENGINE: Optional["ModelingEngine"] = None
+
+
+def _mc_engine() -> "ModelingEngine":
+    """Return this process's reusable ``ModelingEngine``.
+
+    One engine per worker process rather than one per pass, so the cached
+    ``SlitSmearer`` (see :meth:`ModelingEngine._get_smearer`) is built once per
+    process instead of rebuilt for every pass.
+
+    The caller's live engine is deliberately never shipped across the process
+    boundary: the Modeling GUI monkey-patches ``_chi2``/``_residuals`` with
+    closures for "Cancel Fit", and closures cannot be pickled.
+    """
+    global _MC_ENGINE
+    if _MC_ENGINE is None:
+        _MC_ENGINE = ModelingEngine()
+    return _MC_ENGINE
+
+
+class _MCRun:
+    """Picklable single Monte-Carlo pass, for parallel uncertainty estimation.
+
+    Carries only picklable state (a config, the q grid, the uncertainties, and
+    the expected parameter count) and is called with one pre-perturbed intensity
+    array. Must be module-level so ``pickle`` can reference it by qualified name.
+
+    Returns the flat list of fitted parameter values, or ``None`` when the pass
+    failed — matching the serial path, which skips failed passes rather than
+    aborting the whole estimate.
+    """
+
+    def __init__(self, cfg, q, dI, n_keys):
+        self.cfg = cfg
+        self.q = q
+        self.dI = dI
+        self.n_keys = n_keys
+
+    def __call__(self, I_pert):
+        engine = _mc_engine()
+        # Every pass adds one entry to the q-keyed G cache (via the ideal-curve
+        # evaluation in fit()). The engine outlives the pass, so drop them here
+        # rather than growing without bound over a long run. This does not touch
+        # the cached SlitSmearer, which is the whole point of reusing an engine.
+        engine.clear_cache()
+        # fit() writes best-fit values back into the config it is given, so each
+        # pass needs its own copy to read the result out of.
+        cfg_run = deepcopy(self.cfg)
+        try:
+            engine.fit(cfg_run, self.q, I_pert, self.dI)
+            x_final, _, _, _ = engine._pack_params(deepcopy(cfg_run))
+        except Exception:
+            return None
+        if len(x_final) != self.n_keys:
+            return None
+        return [float(v) for v in x_final]
+
+
+def _mc_cancelled(cancel_cb) -> bool:
+    """True when the caller has asked to stop (``cancel_cb`` may be None)."""
+    return cancel_cb is not None and bool(cancel_cb())
+
+
+def _resolve_mc_workers(requested) -> int:
+    """Map the ``mc_workers`` convention onto a real process count.
+
+    ``0`` (or None / negative) → auto: ``cpu_count - 2``, leaving a couple of
+    cores for the GUI and the OS. ``1`` → serial. ``N > 1`` → N, capped at
+    ``cpu_count``.
+    """
+    n_cpu = os.cpu_count() or 1
+    if requested is None or int(requested) <= 0:
+        return max(1, n_cpu - 2)
+    return max(1, min(int(requested), n_cpu))
+
+
+def _run_mc_parallel(run, batch, n_workers, record, cancel_cb):
+    """Distribute MC passes over a process pool.
+
+    ``record(x_final)`` is called once per completed pass, in completion order.
+
+    Returns the entries of *batch* that were **not** completed — empty when the
+    pool handled everything (including a clean cancel). Raises if the pool could
+    not be created or the passes could not be submitted, which happens before
+    anything is recorded so the caller can safely fall back to serial.
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from concurrent.futures.process import BrokenProcessPool
+    from multiprocessing import get_context
+
+    # 'spawn' everywhere: uniform semantics across platforms, and forking a
+    # process that already has Qt loaded is not safe. Workers are created during
+    # submit(), so the BLAS pin has to cover the submission loop — otherwise
+    # every worker re-imports numpy with a full thread pool and oversubscribes.
+    with _limit_blas_threads(1):
+        executor = ProcessPoolExecutor(
+            max_workers=n_workers, mp_context=get_context('spawn'),
+        )
+        try:
+            futures = {executor.submit(run, arr): i for i, arr in enumerate(batch)}
+        except Exception:
+            executor.shutdown(wait=False)
+            raise
+
+    pending = set(range(len(batch)))
+    try:
+        for fut in as_completed(futures):
+            try:
+                x_final = fut.result()
+            except BrokenProcessPool:
+                raise
+            except Exception:
+                x_final = None          # failed pass — skipped, as in serial
+            pending.discard(futures[fut])
+            record(x_final)
+            if _mc_cancelled(cancel_cb):
+                # Passes already running cannot be interrupted; stop handing out
+                # new ones and drop whatever is still queued.
+                pending.clear()
+                break
+    except BrokenProcessPool:
+        warnings.warn(
+            "Monte-Carlo worker pool died; finishing the remaining passes serially.",
+            RuntimeWarning,
+        )
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    return [batch[i] for i in sorted(pending)]
+
 
 from pyirena.core import distributions as D
 from pyirena.core.form_factors import build_g_matrix, bin_widths
@@ -378,6 +523,13 @@ class ModelingConfig:
     # the global method; the serial path is unchanged. Falls back to serial
     # automatically if multiprocessing fails on the host.
     de_workers: int = 1
+    # Worker processes for the Monte-Carlo uncertainty passes (each pass is an
+    # independent refit of noise-perturbed data, so they parallelise cleanly).
+    # 0 = auto (cpu_count - 2, the default); 1 = serial; N > 1 = explicit count.
+    # The first pass always runs in-process and is timed: when the remaining
+    # work is too small to repay pool startup the rest also runs serially.
+    # Falls back to serial automatically if multiprocessing fails on the host.
+    mc_workers: int = 0
     # Slit smearing: when enabled the total model intensity is slit smeared
     # before comparison with (slit-smeared) data, so fitted parameters are
     # ideal-space.  Structure factors are part of the ideal model and are
@@ -1681,45 +1833,113 @@ class ModelingEngine:
         dI: np.ndarray,
         n_runs: int = 10,
         progress_cb=None,
+        cancel_cb=None,
+        workers: Optional[int] = None,
+        seed=None,
     ) -> dict[str, float]:
         """Estimate parameter uncertainty by repeated fitting on perturbed data.
 
         Data is perturbed as I_perturbed = I + dI * N(0,1) for each run.
         Returns a dict of std-dev for each fittable parameter.
 
-        Args:
-            progress_cb: optional callable(run_index, n_runs) called before each run.
-        """
-        rng = np.random.default_rng()
+        Each pass is an independent refit, so passes are spread over worker
+        processes when that is worth doing (see *workers*). All the noise is
+        drawn in *this* process before any pass starts, and workers receive
+        finished arrays rather than a seed. That keeps parallel results
+        bit-identical to serial ones for a given *seed*, and rules out the
+        failure mode where forked workers inherit one RNG state and return N
+        identical passes — which would silently drive every uncertainty to zero.
 
+        Args:
+            progress_cb: optional callable(n_done, n_runs) called as passes
+                complete. Passes finish out of order when running in parallel,
+                so this counts completions rather than reporting a pass index.
+            cancel_cb: optional callable returning True to stop early. Passes
+                already in flight are not interrupted, so a cancel takes effect
+                within roughly one pass; uncertainties from the passes that did
+                finish are still returned.
+            workers: process-count override. None (default) uses
+                ``config.mc_workers``: 0 = auto (cpu_count - 2), 1 = serial,
+                N > 1 = explicit. Falls back to serial if the pool cannot start.
+            seed: seed for the perturbation RNG. None (default) keeps passes
+                nondeterministic; pass an int for reproducible uncertainties.
+        """
         # Collect best-fit values per run
         _, _, _, keys = self._pack_params(deepcopy(config))
         if not keys:
             return {}
 
+        n_runs = int(n_runs)
+        if n_runs < 1:
+            return {}
+
+        # MC perturbs data around the already-found solution, so a fast local
+        # refinement per pass is appropriate — running the global search n_runs
+        # times would be needlessly slow. de_workers is pinned for the same
+        # reason: with fit_method='local' the DE pool is already unreachable,
+        # and pinning it stops a future edit from nesting pools inside this one.
+        cfg_mc = deepcopy(config)
+        cfg_mc.fit_method = 'local'
+        cfg_mc.de_workers = 1
+
+        rng = np.random.default_rng(seed)
+        perturbed = [I + dI * rng.standard_normal(len(I)) for _ in range(n_runs)]
+
+        run = _MCRun(cfg_mc, q, dI, len(keys))
         all_vals: list[list[float]] = [[] for _ in keys]
-        good_runs = 0
+        n_done = 0
 
-        for run_i in range(n_runs):
+        def _record(x_final):
+            nonlocal n_done
+            n_done += 1
+            if x_final is not None:
+                for j, v in enumerate(x_final):
+                    all_vals[j].append(v)
             if progress_cb is not None:
-                progress_cb(run_i + 1, n_runs)
-            I_pert = I + dI * rng.standard_normal(len(I))
-            cfg_run = deepcopy(config)
-            # MC perturbs data around the already-found solution, so a fast
-            # local refinement per run is appropriate — running the global
-            # search n_runs times would be needlessly slow.
-            cfg_run.fit_method = 'local'
-            try:
-                self.fit(cfg_run, q, I_pert, dI)
-                x_final, _, _, keys_run = self._pack_params(deepcopy(cfg_run))
-                if len(x_final) == len(keys):
-                    for j, v in enumerate(x_final):
-                        all_vals[j].append(v)
-                    good_runs += 1
-            except Exception:
-                continue
+                progress_cb(n_done, n_runs)
 
-        if good_runs < 2:
+        # Pass 1 runs here so its cost can be measured: it decides whether the
+        # rest are worth a process pool at all. No work is wasted — it counts
+        # towards n_runs like any other pass — but it does serialise one pass
+        # ahead of the pool. That costs at most one pass of wall time, which is
+        # a shrinking fraction as n_runs grows past the worker count, and it is
+        # what lets cheap models skip the pool entirely.
+        t0 = time.perf_counter()
+        _record(run(perturbed[0]))
+        first_pass_s = time.perf_counter() - t0
+
+        remaining = perturbed[1:]
+        n_workers = _resolve_mc_workers(
+            workers if workers is not None else getattr(config, 'mc_workers', 0)
+        )
+        use_pool = (
+            bool(remaining)
+            and n_workers > 1
+            and first_pass_s * len(remaining) >= _MC_PARALLEL_MIN_SECONDS
+        )
+
+        if remaining and not _mc_cancelled(cancel_cb):
+            leftovers = remaining
+            if use_pool:
+                try:
+                    leftovers = _run_mc_parallel(
+                        run, remaining, n_workers, _record, cancel_cb)
+                except Exception as exc:
+                    # Multiprocessing can fail on some hosts (spawn/pickling/
+                    # frozen apps). Never fail the estimate for it — the pool
+                    # raises before recording anything, so a serial retry of the
+                    # whole batch cannot double-count.
+                    warnings.warn(
+                        f"Parallel Monte-Carlo failed ({exc!r}); running serially.",
+                        RuntimeWarning,
+                    )
+                    leftovers = remaining
+            for I_pert in leftovers:
+                if _mc_cancelled(cancel_cb):
+                    break
+                _record(run(I_pert))
+
+        if len(all_vals[0]) < 2:
             return {}
 
         stds: dict[str, float] = {}
