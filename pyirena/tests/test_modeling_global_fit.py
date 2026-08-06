@@ -268,14 +268,14 @@ class TestExportJsonCarriesFitMethod:
     batch run (fit_modeling) uses the method the user picked in the GUI."""
 
     def test_export_includes_selected_fit_method(self, tmp_path, monkeypatch):
-        pytest.importorskip("pyirena.gui.modeling_panel")
+        # pytest.importorskip is not enough here: pyirena.gui._qt re-raises a
+        # plain ImportError, which pytest >= 8.2 treats as a broken module
+        # rather than a missing one (same idiom as test_modeling_report_csv).
         try:
-            try:
-                from PySide6.QtWidgets import QApplication
-            except ImportError:
-                from PyQt6.QtWidgets import QApplication
-        except Exception:
-            pytest.skip("Qt not available")
+            import pyirena.gui.modeling_panel  # noqa: F401
+            from pyirena.gui._qt import QApplication
+        except ImportError:
+            pytest.skip("Qt (PySide6/PyQt6) not available")
 
         import os
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

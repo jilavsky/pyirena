@@ -107,6 +107,7 @@ pyirena-datamanip = "pyirena.gui.data_manipulation_panel:main"
 pyirena-contrast = "pyirena.gui.contrast_panel:main"
 pyirena-saxsmorph = "pyirena.gui.saxs_morph_panel:main"
 pyirena-mcp = "pyirena.mcp.server:main"
+pyirena-doctor = "pyirena.diagnostics:main"
 
 [tool.setuptools.packages.find]
 include = ["pyirena*"]

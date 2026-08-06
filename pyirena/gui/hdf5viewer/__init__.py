@@ -21,10 +21,9 @@ def main(initial_folder: str | None = None) -> None:
     install_excepthook()
     import sys
 
-    try:
-        from PySide6.QtWidgets import QApplication
-    except ImportError:
-        from PyQt6.QtWidgets import QApplication  # type: ignore[no-redef]
+    # Route through the shared shim so a missing/broken Qt is diagnosed once,
+    # consistently, instead of surfacing as a bare ModuleNotFoundError.
+    from pyirena.gui._qt import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")

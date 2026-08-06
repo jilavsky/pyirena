@@ -13,21 +13,35 @@ Two import styles are supported:
 * submodules — ``from pyirena.gui._qt import QtWidgets, QtCore, QtGui``
 
 ``Signal`` is normalised across bindings (``pyqtSignal`` under PyQt6).
+
+When neither binding can be imported the failure is diagnosed by
+``pyirena.diagnostics`` rather than reported as "not installed" — an
+installed-but-unloadable Qt raises ``ImportError`` too, and telling the user
+to reinstall it sends them in a circle.  Run ``pyirena-doctor`` for the full
+report.
 """
 
 try:
     from PySide6 import QtWidgets, QtCore, QtGui
     from PySide6.QtCore import Signal
     QT_BINDING = "PySide6"
-except ImportError:  # pragma: no cover - exercised only without PySide6
+except ImportError as _pyside_error:  # pragma: no cover - only without PySide6
     try:
         from PyQt6 import QtWidgets, QtCore, QtGui  # type: ignore[no-redef]
         from PyQt6.QtCore import pyqtSignal as Signal  # type: ignore[no-redef]
         QT_BINDING = "PyQt6"
-    except ImportError:  # pragma: no cover
+    except ImportError as _pyqt_error:  # pragma: no cover
+        # Do NOT report this as "not installed": ImportError also covers an
+        # installed-but-unloadable binding (architecture mismatch, missing
+        # system libraries, shiboken6 version skew).  pyirena.diagnostics
+        # tells the two apart and names the interpreter that failed.
+        from pyirena.diagnostics import format_qt_import_failure
+
+        del _pyqt_error  # diagnosed below; PySide6 is the binding we report on
         raise ImportError(
-            "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
-        )
+            "pyIrena could not load a Qt binding.\n\n"
+            + format_qt_import_failure()
+        ) from _pyside_error
 
 # --- QtWidgets ---------------------------------------------------------------
 QAbstractItemView = QtWidgets.QAbstractItemView

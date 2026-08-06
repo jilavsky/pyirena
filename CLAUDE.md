@@ -140,6 +140,7 @@ change how you should work.
 | Importing Igor `.pxp` files | `docs/igor_pxp_import.md` |
 | Loading or cleaning input data | `docs/data_import_and_cleaning.md` |
 | Packaging or release work | `docs/distribution.md`, `.github/workflows/publish.yml` |
+| Debugging a user's install/startup failure | `pyirena/diagnostics.py` (`pyirena-doctor`), `docs/installation.md` |
 | Understanding a specific GUI panel | `docs/<tool>_gui.md` (see tool map above) |
 | Looking for design intent on unfinished work | `planning/` and `IMPROVEMENT_PLAN.md` |
 

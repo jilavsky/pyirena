@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`pyirena-doctor` — installation troubleshooter.** A new console command
+  that reports the running interpreter, every required and optional
+  dependency, and whether the `pyirena-gui` launcher uses the same Python as
+  your `pip`. Each dependency is classified as installed, missing, or
+  *installed but failing to load* — the three states that the previous error
+  messages collapsed into one. Users can paste its output into a bug report.
+  See [Installation → Troubleshooting](docs/installation.md#troubleshooting).
+
+### Fixed
+
+- **"GUI dependencies not installed" when they demonstrably were.** `ImportError`
+  covers both a genuinely absent package and one that is present but whose
+  binaries will not load (wrong CPU architecture, missing system libraries,
+  shiboken6/PySide6 version skew). pyIrena reported the second as the first,
+  telling users to reinstall something they already had. Qt import failures are
+  now diagnosed: the message says which of the two happened, where the package
+  lives, the original loader error, the interpreter that failed, and — for
+  recognised errors such as `incompatible architecture` or `libGL.so.1` — the
+  likely cause and fix.
+- **Wrong-environment installs are now detected.** When the `pyirena-gui`
+  launcher script points at a different Python than the one running, both paths
+  are printed along with the `python -m pip` / `python -m pyirena.gui.launch`
+  form that keeps them in sync. This is the most common cause of the report
+  above.
+- **GUI startup errors are no longer flattened into a dependency message.** An
+  `ImportError` from an internal module is now identified as a probable bug
+  (with an issue-tracker pointer) rather than blamed on missing packages, and
+  the full traceback is always written to `~/.pyirena/logs/gui.log`.
+  `PYIRENA_DEBUG=1` also prints it to the terminal.
+- `pyirena-viewer` imported Qt directly instead of going through
+  `pyirena.gui._qt`, so it produced a bare `ModuleNotFoundError` instead of the
+  diagnosed message.
+- A Modeling test (`test_export_includes_selected_fit_method`) failed instead
+  of skipping in environments without Qt, because `pytest.importorskip` treats
+  a re-raised plain `ImportError` as a broken module rather than a missing one.
+
 - **Parallel Monte-Carlo uncertainty in the Modeling tool.** Each MC pass is an
   independent refit of noise-perturbed data, so passes now run across worker
   processes instead of one after another. This was impractical before for the
