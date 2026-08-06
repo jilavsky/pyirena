@@ -4,6 +4,8 @@ Orientation file for AI agents working in this repository. Read this first; it
 tells you *where* things are and *what rules apply*, not what every function
 does. For details, follow the pointers into `docs/`.
 
+Last update date: 05-08-2026 ; version:1.1.0b3
+
 pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
 package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,
 specified, debugged and validated by Jan Ilavsky. Scientific correctness
