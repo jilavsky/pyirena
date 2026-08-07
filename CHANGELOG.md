@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cell/row/column selection and clipboard copy in Data Selector's Tabulate
+  Results table.** The table only supported selecting whole rows, and had no
+  clipboard support at all — copying a selection silently did nothing, so
+  pasting elsewhere produced whatever had been on the clipboard before.
+  Selection is now cell-based, so individual cells, whole rows or columns
+  (via header click), and non-contiguous multi-selections (ctrl-click) are
+  all supported. **Ctrl+C** copies the selection as tab-separated text;
+  **Ctrl+Shift+C**, or right-click → *Copy with Column Headers*, includes the
+  header row for the selected columns. Non-contiguous selections copy as a
+  dense grid over just the selected rows and columns, so picking two
+  non-adjacent columns pastes as a clean two-column block rather than
+  everything in between.
+
 ## [1.1.0b5] - 2026-08-07
 
 ### Fixed

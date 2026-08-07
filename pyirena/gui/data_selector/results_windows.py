@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 from pyirena.gui.data_selector._qt import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QAbstractItemView, QTableWidget, QTableWidgetItem, Qt,
-    QMessageBox,
+    QMessageBox, QApplication, QMenu, QKeySequence, QShortcut,
 )
 from pyirena.gui.sas_plot import add_slope_line_menu
 from pyirena.io.hdf5 import readGenericNXcanSAS
@@ -945,9 +945,17 @@ class TabulateResultsWindow(QWidget):
 
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+
+        copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.table)
+        copy_shortcut.activated.connect(lambda: self._copy_selection(include_headers=False))
+        copy_headers_shortcut = QShortcut(QKeySequence("Ctrl+Shift+C"), self.table)
+        copy_headers_shortcut.activated.connect(lambda: self._copy_selection(include_headers=True))
 
         self.save_btn = QPushButton("Save as CSV…")
         self.save_btn.setMinimumHeight(32)
@@ -993,6 +1001,49 @@ class TabulateResultsWindow(QWidget):
         self.table.resizeColumnsToContents()
         self.save_btn.setEnabled(bool(rows))
         self.show()
+
+    def _show_context_menu(self, pos):
+        """Right-click menu on the table: plain copy or copy-with-headers."""
+        if not self.table.selectedItems():
+            return
+        menu = QMenu(self.table)
+        copy_action = menu.addAction("Copy")
+        copy_headers_action = menu.addAction("Copy with Column Headers")
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if action == copy_action:
+            self._copy_selection(include_headers=False)
+        elif action == copy_headers_action:
+            self._copy_selection(include_headers=True)
+
+    def _copy_selection(self, include_headers: bool = False):
+        """
+        Copy the current selection to the clipboard as tab-separated text.
+
+        Supports arbitrary selections: single cells, whole rows/columns
+        (selected via header clicks), rectangular blocks, and non-contiguous
+        multi-selections (ctrl-click). Non-contiguous row/column selections
+        are copied as a dense grid over the selected rows x selected columns,
+        with any unselected intersection left blank.
+        """
+        items = self.table.selectedItems()
+        if not items:
+            return
+
+        rows = sorted({item.row() for item in items})
+        cols = sorted({item.column() for item in items})
+        row_index = {r: i for i, r in enumerate(rows)}
+        col_index = {c: i for i, c in enumerate(cols)}
+
+        grid = [['' for _ in cols] for _ in rows]
+        for item in items:
+            grid[row_index[item.row()]][col_index[item.column()]] = item.text()
+
+        lines = []
+        if include_headers:
+            lines.append('\t'.join(self._headers[c] for c in cols))
+        lines.extend('\t'.join(row) for row in grid)
+
+        QApplication.clipboard().setText('\n'.join(lines))
 
     def _save_csv(self):
         import csv as _csv

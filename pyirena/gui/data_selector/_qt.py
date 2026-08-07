@@ -15,7 +15,7 @@ try:
         QTableWidget, QTableWidgetItem, QInputDialog,
     )
     from PySide6.QtCore import Qt, QDir, QThread, Signal, QUrl
-    from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices
+    from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices, QKeySequence, QShortcut
 except ImportError as _pyside_error:
     try:
         from PyQt6.QtWidgets import (  # type: ignore[no-redef]
@@ -26,7 +26,7 @@ except ImportError as _pyside_error:
         QTableWidget, QTableWidgetItem, QInputDialog,
         )
         from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal, QUrl  # type: ignore[no-redef]
-        from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices  # type: ignore[no-redef]
+        from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices, QKeySequence, QShortcut  # type: ignore[no-redef]
     except ImportError:
         from pyirena.diagnostics import format_qt_import_failure
 
@@ -43,5 +43,5 @@ __all__ = [
     "QGroupBox", "QCheckBox", "QColorDialog", "QTableWidget",
     "QTableWidgetItem", "QInputDialog",
     "Qt", "QDir", "QThread", "Signal", "QUrl",
-    "QAction", "QDoubleValidator", "QDesktopServices",
+    "QAction", "QDoubleValidator", "QDesktopServices", "QKeySequence", "QShortcut",
 ]
