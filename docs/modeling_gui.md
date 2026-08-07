@@ -88,7 +88,7 @@ python -m pyirena.gui.modeling_panel path/to/file.h5
 │  Background: [____] [✓ Fit]        └──────────────────────────────────────────┘
 │  [✓ No limits?]
 │  Qmin: [____]  Qmax: [____]
-│  MC passes: [10]
+│  MC passes: [10]  cores: [auto]
 │
 │  [Graph Model]  [Fit]  [Calc. Uncertainty (MC)]
 │  [Revert]       [Save JSON]  [Load JSON]
@@ -522,6 +522,33 @@ Click **Calc. Uncertainty (MC)** to estimate parameter uncertainties by Monte Ca
 
 Set the number of passes with the **Passes:** spin box (1–500, default 10).
 More passes give better uncertainty estimates at the cost of longer compute time.
+
+**Parallel passes (`cores`).** Each pass is an independent refit, so passes are
+spread over worker processes. The **cores** spin box next to **Passes:** sets how
+many:
+
+- **auto** (default, shown for the value 0) — all cores but two, leaving headroom
+  for the GUI and the OS.
+- **1** — serial, the pre-1.1.0b4 behaviour.
+- **N** — an explicit count, capped at the core count.
+
+This is the setting that matters for slow models. A complex form factor
+(core-shell, core-shell-shell) or several populations can take minutes per pass,
+which made a 20-pass estimate impractical; the same estimate now finishes in
+roughly `1/cores` of the time. Simple models see little or no benefit, so short
+runs stay serial automatically: the first pass is timed, and the worker pool is
+only started when the remaining passes are projected to take more than a few
+seconds. If the host cannot start worker processes, the passes fall back to
+serial with a warning rather than failing.
+
+Uncertainties do not depend on how many cores you use — a given run produces the
+same numbers serially and in parallel.
+
+**Cancelling.** While MC is running the button becomes **Cancel MC**. Cancelling
+does not interrupt passes already in flight, so it takes effect within roughly
+one pass, and the uncertainties from the passes that did finish are still
+reported (the status line says how many were used). At least two passes must
+complete for a standard deviation to exist.
 
 ---
 

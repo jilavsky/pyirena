@@ -38,6 +38,7 @@ from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices
 from pyirena.gui.data_selector.report import _build_report
 from pyirena.gui.data_selector.results_windows import GraphWindow, SimpleFitResultsWindow, SizeDistResultsWindow, TabulateResultsWindow, UnifiedFitResultsWindow, WAXSPeakFitResultsWindow
 from pyirena.gui.data_selector.sorting import _SORT_KEYS
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
 from pyirena.version_check import is_newer, should_check_now
 
@@ -295,7 +296,8 @@ class DataSelectorPanel(QWidget):
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Filter:"))
         self.filter_input = QLineEdit()
-        self.filter_input.setPlaceholderText("Enter text to filter files...")
+        self.filter_input.setPlaceholderText(FILTER_PLACEHOLDER)
+        self.filter_input.setToolTip(FILTER_TOOLTIP)
         self.filter_input.setMaximumWidth(350)
         self.filter_input.textChanged.connect(self.filter_files)
         filter_layout.addWidget(self.filter_input)
@@ -1035,20 +1037,23 @@ class DataSelectorPanel(QWidget):
             self.status_label.setText(f"Error reading folder: {e}")
 
     def filter_files(self, filter_text: str):
-        """Filter the file list based on search text."""
+        """Filter the file list based on search text.
+
+        The text is a regular expression (grep semantics, case-insensitive);
+        see pyirena.gui.file_filter for the exact rules.
+        """
         if not filter_text:
             # Show all items
             for i in range(self.file_list.count()):
                 self.file_list.item(i).setHidden(False)
             return
 
-        # Use grep-like filtering (case-insensitive substring match)
-        filter_text = filter_text.lower()
+        matches_name = make_file_matcher(filter_text)
         visible_count = 0
 
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            matches = filter_text in item.text().lower()
+            matches = matches_name(item.text())
             item.setHidden(not matches)
             if matches:
                 visible_count += 1

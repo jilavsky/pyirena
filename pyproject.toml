@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyirena"
-version = "1.1.0b3"
+version = "1.1.0b4"
 description = "Python tools for small-angle scattering data analysis."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
@@ -107,6 +107,7 @@ pyirena-datamanip = "pyirena.gui.data_manipulation_panel:main"
 pyirena-contrast = "pyirena.gui.contrast_panel:main"
 pyirena-saxsmorph = "pyirena.gui.saxs_morph_panel:main"
 pyirena-mcp = "pyirena.mcp.server:main"
+pyirena-doctor = "pyirena.diagnostics:main"
 
 [tool.setuptools.packages.find]
 include = ["pyirena*"]

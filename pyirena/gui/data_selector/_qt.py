@@ -1,6 +1,9 @@
 """
 pyirena.gui.data_selector._qt — single PySide6/PyQt6 import point for the
 data_selector package (PySide6 preferred, PyQt6 fallback).
+
+Failure diagnosis is delegated to ``pyirena.diagnostics``; see
+``pyirena/gui/_qt.py`` for the rationale.
 """
 
 try:
@@ -13,7 +16,7 @@ try:
     )
     from PySide6.QtCore import Qt, QDir, QThread, Signal, QUrl
     from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices
-except ImportError:
+except ImportError as _pyside_error:
     try:
         from PyQt6.QtWidgets import (  # type: ignore[no-redef]
             QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
@@ -25,9 +28,12 @@ except ImportError:
         from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal, QUrl  # type: ignore[no-redef]
         from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices  # type: ignore[no-redef]
     except ImportError:
+        from pyirena.diagnostics import format_qt_import_failure
+
         raise ImportError(
-            "Neither PySide6 nor PyQt6 found. Install with: pip install PySide6"
-        )
+            "pyIrena could not load a Qt binding.\n\n"
+            + format_qt_import_failure()
+        ) from _pyside_error
 
 __all__ = [
     "QApplication", "QWidget", "QVBoxLayout", "QHBoxLayout", "QGridLayout",

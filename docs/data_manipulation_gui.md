@@ -74,7 +74,10 @@ The tool is available three ways:
   [Q units](data_import_and_cleaning.md#q-units).
 - **Sort** --- 10 sort options: filename, temperature, time, order number, pressure
   (ascending or descending).
-- **Filter** --- type text to filter filenames (case-insensitive substring match).
+- **Filter** --- type text to filter filenames.  The text is a **regular
+  expression** matched anywhere in the name, case-insensitively (grep
+  semantics): `60C` , `60C|100C` , `0[12]min` , `^sample` , `\.h5$` ,
+  `^(?!.*bkg)` .  An invalid pattern falls back to a plain substring match.
 - **Double-click** a file to load and plot it.
 
 ### Graph (centre)

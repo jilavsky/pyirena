@@ -25,6 +25,7 @@ from typing import Callable
 from pyirena.gui._qt import (
     QBrush, QColor, QComboBox, QFileDialog, QFont, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
 )
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 
 # ── Extensions treated as HDF5 files ───────────────────────────────────────
 HDF5_EXTENSIONS = {".h5", ".hdf5", ".hdf", ".nxs", ".h5xp"}
@@ -148,14 +149,8 @@ class FileTreeWidget(QWidget):
 
         # Filter row (below sort)
         self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Filter… (regex OK, e.g. 60C|0[12]min)")
-        self._filter_edit.setToolTip(
-            "Filter filenames.  Regular expressions are supported:\n"
-            "  60C        — files containing '60C'\n"
-            "  0[12]min   — files with '01min' or '02min'\n"
-            "  ^sample    — files starting with 'sample'\n"
-            "Plain text fragments also work."
-        )
+        self._filter_edit.setPlaceholderText(FILTER_PLACEHOLDER)
+        self._filter_edit.setToolTip(FILTER_TOOLTIP)
         self._filter_edit.textChanged.connect(self._on_filter_changed)
         layout.addWidget(self._filter_edit)
 
@@ -338,11 +333,12 @@ class FileTreeWidget(QWidget):
 
     def _apply_filter(self) -> None:
         """Show/hide file items based on the filter text."""
-        flt = self._filter_text
+        # Compile once here rather than per filename inside the recursion.
+        matcher = make_file_matcher(self._filter_text)
         root = self._tree.invisibleRootItem()
-        self._filter_node(root, flt)
+        self._filter_node(root, matcher)
 
-    def _filter_node(self, parent: QTreeWidgetItem, flt: str) -> bool:
+    def _filter_node(self, parent: QTreeWidgetItem, flt: Callable[[str], bool]) -> bool:
         """Recursively filter items; return True if any child is visible."""
         any_visible = False
         for i in range(parent.childCount()):
@@ -361,14 +357,7 @@ class FileTreeWidget(QWidget):
                     any_visible |= child_visible
             else:
                 # File item
-                name = child.text(0)
-                if not flt:
-                    visible = True
-                else:
-                    try:
-                        visible = bool(re.search(flt, name, re.IGNORECASE))
-                    except re.error:
-                        visible = flt.lower() in name.lower()
+                visible = flt(child.text(0))
                 child.setHidden(not visible)
                 any_visible |= visible
         return any_visible

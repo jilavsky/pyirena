@@ -480,6 +480,7 @@ result = fit_modeling(
     save_to_nexus=True,     # bool — write results to NXcanSAS HDF5 file
     with_uncertainty=False, # bool — run MC uncertainty estimation after the main fit
     n_mc_runs=10,           # int — number of MC runs (used when with_uncertainty=True)
+    mc_workers=None,        # int — worker processes for the MC passes; None = use the config
 )
 ```
 
@@ -504,7 +505,13 @@ result = fit_modeling(
    fallback to serial if the host cannot start workers.
 5. **MC uncertainty** *(if `with_uncertainty=True`)* — re-fits `n_mc_runs` noise-perturbed
    copies of the data and accumulates per-parameter standard deviations (always
-   using the fast local refinement, even when `fit_method` is `global`).
+   using the fast local refinement, even when `fit_method` is `global`). Passes
+   are independent, so they are spread over worker processes: the `mc_workers`
+   argument, or failing that the config's `"mc_workers"` key, sets how many —
+   `0` = auto (`cpu_count - 2`, the default), `1` = serial, `N > 1` = explicit.
+   Short runs stay serial automatically, and the passes fall back to serial with
+   a warning if the host cannot start workers. Results do not depend on the
+   worker count.
 6. **Saves results** *(if `save_to_nexus=True` and input is HDF5)* — writes
    `entry/modeling_results` to the HDF5 file.
 7. **Returns** a result dict (see below).
@@ -518,6 +525,7 @@ result = fit_modeling(
 | `save_to_nexus` | `bool` | `True` | Save fit results to NXcanSAS HDF5; ignored for text-file inputs |
 | `with_uncertainty` | `bool` | `False` | Run Monte Carlo uncertainty estimation |
 | `n_mc_runs` | `int` | `10` | Number of MC passes for uncertainty estimation |
+| `mc_workers` | `int` or `None` | `None` | Worker processes for the MC passes, overriding the config's `mc_workers`. `0` = auto (`cpu_count - 2`), `1` = serial, `N > 1` = explicit. Keep at `1` when parallelising over files instead — nest one level of parallelism, not two |
 
 ### Population types
 

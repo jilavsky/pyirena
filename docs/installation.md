@@ -80,7 +80,7 @@ pip install -e .
 
 ### Trying a pre-release (beta) version from PyPI
 
-Beta releases (e.g. `1.1.0b3`) are published to PyPI ahead of a stable
+Beta releases (e.g. `1.1.0b4`) are published to PyPI ahead of a stable
 release for early testing. `pip` ignores pre-releases by default, so pass
 `--pre` explicitly:
 
@@ -91,7 +91,7 @@ pip install --pre "pyirena[gui]"
 Or pin an exact beta version:
 
 ```bash
-pip install "pyirena[gui]==1.1.0b3"
+pip install "pyirena[gui]==1.1.0b4"
 ```
 
 See [CHANGELOG.md](../CHANGELOG.md) for what changed, and report issues at
@@ -132,6 +132,9 @@ https://github.com/jilavsky/pyirena/issues.
 # Check the package is importable
 python -c "import pyirena; print('pyirena', pyirena.__version__)"
 
+# Full environment + dependency report
+pyirena-doctor
+
 # Launch the GUI
 pyirena-gui
 ```
@@ -139,6 +142,59 @@ pyirena-gui
 ---
 
 ## Troubleshooting
+
+### Start with `pyirena-doctor`
+
+```bash
+pyirena-doctor
+```
+
+It reports the interpreter in use, every required and optional dependency
+(marking each as installed, missing, or *installed but failing to load*), and
+whether the `pyirena-gui` launcher runs the same Python as your `pip`. Paste
+its output into any bug report — it usually identifies the problem outright.
+
+### "GUI dependencies not installed" — but pip says they are
+
+Almost always one of two things:
+
+**1. `pip` and the launcher are different Pythons.** `pyirena-gui` is a script
+with a hard-coded interpreter path. If you installed with a `pip` belonging to
+a different environment, the packages are invisible to the launcher. Use the
+module form so both always agree:
+
+```bash
+python -m pip install "pyirena[gui]"
+python -m pyirena.gui.launch
+```
+
+`pyirena-doctor` detects this case explicitly and prints both paths.
+
+**2. PySide6 is installed but cannot load.** Reinstalling will not help.
+Common causes:
+
+| Symptom in the error | Cause | Fix |
+|---|---|---|
+| `incompatible architecture` | x86_64 wheel under arm64 Python (or a Rosetta terminal) | Reinstall with a matching interpreter; check `python -c "import platform; print(platform.machine())"` |
+| `libGL.so.1: cannot open shared object file` | Linux missing OpenGL runtime | `sudo apt install libgl1 libglib2.0-0` |
+| `libxkbcommon…` / `xcb` errors | Linux missing X11 libraries | `sudo apt install libxkbcommon-x11-0 libxcb-cursor0` |
+| `DLL load failed` | Windows missing MSVC runtime | Install the Visual C++ Redistributable (x64) |
+| `shiboken6` mismatch | Partial upgrade | `python -m pip install --force-reinstall PySide6 shiboken6` |
+
+pyIrena names the likely cause for each of these automatically.
+
+> **Quote the brackets.** In zsh, `pip install pyirena[gui]` is glob-expanded
+> and fails or silently installs without the extras. Always write
+> `pip install "pyirena[gui]"`.
+
+For the full traceback behind any startup failure:
+
+```bash
+PYIRENA_DEBUG=1 pyirena-gui
+```
+
+Startup failures are also logged with full tracebacks to
+`~/.pyirena/logs/gui.log`.
 
 ### HDF5 / h5py build errors
 

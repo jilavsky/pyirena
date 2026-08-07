@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b4] - 2026-08-06
+
+### Added
+
+- **Parallel Monte-Carlo uncertainty in the Modeling tool.** Each MC pass is an
+  independent refit of noise-perturbed data, so passes now run across worker
+  processes instead of one after another. This was impractical before for the
+  models that need it most: a complex form factor (core-shell,
+  core-shell-shell) or several populations can take minutes per pass, making a
+  20-pass estimate a coffee break. A new **cores** spin box next to
+  *Modeling → Passes:* controls it — **auto** (the default: all cores but two),
+  **1** for the previous serial behaviour, or an explicit count. The same
+  setting is available to scripts as `fit_modeling(..., mc_workers=N)` and as
+  the `"mc_workers"` key in the exported JSON config. See
+  [MC Uncertainty](docs/modeling_gui.md#mc-uncertainty).
+  - Uncertainties are unchanged by the worker count: all the noise is drawn in
+    the parent process before any pass starts, so a given run produces the same
+    numbers serially and in parallel.
+  - Short runs stay serial automatically. The first pass is timed and the pool
+    is only started when the remaining passes are projected to take more than a
+    few seconds, so simple models never pay for worker startup.
+  - If the host cannot start worker processes the passes fall back to serial
+    with a warning rather than failing.
+- **Cancel for Modeling MC runs.** The **Calc. Uncertainty (MC)** button becomes
+  **Cancel MC** while a run is in progress. Cancelling does not interrupt passes
+  already in flight, so it takes effect within roughly one pass, and the
+  uncertainties from the passes that did finish are still reported along with
+  how many were used.
+
+- **Regular expressions in every file Filter box.** The documentation promised
+  grep-like filtering, but only the HDF5 Viewer actually interpreted the Filter
+  text as a regex — Data Selector, Data Manipulation and Data Merge did a plain
+  case-insensitive substring test, so patterns like `60C|100C`, `0[12]min`,
+  `^sample`, `\.h5$` or `^(?!.*bkg)` silently matched nothing. All four
+  browsers now share one implementation (`pyirena.gui.file_filter`) using full
+  Python regular expressions matched anywhere in the name, case-insensitively.
+  A plain fragment such as `Rg50` behaves exactly as before, and an incomplete
+  or invalid pattern (common while typing) falls back to a substring match
+  rather than emptying the list.
+
+- **`pyirena-doctor` — installation troubleshooter.** A new console command
+  that reports the running interpreter, every required and optional
+  dependency, and whether the `pyirena-gui` launcher uses the same Python as
+  your `pip`. Each dependency is classified as installed, missing, or
+  *installed but failing to load* — the three states that the previous error
+  messages collapsed into one. Users can paste its output into a bug report.
+  See [Installation → Troubleshooting](docs/installation.md#troubleshooting).
+
+### Fixed
+
+- **"GUI dependencies not installed" when they demonstrably were.** `ImportError`
+  covers both a genuinely absent package and one that is present but whose
+  binaries will not load (wrong CPU architecture, missing system libraries,
+  shiboken6/PySide6 version skew). pyIrena reported the second as the first,
+  telling users to reinstall something they already had. Qt import failures are
+  now diagnosed: the message says which of the two happened, where the package
+  lives, the original loader error, the interpreter that failed, and — for
+  recognised errors such as `incompatible architecture` or `libGL.so.1` — the
+  likely cause and fix.
+- **Wrong-environment installs are now detected.** When the `pyirena-gui`
+  launcher script points at a different Python than the one running, both paths
+  are printed along with the `python -m pip` / `python -m pyirena.gui.launch`
+  form that keeps them in sync. This is the most common cause of the report
+  above.
+- **GUI startup errors are no longer flattened into a dependency message.** An
+  `ImportError` from an internal module is now identified as a probable bug
+  (with an issue-tracker pointer) rather than blamed on missing packages, and
+  the full traceback is always written to `~/.pyirena/logs/gui.log`.
+  `PYIRENA_DEBUG=1` also prints it to the terminal.
+- `pyirena-viewer` imported Qt directly instead of going through
+  `pyirena.gui._qt`, so it produced a bare `ModuleNotFoundError` instead of the
+  diagnosed message.
+- A Modeling test (`test_export_includes_selected_fit_method`) failed instead
+  of skipping in environments without Qt, because `pytest.importorskip` treats
+  a re-raised plain `ImportError` as a broken module rather than a missing one.
+
+### Changed
+
+- The **Filter** placeholder and tooltip in Data Selector, Data Manipulation,
+  Data Merge and the HDF5 Viewer now come from one shared string and document
+  the regex syntax inline, replacing the previous "text filter…" /
+  "Enter text to filter files..." hints.
+
 ## [1.1.0b3] - 2026-08-03
 
 ### Added
