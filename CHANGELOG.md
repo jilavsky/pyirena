@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b5] - 2026-08-07
+
 ### Fixed
 
 - **Invariant: "Refit background from saved ranges" ignored the parameter
