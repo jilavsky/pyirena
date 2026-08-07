@@ -37,12 +37,12 @@ import math
 from typing import Optional
 
 import numpy as np
-from scipy.optimize import nnls, curve_fit
+from scipy.optimize import curve_fit, nnls
 
 from pyirena.core.form_factors import (
+    bin_widths,
     build_g_matrix,
     make_r_grid,
-    bin_widths,
 )
 
 log = logging.getLogger(__name__)

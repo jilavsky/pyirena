@@ -39,7 +39,6 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from scipy import optimize, signal
 
-
 # ===========================================================================
 # Constants
 # ===========================================================================
@@ -413,8 +412,8 @@ def rolling_quantile_background(
     quantile : float
         Quantile fraction in [0, 0.5).  0 = rolling minimum.
     """
-    from scipy.ndimage import percentile_filter
     from scipy.interpolate import CubicSpline
+    from scipy.ndimage import percentile_filter
 
     q = np.asarray(q, float)
     I = np.asarray(I, float)
@@ -443,7 +442,7 @@ def rolling_ball_background(I: np.ndarray, radius_frac: float) -> np.ndarray:
     radius_frac : float
         Ball radius as a fraction of the data length.
     """
-    from scipy.ndimage import grey_erosion, grey_dilation
+    from scipy.ndimage import grey_dilation, grey_erosion
 
     I = np.asarray(I, float)
     r = max(1, int(radius_frac * len(I)))

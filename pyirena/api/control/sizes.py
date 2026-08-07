@@ -46,8 +46,8 @@ from typing import Optional
 import numpy as np
 
 from pyirena.api._paths import PathSecurityError, resolve_safe
-from pyirena.api.control.errors import make_error, no_session, no_fit
-from pyirena.api.control.session import get_session, fit_mask, Session
+from pyirena.api.control.errors import make_error, no_fit, no_session
+from pyirena.api.control.session import Session, fit_mask, get_session
 
 # Inversion methods exposed to the agent.  MaxEnt is the recommended default.
 SIZES_METHODS = ["maxent", "regularization", "tnnls", "montecarlo"]

@@ -101,7 +101,6 @@ if TYPE_CHECKING:
 
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 
-
 __all__ = [
     "extract_pxp_to_nexus",
     "extract_h5xp_to_nexus",
@@ -365,11 +364,14 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     """
     try:
         from igor2.packed import (
-            setup_packed_file_record_header, _RECORD_TYPE,
-            _UnknownRecord, PACKEDRECTYPE_MASK,
-            _byte_order, _need_to_reorder_bytes,
+            _RECORD_TYPE,
+            PACKEDRECTYPE_MASK,
+            _byte_order,
+            _need_to_reorder_bytes,
+            _UnknownRecord,
+            setup_packed_file_record_header,
         )
-        from igor2.record.folder import FolderStartRecord, FolderEndRecord
+        from igor2.record.folder import FolderEndRecord, FolderStartRecord
         from igor2.record.wave import WaveRecord
     except ImportError as e:
         raise ImportError(

@@ -10,21 +10,43 @@ import logging
 log = logging.getLogger(__name__)
 
 
-from pyirena.gui._qt import (
-    QBrush, QCheckBox, QColor, QComboBox, QDesktopServices, QDoubleValidator, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTextEdit, QUrl, QVBoxLayout, QWidget, Qt,
-)
-
-import numpy as np
 from pathlib import Path
 
+import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
+from pyirena.gui._qt import (
+    QBrush,
+    QCheckBox,
+    QColor,
+    QComboBox,
+    QDesktopServices,
+    QDoubleValidator,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QTabWidget,
+    QTextEdit,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
+)
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu, save_itx_from_plot
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
-from pyirena.gui.sas_plot import RadiusAxisItem, save_itx_from_plot, add_slope_line_menu
 from pyirena.state.state_manager import StateManager
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ScrubbableLineEdit  (mouse-wheel-enabled numeric input, same as unified_fit)
@@ -1862,8 +1884,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         if not fp:
             return
         try:
-            from pyirena.io.hdf5 import readGenericNXcanSAS
             import numpy as _np
+
+            from pyirena.io.hdf5 import readGenericNXcanSAS
             p = Path(fp)
             d = readGenericNXcanSAS(str(p.parent), p.name,
                                     prefer_slit_smeared=prefer_slit_smeared)
@@ -2091,7 +2114,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         except Exception as exc:
             self.graph_window.show_error_message(f"Error computing model: {exc}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
     # ── Fit ──────────────────────────────────────────────────────────────────
 
@@ -2254,7 +2278,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         except Exception as exc:
             self.graph_window.show_error_message(f"Error during fitting: {exc}")
             self.status_label.setText("Fit failed")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
     # ── Slit-smearing display helpers ─────────────────────────────────────────
 
@@ -2342,7 +2367,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 self.graph_window.show_error_message(result['message'])
         except Exception as exc:
             self.graph_window.show_error_message(f"Error fitting P/B: {exc}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
     def fit_background_action(self):
         """Fit flat background by averaging I − B·q^(-P) in the Q range."""
@@ -2364,7 +2390,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 self.graph_window.show_error_message(result['message'])
         except Exception as exc:
             self.graph_window.show_error_message(f"Error fitting background: {exc}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
     def fit_all_action(self):
         """Fit power law (if checked), then background (if Q range specified), then sizes."""
@@ -2827,8 +2854,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
     def export_parameters(self):
         """Export current Sizes parameters to a pyIrena JSON config file."""
-        import json
         import datetime
+        import json
+
         from pyirena import __version__ as _version
 
         default_dir = self._get_data_folder()
@@ -3050,7 +3078,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         except Exception as exc:
             self.graph_window.show_error_message(f"Error storing results: {exc}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

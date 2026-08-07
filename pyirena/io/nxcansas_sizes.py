@@ -46,12 +46,12 @@ timestamp, program
 
 from __future__ import annotations
 
-import h5py
-import numpy as np
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import h5py
+import numpy as np
 
 _GROUP = 'entry/sizes_results'
 _PROGRAM = 'pyirena.core.sizes'

@@ -6,6 +6,7 @@ parent's graph window.  Visualisation only — never modifies the Unified
 Fit model or level parameters.
 """
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -14,16 +15,24 @@ log = logging.getLogger(__name__)
 from typing import TYPE_CHECKING
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget, Qt,
-)
-
 import pyqtgraph as pg
 
 from pyirena.core.feature_detect import (
     FeatureDetectConfig,
     detect_features,
+)
+from pyirena.gui._qt import (
+    QCheckBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    Qt,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 if TYPE_CHECKING:

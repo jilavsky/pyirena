@@ -4,6 +4,7 @@ Unit tests for the Unified Fit model.
 
 import numpy as np
 import pytest
+
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, compute_invariant_sv
 
 

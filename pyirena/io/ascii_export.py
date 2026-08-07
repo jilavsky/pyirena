@@ -41,7 +41,6 @@ import numpy as np
 
 from pyirena.io.hdf5 import find_matching_groups
 
-
 # Tools whose result groups can be exported as a 4-column model file.
 # Tuple = (group path, loader function name, header function, curves function)
 # Loaders are imported lazily so that a missing optional dependency in one

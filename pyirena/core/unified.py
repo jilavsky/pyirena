@@ -15,12 +15,13 @@ The model combines multiple structural levels, each described by:
 With optional correlations using Born-Green approximation.
 """
 
-import numpy as np
-from scipy.special import erf, gamma
-from scipy.optimize import least_squares
-from dataclasses import dataclass
-from typing import List, Optional, Dict, Tuple
 import warnings
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+from scipy.optimize import least_squares
+from scipy.special import erf, gamma
 
 from pyirena.core.smearing import SlitSmearer
 
@@ -1081,6 +1082,7 @@ def load_data_from_nxcansas(file_path: str,
         Dictionary with Q, Intensity, Error, dQ arrays
     """
     import os
+
     from pyirena.io.hdf5 import readGenericNXcanSAS
 
     path, filename = os.path.split(file_path)

@@ -16,9 +16,10 @@ import h5py
 import numpy as np
 
 from pyirena.core.fractals import (
-    FractalAggregate, FractalParams, GrowthConfig,
+    FractalAggregate,
+    FractalParams,
+    GrowthConfig,
 )
-
 
 _ROOT_GROUP = "entry/fractals_results"
 

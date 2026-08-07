@@ -153,8 +153,12 @@ def fit_waxs_peaks(
     """
     _ensure_console()
     from pyirena.core.waxs_peakfit import (
-        WAXSPeakFitModel, find_peaks_in_data, default_bg_params,
-        cross_corr_q_shift, presearch_q0_per_peak, eval_model,
+        WAXSPeakFitModel,
+        cross_corr_q_shift,
+        default_bg_params,
+        eval_model,
+        find_peaks_in_data,
+        presearch_q0_per_peak,
     )
     from pyirena.io.hdf5 import readGenericNXcanSAS
 

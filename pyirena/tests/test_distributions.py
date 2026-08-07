@@ -7,12 +7,16 @@ import numpy as np
 import pytest
 
 from pyirena.core.distributions import (
-    gauss_pdf, gauss_cdf,
-    lognormal_pdf, lsw_pdf, lsw_cdf,
-    schulz_zimm_pdf, pdf, cdf,
+    cdf,
+    gauss_cdf,
+    gauss_pdf,
     generate_radius_grid,
+    lognormal_pdf,
+    lsw_cdf,
+    lsw_pdf,
+    pdf,
+    schulz_zimm_pdf,
 )
-
 
 # (dist_type, params, integration range) for the parametrized tests.
 # dist_type strings are the dispatcher keys used by core/modeling.py.

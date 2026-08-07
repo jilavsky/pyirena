@@ -216,7 +216,9 @@ def _save_to_nexus(data: Dict, model: UnifiedFitModel,
                    setup_state: Optional[Dict] = None) -> Optional[Path]:
     """Save fit results to NXcanSAS HDF5 file.  Returns output path, or None on error."""
     from pyirena.io.nxcansas_unified import (
-        save_unified_fit_results, get_output_filepath, create_nxcansas_file
+        create_nxcansas_file,
+        get_output_filepath,
+        save_unified_fit_results,
     )
 
     source_path = Path(data['filepath'])

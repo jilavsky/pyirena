@@ -7,32 +7,60 @@ interactive single-model fitting of SAS data.
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
 
 
-from pyirena.gui._qt import (
-    QCheckBox, QComboBox, QDesktopServices, QDoubleValidator, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QUrl, QVBoxLayout, QWidget, Qt,
-)
-
-import numpy as np
 from pathlib import Path
 
+import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.simple_fits import (
-    SimpleFitModel, MODEL_NAMES, MODEL_REGISTRY, _resolve_model_name,
+    MODEL_NAMES,
+    MODEL_REGISTRY,
+    SimpleFitModel,
+    _resolve_model_name,
+)
+from pyirena.gui._qt import (
+    QCheckBox,
+    QComboBox,
+    QDesktopServices,
+    QDoubleValidator,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.sas_plot import (
+    SASPlotStyle,
+    add_plot_annotation,
+    get_cursor_q_range,
+    make_cursors,
+    make_sas_plot,
+    plot_iq_data,
+    plot_iq_model,
+    set_cursor_q_range,
+)
+from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state.state_manager import StateManager
-from pyirena.gui.sizes_panel import ScrubbableLineEdit
-from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, plot_iq_model,
-    make_cursors, get_cursor_q_range, set_cursor_q_range,
-    add_plot_annotation, SASPlotStyle,
-)
 
 # Friendly display labels for the complex-background parameters.  The dict
 # *keys* stay ``BG_*`` (so persistence, HDF5 I/O and ``linearize()`` are
@@ -1286,8 +1314,9 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         if not fp:
             return
         try:
-            from pyirena.io.hdf5 import readGenericNXcanSAS
             from pathlib import Path as _P
+
+            from pyirena.io.hdf5 import readGenericNXcanSAS
             d = readGenericNXcanSAS(str(_P(fp).parent), _P(fp).name,
                                     prefer_slit_smeared=prefer_slit_smeared)
             if d is None:
@@ -1919,8 +1948,8 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
     def _export_parameters(self):
         """Export current parameters to a pyIrena JSON configuration file."""
-        import json
         import datetime
+        import json
         try:
             from pyirena import __version__ as _version
         except Exception:

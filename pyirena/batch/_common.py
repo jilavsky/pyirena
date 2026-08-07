@@ -11,8 +11,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Union
 
-
-
 if TYPE_CHECKING:
     pass
 

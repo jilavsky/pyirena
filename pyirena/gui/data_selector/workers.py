@@ -6,15 +6,18 @@ Split from the original monolithic data_selector.py (no behavior change).
 
 import os
 
-
-from pyirena.gui.data_selector._qt import (
-    QThread, Signal,
-)
 from pyirena.batch import (
-    fit_unified, fit_sizes, fit_simple_from_config,
-    fit_waxs_peaks_from_config, fit_modeling, fit_saxs_morph,
+    fit_modeling,
+    fit_saxs_morph,
+    fit_simple_from_config,
+    fit_sizes,
+    fit_unified,
+    fit_waxs_peaks_from_config,
 )
-
+from pyirena.gui.data_selector._qt import (
+    QThread,
+    Signal,
+)
 
 
 class BatchWorker(QThread):

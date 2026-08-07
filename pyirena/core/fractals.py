@@ -45,7 +45,6 @@ import numpy as np
 
 from pyirena.core.modeling import UnifiedLevelPopulation, _unified_level_intensity
 
-
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------

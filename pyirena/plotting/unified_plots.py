@@ -4,8 +4,10 @@ Utility functions for Unified Fit Model analysis.
 Includes plotting, data export, and analysis helpers.
 """
 
+from typing import Dict, Optional
+
 import numpy as np
-from typing import Optional, Dict
+
 try:
     import matplotlib.pyplot as plt
     HAS_MATPLOTLIB = True

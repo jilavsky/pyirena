@@ -7,12 +7,11 @@ import numpy as np
 import pytest
 
 from pyirena.io.text_import import (
+    _PROVENANCE_ATTR,
     clean_sas_arrays,
     converted_sibling_path,
     ensure_nxcansas_sibling,
-    _PROVENANCE_ATTR,
 )
-
 
 # ── clean_sas_arrays ──────────────────────────────────────────────────────────
 

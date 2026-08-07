@@ -32,13 +32,24 @@ from typing import Optional
 import numpy as np
 
 from pyirena.api._paths import (
-    PathSecurityError, resolve_safe, resolve_safe_file,
+    PathSecurityError,
+    resolve_safe,
+    resolve_safe_file,
 )
 from pyirena.api.control.errors import (
-    bad_param, make_error, no_fit, no_model, no_session,
+    bad_param,
+    make_error,
+    no_fit,
+    no_model,
+    no_session,
 )
 from pyirena.api.control.session import (
-    Session, all_sessions, create_session, drop_session, fit_mask, get_session,
+    Session,
+    all_sessions,
+    create_session,
+    drop_session,
+    fit_mask,
+    get_session,
 )
 from pyirena.core.fit_metrics import fit_quality_metrics
 
@@ -244,7 +255,7 @@ def open_dataset(file_path: str, use_slit_smeared: bool = False) -> dict:
     has_slit_smeared_entry).
     On failure returns an error dict.
     """
-    from pyirena.io.hdf5 import readGenericNXcanSAS, file_has_smr_entry
+    from pyirena.io.hdf5 import file_has_smr_entry, readGenericNXcanSAS
 
     try:
         fp = resolve_safe_file(file_path)
@@ -1300,6 +1311,8 @@ def detect_features(
 
     from pyirena.core.feature_detect import (  # noqa: PLC0415
         FeatureDetectConfig,
+    )
+    from pyirena.core.feature_detect import (
         detect_features as _detect,
     )
 

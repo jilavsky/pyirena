@@ -9,6 +9,7 @@ Handles:
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -16,17 +17,25 @@ from typing import Optional
 import h5py
 import numpy as np
 
-from pyirena.io.nxcansas_unified import create_nxcansas_file
 from pyirena.io._nxcansas_common import (
-    strip_nonpositive_intensities as _strip_nonpositive_intensities,
-    copy_and_strip_results as _copy_and_strip_results,
-    replace_nxcansas_data,
     append_dq as _append_dq,
+)
+from pyirena.io._nxcansas_common import (
     append_dql as _append_dql,
+)
+from pyirena.io._nxcansas_common import (
+    copy_and_strip_results as _copy_and_strip_results,
+)
+from pyirena.io._nxcansas_common import (
     drop_smr_entries as _drop_smr_entries,
 )
-
-import logging
+from pyirena.io._nxcansas_common import (
+    replace_nxcansas_data,
+)
+from pyirena.io._nxcansas_common import (
+    strip_nonpositive_intensities as _strip_nonpositive_intensities,
+)
+from pyirena.io.nxcansas_unified import create_nxcansas_file
 
 log = logging.getLogger(__name__)
 

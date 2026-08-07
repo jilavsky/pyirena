@@ -12,9 +12,21 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.gui._qt import (
-    QAbstractItemView, QAction, QFileDialog, QHeaderView, QLabel, QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout, QWidget, Qt,
+    QAbstractItemView,
+    QAction,
+    QFileDialog,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    Qt,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
 )
-
 
 
 class CollectWindow(QWidget):

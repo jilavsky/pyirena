@@ -18,6 +18,7 @@ make_popout_button(widget) -> QPushButton
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -26,13 +27,26 @@ log = logging.getLogger(__name__)
 from typing import Optional
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QAction, QColor, QColorDialog, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget, Qt,
-)
-
 import pyqtgraph as pg
 
+from pyirena.gui._qt import (
+    QAction,
+    QColor,
+    QColorDialog,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    Qt,
+    QVBoxLayout,
+    QWidget,
+)
 
 # ---------------------------------------------------------------------------
 # Lazy PyVista import

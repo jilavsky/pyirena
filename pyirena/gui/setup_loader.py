@@ -11,6 +11,7 @@ tool-mismatch guard so the five panels don't repeat 30 lines of identical
 boilerplate each.  Keeping it in one place also makes the UX uniform.
 """
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -20,11 +21,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from pyirena.gui._qt import QFileDialog, QMessageBox, QWidget
-
 from pyirena.io.setup_config import (
-    SetupConfigError, SetupConfigToolMismatch, read_setup_config,
+    SetupConfigError,
+    SetupConfigToolMismatch,
+    read_setup_config,
 )
-
 
 # Map tool name → results-group path inside the NXcanSAS file.
 TOOL_GROUP_PATH = {

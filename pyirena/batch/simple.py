@@ -21,7 +21,6 @@ log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_config, _load_data
 
-
 # ---------------------------------------------------------------------------
 # fit_simple — headless Simple Fits API
 # ---------------------------------------------------------------------------

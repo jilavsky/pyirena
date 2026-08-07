@@ -10,10 +10,10 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.gui.data_selector._qt import (
-    QFileDialog, QAction,
+    QAction,
+    QFileDialog,
 )
 from pyirena.gui.sas_plot import save_itx_from_plot
-
 
 
 # ── Shared colour palette for multi-file graphs ────────────────────────────

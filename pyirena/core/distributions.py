@@ -32,9 +32,8 @@ import warnings
 from typing import Union
 
 import numpy as np
-from scipy import stats, integrate
+from scipy import integrate, stats
 from scipy.integrate import cumulative_trapezoid as _cumtrapz
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Gauss  (normal distribution)

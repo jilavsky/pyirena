@@ -27,6 +27,7 @@ entry/saxs_morph_results/                 (NXprocess)
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -35,10 +36,9 @@ import h5py
 import numpy as np
 
 from pyirena.core.saxs_morph import (
-    SaxsMorphConfig, SaxsMorphResult,
+    SaxsMorphConfig,
+    SaxsMorphResult,
 )
-
-import logging
 
 log = logging.getLogger(__name__)
 

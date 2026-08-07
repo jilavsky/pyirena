@@ -30,11 +30,21 @@ from pathlib import Path
 
 try:  # PySide6 first, fall back to PyQt6 (project-wide convention)
     from PySide6.QtWidgets import (
-        QCheckBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
+        QCheckBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QVBoxLayout,
+        QWidget,
     )
 except ImportError:  # pragma: no cover - exercised only on PyQt6 installs
     from PyQt6.QtWidgets import (
-        QCheckBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
+        QCheckBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QVBoxLayout,
+        QWidget,
     )
 
 

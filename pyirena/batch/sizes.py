@@ -368,9 +368,7 @@ def fit_sizes(
     if save_to_nexus and success:
         try:
             from pyirena.io.nxcansas_sizes import save_sizes_results
-            from pyirena.io.nxcansas_unified import (
-                get_output_filepath, create_nxcansas_file
-            )
+            from pyirena.io.nxcansas_unified import create_nxcansas_file, get_output_filepath
 
             source_path = Path(data['filepath'])
             is_nxcansas = data.get('is_nxcansas', False)

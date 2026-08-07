@@ -1,11 +1,13 @@
 """Tests for pyirena.api._paths."""
 from __future__ import annotations
 
-
 import pytest
 
 from pyirena.api._paths import (
-    PathSecurityError, resolve_safe, resolve_safe_file, resolve_safe_folder,
+    PathSecurityError,
+    resolve_safe,
+    resolve_safe_file,
+    resolve_safe_folder,
 )
 
 

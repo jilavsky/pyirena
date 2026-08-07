@@ -7,9 +7,6 @@ Split from the original monolithic data_selector.py (no behavior change).
 import re
 
 
-
-
-
 # ── Filename sort-key extractors ───────────────────────────────────────────
 def _sort_key_name(name: str) -> str:
     return name.lower()

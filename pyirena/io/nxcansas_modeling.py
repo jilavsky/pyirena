@@ -17,6 +17,7 @@ load_modeling_results(filepath)          → dict
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -26,8 +27,6 @@ import numpy as np
 from pyirena.core.modeling import (
     ModelingResult,
 )
-
-import logging
 
 log = logging.getLogger(__name__)
 

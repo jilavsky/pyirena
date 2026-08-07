@@ -22,6 +22,7 @@ main()          — CLI: python -m pyirena.gui.saxs_morph_panel <file>
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -33,31 +34,54 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QApplication, QCheckBox, QComboBox, QDoubleValidator, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSplitter, QTabWidget, QThread, QVBoxLayout, QWidget, Qt, Signal,
-)
-
 import pyqtgraph as pg
 
 from pyirena.core.saxs_morph import (
-    SaxsMorphEngine, SaxsMorphConfig, SaxsMorphResult,
     ALLOWED_VOXEL_SIZES,
+    SaxsMorphConfig,
+    SaxsMorphEngine,
+    SaxsMorphResult,
 )
+from pyirena.gui._qt import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDoubleValidator,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSplitter,
+    Qt,
+    QTabWidget,
+    QThread,
+    QVBoxLayout,
+    QWidget,
+    Signal,
+)
+from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.sas_plot import (
+    add_plot_annotation,
+    make_sas_plot,
+    plot_iq_data,
+    set_robust_y_range,
+)
+from pyirena.gui.saxs_morph_3d import (
+    Slice2DViewer,
+    Voxel3DViewer,
+    make_popout_button,
+)
+from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.io.nxcansas_saxs_morph import (
     save_saxs_morph_results,
 )
-from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, set_robust_y_range, add_plot_annotation,
-)
-from pyirena.gui.unified_fit import _SafeInfiniteLine
-from pyirena.gui.saxs_morph_3d import (
-    Voxel3DViewer, Slice2DViewer, make_popout_button,
-)
-# SaxsMorphGraphWindow.show_voxelgram needs HAS_PYVISTA for conditional smoothing
-from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.state import StateManager
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -618,7 +642,8 @@ class _CalcWorker(QThread):
             )
             self.finished.emit(result)
         except Exception as exc:
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             self.error.emit(str(exc))
 
 
@@ -654,7 +679,8 @@ class _FitWorker(QThread):
         except _FitCancelled:
             self.error.emit('Fit cancelled by user.')
         except Exception as exc:
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             self.error.emit(str(exc))
 
 
@@ -680,7 +706,8 @@ class _MCWorker(QThread):
             )
             self.finished.emit(stds)
         except Exception as exc:
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             self.error.emit(str(exc))
 
 
@@ -1254,11 +1281,11 @@ class SaxsMorphPanel(QWidget):
 
     def _open_help(self):
         try:
-            from PySide6.QtGui import QDesktopServices
             from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
         except ImportError:
-            from PyQt6.QtGui import QDesktopServices
             from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             'https://github.com/jilavsky/pyirena/blob/main/docs/saxs_morph_gui.md'
         ))
@@ -1674,8 +1701,9 @@ class SaxsMorphPanel(QWidget):
         This is the file the Data Selector "SAXS Morph (script)" button
         reads to batch-process multiple files with the same parameters.
         """
-        import json
         import datetime
+        import json
+
         from pyirena import __version__ as _version
 
         # Default to a pyirena_config.json next to the loaded data file,
@@ -1806,7 +1834,7 @@ class SaxsMorphPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 def main():
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)

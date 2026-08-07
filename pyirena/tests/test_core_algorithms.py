@@ -12,7 +12,11 @@ import numpy as np
 import pytest
 
 from pyirena.core.data_manipulation import (
-    DataManipulation, ScaleConfig, TrimConfig, RebinConfig, SubtractConfig,
+    DataManipulation,
+    RebinConfig,
+    ScaleConfig,
+    SubtractConfig,
+    TrimConfig,
 )
 
 
@@ -316,13 +320,13 @@ class TestWaxsPeakMath:
 
 class TestFractalGrowth:
     def test_growth_reproducible_with_seed(self):
-        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        from pyirena.core.fractals import GrowthConfig, grow_aggregate
         a1 = grow_aggregate(GrowthConfig(z=40, seed=7))
         a2 = grow_aggregate(GrowthConfig(z=40, seed=7))
         np.testing.assert_array_equal(a1.positions, a2.positions)
 
     def test_aggregate_is_connected_and_sized(self):
-        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        from pyirena.core.fractals import GrowthConfig, grow_aggregate
         z = 60
         agg = grow_aggregate(GrowthConfig(z=z, seed=3))
         assert agg.positions.shape == (z, 3)
@@ -332,7 +336,7 @@ class TestFractalGrowth:
         assert len(np.unique(agg.positions, axis=0)) == z
 
     def test_params_physical_ranges(self):
-        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        from pyirena.core.fractals import GrowthConfig, grow_aggregate
         agg = grow_aggregate(GrowthConfig(z=80, seed=11))
         p = agg.params
         assert p.z == 80
@@ -341,7 +345,7 @@ class TestFractalGrowth:
 
     def test_df_equals_dmin_times_c(self):
         """Beaucage relation d_f = d_min * c must hold by construction."""
-        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        from pyirena.core.fractals import GrowthConfig, grow_aggregate
         p = grow_aggregate(GrowthConfig(z=80, seed=11)).params
         assert p.df == pytest.approx(p.dmin * p.c, rel=1e-10)
 
@@ -349,7 +353,9 @@ class TestFractalGrowth:
         """Re-evaluating the same aggregate must give compatible dimensions
         (path sampling is stochastic, so allow a loose tolerance)."""
         from pyirena.core.fractals import (
-            grow_aggregate, GrowthConfig, compute_fractal_params,
+            GrowthConfig,
+            compute_fractal_params,
+            grow_aggregate,
         )
         agg = grow_aggregate(GrowthConfig(z=80, seed=11))
         p2 = compute_fractal_params(agg.positions, agg.neighbor_list,
@@ -370,7 +376,7 @@ class TestFractalGrowth:
 
 class TestFractalIntensity:
     def _params(self):
-        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        from pyirena.core.fractals import GrowthConfig, grow_aggregate
         return grow_aggregate(GrowthConfig(z=80, seed=11)).params
 
     def test_intensity_finite_positive(self):
@@ -405,7 +411,7 @@ class TestFractalIntensity:
 
 class TestSimpleFitModels:
     def test_registry_names_consistent(self):
-        from pyirena.core.simple_fits import MODEL_REGISTRY, MODEL_NAMES
+        from pyirena.core.simple_fits import MODEL_NAMES, MODEL_REGISTRY
         assert set(MODEL_NAMES) == set(MODEL_REGISTRY)
 
     def test_porod_fit_recovers_slope(self):
@@ -423,8 +429,8 @@ class TestSimpleFitModels:
         assert abs(slopes[0]) == pytest.approx(4.0, rel=0.02)
 
     def test_sphere_fit_recovers_radius(self):
-        from pyirena.core.simple_fits import SimpleFitModel
         from pyirena.core.form_factors import sphere_ff
+        from pyirena.core.simple_fits import SimpleFitModel
         r_true = 60.0
         q = np.logspace(-2.5, -1.0, 150)
         I = 1e-2 * sphere_ff(q, r_true)

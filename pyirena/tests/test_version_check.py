@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 from pyirena.version_check import (
     _parse_version,
-    is_newer,
     fetch_latest_release_tag,
+    is_newer,
     should_check_now,
 )
 

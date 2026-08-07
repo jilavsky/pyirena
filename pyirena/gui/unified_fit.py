@@ -4,20 +4,45 @@ log = logging.getLogger(__name__)
 
 
 import sys
-from typing import List, Dict
 from pathlib import Path
+from typing import Dict, List
+
 import numpy as np
-
-from pyirena.gui._qt import (
-    QApplication, QCheckBox, QComboBox, QDesktopServices, QDialog, QDoubleValidator, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, QTabWidget, QTimer, QUrl, QVBoxLayout, QWidget, Qt, Signal,
-)
-
 import pyqtgraph as pg
 
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+from pyirena.gui._qt import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDesktopServices,
+    QDialog,
+    QDoubleValidator,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QTabWidget,
+    QTimer,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
+    Signal,
+)
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.sas_plot import (
-    RadiusAxisItem, _LimitedAxisItem, save_itx_from_plot, add_slope_line_menu,
+    RadiusAxisItem,
+    _LimitedAxisItem,
+    add_slope_line_menu,
+    save_itx_from_plot,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state import StateManager
@@ -25,11 +50,12 @@ from pyirena.state import StateManager
 # AI advisor — optional; buttons hidden if anthropic/keyring not installed
 _AI_ADVISOR_AVAILABLE = False
 try:
+    import anthropic as _anthropic_check  # noqa: F401
+
     from pyirena.gui.ai_advisor import (
         AiAdvisorConfigDialog,
         launch_unified_fit_advisor,
     )
-    import anthropic as _anthropic_check  # noqa: F401
     _AI_ADVISOR_AVAILABLE = True
 except ImportError:
     log.debug("suppressed exception", exc_info=True)
@@ -219,16 +245,17 @@ class DraggableCursor(pg.GraphicsObject):
 
         try:
             from PySide6.QtCore import QPointF, QRectF
-            from PySide6.QtGui import QPen, QBrush, QColor
             from PySide6.QtCore import Qt as QtCore
+            from PySide6.QtGui import QBrush, QColor, QPen
         except ImportError:
             try:
                 from PyQt6.QtCore import QPointF, QRectF
-                from PyQt6.QtGui import QPen, QBrush, QColor
                 from PyQt6.QtCore import Qt as QtCore
+                from PyQt6.QtGui import QBrush, QColor, QPen
             except ImportError:
-                from PyQt5.QtCore import QPointF, QRectF, Qt as QtCore
-                from PyQt5.QtGui import QPen, QBrush, QColor
+                from PyQt5.QtCore import QPointF, QRectF
+                from PyQt5.QtCore import Qt as QtCore
+                from PyQt5.QtGui import QBrush, QColor, QPen
 
         # Get plot Y range in data coordinates
         view_range = self.plot_item.viewRange()
@@ -4054,9 +4081,9 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
     def store_results_to_file(self):
         """Store Unified Fit results to NXcanSAS HDF5 file."""
         from pyirena.io.nxcansas_unified import (
-            save_unified_fit_results,
+            create_nxcansas_file,
             get_output_filepath,
-            create_nxcansas_file
+            save_unified_fit_results,
         )
 
         if self.data is None:
@@ -4227,8 +4254,9 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def export_parameters(self):
         """Export current Unified Fit configuration to a pyIrena JSON config file."""
-        import json
         import datetime
+        import json
+
         from pyirena import __version__ as _version
 
         default_dir = self._get_data_folder()

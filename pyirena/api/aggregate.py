@@ -12,7 +12,7 @@ import h5py
 import numpy as np
 
 from pyirena.api._paths import resolve_safe_folder
-from pyirena.api.discovery import _glob_many, _sample_name, _scan_number_from_name, _DEFAULT_GLOBS
+from pyirena.api.discovery import _DEFAULT_GLOBS, _glob_many, _sample_name, _scan_number_from_name
 from pyirena.api.schemas import FileEntry, SampleSummary, Tabulation, TabulationRow
 from pyirena.io.schema import TOOL_REGISTRY
 

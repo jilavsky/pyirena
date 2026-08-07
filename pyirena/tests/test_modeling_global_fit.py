@@ -9,11 +9,10 @@ import numpy as np
 import pytest
 
 from pyirena.core.modeling import (
-    ModelingEngine,
     ModelingConfig,
+    ModelingEngine,
     SizeDistPopulation,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,6 +74,7 @@ class TestParallelGlobal:
         """The parallel objective must pickle (to worker processes) and return
         the same χ² as the engine's own _chi2."""
         import pickle
+
         from pyirena.core.modeling import _DEObjective
 
         q, I_obs, dI = _make_sphere_dataset(true_r=80.0)

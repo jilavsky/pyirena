@@ -11,9 +11,13 @@ Shows how to:
 import numpy as np
 from unified import UnifiedFitModel, load_data_from_nxcansas
 from unified_utils import (
-    plot_fit_results, plot_guinier_analysis, plot_porod_analysis,
-    export_fit_results, estimate_initial_parameters, apply_parameters_from_dict,
-    calculate_size_distribution_moments
+    apply_parameters_from_dict,
+    calculate_size_distribution_moments,
+    estimate_initial_parameters,
+    export_fit_results,
+    plot_fit_results,
+    plot_guinier_analysis,
+    plot_porod_analysis,
 )
 
 

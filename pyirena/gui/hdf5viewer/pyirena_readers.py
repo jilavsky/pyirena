@@ -7,6 +7,7 @@ that doesn't have the expected data — it returns None in that case.
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -16,7 +17,6 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-
 
 # ── Wildcard path resolver ────────────────────────────────────────────────
 

@@ -14,9 +14,23 @@ from pathlib import Path
 from typing import Optional
 
 from pyirena.gui._qt import (
-    QCheckBox, QFileDialog, QFont, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QThread, QVBoxLayout, QWidget, Signal,
+    QCheckBox,
+    QFileDialog,
+    QFont,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QThread,
+    QVBoxLayout,
+    QWidget,
+    Signal,
 )
-
 
 # ---------------------------------------------------------------------------
 # Style constants
@@ -249,11 +263,11 @@ class ExportToIgorTab(QWidget):
         out = self._out_edit.text().strip()
         if out:
             try:
-                from PySide6.QtGui import QDesktopServices
                 from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
             except ImportError:
-                from PyQt6.QtGui import QDesktopServices  # type: ignore
                 from PyQt6.QtCore import QUrl  # type: ignore
+                from PyQt6.QtGui import QDesktopServices  # type: ignore
             QDesktopServices.openUrl(
                 QUrl.fromLocalFile(str(Path(out).parent))
             )

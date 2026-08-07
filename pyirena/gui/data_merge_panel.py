@@ -11,6 +11,7 @@ Entry points
 * ``main()`` — ``pyirena-datamerge`` CLI command.
 """
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -21,23 +22,40 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Callable, Optional, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDesktopServices, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QUrl, QVBoxLayout, QWidget,
-)
-
 import pyqtgraph as pg
 
 from pyirena.core.data_merge import DataMerge, MergeConfig, MergeResult
-from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
-from pyirena.state.state_manager import StateManager
-from pyirena.gui.sas_plot import (
-    make_sas_plot, set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
+from pyirena.gui._qt import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDesktopServices,
+    QFileDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
 )
-
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
+from pyirena.gui.sas_plot import (
+    SASPlotStyle,
+    _SafeInfiniteLine,
+    make_sas_plot,
+    set_robust_y_range,
+)
+from pyirena.state.state_manager import StateManager
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1777,7 +1795,7 @@ def main() -> None:
     With ``--file1`` and ``--file2``: runs a headless merge (no Qt needed).
     With ``--folder1`` and/or ``--folder2``: launches GUI with pre-filled folders.
     """
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     import argparse

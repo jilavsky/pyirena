@@ -47,6 +47,8 @@ try:
 except ImportError:
     h5py = None  # type: ignore
 
+import logging
+
 from pyirena.core.waxs_peakfit import (
     _PEAK_PARAM_NAMES,
     bg_param_names,
@@ -54,8 +56,6 @@ from pyirena.core.waxs_peakfit import (
     peak_area,
     peak_area_std,
 )
-
-import logging
 
 log = logging.getLogger(__name__)
 

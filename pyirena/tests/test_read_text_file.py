@@ -4,8 +4,7 @@ Q-unit conversion."""
 import numpy as np
 import pytest
 
-from pyirena.io.hdf5 import readTextFile, Q_UNIT_TO_ANGSTROM
-
+from pyirena.io.hdf5 import Q_UNIT_TO_ANGSTROM, readTextFile
 
 ROWS = [
     (0.01, 100.0, 5.0),

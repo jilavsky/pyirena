@@ -14,7 +14,7 @@ import sys
 
 def main():
     """Launch the pyIrena data selector GUI."""
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     try:

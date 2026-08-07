@@ -11,6 +11,7 @@ State is saved/loaded via StateManager.
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -19,16 +20,28 @@ log = logging.getLogger(__name__)
 from pathlib import Path
 
 from pyirena.gui._qt import (
-    QAction, QCloseEvent, QDesktopServices, QHBoxLayout, QLabel, QMainWindow, QPushButton, QSplitter, QStatusBar, QUrl, QVBoxLayout, QWidget, Qt,
+    QAction,
+    QCloseEvent,
+    QDesktopServices,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QSplitter,
+    QStatusBar,
+    Qt,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
 )
 
-from .file_tree import FileTreeWidget
-from .hdf5_browser import HDF5BrowserWidget
-from .plot_controls import PlotControlsPanel
-from .graph_window import GraphWindow
-from .collect_window import CollectWindow
-from .multi_collect_window import MultiCollectWindow
 from . import pyirena_readers as _readers
+from .collect_window import CollectWindow
+from .file_tree import FileTreeWidget
+from .graph_window import GraphWindow
+from .hdf5_browser import HDF5BrowserWidget
+from .multi_collect_window import MultiCollectWindow
+from .plot_controls import PlotControlsPanel
 
 
 class HDF5ViewerWindow(QMainWindow):

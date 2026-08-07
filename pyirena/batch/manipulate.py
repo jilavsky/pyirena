@@ -11,7 +11,6 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional
 
-
 from pyirena.logging_setup import ensure_console_output as _ensure_console
 
 if TYPE_CHECKING:
@@ -20,7 +19,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_data
-
 
 # ===========================================================================
 # Data Manipulation (headless)
@@ -58,8 +56,12 @@ def manipulate_data(
     """
     _ensure_console()
     from pyirena.core.data_manipulation import (
-        DataManipulation, ScaleConfig, TrimConfig, RebinConfig,
-        SubtractConfig, DivideConfig,
+        DataManipulation,
+        DivideConfig,
+        RebinConfig,
+        ScaleConfig,
+        SubtractConfig,
+        TrimConfig,
     )
     from pyirena.io.nxcansas_data_manipulation import save_manipulated_data
 

@@ -25,12 +25,11 @@ Units returned:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -584,8 +583,8 @@ def compute_anomalous_scan(
       'transmission_2'
       'transmission_sample'
     """
-    import xraydb
     import periodictable as pt
+    import xraydb
 
     energies = np.linspace(e_start_keV, e_end_keV, n_points)
     energies_eV = energies * 1000.0

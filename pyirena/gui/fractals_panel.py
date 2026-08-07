@@ -15,6 +15,7 @@ FractalsGraphWindow  : main window — `data_selector` constructs and shows it.
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -25,30 +26,61 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QAbstractItemView, QAction, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget, QVBoxLayout, QWidget, Qt,
-)
-
 import pyqtgraph as pg
 
 from pyirena.core.fractals import (
-    FractalAggregate, GrowthConfig, OptimizerConfig,
-    intensity_unified, voxelize,
+    FractalAggregate,
+    GrowthConfig,
+    OptimizerConfig,
+    intensity_unified,
+    voxelize,
+)
+from pyirena.gui._qt import (
+    QAbstractItemView,
+    QAction,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 from pyirena.gui.fractals_workers import GrowthQueueWorker, MCIntensityWorker
 from pyirena.gui.sas_plot import (
-    make_sas_plot, plot_iq_data, plot_iq_model, set_robust_y_range, SASPlotStyle,
+    SASPlotStyle,
+    make_sas_plot,
+    plot_iq_data,
+    plot_iq_model,
+    set_robust_y_range,
 )
 from pyirena.gui.saxs_morph_3d import (
-    Voxel3DViewer, Slice2DViewer, make_popout_button,
+    Slice2DViewer,
+    Voxel3DViewer,
+    make_popout_button,
 )
 from pyirena.io.nxcansas_fractals import (
-    save_fractal_aggregate, list_fractal_aggregates, load_fractal_aggregate,
+    list_fractal_aggregates,
+    load_fractal_aggregate,
+    save_fractal_aggregate,
 )
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.state import StateManager
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -739,11 +771,11 @@ class FractalsPanel(QWidget):
 
     def _open_help(self):
         try:
-            from PySide6.QtGui import QDesktopServices
             from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
         except ImportError:
-            from PyQt6.QtGui import QDesktopServices
             from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             "https://github.com/jilavsky/pyirena/blob/main/docs/fractals_gui.md"
         ))

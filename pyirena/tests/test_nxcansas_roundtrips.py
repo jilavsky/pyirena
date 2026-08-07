@@ -6,15 +6,15 @@ against its reader (or h5py directly) on a tmp_path file, and the values
 that come back must equal the values that went in.
 """
 
+import h5py
 import numpy as np
 import pytest
-import h5py
 
 from pyirena.io.hdf5 import find_matching_groups
 from pyirena.io.nxcansas_unified import (
     create_nxcansas_file,
-    save_unified_fit_results,
     load_unified_fit_results,
+    save_unified_fit_results,
 )
 
 
@@ -153,7 +153,7 @@ class TestUnifiedFitRoundTrip:
 
 class TestSizesRoundTrip:
     def test_round_trip(self, nx_file, q_i_err):
-        from pyirena.io.nxcansas_sizes import save_sizes_results, load_sizes_results
+        from pyirena.io.nxcansas_sizes import load_sizes_results, save_sizes_results
         q, intensity, error = q_i_err
         r_grid = np.logspace(1, 3, 60)
         dist = np.exp(-((np.log(r_grid) - np.log(100.0)) ** 2))
@@ -200,7 +200,8 @@ class TestSimpleFitRoundTrip:
     def test_round_trip(self, nx_file):
         from pyirena.core.simple_fits import SimpleFitModel
         from pyirena.io.nxcansas_simple_fits import (
-            save_simple_fit_results, load_simple_fit_results,
+            load_simple_fit_results,
+            save_simple_fit_results,
         )
         rng = np.random.default_rng(0)
         q = np.linspace(0.002, 0.02, 80)
@@ -229,7 +230,8 @@ class TestSimpleFitRoundTrip:
 class TestWaxsPeakFitRoundTrip:
     def test_round_trip(self, nx_file):
         from pyirena.io.nxcansas_waxs_peakfit import (
-            save_waxs_peakfit_results, load_waxs_peakfit_results,
+            load_waxs_peakfit_results,
+            save_waxs_peakfit_results,
         )
         q = np.linspace(1.0, 4.0, 300)
         # save() expects Igor-style parameter dicts: {name: {"value":..., "lo":..., "hi":...}}
@@ -269,9 +271,11 @@ class TestWaxsPeakFitRoundTrip:
 
 class TestFractalAggregateRoundTrip:
     def test_save_list_load(self, nx_file):
-        from pyirena.core.fractals import grow_aggregate, GrowthConfig
+        from pyirena.core.fractals import GrowthConfig, grow_aggregate
         from pyirena.io.nxcansas_fractals import (
-            save_fractal_aggregate, list_fractal_aggregates, load_fractal_aggregate,
+            list_fractal_aggregates,
+            load_fractal_aggregate,
+            save_fractal_aggregate,
         )
         agg = grow_aggregate(GrowthConfig(z=30, seed=42))
         group_path = save_fractal_aggregate(nx_file, agg)

@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 
 from pyirena.core.form_factors import (
-    sphere_ff,
-    spheroid_ff,
+    bin_widths,
     build_g_matrix,
     make_r_grid,
-    bin_widths,
+    sphere_ff,
+    spheroid_ff,
 )
 
 

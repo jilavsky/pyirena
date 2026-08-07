@@ -10,7 +10,8 @@ Requires:
 
 try:
     # Single import point for the whole gui package (PySide6 → PyQt6).
-    from pyirena.gui._qt import QtWidgets, QtCore, QtGui, QT_BINDING as QT_BACKEND
+    from pyirena.gui._qt import QT_BINDING as QT_BACKEND
+    from pyirena.gui._qt import QtCore, QtGui, QtWidgets
 
     QT_IMPORT_ERROR = None
 except ImportError as _qt_error:

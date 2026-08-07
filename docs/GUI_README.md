@@ -128,8 +128,8 @@ The GUI will automatically detect files with supported extensions.
 
 ## Requirements
 
-- Python 3.8+
-- PySide6 or PyQt6
+- Python 3.10+
+- PySide6
 - matplotlib
 - numpy
 - h5py

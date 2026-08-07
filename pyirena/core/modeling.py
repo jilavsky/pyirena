@@ -35,23 +35,22 @@ IR2S_HardSphereStruct — Percus-Yevick hard-sphere structure factor (same file)
 
 from __future__ import annotations
 
-import warnings
+import contextlib
 import hashlib
 import json
 import os
 import time
-import contextlib
+import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
 import numpy as np
-from scipy.optimize import least_squares, minimize, differential_evolution
+from scipy.optimize import differential_evolution, least_squares, minimize
 from scipy.special import erf as _scipy_erf
 
 from pyirena.core.unified import sphere_amplitude as _sphere_amplitude
-
 
 # Thread-count environment variables read by the common BLAS / OpenMP backends.
 # When running differential_evolution across worker processes we pin these to 1
@@ -255,8 +254,7 @@ def _run_mc_parallel(run, batch, n_workers, record, cancel_cb):
 
 
 from pyirena.core import distributions as D
-from pyirena.core.form_factors import build_g_matrix, bin_widths
-
+from pyirena.core.form_factors import bin_widths, build_g_matrix
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Dataclasses
@@ -821,7 +819,8 @@ def _surface_fractal_intensity(
     Uses gammaln for numerical stability near Ds→3.
     Optional smooth Porod transition above Qc (erf blending).
     """
-    from scipy.special import gammaln, erf as scipy_erf
+    from scipy.special import erf as scipy_erf
+    from scipy.special import gammaln
 
     Ksi = max(pop.Ksi, 1e-10)
     Ds  = float(np.clip(pop.Ds, 2.001, 2.999))

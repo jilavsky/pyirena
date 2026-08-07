@@ -12,7 +12,6 @@ from pyirena.gui.file_filter import (
     make_file_matcher,
 )
 
-
 NAMES = [
     "sample_60C_01min.h5",
     "sample_60C_02min.h5",

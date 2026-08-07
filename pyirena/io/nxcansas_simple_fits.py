@@ -53,7 +53,6 @@ from typing import Optional
 import h5py
 import numpy as np
 
-
 _GROUP = 'entry/simple_fit_results'
 _PROGRAM = 'pyirena.core.simple_fits'
 

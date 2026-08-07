@@ -26,7 +26,6 @@ from pathlib import Path
 import h5py
 import pytest
 
-
 pytest.importorskip("igor2", reason="igor2 is required for the importer to run")
 
 
@@ -115,6 +114,7 @@ def test_patch_v7_wave_to_v5_rewrites_version_byte():
     in-place, leaving the rest of the payload untouched. v7 waves are
     binary-identical to v5 in their numeric data section."""
     import struct
+
     from pyirena.io.pxp_to_nexus import _patch_v7_wave_to_v5
 
     v7_payload = struct.pack("<h", 7) + b"\xff" * 100
@@ -180,7 +180,7 @@ def test_walk_tree_yields_root_level_wave_folders_as_multi_technique():
 def test_infrastructure_folders_skipped():
     """Igor's own Packages/, SavedSampleSets/ etc. must be ignored at
     root level so they don't pollute the summary with skip rows."""
-    from pyirena.io.pxp_to_nexus import _walk_tree, INFRASTRUCTURE_FOLDERS
+    from pyirena.io.pxp_to_nexus import INFRASTRUCTURE_FOLDERS, _walk_tree
 
     assert "Packages" in INFRASTRUCTURE_FOLDERS
     assert "SavedSampleSets" in INFRASTRUCTURE_FOLDERS
@@ -281,8 +281,8 @@ def test_real_legacy_pxp_round_trips_through_pyirena_reader(tmp_path):
     pyirena's own NXcanSAS group locator. If this breaks, the imported
     files won't appear in the Data Selector even though they're valid
     HDF5."""
-    from pyirena.io.pxp_to_nexus import extract_pxp_to_nexus
     from pyirena.io.hdf5 import find_matching_groups
+    from pyirena.io.pxp_to_nexus import extract_pxp_to_nexus
 
     result = extract_pxp_to_nexus(_REAL_PXP, output_root=tmp_path / "out")
     n_checked = 0
@@ -326,6 +326,7 @@ def synthetic_h5xp(tmp_path: Path) -> Path:
     will encounter in the wild.
     """
     import numpy as np
+
     from pyirena.io.h5xp_writer import create_h5xp, write_iq_data
 
     pxp_path = tmp_path / "synthetic.h5xp"
@@ -405,8 +406,8 @@ def test_h5xp_wave_note_parsed_into_metadata(synthetic_h5xp, tmp_path):
 def test_h5xp_round_trips_through_pyirena_reader(synthetic_h5xp, tmp_path):
     """Every NeXus file the importer writes must be discoverable by
     pyirena's own NXcanSAS locator."""
-    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
     from pyirena.io.hdf5 import find_matching_groups
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
 
     out_dir = tmp_path / "out"
     result = extract_h5xp_to_nexus(synthetic_h5xp, output_root=out_dir)
@@ -531,7 +532,7 @@ def test_wave_pickers_h5xp_include_uppercase_qrs_convention():
     """The QRS-names triple must be registered for every technique in the
     h5xp picker table (regression: previously only lowercase ``q_<folder>``
     was present, so Irena-reduced desktop SAXS files imported as 0 samples)."""
-    from pyirena.io.pxp_to_nexus import WAVE_PICKERS_H5XP, WAVE_PICKERS
+    from pyirena.io.pxp_to_nexus import WAVE_PICKERS, WAVE_PICKERS_H5XP
 
     qrs = ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>")
     for tech in ("USAXS", "SAXS", "WAXS"):
@@ -560,8 +561,8 @@ def test_h5xp_qrs_names_convention_imports_all_samples(qrs_names_h5xp, tmp_path)
 
 def test_h5xp_qrs_names_data_is_intact(qrs_names_h5xp, tmp_path):
     """The R_ wave must land as intensity and S_ as error (Idev)."""
-    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
     from pyirena.io.hdf5 import find_matching_groups
+    from pyirena.io.pxp_to_nexus import extract_h5xp_to_nexus
 
     out_dir = tmp_path / "out"
     extract_h5xp_to_nexus(qrs_names_h5xp, output_root=out_dir)

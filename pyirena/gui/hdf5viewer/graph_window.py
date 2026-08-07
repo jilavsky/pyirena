@@ -16,6 +16,7 @@ Key features
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -28,11 +29,34 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.gui._qt import (
-    QAction, QButtonGroup, QColor, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QEvent, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QToolBar, QVBoxLayout, QWidget, Qt, Signal,
+    QAction,
+    QButtonGroup,
+    QColor,
+    QColorDialog,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QEvent,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    Qt,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+    Signal,
 )
+from pyirena.gui.sas_plot import add_slope_line_menu
 
 from . import export as _export
-from pyirena.gui.sas_plot import add_slope_line_menu
 
 # ── Default color cycle (distinct, colorblind-friendly palette) ────────────
 _COLOR_CYCLE = [

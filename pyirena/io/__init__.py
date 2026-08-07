@@ -12,7 +12,7 @@ Functions:
 
 try:
     from pyirena.io.hdf5 import readGenericNXcanSAS
-    from pyirena.io.results import load_result, SUPPORTED_ANALYSES
+    from pyirena.io.results import SUPPORTED_ANALYSES, load_result
     __all__ = ["readGenericNXcanSAS", "load_result", "SUPPORTED_ANALYSES"]
 except ImportError:
     # h5py might not be installed

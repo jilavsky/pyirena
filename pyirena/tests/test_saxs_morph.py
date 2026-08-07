@@ -13,15 +13,22 @@ I(Q) is in the same ballpark as the input.
 import numpy as np
 
 from pyirena.core.saxs_morph import (
-    SaxsMorphConfig, SaxsMorphResult, SaxsMorphEngine,
-    alfa_threshold, debye_autocorr, spectral_function,
-    generate_voxelgram, voxelgram_to_iq,
-    derive_contrast_from_invariant, derive_phi_from_invariant,
+    SaxsMorphConfig,
+    SaxsMorphEngine,
+    SaxsMorphResult,
+    alfa_threshold,
+    berk_invert,
+    berk_lut,
     compute_invariant_extrapolated,
-    fit_power_law_bg, fit_flat_bg,
-    berk_lut, berk_invert,
+    debye_autocorr,
+    derive_contrast_from_invariant,
+    derive_phi_from_invariant,
+    fit_flat_bg,
+    fit_power_law_bg,
+    generate_voxelgram,
+    spectral_function,
+    voxelgram_to_iq,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -642,7 +649,8 @@ class TestEngineFit:
 class TestHDF5RoundTrip:
     def test_roundtrip(self, tmp_path):
         from pyirena.io.nxcansas_saxs_morph import (
-            save_saxs_morph_results, load_saxs_morph_results,
+            load_saxs_morph_results,
+            save_saxs_morph_results,
         )
 
         q, I, dI = make_synthetic_dataset()

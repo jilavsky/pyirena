@@ -31,12 +31,11 @@ compute_morphology_metrics(voxelgram, voxel_pitch_A) -> MorphologyMetrics
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 import numpy as np
 from scipy import ndimage as _ndi
-
 
 # ---------------------------------------------------------------------------
 # Dataclass

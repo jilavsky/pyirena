@@ -27,15 +27,22 @@ Batch over many files:
 # Re-exports preserve the original `from pyirena.batch import X` API.
 from pyirena.batch._common import _load_config, _load_data
 from pyirena.batch.convert import igor_to_nexus, pxp_to_nexus
-from pyirena.batch.manipulate import manipulate_data, average_data
+from pyirena.batch.manipulate import average_data, manipulate_data
 from pyirena.batch.merge import merge_data
 from pyirena.batch.modeling import fit_modeling
 from pyirena.batch.pipeline import fit_pyirena
 from pyirena.batch.saxs_morph import fit_saxs_morph
 from pyirena.batch.simple import fit_simple, fit_simple_from_config
 from pyirena.batch.sizes import _mc_uncertainty_sizes, fit_sizes
-from pyirena.batch.unified import _state_to_model, _compute_invariant_sv, _mc_uncertainty_unified, _build_setup_state, _save_to_nexus, fit_unified
-from pyirena.batch.waxs import fit_waxs_peaks_from_config, fit_waxs, fit_waxs_peaks
+from pyirena.batch.unified import (
+    _build_setup_state,
+    _compute_invariant_sv,
+    _mc_uncertainty_unified,
+    _save_to_nexus,
+    _state_to_model,
+    fit_unified,
+)
+from pyirena.batch.waxs import fit_waxs, fit_waxs_peaks, fit_waxs_peaks_from_config
 
 __all__ = [
     "fit_unified",

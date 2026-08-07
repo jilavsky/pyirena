@@ -12,6 +12,7 @@ Entry points
 * ``main()``        — ``pyirena-contrast`` CLI command.
 """
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -22,27 +23,58 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QAbstractItemView, QAction, QApplication, QCheckBox, QColor, QComboBox, QDesktopServices, QDialog, QDoubleSpinBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QUrl, QVBoxLayout, QWidget, Qt,
-)
-
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
 
 from pyirena.core.scattering_contrast import (
-    VACUUM, CompoundProperties, ContrastResult,
-    compute_compound, compute_contrast_anomalous,
-    compute_anomalous_scan, get_isotopes_for_element, parse_formula,
+    VACUUM,
+    CompoundProperties,
+    ContrastResult,
+    compute_anomalous_scan,
+    compute_compound,
+    compute_contrast_anomalous,
+    get_isotopes_for_element,
+    parse_formula,
+)
+from pyirena.gui._qt import (
+    QAbstractItemView,
+    QAction,
+    QApplication,
+    QCheckBox,
+    QColor,
+    QComboBox,
+    QDesktopServices,
+    QDialog,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    Qt,
+    QTableWidget,
+    QTableWidgetItem,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
 )
 from pyirena.io.contrast_io import (
     DEFAULT_LIBRARY_PATH,
-    list_compounds_in_library,
-    save_compound_to_library,
-    load_compound_from_library,
     delete_compound_from_library,
     export_results_csv,
     export_scan_csv,
+    list_compounds_in_library,
+    load_compound_from_library,
+    save_compound_to_library,
     save_scan_to_hdf5,
 )
 
@@ -1536,7 +1568,7 @@ class ContrastPanel(QWidget):
 
 def main() -> None:
     """Entry point for ``pyirena-contrast`` CLI command."""
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     from pyirena.state.state_manager import StateManager

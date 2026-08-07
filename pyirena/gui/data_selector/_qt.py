@@ -7,26 +7,75 @@ Failure diagnosis is delegated to ``pyirena.diagnostics``; see
 """
 
 try:
+    from PySide6.QtCore import QDir, Qt, QThread, QUrl, Signal
+    from PySide6.QtGui import QAction, QDesktopServices, QDoubleValidator, QKeySequence, QShortcut
     from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
-        QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-        QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea,
-        QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
-        QTableWidget, QTableWidgetItem, QInputDialog,
+        QAbstractItemView,
+        QApplication,
+        QCheckBox,
+        QColorDialog,
+        QComboBox,
+        QDialog,
+        QDialogButtonBox,
+        QFileDialog,
+        QFormLayout,
+        QFrame,
+        QGridLayout,
+        QGroupBox,
+        QHBoxLayout,
+        QInputDialog,
+        QLabel,
+        QLineEdit,
+        QListWidget,
+        QMenu,
+        QMenuBar,
+        QMessageBox,
+        QPushButton,
+        QScrollArea,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
+        QWidget,
     )
-    from PySide6.QtCore import Qt, QDir, QThread, Signal, QUrl
-    from PySide6.QtGui import QAction, QDoubleValidator, QDesktopServices, QKeySequence, QShortcut
 except ImportError as _pyside_error:
     try:
-        from PyQt6.QtWidgets import (  # type: ignore[no-redef]
-            QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
-        QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox,
-        QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea,
-        QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog,
-        QTableWidget, QTableWidgetItem, QInputDialog,
+        from PyQt6.QtCore import QDir, Qt, QThread, QUrl  # type: ignore[no-redef]
+        from PyQt6.QtCore import pyqtSignal as Signal
+        from PyQt6.QtGui import (  # type: ignore[no-redef]
+            QAction,
+            QDesktopServices,
+            QDoubleValidator,
+            QKeySequence,
+            QShortcut,
         )
-        from PyQt6.QtCore import Qt, QDir, QThread, pyqtSignal as Signal, QUrl  # type: ignore[no-redef]
-        from PyQt6.QtGui import QAction, QDoubleValidator, QDesktopServices, QKeySequence, QShortcut  # type: ignore[no-redef]
+        from PyQt6.QtWidgets import (  # type: ignore[no-redef]
+            QAbstractItemView,
+            QApplication,
+            QCheckBox,
+            QColorDialog,
+            QComboBox,
+            QDialog,
+            QDialogButtonBox,
+            QFileDialog,
+            QFormLayout,
+            QFrame,
+            QGridLayout,
+            QGroupBox,
+            QHBoxLayout,
+            QInputDialog,
+            QLabel,
+            QLineEdit,
+            QListWidget,
+            QMenu,
+            QMenuBar,
+            QMessageBox,
+            QPushButton,
+            QScrollArea,
+            QTableWidget,
+            QTableWidgetItem,
+            QVBoxLayout,
+            QWidget,
+        )
     except ImportError:
         from pyirena.diagnostics import format_qt_import_failure
 

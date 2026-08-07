@@ -7,11 +7,21 @@ Split from the original monolithic data_selector.py (no behavior change).
 from pathlib import Path
 from typing import Dict, List
 
-
 from pyirena.gui.data_selector._qt import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, Qt,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    Qt,
+    QVBoxLayout,
+    QWidget,
 )
-
 
 
 class _IgorImportDialog(QDialog):

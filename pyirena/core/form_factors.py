@@ -29,7 +29,6 @@ import numpy as np
 from numpy.polynomial.legendre import leggauss
 from scipy.special import j1 as _scipy_j1
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Sphere form factor
 # ──────────────────────────────────────────────────────────────────────────────

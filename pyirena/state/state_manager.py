@@ -7,9 +7,9 @@ The state file is human-readable and can be edited manually if needed.
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional
 from copy import deepcopy
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
 

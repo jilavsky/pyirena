@@ -22,6 +22,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-adjacent columns pastes as a clean two-column block rather than
   everything in between.
 
+### Changed
+
+- **Minimum Python raised to 3.10.** `requires-python` said `>=3.9` while
+  `environment.yml` already required `>=3.10,<3.14`, so the package advertised
+  a floor no shipped or tested environment used — and `CLAUDE.md` told
+  contributors to write 3.9-compatible code because of it. The floor is now
+  `>=3.10` consistently across `pyproject.toml`, `conda/meta.yaml`, the CI
+  matrix (now 3.10/3.11/3.13) and the README badge; the 3.9 classifier is
+  dropped. `match` and PEP 604 `X | None` are allowed in new code, though
+  existing modules keep `Optional[X]` — follow the file you are editing.
+  No runtime behaviour changes; this only stops advertising support for a
+  version that was never tested.
+- **Ruff now selects `E`, `F`, `W`, `I`** (was the `E`/`F` defaults), with
+  `E501` added to the existing ignore list — line length stays a formatting
+  target, not a lint error. This sorts imports repo-wide and strips trailing
+  whitespace across 131 files; the change is import order and whitespace only,
+  no logic touched, and the full suite passes unchanged. The `UP` and `B` rule
+  sets from the house standard are deliberately still off — enabling them
+  rewrites ~1050 type annotations and surfaces ~100 findings that need hand
+  review, which belongs in its own pass.
+- Ruff `target-version` bumped `py39` → `py310`; the vestigial `[tool.black]`
+  section is removed (black was never a dev dependency here, and `ruff format`
+  supersedes it).
+- `requirements.txt` declared `numpy>=1.22.0` while `pyproject.toml` requires
+  `numpy>=2.0` for `numpy.trapezoid`; installing from the former produced an
+  environment where `pyirena.core` fails on import. Floors now agree.
+- `IMPROVEMENT_PLAN.md` renamed to `PLAN.md` to match the naming used across
+  the other packages.
+
 ## [1.1.0b5] - 2026-08-07
 
 ### Fixed

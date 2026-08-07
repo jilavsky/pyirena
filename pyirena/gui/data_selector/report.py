@@ -14,8 +14,6 @@ from typing import Optional
 import numpy as np
 
 
-
-
 def _quality_report_rows(fq: Optional[dict]) -> list:
     """Markdown table rows for robust fit-quality metrics (empty if unavailable).
 

@@ -21,6 +21,7 @@ a file can be opened either from the Data Selector or directly from the tool.
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -30,9 +31,14 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from pyirena.gui._qt import (
-    QHBoxLayout, QInputDialog, QLineEdit, QMessageBox, QPushButton, QWidget, Signal,
+    QHBoxLayout,
+    QInputDialog,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+    Signal,
 )
-
 
 # ── Standalone helpers (no Qt parent required) ────────────────────────────────
 
@@ -84,7 +90,7 @@ def read_nxcansas_with_picker(
     -------
     Data dict on success, or ``None`` on failure / user cancel.
     """
-    from pyirena.io.hdf5 import readGenericNXcanSAS, list_nxcansas_datasets, _filter_smr
+    from pyirena.io.hdf5 import _filter_smr, list_nxcansas_datasets, readGenericNXcanSAS
 
     try:
         datasets = list_nxcansas_datasets(path, filename)

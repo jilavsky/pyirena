@@ -11,12 +11,12 @@ Note: Requires matplotlib to be installed (install with: pip install pyirena[plo
 """
 
 try:
+    from pyirena.plotting.plot_saxs import plot_saxs
     from pyirena.plotting.unified_plots import (
         plot_fit_results,
         plot_guinier_analysis,
         plot_porod_analysis,
     )
-    from pyirena.plotting.plot_saxs import plot_saxs
     __all__ = [
         "plot_fit_results",
         "plot_guinier_analysis",

@@ -20,14 +20,13 @@ import numpy as np
 import pytest
 
 from pyirena.core.form_factors import (
-    sphere_ff,
-    spheroid_ff,
+    bin_widths,
     build_g_matrix,
     make_r_grid,
-    bin_widths,
+    sphere_ff,
+    spheroid_ff,
 )
 from pyirena.core.sizes import SizesDistribution
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helper: generate synthetic data from a known Gaussian distribution
@@ -340,7 +339,7 @@ class TestUtilities:
 class TestHDF5IO:
     def test_save_load_round_trip(self):
         """Save sizes results to HDF5, reload, check arrays match."""
-        from pyirena.io.nxcansas_sizes import save_sizes_results, load_sizes_results
+        from pyirena.io.nxcansas_sizes import load_sizes_results, save_sizes_results
         from pyirena.io.nxcansas_unified import create_nxcansas_file
 
         q, I, err, _, _ = _synthetic_data(n_q=50)

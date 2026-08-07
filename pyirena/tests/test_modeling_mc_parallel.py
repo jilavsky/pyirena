@@ -25,7 +25,6 @@ from pyirena.core.modeling import (
     _resolve_mc_workers,
 )
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _make_fit_config(start_r=60.0):

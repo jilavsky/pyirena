@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_config, _load_data
 
-
 # ---------------------------------------------------------------------------
 # fit_modeling — headless Modeling (parametric size distribution) API
 # ---------------------------------------------------------------------------
@@ -85,9 +84,14 @@ def fit_modeling(
     """
     _ensure_console()
     from pyirena.core.modeling import (
-        ModelingEngine, ModelingConfig,
-        SizeDistPopulation, UnifiedLevelPopulation, DiffractionPeakPopulation,
-        GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
+        DiffractionPeakPopulation,
+        GuinierPorodPopulation,
+        MassFractalPopulation,
+        ModelingConfig,
+        ModelingEngine,
+        SizeDistPopulation,
+        SurfaceFractalPopulation,
+        UnifiedLevelPopulation,
     )
     from pyirena.io.nxcansas_modeling import save_modeling_results
 

@@ -41,19 +41,27 @@ Quick-start example
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
 
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 import pyqtgraph as pg
 
 from pyirena.gui._qt import (
-    QFileDialog, QFont, QInputDialog, QMessageBox, QPainterPath, QPointF, QRectF, Qt,
+    QFileDialog,
+    QFont,
+    QInputDialog,
+    QMessageBox,
+    QPainterPath,
+    QPointF,
+    QRectF,
+    Qt,
 )
-
 
 # ===========================================================================
 # Style constants — change here to update all tools simultaneously

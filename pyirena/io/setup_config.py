@@ -46,7 +46,6 @@ from typing import Any, Dict, Optional
 
 import h5py
 
-
 PYIRENA_CONFIG_ATTR = "_pyirena_config"
 
 

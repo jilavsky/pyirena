@@ -53,7 +53,7 @@ class TestScatteringContrast:
         """f' is strongly negative near an absorption edge (Fe K at 7.112 keV)."""
         pytest.importorskip("periodictable")
         pytest.importorskip("xraydb")
-        from pyirena.core.scattering_contrast import compute_compound, compute_anomalous
+        from pyirena.core.scattering_contrast import compute_anomalous, compute_compound
         fe = compute_compound("Fe", density=7.87)
         near = compute_anomalous(fe, energy_keV=7.10)
         far = compute_anomalous(fe, energy_keV=12.0)
@@ -67,6 +67,7 @@ class TestDiffractionLines:
 
     def test_shift_q_for_distance_error(self):
         import numpy as np
+
         from pyirena.core.diffraction_lines import shift_q_for_distance_error
         q = np.array([1.0, 2.0, 3.0])
         # delta_L = 0 -> no miscalibration -> identity
@@ -81,8 +82,10 @@ class TestDiffractionLines:
     def test_si_powder_pattern(self):
         """Silicon (diamond cubic) against textbook peak positions."""
         pytest.importorskip("Dans_Diffraction")
-        import numpy as np
         from pathlib import Path
+
+        import numpy as np
+
         from pyirena.core.diffraction_lines import compute_pattern
 
         cif = Path(__file__).resolve().parents[2] / "testData" / "Si.cif"

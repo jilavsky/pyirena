@@ -15,15 +15,34 @@ import pyqtgraph as pg
 log = logging.getLogger(__name__)
 
 from pyirena.gui.data_selector._qt import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QAbstractItemView, QTableWidget, QTableWidgetItem, Qt,
-    QMessageBox, QApplication, QMenu, QKeySequence, QShortcut,
+    QAbstractItemView,
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QKeySequence,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QShortcut,
+    Qt,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+from pyirena.gui.data_selector.plot_utils import (
+    _add_jpeg_export,
+    _gen_colors,
+    _iq_error_bars,
+    _legend_indices,
+    _LogDecadeAxis,
+    _rescaled_view,
+    _style_plot,
 )
 from pyirena.gui.sas_plot import add_slope_line_menu
 from pyirena.io.hdf5 import readGenericNXcanSAS
-from pyirena.io.text_import import ensure_nxcansas_sibling
 from pyirena.io.nxcansas_unified import load_unified_fit_results
-
-from pyirena.gui.data_selector.plot_utils import _LogDecadeAxis, _add_jpeg_export, _gen_colors, _iq_error_bars, _legend_indices, _rescaled_view, _style_plot
+from pyirena.io.text_import import ensure_nxcansas_sibling
 
 
 class GraphWindow(QWidget):

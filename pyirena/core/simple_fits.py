@@ -819,7 +819,9 @@ class SimpleFitModel:
         held = set(fixed_params or ())
 
         from pyirena.core.saxs_morph import (
-            fit_power_law_bg, fit_power_law_bg_fixed_p, fit_flat_bg,
+            fit_flat_bg,
+            fit_power_law_bg,
+            fit_power_law_bg_fixed_p,
         )
 
         q = np.asarray(q, dtype=float)

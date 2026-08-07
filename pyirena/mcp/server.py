@@ -15,8 +15,7 @@ Environment overrides (see also pyirena.api):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Any
-
+from typing import Any, Optional
 
 try:
     from mcp.server.fastmcp import FastMCP, Image
@@ -27,7 +26,6 @@ except ImportError as exc:  # pragma: no cover - import guard
     ) from exc
 
 from pyirena import api as papi
-
 
 mcp = FastMCP(
     "pyirena",
@@ -1017,7 +1015,7 @@ def pyirena_ctrl_sizes_save_fit(
 
 def main() -> None:
     """Run the MCP server over stdio (default transport)."""
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("mcp")   # console handler writes to stderr; stdout stays clean for MCP
     install_excepthook()
     mcp.run()

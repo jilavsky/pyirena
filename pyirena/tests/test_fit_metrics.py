@@ -11,8 +11,8 @@ import pytest
 
 from pyirena.core.fit_metrics import (
     fit_quality_metrics,
-    robust_residual_scale,
     rescale_residuals,
+    robust_residual_scale,
 )
 
 

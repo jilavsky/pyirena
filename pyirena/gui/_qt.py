@@ -22,12 +22,12 @@ report.
 """
 
 try:
-    from PySide6 import QtWidgets, QtCore, QtGui
+    from PySide6 import QtCore, QtGui, QtWidgets
     from PySide6.QtCore import Signal
     QT_BINDING = "PySide6"
 except ImportError as _pyside_error:  # pragma: no cover - only without PySide6
     try:
-        from PyQt6 import QtWidgets, QtCore, QtGui  # type: ignore[no-redef]
+        from PyQt6 import QtCore, QtGui, QtWidgets  # type: ignore[no-redef]
         from PyQt6.QtCore import pyqtSignal as Signal  # type: ignore[no-redef]
         QT_BINDING = "PyQt6"
     except ImportError as _pyqt_error:  # pragma: no cover

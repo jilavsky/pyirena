@@ -54,9 +54,9 @@ from datetime import datetime
 from typing import Optional
 
 import numpy as np
+from scipy.integrate import simpson as _simpson
 from scipy.optimize import least_squares, minimize
 from scipy.special import erfinv as _erfinv
-from scipy.integrate import simpson as _simpson
 
 log = logging.getLogger(__name__)
 
@@ -899,6 +899,7 @@ def fit_power_law_bg(
 
     if slit_length and slit_length > 0:
         from scipy.optimize import curve_fit as _curve_fit
+
         from pyirena.core.smearing import SlitSmearer
         sm = SlitSmearer(q_w, slit_length)
         # Ideal-space seed from the log-log line, then refine with smearing.

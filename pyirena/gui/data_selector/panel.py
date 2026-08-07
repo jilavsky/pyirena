@@ -9,37 +9,72 @@ log = logging.getLogger(__name__)
 
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
 
-from pyirena.gui.data_selector._qt import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QListWidget, QLabel, QLineEdit, QFileDialog, QComboBox, QAbstractItemView, QMessageBox, QMenuBar, QMenu, QFrame, QScrollArea, QDialog, QDialogButtonBox, QGroupBox, QCheckBox, Qt, QDir, QUrl, QAction, QDesktopServices,
-)
-from pyirena.io.hdf5 import readGenericNXcanSAS
-from pyirena.io.text_import import ensure_nxcansas_sibling
 from pyirena.gui.data_loading import (
-    prompt_dataset_choice as _prompt_dataset_choice_fn,
-    read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
     load_data_file as _load_data_file_fn,
 )
-from pyirena.io.nxcansas_unified import load_unified_fit_results
-from pyirena.gui.unified_fit import UnifiedFitPanel
-from pyirena.gui.sizes_panel import SizesFitPanel
-from pyirena.state import StateManager
-
+from pyirena.gui.data_loading import (
+    prompt_dataset_choice as _prompt_dataset_choice_fn,
+)
+from pyirena.gui.data_loading import (
+    read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
+)
+from pyirena.gui.data_selector._qt import (
+    QAbstractItemView,
+    QAction,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDesktopServices,
+    QDialog,
+    QDialogButtonBox,
+    QDir,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMenu,
+    QMenuBar,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    Qt,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
+)
 from pyirena.gui.data_selector.config_dialogs import ConfigManagerDialog, DataSelectorConfigDialog
 from pyirena.gui.data_selector.igor_import import _IgorImportDialog
 from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices
 from pyirena.gui.data_selector.report import _build_report
-from pyirena.gui.data_selector.results_windows import GraphWindow, SimpleFitResultsWindow, SizeDistResultsWindow, TabulateResultsWindow, UnifiedFitResultsWindow, WAXSPeakFitResultsWindow
+from pyirena.gui.data_selector.results_windows import (
+    GraphWindow,
+    SimpleFitResultsWindow,
+    SizeDistResultsWindow,
+    TabulateResultsWindow,
+    UnifiedFitResultsWindow,
+    WAXSPeakFitResultsWindow,
+)
 from pyirena.gui.data_selector.sorting import _SORT_KEYS
-from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
+from pyirena.gui.sizes_panel import SizesFitPanel
+from pyirena.gui.unified_fit import UnifiedFitPanel
+from pyirena.io.hdf5 import readGenericNXcanSAS
+from pyirena.io.nxcansas_unified import load_unified_fit_results
+from pyirena.io.text_import import ensure_nxcansas_sibling
+from pyirena.state import StateManager
 from pyirena.version_check import is_newer, should_check_now
 
 
@@ -126,6 +161,7 @@ class DataSelectorPanel(QWidget):
     def _on_update_check_finished(self, tag: str):
         """Slot for UpdateCheckWorker.finished_check — runs on the main thread."""
         from datetime import datetime
+
         import pyirena
 
         self.state_manager.set('data_selector', 'last_update_check', datetime.now().isoformat())
@@ -1457,8 +1493,8 @@ class DataSelectorPanel(QWidget):
             if self.file_list.item(i).text() in selected_set
         ]
 
-        from pyirena.io.nxcansas_unified import load_unified_fit_results
         from pyirena.io.nxcansas_sizes import load_sizes_results
+        from pyirena.io.nxcansas_unified import load_unified_fit_results
 
         # ── First pass: load all data, determine max unified-fit levels ──────
         loaded = []   # list of (fname, uf, sz, sf, wp, mod, sm)
@@ -1762,7 +1798,8 @@ class DataSelectorPanel(QWidget):
                             area_s = pk.get('area_std')
                             if area_v is None:
                                 from pyirena.core.waxs_peakfit import (
-                                    peak_area, peak_area_std,
+                                    peak_area,
+                                    peak_area_std,
                                 )
                                 area_v = peak_area(pk.get('shape', 'Gauss'), pk)
                                 area_s = peak_area_std(pk.get('shape', 'Gauss'),
@@ -2549,8 +2586,8 @@ class DataSelectorPanel(QWidget):
         """Open a standalone 2D + 3D viewer pre-loaded with stored saxsMorph
         voxelgrams from the selected files.  Returns the number of files
         whose results were displayed."""
-        from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
         from pyirena.gui.saxs_morph_3d import VoxelViewerWindow
+        from pyirena.io.nxcansas_saxs_morph import load_saxs_morph_results
 
         items = []
         for fp in file_paths:
@@ -2593,11 +2630,12 @@ class DataSelectorPanel(QWidget):
         Fractals tool uses (`oversample=10, sphere_voxel_radius=10` —
         the chunky-sphere render that makes the aggregate look connected).
         Returns the number of aggregates displayed."""
-        from pyirena.io.nxcansas_fractals import (
-            list_fractal_aggregates, load_fractal_aggregate,
-        )
         from pyirena.core.fractals import voxelize
         from pyirena.gui.saxs_morph_3d import VoxelViewerWindow
+        from pyirena.io.nxcansas_fractals import (
+            list_fractal_aggregates,
+            load_fractal_aggregate,
+        )
 
         items = []
         for fp in file_paths:

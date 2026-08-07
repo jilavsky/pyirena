@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_config, _load_data
 
-
 # ===========================================================================
 # SAXS Morph (headless)
 # ===========================================================================
@@ -70,8 +69,10 @@ def fit_saxs_morph(
     """
     _ensure_console()
     from pyirena.core.saxs_morph import (
-        SaxsMorphEngine, SaxsMorphConfig,
-        fit_power_law_bg, fit_flat_bg,
+        SaxsMorphConfig,
+        SaxsMorphEngine,
+        fit_flat_bg,
+        fit_power_law_bg,
     )
     from pyirena.io.nxcansas_saxs_morph import save_saxs_morph_results
 

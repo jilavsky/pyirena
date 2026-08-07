@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 
 from pyirena.core.simple_fits import (
-    SimpleFitModel,
     MODEL_REGISTRY,
+    SimpleFitModel,
     calculate_invariant,
 )
 
@@ -280,6 +280,7 @@ class TestBackgroundPrefitReplay:
 
     def test_batch_replay_honors_fixed_params(self, tmp_path):
         import h5py
+
         from pyirena.batch.simple import fit_simple
 
         fp = tmp_path / "sphere_bg_fixed.h5"
@@ -312,6 +313,7 @@ class TestBackgroundPrefitReplay:
 
     def test_batch_replay_end_to_end(self, tmp_path):
         import h5py
+
         from pyirena.batch.simple import fit_simple
 
         fp = tmp_path / "sphere_bg.h5"
@@ -346,8 +348,10 @@ class TestBackgroundPrefitReplay:
 class TestHdf5RoundTrip:
     def test_save_and_load(self, tmp_path):
         import h5py
+
         from pyirena.io.nxcansas_simple_fits import (
-            save_simple_fit_results, load_simple_fit_results,
+            load_simple_fit_results,
+            save_simple_fit_results,
         )
 
         m = SimpleFitModel()
@@ -379,6 +383,7 @@ class TestHdf5RoundTrip:
 class TestBatchConfig:
     def test_fit_simple_with_invariant_config(self, tmp_path):
         import h5py
+
         from pyirena.batch.simple import fit_simple
         from pyirena.io.nxcansas_simple_fits import load_simple_fit_results
 

@@ -15,27 +15,64 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Callable, Optional, List
+from typing import Callable, List, Optional
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QAbstractItemView, QApplication, QCheckBox, QColor, QComboBox, QDesktopServices, QDoubleSpinBox, QDoubleValidator, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QIcon, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPixmap, QPushButton, QScrollArea, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
-)
-
 import pyqtgraph as pg
 
 from pyirena.core.data_manipulation import (
-    DataManipulation, ManipResult,
-    ScaleConfig, TrimConfig, RebinConfig, SubtractConfig, DivideConfig,
+    DataManipulation,
+    DivideConfig,
+    ManipResult,
+    RebinConfig,
+    ScaleConfig,
+    SubtractConfig,
+    TrimConfig,
+)
+from pyirena.gui._qt import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QColor,
+    QComboBox,
+    QDesktopServices,
+    QDoubleSpinBox,
+    QDoubleValidator,
+    QFileDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QIcon,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QPixmap,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    Qt,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTimer,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
 )
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
-from pyirena.state.state_manager import StateManager
 from pyirena.gui.sas_plot import (
-    make_sas_plot, make_cursors, get_cursor_q_range,
-    set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
+    SASPlotStyle,
+    _SafeInfiniteLine,
+    get_cursor_q_range,
+    make_cursors,
+    make_sas_plot,
+    set_robust_y_range,
 )
-
+from pyirena.state.state_manager import StateManager
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -748,7 +785,7 @@ class DataManipulationPanel(QWidget):
     # ------------------------------------------------------------------ #
 
     def _build_average_tab(self) -> None:
-        from pyirena.core.similarity import SIMILARITY_METHODS, SIMILARITY_METHOD_LABELS
+        from pyirena.core.similarity import SIMILARITY_METHOD_LABELS, SIMILARITY_METHODS
 
         # The tab itself is just a container for the scroll area.
         # All visible content goes into `content_widget` inside the scroll area
@@ -2281,7 +2318,7 @@ class DataManipulationPanel(QWidget):
 
 def main() -> None:
     """Entry point: ``pyirena-datamanip``."""
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     import argparse

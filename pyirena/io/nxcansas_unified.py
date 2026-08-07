@@ -6,13 +6,13 @@ It creates proper NeXus structure following NXcanSAS standard and stores Unified
 model parameters, calculated intensities, and residuals.
 """
 
-import h5py
-import numpy as np
-from pathlib import Path
+import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
-import logging
+import h5py
+import numpy as np
 
 log = logging.getLogger(__name__)
 

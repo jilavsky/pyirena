@@ -25,13 +25,15 @@ from typing import Optional
 
 import numpy as np
 
-from pyirena.gui._qt import QThread, Signal
-
 from pyirena.core.fractals import (
-    FractalAggregate, GrowthConfig, OptimizerConfig,
-    grow_aggregate, optimize_growth, intensity_montecarlo,
+    FractalAggregate,
+    GrowthConfig,
+    OptimizerConfig,
+    grow_aggregate,
+    intensity_montecarlo,
+    optimize_growth,
 )
-
+from pyirena.gui._qt import QThread, Signal
 
 # ---------------------------------------------------------------------------
 # Job descriptors

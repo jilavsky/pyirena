@@ -10,6 +10,7 @@ Context menu on group nodes:  Plot NXcanSAS / Unified Fit / … if known type.
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -17,12 +18,25 @@ log = logging.getLogger(__name__)
 
 import os
 
-from pyirena.gui._qt import (
-    QAbstractItemView, QAction, QCheckBox, QFont, QLabel, QLineEdit, QMenu, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
-)
-
 import h5py
 import numpy as np
+
+from pyirena.gui._qt import (
+    QAbstractItemView,
+    QAction,
+    QCheckBox,
+    QFont,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QSizePolicy,
+    Qt,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+    Signal,
+)
 
 # Qt user-data roles
 _HDF5_PATH_ROLE = Qt.ItemDataRole.UserRole        # full hdf5 path string

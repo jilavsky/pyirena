@@ -15,7 +15,6 @@ from pyirena.api._paths import resolve_safe_file, resolve_safe_folder
 from pyirena.api.schemas import FileEntry, FileInspection, FolderSummary
 from pyirena.io.schema import available_tools
 
-
 _DEFAULT_GLOBS = ("*.h5", "*.hdf5", "*.hdf", "*.nx", "*.nxs")
 _VALID_SORT = frozenset({"name_asc", "name_desc", "mtime_asc", "mtime_desc",
                          "size_asc", "size_desc"})

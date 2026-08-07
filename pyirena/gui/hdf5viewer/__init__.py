@@ -16,7 +16,7 @@ __all__ = ["HDF5ViewerWindow", "main"]
 
 def main(initial_folder: str | None = None) -> None:
     """Entry point for standalone launch via ``pyirena-viewer``."""
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     import sys

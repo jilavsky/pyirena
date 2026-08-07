@@ -142,7 +142,7 @@ change how you should work.
 | Packaging or release work | `docs/distribution.md`, `.github/workflows/publish.yml` |
 | Debugging a user's install/startup failure | `pyirena/diagnostics.py` (`pyirena-doctor`), `docs/installation.md` |
 | Understanding a specific GUI panel | `docs/<tool>_gui.md` (see tool map above) |
-| Looking for design intent on unfinished work | `planning/` and `IMPROVEMENT_PLAN.md` |
+| Looking for design intent on unfinished work | `planning/` and `PLAN.md` |
 
 `docs/GUI_README.md`, `docs/gui_quickstart.md`, `docs/QUICK_START.md` and
 `docs/usage_guide.md` are user-facing; consult them to keep terminology
@@ -161,10 +161,14 @@ an algorithm comes from Irena, say so in the docstring and keep the same
 parameter names where practical.
 
 **Code.** Line length 100. Google-style docstrings on public functions. Ruff
-with `E741`, `E701`, `E702`, `E402` intentionally disabled (see the comments in
-`pyproject.toml` — read them before "fixing" a lint suppression). Type hints
-where they help; `py.typed` is shipped. Python 3.9 is the floor, so no
-`match`, no PEP 604 `X | Y` in runtime annotations.
+selects `E`, `F`, `W`, `I` with `E501`, `E741`, `E701`, `E702`, `E402`
+intentionally disabled (see the comments in `pyproject.toml` — read them before
+"fixing" a lint suppression). `UP` and `B` are house standard but not enabled
+here yet; enabling them is a separate reviewable pass, not a drive-by. Type
+hints where they help; `py.typed` is shipped. **Python 3.10 is the floor**
+(`requires-python = ">=3.10"`, tested on 3.10/3.11/3.13), so `match` and PEP 604
+`X | None` are fine — but existing modules use `Optional[X]`, so follow the
+convention in the file you are editing rather than converting it.
 
 **GUI.** One panel per tool, one file per panel. Panels are thin — if you are
 writing a loop with numpy in a `*_panel.py`, it belongs in `core/`. Every panel

@@ -6,6 +6,7 @@ stick patterns via Dans_Diffraction, and emits a list of visible patterns to
 the WAXS graph window for overlay on the experimental I(Q) curve.
 """
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -15,16 +16,31 @@ import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from pyirena.gui._qt import (
-    QCheckBox, QColor, QColorDialog, QDoubleSpinBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, Qt, Signal,
-)
-
 from pyirena.core.diffraction_lines import (
     DiffractionPattern,
     compute_pattern,
     shift_q_for_distance_error,
 )
-
+from pyirena.gui._qt import (
+    QCheckBox,
+    QColor,
+    QColorDialog,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    Qt,
+    QVBoxLayout,
+    QWidget,
+    Signal,
+)
 
 # ── colour palette: visually distinct phases ──────────────────────────────
 _CIF_COLORS = [

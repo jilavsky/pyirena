@@ -6,7 +6,10 @@ import math
 import numpy as np
 
 from pyirena.api.schemas import (
-    FileEntry, ReducedData, array_to_list, asdict_clean,
+    FileEntry,
+    ReducedData,
+    array_to_list,
+    asdict_clean,
 )
 
 

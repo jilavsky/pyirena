@@ -14,6 +14,7 @@ API keys are stored in the OS keyring (never in state.json).
 Fallback: ANTHROPIC_API_KEY / OPENAI_API_KEY environment variables.
 """
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -28,9 +29,27 @@ from pathlib import Path
 from typing import Optional
 
 from pyirena.gui._qt import (
-    QApplication, QBuffer, QDialog, QDialogButtonBox, QFont, QFormLayout, QGroupBox, QHBoxLayout, QIODevice, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QRadioButton, QTextBrowser, QThread, QTimer, QVBoxLayout, Qt, Signal,
+    QApplication,
+    QBuffer,
+    QDialog,
+    QDialogButtonBox,
+    QFont,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QIODevice,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
+    QRadioButton,
+    Qt,
+    QTextBrowser,
+    QThread,
+    QTimer,
+    QVBoxLayout,
+    Signal,
 )
-
 
 # ---------------------------------------------------------------------------
 # Response formatting: LaTeX math → Unicode + Markdown → HTML

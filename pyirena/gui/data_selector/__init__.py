@@ -12,10 +12,32 @@ their content as graphs.
 from pyirena.gui.data_selector.config_dialogs import ConfigManagerDialog, DataSelectorConfigDialog
 from pyirena.gui.data_selector.igor_import import _IgorImportDialog
 from pyirena.gui.data_selector.panel import DataSelectorPanel, main
-from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices, _LogDecadeAxis, _style_plot, _iq_error_bars, _add_jpeg_export, _rescaled_view
-from pyirena.gui.data_selector.report import _quality_report_rows, _build_report
-from pyirena.gui.data_selector.results_windows import GraphWindow, UnifiedFitResultsWindow, SizeDistResultsWindow, SimpleFitResultsWindow, WAXSPeakFitResultsWindow, TabulateResultsWindow
-from pyirena.gui.data_selector.sorting import _sort_key_name, _sort_key_temperature, _sort_key_time, _sort_key_order, _sort_key_pressure, _SORT_KEYS
+from pyirena.gui.data_selector.plot_utils import (
+    _add_jpeg_export,
+    _gen_colors,
+    _iq_error_bars,
+    _legend_indices,
+    _LogDecadeAxis,
+    _rescaled_view,
+    _style_plot,
+)
+from pyirena.gui.data_selector.report import _build_report, _quality_report_rows
+from pyirena.gui.data_selector.results_windows import (
+    GraphWindow,
+    SimpleFitResultsWindow,
+    SizeDistResultsWindow,
+    TabulateResultsWindow,
+    UnifiedFitResultsWindow,
+    WAXSPeakFitResultsWindow,
+)
+from pyirena.gui.data_selector.sorting import (
+    _SORT_KEYS,
+    _sort_key_name,
+    _sort_key_order,
+    _sort_key_pressure,
+    _sort_key_temperature,
+    _sort_key_time,
+)
 from pyirena.gui.data_selector.workers import BatchWorker
 
 __all__ = [

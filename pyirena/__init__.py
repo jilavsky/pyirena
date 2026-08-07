@@ -33,7 +33,8 @@ References:
 # (pyproject.toml is the source of truth).  Fall back to a sentinel when
 # running from a source tree that was never installed (e.g. `python -c` in
 # a fresh checkout).
-from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
 try:
     __version__ = _pkg_version("pyirena")
@@ -43,17 +44,29 @@ except PackageNotFoundError:  # pragma: no cover - only in uninstalled source tr
 __author__ = "Jan Ilavsky"
 __email__ = "ilavsky@aps.anl.gov"
 
-from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, load_data_from_nxcansas
-from pyirena.core.sizes import SizesDistribution
-from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY, MODEL_NAMES, calculate_invariant
-from pyirena.core.fit_metrics import fit_quality_metrics
 from pyirena.batch import (
-    fit_unified, fit_sizes, fit_simple, fit_pyirena,
-    manipulate_data, average_data, fit_saxs_morph,
-    igor_to_nexus, pxp_to_nexus,
+    average_data,
+    fit_pyirena,
+    fit_saxs_morph,
+    fit_simple,
+    fit_sizes,
+    fit_unified,
+    igor_to_nexus,
+    manipulate_data,
+    pxp_to_nexus,
 )
-from pyirena.io.results import load_result, SUPPORTED_ANALYSES
-from pyirena.logging_setup import setup_logging, get_log_dir
+from pyirena.core.fit_metrics import fit_quality_metrics
+from pyirena.core.simple_fits import (
+    MODEL_NAMES,
+    MODEL_REGISTRY,
+    SimpleFitModel,
+    calculate_invariant,
+)
+from pyirena.core.sizes import SizesDistribution
+from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, load_data_from_nxcansas
+from pyirena.io.results import SUPPORTED_ANALYSES, load_result
+from pyirena.logging_setup import get_log_dir, setup_logging
+
 
 def __getattr__(name):
     """Lazily expose optional plotting helpers (PEP 562).

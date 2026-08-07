@@ -12,7 +12,18 @@ import re
 from pathlib import Path
 
 from pyirena.gui._qt import (
-    QAbstractItemView, QFileDialog, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout, QWidget, Qt,
+    QAbstractItemView,
+    QFileDialog,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    Qt,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
 )
 
 

@@ -74,7 +74,9 @@ def _make_css_modeling_result():
     """A real ModelingResult for a core-shell-shell population (nothing fit,
     so fit() just evaluates and returns quickly)."""
     from pyirena.core.modeling import (
-        ModelingEngine, ModelingConfig, SizeDistPopulation,
+        ModelingConfig,
+        ModelingEngine,
+        SizeDistPopulation,
     )
     q = np.logspace(np.log10(0.005), np.log10(0.35), 120)
     pop = SizeDistPopulation()
@@ -112,8 +114,8 @@ class TestCsvIncludesFormFactorParams:
             pytest.skip("Qt not available")
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-        from pyirena.io.nxcansas_modeling import save_modeling_results
         from pyirena.gui import data_selector as ds
+        from pyirena.io.nxcansas_modeling import save_modeling_results
 
         # Write a real HDF5 file with a core-shell-shell modeling result.
         h5 = tmp_path / 'sample.h5'

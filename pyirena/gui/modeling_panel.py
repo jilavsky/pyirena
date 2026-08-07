@@ -15,6 +15,7 @@ main()         — standalone CLI entry: python -m pyirena.gui.modeling_panel <f
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -27,27 +28,57 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-
-from pyirena.gui._qt import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QThread, QTimer, QVBoxLayout, QWidget, Qt, Signal,
-)
-
 import pyqtgraph as pg
 
-from pyirena.core.distributions import DIST_PARAM_NAMES, DIST_LABELS, DIST_DEFAULTS
+from pyirena.core.distributions import DIST_DEFAULTS, DIST_LABELS, DIST_PARAM_NAMES
 from pyirena.core.modeling import (
-    ModelingEngine, ModelingConfig, SizeDistPopulation, ModelingResult,
-    UnifiedLevelPopulation, DiffractionPeakPopulation,
-    GuinierPorodPopulation, MassFractalPopulation, SurfaceFractalPopulation,
+    DiffractionPeakPopulation,
+    GuinierPorodPopulation,
+    MassFractalPopulation,
+    ModelingConfig,
+    ModelingEngine,
+    ModelingResult,
+    SizeDistPopulation,
+    SurfaceFractalPopulation,
+    UnifiedLevelPopulation,
 )
-from pyirena.gui.sas_plot import (
-    plot_iq_data, set_robust_y_range, add_plot_annotation,
-    RadiusAxisItem, save_itx_from_plot, add_slope_line_menu,
+from pyirena.gui._qt import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QTabWidget,
+    QThread,
+    QTimer,
+    QVBoxLayout,
+    QWidget,
+    Signal,
 )
-from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.io.nxcansas_modeling import save_modeling_results
+from pyirena.gui.sas_plot import (
+    RadiusAxisItem,
+    add_plot_annotation,
+    add_slope_line_menu,
+    plot_iq_data,
+    save_itx_from_plot,
+    set_robust_y_range,
+)
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
+from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2135,7 +2166,8 @@ class _FitWorker(QThread):
         except _FitCancelled:
             self.error.emit('Fit cancelled by user.')
         except Exception as exc:
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             self.error.emit(str(exc))
 
 
@@ -2178,7 +2210,8 @@ class _MCWorker(QThread):
             )
             self.finished.emit(stds)
         except Exception as exc:
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             self.error.emit(str(exc))
 
 
@@ -2891,11 +2924,11 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     def _open_help(self):
         try:
-            from PySide6.QtGui import QDesktopServices
             from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
         except ImportError:
-            from PyQt6.QtGui import QDesktopServices
             from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             'https://github.com/jilavsky/pyirena/blob/main/docs/modeling_gui.md'
         ))
@@ -2942,8 +2975,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         if not fp:
             return
         try:
-            from pyirena.io.hdf5 import readGenericNXcanSAS
             import numpy as _np
+
+            from pyirena.io.hdf5 import readGenericNXcanSAS
             d = readGenericNXcanSAS(str(Path(fp).parent), Path(fp).name,
                                     prefer_slit_smeared=prefer_slit_smeared)
             if d is None:
@@ -3287,7 +3321,8 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                    f'DOF = {result.dof}{_q_suffix}')
             self.graph.set_status(msg, 'success')
         except Exception as exc:
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             self.graph.set_status(f'Fit completed but display error: {exc}', 'error')
 
         # Always re-enable buttons and save state, even if display code fails
@@ -3465,8 +3500,8 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         config_path = Path(path)
 
         # Load existing config and merge so other tool sections are preserved
-        import json as _json
         import datetime
+        import json as _json
         try:
             from pyirena import __version__ as _version
         except Exception:
@@ -3898,7 +3933,7 @@ if not hasattr(StateManager, 'set'):
 
 def main():
     """Standalone entry: python -m pyirena.gui.modeling_panel [hdf5_file]"""
-    from pyirena.logging_setup import setup_logging, install_excepthook
+    from pyirena.logging_setup import install_excepthook, setup_logging
     setup_logging("gui")
     install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)

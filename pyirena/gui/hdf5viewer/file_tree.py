@@ -12,6 +12,7 @@ Key design:
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -23,7 +24,22 @@ from pathlib import Path
 from typing import Callable
 
 from pyirena.gui._qt import (
-    QBrush, QColor, QComboBox, QFileDialog, QFont, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Qt, Signal,
+    QBrush,
+    QColor,
+    QComboBox,
+    QFileDialog,
+    QFont,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    Qt,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+    Signal,
 )
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 

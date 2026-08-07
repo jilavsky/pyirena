@@ -7,9 +7,23 @@ Split from the original monolithic data_selector.py (no behavior change).
 
 
 from pyirena.gui.data_selector._qt import (
-    QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel, QLineEdit, QComboBox, QMessageBox, QFrame, QDialog, QFormLayout, QDialogButtonBox, QGroupBox, QCheckBox, QColorDialog, QDoubleValidator,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleValidator,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
-
 
 
 class ConfigManagerDialog(QDialog):
@@ -124,8 +138,8 @@ class ConfigManagerDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _save(self):
-        import json
         import datetime
+        import json
         to_remove = [key for key, cb in self._checkboxes.items() if not cb.isChecked()]
         if not to_remove:
             self.accept()

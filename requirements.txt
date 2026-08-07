@@ -3,7 +3,8 @@
 #   pip install pyirena            (core)
 #   pip install "pyirena[gui]"     (GUI tools)
 #   pip install "pyirena[all]"     (everything)
-numpy>=1.22.0
+# numpy.trapezoid (used throughout core/) requires NumPy >= 2.0.
+numpy>=2.0
 scipy>=1.8.0
 h5py>=3.0.0
 igor2>=0.5.13

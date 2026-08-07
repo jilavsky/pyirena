@@ -11,7 +11,6 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-
 from pyirena.logging_setup import ensure_console_output as _ensure_console
 
 if TYPE_CHECKING:

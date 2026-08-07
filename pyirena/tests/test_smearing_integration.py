@@ -108,9 +108,9 @@ def test_merge_merged_slit_length_rules():
 
 def test_merge_output_reads_back_slit_smeared(tmp_path):
     """A slit-smeared + pinhole merge writes dQl so the output auto-detects."""
-    from pyirena.io.nxcansas_unified import create_nxcansas_file
-    from pyirena.io.nxcansas_data_merge import save_merged_data
     from pyirena.io.hdf5 import readGenericNXcanSAS
+    from pyirena.io.nxcansas_data_merge import save_merged_data
+    from pyirena.io.nxcansas_unified import create_nxcansas_file
 
     # DS1: slit-smeared USAXS (low Q).  Create a plain NXcanSAS file; the merge
     # writes the merged dQl regardless of DS1's own resolutions.
@@ -174,8 +174,9 @@ def test_manipulation_subtract_guard():
 def test_drop_smr_entries(tmp_path):
     """A copied Matilda-style file loses its _SMR twin on manipulation save."""
     import h5py
-    from pyirena.io.nxcansas_unified import create_nxcansas_file
+
     from pyirena.io._nxcansas_common import drop_smr_entries
+    from pyirena.io.nxcansas_unified import create_nxcansas_file
 
     p = tmp_path / "dual.h5"
     q = np.geomspace(1e-3, 0.3, 60)
@@ -200,7 +201,8 @@ def test_drop_smr_entries(tmp_path):
 def test_simple_fits_roundtrip_slit(tmp_path):
     from pyirena.core.simple_fits import SimpleFitModel
     from pyirena.io.nxcansas_simple_fits import (
-        save_simple_fit_results, load_simple_fit_results,
+        load_simple_fit_results,
+        save_simple_fit_results,
     )
 
     SL = 0.018
@@ -228,10 +230,13 @@ def test_simple_fits_roundtrip_slit(tmp_path):
 def test_modeling_saves_ideal_curve(tmp_path):
     """Modeling result exposes model_I_ideal when smearing is on; it round-trips."""
     from pyirena.core.modeling import (
-        ModelingEngine, ModelingConfig, SizeDistPopulation,
+        ModelingConfig,
+        ModelingEngine,
+        SizeDistPopulation,
     )
     from pyirena.io.nxcansas_modeling import (
-        save_modeling_results, load_modeling_results,
+        load_modeling_results,
+        save_modeling_results,
     )
 
     q = np.geomspace(1e-3, 0.3, 120)

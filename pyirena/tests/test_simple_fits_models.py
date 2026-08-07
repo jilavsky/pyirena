@@ -14,7 +14,7 @@ same curve — so for those only curve reproduction is required.
 import numpy as np
 import pytest
 
-from pyirena.core.simple_fits import SimpleFitModel, MODEL_REGISTRY, MODEL_NAMES
+from pyirena.core.simple_fits import MODEL_NAMES, MODEL_REGISTRY, SimpleFitModel
 
 Q = np.logspace(-2.3, -0.7, 200)
 

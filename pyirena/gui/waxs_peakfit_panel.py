@@ -9,6 +9,7 @@ PeakRowWidget           — collapsible widget for one peak's parameters
 """
 
 from __future__ import annotations
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -22,21 +23,54 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
-from pyirena.gui._qt import (
-    QCheckBox, QComboBox, QDesktopServices, QDialog, QDialogButtonBox, QDoubleSpinBox, QDoubleValidator, QFileDialog, QFont, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget, QTimer, QUrl, QVBoxLayout, QWidget, Qt, Signal,
-)
-
 from pyirena.core.waxs_peakfit import (
-    PEAK_SHAPES, BG_SHAPES, BG_ADAPTIVE, _BG_ADAPTIVE_PARAMS,
-    _PEAK_PARAM_NAMES, _PARAM_DEFAULTS,
-    bg_param_names, default_bg_params, default_peak_params,
-    eval_background, eval_peak, eval_model,
+    _BG_ADAPTIVE_PARAMS,
+    _PARAM_DEFAULTS,
+    _PEAK_PARAM_NAMES,
+    BG_ADAPTIVE,
+    BG_SHAPES,
+    PEAK_SHAPES,
+    WAXSPeakFitModel,
+    bg_param_names,
     compute_adaptive_background,
-    find_peaks_in_data, WAXSPeakFitModel,
+    default_bg_params,
+    default_peak_params,
+    eval_background,
+    eval_model,
+    eval_peak,
+    find_peaks_in_data,
+)
+from pyirena.gui._qt import (
+    QCheckBox,
+    QComboBox,
+    QDesktopServices,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QDoubleValidator,
+    QFileDialog,
+    QFont,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QTabWidget,
+    QTimer,
+    QUrl,
+    QVBoxLayout,
+    QWidget,
+    Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.gui.sas_plot import save_itx_from_plot, DSpacingAxisItem
-
+from pyirena.gui.sas_plot import DSpacingAxisItem, save_itx_from_plot
 
 # ── colour palette for peaks ──────────────────────────────────────────────
 _PEAK_COLORS = [
@@ -1926,7 +1960,8 @@ class WAXSPeakFitPanel(QWidget):
         Returns a deep-copied peaks list; the input is not modified.
         """
         from pyirena.core.waxs_peakfit import (
-            cross_corr_q_shift, presearch_q0_per_peak,
+            cross_corr_q_shift,
+            presearch_q0_per_peak,
         )
 
         window  = self._ps_window_spin.value()

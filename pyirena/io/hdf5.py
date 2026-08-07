@@ -2,12 +2,12 @@
     this contains needed hdf5 support for matilda
     used by saving blank BL_QRS data.
 """
-import h5py
+import logging
 import os
+
+import h5py
 import numpy as np
 import six  #what is this for???
-import logging
-
 
 # Q-unit conversion for text-file import: multiply the raw Q (and dQ) column
 # by this factor to get 1/Å, pyIrena's native unit. Keys mirror the choices
@@ -646,7 +646,7 @@ def readGenericNXcanSAS(path, filename, data_path=None, prefer_slit_smeared=Fals
         return _read_one_sasdata(f, datasets[0]['path'])
 
 def saveNXcanSAS(Sample,path, filename):
-    
+
     #read stuff from the data dictionary
     Intensity = Sample["CalibratedData"]["Intensity"]
     Q = Sample["CalibratedData"]["Q"]
@@ -683,12 +683,12 @@ def saveNXcanSAS(Sample,path, filename):
     if "BlankData" in Sample:
         BL_R_Int = Sample["BlankData"]["Intensity"]
         BL_Q_vec = Sample["BlankData"]["Q"]
-        BL_Error = Sample["BlankData"]["Error"]    
+        BL_Error = Sample["BlankData"]["Error"]
     else:
         BL_R_Int = None
         BL_Q_vec = None
         BL_Error = None
-        
+
     #this is Desmeared USAXS data, SLitSmeared data and plot data, all at once.
     # create the HDF5 NeXus file with same structure as our raw data files have...
     Filepath = os.path.join(path, filename)
@@ -696,40 +696,40 @@ def saveNXcanSAS(Sample,path, filename):
     with h5py.File(Filepath, "a") as f:
         # point to the default data to be plotted
         f.attrs['default']          = 'entry'   #our files have one entry input.
-        # these are hopefully optional and useful. 
+        # these are hopefully optional and useful.
         f.attrs['file_name']        = filename
-        f.attrs['file_time']        = timeStamp 
+        f.attrs['file_time']        = timeStamp
         f.attrs['instrument']       = '12IDE USAXS'
         f.attrs['creator']          = 'Matilda NeXus writer'
         f.attrs['Matilda_version']  = '1.0.0' # version 2025-07-06
-        f.attrs['NeXus_version']    = '4.3.0' #2025-5-9 4.3.0 is rc, it is current. 
+        f.attrs['NeXus_version']    = '4.3.0' #2025-5-9 4.3.0 is rc, it is current.
         f.attrs['HDF5_version']     = six.u(h5py.version.hdf5_version)
         f.attrs['h5py_version']     = six.u(h5py.version.version)
 
         # now create the NXentry group called entry if does not exist
         if 'entry' not in f:
-            nxentry = f.create_group('entry')    
-        
+            nxentry = f.create_group('entry')
+
         nxentry = f['entry']
         nxentry.attrs['NX_class'] = 'NXentry'
         nxentry.attrs['canSAS_class'] = 'SASentry'
         nxentry.attrs['default']  = samplename   #modify with the most reduced data.
-        
+
         #add definition as NXsas - this is location of raw AND reduced data
         # Check if 'definition' dataset exists in the entry group and delete it if present
         if 'definition' in nxentry:
             del nxentry['definition']
         nxentry.create_dataset('definition', data='NXsas')
-        # other groups should be here from RAW data, so ignore. 
+        # other groups should be here from RAW data, so ignore.
 
         if Intensity is not None:
             logging.info(f"Wrote Desmeared NXcanSAS group for file {filename}. ")
-            # create the NXsubentry group for Desmeared reduced data. 
+            # create the NXsubentry group for Desmeared reduced data.
             newDataPath = "entry/"+samplename
             if newDataPath in f:
                 logging.warning(f"NXcanSAS group {newDataPath} already exists in file {filename}. Overwriting.")
                 del f[newDataPath]
-            
+
             nxDataEntry = f.create_group(newDataPath)
             nxDataEntry.attrs['NX_class'] = 'NXsubentry'
             nxDataEntry.attrs['canSAS_class'] = 'SASentry'
@@ -769,20 +769,20 @@ def saveNXcanSAS(Sample,path, filename):
             ds.attrs['units'] = '1/angstrom'
             ds.attrs['long_name'] = 'Q (A^-1)'    # suggested Y axis plot label
             ds.attrs['resolutions'] = 'Qdev'
-        
+
             # d X axis data
             ds = nxdata.create_dataset('Qdev', data=dQ)
             ds.attrs['units'] = '1/angstrom'
-            ds.attrs['long_name'] = 'Q (A^-1)'   
+            ds.attrs['long_name'] = 'Q (A^-1)'
             # dI axis data
             ds = nxdata.create_dataset('Idev', data=Error)
             ds.attrs['units'] = 'cm2/cm3'
-            ds.attrs['long_name'] = 'Uncertainties'  
+            ds.attrs['long_name'] = 'Uncertainties'
 
         if SMR_Int is not None:
             logging.info(f"Wrote SMR NXcanSAS group for file {filename}. ")
             # add the SMR data
-            # create the NXsubentry group for Desmeared reduced data. 
+            # create the NXsubentry group for Desmeared reduced data.
             newDataPath = "entry/"+samplename+"_SMR"
             if newDataPath in f:
                 logging.warning(f"NXcanSAS group {newDataPath} already exists in file {filename}. Overwriting.")
@@ -824,19 +824,19 @@ def saveNXcanSAS(Sample,path, filename):
             ds.attrs['units'] = '1/angstrom'
             ds.attrs['long_name'] = 'Q (A^-1)'    # suggested Y axis plot label
             ds.attrs['resolutions'] = 'dQw,dQl'
-        
+
             # d X axis data
             ds = nxdata.create_dataset('dQw', data=SMR_dQ)
             ds.attrs['units'] = '1/angstrom'
-            ds.attrs['long_name'] = 'dQw (A^-1)'           
+            ds.attrs['long_name'] = 'dQw (A^-1)'
             # slitlength
             ds = nxdata.create_dataset('dQl', data=slitLength)
             ds.attrs['units'] = '1/angstrom'
-            ds.attrs['long_name'] = 'dQl (A^-1)'   
+            ds.attrs['long_name'] = 'dQl (A^-1)'
             # dI axis data
             ds = nxdata.create_dataset('Idev', data=SMR_Error)
             ds.attrs['units'] = 'cm2/cm3'
-            ds.attrs['long_name'] = 'Uncertainties'  
+            ds.attrs['long_name'] = 'Uncertainties'
 
         if R_Int is not None:
             logging.info(f"Wrote QRS group for file {filename}. ")
@@ -858,7 +858,7 @@ def saveNXcanSAS(Sample,path, filename):
             ds = nxDataEntry.create_dataset('Error', data=R_Error)
             ds.attrs['units'] = 'arb'
             ds.attrs['long_name'] = 'Error'    # suggested X axis plot label
-            
+
         if BL_R_Int is not None:
             logging.info(f"Wrote Blank data group for file {filename}. ")
             newDataPath = "entry/"+"Blank_data"
@@ -871,7 +871,7 @@ def saveNXcanSAS(Sample,path, filename):
             ds = nxDataEntry.create_dataset('Intensity', data=BL_R_Int)
             ds.attrs['units'] = 'arb'
             ds.attrs['long_name'] = 'Intensity'    # suggested X axis plot label
-            ds.attrs['blankname']=blankname 
+            ds.attrs['blankname']=blankname
             # R_Qvec axis data
             ds = nxDataEntry.create_dataset('Q', data=BL_Q_vec)
             ds.attrs['units'] = '1/angstrom'
@@ -880,32 +880,32 @@ def saveNXcanSAS(Sample,path, filename):
             ds = nxDataEntry.create_dataset('Error', data=BL_Error)
             ds.attrs['units'] = 'arb'
             ds.attrs['long_name'] = 'Error'    # suggested X axis plot label
- 
- 
+
+
 
     logging.info(f"Wrote NXcanSAS data to file: {filename}")
 
 def readMyNXcanSAS(path, filename, isUSAXS = False):
     """
     Read My own data from NXcanSAS data in Nexus file.
-    
+
     Parameters:
     path (str): The directory path where the file is located.
     filename (str): The name of the Nexus file to read.
 
     Returns:
     dict: A dictionary containing the read data.
-    """    
+    """
     Sample = dict()
     Filepath = os.path.join(path, filename)
     with h5py.File(Filepath, 'r') as f:
         # Start at the root
-        # Find the NXcanSAS entries 
+        # Find the NXcanSAS entries
         required_attributes = {'canSAS_class': 'SASentry', 'NX_class': 'NXsubentry'}
         required_items = {'definition': 'NXcanSAS'}
         SASentries =  find_matching_groups(f, required_attributes, required_items)
         logging.debug(f"Found {SASentries} entries in the file:{filename}")
-              
+
         location = 'entry/QRS_data/'
         if location in f:
             Sample['reducedData'] = dict()
@@ -933,7 +933,7 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
                 Sample['BlankData']['Error'] = dataset
             # BL_R_Int = Sample["BlankData"]["Intensity"]
             # BL_Q_vec = Sample["BlankData"]["Q"]
-            # BL_Error = Sample["BlankData"]["Error"]    
+            # BL_Error = Sample["BlankData"]["Error"]
 
         #location = 'entry/'+filename.split('.')[0]+'_SMR/'
         # location is the first of entries from SASentries which contains string _SMR
@@ -941,7 +941,7 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
         logging.debug(f"Found SMR entry at: {location}")
         if 'CalibratedData' not in Sample:
             Sample['CalibratedData'] = dict()
-        
+
         if location is not None and location in f:
             isUSAXS = True      #have SMR data, assume USAXS setup
 
@@ -967,10 +967,10 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
             Sample["CalibratedData"] ["SMR_dQ"] = None,
             Sample["CalibratedData"] ["slitLength"] = None,
 
-     
+
         location = next((entry + '/' for entry in SASentries if '_SMR' not in entry), None)
         logging.debug(f"Found NXcanSAS entry at: {location}")
-        if 'RawData' not in Sample:          
+        if 'RawData' not in Sample:
             Sample['RawData'] = dict()
             Sample["RawData"]["sample"]=dict()
 
@@ -1012,8 +1012,8 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
             Sample['CalibratedData']['units'] = None
             Sample['CalibratedData']['Error'] = None
 
-        #and now we need to read the other groups, which are raw data... 
-        if isUSAXS : 
+        #and now we need to read the other groups, which are raw data...
+        if isUSAXS :
             #metadata
             keys_to_keep = ['AR_center', 'ARenc_0', 'DCM_energy', 'DCM_theta', 'I0Gain','detector_distance',
                             'timeStamp','I0AmpGain',
@@ -1062,8 +1062,8 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
             #metadata
             instrument_group = f['/entry/instrument']
             instrument_dict = read_group_to_dict(instrument_group)
-            #occasionally this fails since 'data' does not exist. 
-            # now, why this shoudl tno exists is mystery for me... 
+            #occasionally this fails since 'data' does not exist.
+            # now, why this shoudl tno exists is mystery for me...
             try:
                 del instrument_dict['detector']['data']
             except KeyError:
@@ -1075,8 +1075,8 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
                             'PresetTime', 'monoE', 'pin_ccd_center_x_pixel','pin_ccd_center_y_pixel',
                             'pin_ccd_tilt_x', 'pin_ccd_tilt_y', 'wavelength', 'waxs_ccd_center_x', 'waxs_ccd_center_y',
                             'waxs_ccd_tilt_x', 'waxs_ccd_tilt_y', 'waxs_ccd_center_x_pixel', 'waxs_ccd_center_y_pixel',
-                            'scaler_freq', 'StartTime',                     
-                        ]        
+                            'scaler_freq', 'StartTime',
+                        ]
             metadata_group = f['/entry/Metadata']
             metadata_dict = read_group_to_dict(metadata_group)
             metadata_dict = filter_nested_dict(metadata_dict, keys_to_keep)
@@ -1088,7 +1088,7 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
             Sample["RawData"]["metadata"] = metadata_dict
             Sample["RawData"]["sample"].update(sample_dict)
             Sample["RawData"]["control"] = control_dict
- 
+
         return Sample
 
 def _get_h5_value(h5file, path):
@@ -1173,7 +1173,7 @@ def read_group_to_dict(group):
                 # Convert to a scalar (number or string)
                 data = data.item()
                 if isinstance(data, bytes):
-                    # Decode bytes to string, the above does not seem to catch this? 
+                    # Decode bytes to string, the above does not seem to catch this?
                     data = data.decode('utf-8')
             data_dict[key] = data
         elif isinstance(item, h5py.Group):
@@ -1189,15 +1189,15 @@ def filter_nested_dict(d, keys_to_keep):
     elif isinstance(d, list):
         return [filter_nested_dict(item, keys_to_keep) for item in d]
     else:
-        return d    
+        return d
 
 
 # def find_NXcanSAS_entries(group, path=''):
 #     nxcanSAS_entries = []
-    
+
 #     for name, item in group.items():
 #         current_path = f"{path}/{name}" if path else name
-        
+
 #         # Check if the item is a group
 #         if isinstance(item, h5py.Group):
 #             # Check if the group has the attribute "NXcanSAS"
@@ -1208,15 +1208,15 @@ def filter_nested_dict(d, keys_to_keep):
 #                         # Check if "NXcanSAS" is in the definition data
 #                         if isinstance(definition_data, bytes):
 #                             definition_data = definition_data.decode('utf-8')
-                        
+
 #                         print(f"Definition data: {definition_data}")
 #                         if definition_data == 'NXcanSAS':
 #                             print(f"Found NXcanSAS entry at: {current_path}")
 #                             nxcanSAS_entries.append(current_path)
-            
+
 #             # Recursively search within the group
 #             nxcanSAS_entries.extend(find_NXcanSAS_entries(item, current_path))
-    
+
 #     return nxcanSAS_entries
 
 # this code can find any group which contains listed attributes:values and items:values (strings and variables)
@@ -1229,7 +1229,7 @@ def find_matching_groups(hdf5_file, required_attributes, required_items):
                 attr in obj.attrs and obj.attrs[attr] == value
                 for attr, value in required_attributes.items()
             )
-            
+
             # Check items
             items_match = True
             for item, expected_value in required_items.items():
@@ -1246,7 +1246,7 @@ def find_matching_groups(hdf5_file, required_attributes, required_items):
                 else:
                     items_match = False
                     break
-            
+
             if attributes_match and items_match:
                 matching_group_paths.append(name)
 

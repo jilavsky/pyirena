@@ -37,7 +37,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Sequence, Union
 
-
 # ---------------------------------------------------------------------------
 # Supported file globs (for folder input)
 # ---------------------------------------------------------------------------
@@ -311,8 +310,9 @@ def _resolve_files(
 def _load_raw(fpath: Path):
     """Return (Q, I) arrays from a data file, or None on failure."""
     try:
-        from pyirena.io.hdf5 import readGenericNXcanSAS
         import numpy as np
+
+        from pyirena.io.hdf5 import readGenericNXcanSAS
         ext = fpath.suffix.lower()
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
