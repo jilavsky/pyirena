@@ -1675,8 +1675,18 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
                     pl['fit_P'] = chk.isChecked()
                 bp['power_law'] = pl
                 model.bg_prefit = bp
+            # A background parameter with "Fit?" unchecked must not be
+            # re-determined by the replay — the user is holding it (e.g.
+            # BG_B = 0 to switch the power-law term off entirely).
+            bg_fixed = {
+                name: model.params.get(name)
+                for name in ('BG_B', 'BG_P', 'BG_flat')
+                if name in self._param_fit_checks
+                and not self._param_fit_checks[name].isChecked()
+            }
             applied = model.prefit_background(
-                self.data['Q'], self.data['Intensity'])
+                self.data['Q'], self.data['Intensity'],
+                fixed_params=bg_fixed or None)
             for name in ('BG_B', 'BG_P', 'BG_flat'):
                 if name in applied:
                     self._set_param_value(name, applied[name])

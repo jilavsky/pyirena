@@ -214,6 +214,102 @@ class TestBackgroundPrefitReplay:
         applied = m.prefit_background(Q, I_bg)
         assert applied["BG_B"] == pytest.approx(B_true, rel=0.1)
 
+    def test_held_flat_is_not_refit(self):
+        """BG_flat with "Fit?" unchecked must survive the replay untouched."""
+        m = self._model(enabled=True)
+        applied = m.prefit_background(Q, I_SPHERE + self.FLAT,
+                                      fixed_params={"BG_flat": 123.0})
+        assert applied == {}
+        assert m.params["BG_flat"] == 123.0
+
+    def test_held_b_skips_power_law_replay(self):
+        """B fixed (e.g. to 0, power law off) must not be re-determined."""
+        B_true = 1e-2
+        I_bg = I_SPHERE + B_true * Q**-4.0
+        m = SimpleFitModel()
+        m.set_model("Invariant")
+        m.use_complex_bg = True
+        m._reset_to_defaults()
+        m.params["Contrast"] = CONTRAST_1E20
+        m.params["BG_B"] = 0.0
+        m.params["BG_P"] = 4.0
+        m.bg_prefit = {
+            "enabled": True,
+            "power_law": {"use": True, "q_min": 0.5, "q_max": 1.0,
+                          "fit_P": True},
+        }
+        applied = m.prefit_background(Q, I_bg, fixed_params={"BG_B": 0.0})
+        assert applied == {}
+        assert m.params["BG_B"] == 0.0
+        assert m.params["BG_P"] == 4.0
+
+    def test_held_p_refits_b_only(self):
+        """P fixed but B free: B is refit at the held P, P is untouched."""
+        B_true = 1e-2
+        I_bg = I_SPHERE + B_true * Q**-4.0
+        m = SimpleFitModel()
+        m.set_model("Invariant")
+        m.use_complex_bg = True
+        m._reset_to_defaults()
+        m.params["Contrast"] = CONTRAST_1E20
+        m.params["BG_P"] = 4.0
+        m.bg_prefit = {
+            "enabled": True,
+            # fit_P recorded as True — the fixed-parameter set must override
+            "power_law": {"use": True, "q_min": 0.5, "q_max": 1.0,
+                          "fit_P": True},
+        }
+        applied = m.prefit_background(Q, I_bg, fixed_params={"BG_P": 4.0})
+        assert "BG_P" not in applied
+        assert m.params["BG_P"] == 4.0
+        assert applied["BG_B"] == pytest.approx(B_true, rel=0.1)
+
+    def test_partial_hold_still_refits_the_free_term(self):
+        """B/P held, flat free — only the flat term is re-determined."""
+        m = self._model(enabled=True)
+        m.bg_prefit["power_law"] = {"use": True, "q_min": 0.5, "q_max": 1.0,
+                                    "fit_P": True}
+        m.params["BG_B"] = 0.0
+        m.params["BG_P"] = 4.0
+        applied = m.prefit_background(
+            Q, I_SPHERE + self.FLAT,
+            fixed_params={"BG_B": 0.0, "BG_P": 4.0})
+        assert set(applied) == {"BG_flat"}
+        assert m.params["BG_B"] == 0.0
+        assert applied["BG_flat"] == pytest.approx(self.FLAT, rel=0.05)
+
+    def test_batch_replay_honors_fixed_params(self, tmp_path):
+        import h5py
+        from pyirena.batch.simple import fit_simple
+
+        fp = tmp_path / "sphere_bg_fixed.h5"
+        with h5py.File(fp, "w") as f:
+            e = f.create_group("entry")
+            e.attrs["NX_class"] = "NXentry"
+            s = e.create_group("sasdata")
+            s.attrs["NX_class"] = "NXdata"
+            s.attrs["signal"] = "I"
+            s.attrs["I_axes"] = "Q"
+            s.create_dataset("Q", data=Q)
+            s.create_dataset("I", data=I_SPHERE + self.FLAT)
+
+        config = {
+            "model": "Invariant",
+            "use_complex_bg": True,
+            "params": {"Contrast": CONTRAST_1E20, "BG_B": 0.0,
+                       "BG_P": 4.0, "BG_flat": 123.0},
+            "bg_prefit": {
+                "enabled": True,
+                "flat": {"use": True, "q_min": self.FLAT_WIN[0],
+                         "q_max": self.FLAT_WIN[1]},
+            },
+        }
+        result = fit_simple(fp, config, verbose=False,
+                            fixed_params={"BG_flat": 123.0})
+        assert result is not None and result["success"]
+        # Held fixed → the replay must not have overwritten it
+        assert result["params"]["BG_flat"] == pytest.approx(123.0)
+
     def test_batch_replay_end_to_end(self, tmp_path):
         import h5py
         from pyirena.batch.simple import fit_simple

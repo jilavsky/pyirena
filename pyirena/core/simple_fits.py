@@ -771,7 +771,8 @@ class SimpleFitModel:
         """True when the active model is a direct calculation (no least-squares)."""
         return bool(MODEL_REGISTRY[self.model].get('calculation', False))
 
-    def prefit_background(self, q: np.ndarray, intensity: np.ndarray) -> dict:
+    def prefit_background(self, q: np.ndarray, intensity: np.ndarray,
+                          fixed_params: Optional[dict] = None) -> dict:
         """Refit the complex-background terms over the remembered Q ranges.
 
         Replays the GUI's "Fit B/P btwn cursors" / "Fit Flat btwn cursors"
@@ -786,18 +787,36 @@ class SimpleFitModel:
         Order matters and matches the GUI workflow: power-law first, then
         flat (the flat estimate subtracts the current power-law).
 
+        Parameters
+        ----------
+        q, intensity : ndarray
+            FULL data arrays (not trimmed to the integration range).
+        fixed_params : dict or None
+            Parameters the user has held fixed ("Fit?" unchecked), in the
+            same form :meth:`fit` takes — only the keys are used.  A held
+            background parameter is NOT refit: ``BG_flat`` fixed skips the
+            flat replay, ``BG_P`` fixed refits B at the current P, and
+            ``BG_B`` fixed skips the power-law replay entirely (fitting P
+            alone from a log-log window is not meaningful, and a user who
+            has fixed B — e.g. to 0, disabling the power law — does not want
+            it re-determined).  None means "nothing held fixed", preserving
+            the pre-1.1.0 behaviour for callers that do not track it.
+
         Returns
         -------
         dict — refit values actually applied, e.g.
         ``{'BG_B': …, 'BG_P': …, 'BG_flat': …}``.  Empty when
-        ``bg_prefit['enabled']`` is False, ``use_complex_bg`` is False, or
-        no section is in use.  A ``'warning'`` key is added when a saved
-        window contains too few points in this dataset.
+        ``bg_prefit['enabled']`` is False, ``use_complex_bg`` is False,
+        no section is in use, or every background parameter is held fixed.
+        A ``'warning'`` key is added when a saved window contains too few
+        points in this dataset.
         """
         applied: dict = {}
         cfg = self.bg_prefit or {}
         if not cfg.get('enabled') or not self.use_complex_bg:
             return applied
+
+        held = set(fixed_params or ())
 
         from pyirena.core.saxs_morph import (
             fit_power_law_bg, fit_power_law_bg_fixed_p, fit_flat_bg,
@@ -819,10 +838,10 @@ class SimpleFitModel:
         sl = float(self.slit_length) if (self.use_slit_smearing and self.slit_length > 0) else 0.0
 
         pl = cfg.get('power_law') or {}
-        if pl.get('use'):
+        if pl.get('use') and 'BG_B' not in held:
             q_min, q_max = float(pl['q_min']), float(pl['q_max'])
             if _n_in(q_min, q_max) >= 2:
-                if pl.get('fit_P', True):
+                if pl.get('fit_P', True) and 'BG_P' not in held:
                     B, P = fit_power_law_bg(q, I, q_min, q_max, slit_length=sl)
                     self.params['BG_P'] = float(P)
                     applied['BG_P'] = float(P)
@@ -837,7 +856,7 @@ class SimpleFitModel:
                     'in this dataset — BG_B/BG_P not refit')
 
         fl = cfg.get('flat') or {}
-        if fl.get('use'):
+        if fl.get('use') and 'BG_flat' not in held:
             q_min, q_max = float(fl['q_min']), float(fl['q_max'])
             if _n_in(q_min, q_max) >= 1:
                 flat = fit_flat_bg(

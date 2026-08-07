@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Invariant: "Refit background from saved ranges" ignored the parameter
+  "Fit?" checkboxes.** With complex background enabled and prefit Q windows
+  saved, the replay refit `BG_B`, `BG_P` and `BG_flat` unconditionally — only
+  `BG_P`'s checkbox was consulted, and only to choose between fitting P or
+  holding it. A user who unchecked B/P (for example setting `BG_B` = 0 to drop
+  the low-Q power-law term for part of a sequence) while still needing the flat
+  background refit had their held values silently overwritten on every
+  Calculate. The checkboxes now gate the replay: a background parameter with
+  "Fit?" unchecked is left alone, `BG_B` held skips the power-law refit
+  entirely, and `BG_flat` held skips the flat refit. `SimpleFitModel.
+  prefit_background()` takes a `fixed_params` argument for this, and
+  `batch.fit_simple()` passes the user's fixed parameters through, so
+  scripted and batch runs behave the same as the GUI.
+
 ## [1.1.0b4] - 2026-08-06
 
 ### Added

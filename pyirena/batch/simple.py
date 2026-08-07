@@ -118,8 +118,10 @@ def fit_simple(
     # Re-determine the complex background from the Q ranges the GUI user
     # recorded (bg_prefit), using the FULL data — the background windows
     # usually lie outside the integration range applied below.
+    # Background parameters the user held fixed ("Fit?" unchecked) are passed
+    # through so the replay leaves them alone, exactly as the GUI does.
     if model.is_calculation and (model.bg_prefit or {}).get('enabled'):
-        applied = model.prefit_background(q, I)
+        applied = model.prefit_background(q, I, fixed_params=fixed_params)
         if verbose and applied:
             vals = '  '.join(f'{k}={v:.4g}' for k, v in applied.items()
                              if k != 'warning')

@@ -171,8 +171,13 @@ Workflow:
    GUI *and* in scripted/batch runs.  This is essential for scripting:
    the invariant is only as good as the background subtraction, so batch
    runs re-determine B/P/flat per file from the saved windows instead of
-   trusting exported values.  The BG_P "Fit?" checkbox controls whether
-   the power-law prefit fits both B and P or holds P and fits B only.
+   trusting exported values.  The background parameters' **"Fit?"
+   checkboxes gate the replay**: unchecking `BG_flat` leaves the flat term
+   at its entered value, unchecking `BG_P` refits B at the held P, and
+   unchecking `BG_B` skips the power-law refit entirely (use this — with
+   `BG_B` = 0 — for datasets in a sequence that should not carry a
+   low-Q power-law term while the flat background is still re-determined).
+   The same gating applies in scripted/batch runs via `param_fixed`.
 3. Enter **Contrast** Δρ² in units of 10²⁰ cm⁻⁴ (default 100; use the
    Scattering Contrast calculator if needed).
 4. Position the cursors over the Q range to integrate and press
