@@ -32,6 +32,7 @@ from pyirena.gui._qt import (
 import pyqtgraph as pg
 
 from pyirena.core.data_merge import DataMerge, MergeConfig, MergeResult
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
 from pyirena.state.state_manager import StateManager
 from pyirena.gui.sas_plot import (
     make_sas_plot, set_robust_y_range, _SafeInfiniteLine, SASPlotStyle,
@@ -160,7 +161,8 @@ class _DatasetSelectorWidget(QWidget):
         filt_row = QHBoxLayout()
         filt_row.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("text filter…")
+        self.filter_edit.setPlaceholderText(FILTER_PLACEHOLDER)
+        self.filter_edit.setToolTip(FILTER_TOOLTIP)
         self.filter_edit.textChanged.connect(self._apply_filter)
         filt_row.addWidget(self.filter_edit, stretch=1)
         layout.addLayout(filt_row)
@@ -240,10 +242,7 @@ class _DatasetSelectorWidget(QWidget):
 
     def get_filtered_files(self) -> List[str]:
         """Return the file list after the text filter has been applied."""
-        text = self.filter_edit.text().lower()
-        if not text:
-            return list(self._all_files)
-        return [f for f in self._all_files if text in f.lower()]
+        return filter_names(self._all_files, self.filter_edit.text())
 
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
@@ -276,11 +275,10 @@ class _DatasetSelectorWidget(QWidget):
         self._apply_filter()
 
     def _apply_filter(self) -> None:
-        text = self.filter_edit.text().lower()
+        """Rebuild the visible list using the regex filter (see file_filter)."""
         self.file_list.clear()
-        for f in self._all_files:
-            if text in f.lower():
-                self.file_list.addItem(f)
+        for f in filter_names(self._all_files, self.filter_edit.text()):
+            self.file_list.addItem(f)
         if self.filter_changed_callback is not None:
             self.filter_changed_callback()
 

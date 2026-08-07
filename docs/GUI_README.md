@@ -49,7 +49,8 @@ The main GUI provides:
      HDF5 on first use (see [Text File Import and Cleaning](data_import_and_cleaning.md))
    - All supported files
 3. **File List** - View and select files from the folder
-4. **Text Filter** - Grep-like filtering of file names
+4. **Text Filter** - Grep-like filtering of file names, with full regular
+   expression support
 5. **Multi-selection** - Select multiple files (Ctrl/Cmd + click)
 6. **Graphing** - Plot selected files with:
    - Log-log scale
@@ -76,7 +77,10 @@ The main GUI provides:
 
 4. **Filter Files (Optional)**
    - Type in the filter box to search
-   - Works like grep (case-insensitive)
+   - Works like grep: the text is a full regular expression, matched anywhere
+     in the file name, case-insensitively
+   - Plain fragments such as `60C` still work; invalid patterns fall back to a
+     substring match
 
 5. **Select Files**
    - Single click to select one file

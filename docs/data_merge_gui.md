@@ -84,7 +84,10 @@ Three parameters may be free or fixed:
   Text files are assumed to be in the Q unit set in the Data Selector's
   *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
   [Q units](data_import_and_cleaning.md#q-units).
-- Use the **Filter** field to narrow the file list.
+- Use the **Filter** field to narrow the file list.  The text is a **regular
+  expression** matched anywhere in the name, case-insensitively (grep
+  semantics), e.g. `60C|100C` or `^(?!.*bkg)` to exclude backgrounds.  An
+  invalid pattern falls back to a plain substring match.
 - **Double-click** a file to load it and display it on the plot.
 
 ### 2 — Set the overlap region

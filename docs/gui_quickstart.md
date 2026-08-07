@@ -98,11 +98,21 @@ Use the dropdown to filter by file type:
 #### 3. Filter Files (Optional)
 
 - Type in the **Filter** box to search for files
-- Works like grep (case-insensitive substring match)
+- Works like grep: the text is a **full regular expression**, matched anywhere
+  in the file name, case-insensitively
 - Examples:
   - `sphere` → shows only files containing "sphere"
   - `Rg50` → shows spheres_Rg50.h5
-  - `fractal` → shows fractal files
+  - `60C|100C` → files containing either "60C" or "100C"
+  - `0[12]min` → files with "01min" or "02min"
+  - `^sample` → files whose name starts with "sample"
+  - `\.h5$` → files ending in ".h5"
+  - `^(?!.*bkg)` → files that do **not** contain "bkg"
+- An incomplete or invalid pattern (e.g. while you are still typing) falls back
+  to a plain substring match rather than emptying the list
+
+The same filter syntax applies in Data Selector, Data Manipulation, Data Merge
+and the HDF5 Viewer.
 
 #### 4. Select Files to Plot
 

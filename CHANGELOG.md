@@ -7,7 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b4] - 2026-08-06
+
 ### Added
+
+- **Parallel Monte-Carlo uncertainty in the Modeling tool.** Each MC pass is an
+  independent refit of noise-perturbed data, so passes now run across worker
+  processes instead of one after another. This was impractical before for the
+  models that need it most: a complex form factor (core-shell,
+  core-shell-shell) or several populations can take minutes per pass, making a
+  20-pass estimate a coffee break. A new **cores** spin box next to
+  *Modeling → Passes:* controls it — **auto** (the default: all cores but two),
+  **1** for the previous serial behaviour, or an explicit count. The same
+  setting is available to scripts as `fit_modeling(..., mc_workers=N)` and as
+  the `"mc_workers"` key in the exported JSON config. See
+  [MC Uncertainty](docs/modeling_gui.md#mc-uncertainty).
+  - Uncertainties are unchanged by the worker count: all the noise is drawn in
+    the parent process before any pass starts, so a given run produces the same
+    numbers serially and in parallel.
+  - Short runs stay serial automatically. The first pass is timed and the pool
+    is only started when the remaining passes are projected to take more than a
+    few seconds, so simple models never pay for worker startup.
+  - If the host cannot start worker processes the passes fall back to serial
+    with a warning rather than failing.
+- **Cancel for Modeling MC runs.** The **Calc. Uncertainty (MC)** button becomes
+  **Cancel MC** while a run is in progress. Cancelling does not interrupt passes
+  already in flight, so it takes effect within roughly one pass, and the
+  uncertainties from the passes that did finish are still reported along with
+  how many were used.
+
+- **Regular expressions in every file Filter box.** The documentation promised
+  grep-like filtering, but only the HDF5 Viewer actually interpreted the Filter
+  text as a regex — Data Selector, Data Manipulation and Data Merge did a plain
+  case-insensitive substring test, so patterns like `60C|100C`, `0[12]min`,
+  `^sample`, `\.h5$` or `^(?!.*bkg)` silently matched nothing. All four
+  browsers now share one implementation (`pyirena.gui.file_filter`) using full
+  Python regular expressions matched anywhere in the name, case-insensitively.
+  A plain fragment such as `Rg50` behaves exactly as before, and an incomplete
+  or invalid pattern (common while typing) falls back to a substring match
+  rather than emptying the list.
 
 - **`pyirena-doctor` — installation troubleshooter.** A new console command
   that reports the running interpreter, every required and optional
@@ -45,30 +83,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of skipping in environments without Qt, because `pytest.importorskip` treats
   a re-raised plain `ImportError` as a broken module rather than a missing one.
 
-- **Parallel Monte-Carlo uncertainty in the Modeling tool.** Each MC pass is an
-  independent refit of noise-perturbed data, so passes now run across worker
-  processes instead of one after another. This was impractical before for the
-  models that need it most: a complex form factor (core-shell,
-  core-shell-shell) or several populations can take minutes per pass, making a
-  20-pass estimate a coffee break. A new **cores** spin box next to
-  *Modeling → Passes:* controls it — **auto** (the default: all cores but two),
-  **1** for the previous serial behaviour, or an explicit count. The same
-  setting is available to scripts as `fit_modeling(..., mc_workers=N)` and as
-  the `"mc_workers"` key in the exported JSON config. See
-  [MC Uncertainty](docs/modeling_gui.md#mc-uncertainty).
-  - Uncertainties are unchanged by the worker count: all the noise is drawn in
-    the parent process before any pass starts, so a given run produces the same
-    numbers serially and in parallel.
-  - Short runs stay serial automatically. The first pass is timed and the pool
-    is only started when the remaining passes are projected to take more than a
-    few seconds, so simple models never pay for worker startup.
-  - If the host cannot start worker processes the passes fall back to serial
-    with a warning rather than failing.
-- **Cancel for Modeling MC runs.** The **Calc. Uncertainty (MC)** button becomes
-  **Cancel MC** while a run is in progress. Cancelling does not interrupt passes
-  already in flight, so it takes effect within roughly one pass, and the
-  uncertainties from the passes that did finish are still reported along with
-  how many were used.
+### Changed
+
+- The **Filter** placeholder and tooltip in Data Selector, Data Manipulation,
+  Data Merge and the HDF5 Viewer now come from one shared string and document
+  the regex syntax inline, replacing the previous "text filter…" /
+  "Enter text to filter files..." hints.
 
 ## [1.1.0b3] - 2026-08-03
 
