@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Copy any graph to the clipboard, and save it as PNG, SVG or CSV** (feature
+  parity review items U2 / A3 / A4 / A8, issue #13). Every plot's right-click
+  menu now offers the same five actions, from one shared implementation in
+  `pyirena/gui/plot_export.py`:
+  - **Copy graph to clipboard** — the graph as an image, ready to paste into
+    PowerPoint, Word, email or an electronic notebook. This is Igor's
+    Edit→Copy, which had no equivalent anywhere in pyIrena.
+  - **Save graph as image…** — PNG (now the default), JPEG or SVG, selected by
+    the file filter or the extension typed. JPEG compression visibly smears the
+    thin lines and small text of a log-log SAS plot; it stays available for
+    users who need it.
+  - **Save whole window as image…** — every stacked panel (data + residuals +
+    distribution) in one image, alongside the single-plot export.
+  - **Save curve data as CSV…** — the plotted curves as text for Excel, Origin,
+    Matlab or pandas: one `X`/`Y` column pair per curve, plus `dY` where
+    uncertainties exist, padded when curves have different lengths. Previously
+    the only text export was Igor `.itx`.
+  - Curves the panel never labelled are exported too, named from the Y axis.
+    Residual panels, the Simple Fits linearization, the Contrast (Δρ)² plot and
+    the collected-values scatter all plot without a legend name, and every
+    export used to refuse with "No named data curves found to export" while the
+    curve was plainly visible. `ScatterPlotItem` and bare `PlotCurveItem`
+    curves are collected as well — the linearization plot is built from those
+    and could not be exported at all. Error-bar segments are still never
+    mistaken for data.
+  - Uncertainties now reach the export from panels that draw their own data
+    scatter (Unified Fit including the Porod tab, Sizes, WAXS). Only
+    `plot_iq_data` recorded them before, so a CSV or ITX from those panels
+    silently lacked the `dY` column although error bars were on screen. Panels
+    record them with the new `tag_curve_uncertainty()`.
+  - **Save as Igor Pro ITX…** — now available on every plot rather than most of
+    them, and the file reproduces how the curve looks in pyIrena: scatter data
+    imports as markers (`mode=3, marker=19`), model curves as lines. Igor draws
+    every imported wave as a line by default, so exported data points used to
+    arrive as a zig-zag line indistinguishable from a model curve.
+    Uncertainties import as Igor error bars rather than as an extra trace.
+- **Export dialogs remember where you last saved**, falling back to the panel's
+  data folder before anything has been exported, instead of defaulting to the
+  home directory (five dialogs) or the process working directory (the HDF5
+  Viewer's). Where the user last chose to save takes priority over the data
+  folder — a panel that reset to its data folder every time looks like the
+  memory is broken. The folder persists across restarts under a new `exports`
+  section of the state file.
+- `pyirena/tests/test_gui_plot_contract.py` — a source-level guard that fails
+  the build if a module drives pyqtgraph's exporters directly, adds its own
+  JPEG/PNG menu entry, or points a save dialog at `Path.home()`. The plot half
+  of the standard UX contract is now written down in
+  `docs/developer_adding_features.md`.
+
+### Changed
+
+- **Eight parallel plot-export implementations collapsed into one.**
+  `sas_plot.py`, `data_selector/plot_utils.py`, `unified_fit.py` (twice),
+  `waxs_peakfit_panel.py`, `sizes_panel.py`, `modeling_panel.py`,
+  `contrast_panel.py` and `simple_fits_panel.py` each had their own "add export
+  to a plot" code, disagreeing on menu wording ("Save graph as JPEG…" vs "Save
+  as JPEG…"), on what was captured (the plot vs the whole window), and on the
+  default folder. They now all call `attach_plot_export()`. Curve collection is
+  shared with the ITX exporter, so CSV and ITX always agree on what is on the
+  plot. `save_itx_from_plot` and `_itx_folder_cmds` moved to the new module and
+  are re-exported from `sas_plot` for existing callers.
+- Plots that were missing exports gained them: **Simple Fits** had JPEG but no
+  ITX and none on its linearization plot; **Modeling** and **Contrast** had
+  JPEG but no ITX; the Unified Fit **residual and Porod** plots, the Sizes
+  **residuals** plot and the Modeling **residuals** plot had no export menu at
+  all. The HDF5 Viewer's graph window keeps its specialised NXcanSAS-aware
+  PNG/HDF5/ITX exporters and gains clipboard copy.
+
 - **Clipboard copy, column sorting and CSV export on every table** (feature
   parity review items U1 / A1 / A2 / A10, issue #13). Of the nine tables in
   the GUI, only two supported copying — with two different bespoke
@@ -47,6 +115,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Igor wave names could collide.** Names were truncated to Igor's 31-character
+  limit *after* the `_01`/`_02` index was appended, so two curves with long,
+  similar labels produced the same wave name and Igor silently overwrote the
+  first. The label is now truncated to leave room for the index.
+- **The Simple Fits linearization exported no uncertainties.** `linearize()`
+  propagates dY into linearized space, but the panel discarded it; the CSV and
+  ITX now carry it (as an Igor error wave), and the grey out-of-range points
+  are labelled *Data outside fit range* so they are not mistaken for one.
 - **CSV export from the Collect and Multi-Collect windows corrupted rows whose
   labels contained a comma.** Both windows built their CSV with
   `",".join(...)`, so an item label such as `Rg, A` silently split into two

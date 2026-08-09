@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
-from pyqtgraph.exporters import ImageExporter
 
 from pyirena.core.scattering_contrast import (
     VACUUM,
@@ -38,7 +37,6 @@ from pyirena.core.scattering_contrast import (
 )
 from pyirena.gui._qt import (
     QAbstractItemView,
-    QAction,
     QApplication,
     QCheckBox,
     QColor,
@@ -65,6 +63,11 @@ from pyirena.gui._qt import (
     QUrl,
     QVBoxLayout,
     QWidget,
+)
+from pyirena.gui.plot_export import (
+    attach_plot_export,
+    export_folder,
+    remember_export_folder,
 )
 from pyirena.gui.table_utils import attach_table_copy
 from pyirena.io.contrast_io import (
@@ -189,26 +192,13 @@ def _grp_style(color: str) -> str:
 
 
 def _add_jpeg_action(plot_item, parent: QWidget, default_name: str = "graph") -> None:
-    action = QAction("Save graph as JPEG…", parent)
+    """Attach the shared export menu to one of the energy-scan plots.
 
-    def _go() -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            parent,
-            "Save graph as JPEG",
-            str(Path.home() / f"{default_name}.jpg"),
-            "JPEG Images (*.jpg *.jpeg)",
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot_item)
-            exp.parameters()["width"] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(parent, "Export failed", str(exc))
-
-    action.triggered.connect(_go)
-    plot_item.getViewBox().menu.addAction(action)
+    The energy-scan window gains clipboard copy, PNG/JPEG/SVG, curve CSV and
+    Igor ITX like every other pyIrena plot — it previously had JPEG only.
+    """
+    attach_plot_export(plot_item, parent, default_name,
+                       window=getattr(parent, "gl", None))
 
 
 def _ro_item(text: str) -> QTableWidgetItem:
@@ -391,7 +381,10 @@ class ContrastGraphWindow(QWidget):
 
         # Contrast
         contrast = scan_data.get("xray_contrast_anom", np.zeros(len(E)))
-        self._ax_ctr.plot(E, contrast, pen=pg.mkPen("#2980b9", width=2))
+        # Named so the shared CSV/ITX exporters can pick the curve up; the two
+        # plots below already name theirs.
+        self._ax_ctr.plot(E, contrast, pen=pg.mkPen("#2980b9", width=2),
+                          name="X-ray contrast (Δρ)²")
         self._ax_ctr.autoRange()
 
         # Absorption
@@ -1376,11 +1369,12 @@ class ContrastPanel(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Results CSV",
-            str(Path.home() / "contrast_results.csv"),
+            str(Path(export_folder()) / "contrast_results.csv"),
             "CSV Files (*.csv)",
         )
         if not path:
             return
+        remember_export_folder(path)
         try:
             results = {
                 "comp1": self._comp1.__dict__,
@@ -1399,11 +1393,12 @@ class ContrastPanel(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Scan CSV",
-            str(Path.home() / "contrast_scan.csv"),
+            str(Path(export_folder()) / "contrast_scan.csv"),
             "CSV Files (*.csv)",
         )
         if not path:
             return
+        remember_export_folder(path)
         try:
             export_scan_csv(self._scan_data, Path(path))
             self._set_status(f"Scan CSV exported to {Path(path).name}")
@@ -1416,11 +1411,12 @@ class ContrastPanel(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Scan HDF5",
-            str(Path.home() / "contrast_scan.h5"),
+            str(Path(export_folder()) / "contrast_scan.h5"),
             "HDF5 Files (*.h5 *.hdf5)",
         )
         if not path:
             return
+        remember_export_folder(path)
         try:
             meta = {
                 "comp1_name": self._comp1.name if self._comp1 else "",

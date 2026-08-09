@@ -245,7 +245,11 @@ vertical crosshair line moves across all plots simultaneously.
 
 **Log Y axis** — the top checkbox toggles logarithmic Y scale on the contrast plot.
 
-**JPEG export** — right-click on any plot → *Save graph as JPEG…*
+**Export** — right-click on any of the three plots for the standard menu:
+*Copy graph to clipboard*, *Save graph as image…* (PNG/JPEG/SVG), *Save whole
+window as image…*, *Save curve data as CSV…* and *Save as Igor Pro ITX…*.  The
+energy-scan curves previously could only be saved as JPEG or via the *Export
+Scan CSV* button.
 
 Click **Show Graphs** at any time to bring the graph window back to the front.
 

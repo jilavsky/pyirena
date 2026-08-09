@@ -44,7 +44,8 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu, save_itx_from_plot
+from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
+from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state.state_manager import StateManager
 
@@ -252,21 +253,13 @@ class SizesFitGraphWindow(QWidget):
         _style_axes(self.distribution_plot)
         self.distribution_plot.getAxis('left').setWidth(65)
 
-        # Export right-click menus (JPEG + ITX) for main and distribution plots
+        # Shared export menu (clipboard, image, whole window, curve CSV, ITX)
         for _plot, _stem in [
             (self.main_plot,         'sizes_iq'),
+            (self.residuals_plot,    'sizes_residuals'),
             (self.distribution_plot, 'sizes_dist'),
         ]:
-            _vb = _plot.getViewBox()
-            _vb.menu.addSeparator()
-            _act_j = _vb.menu.addAction('Save graph as JPEG…')
-            _act_j.triggered.connect(
-                lambda checked=False, p=_plot, s=_stem: self._save_jpeg(p, s)
-            )
-            _act_i = _vb.menu.addAction('Save as Igor Pro ITX…')
-            _act_i.triggered.connect(
-                lambda checked=False, p=_plot: save_itx_from_plot(p, self)
-            )
+            attach_plot_export(_plot, self, _stem, window=self.graphics_layout)
 
         layout.addWidget(self.graphics_layout)
 
@@ -428,23 +421,12 @@ class SizesFitGraphWindow(QWidget):
             symbolBrush=pg.mkBrush('#2c3e50'),
             name=label,
         )
+        # Record the uncertainties so CSV/ITX export a dY column; the drawn
+        # error bars are NaN-separated segments and cannot be read back.
+        if error is not None:
+            tag_curve_uncertainty(self._data_item, np.asarray(error, dtype=float))
         self._ensure_cursors(q_)
         self._set_robust_y_range(I_, q_)
-
-    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Save as JPEG', str(Path.home() / f'{stem}.jpg'),
-            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(self, 'Export failed', str(exc))
 
     def _set_robust_y_range(self, intensity, q=None):
         """Set Y range (and optionally x range) of main plot to percentile-based bounds.

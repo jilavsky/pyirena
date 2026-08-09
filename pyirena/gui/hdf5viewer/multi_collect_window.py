@@ -13,7 +13,6 @@ from pathlib import Path
 
 from pyirena.gui._qt import (
     QAbstractItemView,
-    QFileDialog,
     QHeaderView,
     QLabel,
     QPushButton,
@@ -23,6 +22,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.plot_export import save_widget_image
 from pyirena.gui.table_utils import (
     attach_table_copy,
     enable_table_sorting,
@@ -173,12 +173,6 @@ class MultiCollectWindow(QWidget):
         save_rows_as_csv(self, headers, rows, self._default_path(".csv"), "Save CSV")
 
     def _save_jpeg(self) -> None:
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save as JPEG", self._default_path(".jpg"),
-            "JPEG images (*.jpg);;All files (*)",
-        )
-        if not filepath:
-            return
-        if not filepath.lower().endswith((".jpg", ".jpeg")):
-            filepath += ".jpg"
-        self.grab().save(filepath, "JPEG", 95)
+        """Toolbar button: save the whole window as a PNG or JPEG image."""
+        stem = re.sub(r"[^\w\s-]", "", self._window_title).strip().replace(" ", "_")
+        save_widget_image(self, self, stem or "multi_collected")

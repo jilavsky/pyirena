@@ -117,15 +117,16 @@ HDF5 DATA EXPLORER
 STANDARD UX CONTRACT (see below — every new GUI surface)
 [ ] 25. Every table: attach_table_copy() (+ enable_table_sorting() where the
         row order is not meaningful); CSV export for multi-row results
-[ ] 26. Every file list: shared filter (gui/file_filter.py), shared sort modes,
+[ ] 26. Every plot: attach_plot_export() — or make_sas_plot(parent_widget=…)
+[ ] 27. Every file list: shared filter (gui/file_filter.py), shared sort modes,
         remembered folder
 
 DOCS & TESTS
-[ ] 27. docs/<tool>_gui.md: user documentation + scripting example
-[ ] 28. CHANGELOG.md entry
-[ ] 29. Tests: math vs analytic ground truth; registry/serialisation
+[ ] 28. docs/<tool>_gui.md: user documentation + scripting example
+[ ] 29. CHANGELOG.md entry
+[ ] 30. Tests: math vs analytic ground truth; registry/serialisation
         round-trip; HDF5 save/load round-trip; batch-config path
-[ ] 30. Run the full test suite, not just the new file
+[ ] 31. Run the full test suite, not just the new file
 ```
 
 ## The standard UX contract
@@ -151,6 +152,34 @@ scramble half-built rows.  Write CSV with `rows_to_csv_text()` /
 `save_rows_as_csv()` rather than `",".join(...)` — quoting and precision are
 then identical everywhere.  `pyirena/tests/test_gui_table_contract.py` fails
 the build if a new module constructs a table without the helper.
+
+**Every plot** (`pg.PlotItem`)
+
+```python
+from pyirena.gui.plot_export import attach_plot_export
+
+attach_plot_export(my_plot, self, 'my_tool_iq',
+                   window=self.graphics_layout,   # whole-window image
+                   folder=self._export_folder)    # dialogs open next to data
+```
+
+Plots built with `make_sas_plot(..., parent_widget=...)` get this for free.
+The menu is clipboard copy, image (PNG/JPEG/SVG), whole-window image, curve
+CSV and Igor ITX — never add your own image-export action, and never import
+`ImageExporter` outside `plot_export.py`; save dialogs must default to
+`export_folder()`, not `Path.home()`.  `pyirena/tests/test_gui_plot_contract.py`
+enforces all of this.
+
+Two things the exporters cannot infer, so the panel must say them:
+
+- **Name every curve** (`name=...`).  Unnamed curves are exported only as a
+  fallback, labelled from the Y axis, and a plot mixing named and unnamed
+  curves exports the named ones only — an unnamed residual trace next to a
+  named one would silently vanish.
+- **Call `tag_curve_uncertainty(item, dI)`** wherever you draw your own error
+  bars.  Bars are NaN-separated line segments that no exporter can read back,
+  so without this the `dY` column disappears from CSV and ITX while the bars
+  stay visible on screen.  `plot_iq_data` already does it for you.
 
 **Every file list** — `pyirena/gui/file_filter.py` for the filter box (shared
 regex semantics, placeholder and tooltip), the shared sort modes, and a

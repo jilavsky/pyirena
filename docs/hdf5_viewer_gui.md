@@ -370,12 +370,17 @@ The table supports **clipboard copy and column sorting** — see
 [Working with tables](#working-with-tables) below.  For a few numbers there is
 no need to go through a CSV file: select the cells and press Ctrl+C.
 
+Right-clicking the **plot** gives the standard graph export menu (clipboard
+copy, PNG/JPEG/SVG image, curve CSV) plus this window's own *Save collected
+values as ITX*, which writes the collected X/Y/error waves with the right axis
+labels.
+
 ### Toolbar
 
 | Button | Action |
 |--------|--------|
 | Save CSV | Save table as a comma-separated file (default: window title + `.csv` in CWD) |
-| Save JPEG | Save the full window (table + plot) as a JPEG image |
+| Save JPEG | Save the full window (table + plot) as a PNG or JPEG image |
 
 ---
 
@@ -399,7 +404,7 @@ The table supports **clipboard copy and column sorting** — see
 | Button | Action |
 |--------|--------|
 | Save CSV | Save table as a comma-separated file (default: window title + `.csv` in CWD) |
-| Save JPEG | Save the full window as a JPEG image |
+| Save JPEG | Save the full window as a PNG or JPEG image |
 
 ---
 

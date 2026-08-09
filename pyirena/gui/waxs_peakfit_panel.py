@@ -70,7 +70,8 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.gui.sas_plot import DSpacingAxisItem, save_itx_from_plot
+from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
+from pyirena.gui.sas_plot import DSpacingAxisItem
 
 # ── colour palette for peaks ──────────────────────────────────────────────
 _PEAK_COLORS = [
@@ -648,33 +649,8 @@ class WAXSPeakFitGraphWindow(QWidget):
             ax.enableAutoSIPrefix(False)
 
     def _add_jpeg_export(self, plot: pg.PlotItem, stem: str):
-        """Add 'Save as JPEG…' and 'Save as Igor Pro ITX…' to the ViewBox right-click menu."""
-        vb = plot.getViewBox()
-        vb.menu.addSeparator()
-        act = vb.menu.addAction("Save as JPEG…")
-        act.triggered.connect(
-            lambda checked=False, p=plot, s=stem: self._save_jpeg(p, s)
-        )
-        act_itx = vb.menu.addAction("Save as Igor Pro ITX…")
-        act_itx.triggered.connect(
-            lambda checked=False, p=plot: save_itx_from_plot(p, self)
-        )
-
-    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save as JPEG",
-            str(Path.home() / f"{stem}.jpg"),
-            "JPEG Images (*.jpg *.jpeg);;All Files (*)",
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(self, "Export failed", str(exc))
+        """Attach the shared export menu (clipboard, image, curve CSV, ITX)."""
+        attach_plot_export(plot, self, stem, window=getattr(self, 'gl', None))
 
     # ── Cursor helpers ────────────────────────────────────────────────────
 
@@ -844,6 +820,10 @@ class WAXSPeakFitGraphWindow(QWidget):
             symbolBrush=pg.mkBrush('#2c3e50'),
             name=label,
         )
+        # Uncertainties for CSV/ITX export, masked to match the plotted points.
+        if dI is not None:
+            tag_curve_uncertainty(self._data_item,
+                                  np.asarray(dI, dtype=float)[mask])
         # Error bars (thin gray vertical segments, NaN-separated)
         if dI is not None:
             dI_ = np.asarray(dI, float)

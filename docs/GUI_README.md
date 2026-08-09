@@ -98,6 +98,41 @@ The main GUI provides:
 - **Ctrl/Cmd + A**: Select all visible files
 - **Ctrl/Cmd + Click**: Add/remove from selection
 
+### Getting graphs and tables out of pyIrena
+
+Every graph and every table behaves the same way, in every panel.
+
+**Graphs — right-click anywhere on the plot:**
+
+| Action | What it does |
+|--------|--------------|
+| Copy graph to clipboard | The graph as an image, ready to paste into PowerPoint, Word, email or an electronic notebook — the equivalent of Igor's Edit→Copy |
+| Save graph as image… | PNG (default), JPEG or SVG — pick the format in the file dialog or just type the extension.  PNG is recommended: JPEG compression smears the thin lines and small text of a log-log plot |
+| Save whole window as image… | All stacked panels at once (data + residuals + distribution) |
+| Save curve data as CSV… | The plotted curves as text — one `X`/`Y` (and `dY` where errors exist) column pair per curve, for Excel, Origin, Matlab or pandas |
+| Save as Igor Pro ITX… | Igor Pro Text waves with display, log-axis, colour and legend commands |
+
+Exported curves are always in **linear (physical) units**, even when the plot
+is logarithmic, and error bars are exported as an uncertainty column/wave
+rather than as line segments — in Igor they arrive as error bars, not as an
+extra trace.  ITX files also reproduce how each curve is drawn: data points
+import as markers, model curves as lines.  Curves without a legend name — residuals, the
+Simple Fits linearization, the Contrast (Δρ)² curve — are exported too, labelled
+from the Y axis.
+
+Save dialogs open in the folder you last exported to; before you have exported
+anything they start in your data folder.  The choice persists across restarts.
+
+**Tables — Ctrl+C, or right-click:**
+
+| Action | What it does |
+|--------|--------------|
+| Ctrl+C | Copy selected cells as tab-separated text (pastes straight into Excel, Igor, Origin) |
+| Ctrl+Shift+C | The same, with the column headers |
+| Right-click → Copy Whole Table | Everything, headers included (also what Ctrl+C does with nothing selected) |
+| Right-click → Save as CSV… | The table as a CSV file, where the panel supports it |
+| Click a column header | Sort; numeric columns sort numerically and blanks sort last.  Not offered where row order carries meaning |
+
 ## Data Format Support
 
 ### HDF5 Files (NXcanSAS)

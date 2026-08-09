@@ -47,20 +47,30 @@ import logging
 log = logging.getLogger(__name__)
 
 
-from pathlib import Path
-
 import numpy as np
 import pyqtgraph as pg
 
 from pyirena.gui._qt import (
-    QFileDialog,
     QFont,
     QInputDialog,
-    QMessageBox,
     QPainterPath,
     QPointF,
     QRectF,
     Qt,
+)
+
+# Export lives in one shared module so every plot in pyIrena offers the same
+# actions (clipboard, image, curve CSV, Igor ITX).  These names are re-exported
+# here because panels — and ``hdf5viewer/export.py`` — import them from
+# ``sas_plot``; new code should import from ``pyirena.gui.plot_export``.
+from pyirena.gui.plot_export import (  # noqa: F401  (re-exported for callers)
+    _itx_folder_cmds,
+    attach_plot_export,
+    collect_plot_curves,
+    copy_plot_to_clipboard,
+    save_curves_as_csv,
+    save_itx_from_plot,
+    save_plot_image,
 )
 
 # ===========================================================================
@@ -684,6 +694,7 @@ def make_sas_plot(
     d_spacing_axis: bool = False,
     parent_widget=None,
     jpeg_default_name: str = 'pyirena_graph',
+    export_folder=None,
 ) -> pg.PlotItem:
     """Create a log-log (or semi-log) plot and configure it with pyIrena style.
 
@@ -703,10 +714,15 @@ def make_sas_plot(
         Whether to apply log10 to x / y axes.  Pass ``True`` for both for
         an I(Q) vs Q plot.  Pass ``log_x=True, log_y=False`` for residuals.
     parent_widget : QWidget or None
-        Parent for file dialogs triggered by the "Save as JPEG" action.
-        Pass ``None`` to suppress the JPEG export menu entry.
+        Parent for file dialogs triggered by the export actions.
+        Pass ``None`` to suppress the export menu entries entirely.
     jpeg_default_name : str
-        Default file stem for the JPEG export dialog.
+        Default file stem offered in the export dialogs.
+    export_folder : str, Path, callable or None
+        Folder the export dialogs should open in — pass the panel's data
+        folder (or a callable returning it) so saved graphs land next to the
+        data.  ``None`` falls back to the last export folder, then the last
+        data folder, then home.
 
     Returns
     -------
@@ -736,322 +752,17 @@ def make_sas_plot(
     if x_link is not None:
         plot.setXLink(x_link)
     if parent_widget is not None:
-        _add_jpeg_export(plot, parent_widget, jpeg_default_name,
-                         x_label=x_label, y_label=y_label, title=title or '')
+        # Shared export block: clipboard, image, whole-window image, curve CSV,
+        # ITX.  ``graphics_layout`` is the window capture target because it
+        # holds exactly the stacked plots, without the surrounding controls.
+        attach_plot_export(
+            plot, parent_widget, jpeg_default_name,
+            window=graphics_layout, folder=export_folder,
+            x_label=x_label, y_label=y_label, title=title or '',
+        )
     if log_x and log_y:
         add_slope_line_menu(plot)
     return plot
-
-
-# ===========================================================================
-# JPEG / ITX export
-# ===========================================================================
-
-def _add_jpeg_export(
-    plot: pg.PlotItem,
-    parent_widget,
-    default_name: str,
-    x_label: str = '',
-    y_label: str = '',
-    title: str = '',
-):
-    """Append 'Save as JPEG' and 'Save as Igor Pro ITX' entries to the ViewBox menu."""
-    vb = plot.getViewBox()
-    vb.menu.addSeparator()
-    jpeg_action = vb.menu.addAction("Save graph as JPEG…")
-    jpeg_action.triggered.connect(
-        lambda checked=False, p=plot, pw=parent_widget, n=default_name:
-            _save_plot_as_jpeg(p, pw, n)
-    )
-    itx_action = vb.menu.addAction("Save as Igor Pro ITX…")
-    itx_action.triggered.connect(
-        lambda checked=False, p=plot, pw=parent_widget, n=default_name,
-               xl=x_label, yl=y_label, t=title:
-            save_itx_from_plot(p, pw, n, xl, yl, t)
-    )
-
-
-def _save_plot_as_jpeg(plot: pg.PlotItem, parent, default_name: str):
-    """Export *plot* to a JPEG file chosen via a save dialog."""
-    from pyqtgraph.exporters import ImageExporter
-    default_path = str(Path.home() / f'{default_name}.jpg')
-    file_path, _ = QFileDialog.getSaveFileName(
-        parent, 'Save Graph as JPEG', default_path,
-        'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-    )
-    if not file_path:
-        return
-    try:
-        exporter = ImageExporter(plot)
-        exporter.parameters()['width'] = 1600
-        exporter.export(file_path)
-    except Exception as exc:
-        QMessageBox.warning(parent, 'Export Failed',
-                            f'Could not save image:\n{exc}')
-
-
-def _get_item_color_hex(item: pg.PlotDataItem) -> str:
-    """Extract the primary color of a PlotDataItem as an #rrggbb hex string."""
-    try:
-        pen = item.opts.get('pen')
-        if pen is not None:
-            return pg.mkPen(pen).color().name()
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    try:
-        brush = item.opts.get('symbolBrush')
-        if brush is not None:
-            return pg.mkBrush(brush).color().name()
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return '#000000'
-
-
-def _itx_folder_cmds(technique: str | None,
-                     sample: str | None) -> tuple[list[str], list[str]]:
-    """Build the Igor ``X`` commands that route loaded waves into a folder.
-
-    Returns ``(open_lines, close_lines)`` such that WAVES blocks emitted
-    between them land in ``root:<technique>:<sample>`` instead of ``root:``.
-    This lets users import many ITX files into one Igor experiment without
-    wave-name collisions — each sample gets its own data folder.
-
-    Returns ``([], [])`` when *technique* is falsy (top-level export, the
-    historical behaviour).  The *technique* segment is sanitised to a strict
-    Igor object name; the *sample* segment uses a quoted liberal name so it
-    stays human-readable (Igor 8+ / Igor 10 long names).
-    """
-    import re
-    if not technique:
-        return [], []
-    tech = re.sub(r'[^A-Za-z0-9_]', '_', str(technique))
-    if tech and tech[0].isdigit():
-        tech = 'f_' + tech
-    tech = tech[:31]
-    if not tech:
-        return [], []
-    open_lines = [f'X NewDataFolder/O/S root:{tech}']
-    if sample:
-        s = str(sample).strip()
-        # Drop a single trailing file extension for a cleaner folder name.
-        s = re.sub(r'\.(h5|hdf5|hdf|dat|txt|csv|itx|pxp|xml|nxs)$', '',
-                   s, flags=re.IGNORECASE)
-        # Single quote is the liberal-name delimiter — replace any in the name.
-        s = s.replace("'", '_').strip()[:200]
-        if s:
-            open_lines.append(f"X NewDataFolder/O/S root:{tech}:'{s}'")
-    return open_lines, ['X SetDataFolder root:']
-
-
-def save_itx_from_plot(
-    plot: pg.PlotItem,
-    parent,
-    default_name: str = 'pyirena_graph',
-    x_label: str | None = None,
-    y_label: str | None = None,
-    title: str | None = None,
-    technique: str | None = None,
-    sample: str | None = None,
-) -> None:
-    """Export named data curves from *plot* as an Igor Pro Text (.itx) file.
-
-    Iterates all named ``PlotDataItem`` objects in *plot* (scatter data and
-    model curves) and writes them as Igor Pro waves with display, log-axis,
-    color, label, and legend commands.  Error-bar segments (NaN-separated
-    lines without a name) are automatically skipped.
-
-    Auto-extracts axis labels and title from *plot* when the corresponding
-    parameters are ``None``.
-
-    When *technique* (and optionally *sample*) is supplied — or discoverable
-    as ``parent._itx_technique`` / ``parent._itx_sample_label`` — the waves are
-    routed into ``root:<technique>:<sample>`` so multiple ITX imports into one
-    Igor experiment do not collide on wave names.
-    """
-    import re
-
-    # Fall back to attributes stashed on the parent window by the tool panels.
-    if technique is None:
-        technique = getattr(parent, '_itx_technique', None)
-    if sample is None:
-        sample = getattr(parent, '_itx_sample_label', None)
-
-    # Auto-extract labels / title from the plot_item if not provided.
-    if x_label is None:
-        x_label = getattr(plot.getAxis('bottom'), 'labelText', '') or ''
-    if y_label is None:
-        y_label = getattr(plot.getAxis('left'), 'labelText', '') or ''
-    if title is None:
-        try:
-            title = plot.titleLabel.text or ''
-        except Exception:
-            title = ''
-
-    # Collect named, non-NaN-heavy PlotDataItems.
-    # Tuple: (label, x_arr, y_arr, color_hex, dI_arr_or_None)
-    named_items: list[tuple[str, np.ndarray, np.ndarray, str, np.ndarray | None]] = []
-
-    # Items carrying an explicit ``_itx_export`` dict (e.g. stepMode bar charts
-    # drawn as PlotCurveItems) are not tracked in ``dataItems`` and are not
-    # PlotDataItems, so scan ``plot.items`` for them in addition to the normal
-    # data items.
-    scan_items = list(plot.listDataItems())
-    for it in getattr(plot, 'items', []):
-        if it not in scan_items and getattr(it, '_itx_export', None) is not None:
-            scan_items.append(it)
-
-    for item in scan_items:
-        # Explicit export data takes precedence (linear units, correct shape).
-        exp = getattr(item, '_itx_export', None)
-        if exp is not None:
-            name = exp.get('name') or ''
-            x_data = np.asarray(exp.get('x'), dtype=float)
-            y_data = np.asarray(exp.get('y'), dtype=float)
-            if name and x_data.size >= 2 and y_data.size >= 2:
-                mask = np.isfinite(x_data) & np.isfinite(y_data)
-                if mask.sum() >= 2:
-                    named_items.append((name, x_data[mask], y_data[mask],
-                                        _get_item_color_hex(item), None))
-            continue
-        if not isinstance(item, pg.PlotDataItem):
-            continue
-        name = item.name() or ''
-        if not name:
-            continue
-        # Use getOriginalDataset() to get the pre-log-transform linear values.
-        # getData() returns log10-transformed values when the item has logMode
-        # active, which would cause a double-log in Igor Pro when combined with
-        # the ModifyGraph log=1 commands we also emit.
-        x_data, y_data = item.getOriginalDataset()
-        if x_data is None or y_data is None or len(x_data) < 2:
-            continue
-        # Skip error-bar segments (NaN-separated lines: >30 % NaN values)
-        if np.sum(np.isnan(y_data)) > len(y_data) * 0.3:
-            continue
-        mask = np.isfinite(x_data) & np.isfinite(y_data)
-        if mask.sum() < 2:
-            continue
-        # Retrieve dI stashed by plot_iq_data (None for model curves).
-        raw_dI = getattr(item, '_itx_dI', None)
-        dI_arr: np.ndarray | None = None
-        if raw_dI is not None:
-            raw_dI = np.asarray(raw_dI, dtype=float)
-            if raw_dI.shape == x_data.shape:
-                dI_arr = raw_dI[mask]
-            elif raw_dI.shape == x_data[mask].shape:
-                dI_arr = raw_dI
-            if dI_arr is not None and not np.any(np.isfinite(dI_arr) & (dI_arr > 0)):
-                dI_arr = None  # all zeros/NaN — skip Yerr wave
-        named_items.append((name, x_data[mask], y_data[mask],
-                             _get_item_color_hex(item), dI_arr))
-
-    if not named_items:
-        QMessageBox.warning(parent, 'No data',
-                            'No named data curves found to export.')
-        return
-
-    # Build a default filename from technique + sample so multiple exports
-    # don't collide in the same directory (e.g. "Sizes_AeroGel_500C.itx").
-    if technique or sample:
-        parts = [p for p in (technique, sample) if p]
-        stem = re.sub(r'[^\w\-.]', '_', '_'.join(parts)).strip('_') or default_name
-        # Drop duplicate/trailing extension that may already be in sample name.
-        stem = re.sub(r'\.(h5|hdf5|hdf|dat|txt|csv|itx|pxp|xml|nxs)$', '',
-                      stem, flags=re.IGNORECASE)
-    else:
-        stem = default_name
-    default_path = str(Path.home() / f'{stem}.itx')
-    filepath, _ = QFileDialog.getSaveFileName(
-        parent, 'Save as Igor Pro ITX', default_path,
-        'Igor Pro Text (*.itx);;All files (*)',
-    )
-    if not filepath:
-        return
-    if not filepath.lower().endswith('.itx'):
-        filepath += '.itx'
-
-    log_x = bool(getattr(plot.getAxis('bottom'), 'logMode', False))
-    log_y = bool(getattr(plot.getAxis('left'),   'logMode', False))
-
-    def _safe_name(s: str) -> str:
-        n = re.sub(r'[^A-Za-z0-9_]', '_', s)
-        if n and n[0].isdigit():
-            n = 'w_' + n
-        return n[:31] or 'wave'
-
-    def _hex_to_igor(h: str) -> tuple[int, int, int]:
-        h = h.lstrip('#')
-        if len(h) == 6:
-            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        else:
-            r = g = b = 0
-        return r * 257, g * 257, b * 257
-
-    folder_open, folder_close = _itx_folder_cmds(technique, sample)
-
-    lines = ['IGOR'] + folder_open
-    # (xn, yn, en_or_None, label, color)
-    wave_info: list[tuple[str, str, str | None, str, str]] = []
-    n = len(named_items)
-
-    for i, (lbl, x_arr, y_arr, color, dI_arr) in enumerate(named_items):
-        suffix = f'_{i + 1:02d}' if n > 1 else ''
-        xn = _safe_name(f'X_{lbl}{suffix}')
-        yn = _safe_name(f'Y_{lbl}{suffix}')
-        en = _safe_name(f'Yerr_{lbl}{suffix}') if dI_arr is not None else None
-        wave_info.append((xn, yn, en, lbl, color))
-
-        lines += [f'WAVES/D  {xn}', 'BEGIN']
-        lines += [f'  {v:.10g}' for v in x_arr]
-        lines += ['END', f'WAVES/D  {yn}', 'BEGIN']
-        lines += [f'  {v:.10g}' for v in y_arr]
-        lines.append('END')
-
-        if en is not None and dI_arr is not None:
-            lines += [f'WAVES/D  {en}', 'BEGIN']
-            lines += [f'  {v:.10g}' for v in dI_arr]
-            lines.append('END')
-
-    lines.append('')
-    for j, (xn, yn, en, lbl, _) in enumerate(wave_info):
-        if j == 0:
-            lines.append(f'X Display {yn} vs {xn} as "{lbl}"')
-        else:
-            lines.append(f'X AppendToGraph {yn} vs {xn}')
-
-    if log_x:
-        lines.append('X ModifyGraph log(bottom)=1')
-    if log_y:
-        lines.append('X ModifyGraph log(left)=1')
-
-    for _, yn, en, _, color in wave_info:
-        r, g, b = _hex_to_igor(color)
-        lines.append(f'X ModifyGraph rgb({yn})=({r},{g},{b})')
-        if en is not None:
-            lines.append(f'X ErrorBars {yn} Y,wave=({en},{en})')
-
-    if x_label:
-        lines.append(f'X Label bottom "{x_label}"')
-    if y_label:
-        lines.append(f'X Label left "{y_label}"')
-    if title:
-        lines.append(f'X TextBox/C/N=title0/A=MC/X=0/Y=5 "{title}"')
-
-    legend_parts = [f'\\\\s({yn}) {lbl}' for _, yn, en, lbl, _ in wave_info]
-    if legend_parts:
-        legend_text = '\\r'.join(legend_parts)
-        lines.append(f'X Legend/C/N=text0 "{legend_text}"')
-
-    # Restore the current data folder to root: after routing waves into a
-    # sample subfolder (no-op when no folder routing was requested).
-    lines += folder_close
-
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines) + '\n')
-    except Exception as exc:
-        QMessageBox.warning(parent, 'Export Failed',
-                            f'Could not save file:\n{exc}')
 
 
 # ===========================================================================

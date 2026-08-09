@@ -68,12 +68,12 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.plot_export import attach_plot_export, save_plot_image
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
     add_plot_annotation,
     add_slope_line_menu,
     plot_iq_data,
-    save_itx_from_plot,
     set_robust_y_range,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
@@ -1859,23 +1859,14 @@ class ModelingGraphWindow(QWidget):
         # Link X axes so Q range is synchronised
         self.resid_plot.setXLink(self.iq_plot)
 
-        # JPEG + ITX export right-click
-        vb = self.iq_plot.getViewBox()
-        vb.menu.addSeparator()
-        act = vb.menu.addAction('Save I(Q) graph as JPEG…')
-        act.triggered.connect(self._save_iq_jpeg)
-        act_itx = vb.menu.addAction('Save as Igor Pro ITX…')
-        act_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.iq_plot, self)
-        )
-        vb2 = self.dist_plot.getViewBox()
-        vb2.menu.addSeparator()
-        act2 = vb2.menu.addAction('Save size distribution as JPEG…')
-        act2.triggered.connect(self._save_dist_jpeg)
-        act2_itx = vb2.menu.addAction('Save as Igor Pro ITX…')
-        act2_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.dist_plot, self)
-        )
+        # Shared export menu (clipboard, image, whole window, curve CSV, ITX)
+        for _plot, _stem in [
+            (self.iq_plot,    'modeling_iq'),
+            (self.resid_plot, 'modeling_residuals'),
+            (self.dist_plot,  'modeling_dist'),
+        ]:
+            attach_plot_export(_plot, self, _stem, window=self.gl,
+                               folder=self._export_folder)
 
     @staticmethod
     def _style_axes(plot, show_top_values=False):
@@ -2021,10 +2012,12 @@ class ModelingGraphWindow(QWidget):
         """Plot normalised residuals on the residuals panel."""
         self.resid_plot.clear()
         self.resid_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
+        # Named so CSV/ITX export can pick it up (no legend on this panel).
         self.resid_plot.plot(
             q, residuals,
             pen=None, symbol='o', symbolSize=4,
             symbolBrush='#2980b9', symbolPen=None,
+            name='Residuals',
         )
 
     def _clear_model_items(self):
@@ -2073,29 +2066,19 @@ class ModelingGraphWindow(QWidget):
             f'font-size: 10pt; color: {fg}; {bg_css}'
         )
 
-    # ── JPEG exports ──────────────────────────────────────────────────────────
+    # ── Image exports ─────────────────────────────────────────────────────────
 
-    def _save_jpeg(self, plot_item, default_name: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Save as JPEG',
-            str(Path(self.data_folder) / default_name),
-            'JPEG (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot_item)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as e:
-            QMessageBox.warning(self, 'Export failed', str(e))
+    def _export_folder(self):
+        """Folder the export dialogs open in — next to the loaded data."""
+        return getattr(self, 'data_folder', None)
 
     def _save_iq_jpeg(self):
-        self._save_jpeg(self.iq_plot, 'modeling_iq.jpg')
+        save_plot_image(self.iq_plot, self, 'modeling_iq',
+                        folder=self._export_folder())
 
     def _save_dist_jpeg(self):
-        self._save_jpeg(self.dist_plot, 'modeling_dist.jpg')
+        save_plot_image(self.dist_plot, self, 'modeling_dist',
+                        folder=self._export_folder())
 
 
 # ──────────────────────────────────────────────────────────────────────────────

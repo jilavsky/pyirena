@@ -84,7 +84,9 @@ The tool is available three ways:
 
 - Log-log I(Q) plot with the top axis showing R = pi/Q.
 - Input data displayed as scatter points; result overlaid as a thick green line.
-- Right-click the plot for JPEG export and (on the Average tab) dataset removal.
+- Right-click the plot for the standard export menu (clipboard copy, image,
+  curve CSV, Igor ITX — see `GUI_README.md`) and, on the Average tab, dataset
+  removal.
 
 ### Output panel (right)
 

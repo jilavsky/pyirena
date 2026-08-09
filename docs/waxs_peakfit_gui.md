@@ -36,7 +36,9 @@ The window is split into a **left control panel** (≈430 px wide) and a
 - **Add Peak at Q = X.XXX Å⁻¹** — inserts a peak row initialized at that Q
 - **Show data as line / Show data as points** — toggle scatter vs. connected line
 - **Hide / Show error bars** — toggle ±σ vertical bars on data
-- **Save graph as JPEG…** — export at 1600 px width
+- **Copy graph to clipboard**, **Save graph as image…** (PNG/JPEG/SVG at 1600 px),
+  **Save whole window as image…**, **Save curve data as CSV…**, **Save as Igor
+  Pro ITX…** — the standard export menu, described in `GUI_README.md`
 
 ### Vertical cursors
 

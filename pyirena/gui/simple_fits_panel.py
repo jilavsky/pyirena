@@ -48,6 +48,11 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.plot_export import (
+    attach_plot_export,
+    save_plot_image,
+    tag_curve_uncertainty,
+)
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
     add_plot_annotation,
@@ -147,12 +152,11 @@ class SimpleFitsGraphWindow(QWidget):
         self.lin_plot.getAxis('left').enableAutoSIPrefix(False)
         self.lin_plot.getAxis('bottom').enableAutoSIPrefix(False)
         self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
-        # JPEG export for linearization plot
-        _vb_lin = self.lin_plot.getViewBox()
-        _vb_lin.menu.addSeparator()
-        _lin_action = _vb_lin.menu.addAction("Save graph as JPEG…")
-        _lin_action.triggered.connect(
-            lambda checked=False: self._save_lin_plot_as_jpeg()
+        # Shared export menu for the linearization plot.  This panel had JPEG
+        # only and no ITX at all; it now matches every other plot.
+        attach_plot_export(
+            self.lin_plot, self._parent_ref, 'simple_fits_linearization',
+            window=self.graphics_layout,
         )
 
         # ── Height ratios 5:1:4 ───────────────────────────────────────────────
@@ -182,21 +186,9 @@ class SimpleFitsGraphWindow(QWidget):
         layout.addWidget(self.status_label)
 
     def _save_lin_plot_as_jpeg(self):
-        from pyqtgraph.exporters import ImageExporter
-        file_path, _ = QFileDialog.getSaveFileName(
-            self._parent_ref, 'Save Graph as JPEG',
-            str(Path.home() / 'simple_fits_linearization.jpg'),
-            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not file_path:
-            return
-        try:
-            exporter = ImageExporter(self.lin_plot)
-            exporter.parameters()['width'] = 1600
-            exporter.export(file_path)
-        except Exception as exc:
-            QMessageBox.warning(self._parent_ref, 'Export Failed',
-                                f'Could not save image:\n{exc}')
+        """Kept for external callers; the dialog now offers PNG/JPEG/SVG."""
+        save_plot_image(self.lin_plot, self._parent_ref,
+                        'simple_fits_linearization')
 
     # ── Data plotting ─────────────────────────────────────────────────────────
 
@@ -404,6 +396,7 @@ class SimpleFitsGraphWindow(QWidget):
         mask = np.isfinite(q) & np.isfinite(residuals) & (q > 0)
         if mask.sum() < 1:
             return
+        # Named so CSV/ITX export can pick it up (no legend on this panel).
         item = self.residuals_plot.plot(
             q[mask], residuals[mask],
             pen=None,
@@ -411,6 +404,7 @@ class SimpleFitsGraphWindow(QWidget):
             symbolSize=SASPlotStyle.RESID_SIZE,
             symbolPen=None,
             symbolBrush=SASPlotStyle.RESID_BRUSH,
+            name='Residuals',
         )
         self._resid_item = item
 
@@ -468,6 +462,13 @@ class SimpleFitsGraphWindow(QWidget):
         else:
             in_range = np.ones(len(X), dtype=bool)
 
+        # Uncertainties propagated into linearized space by ``linearize()``.
+        # Exported as a dY column / Igor error wave rather than drawn, so a
+        # reader can tell them apart from the data (they used to be absent
+        # from the export entirely).
+        dY = lin_result.get('dY')
+        dY = np.asarray(dY, dtype=float) if dY is not None else None
+
         # ── Out-of-range points: light grey, smaller ──────────────────────────
         out_mask = good & ~in_range
         if out_mask.any():
@@ -476,8 +477,11 @@ class SimpleFitsGraphWindow(QWidget):
                 pen=None,
                 brush=pg.mkBrush(180, 180, 180, 140),
                 size=4,
+                name='Data outside fit range',
             )
             self.lin_plot.addItem(out_item)
+            if dY is not None and len(dY) == len(X):
+                tag_curve_uncertainty(out_item, dY[out_mask])
 
         # ── In-range points: dark, standard size ──────────────────────────────
         in_mask = good & in_range
@@ -485,15 +489,19 @@ class SimpleFitsGraphWindow(QWidget):
             data_item = pg.ScatterPlotItem(
                 x=X[in_mask], y=Y[in_mask],
                 pen=None, brush=SASPlotStyle.DATA_BRUSH, size=5,
+                name='Linearized data',
             )
             self.lin_plot.addItem(data_item)
             self._lin_data_item = data_item
+            if dY is not None and len(dY) == len(X):
+                tag_curve_uncertainty(data_item, dY[in_mask])
 
         # ── Model line ────────────────────────────────────────────────────────
         mask2 = np.isfinite(X_fit) & np.isfinite(Y_fit)
         fit_item = pg.PlotDataItem(
             x=X_fit[mask2], y=Y_fit[mask2],
             pen=SASPlotStyle.FIT_PEN,
+            name='Linearized fit',
         )
         self.lin_plot.addItem(fit_item)
         self._lin_fit_item = fit_item

@@ -38,11 +38,15 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.plot_export import (
+    attach_plot_export,
+    save_plot_image,
+    tag_curve_uncertainty,
+)
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
     _LimitedAxisItem,
     add_slope_line_menu,
-    save_itx_from_plot,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state import StateManager
@@ -626,26 +630,14 @@ class UnifiedFitGraphWindow(QWidget):
         self.graphics_layout.ci.layout.setRowStretchFactor(0, 4)
         self.graphics_layout.ci.layout.setRowStretchFactor(1, 1)
 
-        # Export menus: JPEG + ITX for main plot
-        vb = self.main_plot.getViewBox()
-        vb.menu.addSeparator()
-        save_action = vb.menu.addAction("Save graph as JPEG…")
-        save_action.triggered.connect(self.save_top_graph_as_jpeg)
-        itx_action = vb.menu.addAction("Save as Igor Pro ITX…")
-        itx_action.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.main_plot, self)
+        # Shared export menu (clipboard, image, whole window, curve CSV, ITX)
+        attach_plot_export(
+            self.main_plot, self, 'unified_fit_graph',
+            window=self.graphics_layout, folder=self._export_folder,
         )
-
-        # Export menus: JPEG + ITX for residual plot
-        vb2 = self.residual_plot.getViewBox()
-        vb2.menu.addSeparator()
-        resid_jpeg = vb2.menu.addAction("Save graph as JPEG…")
-        resid_jpeg.triggered.connect(
-            lambda checked=False: self._save_jpeg(self.residual_plot, 'unified_fit_residuals')
-        )
-        resid_itx = vb2.menu.addAction("Save as Igor Pro ITX…")
-        resid_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.residual_plot, self)
+        attach_plot_export(
+            self.residual_plot, self, 'unified_fit_residuals',
+            window=self.graphics_layout, folder=self._export_folder,
         )
 
         # Porod tab: full-height single plot of I·Q⁴ vs Q (no cursors, no residuals).
@@ -681,16 +673,10 @@ class UnifiedFitGraphWindow(QWidget):
             self.porod_plot.getAxis('right').setStyle(showValues=False)
             self.porod_plot.enableAutoRange()
 
-            # Export menus: JPEG + ITX for Porod plot
-            vb3 = self.porod_plot.getViewBox()
-            vb3.menu.addSeparator()
-            porod_jpeg = vb3.menu.addAction("Save graph as JPEG…")
-            porod_jpeg.triggered.connect(
-                lambda checked=False: self._save_jpeg(self.porod_plot, 'unified_fit_porod')
-            )
-            porod_itx = vb3.menu.addAction("Save as Igor Pro ITX…")
-            porod_itx.triggered.connect(
-                lambda checked=False: save_itx_from_plot(self.porod_plot, self)
+            # Shared export menu for the Porod plot
+            attach_plot_export(
+                self.porod_plot, self, 'unified_fit_porod',
+                window=self.porod_layout, folder=self._export_folder,
             )
         else:
             # Soft clear: remove only data items from the existing plot.
@@ -702,42 +688,18 @@ class UnifiedFitGraphWindow(QWidget):
             if self.porod_plot is not None:
                 self.porod_plot.clear()
 
+    def _export_folder(self):
+        """Folder the export dialogs open in — next to the loaded data."""
+        return getattr(self, 'data_folder', None)
+
     def save_top_graph_as_jpeg(self):
-        """Export the top (main) plot to a JPEG file chosen by the user."""
-        from pyqtgraph.exporters import ImageExporter
+        """Export the top (main) plot to an image file chosen by the user.
 
-        default_name = str(Path(self.data_folder) / "unified_fit_graph.jpg")
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Graph as JPEG",
-            default_name,
-            "JPEG Images (*.jpg *.jpeg);;All Files (*)"
-        )
-        if not file_path:
-            return
-
-        try:
-            exporter = ImageExporter(self.main_plot)
-            # Export at 1600 px wide for good quality; height scales proportionally
-            exporter.parameters()['width'] = 1600
-            exporter.export(file_path)
-        except Exception as e:
-            QMessageBox.warning(self, "Export Failed", f"Could not save image:\n{e}")
-
-    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Save as JPEG', str(Path.home() / f'{stem}.jpg'),
-            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(self, 'Export failed', str(exc))
+        Kept as a public method because external callers (and the toolbar) use
+        it; the dialog now offers PNG/JPEG/SVG via the shared exporter.
+        """
+        save_plot_image(self.main_plot, self, 'unified_fit_graph',
+                        folder=self._export_folder())
 
     def clear_result_text_annotations(self):
         """Remove all result text annotations from the graph."""
@@ -798,7 +760,7 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.disableAutoRange()
 
         # Plot data points
-        self.main_plot.plot(
+        data_item = self.main_plot.plot(
             q, intensity,
             pen=None,
             symbol='o',
@@ -806,6 +768,10 @@ class UnifiedFitGraphWindow(QWidget):
             symbolBrush=(100, 100, 255, 150),
             name=label
         )
+        # Error bars are NaN-separated line segments that no exporter can turn
+        # back into uncertainties; record the array so CSV/ITX carry a dY
+        # column matching what is drawn.
+        tag_curve_uncertainty(data_item, error)
 
         # Add error bars if available - batch all segments for fast rendering
         if error is not None and len(error) > 0:
@@ -942,7 +908,7 @@ class UnifiedFitGraphWindow(QWidget):
         # tighter log-decade range than I·Q⁴, so the flash is imperceptible.
         self.porod_plot.getViewBox().disableAutoRange()
 
-        self.porod_plot.plot(
+        porod_item = self.porod_plot.plot(
             q_v.tolist(), i_porod.tolist(),
             pen=None,
             symbol='o',
@@ -950,6 +916,11 @@ class UnifiedFitGraphWindow(QWidget):
             symbolBrush=(100, 100, 255, 150),
             name=label,
         )
+        # Uncertainties in the Porod presentation are dI·Q⁴, matching i_porod.
+        if error is not None and len(error) == len(q):
+            tag_curve_uncertainty(
+                porod_item, np.asarray(error, dtype=float)[valid] * q_v ** 4
+            )
 
         # Error bars: dI scaled by Q⁴ (Q is exact). Skip if not provided.
         if error is not None and len(error) == len(q):
@@ -1015,12 +986,15 @@ class UnifiedFitGraphWindow(QWidget):
         """Plot fit residuals with symmetric Y-axis around 0."""
         self.residual_plot.clear()
         self.residual_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
+        # Named so the curve can be exported (CSV/ITX skip unlabelled items);
+        # the residual plot has no legend, so nothing changes on screen.
         self.residual_plot.plot(
             q, residuals,
             pen=None,
             symbol='o',
             symbolSize=3,
-            symbolBrush=(100, 100, 255, 150)
+            symbolBrush=(100, 100, 255, 150),
+            name='Residuals',
         )
 
         # Set symmetric Y-axis range around 0

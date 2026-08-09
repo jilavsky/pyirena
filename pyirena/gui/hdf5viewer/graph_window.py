@@ -54,6 +54,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.plot_export import copy_plot_to_clipboard
 from pyirena.gui.sas_plot import add_slope_line_menu
 
 from . import export as _export
@@ -233,6 +234,15 @@ class GraphWindow(QWidget):
         vb.menu.addAction(act_rm_err)
 
         vb.menu.addSeparator()
+
+        # Clipboard copy comes from the shared exporter; this window keeps its
+        # own PNG/HDF5/ITX/matplotlib entries because they carry NXcanSAS
+        # metadata the generic curve exporters do not have.
+        act_clip = QAction("Copy graph to clipboard", self)
+        act_clip.triggered.connect(
+            lambda: copy_plot_to_clipboard(self._plot, self)
+        )
+        vb.menu.addAction(act_clip)
 
         act_png = QAction("Save PNG…", self)
         act_png.triggered.connect(lambda: _export.save_png(self))

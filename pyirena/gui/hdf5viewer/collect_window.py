@@ -26,6 +26,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.plot_export import attach_plot_export, save_widget_image
 from pyirena.gui.table_utils import (
     attach_table_copy,
     enable_table_sorting,
@@ -179,12 +180,14 @@ class CollectWindow(QWidget):
         xs_arr = np.array(xs)
         ys_arr = np.array(ys)
 
-        # Scatter plot
+        # Scatter plot.  Named so the shared CSV/clipboard exporters label the
+        # column with the collected quantity instead of a generic fallback.
         scatter = pg.ScatterPlotItem(
             xs_arr, ys_arr,
             pen=pg.mkPen("#2980b9"),
             brush=pg.mkBrush("#2980b9"),
             size=8,
+            name=self._y_label,
         )
         self._plot.addItem(scatter)
 
@@ -209,11 +212,20 @@ class CollectWindow(QWidget):
     # ── ViewBox right-click menu ───────────────────────────────────────────
 
     def _add_viewbox_menu(self) -> None:
+        # Shared export block (clipboard, image, curve CSV) plus this window's
+        # own ITX writer, which exports the collected X/Y/error waves with the
+        # right axis labels rather than the generic curve dump.  The generic
+        # ITX entry is suppressed so the menu does not show two of them.
+        attach_plot_export(self._plot, self, self._image_stem(),
+                           window=self, itx=False)
         vb = self._plot.getViewBox()
-        vb.menu.addSeparator()
-        act_itx = QAction("Save ITX (Igor Pro)…", self)
+        act_itx = QAction("Save collected values as ITX (Igor Pro)…", self)
         act_itx.triggered.connect(self._save_itx)
         vb.menu.addAction(act_itx)
+
+    def _image_stem(self) -> str:
+        return re.sub(r"[^\w\s-]", "", self._window_title).strip().replace(" ", "_") \
+            or "collected_values"
 
     # ── Export ─────────────────────────────────────────────────────────────
 
@@ -237,15 +249,8 @@ class CollectWindow(QWidget):
         save_rows_as_csv(self, headers, rows, self._default_path(".csv"), "Save CSV")
 
     def _save_jpeg(self) -> None:
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save as JPEG", self._default_path(".jpg"),
-            "JPEG images (*.jpg);;All files (*)",
-        )
-        if not filepath:
-            return
-        if not filepath.lower().endswith((".jpg", ".jpeg")):
-            filepath += ".jpg"
-        self.grab().save(filepath, "JPEG", 95)
+        """Toolbar button: save the whole window (table + plot) as an image."""
+        save_widget_image(self, self, self._image_stem())
 
     def _save_itx(self) -> None:
         xs, ys, yes = [], [], []

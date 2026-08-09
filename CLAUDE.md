@@ -175,9 +175,11 @@ writing a loop with numpy in a `*_panel.py`, it belongs in `core/`. Every panel
 must expose state collection and a `load_state()` so setup save/restore works.
 Shared UX behaviour comes from shared modules, never a local reimplementation:
 filter boxes use `gui/file_filter.py`, tables use `gui/table_utils.py`
-(`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`). The full
-list is the "standard UX contract" in `docs/developer_adding_features.md`, and
-`pyirena/tests/test_gui_table_contract.py` enforces the table half of it.
+(`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`), plot export
+uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
+`parent_widget`). The full list is the "standard UX contract" in
+`docs/developer_adding_features.md`; `pyirena/tests/test_gui_table_contract.py`
+and `test_gui_plot_contract.py` enforce it.
 
 **Testing.** New math needs a test in `pyirena/tests/`. New HDF5 fields need a
 round-trip test in `test_nxcansas_roundtrips.py`. New api surface needs a test

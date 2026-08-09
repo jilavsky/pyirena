@@ -116,7 +116,9 @@ The graph window has two tabs you can switch between at any time. Both update to
 
 - Scroll wheel: zoom in/out
 - Click-drag: pan
-- Right-click → "Save graph as JPEG…" or "Save as Igor Pro ITX…"
+- Right-click → *Copy graph to clipboard*, *Save graph as image…* (PNG/JPEG/SVG),
+  *Save whole window as image…*, *Save curve data as CSV…*, *Save as Igor Pro ITX…*
+  (see "Getting graphs and tables out of pyIrena" in `GUI_README.md`)
 - Zoom is preserved across auto-updates; only resets when new data is loaded
 
 **Cursors**
@@ -132,7 +134,7 @@ The graph window has two tabs you can switch between at any time. Both update to
 - Local Guinier and Porod level fits also shown (if enabled), scaled by Q⁴
 - **No cursors** — this tab is for visual inspection only
 - The Porod plot makes it much easier to judge how many levels are needed and where each level's Q range lies: a flat region indicates a well-described Porod scatterer; shoulders or bumps indicate additional levels
-- Right-click → save as JPEG or ITX
+- Right-click → the same export menu as Tab 1 (clipboard, image, curve CSV, ITX)
 - Zoom is preserved independently of Tab 1
 
 ## Unified Fit Model
