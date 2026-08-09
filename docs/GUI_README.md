@@ -123,6 +123,18 @@ from the Y axis.
 Save dialogs open in the folder you last exported to; before you have exported
 anything they start in your data folder.  The choice persists across restarts.
 
+**Fit results as text — two buttons on the panel:**
+
+| Button | What it does |
+|--------|--------------|
+| Copy results | The current fit as Markdown on the clipboard: parameters with their uncertainties, fit quality, setup and data summary.  Paste into an e-mail, logbook or manuscript |
+| Save report… | The same text as a `.md` file |
+
+Available on Unified Fit, Size Distribution, Simple Fits, Modeling and WAXS
+Peak Fit.  The text is built by the same code as the Data Selector's
+*Create Report* and the AI agents' `export_fit_report`, so a number is never
+formatted one way in the panel and another way in the report.
+
 **Tables — Ctrl+C, or right-click:**
 
 | Action | What it does |

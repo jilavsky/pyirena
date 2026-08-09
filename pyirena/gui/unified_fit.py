@@ -5,7 +5,7 @@ log = logging.getLogger(__name__)
 
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
@@ -43,6 +43,7 @@ from pyirena.gui.plot_export import (
     save_plot_image,
     tag_curve_uncertainty,
 )
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
     _LimitedAxisItem,
@@ -2400,6 +2401,23 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         layout.addLayout(results_buttons3)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        layout.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='fit_results',
+            default_stem='unified_fit',
+            file_path_provider=lambda: (self.data or {}).get('filepath', ''),
+            data_info_provider=self._data_info_for_report,
+            # Looked up lazily: status_label is created further down in the UI
+            # build, after this row.
+            status_setter=lambda msg: self.status_label.setText(msg),
+            folder_provider=lambda: (
+                str(Path((self.data or {}).get('filepath', '')).parent)
+                if (self.data or {}).get('filepath') else None
+            ),
+        ))
+
         # Row 4: Reset to Defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
         self.reset_button.setMinimumHeight(26)
@@ -3019,6 +3037,9 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 sigma=self.data.get('Error'),
                 n_params=max(1, n_free_params),
             )
+            # Kept so the text report can quote the same numbers the status
+            # line shows (same attribute name as sizes_panel).
+            self._last_quality_metrics = metrics
 
             # CorMap (Franke 2015): longest run of same-sign residuals.
             # C/log2(N) ≈ 1.0 means random noise; >> 1 means systematic misfit.
@@ -4052,6 +4073,106 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             traceback.print_exc()
             self.graph_window.show_error_message(f"Error displaying results: {str(e)}")
 
+    def _collect_level_dicts(self) -> list:
+        """Per-level parameter dicts in the shape saved to (and loaded from) HDF5.
+
+        Shared by the HDF5 save and the text report so the two can never
+        disagree about what a level contains.  ``Sv`` and ``Invariant`` are read
+        from the display fields, which is where they are computed; they are
+        omitted rather than guessed when unavailable.
+        """
+        levels = []
+        for i in range(self.num_levels_spin.value()):
+            params = self.level_widgets[i].get_parameters()
+
+            def _display_value(text):
+                try:
+                    return float(text) if text not in ('N/A', 'Error', '0') else None
+                except (TypeError, ValueError):
+                    return None
+
+            level_dict = {
+                'G': params['G'],
+                'Rg': params['Rg'],
+                'B': params['B'],
+                'P': params['P'],
+                'RgCutoff': params['RgCutoff'],
+                'ETA': params['ETA'],
+                'PACK': params['PACK'],
+                'correlated': params['correlated'],
+            }
+            sv_val = _display_value(self.level_widgets[i].sv_value.text())
+            if sv_val is not None:
+                level_dict['Sv'] = sv_val
+            inv_val = _display_value(self.level_widgets[i].invariant_value.text())
+            if inv_val is not None:
+                level_dict['Invariant'] = inv_val
+
+            # Monte-Carlo 1σ uncertainties, when a run has produced them.
+            level_errs = ((self.fit_uncertainties or {}).get('levels') or [])
+            if i < len(level_errs):
+                for key, err in (level_errs[i] or {}).items():
+                    if err:
+                        level_dict[f'{key}_err'] = err
+
+            levels.append(level_dict)
+        return levels
+
+    def _data_info_for_report(self) -> Optional[dict]:
+        """Q/I/error arrays for the report's data-summary section."""
+        if not self.data:
+            return None
+        return {
+            'Q': self.data['Q'],
+            'I': self.data['Intensity'],
+            'I_error': self.data.get('Error'),
+        }
+
+    def results_for_report(self) -> dict:
+        """Current fit results in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        Same shape as ``load_unified_fit_results()`` returns, so the text a user
+        copies from the panel matches what the Data Selector reports from the
+        saved file.
+        """
+        from datetime import datetime as _dt
+
+        q = self.data['Q'] if self.data else None
+        intensity = self.data['Intensity'] if self.data else None
+        error = self.data.get('Error') if self.data else None
+
+        intensity_model = None
+        residuals = None
+        if q is not None and self.model is not None:
+            try:
+                intensity_model = self.model.calculate_intensity(q)
+                denom = error if error is not None else intensity
+                residuals = (intensity - intensity_model) / denom
+            except Exception:
+                log.debug("suppressed exception building report model", exc_info=True)
+
+        chi_squared = 0.0
+        if getattr(self, 'fit_result', None):
+            chi_squared = self.fit_result.get('chi_squared', 0.0)
+
+        return {
+            'Q': q,
+            'intensity_data': intensity,
+            'intensity_model': intensity_model,
+            'intensity_error': error,
+            'residuals': residuals,
+            'num_levels': self.num_levels_spin.value(),
+            'background': float(self.background_value.text() or 0),
+            'chi_squared': chi_squared,
+            'levels': self._collect_level_dicts(),
+            'slit_length': (
+                float(self.model.slit_length)
+                if self.model is not None and self.model.use_slit_smearing else 0.0
+            ),
+            'fit_quality': getattr(self, '_last_quality_metrics', None),
+            'timestamp': _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
     def store_results_to_file(self):
         """Store Unified Fit results to NXcanSAS HDF5 file."""
         from pyirena.io.nxcansas_unified import (
@@ -4096,42 +4217,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             # Gather parameters
             num_levels = self.num_levels_spin.value()
-            levels = []
-
-            for i in range(num_levels):
-                params = self.level_widgets[i].get_parameters()
-
-                # Get Sv and Invariant from display fields
-                sv_text = self.level_widgets[i].sv_value.text()
-                inv_text = self.level_widgets[i].invariant_value.text()
-
-                try:
-                    sv_val = float(sv_text) if sv_text not in ['N/A', 'Error', '0'] else None
-                except Exception:
-                    sv_val = None
-
-                try:
-                    inv_val = float(inv_text) if inv_text not in ['N/A', 'Error', '0'] else None
-                except Exception:
-                    inv_val = None
-
-                level_dict = {
-                    'G': params['G'],
-                    'Rg': params['Rg'],
-                    'B': params['B'],
-                    'P': params['P'],
-                    'RgCutoff': params['RgCutoff'],
-                    'ETA': params['ETA'],
-                    'PACK': params['PACK'],
-                    'correlated': params['correlated'],
-                }
-
-                if sv_val is not None:
-                    level_dict['Sv'] = sv_val
-                if inv_val is not None:
-                    level_dict['Invariant'] = inv_val
-
-                levels.append(level_dict)
+            levels = self._collect_level_dicts()
 
             background = float(self.background_value.text() or 0)
 

@@ -329,6 +329,17 @@ matrix for models with strong parameter correlations (e.g., Spheroid Scale and R
 
 ## Storing and loading results
 
+### Results as text — Copy results / Save report…
+
+**Copy results** puts the current fit on the clipboard as Markdown: the model,
+χ² and reduced χ², degrees of freedom, the fitted Q range, every parameter with
+its 1σ uncertainty, the derived quantities, and the data summary.  Paste it
+straight into an e-mail, a logbook or a manuscript — no HDF5 round-trip.
+**Save report…** writes the same text to a `.md` file.
+
+The text is produced by the same builder as the Data Selector's *Create Report*
+and the AI agents' `export_fit_report`, so all three agree to the digit.
+
 ### Store in File (HDF5 only)
 
 Click **"Store in File"** to write results into `entry/simple_fit_results` in the

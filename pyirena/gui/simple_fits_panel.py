@@ -53,6 +53,7 @@ from pyirena.gui.plot_export import (
     save_plot_image,
     tag_curve_uncertainty,
 )
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
     add_plot_annotation,
@@ -976,6 +977,21 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         row_out3.addWidget(self.import_btn)
         layout.addLayout(row_out3)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        layout.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='simple_fit_results',
+            default_stem='simple_fit',
+            file_path_provider=lambda: (self.data or {}).get('filepath', ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self.status_label.setText(msg),
+            folder_provider=lambda: (
+                str(Path((self.data or {}).get('filepath', '')).parent)
+                if (self.data or {}).get('filepath') else None
+            ),
+        ))
+
         # Row 4: Reset to defaults (full width)
         self.reset_btn = QPushButton('Reset to defaults')
         self.reset_btn.setMinimumHeight(26)
@@ -1830,6 +1846,49 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             f'MC uncertainty done ({n_ok}/{n_runs} successful runs).')
 
     # ── Store in file ─────────────────────────────────────────────────────────
+
+    def results_for_report(self):
+        """Current fit in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        ``SimpleFitModel.fit()`` returns ``chi2`` / ``reduced_chi2`` while the
+        saved-and-reloaded form uses ``chi_squared`` / ``reduced_chi_squared``;
+        the mapping lives here so the panel's text matches the report the Data
+        Selector writes from the file.
+        """
+        if self.fit_result is None:
+            return None
+        from datetime import datetime as _dt
+
+        r = self.fit_result
+        q_fit = r.get('q')
+        q_min = float(np.min(q_fit)) if q_fit is not None and len(q_fit) else None
+        q_max = float(np.max(q_fit)) if q_fit is not None and len(q_fit) else None
+
+        return {
+            'model':               r.get('model'),
+            'chi_squared':         r.get('chi2'),
+            'reduced_chi_squared': r.get('reduced_chi2'),
+            'dof':                 r.get('dof'),
+            'q_min':               q_min,
+            'q_max':               q_max,
+            'use_complex_bg':      bool(getattr(self.model, 'use_complex_bg', False)),
+            'params':              r.get('params', {}),
+            'params_std':          r.get('params_std', {}),
+            'derived':             r.get('derived', {}),
+            'slit_length':         float(r.get('slit_length', 0.0) or 0.0),
+            'fit_quality':         getattr(self, '_last_quality_metrics', None),
+            'timestamp':           _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+    def _data_info_for_report(self):
+        """Q/I/error arrays for the report's data-summary section."""
+        if not self.data:
+            return None
+        return {
+            'Q': self.data['Q'],
+            'I': self.data['Intensity'],
+            'I_error': self.data.get('Error'),
+        }
 
     def _store_results(self):
         if self.data is None:

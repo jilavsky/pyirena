@@ -185,6 +185,23 @@ Two things the exporters cannot infer, so the panel must say them:
 regex semantics, placeholder and tooltip), the shared sort modes, and a
 remembered last folder via `StateManager`.
 
+**Every fit panel** — results reachable as text, not only as HDF5:
+
+```python
+from pyirena.gui.report_buttons import make_report_buttons
+
+layout.addLayout(make_report_buttons(
+    self, self.results_for_report, tool_key='my_tool_results',
+    default_stem='my_tool', status_setter=lambda m: self.status_label.setText(m),
+))
+```
+
+`results_for_report()` returns the dict shape
+`pyirena.io.load_<tool>_results()` produces — the *saved* key names, not the
+fit object's internal ones — and `pyirena.core.reporting` renders it.  Add the
+tool's section there rather than formatting text in the panel, so the panel,
+the Data Selector report and the MCP `export_fit_report` cannot drift apart.
+
 **Every panel** — `save_state()` / `load_state()`, params-to-JSON as a section
 of `pyirena_config.json`, tooltips on buttons.
 

@@ -71,6 +71,7 @@ from pyirena.gui._qt import (
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import DSpacingAxisItem
 
 # ── colour palette for peaks ──────────────────────────────────────────────
@@ -1560,6 +1561,20 @@ class WAXSPeakFitPanel(QWidget):
             row3.addWidget(b)
         ll.addLayout(row3)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        ll.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='waxs_peakfit_results',
+            default_stem='waxs_peakfit',
+            file_path_provider=lambda: str(self._filepath or ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self._set_status(msg),
+            folder_provider=lambda: (
+                str(self._filepath.parent) if self._filepath else None
+            ),
+        ))
+
         # Row 4: Reset to Defaults (full width)
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.setStyleSheet(_BTN_RESET)
@@ -2269,6 +2284,52 @@ class WAXSPeakFitPanel(QWidget):
             on_status=lambda msg: self._set_status(msg),
             suggested_path=suggested,
         )
+
+    def results_for_report(self) -> Optional[Dict]:
+        """Current peak fit in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        ``WAXSPeakFitModel.fit()`` returns ``chi2`` / ``reduced_chi2`` while the
+        saved-and-reloaded form uses ``chi_squared`` / ``reduced_chi_squared``;
+        the mapping lives here so the panel's text matches the report the Data
+        Selector writes from the file.  Reads the peak rows directly, so the
+        report describes what is on screen even when the last fit is older than
+        a hand edit.
+        """
+        peaks = self._get_peaks()
+        if not peaks:
+            return None
+        from datetime import datetime as _dt
+
+        cached = self._last_fit_result or {}
+        cached_peak_std = cached.get("peaks_std", [])
+        peaks_std = [
+            cached_peak_std[i] if i < len(cached_peak_std) else {}
+            for i in range(len(peaks))
+        ]
+        try:
+            q_min, q_max = self._graph.get_q_range()
+        except Exception:
+            q_min = q_max = None
+
+        return {
+            "n_peaks":             len(peaks),
+            "bg_shape":            self._bg_combo.currentText(),
+            "chi_squared":         cached.get("chi2"),
+            "reduced_chi_squared": cached.get("reduced_chi2"),
+            "dof":                 cached.get("dof"),
+            "q_min":               q_min,
+            "q_max":               q_max,
+            "peaks":               peaks,
+            "peaks_std":           peaks_std,
+            "fit_quality":         getattr(self, "_last_quality_metrics", None),
+            "timestamp":           _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    def _data_info_for_report(self) -> Optional[Dict]:
+        """Q/I/error arrays for the report's data-summary section."""
+        if self._q is None or self._I is None:
+            return None
+        return {"Q": self._q, "I": self._I, "I_error": self._dI}
 
     def _store_in_file(self):
         if self._filepath is None:

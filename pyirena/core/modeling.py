@@ -565,6 +565,59 @@ class ModelingResult:
     model_I_ideal: Optional[np.ndarray] = None
 
 
+def result_to_report_dict(result: "ModelingResult",
+                          fit_quality: Optional[dict] = None) -> dict:
+    """Flatten a :class:`ModelingResult` into the saved-results dict shape.
+
+    ``pyirena.core.reporting`` (and everything else that reads modeling results)
+    works on the dict ``load_modeling_results()`` returns, not on the live
+    population objects.  This converter lets a panel report the fit it is
+    holding without saving to HDF5 and loading it back.
+
+    Populations are flattened with ``dataclasses.asdict``, so a new population
+    type or parameter appears in the report automatically — there is no
+    per-type list here to fall out of date.  Only enabled populations that took
+    part in the fit are included, each carrying its ``derived`` quantities.
+
+    Args:
+        result: The fit result to describe.
+        fit_quality: Optional robust fit-quality metrics dict.
+
+    Returns:
+        A dict with ``chi_squared``, ``reduced_chi_squared``, ``dof``,
+        ``background``, ``q_min``, ``q_max``, ``slit_length``, ``timestamp``
+        and a ``populations`` list.
+    """
+    from dataclasses import asdict, is_dataclass
+
+    cfg = result.config
+    populations = []
+    for k, pop_index in enumerate(result.pop_indices):
+        pop = cfg.populations[pop_index]
+        flat = asdict(pop) if is_dataclass(pop) else dict(vars(pop))
+        flat["population_index"] = pop_index + 1
+        flat["enabled"] = True
+        flat["derived"] = result.derived[k] if k < len(result.derived) else {}
+        populations.append(flat)
+
+    slit_length = float(getattr(cfg, "slit_length", 0.0) or 0.0)
+    if not getattr(cfg, "use_slit_smearing", False):
+        slit_length = 0.0
+
+    return {
+        "chi_squared":         float(result.chi_squared),
+        "reduced_chi_squared": float(result.reduced_chi_squared),
+        "dof":                 int(result.dof),
+        "background":          float(cfg.background),
+        "q_min":               float(cfg.q_min),
+        "q_max":               float(cfg.q_max),
+        "slit_length":         slit_length,
+        "timestamp":           result.timestamp,
+        "populations":         populations,
+        "fit_quality":         fit_quality,
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Structure-factor helpers  (stand-alone, no class state needed)
 # ──────────────────────────────────────────────────────────────────────────────

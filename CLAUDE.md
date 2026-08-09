@@ -71,7 +71,9 @@ objects:
 
 Support modules that are not tools: `pyirena/state/` (StateManager, setup
 save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
-`fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`.
+`fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`,
+`reporting.py` (the one Markdown report builder, shared by gui/api/batch),
+`fmt_utils.py`.
 
 ### Layering invariants — do not break these
 
@@ -177,7 +179,8 @@ Shared UX behaviour comes from shared modules, never a local reimplementation:
 filter boxes use `gui/file_filter.py`, tables use `gui/table_utils.py`
 (`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`), plot export
 uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
-`parent_widget`). The full list is the "standard UX contract" in
+`parent_widget`), and text reports come from `core/reporting.py` via
+`gui/report_buttons.py`. The full list is the "standard UX contract" in
 `docs/developer_adding_features.md`; `pyirena/tests/test_gui_table_contract.py`
 and `test_gui_plot_contract.py` enforce it.
 

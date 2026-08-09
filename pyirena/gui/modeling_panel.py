@@ -69,6 +69,7 @@ from pyirena.gui._qt import (
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, save_plot_image
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
     add_plot_annotation,
@@ -2595,6 +2596,18 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                               "Use 'Save params to JSON' to create a compatible file."))
         lay.addLayout(out3)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        lay.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='modeling_results',
+            default_stem='modeling',
+            file_path_provider=lambda: str(self._file_path or ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self.graph.set_status(msg, 'success'),
+            folder_provider=self._get_data_folder,
+        ))
+
         # Row 4: Reset to Defaults (full width)
         lay.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
                              'Reset all parameters to their default values.'))
@@ -3431,6 +3444,30 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_fit.setEnabled(True)
 
     # ── Save / Export ─────────────────────────────────────────────────────────
+
+    def results_for_report(self):
+        """Current fit in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        Delegates to :func:`pyirena.core.modeling.result_to_report_dict`, which
+        is also what the saved-file shape looks like, so the text copied from
+        the panel matches the Data Selector's report for the same fit.
+        """
+        if self._last_result is None:
+            return None
+        from pyirena.core.modeling import result_to_report_dict
+
+        return result_to_report_dict(
+            self._last_result,
+            fit_quality=getattr(self, '_last_quality_metrics', None),
+        )
+
+    def _data_info_for_report(self):
+        """Q/I/error arrays for the report's data-summary section."""
+        q = getattr(self, '_q', None)
+        intensity = getattr(self, '_I', None)
+        if q is None or intensity is None:
+            return None
+        return {'Q': q, 'I': intensity, 'I_error': getattr(self, '_dI', None)}
 
     def save_results(self):
         """Save ModelingResult to the current HDF5 file."""

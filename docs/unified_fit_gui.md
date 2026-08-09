@@ -87,6 +87,10 @@ Each level has its own tab. Only levels up to the selected "Number of levels" ar
 ### Results Section
 - **Store in Data Folder** — write fit result to the HDF5 source file
 - **Export ASCII** — write Q, I(Q), fit, and residuals as a text file
+- **Copy results** — put the current fit on the clipboard as Markdown text
+  (levels with uncertainties, fit quality, background, data summary), ready to
+  paste into an e-mail, logbook or manuscript.  No file round-trip needed.
+- **Save report…** — the same text as a `.md` file
 - **Results to graphs** — annotate the main graph with level parameters
 - **Passes / Calc. Uncertainty (MC)** — Monte Carlo uncertainty analysis: run N forward-model samples with noise to estimate parameter confidence intervals
 

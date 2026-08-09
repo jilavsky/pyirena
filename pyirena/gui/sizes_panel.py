@@ -45,6 +45,7 @@ from pyirena.gui._qt import (
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.state.state_manager import StateManager
@@ -1683,6 +1684,21 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         layout.addLayout(params_row)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        layout.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='sizes_results',
+            default_stem='size_distribution',
+            file_path_provider=lambda: (self.data or {}).get('filepath', ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self.status_label.setText(msg),
+            folder_provider=lambda: (
+                str(Path((self.data or {}).get('filepath', '')).parent)
+                if (self.data or {}).get('filepath') else None
+            ),
+        ))
+
         # Row 4: Reset to defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
         self.reset_button.setMinimumHeight(26)
@@ -2966,6 +2982,56 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self.status_label.setText(f"Loaded config: {file_path.name}")
         if self.graph_window:
             self.graph_window.show_success_message(msg)
+
+    # ── Results as text ──────────────────────────────────────────────────────
+
+    def results_for_report(self):
+        """Current results in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        Mirrors ``load_sizes_results()``: the setup state (grid, method, shape,
+        background…) with the fit scalars merged in, so the text a user copies
+        from the panel matches what the Data Selector reports from the saved
+        file.
+        """
+        if self.fit_result is None:
+            return None
+        from datetime import datetime as _dt
+
+        result = self.fit_result
+        try:
+            report = dict(self._get_current_state())
+        except Exception:
+            log.debug("suppressed exception collecting sizes state", exc_info=True)
+            report = {}
+
+        report.update({
+            'r_grid':          result.get('r_grid'),
+            'distribution':    result.get('distribution'),
+            'residuals':       result.get('residuals'),
+            'chi_squared':     result.get('chi_squared'),
+            'volume_fraction': result.get('volume_fraction'),
+            'rg':              result.get('rg'),
+            'n_iterations':    result.get('n_iterations'),
+            'slit_length':     float(result.get('slit_length', 0.0) or 0.0),
+            'fit_quality':     getattr(self, '_last_quality_metrics', None),
+            'timestamp':       _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
+        cursor_range = (
+            self.graph_window.get_cursor_range() if self.graph_window else None
+        )
+        if cursor_range is not None:
+            report['cursor_q_min'], report['cursor_q_max'] = cursor_range
+        return report
+
+    def _data_info_for_report(self):
+        """Q/I/error arrays for the report's data-summary section."""
+        if not self.data:
+            return None
+        return {
+            'Q': self.data['Q'],
+            'I': self.data['Intensity'],
+            'I_error': self.data.get('Error'),
+        }
 
     # ── Store results to file ────────────────────────────────────────────────
 

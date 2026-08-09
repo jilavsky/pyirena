@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **"Copy results" and "Save report…" on the fit panels** (feature parity review
+  item A5, issue #13). Igor Irena wrote every fit to the notebook; in pyIrena a
+  fit panel's only exits were save-to-HDF5 (then tabulate in the Data Selector)
+  or reading numbers off the widgets one at a time — while the api/control layer
+  had `export_fit_report` for AI agents and not for people. **Unified Fit, Size
+  Distribution, Simple Fits, Modeling and WAXS Peak Fit** now each have two
+  buttons that put the current results on the clipboard, or into a `.md` file,
+  as Markdown: parameters with their Monte-Carlo uncertainties, fit quality
+  (including the robust metrics), the data summary and the setup. WAXS reports
+  the peak rows on screen, so it works before a fit as well as after one.
+- `pyirena.core.modeling.result_to_report_dict()` flattens a live
+  `ModelingResult` into the saved-results dict shape, so the Modeling panel can
+  report the fit it is holding without a save-and-reload round-trip.
+  Populations are flattened with `dataclasses.asdict`, so a new population type
+  or parameter reaches the report with no change to the converter.
+- The text comes from **one builder shared by every consumer**
+  (`pyirena/core/reporting.py`), so a value cannot be formatted one way in the
+  panel and another way in the report: the panel buttons, the Data Selector's
+  *Create Report*, and the MCP `export_fit_report` all render the same sections
+  from the same dict shape (`load_<tool>_results()`, which is also what
+  `pyirena.api.results` returns).
+
 - **Copy any graph to the clipboard, and save it as PNG, SVG or CSV** (feature
   parity review items U2 / A3 / A4 / A8, issue #13). Every plot's right-click
   menu now offers the same five actions, from one shared implementation in
@@ -60,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Markdown report builder moved to `pyirena/core/reporting.py`** from
+  `gui/data_selector/report.py`, which now re-exports it. `api/` and `core/`
+  may not import from `gui/`, so the builder had to move for the panels and the
+  control layer to share it; the generated text is byte-for-byte unchanged
+  (verified against the pre-move output). `gui/fmt_utils.py` moved to
+  `core/fmt_utils.py` for the same reason and also re-exports. The control
+  layer's own smaller Unified-Fit-only Markdown report is gone; its
+  agent-specific fit-flag and bounds table is appended to the shared report
+  instead.
 - **Eight parallel plot-export implementations collapsed into one.**
   `sas_plot.py`, `data_selector/plot_utils.py`, `unified_fit.py` (twice),
   `waxs_peakfit_panel.py`, `sizes_panel.py`, `modeling_panel.py`,
@@ -115,6 +146,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unknown WAXS peak shape aborted the whole report.** The area of a peak
+  is recomputed for files written before areas were stored; a shape this build
+  does not recognise raised out of `peak_area()` and no report was produced at
+  all. It now costs one table cell ("N/A"). A peak area with no uncertainty
+  shows "—" rather than "± 0", which read as a measured zero.
 - **Igor wave names could collide.** Names were truncated to Igor's 31-character
   limit *after* the `_01`/`_02` index was appended, so two curves with long,
   similar labels produced the same wave name and Igor silently overwrote the
