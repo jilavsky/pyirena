@@ -12,7 +12,6 @@ Entry points
 from __future__ import annotations
 
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -29,6 +28,7 @@ from pyirena.core.data_manipulation import (
     SubtractConfig,
     TrimConfig,
 )
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
 from pyirena.gui._qt import (
     QAbstractItemView,
     QApplication,
@@ -93,46 +93,8 @@ _FILE_TYPE_EXTS = {
     "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
 }
 
-# Sort helpers — same as hdf5viewer/file_tree.py
-def _sort_key_name(name: str) -> str:
-    return name.lower()
-
-def _sort_key_temperature(name: str) -> float:
-    m = re.search(r'_(-?\d+(?:\.\d+)?)C(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_time(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)min(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_order(name: str) -> float:
-    # Strip extension then scan _-segments right-to-left for a bare integer
-    # (digits only).  Skips any suffix that contains letters, including
-    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
-    stem = re.sub(r'\.[^.]+$', '', name)
-    for part in reversed(stem.split('_')):
-        if re.fullmatch(r'\d+', part):
-            return float(part)
-    return float('inf')
-
-def _sort_key_pressure(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-_SORT_LABELS = [
-    "Filename A\u2192Z", "Filename Z\u2192A",
-    "Temperature \u2191", "Temperature \u2193",
-    "Time \u2191", "Time \u2193",
-    "Order number \u2191", "Order number \u2193",
-    "Pressure \u2191", "Pressure \u2193",
-]
-_SORT_KEYS: list = [
-    _sort_key_name, _sort_key_name,
-    _sort_key_temperature, _sort_key_temperature,
-    _sort_key_time, _sort_key_time,
-    _sort_key_order, _sort_key_order,
-    _sort_key_pressure, _sort_key_pressure,
-]
+# Sort modes come from the one shared implementation; see
+# pyirena.core.file_sorting (they used to be copied into every browser).
 
 # Distinct colors for multi-dataset plots (average tab)
 _DATASET_COLORS = [
@@ -223,7 +185,8 @@ class _ManipFileBrowser(QWidget):
         sort_row = QHBoxLayout()
         sort_row.addWidget(QLabel("Sort:"))
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(_SORT_LABELS)
+        self.sort_combo.addItems(SORT_LABELS)
+        self.sort_combo.setToolTip(SORT_TOOLTIP)
         self.sort_combo.setCurrentIndex(6)  # Order number up
         self.sort_combo.currentIndexChanged.connect(self._refresh_file_list)
         sort_row.addWidget(self.sort_combo, stretch=1)
@@ -304,13 +267,7 @@ class _ManipFileBrowser(QWidget):
         except PermissionError:
             files = []
 
-        # Sort
-        idx = self.sort_combo.currentIndex()
-        key_fn = _SORT_KEYS[idx]
-        reverse = (idx % 2 == 1)
-        files.sort(key=key_fn, reverse=reverse)
-
-        self._all_files = files
+        self._all_files = sort_names(files, self.sort_combo.currentIndex())
         self._apply_filter()
 
     def _apply_filter(self) -> None:

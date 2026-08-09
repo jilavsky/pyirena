@@ -73,7 +73,7 @@ Support modules that are not tools: `pyirena/state/` (StateManager, setup
 save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
 `fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`,
 `reporting.py` (the one Markdown report builder, shared by gui/api/batch),
-`fmt_utils.py`.
+`fmt_utils.py`, `file_sorting.py` (filename sort keys for every file browser).
 
 ### Layering invariants — do not break these
 
@@ -176,7 +176,8 @@ convention in the file you are editing rather than converting it.
 writing a loop with numpy in a `*_panel.py`, it belongs in `core/`. Every panel
 must expose state collection and a `load_state()` so setup save/restore works.
 Shared UX behaviour comes from shared modules, never a local reimplementation:
-filter boxes use `gui/file_filter.py`, tables use `gui/table_utils.py`
+filter boxes use `gui/file_filter.py`, file-list sorting uses
+`core/file_sorting.py`, tables use `gui/table_utils.py`
 (`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`), plot export
 uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
 `parent_widget`), and text reports come from `core/reporting.py` via

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Data Merge gained the full sort dropdown** the other three file browsers
+  have (feature parity review item U3, issue #13). It sorted silently by order
+  number with no way to reorder a temperature or time series. Both dataset
+  columns now offer all ten modes — filename, temperature, time, order number,
+  pressure, each ascending and descending — defaulting to order number ↑ so
+  the view opens exactly as before, and each column remembers its own choice
+  between sessions (`data_merge` state schema 2).
+
 - **"Copy results" and "Save report…" on the fit panels** (feature parity review
   item A5, issue #13). Igor Irena wrote every fit to the notebook; in pyIrena a
   fit panel's only exits were save-to-HDF5 (then tabulate in the Data Selector)
@@ -92,6 +100,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The filename sort keys are shared** in `pyirena/core/file_sorting.py`
+  instead of existing as three verbatim copies (Data Selector, Data Explorer,
+  Data Manipulation) plus a lone order-number copy in Data Merge. A new sort
+  mode or a regex fix had to be applied in four places and would be missed in
+  some — the failure mode that produced the filter incident. The module is
+  Qt-free, so batch and api code can order input files exactly as the GUI
+  displays them. All four dropdowns now share one label list (Data Selector's
+  double-spaced labels are gone) and one tooltip documenting the recognised
+  patterns — two of the four had no tooltip at all.
 - **The Markdown report builder moved to `pyirena/core/reporting.py`** from
   `gui/data_selector/report.py`, which now re-exports it. `api/` and `core/`
   may not import from `gui/`, so the builder had to move for the panels and the
@@ -156,6 +173,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Descending sorts put files without the pattern first.** Sorting a folder by
+  Temperature ↓ opened with every unmatched file — logs, notes, a stray average
+  — above the hottest measurement, because reversing the list also reversed the
+  "no pattern" sentinel. Unmatched files now sort last in both directions, as
+  the tooltip has always claimed, and keep their relative order among
+  themselves. Affects all four file browsers.
 - **An unknown WAXS peak shape aborted the whole report.** The area of a peak
   is recomputed for files written before areas were stored; a shape this build
   does not recognise raised out of `peak_area()` and no report was produced at

@@ -19,7 +19,6 @@ log = logging.getLogger(__name__)
 
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -28,6 +27,12 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.data_merge import DataMerge, MergeConfig, MergeResult
+from pyirena.core.file_sorting import (
+    DEFAULT_SORT_INDEX,
+    SORT_LABELS,
+    SORT_TOOLTIP,
+    sort_names,
+)
 from pyirena.gui._qt import (
     QAbstractItemView,
     QApplication,
@@ -89,21 +94,6 @@ _BTN_GREY   = ("QPushButton { background: #7f8c8d; color: white; font-weight: bo
 _RDONLY_STYLE = "background: #ecf0f1; color: #2c3e50; border: 1px solid #bdc3c7;"
 
 
-# ---------------------------------------------------------------------------
-# File sorting helpers
-# ---------------------------------------------------------------------------
-
-def _sort_key_order(name: str) -> float:
-    # Strip extension then scan _-segments right-to-left for a bare integer
-    # (digits only).  Skips any suffix that contains letters, including
-    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
-    stem = re.sub(r'\.[^.]+$', '', name)
-    for part in reversed(stem.split('_')):
-        if re.fullmatch(r'\d+', part):
-            return float(part)
-    return float('inf')
-
-
 # ===========================================================================
 # _DatasetSelectorWidget — reusable single-dataset file browser
 # ===========================================================================
@@ -130,6 +120,11 @@ class _DatasetSelectorWidget(QWidget):
         # Optional callback(bool) invoked when the "Use slit-smeared copy"
         # checkbox is toggled (set by DataMergePanel).
         self.slit_toggled_callback: Optional[Callable] = None
+        # Optional callback(int) invoked when the sort mode changes, so the
+        # panel can persist it.
+        self.sort_changed_callback: Optional[Callable] = None
+        # Order number ↑ — what this panel always did before it had a dropdown.
+        self._sort_index: int = DEFAULT_SORT_INDEX
 
         self._build_ui()
 
@@ -174,6 +169,19 @@ class _DatasetSelectorWidget(QWidget):
         self.type_combo.currentTextChanged.connect(self._refresh_file_list)
         type_row.addWidget(self.type_combo, stretch=1)
         layout.addLayout(type_row)
+
+        # Sort — the same modes as every other file browser.  This panel used
+        # to sort by order number silently, with no way to reorder a
+        # temperature or time series.
+        sort_row = QHBoxLayout()
+        sort_row.addWidget(QLabel("Sort:"))
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(SORT_LABELS)
+        self.sort_combo.setToolTip(SORT_TOOLTIP)
+        self.sort_combo.setCurrentIndex(self._sort_index)
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        sort_row.addWidget(self.sort_combo, stretch=1)
+        layout.addLayout(sort_row)
 
         # Filter
         filt_row = QHBoxLayout()
@@ -276,20 +284,38 @@ class _DatasetSelectorWidget(QWidget):
             if self.folder_changed_callback is not None:
                 self.folder_changed_callback(folder)
 
+    def _on_sort_changed(self, idx: int) -> None:
+        self._sort_index = idx
+        self._refresh_file_list()
+        if self.sort_changed_callback is not None:
+            self.sort_changed_callback(idx)
+
+    def set_sort_index(self, idx: int) -> None:
+        """Set the sort mode without firing the change callback (state restore)."""
+        self._sort_index = idx
+        self.sort_combo.blockSignals(True)
+        try:
+            self.sort_combo.setCurrentIndex(idx)
+        finally:
+            self.sort_combo.blockSignals(False)
+        self._refresh_file_list()
+
+    def get_sort_index(self) -> int:
+        return self._sort_index
+
     def _refresh_file_list(self) -> None:
         if not self.current_folder or not os.path.isdir(self.current_folder):
             return
         exts = _FILE_TYPE_EXTS[self.type_combo.currentText()]
         try:
-            files = sorted(
-                (f for f in os.listdir(self.current_folder)
-                 if os.path.isfile(os.path.join(self.current_folder, f))
-                 and Path(f).suffix.lower() in exts),
-                key=_sort_key_order,
-            )
+            files = [
+                f for f in os.listdir(self.current_folder)
+                if os.path.isfile(os.path.join(self.current_folder, f))
+                and Path(f).suffix.lower() in exts
+            ]
         except PermissionError:
             files = []
-        self._all_files = files
+        self._all_files = sort_names(files, self._sort_index)
         self._apply_filter()
 
     def _apply_filter(self) -> None:
@@ -1483,6 +1509,11 @@ class DataMergePanel(QWidget):
     def load_state(self) -> None:
         s = self._sm.get('data_merge') or {}
 
+        # Sort mode first, so the file lists are built in the remembered order
+        # rather than being sorted twice.
+        self._ds1.set_sort_index(int(s.get('sort_index1', DEFAULT_SORT_INDEX)))
+        self._ds2.set_sort_index(int(s.get('sort_index2', DEFAULT_SORT_INDEX)))
+
         folder1 = s.get('folder1')
         folder2 = s.get('folder2')
         if folder1 and os.path.isdir(folder1):
@@ -1525,6 +1556,8 @@ class DataMergePanel(QWidget):
             'file_type2': self._ds2.get_file_type(),
             'filter1': self._ds1.filter_edit.text(),
             'filter2': self._ds2.filter_edit.text(),
+            'sort_index1': self._ds1.get_sort_index(),
+            'sort_index2': self._ds2.get_sort_index(),
             'output_folder': self._out_folder,
             'q_overlap_min': q_min,
             'q_overlap_max': q_max,

@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
 from pyirena.gui.data_loading import (
     load_data_file as _load_data_file_fn,
 )
@@ -66,7 +67,6 @@ from pyirena.gui.data_selector.results_windows import (
     UnifiedFitResultsWindow,
     WAXSPeakFitResultsWindow,
 )
-from pyirena.gui.data_selector.sorting import _SORT_KEYS
 from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.sizes_panel import SizesFitPanel
@@ -291,26 +291,8 @@ class DataSelectorPanel(QWidget):
         type_layout.addSpacing(12)
         type_layout.addWidget(QLabel("Sort:"))
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems([
-            "Filename  A→Z",
-            "Filename  Z→A",
-            "Temperature  ↑",
-            "Temperature  ↓",
-            "Time  ↑",
-            "Time  ↓",
-            "Order number  ↑",
-            "Order number  ↓",
-            "Pressure  ↑",
-            "Pressure  ↓",
-        ])
-        self.sort_combo.setToolTip(
-            "Sort order for the file list.\n"
-            "Patterns recognised in filenames:\n"
-            "  Temperature : _25C\n"
-            "  Time        : _50min\n"
-            "  Order number: _354  (last underscore-number before extension)\n"
-            "  Pressure    : _35PSI"
-        )
+        self.sort_combo.addItems(SORT_LABELS)
+        self.sort_combo.setToolTip(SORT_TOOLTIP)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         self.sort_combo.setMaximumWidth(140)
         type_layout.addWidget(self.sort_combo)
@@ -1113,11 +1095,7 @@ class DataSelectorPanel(QWidget):
 
         items = [self.file_list.item(i).text() for i in range(n)]
 
-        idx     = self.sort_combo.currentIndex()
-        reverse = bool(idx % 2)                 # odd indices → descending
-        key_fn  = _SORT_KEYS[min(idx, len(_SORT_KEYS) - 1)]
-
-        items.sort(key=key_fn, reverse=reverse)
+        items = sort_names(items, self.sort_combo.currentIndex())
 
         self.file_list.clear()
         self.file_list.addItems(items)

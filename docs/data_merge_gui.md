@@ -84,6 +84,12 @@ Three parameters may be free or fixed:
   Text files are assumed to be in the Q unit set in the Data Selector's
   *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
   [Q units](data_import_and_cleaning.md#q-units).
+- Use the **Sort** dropdown to order each column's file list — filename,
+  temperature (`_500C`), time (`_10min`), pressure (`_100PSI`) or order number
+  (trailing `_03`), ascending or descending.  This panel previously sorted by
+  order number with no way to change it; the default is unchanged, and each
+  column remembers its own choice between sessions.  Files whose name lacks the
+  pattern sort last, so they never split an ordered series.
 - Use the **Filter** field to narrow the file list.  The text is a **regular
   expression** matched anywhere in the name, case-insensitively (grep
   semantics), e.g. `60C|100C` or `^(?!.*bkg)` to exclude backgrounds.  An

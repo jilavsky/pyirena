@@ -181,9 +181,23 @@ Two things the exporters cannot infer, so the panel must say them:
   so without this the `dY` column disappears from CSV and ITX while the bars
   stay visible on screen.  `plot_iq_data` already does it for you.
 
-**Every file list** — `pyirena/gui/file_filter.py` for the filter box (shared
-regex semantics, placeholder and tooltip), the shared sort modes, and a
-remembered last folder via `StateManager`.
+**Every file list**
+
+```python
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP
+
+self.sort_combo.addItems(SORT_LABELS)          # never a local label list
+self.sort_combo.setToolTip(SORT_TOOLTIP)
+...
+files = sort_names(files, self.sort_combo.currentIndex())
+```
+
+plus the shared filter box and a remembered last folder via `StateManager`.
+Never re-implement a `_sort_key_*` function: the temperature/time/pressure/order
+regexes live in `core/file_sorting.py` only, and
+`pyirena/tests/test_gui_browser_contract.py` fails the build if a browser
+grows its own copy or hard-codes the labels.
 
 **Every fit panel** — results reachable as text, not only as HDF5:
 

@@ -75,6 +75,12 @@ Use the **Sort** combo box to order files by:
 | Order number ↑ / ↓ | Trailing numeric index in filename (default) |
 | Pressure ↑ / ↓ | Numeric value of `_XXPSI_` token in filename |
 
+The same dropdown, patterns and tooltip appear in **all four** file browsers
+(Data Selector, Data Explorer, Data Manipulation, Data Merge).  Matching is
+case-insensitive, and files whose name does not carry the pattern — logs,
+notes, a stray average — sort **last** in both directions, so they never break
+up an ordered series.
+
 ### Filtering files
 
 Type in the **Filter** box to restrict which files are shown.  The filter

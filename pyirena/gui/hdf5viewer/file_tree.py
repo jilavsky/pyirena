@@ -19,10 +19,10 @@ log = logging.getLogger(__name__)
 
 
 import os
-import re
 from pathlib import Path
 from typing import Callable
 
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
 from pyirena.gui._qt import (
     QBrush,
     QColor,
@@ -46,57 +46,8 @@ from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_fil
 # ── Extensions treated as HDF5 files ───────────────────────────────────────
 HDF5_EXTENSIONS = {".h5", ".hdf5", ".hdf", ".nxs", ".h5xp"}
 
-# ── Sort key functions (copied from data_selector.py) ──────────────────────
-def _sort_key_name(name: str) -> str:
-    return name.lower()
-
-def _sort_key_temperature(name: str) -> float:
-    m = re.search(r'_(-?\d+(?:\.\d+)?)C(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_time(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)min(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_order(name: str) -> float:
-    # Strip extension then scan _-segments right-to-left for a bare integer
-    # (digits only).  Skips any suffix that contains letters, including
-    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
-    stem = re.sub(r'\.[^.]+$', '', name)
-    for part in reversed(stem.split('_')):
-        if re.fullmatch(r'\d+', part):
-            return float(part)
-    return float('inf')
-
-def _sort_key_pressure(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-_SORT_LABELS = [
-    "Filename A→Z",
-    "Filename Z→A",
-    "Temperature ↑",
-    "Temperature ↓",
-    "Time ↑",
-    "Time ↓",
-    "Order number ↑",
-    "Order number ↓",
-    "Pressure ↑",
-    "Pressure ↓",
-]
-
-_SORT_KEYS: list[Callable[[str], float | str]] = [
-    _sort_key_name,        # 0
-    _sort_key_name,        # 1
-    _sort_key_temperature, # 2
-    _sort_key_temperature, # 3
-    _sort_key_time,        # 4
-    _sort_key_time,        # 5
-    _sort_key_order,       # 6
-    _sort_key_order,       # 7
-    _sort_key_pressure,    # 8
-    _sort_key_pressure,    # 9
-]
+# Sort modes come from the one shared implementation; see
+# pyirena.core.file_sorting (they used to be copied into every browser).
 
 # Qt user-data role used to store the absolute file path on file items
 _PATH_ROLE = Qt.ItemDataRole.UserRole
@@ -158,7 +109,8 @@ class FileTreeWidget(QWidget):
 
         # Sort row
         self._sort_combo = QComboBox()
-        self._sort_combo.addItems(_SORT_LABELS)
+        self._sort_combo.addItems(SORT_LABELS)
+        self._sort_combo.setToolTip(SORT_TOOLTIP)
         self._sort_combo.setCurrentIndex(self._sort_index)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         layout.addWidget(self._sort_combo)
@@ -333,10 +285,7 @@ class FileTreeWidget(QWidget):
     # ── Sort / filter ──────────────────────────────────────────────────────
 
     def _sort_names(self, names: list[str]) -> list[str]:
-        idx = self._sort_index
-        key_fn = _SORT_KEYS[min(idx, len(_SORT_KEYS) - 1)]
-        reverse = bool(idx % 2)
-        return sorted(names, key=key_fn, reverse=reverse)
+        return sort_names(names, self._sort_index)
 
     def _on_sort_changed(self, idx: int) -> None:
         self._sort_index = idx
