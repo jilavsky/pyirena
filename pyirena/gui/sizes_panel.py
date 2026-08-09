@@ -2698,7 +2698,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
     # ── State save / load ────────────────────────────────────────────────────
 
-    def _get_current_state(self) -> dict:
+    def _collect_state(self) -> dict:
         """Serialize current GUI state to a flat dict."""
         s = self._collect_params()
         state = {
@@ -2803,7 +2803,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 log.warning("Could not restore sizes state: %s", exc)
 
     def save_state(self):
-        state = self._get_current_state()
+        state = self._collect_state()
         self.state_manager.update('sizes', state)
         if self.state_manager.save():
             QMessageBox.information(self, "State Saved", "State saved successfully.")
@@ -2814,7 +2814,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
     def closeEvent(self, event):
         """Auto-save state on close (silent — no confirmation dialog)."""
         try:
-            self.state_manager.update('sizes', self._get_current_state())
+            self.state_manager.update('sizes', self._collect_state())
             self.state_manager.save()
         except Exception as exc:
             log.warning("Could not auto-save sizes state on close: %s", exc)
@@ -2920,7 +2920,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         config['_pyirena_config']['modified'] = now
         config['_pyirena_config']['written_by'] = f"pyIrena {_version}"
 
-        state = self._get_current_state()
+        state = self._collect_state()
         self.state_manager.update('sizes', state)
         config['sizes'] = self.state_manager.get('sizes')
 
@@ -3002,7 +3002,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         result = self.fit_result
         try:
-            report = dict(self._get_current_state())
+            report = dict(self._collect_state())
         except Exception:
             log.debug("suppressed exception collecting sizes state", exc_info=True)
             report = {}
@@ -3081,7 +3081,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 i_err = i_err_raw
 
             result = self.fit_result
-            params = self._get_current_state()
+            params = self._collect_state()
             # Fit results
             params['chi_squared'] = result.get('chi_squared')
             params['volume_fraction'] = result.get('volume_fraction')
@@ -3102,7 +3102,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             # "Load Setup from File…".  Re-derived from controls so it
             # mirrors exactly what the user sees right now.
             try:
-                setup_state = self._get_current_state()
+                setup_state = self._collect_state()
             except Exception:
                 setup_state = None
 

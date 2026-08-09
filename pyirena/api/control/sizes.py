@@ -754,7 +754,7 @@ def suggest_sizes_setup(session_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _model_to_gui_state(s: Session) -> dict:
-    """Build a Sizes GUI-state dict (matches SizesFitPanel._get_current_state)
+    """Build a Sizes GUI-state dict (matches SizesFitPanel._collect_state)
     so the saved file can be restored via 'Load Setup from File'."""
     cfg = _config_dict(s.model)
     cfg["aspect_ratio"] = cfg.get("aspect_ratio") or 1.5

@@ -2235,7 +2235,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self._auto_update_timer.timeout.connect(self._do_auto_update)
 
         self._build_ui()
-        self._load_state()
+        self.load_state()
         self._update_prefit_buttons_enabled()
 
     # ── UI construction ──────────────────────────────────────────────────────
@@ -2674,7 +2674,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     # ── State (load/save) ────────────────────────────────────────────────────
 
-    def _load_state(self):
+    def load_state(self):
         mod_state = self._state.get('modeling') or {}
         self.bg_edit.setText(_fmt(mod_state.get('background', 0.0)))
         self.bg_fit_cb.setChecked(mod_state.get('fit_background', True))
@@ -2737,7 +2737,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             state['q_max'] = float(q_hi)
         return state
 
-    def _save_state(self):
+    def save_state(self):
         self._state.update('modeling', self._collect_state())
         self._state.save()
 
@@ -3329,7 +3329,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_mc.setEnabled(True)
         self.btn_save.setEnabled(True)
         self.btn_revert.setEnabled(self._pre_fit_state is not None)
-        self._save_state()
+        self.save_state()
 
     def _on_fit_error(self, msg: str):
         self._restore_fit_button()
@@ -3590,7 +3590,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         Reads the ``_pyirena_config`` attribute embedded by
         :func:`pyirena.io.nxcansas_modeling.save_modeling_results` (or by
         the pyirena-ai agent) and applies it by pushing the state into
-        :class:`StateManager` and triggering :meth:`_load_state`, the same
+        :class:`StateManager` and triggering :meth:`load_state`, the same
         path used by JSON import.
         """
         from pyirena.gui.setup_loader import prompt_and_load_setup
@@ -3604,7 +3604,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         def _apply(state: dict) -> None:
             self._state.update("modeling", state)
-            self._load_state()
+            self.load_state()
 
         prompt_and_load_setup(
             parent=self,
@@ -3644,7 +3644,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             )
             return
         self._state.update('modeling', config['modeling'])
-        self._load_state()
+        self.load_state()
         self.graph.set_status(f'Parameters imported from {Path(path).name}', 'success')
 
     def _results_to_graph(self):
@@ -3712,12 +3712,12 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         self._state.reset('modeling')
-        self._load_state()
+        self.load_state()
         self.graph.set_status('Parameters reset to defaults.', 'success')
 
     def closeEvent(self, event):
         """Save state automatically when the window is closed."""
-        self._save_state()
+        self.save_state()
         super().closeEvent(event)
 
 

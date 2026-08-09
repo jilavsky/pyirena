@@ -184,7 +184,7 @@ class FractalsPanel(QWidget):
         self._building = True
         self._build_ui()
         self._building = False
-        self._load_state()
+        self.load_state()
         self._wire_workers()
 
     # ── UI construction ──────────────────────────────────────────────────
@@ -678,7 +678,7 @@ class FractalsPanel(QWidget):
             attraction=gc.attraction, seed=gc.seed,
         )
 
-    def _load_state(self):
+    def load_state(self):
         st = self._state.get("fractals") or {}
         gp = st.get("last_growth_params") or {}
         if "z" in gp:
@@ -738,7 +738,7 @@ class FractalsPanel(QWidget):
                 # File no longer exists — drop the stale path
                 self.nexus_path_edit.clear()
 
-    def _save_state(self):
+    def save_state(self):
         st = {
             "schema_version": 1,
             "last_growth_params": {
@@ -790,7 +790,7 @@ class FractalsPanel(QWidget):
             return
         self.nexus_path_edit.setText(path)
         self._load_unified_from_nexus(Path(path))
-        self._save_state()
+        self.save_state()
 
     def _load_unified_from_nexus(self, filepath: Path):
         # Try to load Unified fit
@@ -1000,13 +1000,13 @@ class FractalsPanel(QWidget):
     def _on_grow_one(self):
         cfg = self._current_growth_config()
         self._growth_worker.enqueue_grow(cfg, label=f"Grow Z={cfg.z} SP={cfg.sticking_prob:.0f}%")
-        self._save_state()
+        self.save_state()
 
     def _on_grow_many(self):
         cfg = self._current_growth_config()
         n = int(self.many_n_spin.value())
         self._growth_worker.enqueue_grow_many(cfg, n)
-        self._save_state()
+        self.save_state()
 
     def _on_optimize(self):
         opt_cfg = self._current_optimizer_config()
@@ -1017,7 +1017,7 @@ class FractalsPanel(QWidget):
             "dmin_target": float(opt_cfg.target_dmin),
             "c_target": float(opt_cfg.target_c),
         }
-        self._save_state()
+        self.save_state()
 
     def _on_cancel_job(self):
         items = self.jobs_list.selectedItems()

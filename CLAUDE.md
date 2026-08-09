@@ -54,9 +54,9 @@ limitation.
 
 The layer stack is the *target* architecture and older tools do not all reach
 it yet — serialisation helpers are named `to_dict`/`from_dict` in newer core
-modules but not universally, and panel state methods appear as
-`_collect_state`, `collect_state`, `_save_state` and `save_state` depending on
-vintage. Follow the convention in the module you are editing; follow
+modules but not universally. Panel state methods, by contrast, are now uniform
+(`save_state`/`load_state` public, `_collect_state`/`_apply_state` private) and
+enforced by `pyirena/tests/test_gui_state_contract.py`. Follow
 `docs/developer_adding_features.md` for anything new. HDF5 group names are
 mostly `entry/<tool>_results` but not mechanically derived — Simple Fits writes
 `entry/simple_fit_results`. Check `pyirena/io/nxcansas_<tool>.py` rather than
@@ -73,7 +73,8 @@ Support modules that are not tools: `pyirena/state/` (StateManager, setup
 save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
 `fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`,
 `reporting.py` (the one Markdown report builder, shared by gui/api/batch),
-`fmt_utils.py`, `file_sorting.py` (filename sort keys for every file browser).
+`fmt_utils.py`, `file_sorting.py` (filename sort keys for every file browser),
+`file_types.py` (data-file type table + folder listing).
 
 ### Layering invariants — do not break these
 
@@ -174,7 +175,9 @@ convention in the file you are editing rather than converting it.
 
 **GUI.** One panel per tool, one file per panel. Panels are thin — if you are
 writing a loop with numpy in a `*_panel.py`, it belongs in `core/`. Every panel
-must expose state collection and a `load_state()` so setup save/restore works.
+exposes the public pair `save_state()` / `load_state()`, with `_collect_state()`
+/ `_apply_state(dict)` as the private halves; embedded components driven by a
+parent expose `collect_state()` / `apply_state()` instead.
 Shared UX behaviour comes from shared modules, never a local reimplementation:
 filter boxes use `gui/file_filter.py`, file-list sorting uses
 `core/file_sorting.py`, tables use `gui/table_utils.py`

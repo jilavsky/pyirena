@@ -185,11 +185,14 @@ Two things the exporters cannot infer, so the panel must say them:
 
 ```python
 from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
+from pyirena.core.file_types import FILE_TYPES, files_in_folder
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP
 
+self.type_combo.addItems(FILE_TYPES)
 self.sort_combo.addItems(SORT_LABELS)          # never a local label list
 self.sort_combo.setToolTip(SORT_TOOLTIP)
 ...
+files = files_in_folder(self.current_folder, self.type_combo.currentText())
 files = sort_names(files, self.sort_combo.currentIndex())
 ```
 
@@ -221,8 +224,41 @@ fit object's internal ones — and `pyirena.core.reporting` renders it.  Add the
 tool's section there rather than formatting text in the panel, so the panel,
 the Data Selector report and the MCP `export_fit_report` cannot drift apart.
 
-**Every panel** — `save_state()` / `load_state()`, params-to-JSON as a section
-of `pyirena_config.json`, tooltips on buttons.
+**Every panel** — state methods use one naming convention, so a helper can call
+them and a reader of one panel knows the next:
+
+| Method | Visibility | Does |
+|---|---|---|
+| `save_state()` | public | collect + write to `StateManager` (+ `save()`) |
+| `load_state()` | public | read from `StateManager` + apply |
+| `_collect_state()` | private | return the state dict |
+| `_apply_state(state)` | private | apply a state dict to the widgets |
+
+The private halves are optional for small panels, the public pair is not —
+`pyirena/tests/test_gui_state_contract.py` fails the build if a panel is
+missing it or brings back one of the retired names (`_save_state`,
+`_load_state`, `_restore_state`, `_get_current_state`).  An **embedded
+component** whose parent owns the persistence lifecycle (the Diffraction Lines
+tab inside WAXS) instead exposes `collect_state()` / `apply_state()` publicly,
+because the parent is the caller.
+
+`UnifiedFitPanel` additionally keeps `get_current_state()` / `apply_state()` as
+public aliases: those names are quoted in `pyirena/io/setup_config.py` and the
+api/control layer as the shape of the embedded `_pyirena_config` setup state,
+and agent scripts call them.
+
+Also on every panel: params-to-JSON, and tooltips on buttons.
+
+**Params-to-JSON — one deliberate split.**  Analysis tools append their section
+to a shared `pyirena_config.json` that drives the batch pipeline.  **Data Merge**
+and **Data Manipulation** write their *own* config file instead, and that is
+intentional, not an oversight to be tidied away: both produce **new data files**
+that a later pipeline stage consumes, so their config has to live next to that
+stage, in a different folder and a different pipeline step from the analysis
+config.  Unifying them would break instrument data-reduction pipelines.
+**Fractals** is a visualization tool with no batch use case and no JSON by
+design.  **Scattering Contrast** persists compounds through its own HDF5 library
+(`io/contrast_io.py`).
 
 **Every result** — reachable via HDF5 *and* `pyirena.api`.
 

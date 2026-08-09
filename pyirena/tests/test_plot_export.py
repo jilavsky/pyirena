@@ -17,7 +17,23 @@ The behaviours pinned here are the ones that break silently:
 import numpy as np
 import pytest
 
-pytest.importorskip("pyirena.gui._qt", reason="Qt binding not installed")
+
+def _require_qt() -> None:
+    """Skip this module when no Qt binding is installed.
+
+    ``pytest.importorskip`` is not enough: ``pyirena.gui._qt`` raises a plain
+    ImportError carrying an installation hint, and pytest >= 8.2 treats that as
+    a *broken* module rather than a missing one — so the plain (no-GUI) CI job
+    would report a collection error instead of a skip.
+    """
+    try:
+        import pyirena.gui._qt  # noqa: F401
+    except ImportError:
+        pytest.skip("Qt (PySide6/PyQt6) not available", allow_module_level=True)
+
+
+_require_qt()
+
 pytest.importorskip("pyqtgraph")
 
 import pyqtgraph as pg  # noqa: E402

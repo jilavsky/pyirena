@@ -3437,7 +3437,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     # STATE MANAGEMENT METHODS
 
-    def get_current_state(self) -> Dict:
+    def _collect_state(self) -> Dict:
         """Get current GUI state for saving."""
         state = {
             'num_levels': self.num_levels_spin.value(),
@@ -3507,7 +3507,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         return state
 
-    def apply_state(self, state: Dict):
+    def _apply_state(self, state: Dict):
         """Apply saved state to GUI."""
         # Set number of levels
         self.num_levels_spin.setValue(state.get('num_levels', 1))
@@ -3602,16 +3602,29 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 # Update feasibility status
                 level_widget.update_feasibility_status()
 
+    def get_current_state(self) -> Dict:
+        """Public alias of :meth:`_collect_state`.
+
+        Kept because this name is the documented shape of the embedded
+        ``_pyirena_config`` setup state (see ``pyirena/io/setup_config.py`` and
+        the api/control layer), and AI-agent scripts call it directly.
+        """
+        return self._collect_state()
+
+    def apply_state(self, state: Dict) -> None:
+        """Public alias of :meth:`_apply_state` — see :meth:`get_current_state`."""
+        self._apply_state(state)
+
     def load_state(self):
         """Load state from state manager."""
         state = self.state_manager.get('unified_fit')
         if state:
-            self.apply_state(state)
+            self._apply_state(state)
             log.info("Loaded saved state")
 
     def save_state(self):
         """Save current state."""
-        state = self.get_current_state()
+        state = self._collect_state()
         self.state_manager.update('unified_fit', state)
         if self.state_manager.save():
             QMessageBox.information(self, "State Saved", "Current state has been saved successfully!")
@@ -3640,7 +3653,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             parent=self,
             tool="unified_fit",
             default_folder=default_folder,
-            apply_state=self.apply_state,
+            apply_state=self._apply_state,
             on_status=lambda msg: self.status_label.setText(msg),
             suggested_path=suggested,
         )
@@ -4267,7 +4280,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # Save Unified Fit results, embedding the full GUI state so the
             # panel can later restore every control from this file.
             try:
-                setup_state = self.get_current_state()
+                setup_state = self._collect_state()
             except Exception:
                 setup_state = None
 
@@ -4388,7 +4401,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         config['_pyirena_config']['written_by'] = f"pyIrena {_version}"
 
         # Collect full Unified Fit state and write it into the config
-        self.state_manager.update('unified_fit', self.get_current_state())
+        self.state_manager.update('unified_fit', self._collect_state())
         config['unified_fit'] = self.state_manager.get('unified_fit')
 
         try:
@@ -4444,7 +4457,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         unified_state = config['unified_fit']
         self.state_manager.update('unified_fit', unified_state)
-        self.apply_state(unified_state)
+        self._apply_state(unified_state)
 
         written_by = config['_pyirena_config'].get('written_by', 'unknown version')
         msg = f"Unified Fit parameters loaded from: {file_path.name}  (written by {written_by})"
@@ -4460,7 +4473,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def closeEvent(self, event):
         """Handle window close - auto-save state."""
-        state = self.get_current_state()
+        state = self._collect_state()
         self.state_manager.update('unified_fit', state)
         self.state_manager.save()
         event.accept()

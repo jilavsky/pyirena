@@ -33,6 +33,7 @@ from pyirena.core.file_sorting import (
     SORT_TOOLTIP,
     sort_names,
 )
+from pyirena.core.file_types import FILE_TYPES, files_in_folder
 from pyirena.gui._qt import (
     QAbstractItemView,
     QApplication,
@@ -65,13 +66,6 @@ from pyirena.state.state_manager import StateManager
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt/.csv)"]
-_FILE_TYPE_EXTS = {
-    "HDF5 Nexus":            ('.h5', '.hdf5', '.hdf'),
-    "HDF5 Generic":          ('.h5', '.hdf5', '.hdf'),
-    "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
-}
 
 # Colours specific to this tool
 _DS1_BRUSH  = pg.mkBrush('#2980b9')   # blue — absolute-scale data
@@ -165,7 +159,7 @@ class _DatasetSelectorWidget(QWidget):
         type_row = QHBoxLayout()
         type_row.addWidget(QLabel("Type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(_FILE_TYPES)
+        self.type_combo.addItems(FILE_TYPES)
         self.type_combo.currentTextChanged.connect(self._refresh_file_list)
         type_row.addWidget(self.type_combo, stretch=1)
         layout.addLayout(type_row)
@@ -304,17 +298,7 @@ class _DatasetSelectorWidget(QWidget):
         return self._sort_index
 
     def _refresh_file_list(self) -> None:
-        if not self.current_folder or not os.path.isdir(self.current_folder):
-            return
-        exts = _FILE_TYPE_EXTS[self.type_combo.currentText()]
-        try:
-            files = [
-                f for f in os.listdir(self.current_folder)
-                if os.path.isfile(os.path.join(self.current_folder, f))
-                and Path(f).suffix.lower() in exts
-            ]
-        except PermissionError:
-            files = []
+        files = files_in_folder(self.current_folder, self.type_combo.currentText())
         self._all_files = sort_names(files, self._sort_index)
         self._apply_filter()
 

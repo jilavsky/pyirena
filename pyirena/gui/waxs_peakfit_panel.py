@@ -1208,7 +1208,7 @@ class WAXSPeakFitPanel(QWidget):
         root.addWidget(splitter)
 
         # ── Apply saved state ─────────────────────────────────────────────
-        self._apply_state(self._state_mgr.get("waxs_peakfit", default={}))
+        self.load_state()
 
     # ===========================================================================
     # Left panel construction
@@ -2242,8 +2242,16 @@ class WAXSPeakFitPanel(QWidget):
     # Slots: Results buttons
     # ===========================================================================
 
-    def _save_state(self):
-        state = self._get_current_state()
+    def load_state(self):
+        """Restore every control from the saved state (public half of the pair).
+
+        The panel used to apply saved state inline in ``__init__`` with no named
+        entry point, so nothing outside could re-apply it.
+        """
+        self._apply_state(self._state_mgr.get("waxs_peakfit", default={}))
+
+    def save_state(self):
+        state = self._collect_state()
         self._state_mgr.update("waxs_peakfit", state)
         # Persist diffraction-lines tab too (CIF list, wavelength, last folder)
         self._state_mgr.update(
@@ -2257,7 +2265,7 @@ class WAXSPeakFitPanel(QWidget):
     def closeEvent(self, event):
         """Auto-save state on close (the explicit Save State button was removed)."""
         try:
-            self._save_state()
+            self.save_state()
         except Exception as exc:
             log.warning("Could not auto-save WAXS peak-fit state on close: %s", exc)
         super().closeEvent(event)
@@ -2381,7 +2389,7 @@ class WAXSPeakFitPanel(QWidget):
             # Snapshot the full GUI state for round-trip restore via
             # "Load Setup from File…".
             try:
-                setup_state = self._get_current_state()
+                setup_state = self._collect_state()
             except Exception:
                 setup_state = None
             save_waxs_peakfit_results(
@@ -2452,7 +2460,7 @@ class WAXSPeakFitPanel(QWidget):
                 from pyirena import __version__ as _version
             except Exception:
                 _version = 'unknown'
-            state = self._get_current_state()
+            state = self._collect_state()
             # Load existing config and merge so other tool sections are preserved
             config_path = Path(path)
             config: Dict = {}
@@ -2515,7 +2523,7 @@ class WAXSPeakFitPanel(QWidget):
     # State helpers
     # ===========================================================================
 
-    def _get_current_state(self) -> Dict:
+    def _collect_state(self) -> Dict:
         qmin, qmax = self._graph.get_q_range()
         _WEIGHT_MAP = {0: "standard", 1: "equal", 2: "relative"}
         return {

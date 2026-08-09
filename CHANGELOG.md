@@ -100,6 +100,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Panel state methods follow one naming convention** (feature parity review
+  item U5, issue #13). The same two operations had grown six names —
+  `save_state` / `_save_state` / `load_state` / `_load_state` /
+  `_restore_state` / `_get_current_state` — so reading one panel taught you
+  nothing about the next and no shared helper could call them. Every panel now
+  exposes public `save_state()` / `load_state()` with private
+  `_collect_state()` / `_apply_state(state)`; embedded components driven by a
+  parent (the Diffraction Lines tab inside WAXS) expose `collect_state()` /
+  `apply_state()`. Pure rename, no behaviour change. `UnifiedFitPanel` keeps
+  `get_current_state()` / `apply_state()` as public aliases because those names
+  are documented as the `_pyirena_config` setup-state shape and agent scripts
+  call them. WAXS Peak Fit gained the `load_state()` it never had (it applied
+  saved state inline in `__init__`).
+- **The data-file type table is shared** in `pyirena/core/file_types.py`
+  (`FILE_TYPES`, `FILE_TYPE_EXTS`, `files_in_folder()`) instead of being copied
+  verbatim into Data Manipulation and Data Merge along with their own
+  `os.listdir` loops. Qt-free, so a batch script enumerates a folder with the
+  same extensions and exclusions the GUI shows. An unreadable folder or an
+  unknown type now lists nothing rather than raising. This is the tractable
+  part of the review's "one file-browser widget" (U4); the widget itself needs
+  the Data Selector's browser extracted from its panel first and remains open.
 - **The filename sort keys are shared** in `pyirena/core/file_sorting.py`
   instead of existing as three verbatim copies (Data Selector, Data Explorer,
   Data Manipulation) plus a lone order-number copy in Data Merge. A new sort
@@ -173,6 +194,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The GUI test modules errored instead of skipping without Qt.** The new
+  table, plot-export and report tests used `pytest.importorskip`, which pytest
+  ≥ 8.2 treats as a *broken* module when the import raises a plain ImportError —
+  and `pyirena.gui._qt` raises one carrying an installation hint. The plain
+  (no-GUI) CI job reported collection errors rather than skips; they now skip
+  cleanly, like the older GUI tests.
 - **Descending sorts put files without the pattern first.** Sorting a folder by
   Temperature ↓ opened with every unmatched file — logs, notes, a stray average
   — above the hottest measurement, because reversing the list also reversed the

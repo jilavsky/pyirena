@@ -507,7 +507,7 @@ class ContrastPanel(QWidget):
         self._build_ui()
         self._refresh_library(1)
         self._refresh_library(2)
-        self._restore_state()
+        self.load_state()
 
     # ══════════════════════════════════════════════════════════════════
     #  UI construction
@@ -1040,7 +1040,7 @@ class ContrastPanel(QWidget):
             f"X-ray contrast (anom): {_fmt(contrast.xray_contrast_anom)} × 10²⁰ cm⁻⁴  |  "
             f"Neutron contrast: {_fmt(contrast.neutron_contrast)} × 10²⁰ cm⁻⁴"
         )
-        self._save_state()
+        self.save_state()
 
     def _on_energy_scan(self) -> None:
         for n in (1, 2):
@@ -1104,7 +1104,7 @@ class ContrastPanel(QWidget):
         self._set_status(
             f"Energy scan complete: {e_start:.2f}–{e_end:.2f} keV, {n_pts} points."
         )
-        self._save_state()
+        self.save_state()
 
     # ══════════════════════════════════════════════════════════════════
     #  Results table
@@ -1469,7 +1469,7 @@ class ContrastPanel(QWidget):
     #  State save / restore
     # ══════════════════════════════════════════════════════════════════
 
-    def _restore_state(self) -> None:
+    def load_state(self) -> None:
         if self._state_mgr is None:
             return
         st = self._state_mgr.state.get("contrast", {})
@@ -1498,7 +1498,7 @@ class ContrastPanel(QWidget):
         refs["_pending_iso"] = cd.get("isotope_overrides", {})
         self._update_isotope_table(n)
 
-    def _save_state(self) -> None:
+    def save_state(self) -> None:
         if self._state_mgr is None:
             return
         self._state_mgr.state["contrast"] = {
@@ -1514,7 +1514,7 @@ class ContrastPanel(QWidget):
         self._state_mgr.save()
 
     def closeEvent(self, event) -> None:
-        self._save_state()
+        self.save_state()
         if self._graph_win is not None:
             self._graph_win.close()
         super().closeEvent(event)

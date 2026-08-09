@@ -81,6 +81,20 @@ def test_every_browser_uses_the_shared_filter():
     )
 
 
+def test_no_module_redefines_the_file_type_table():
+    """The extensions per data-file type live in pyirena.core.file_types."""
+    offenders = [
+        str(p.relative_to(REPO))
+        for p in _gui_sources()
+        if re.search(r"^_FILE_TYPE_EXTS\s*=", p.read_text(encoding="utf-8"),
+                     re.MULTILINE)
+    ]
+    assert not offenders, (
+        "These modules keep their own file-type table; import FILE_TYPES / "
+        "files_in_folder from pyirena.core.file_types:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_every_browser_uses_the_shared_sort_modes():
     """Each file browser must offer the same sort dropdown."""
     missing = []

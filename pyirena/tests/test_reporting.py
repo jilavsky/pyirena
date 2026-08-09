@@ -26,8 +26,10 @@ def test_public_and_private_names_are_the_same_builder():
 
 def test_report_is_reachable_from_the_old_gui_location():
     """The Data Selector's import path must keep working after the move."""
-    pytest.importorskip("pyirena.gui._qt", reason="Qt binding not installed")
-    from pyirena.gui.data_selector.report import _build_report as gui_build
+    try:
+        from pyirena.gui.data_selector.report import _build_report as gui_build
+    except ImportError:
+        pytest.skip("Qt (PySide6/PyQt6) not available")
 
     assert gui_build is _build_report
 

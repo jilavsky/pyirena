@@ -745,7 +745,7 @@ class SaxsMorphPanel(QWidget):
         self._building = True
         self._build_ui()
         self._building = False
-        self._load_state()
+        self.load_state()
 
     # ── UI construction ──────────────────────────────────────────────────
 
@@ -1177,7 +1177,7 @@ class SaxsMorphPanel(QWidget):
             st['q_max'] = float(q_hi)
         return st
 
-    def _load_state(self):
+    def load_state(self):
         st = self._state.get('saxs_morph') or {}
 
         # Voxel grid
@@ -1211,7 +1211,7 @@ class SaxsMorphPanel(QWidget):
 
         self._on_mode_changed()
 
-    def _save_state(self):
+    def save_state(self):
         self._state.update('saxs_morph', self._current_state())
         self._state.save()
 
@@ -1407,7 +1407,7 @@ class SaxsMorphPanel(QWidget):
             f'(over Q ∈ [{q_lo:.4g}, {q_hi:.4g}] Å⁻¹).',
             style='success',
         )
-        self._save_state()
+        self.save_state()
 
     def _on_fit_flat_bg(self):
         if self._data_q is None:
@@ -1440,7 +1440,7 @@ class SaxsMorphPanel(QWidget):
             f'(median over Q ∈ [{q_lo:.4g}, {q_hi:.4g}] Å⁻¹).',
             style='success',
         )
-        self._save_state()
+        self.save_state()
 
     # ── Action: Calculate 3D ─────────────────────────────────────────────
 
@@ -1525,7 +1525,7 @@ class SaxsMorphPanel(QWidget):
         self._update_after_eval(result, elapsed_s=elapsed_s)
         self.btn_calc.setEnabled(True)
         self._calculating = False
-        self._save_state()
+        self.save_state()
 
     def _on_calc_error(self, msg: str):
         self.graph.set_status(f'Calculate 3D failed: {msg}', style='error')

@@ -86,7 +86,7 @@ class HDF5ViewerWindow(QMainWindow):
 
         self._build_ui()
         self._wire_signals()
-        self._restore_state()
+        self.load_state()
 
         if initial_folder:
             self._file_tree.set_folder(initial_folder)
@@ -542,7 +542,7 @@ class HDF5ViewerWindow(QMainWindow):
 
     # ── State save / restore ───────────────────────────────────────────────
 
-    def _restore_state(self) -> None:
+    def load_state(self) -> None:
         if self._state_manager is None:
             return
         try:
@@ -558,7 +558,7 @@ class HDF5ViewerWindow(QMainWindow):
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    def _save_state(self) -> None:
+    def save_state(self) -> None:
         if self._state_manager is None:
             return
         try:
@@ -575,7 +575,7 @@ class HDF5ViewerWindow(QMainWindow):
     # ── Window lifecycle ───────────────────────────────────────────────────
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._save_state()
+        self.save_state()
         # Close child windows
         for gw in list(self._graph_windows):
             gw.close()

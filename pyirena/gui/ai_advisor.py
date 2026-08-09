@@ -564,7 +564,7 @@ class AiAdvisorConfigDialog(QDialog):
         self._cache: dict[str, dict] = {p: dict(d) for p, d in self._PROVIDER_DEFAULTS.items()}
         self._active_provider: str = "anthropic"
         self._build_ui()
-        self._load_state()
+        self.load_state()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -681,7 +681,7 @@ class AiAdvisorConfigDialog(QDialog):
             self._active_provider = provider
         self._populate_fields_from_cache(provider)
 
-    def _load_state(self):
+    def load_state(self):
         cfg = self.state_manager.get("ai_advisor") or {}
         # Seed cache from saved state
         for p in ("anthropic", "openai", "local"):
