@@ -366,6 +366,10 @@ Opened by the **Collect** button in Tab 2.  Shows:
 - **Table** — one row per file: filename, X value, collected Y value, ±error.
 - **Scatter plot** — X vs Y with error bars (where available).
 
+The table supports **clipboard copy and column sorting** — see
+[Working with tables](#working-with-tables) below.  For a few numbers there is
+no need to go through a CSV file: select the cells and press Ctrl+C.
+
 ### Toolbar
 
 | Button | Action |
@@ -387,12 +391,39 @@ File | X value | Item 1 | Item 2 | … | Item N
 The status bar reports how many files yielded at least one non-empty value and
 how many items were collected.
 
+The table supports **clipboard copy and column sorting** — see
+[Working with tables](#working-with-tables) below.
+
 ### Toolbar
 
 | Button | Action |
 |--------|--------|
 | Save CSV | Save table as a comma-separated file (default: window title + `.csv` in CWD) |
 | Save JPEG | Save the full window as a JPEG image |
+
+---
+
+## Working with tables
+
+Every table in pyIrena behaves the same way (Collect, Multi-Collect, the
+Multi-Collect item list, Data Selector's Tabulate Results, Data Manipulation's
+similarity results, and the Scattering Contrast tables):
+
+| Action | How |
+|--------|-----|
+| Copy selected cells | **Ctrl+C** — tab-separated text, pastes straight into Excel, Igor Pro or Origin |
+| Copy with column headers | **Ctrl+Shift+C**, or right-click → *Copy with Column Headers* |
+| Copy the whole table | Right-click → *Copy Whole Table* (also what Ctrl+C does when nothing is selected) |
+| Save as CSV | Right-click → *Save as CSV…*, or the toolbar/panel button where one exists |
+| Sort | Click a column header; click again to reverse.  Numeric columns sort numerically (9 before 10 before 100), and blank or "—" cells sort last |
+
+Selections can be single cells, rectangular blocks, whole rows or columns
+(click the header), or non-contiguous ctrl-clicked cells; a non-contiguous
+selection is copied as a compact block of just the selected rows and columns.
+
+Sorting is deliberately **not** offered where the row order carries meaning —
+the Contrast results table (rows are grouped under section headers) and the
+Multi-Collect item list (its order defines the output columns).
 
 ---
 

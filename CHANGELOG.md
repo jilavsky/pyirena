@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Clipboard copy, column sorting and CSV export on every table** (feature
+  parity review items U1 / A1 / A2 / A10, issue #13). Of the nine tables in
+  the GUI, only two supported copying — with two different bespoke
+  implementations — so collected values, similarity results and the isotope
+  table were dead ends: a handful of numbers required a CSV file round-trip,
+  and the similarity results could not be exported at all. All tables now
+  share one implementation, `pyirena/gui/table_utils.py`, modelled on
+  `file_filter.py`: one module, one behaviour, one tooltip, one test file.
+  - **Ctrl+C** copies the selection as tab-separated text (pastes cleanly into
+    Excel, Igor Pro and Origin); **Ctrl+Shift+C** includes the column headers;
+    right-click offers Copy / Copy with Column Headers / Copy Whole Table and,
+    where the panel supports it, *Save as CSV…*. With nothing selected, copy
+    falls back to the whole table instead of silently doing nothing.
+    Non-contiguous ctrl-click selections copy as a compact block of just the
+    selected rows and columns.
+  - **Click-a-header sorting** on the Data Selector *Tabulate Results* table,
+    the HDF5 Viewer *Collect* and *Multi-Collect* windows, and the Data
+    Manipulation similarity results. Numeric columns sort numerically —
+    9 < 10 < 100, not "10" < "9" — with blanks and placeholders ("—", "(ref)")
+    always last. Turning sorting on does not reorder anything by itself: rows
+    stay in the order the panel supplied until a header is clicked, and (on
+    Qt ≥ 6.1) a third click returns to that natural order. Sorting is
+    deliberately *not* enabled on the Contrast results table (rows are grouped
+    under section headers) or the Multi-Collect item list (its row order
+    defines the output columns).
+  - **Save CSV… for the Data Manipulation similarity results**, which
+    previously had no export of any kind — filename, p-value, longest run,
+    number of points and accepted/rejected at full precision.
+  - The Contrast isotope table and the Multi-Collect item list gained copy
+    support; a whole-table copy of the isotope table includes the isotope
+    picked in each drop-down.
+- `pyirena/tests/test_gui_table_contract.py` — a source-level guard that fails
+  if a new module constructs a `QTableWidget` without calling
+  `attach_table_copy()`, or hand-rolls clipboard code again. The standard UX
+  contract it enforces is now written down in `docs/developer_adding_features.md`.
+
+### Fixed
+
+- **CSV export from the Collect and Multi-Collect windows corrupted rows whose
+  labels contained a comma.** Both windows built their CSV with
+  `",".join(...)`, so an item label such as `Rg, A` silently split into two
+  columns. All CSV writing now goes through `rows_to_csv_text()`, which uses
+  the stdlib `csv` writer (proper quoting) and formats floats with `%.10g` —
+  the same precision the ITX exporters use.
+- **Contrast results table: Ctrl+C did not work.** The shortcut was declared on
+  a `QAction` created inside the context-menu handler, so it never fired while
+  the menu was closed. It is now a real shortcut on the table.
+
 ## [1.1.0b6] - 2026-08-07
 
 ### Added

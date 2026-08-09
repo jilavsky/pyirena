@@ -72,6 +72,14 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     set_robust_y_range,
 )
+from pyirena.gui.table_utils import (
+    NumericTableWidgetItem,
+    attach_table_copy,
+    enable_table_sorting,
+    make_numeric_item,
+    populating,
+    save_rows_as_csv,
+)
 from pyirena.state.state_manager import StateManager
 
 # ---------------------------------------------------------------------------
@@ -929,6 +937,21 @@ class DataManipulationPanel(QWidget):
         self._sim_reject_btn.clicked.connect(self._on_similarity_auto_reject)
         btn_row.addWidget(self._sim_reject_btn)
 
+        # A similarity check over 50 files used to be view-only: no copy, no
+        # export.  Save CSV here, clipboard copy on the table itself.
+        self._sim_csv_btn = QPushButton("Save CSV…")
+        self._sim_csv_btn.setStyleSheet(
+            "background-color: #16a085; color: white; font-weight: bold;"
+        )
+        self._sim_csv_btn.setFixedHeight(26)
+        self._sim_csv_btn.setEnabled(False)
+        self._sim_csv_btn.setToolTip(
+            "Save the similarity results table as CSV.\n"
+            "Ctrl+C on the table copies the selection to the clipboard instead."
+        )
+        self._sim_csv_btn.clicked.connect(self._save_similarity_csv)
+        btn_row.addWidget(self._sim_csv_btn)
+
         btn_row.addStretch()
         sim_layout.addLayout(btn_row)
 
@@ -950,7 +973,10 @@ class DataManipulationPanel(QWidget):
             3, QHeaderView.ResizeMode.ResizeToContents
         )
         self._sim_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._sim_results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # Cells must be selectable to be copyable; attach_table_copy also
+        # installs Ctrl+C / Ctrl+Shift+C and the right-click menu.
+        attach_table_copy(self._sim_results_table, on_save_csv=self._save_similarity_csv)
+        enable_table_sorting(self._sim_results_table)
         # No fixed/minimum height — table sizes to its content inside the
         # scroll area; setFixedHeight() is called after each populate().
         self._sim_results_table.setVisible(False)
@@ -1724,40 +1750,67 @@ class DataManipulationPanel(QWidget):
         self._sim_results = []
         self._sim_results_table.setVisible(False)
         self._sim_reject_btn.setEnabled(False)
+        self._sim_csv_btn.setEnabled(False)
 
     def _populate_sim_table(self) -> None:
         """Fill the results QTableWidget from self._sim_results."""
         self._sim_results_table.setRowCount(0)
-        for r in self._sim_results:
-            row = self._sim_results_table.rowCount()
-            self._sim_results_table.insertRow(row)
+        # Sorting off while filling; re-enabled on exit by the context manager.
+        with populating(self._sim_results_table):
+            for r in self._sim_results:
+                row = self._sim_results_table.rowCount()
+                self._sim_results_table.insertRow(row)
 
-            if r.n_points > 0:
-                p_text = f"{r.p_value:.4f}"
-                run_text = f"{r.longest_run} / {r.n_points}"
-            else:
-                p_text = "— (ref)"
-                run_text = "—"
+                if r.n_points > 0:
+                    p_item = make_numeric_item(r.p_value, fmt="{:.4f}", align_right=False)
+                    run_text = f"{r.longest_run} / {r.n_points}"
+                else:
+                    # Reference dataset: no p-value.  Sorts with the blanks.
+                    p_item = NumericTableWidgetItem("— (ref)", None)
+                    run_text = "—"
 
-            if r.accepted:
-                status_text, fg, bg = "Accepted", QColor("#196f3d"), QColor("#d5f5e3")
-            else:
-                status_text, fg, bg = "Rejected", QColor("#922b21"), QColor("#fde8e8")
+                if r.accepted:
+                    status_text, fg, bg = "Accepted", QColor("#196f3d"), QColor("#d5f5e3")
+                else:
+                    status_text, fg, bg = "Rejected", QColor("#922b21"), QColor("#fde8e8")
 
-            cells = [
-                QTableWidgetItem(r.filename),
-                QTableWidgetItem(p_text),
-                QTableWidgetItem(run_text),
-                QTableWidgetItem(status_text),
-            ]
-            for col in (1, 2, 3):
-                cells[col].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            cells[3].setForeground(fg)
-            for col, item in enumerate(cells):
-                item.setBackground(bg)
-                self._sim_results_table.setItem(row, col, item)
+                cells = [
+                    QTableWidgetItem(r.filename),
+                    p_item,
+                    QTableWidgetItem(run_text),
+                    QTableWidgetItem(status_text),
+                ]
+                for col in (1, 2, 3):
+                    cells[col].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                cells[3].setForeground(fg)
+                for col, item in enumerate(cells):
+                    item.setBackground(bg)
+                    self._sim_results_table.setItem(row, col, item)
 
         self._sim_results_table.resizeRowsToContents()
+        self._sim_csv_btn.setEnabled(bool(self._sim_results))
+
+    def _save_similarity_csv(self) -> None:
+        """Write the similarity results to CSV (full precision, shared writer)."""
+        if not self._sim_results:
+            self._status.setText("No similarity results to save — run a check first.")
+            return
+        headers = ["File", "p-value", "Longest run", "N points", "Status"]
+        rows = [
+            [
+                r.filename,
+                r.p_value if r.n_points > 0 else None,
+                r.longest_run if r.n_points > 0 else None,
+                r.n_points if r.n_points > 0 else None,
+                "Accepted" if r.accepted else "Rejected",
+            ]
+            for r in self._sim_results
+        ]
+        folder = self._fb.current_folder or str(Path.home())
+        default = str(Path(folder) / "similarity_results.csv")
+        path = save_rows_as_csv(self, headers, rows, default, "Save similarity results as CSV")
+        if path:
+            self._status.setText(f"Similarity results saved to {Path(path).name}")
 
     def _clear_similarity_results(self) -> None:
         """Invalidate stale similarity results when selection changes."""
@@ -1769,6 +1822,7 @@ class DataManipulationPanel(QWidget):
         self._sim_results_table.setVisible(False)
         self._sim_reject_btn.setText("Auto-reject 0 below threshold")
         self._sim_reject_btn.setEnabled(False)
+        self._sim_csv_btn.setEnabled(False)
 
     def _preview_subtract(self) -> None:
         selected = self._fb.get_selected_filenames()

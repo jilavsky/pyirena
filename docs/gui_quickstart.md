@@ -193,6 +193,7 @@ python create_test_data.py
 - [x] **Simple Fits** — 13 analytical models, linearization, MC uncertainty, HDF5 save
 - [x] Create Report — Markdown summary per file (data, Unified Fit, Sizes, Simple Fits)
 - [x] Tabulate Results — spreadsheet of all stored fit parameters, saveable as CSV
+- [x] All tables: Ctrl+C / Ctrl+Shift+C clipboard copy, right-click menu, numeric column sorting
 - [x] Batch fitting via "… (script)" buttons (reads `pyirena_config.json`)
 - [x] Export/Import Parameters for all three fit tools (shared JSON config format)
 - [x] All fit results stored in NXcanSAS HDF5 alongside raw data

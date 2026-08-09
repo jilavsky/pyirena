@@ -16,14 +16,20 @@ from pyirena.gui._qt import (
     QFileDialog,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     Qt,
     QTableWidget,
-    QTableWidgetItem,
     QToolBar,
     QVBoxLayout,
     QWidget,
+)
+from pyirena.gui.table_utils import (
+    attach_table_copy,
+    enable_table_sorting,
+    make_numeric_item,
+    make_text_item,
+    populating,
+    save_rows_as_csv,
 )
 
 
@@ -106,6 +112,9 @@ class MultiCollectWindow(QWidget):
             self._table.horizontalHeader().setSectionResizeMode(
                 c, QHeaderView.ResizeMode.ResizeToContents
             )
+        # Clipboard copy + numeric column sorting, shared with every other table.
+        attach_table_copy(self._table, on_save_csv=self._save_csv)
+        enable_table_sorting(self._table)
         layout.addWidget(self._table, 1)
 
         # Status bar
@@ -119,36 +128,27 @@ class MultiCollectWindow(QWidget):
         self._table.setRowCount(0)
         n_ok = 0
 
-        for r in self._rows:
-            row_i = self._table.rowCount()
-            self._table.insertRow(row_i)
+        # Sorting must be off while filling (Qt re-sorts on every setItem).
+        with populating(self._table):
+            for r in self._rows:
+                row_i = self._table.rowCount()
+                self._table.insertRow(row_i)
 
-            fname  = str(r.get("file", "?"))
-            x_val  = r.get("x_value")
-            values = r.get("values", [])
+                fname  = str(r.get("file", "?"))
+                x_val  = r.get("x_value")
+                values = r.get("values", [])
 
-            def _num_cell(val):
-                s = f"{val:.6g}" if isinstance(val, float) else str(val if val is not None else "")
-                it = QTableWidgetItem(s)
-                it.setTextAlignment(
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                )
-                return it
+                self._table.setItem(row_i, 0, make_text_item(fname))
+                self._table.setItem(row_i, 1, make_numeric_item(x_val))
 
-            def _str_cell(val):
-                return QTableWidgetItem(str(val) if val is not None else "")
+                for col_i, v in enumerate(values):
+                    if isinstance(v, str):
+                        self._table.setItem(row_i, 2 + col_i, make_text_item(v))
+                    else:
+                        self._table.setItem(row_i, 2 + col_i, make_numeric_item(v))
 
-            self._table.setItem(row_i, 0, _str_cell(fname))
-            self._table.setItem(row_i, 1, _num_cell(x_val))
-
-            for col_i, v in enumerate(values):
-                if isinstance(v, str):
-                    self._table.setItem(row_i, 2 + col_i, _str_cell(v))
-                else:
-                    self._table.setItem(row_i, 2 + col_i, _num_cell(v))
-
-            if any(v is not None for v in values):
-                n_ok += 1
+                if any(v is not None for v in values):
+                    n_ok += 1
 
         n_files = len(self._rows)
         n_items = len(self._item_labels)
@@ -163,31 +163,14 @@ class MultiCollectWindow(QWidget):
         return str(Path.cwd() / ((safe or "multi_collected") + ext))
 
     def _save_csv(self) -> None:
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save CSV", self._default_path(".csv"),
-            "CSV files (*.csv);;All files (*)",
-        )
-        if not filepath:
-            return
-        if not filepath.lower().endswith(".csv"):
-            filepath += ".csv"
-
-        hdr = ["File", self._x_label] + list(self._item_labels)
-        lines = [",".join(hdr)]
-        for r in self._rows:
-            fname  = str(r.get("file", ""))
-            x_val  = r.get("x_value")
-            values = r.get("values", [])
-            row_data = [fname, str(x_val if x_val is not None else "")]
-            for v in values:
-                row_data.append(str(v) if v is not None else "")
-            lines.append(",".join(row_data))
-
-        try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
+        # Shared writer: item labels containing a comma are quoted rather than
+        # silently splitting the row, and floats keep full precision.
+        headers = ["File", self._x_label] + list(self._item_labels)
+        rows = [
+            [str(r.get("file", "")), r.get("x_value"), *r.get("values", [])]
+            for r in self._rows
+        ]
+        save_rows_as_csv(self, headers, rows, self._default_path(".csv"), "Save CSV")
 
     def _save_jpeg(self) -> None:
         filepath, _ = QFileDialog.getSaveFileName(

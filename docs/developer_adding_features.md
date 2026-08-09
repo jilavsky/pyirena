@@ -114,13 +114,52 @@ HDF5 DATA EXPLORER
         RESULT_X_WAVE pairing) + io/h5xp_extractor.py writes the waves
         and wave-note parameters
 
+STANDARD UX CONTRACT (see below — every new GUI surface)
+[ ] 25. Every table: attach_table_copy() (+ enable_table_sorting() where the
+        row order is not meaningful); CSV export for multi-row results
+[ ] 26. Every file list: shared filter (gui/file_filter.py), shared sort modes,
+        remembered folder
+
 DOCS & TESTS
-[ ] 25. docs/<tool>_gui.md: user documentation + scripting example
-[ ] 26. CHANGELOG.md entry
-[ ] 27. Tests: math vs analytic ground truth; registry/serialisation
+[ ] 27. docs/<tool>_gui.md: user documentation + scripting example
+[ ] 28. CHANGELOG.md entry
+[ ] 29. Tests: math vs analytic ground truth; registry/serialisation
         round-trip; HDF5 save/load round-trip; batch-config path
-[ ] 28. Run the full test suite, not just the new file
+[ ] 30. Run the full test suite, not just the new file
 ```
+
+## The standard UX contract
+
+Users come from Igor Pro, Origin, Excel and Matlab.  Features they consider
+part of "a table" or "a graph" are not optional extras, and when they live in
+nobody's spec they get skipped — twice now (the filename filter, then table
+clipboard copy).  Shared helpers exist so each line below is one function call.
+
+**Every table** (`QTableWidget`)
+
+```python
+from pyirena.gui.table_utils import attach_table_copy, enable_table_sorting
+
+attach_table_copy(my_table, on_save_csv=self._save_csv)   # Ctrl+C, Ctrl+Shift+C,
+                                                          # right-click menu
+enable_table_sorting(my_table)      # only if row order carries no meaning
+```
+
+Build numeric cells with `make_numeric_item()` so columns sort numerically, and
+fill the table inside `with populating(my_table):` so an active sort cannot
+scramble half-built rows.  Write CSV with `rows_to_csv_text()` /
+`save_rows_as_csv()` rather than `",".join(...)` — quoting and precision are
+then identical everywhere.  `pyirena/tests/test_gui_table_contract.py` fails
+the build if a new module constructs a table without the helper.
+
+**Every file list** — `pyirena/gui/file_filter.py` for the filter box (shared
+regex semantics, placeholder and tooltip), the shared sort modes, and a
+remembered last folder via `StateManager`.
+
+**Every panel** — `save_state()` / `load_state()`, params-to-JSON as a section
+of `pyirena_config.json`, tooltips on buttons.
+
+**Every result** — reachable via HDF5 *and* `pyirena.api`.
 
 ## Wiring points in detail
 

@@ -55,7 +55,6 @@ from pyirena.gui._qt import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -67,6 +66,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.table_utils import attach_table_copy
 from pyirena.io.contrast_io import (
     DEFAULT_LIBRARY_PATH,
     delete_compound_from_library,
@@ -669,6 +669,9 @@ class ContrastPanel(QWidget):
         iso_tbl.setMaximumHeight(110)
         iso_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         iso_tbl.setStyleSheet("font-size:11px;")
+        # Same clipboard behaviour as every other table (the isotope column is
+        # a combo box, so a whole-table copy reads the selected isotope text).
+        attach_table_copy(iso_tbl)
         refs["iso_table"] = iso_tbl
         iso_lay.addWidget(iso_tbl)
         lay.addWidget(iso_grp)
@@ -847,9 +850,10 @@ class ContrastPanel(QWidget):
         tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         tbl.setAlternatingRowColors(True)
 
-        # Right-click Copy context menu
-        tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tbl.customContextMenuRequested.connect(self._table_context_menu)
+        # Shared clipboard behaviour: right-click menu + Ctrl+C / Ctrl+Shift+C.
+        # Sorting is deliberately NOT enabled — the rows are grouped under
+        # section headers, which a column sort would scramble.
+        attach_table_copy(tbl, on_save_csv=self._export_csv)
 
         for row, (rtype, label, units, _k1, _k2) in enumerate(_T_ROWS):
             if rtype == "hdr":
@@ -896,38 +900,6 @@ class ContrastPanel(QWidget):
             lay.addWidget(btn)
 
         return w
-
-    # ══════════════════════════════════════════════════════════════════
-    #  Table context menu (right-click Copy)
-    # ══════════════════════════════════════════════════════════════════
-
-    def _table_context_menu(self, pos) -> None:
-        # Select the cell under the cursor if nothing (or only other cells) selected
-        item_at = self._tbl.itemAt(pos)
-        if item_at is not None:
-            sel = self._tbl.selectedItems()
-            if item_at not in sel:
-                self._tbl.setCurrentItem(item_at)
-        menu = QMenu(self._tbl)
-        copy_act = QAction("Copy cell", self._tbl)
-        copy_act.setShortcut("Ctrl+C")
-        copy_act.triggered.connect(self._copy_table_selection)
-        menu.addAction(copy_act)
-        menu.exec(self._tbl.viewport().mapToGlobal(pos))
-
-    def _copy_table_selection(self) -> None:
-        items = self._tbl.selectedItems()
-        if not items:
-            return
-        # Collect by row, then column, then join
-        rows: Dict[int, Dict[int, str]] = {}
-        for it in items:
-            rows.setdefault(it.row(), {})[it.column()] = it.text()
-        text = "\n".join(
-            "\t".join(rows[r].get(c, "") for c in sorted(rows[r]))
-            for r in sorted(rows)
-        )
-        QApplication.clipboard().setText(text)
 
     # ══════════════════════════════════════════════════════════════════
     #  Isotope table

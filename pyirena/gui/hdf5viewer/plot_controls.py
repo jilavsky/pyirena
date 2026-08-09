@@ -41,6 +41,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.table_utils import attach_table_copy
 
 from . import pyirena_readers as _readers
 from .export_to_igor_tab import ExportToIgorTab
@@ -383,6 +384,10 @@ class PlotControlsPanel(QWidget):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
         self._mc_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Copy only — the row order of this table *is* the collect
+        # configuration, so click-a-header sorting would silently reorder the
+        # columns of the resulting Multi-Collect window.
+        attach_table_copy(self._mc_table)
         self._mc_table.setFixedHeight(115)
         ig.addWidget(self._mc_table)
 
