@@ -38,11 +38,13 @@ from pyirena.gui._qt import (
     QHBoxLayout,
     QMessageBox,
     QPushButton,
+    Qt,
 )
 
 log = logging.getLogger(__name__)
 
-__all__ = ["build_panel_report", "make_report_buttons", "copy_report", "save_report"]
+__all__ = ["build_panel_report", "embed_figure", "make_report_buttons",
+           "copy_report", "save_report"]
 
 _COPY_STYLE = (
     "QPushButton{background:#16a085;color:white;font-weight:bold;"
@@ -63,8 +65,14 @@ COPY_TOOLTIP = (
     "Identical to what Create Report writes for the saved file."
 )
 SAVE_TOOLTIP = (
-    "Save the current results as a Markdown (.md) report file."
+    "Save the current results as a Markdown (.md) report file.\n"
+    "\n"
+    "Ctrl-click (⌘-click on macOS) to also save the graph as a PNG next to\n"
+    "the report and embed it, so the figure travels with the numbers."
 )
+
+#: Heading used for the embedded figure.
+FIGURE_HEADING = "## Graph"
 
 
 def build_panel_report(
@@ -116,9 +124,55 @@ def copy_report(parent, text: str, status_setter: Optional[Callable] = None) -> 
     return True
 
 
+def embed_figure(text: str, image_name: str, caption: str = "") -> str:
+    """Insert a Markdown image link for *image_name* into a report.
+
+    The figure goes directly after the front-matter table and before the first
+    section, which is where a reader expects it and where GitHub, VS Code,
+    Jupyter, Obsidian and pandoc all render it.  The link is *relative*, so
+    moving the report and its image together keeps the figure working.
+
+    Args:
+        text: The report Markdown.
+        image_name: File name of the image, in the same folder as the report.
+        caption: Optional italic caption under the figure.
+
+    Returns:
+        The report with the figure block inserted.
+    """
+    block = [FIGURE_HEADING, "", f"![Graph]({image_name})", ""]
+    if caption:
+        block += [f"*{caption}*", ""]
+    # Trailing blank line: a Markdown heading needs one before it, or some
+    # renderers glue the next section onto the caption.
+    figure = "\n".join(block) + "\n"
+
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("## "):
+            return "\n".join(lines[:i]) + "\n" + figure + "\n".join(lines[i:])
+    # No sections (results-only report) — append.
+    return text.rstrip("\n") + "\n\n" + figure
+
+
 def save_report(parent, text: str, default_stem: str = "pyirena_report",
-                folder=None, status_setter: Optional[Callable] = None) -> Optional[str]:
-    """Write report *text* to a ``.md`` file chosen by the user."""
+                folder=None, status_setter: Optional[Callable] = None,
+                image_widget=None) -> Optional[str]:
+    """Write report *text* to a ``.md`` file chosen by the user.
+
+    Args:
+        parent: Dialog parent.
+        text: Report Markdown.
+        default_stem: File stem offered in the dialog.
+        folder: Preferred starting folder.
+        status_setter: Callable used to confirm in the panel's status line.
+        image_widget: When given, the widget is also captured to a PNG beside
+            the report and embedded in it — one action instead of "save report,
+            save graph, find both, insert the figure".
+
+    Returns:
+        The path of the report written, or None if cancelled or failed.
+    """
     if not text:
         QMessageBox.information(
             parent, "Nothing to report",
@@ -128,11 +182,17 @@ def save_report(parent, text: str, default_stem: str = "pyirena_report",
 
     # Reuse the shared export-folder memory so the report lands where the last
     # graph or table did.
-    from pyirena.gui.plot_export import export_folder, remember_export_folder
+    from pyirena.gui.plot_export import (
+        export_folder,
+        remember_export_folder,
+        write_widget_image,
+    )
 
+    with_figure = image_widget is not None
     default = str(Path(export_folder(folder)) / f"{default_stem}_report.md")
     path, _ = QFileDialog.getSaveFileName(
-        parent, "Save results report",
+        parent,
+        "Save results report with graph" if with_figure else "Save results report",
         default,
         "Markdown files (*.md);;Text files (*.txt);;All files (*)",
     )
@@ -140,6 +200,22 @@ def save_report(parent, text: str, default_stem: str = "pyirena_report",
         return None
     if Path(path).suffix.lower() not in (".md", ".txt"):
         path += ".md"
+
+    image_name = None
+    if with_figure:
+        image_path = Path(path).with_suffix(".png")
+        if write_widget_image(image_widget, str(image_path)):
+            image_name = image_path.name
+            text = embed_figure(
+                text, image_name,
+                caption=f"{Path(path).stem} — graph as shown in pyIrena",
+            )
+        else:
+            QMessageBox.warning(
+                parent, "Graph not saved",
+                "The report was written, but the graph image could not be "
+                "captured.  Is a graph window open?",
+            )
 
     try:
         with open(path, "w", encoding="utf-8") as fh:
@@ -151,7 +227,12 @@ def save_report(parent, text: str, default_stem: str = "pyirena_report",
     remember_export_folder(path)
     if status_setter is not None:
         try:
-            status_setter(f"Report saved to {Path(path).name}")
+            if image_name:
+                status_setter(
+                    f"Report saved to {Path(path).name} with graph {image_name}"
+                )
+            else:
+                status_setter(f"Report saved to {Path(path).name}")
         except Exception:
             log.debug("suppressed exception setting status", exc_info=True)
     return path
@@ -166,6 +247,7 @@ def make_report_buttons(
     data_info_provider: Optional[Callable[[], Optional[dict]]] = None,
     status_setter: Optional[Callable] = None,
     folder_provider: Optional[Callable] = None,
+    image_widget_provider: Optional[Callable] = None,
 ) -> QHBoxLayout:
     """Build the standard "Copy results" / "Save report…" button row.
 
@@ -183,6 +265,10 @@ def make_report_buttons(
             status line.
         folder_provider: Callable returning the folder the save dialog should
             prefer (usually the data folder).
+        image_widget_provider: Callable returning the widget to capture when
+            the user Ctrl/⌘-clicks "Save report…" — normally the panel's
+            ``GraphicsLayoutWidget``, so the figure is the plots alone without
+            toolbars or controls.
 
     Returns:
         A ``QHBoxLayout`` holding the two buttons.
@@ -214,16 +300,40 @@ def make_report_buttons(
     copy_btn.setToolTip(COPY_TOOLTIP)
     copy_btn.clicked.connect(lambda: copy_report(parent, _text(), status_setter))
 
-    save_btn = QPushButton("Save report…")
-    save_btn.setStyleSheet(_SAVE_STYLE)
-    save_btn.setToolTip(SAVE_TOOLTIP)
-    save_btn.clicked.connect(
-        lambda: save_report(
+    def _wants_figure() -> bool:
+        """True when the click carried Ctrl (Windows/Linux) or ⌘/Ctrl (macOS).
+
+        Qt maps ⌘ to ControlModifier and the physical Ctrl key to
+        MetaModifier on macOS, so accepting both makes one gesture work
+        everywhere without per-platform code.
+        """
+        if image_widget_provider is None:
+            return False
+        mods = QApplication.keyboardModifiers()
+        return bool(mods & (Qt.KeyboardModifier.ControlModifier
+                            | Qt.KeyboardModifier.MetaModifier))
+
+    def _on_save() -> None:
+        image_widget = None
+        if _wants_figure():
+            try:
+                image_widget = image_widget_provider()
+            except Exception:
+                log.debug("suppressed exception getting graph widget", exc_info=True)
+        save_report(
             parent, _text(), default_stem,
             folder_provider() if folder_provider is not None else None,
             status_setter,
+            image_widget=image_widget,
         )
+
+    save_btn = QPushButton("Save report…")
+    save_btn.setStyleSheet(_SAVE_STYLE)
+    save_btn.setToolTip(
+        SAVE_TOOLTIP if image_widget_provider is not None
+        else SAVE_TOOLTIP.split("\n\n")[0]
     )
+    save_btn.clicked.connect(_on_save)
 
     row = QHBoxLayout()
     row.setSpacing(6)

@@ -581,6 +581,8 @@ The Derived Results panel (below the graph) shows post-fit quantities:
   derived quantities (volume fraction, mean radius) — for the clipboard or a
   `.md` file.  The same text the Data Selector's *Create Report* produces from
   the saved file, without the save-and-reload round-trip.
+  **Ctrl-click** (⌘-click on macOS) *Save report…* also writes the graph as a
+  PNG beside the report and embeds it as a figure.
 
 ---
 

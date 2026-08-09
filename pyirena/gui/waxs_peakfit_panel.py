@@ -1573,6 +1573,8 @@ class WAXSPeakFitPanel(QWidget):
             folder_provider=lambda: (
                 str(self._filepath.parent) if self._filepath else None
             ),
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(self._graph, 'gl', None),
         ))
 
         # Row 4: Reset to Defaults (full width)

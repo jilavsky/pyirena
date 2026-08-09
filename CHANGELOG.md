@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as Markdown: parameters with their Monte-Carlo uncertainties, fit quality
   (including the robust metrics), the data summary and the setup. WAXS reports
   the peak rows on screen, so it works before a fit as well as after one.
+- **Ctrl-click (⌘-click on macOS) "Save report…" saves the report *and* the
+  graph**: a PNG of the panel's plots is written next to the `.md` with the
+  same name and embedded in it as a figure, replacing the save-report,
+  save-graph, find-both, insert-the-image sequence. The link is relative, so
+  moving the pair together keeps the figure working, and the result renders in
+  GitHub, VS Code, Jupyter, Obsidian and pandoc — `pandoc report.md -o
+  report.docx` yields a Word document with the graph in place. The figure is
+  the plots alone (the graphics layout is captured, not the window), so no tab
+  bar or status line appears in it. A plain click still writes text only, and a
+  graph that cannot be captured costs the figure, not the report.
 - `pyirena.core.modeling.result_to_report_dict()` flattens a live
   `ModelingResult` into the saved-results dict shape, so the Modeling panel can
   report the fit it is holding without a save-and-reload round-trip.

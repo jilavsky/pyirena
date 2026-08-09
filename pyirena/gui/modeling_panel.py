@@ -2606,6 +2606,8 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             data_info_provider=self._data_info_for_report,
             status_setter=lambda msg: self.graph.set_status(msg, 'success'),
             folder_provider=self._get_data_folder,
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(self.graph, 'gl', None),
         ))
 
         # Row 4: Reset to Defaults (full width)

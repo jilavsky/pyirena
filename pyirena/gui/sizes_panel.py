@@ -1697,6 +1697,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 str(Path((self.data or {}).get('filepath', '')).parent)
                 if (self.data or {}).get('filepath') else None
             ),
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(
+                self.graph_window, 'graphics_layout', None),
         ))
 
         # Row 4: Reset to defaults (full width)

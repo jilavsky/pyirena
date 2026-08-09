@@ -335,7 +335,10 @@ matrix for models with strong parameter correlations (e.g., Spheroid Scale and R
 χ² and reduced χ², degrees of freedom, the fitted Q range, every parameter with
 its 1σ uncertainty, the derived quantities, and the data summary.  Paste it
 straight into an e-mail, a logbook or a manuscript — no HDF5 round-trip.
-**Save report…** writes the same text to a `.md` file.
+**Save report…** writes the same text to a `.md` file.  **Ctrl-click**
+(⌘-click on macOS) also captures the graph as a PNG next to the report and
+embeds it as a figure — one action instead of save-report, save-graph, then
+inserting the image by hand.
 
 The text is produced by the same builder as the Data Selector's *Create Report*
 and the AI agents' `export_fit_report`, so all three agree to the digit.

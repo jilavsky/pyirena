@@ -129,6 +129,13 @@ anything they start in your data folder.  The choice persists across restarts.
 |--------|--------------|
 | Copy results | The current fit as Markdown on the clipboard: parameters with their uncertainties, fit quality, setup and data summary.  Paste into an e-mail, logbook or manuscript |
 | Save report… | The same text as a `.md` file |
+| **Ctrl-click** (⌘-click on macOS) Save report… | Saves the report **and** the graph: a PNG of the plots is written next to the `.md` with the same name, and embedded in it as a figure |
+
+The embedded figure uses a *relative* link, so moving the `.md` and its `.png`
+together — into a shared drive, a git repository, an Obsidian vault — keeps the
+figure working.  The Markdown renders with its figure in GitHub, VS Code,
+Jupyter, Obsidian and pandoc (so `pandoc report.md -o report.docx` gives you a
+Word document with the graph in place).
 
 Available on Unified Fit, Size Distribution, Simple Fits, Modeling and WAXS
 Peak Fit.  The text is built by the same code as the Data Selector's

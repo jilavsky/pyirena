@@ -68,6 +68,7 @@ __all__ = [
     "save_plot_image",
     "save_widget_image",
     "tag_curve_uncertainty",
+    "write_widget_image",
 ]
 
 # Width in pixels used for every raster export (image file and clipboard).
@@ -449,6 +450,32 @@ def save_plot_image(
     return path
 
 
+def write_widget_image(widget, path: str) -> bool:
+    """Grab *widget* and write it to *path* — no dialog, no message boxes.
+
+    The building block behind "Save whole window as image…" and behind the
+    report-with-figure save, where the filename is derived from the report's
+    rather than asked for a second time.
+
+    Args:
+        widget: Widget to capture (usually the ``GraphicsLayoutWidget``
+            holding the stacked plots, so no toolbar or controls are included).
+        path: Destination; the extension picks the format (``.jpg``/``.jpeg``
+            for JPEG, PNG otherwise).
+
+    Returns:
+        True when the file was written.
+    """
+    if widget is None:
+        return False
+    fmt = "JPEG" if Path(path).suffix.lower() in (".jpg", ".jpeg") else "PNG"
+    try:
+        return bool(widget.grab().save(str(path), fmt, 95))
+    except Exception:
+        log.debug("widget image capture failed", exc_info=True)
+        return False
+
+
 def save_widget_image(
     widget,
     parent=None,
@@ -469,14 +496,7 @@ def save_widget_image(
         suffix = ".jpg" if "jpeg" in (selected or "").lower() else ".png"
         path += suffix
 
-    fmt = "JPEG" if suffix in (".jpg", ".jpeg") else "PNG"
-    try:
-        ok = widget.grab().save(path, fmt, 95)
-    except Exception as exc:
-        QMessageBox.warning(parent or widget, "Export failed",
-                            f"Could not save image:\n{exc}")
-        return None
-    if not ok:
+    if not write_widget_image(widget, path):
         QMessageBox.warning(parent or widget, "Export failed",
                             f"Could not write {path}")
         return None

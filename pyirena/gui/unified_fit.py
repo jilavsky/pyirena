@@ -2416,6 +2416,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 str(Path((self.data or {}).get('filepath', '')).parent)
                 if (self.data or {}).get('filepath') else None
             ),
+            # Ctrl/⌘-click also writes the graph beside the report.  The
+            # graphics layout is grabbed rather than the window, so the figure
+            # is the plots alone — no tab bar, no status line.
+            image_widget_provider=lambda: getattr(
+                self.graph_window, 'graphics_layout', None),
         ))
 
         # Row 4: Reset to Defaults (full width)

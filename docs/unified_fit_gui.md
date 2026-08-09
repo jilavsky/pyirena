@@ -90,7 +90,9 @@ Each level has its own tab. Only levels up to the selected "Number of levels" ar
 - **Copy results** — put the current fit on the clipboard as Markdown text
   (levels with uncertainties, fit quality, background, data summary), ready to
   paste into an e-mail, logbook or manuscript.  No file round-trip needed.
-- **Save report…** — the same text as a `.md` file
+- **Save report…** — the same text as a `.md` file.  **Ctrl-click** (⌘-click on
+  macOS) also saves the graph as a PNG beside it and embeds it in the report,
+  so the figure and the numbers travel together
 - **Results to graphs** — annotate the main graph with level parameters
 - **Passes / Calc. Uncertainty (MC)** — Monte Carlo uncertainty analysis: run N forward-model samples with noise to estimate parameter confidence intervals
 

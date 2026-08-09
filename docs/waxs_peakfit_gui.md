@@ -204,7 +204,7 @@ API (`fit_waxs_peaks` / `fit_waxs`).
 | Save State | Persist GUI state to pyIrena state file |
 | Store in File | Save fit results to `entry/waxs_peakfit_results` in the HDF5 file |
 | Copy results | Put the current peaks on the clipboard as Markdown — per-peak A, Q₀, FWHM, η with 1σ uncertainties and the integrated area, plus χ², background shape and Q range.  Describes the peak rows on screen, so it works before a fit as well as after one |
-| Save report… | The same text as a `.md` file |
+| Save report… | The same text as a `.md` file.  **Ctrl-click** (⌘-click on macOS) also saves the graph as a PNG beside it and embeds it as a figure |
 | Results to graphs | Overlay a text annotation with fitted values on the main plot |
 | Export Parameters | Write current parameters to `pyirena_config.json` in the data directory |
 | Import Parameters | Load parameters from a previously exported JSON file |

@@ -193,8 +193,13 @@ from pyirena.gui.report_buttons import make_report_buttons
 layout.addLayout(make_report_buttons(
     self, self.results_for_report, tool_key='my_tool_results',
     default_stem='my_tool', status_setter=lambda m: self.status_label.setText(m),
+    image_widget_provider=lambda: self.graph_window.graphics_layout,
 ))
 ```
+
+`image_widget_provider` enables Ctrl/⌘-click → report plus embedded graph
+figure; return the `GraphicsLayoutWidget` (the plots alone), not the window,
+or the figure will contain tab bars and status lines.
 
 `results_for_report()` returns the dict shape
 `pyirena.io.load_<tool>_results()` produces — the *saved* key names, not the
