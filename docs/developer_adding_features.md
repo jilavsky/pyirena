@@ -202,6 +202,61 @@ regexes live in `core/file_sorting.py` only, and
 `pyirena/tests/test_gui_browser_contract.py` fails the build if a browser
 grows its own copy or hard-codes the labels.
 
+A file list should also **accept dropped files**, in one call:
+
+```python
+from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
+
+enable_file_drop(self, self.open_dropped_paths)      # whole panel, not just the list
+self.file_list.setToolTip(drop_hint("a folder or data files"))
+```
+
+`enable_file_drop` installs an event filter (no subclassing), rejects the drag
+while it is still over the window if nothing dropped is openable, expands a
+dropped folder one level, and hands you absolute paths already de-duplicated
+and sorted.  Your handler switches folder with `first_folder(paths)` and selects
+the rest; a single-dataset target uses `paths[0]`.  Never parse the mime data
+yourself — Finder sends URLs, some apps send text, and `paths_from_mime()`
+already reads both.
+
+**Every top-level window** — remember where it was:
+
+```python
+from pyirena.gui.window_state import install_window_state
+
+install_window_state(self, 'my_tool', splitters={'main': self.main_splitter})
+```
+
+and one line at the launch site, so the tool answers Shift-click:
+
+```python
+reset_window_if_shift(self.my_tool_window)   # before .show()
+self.my_tool_window.show()
+```
+
+One call restores size, position and splitter sizes, and saves them on close.
+Do not call `resize()`/`move()` from saved numbers yourself: `window_state`
+owns the policy for a screen layout that has changed since the geometry was
+saved (see `resolve_geometry`), and that is the part that goes wrong.  Geometry
+lives in its own `window_geometry.json`, *not* in the tool's `StateManager`
+section — panels each hold their own `StateManager` and a `save()` rewrites the
+whole file, so geometry written there is clobbered by the next panel to close.
+Register only real windows.  A widget that ends up inside a splitter is a
+pane, and setting a pane's geometry fights the layout (the symptom is the
+*neighbouring* pane changing width); `window_state` checks `isWindow()` on
+every apply, so a mistake is a no-op rather than a puzzle.  Pane widths are
+recorded and restored at the first layout, because a splitter has no width in
+the constructor — do not expect `install_window_state` to have touched the
+splitter by the time it returns.
+
+Panels are constructed once and reused, so the reset gesture cannot live in
+the constructor: `install_window_state` records the window's coded default
+before applying anything saved, and `reset_window()` restores *that*.  Adding a
+tool without the launch-site line is caught by
+`pyirena/tests/test_window_state.py`, which reads the Data Selector's
+launchers.  Set `GEOMETRY_PERSISTENCE_ENABLED = False` in that module to switch
+the whole feature off.
+
 **Every fit panel** — results reachable as text, not only as HDF5:
 
 ```python

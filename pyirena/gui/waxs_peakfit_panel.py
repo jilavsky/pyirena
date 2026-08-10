@@ -73,6 +73,7 @@ from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import DSpacingAxisItem
+from pyirena.gui.window_state import install_window_state
 
 # ── colour palette for peaks ──────────────────────────────────────────────
 _PEAK_COLORS = [
@@ -534,6 +535,8 @@ class WAXSPeakFitGraphWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena – WAXS Peak Fit")
         self.setGeometry(120, 120, 900, 700)
+        # No geometry persistence here: this is the panel's right-hand pane,
+        # not a window (see gui/window_state.is_top_level).
 
         self._itx_technique = 'WAXSPeakFit'   # ITX export → root:WAXSPeakFit:<sample>
         self._itx_sample_label = None         # set by WAXSPeakFitPanel.set_data
@@ -1209,6 +1212,10 @@ class WAXSPeakFitPanel(QWidget):
 
         # ── Apply saved state ─────────────────────────────────────────────
         self.load_state()
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'waxs_peakfit_panel',
+                             splitters={'main': splitter})
 
     # ===========================================================================
     # Left panel construction

@@ -64,6 +64,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
@@ -81,6 +82,7 @@ from pyirena.gui.table_utils import (
     populating,
     save_rows_as_csv,
 )
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # ---------------------------------------------------------------------------
@@ -207,7 +209,12 @@ class _ManipFileBrowser(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_list.customContextMenuRequested.connect(self._show_context_menu)
+        self.file_list.setToolTip(drop_hint("a folder or data files"))
         layout.addWidget(self.file_list, stretch=1)
+
+        # Dropping a folder browses it; dropping files browses their folder and
+        # selects them.
+        enable_file_drop(self, self.open_dropped_paths)
 
         self.setMinimumWidth(200)
         self.setMaximumWidth(260)
@@ -219,6 +226,26 @@ class _ManipFileBrowser(QWidget):
         self.folder_label.setText(os.path.basename(folder))
         self.folder_label.setToolTip(folder)
         self._refresh_file_list()
+
+    def open_dropped_paths(self, paths: List[str]) -> None:
+        """Browse the dropped folder (or the dropped files' folder) and select them."""
+        if not paths:
+            return
+
+        folder = first_folder(paths)
+        if folder and folder != self.current_folder:
+            self.set_folder(folder)
+            if self.folder_changed_callback is not None:
+                self.folder_changed_callback(folder)
+
+        wanted = {os.path.basename(p) for p in paths
+                  if os.path.dirname(p) == self.current_folder}
+        self.file_list.clearSelection()
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            if item.text() in wanted:
+                item.setSelected(True)
+                self.file_list.scrollToItem(item)
 
     def get_file_type(self) -> str:
         return self.type_combo.currentText()
@@ -540,6 +567,9 @@ class DataManipulationPanel(QWidget):
         self._build_ui()
         self._connect_auto_signals()
         self.load_state()
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'data_manipulation')
 
     # ================================================================== #
     #  UI construction                                                     #

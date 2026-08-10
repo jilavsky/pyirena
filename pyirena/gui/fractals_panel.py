@@ -74,6 +74,7 @@ from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer,
     make_popout_button,
 )
+from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_fractals import (
     list_fractal_aggregates,
     load_fractal_aggregate,
@@ -200,6 +201,10 @@ class FractalsPanel(QWidget):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         main_layout.addWidget(splitter)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'fractals_panel',
+                             splitters={'main': splitter})
 
     # ── Left panel (controls) ────────────────────────────────────────────
 

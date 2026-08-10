@@ -54,6 +54,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
@@ -61,6 +62,7 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     set_robust_y_range,
 )
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # ---------------------------------------------------------------------------
@@ -192,7 +194,12 @@ class _DatasetSelectorWidget(QWidget):
         self.file_list = QListWidget()
         self.file_list.setMinimumWidth(180)
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.file_list.setToolTip(drop_hint("a folder or data files"))
         layout.addWidget(self.file_list, stretch=1)
+
+        # Dropping a folder points this dataset at it; dropping files points it
+        # at their folder and selects them.
+        enable_file_drop(self, self.open_dropped_paths)
 
         # "Use slit-smeared copy" — shown only when the loaded file carries both
         # a desmeared and a slit-smeared (USAXS) copy (Matilda).  Selects which
@@ -233,6 +240,30 @@ class _DatasetSelectorWidget(QWidget):
         self.folder_label.setText(os.path.basename(folder))
         self.folder_label.setToolTip(folder)
         self._refresh_file_list()
+
+    def open_dropped_paths(self, paths: List[str]) -> None:
+        """Point this dataset at what was dropped and select the dropped files.
+
+        A merge dataset shows one folder, so the first dropped path decides the
+        folder and anything dropped from elsewhere is simply not selected.
+        """
+        if not paths:
+            return
+
+        folder = first_folder(paths)
+        if folder and folder != self.current_folder:
+            self.set_folder(folder)
+            if self.folder_changed_callback is not None:
+                self.folder_changed_callback(folder)
+
+        wanted = {os.path.basename(p) for p in paths
+                  if os.path.dirname(p) == self.current_folder}
+        self.file_list.clearSelection()
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            if item.text() in wanted:
+                item.setSelected(True)
+                self.file_list.scrollToItem(item)
 
     def get_file_type(self) -> str:
         return self.type_combo.currentText()
@@ -679,6 +710,9 @@ class DataMergePanel(QWidget):
 
         self._build_ui()
         self.load_state()
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'data_merge')
 
     # ================================================================== #
     #  UI construction                                                     #

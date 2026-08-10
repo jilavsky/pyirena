@@ -78,6 +78,7 @@ from pyirena.gui.saxs_morph_3d import (
     make_popout_button,
 )
 from pyirena.gui.unified_fit import _SafeInfiniteLine
+from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_saxs_morph import (
     save_saxs_morph_results,
 )
@@ -763,6 +764,10 @@ class SaxsMorphPanel(QWidget):
         layout.addWidget(splitter)
 
         self.graph.cursor_moved.connect(self._on_cursor_moved)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'saxs_morph_panel',
+                             splitters={'main': splitter})
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()

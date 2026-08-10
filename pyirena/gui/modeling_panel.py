@@ -85,6 +85,7 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
+from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager
 
@@ -2253,6 +2254,10 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         layout.addWidget(splitter)
 
         self.graph.cursor_moved.connect(self._on_cursor_moved)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'modeling_panel',
+                             splitters={'main': splitter})
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()

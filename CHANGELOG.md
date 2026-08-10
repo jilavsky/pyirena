@@ -9,6 +9,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Drag a file onto pyIrena to open it** (feature parity review item A6,
+  issue #13).  New `pyirena/gui/file_drop.py`; wired into the Data Selector,
+  every fitting panel (through the shared `DataFileLoaderRow`, so Unified Fit,
+  Sizes, Simple Fits, Modeling, WAXS and SAXS Morph all gained it at once), the
+  Data Explorer file tree, and the Data Merge and Data Manipulation file lists.
+  - Dropping a **folder** offers the data files inside it, one level deep — a
+    measurement directory can be dragged in whole.
+  - The drag is **refused while it is still over the window** if nothing in it
+    is openable, so the cursor answers before the user lets go.  Files pyIrena
+    cannot read are dropped from the list rather than failing later.
+  - Both drop payloads are read: Finder/Explorer send file URLs, some
+    applications send plain text paths.
+  - Text files still go through the clean-and-convert path, so a dropped
+    `.dat` behaves exactly like one opened from the dialog.
+  - Installed through an event filter, so no existing widget had to be
+    subclassed; `collect_dropped_paths()` is pure and covered by 23 tests.
+- **Windows reopen where you left them** (feature parity review item A9,
+  issue #13).  New `pyirena/gui/window_state.py` saves size, position and
+  splitter sizes for every pyIrena window — so the width you gave the left
+  control panel survives a restart, not just the window frame.
+  - **The failure mode this is really about is a changed display setup.**  A
+    position saved on a monitor that is no longer attached would reopen the
+    window somewhere it can be neither seen nor dragged back.  Saved geometry
+    is checked against the screens that exist *now*: a window that would be
+    unreachable is moved onto the nearest real screen and shrunk only if it no
+    longer fits, and if it cannot be placed sensibly the tool falls back to its
+    default size.  The whole policy is the pure function `resolve_geometry()`,
+    tested against removed monitors, negative screen origins,
+    larger-than-screen windows and a grid of off-screen positions.
+  - **Per-tool reset, the Irena gesture:** hold **Shift** while clicking a
+    tool's button and that tool forgets its position and opens centred at its
+    default size, control-panel width included.  Because panels are built once
+    and reused, `install_window_state()` records each window's coded default
+    *before* applying anything saved, so the gesture works on the tenth launch
+    as well as the first; a panel's separate graph window is reset with it.
+    `pyirena/tests/test_window_state.py` reads the launcher source and fails
+    the build if a new tool is wired up without it.
+  - Pane widths are recorded and applied **at the first layout**, not in the
+    constructor: a panel sets its splitter while that splitter still has no
+    width, so anything read or written before Qt's first layout pass is a
+    placeholder.  They are stored as *fractions*, since a reset re-centres the
+    window at a different size than the splitter currently has.
+  - Geometry is only ever applied to real windows (`is_top_level`).  Unified
+    Fit's and WAXS's `…GraphWindow` classes are the right-hand *pane* of their
+    panel, and setting a pane's geometry fought the layout — which surfaced as
+    the control panel coming back much too wide after a reset.  Both are no
+    longer registered, and the guard makes the same mistake harmless in future.
+  - **Global escape hatch:** hold **Shift** while launching `pyirena-gui`, or
+    set `PYIRENA_RESET_WINDOWS=1`, to discard every saved geometry and open all
+    windows at their defaults.
+  - Minimised and full-screen windows are not saved.
+  - Geometry is stored in its own `window_geometry.json` next to the pyIrena
+    state file, deliberately: each panel holds its own `StateManager` and
+    `save()` rewrites the whole file from that copy, so geometry kept there was
+    clobbered by whichever panel closed last.
+  - `GEOMETRY_PERSISTENCE_ENABLED = False` in `window_state.py` disables the
+    feature outright, and the placement tunables (minimum visible area,
+    title-bar grab height, edge margin) are named constants at the top of the
+    module for fine-tuning.
 - **WAXS Peak Fit is now agent-drivable — U9 is complete** (feature parity
   review item U9, issue #13). `pyirena/api/control/waxs_peakfit.py` adds 18
   tools: background choice (adaptive SNIP and friends, or fitted polynomials),

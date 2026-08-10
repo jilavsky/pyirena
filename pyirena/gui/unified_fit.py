@@ -50,6 +50,7 @@ from pyirena.gui.sas_plot import (
     add_slope_line_menu,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.window_state import install_window_state
 from pyirena.state import StateManager
 
 # AI advisor — optional; buttons hidden if anthropic/keyring not installed
@@ -409,6 +410,9 @@ class UnifiedFitGraphWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Unified Fit")
         self.setGeometry(100, 100, 900, 700)
+        # No geometry persistence here: despite the name this widget is the
+        # right-hand pane of the panel's splitter, and setting a pane's
+        # geometry fights the layout.  The panel remembers the split instead.
 
         self._itx_technique = 'UnifiedFit'   # ITX export → root:UnifiedFit:<sample>
         self._itx_sample_label = None        # set to current sample in plot_data
@@ -2037,6 +2041,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         # Set minimum and initial window size (taller for better field visibility)
         self.setMinimumSize(1200, 960)  # Same width, 20% taller (800 * 1.2 = 960)
         self.resize(1200, 960)  # Set initial size
+
+        # Reopen where the user left it, at the width they gave the controls.
+        # Hold Shift while opening the tool to ignore the saved geometry.
+        install_window_state(self, 'unified_fit_panel',
+                             splitters={'main': main_splitter})
 
     def format_value_3sig(self, value: float) -> str:
         """Format a value to 3 significant digits for display."""

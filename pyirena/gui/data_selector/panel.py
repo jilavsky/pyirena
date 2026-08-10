@@ -68,9 +68,11 @@ from pyirena.gui.data_selector.results_windows import (
     WAXSPeakFitResultsWindow,
 )
 from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
+from pyirena.gui.file_drop import enable_file_drop, first_folder
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.gui.unified_fit import UnifiedFitPanel
+from pyirena.gui.window_state import install_window_state, reset_window_if_shift
 from pyirena.io.hdf5 import readGenericNXcanSAS
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.io.text_import import ensure_nxcansas_sibling
@@ -133,6 +135,13 @@ class DataSelectorPanel(QWidget):
 
         self._update_check_worker = None
         self._init_update_check()
+
+        # Reopen where the user left it.  Hold Shift while launching pyIrena
+        # to ignore the saved geometry, or set PYIRENA_RESET_WINDOWS=1.
+        install_window_state(self, 'data_selector')
+
+        # Drop data files (or a folder) anywhere on the panel to open them.
+        enable_file_drop(self, self.open_dropped_files)
 
     def _init_update_check(self):
         """Show a cached update notice immediately, then check GitHub if it's due."""
@@ -994,6 +1003,50 @@ class DataSelectorPanel(QWidget):
         menu_bar.addMenu(help_menu)
 
         return menu_bar
+
+    def open_dropped_files(self, paths):
+        """Handle files dropped onto the panel: switch folder, select them.
+
+        Dropping data is the fastest way into pyIrena — it replaces Select
+        Folder, find the file, click it.  Files from several folders can be
+        dropped at once; the first one's folder wins (a file list shows one
+        folder), and everything in that folder is selected.
+        """
+        if not paths:
+            return
+
+        folder = first_folder(paths)
+        if folder and folder != self.current_folder:
+            self.current_folder = folder
+            self.last_folder = folder
+            self.save_last_folder(folder)
+            self.folder_label.setText(folder)
+            self.folder_label.setStyleSheet("color: #2c3e50;")
+            self.refresh_button.setEnabled(True)
+            self.refresh_file_list()
+
+        wanted = {os.path.basename(p) for p in paths
+                  if os.path.dirname(p) == self.current_folder}
+        self.file_list.clearSelection()
+        matched = 0
+        for row in range(self.file_list.count()):
+            item = self.file_list.item(row)
+            if item.text() in wanted:
+                item.setSelected(True)
+                matched += 1
+                if matched == 1:
+                    self.file_list.scrollToItem(item)
+
+        if matched:
+            self.status_label.setText(
+                f"Dropped {matched} file(s) from {os.path.basename(self.current_folder)}"
+            )
+        else:
+            # Everything dropped was filtered out of the current view — say so
+            # rather than leaving the user wondering why nothing happened.
+            self.status_label.setText(
+                "Dropped files are not shown with the current Type/Filter settings."
+            )
 
     def select_folder(self):
         """Open folder selection dialog."""
@@ -2085,6 +2138,9 @@ class DataSelectorPanel(QWidget):
                 slit_length=float(data.get('slit_length', 0.0) or 0.0),
                 is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.unified_fit_window)
             self.unified_fit_window.show()
             self.unified_fit_window.raise_()
             self.unified_fit_window.activateWindow()
@@ -2122,6 +2178,9 @@ class DataSelectorPanel(QWidget):
                 slit_length=float(data.get('slit_length', 0.0) or 0.0),
                 is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.sizes_fit_window)
             self.sizes_fit_window.show()
             self.sizes_fit_window.raise_()
             self.sizes_fit_window.activateWindow()
@@ -2160,6 +2219,9 @@ class DataSelectorPanel(QWidget):
                 slit_length=float(data.get('slit_length', 0.0) or 0.0),
                 is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.modeling_window)
             self.modeling_window.show()
             self.modeling_window.raise_()
             self.modeling_window.activateWindow()
@@ -2212,6 +2274,9 @@ class DataSelectorPanel(QWidget):
                 slit_length=float(data.get('slit_length', 0.0) or 0.0),
                 is_slit_smeared=bool(data.get('is_slit_smeared', False)),
             )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.simple_fits_window)
             self.simple_fits_window.show()
             self.simple_fits_window.raise_()
             self.simple_fits_window.activateWindow()
@@ -2252,6 +2317,9 @@ class DataSelectorPanel(QWidget):
                 data['Q'], data['Intensity'], data.get('Error'),
                 label=display_name, filepath=hdf5_path, is_nxcansas=True,
             )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.waxs_peakfit_window)
             self.waxs_peakfit_window.show()
             self.waxs_peakfit_window.raise_()
             self.waxs_peakfit_window.activateWindow()
@@ -2299,6 +2367,9 @@ class DataSelectorPanel(QWidget):
                 data['Q'], data['Intensity'], data.get('Error'),
                 filename=display_name, filepath=hdf5_path, is_nxcansas=True,
             )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.saxs_morph_window)
             self.saxs_morph_window.show()
             self.saxs_morph_window.raise_()
             self.saxs_morph_window.activateWindow()
@@ -2333,6 +2404,9 @@ class DataSelectorPanel(QWidget):
             if not saved_dm.get('folder1') and self.current_folder:
                 self.data_merge_window.set_folder(1, self.current_folder)
 
+        # Shift-click on the tool button = forget this window's remembered
+        # position and open it centred at its default size (Irena's gesture).
+        reset_window_if_shift(self.data_merge_window)
         self.data_merge_window.show()
         self.data_merge_window.raise_()
         self.data_merge_window.activateWindow()
@@ -2350,6 +2424,9 @@ class DataSelectorPanel(QWidget):
         if self.current_folder:
             self.data_manip_window.set_folder(self.current_folder)
 
+        # Shift-click on the tool button = forget this window's remembered
+        # position and open it centred at its default size (Irena's gesture).
+        reset_window_if_shift(self.data_manip_window)
         self.data_manip_window.show()
         self.data_manip_window.raise_()
         self.data_manip_window.activateWindow()
@@ -2364,6 +2441,9 @@ class DataSelectorPanel(QWidget):
                 state_manager=self.state_manager,
             )
 
+        # Shift-click on the tool button = forget this window's remembered
+        # position and open it centred at its default size (Irena's gesture).
+        reset_window_if_shift(self.contrast_window)
         self.contrast_window.show()
         self.contrast_window.raise_()
         self.contrast_window.activateWindow()
@@ -2382,6 +2462,9 @@ class DataSelectorPanel(QWidget):
             # with a live VTK render window.
             self.fractals_window.destroyed.connect(self._on_fractals_destroyed)
 
+        # Shift-click on the tool button = forget this window's remembered
+        # position and open it centred at its default size (Irena's gesture).
+        reset_window_if_shift(self.fractals_window)
         self.fractals_window.show()
         self.fractals_window.raise_()
         self.fractals_window.activateWindow()
@@ -2669,6 +2752,9 @@ class DataSelectorPanel(QWidget):
                 state_manager=self.state_manager,
             )
 
+        # Shift-click on the tool button = forget this window's remembered
+        # position and open it centred at its default size (Irena's gesture).
+        reset_window_if_shift(self.hdf5_viewer_window)
         self.hdf5_viewer_window.show()
         self.hdf5_viewer_window.raise_()
         self.hdf5_viewer_window.activateWindow()

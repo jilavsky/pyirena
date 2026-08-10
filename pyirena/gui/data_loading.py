@@ -23,10 +23,6 @@ a file can be opened either from the Data Selector or directly from the tool.
 from __future__ import annotations
 
 import logging
-
-log = logging.getLogger(__name__)
-
-
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -39,6 +35,9 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.file_drop import drop_hint, enable_file_drop
+
+log = logging.getLogger(__name__)
 
 # ── Standalone helpers (no Qt parent required) ────────────────────────────────
 
@@ -207,7 +206,8 @@ class DataFileLoaderRow(QWidget):
         self._edit.setPlaceholderText("(no file selected)")
         self._edit.setToolTip(
             "Currently loaded data file.\n"
-            "Click 'Open…' to load a different file, or select one in the Data Selector."
+            "Click 'Open…' to load a different file, or select one in the Data Selector.\n"
+            + drop_hint("a data file")
         )
         row.addWidget(self._edit, 1)
 
@@ -219,6 +219,10 @@ class DataFileLoaderRow(QWidget):
         )
         btn.clicked.connect(self._on_open_clicked)
         row.addWidget(btn)
+
+        # Dropping a file anywhere on this row loads it — every fit panel
+        # embeds this widget, so they all gain drag-and-drop from here.
+        enable_file_drop(self, self._on_files_dropped, accept_folders=False)
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -262,6 +266,23 @@ class DataFileLoaderRow(QWidget):
         )
         if not path:
             return
+        self.load_path(path)
+
+    def load_path(self, path: str) -> bool:
+        """Load one data file and announce it, as if it had been picked in the dialog.
+
+        Shared by the Open button and by dropping a file onto the panel, so a
+        dropped file goes through exactly the same loading, unit handling and
+        error reporting as one chosen from the dialog.
+
+        Args:
+            path: File to load.
+
+        Returns:
+            True when the file loaded and ``data_loaded`` was emitted.
+        """
+        if not path:
+            return False
 
         self._save_last_folder(str(Path(path).parent))
 
@@ -276,7 +297,21 @@ class DataFileLoaderRow(QWidget):
 
         res = load_data_file(self, path, error_fraction=self._error_fraction, q_unit=self._q_unit)
         if res is None:
-            return
+            return False
         data, hdf5_path, display_name = res
         self._edit.setText(display_name)
         self.data_loaded.emit(data, hdf5_path, display_name)
+        return True
+
+    def _on_files_dropped(self, paths) -> None:
+        """A file was dropped on the panel — load the first one.
+
+        A fit panel holds one dataset, so dropping several files loads the
+        first and says so rather than silently ignoring the rest.
+        """
+        if not paths:
+            return
+        if len(paths) > 1:
+            log.info("%d files dropped; loading the first (%s)",
+                     len(paths), Path(paths[0]).name)
+        self.load_path(paths[0])

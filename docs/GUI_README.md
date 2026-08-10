@@ -152,6 +152,61 @@ formatted one way in the panel and another way in the report.
 | Right-click → Save as CSV… | The table as a CSV file, where the panel supports it |
 | Click a column header | Sort; numeric columns sort numerically and blanks sort last.  Not offered where row order carries meaning |
 
+### Opening data by dragging it in
+
+Drag files from Finder or Explorer onto a pyIrena window and they open — no
+Select Folder, no hunting through a list.  It works on:
+
+| Drop it on | What happens |
+|------------|--------------|
+| The Data Selector | Switches to the dropped file's folder and selects the dropped files |
+| Any fitting panel (Unified Fit, Sizes, Simple Fits, Modeling, WAXS, SAXS Morph) | Loads the file, exactly as the panel's *Open…* button would |
+| Data Explorer's file tree | Browses the dropped folder and selects the dropped files |
+| Data Merge / Data Manipulation file lists | Points that dataset at the dropped folder and selects the files |
+
+Dropping a **folder** works too: its data files are offered, one level deep, so
+a measurement directory can be dragged in whole.  Files pyIrena cannot open are
+ignored, and the drag is refused while it is still over the window if nothing in
+it is openable — the cursor tells you before you let go.  Text files
+(`.dat`/`.txt`/`.csv`) are converted to cleaned NXcanSAS on the way in, the same
+as when opened from the dialog.  A fitting panel holds one dataset, so dropping
+several files there loads the first.
+
+### Windows remember where they were
+
+Each pyIrena window reopens at the size and position you left it, and panels
+with a draggable divider also remember how wide you made the controls.  This is
+stored separately from the tool settings, in `window_geometry.json` beside the
+pyIrena state file.
+
+Screens change — you undock a laptop, unplug a second monitor, change
+resolution — and a window remembered on a screen that no longer exists would
+otherwise reopen somewhere you cannot see *or* drag back.  pyIrena checks the
+saved position against the screens that exist now: if the window would be
+unreachable, it is moved onto the nearest real screen (and shrunk only if it no
+longer fits); if it cannot be placed sensibly at all, the tool simply opens at
+its default size.
+
+**To reset one tool:** hold **Shift** while clicking that tool's button in the
+Data Selector.  That tool forgets where it was and opens centred at its default
+size, with the control panel back at its original width — the same gesture as
+Irena in Igor.  It works every time, not only the first time a tool is opened in
+a session, and it resets the tool's graph window along with its panel.
+
+**To reset everything:** hold **Shift** while launching pyIrena (`pyirena-gui`),
+or start it with the environment variable `PYIRENA_RESET_WINDOWS=1`, which is the
+reliable route on a system where the modifier key is intercepted:
+
+```bash
+PYIRENA_RESET_WINDOWS=1 pyirena-gui
+```
+
+(Shift-clicking a *file* still extends the selection as usual — the reset
+gesture is on the tool buttons only.)
+
+Minimised and full-screen windows are not saved — restoring a window that opens
+minimised would be its own trap.
+
 ## Data Format Support
 
 ### HDF5 Files (NXcanSAS)

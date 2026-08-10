@@ -34,6 +34,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.window_state import install_window_state
 
 from . import pyirena_readers as _readers
 from .collect_window import CollectWindow
@@ -160,6 +161,10 @@ class HDF5ViewerWindow(QMainWindow):
 
         # Menu bar
         self._build_menu()
+
+        # Reopen where the user left it, with the three panes as they were.
+        install_window_state(self, 'data_explorer',
+                             splitters={'main': splitter})
 
     def _build_menu(self) -> None:
         menu_bar = self.menuBar()

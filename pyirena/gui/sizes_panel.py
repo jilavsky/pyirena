@@ -48,6 +48,7 @@ from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -919,6 +920,10 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.setMinimumSize(1200, 960)
         self.resize(1200, 960)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'sizes_panel',
+                             splitters={'main': main_splitter})
 
     def _open_feature_identifier(self):
         """Open the Feature Identifier dialog (non-modal) for the loaded data."""

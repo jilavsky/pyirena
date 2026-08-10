@@ -66,6 +66,7 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # Friendly display labels for the complex-background parameters.  The dict
@@ -655,6 +656,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         self.status_label = QLabel('No data loaded.')
         self.status_label.setStyleSheet('font-size: 11px; color: #555;')
         main_layout.addWidget(self.status_label)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'simple_fits_panel',
+                             splitters={'main': splitter})
 
     def _create_control_panel(self) -> QWidget:
         panel = QWidget()

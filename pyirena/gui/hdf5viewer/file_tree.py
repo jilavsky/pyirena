@@ -41,6 +41,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 
 # ── Extensions treated as HDF5 files ───────────────────────────────────────
@@ -136,7 +137,13 @@ class FileTreeWidget(QWidget):
         self._tree.setIndentation(14)
         self._tree.itemExpanded.connect(self._on_item_expanded)
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
+        self._tree.setToolTip(drop_hint("a folder or HDF5 files"))
         layout.addWidget(self._tree, 1)
+
+        # Dropping a folder browses it; dropping files browses their folder and
+        # selects them.  Installed on the whole widget so the drop target is the
+        # entire left pane, not just the tree rows.
+        enable_file_drop(self, self.open_dropped_paths, extensions=tuple(HDF5_EXTENSIONS))
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -153,6 +160,42 @@ class FileTreeWidget(QWidget):
         self._folder_label.setToolTip(folder)
         self._refresh_tree()
         self.folder_changed.emit(folder)
+
+    def open_dropped_paths(self, paths: list[str]) -> None:
+        """Browse what was dropped: switch to its folder and select the files.
+
+        Dropping a folder is the common case (a measurement directory), and
+        ``collect_dropped_paths`` has already expanded it to the HDF5 files
+        inside, so both gestures land here the same way.
+        """
+        if not paths:
+            return
+
+        folder = first_folder(paths)
+        if folder and folder != self._root_folder:
+            self.set_folder(folder)
+
+        wanted = {os.path.basename(p) for p in paths
+                  if os.path.dirname(p) == self._root_folder}
+        if not wanted:
+            return
+
+        self._tree.clearSelection()
+        matched = 0
+        root = self._tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if item.data(0, _PATH_ROLE) and item.text(0) in wanted:
+                item.setSelected(True)
+                matched += 1
+                if matched == 1:
+                    self._tree.scrollToItem(item)
+        if not matched and self._filter_text:
+            # The dropped files exist but the filter hides them; clearing it is
+            # less confusing than a drop that appears to do nothing.
+            log.info("dropped files hidden by filter %r — clearing it", self._filter_text)
+            self.set_filter("")
+            self.open_dropped_paths(paths)
 
     def get_selected_paths(self) -> list[str]:
         """Return absolute paths of all currently selected file items."""
