@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Simple Fits is now agent-drivable** (feature parity review item U9, issue
+  #13). Interactive control sessions existed for Unified Fit and Size
+  Distribution only, so an AI agent could read Simple Fits results but never
+  produce them. `pyirena/api/control/simple_fits.py` adds 15 tools — model
+  listing and selection, per-parameter value/bounds/fix/free, the complex
+  background, the fit, results, a fit image, a linearization image, and save to
+  NXcanSAS — exposed over MCP as `pyirena_ctrl_simple_*`. The session and
+  Q-range tools are shared with the existing surfaces, so a conversation can
+  open a dataset once and try Unified Fit, Sizes and Simple Fits on it.
+  Modeling and WAXS Peak Fit remain to be wired.
+  - The linearization tool returns the slope, intercept and R² alongside the
+    image, which gives an agent a numeric handle on "is this model valid over
+    this Q range?" rather than only a picture.
+  - The MCP surface grows from 68 to 83 tools; the schema/callable/MCP parity
+    tests and their locked counts are updated with it.
 - **Data Merge gained the full sort dropdown** the other three file browsers
   have (feature parity review item U3, issue #13). It sorted silently by order
   number with no way to reorder a temperature or time series. Both dataset

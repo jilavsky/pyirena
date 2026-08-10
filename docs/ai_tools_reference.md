@@ -45,23 +45,32 @@ results, and save back to HDF5.
 Your job is to help the user understand what's in their data, and — when
 asked — to fit new datasets autonomously using the control tools.
 
-### Control-mode fitting (Unified Fit + Size Distribution)
+### Control-mode fitting (Unified Fit + Size Distribution + Simple Fits)
 
 The `pyirena_ctrl_*` tools let you drive pyirena's fitting models
-end-to-end. Two models are available:
+end-to-end. Three models are available:
 
 - **Unified Fit** — `pyirena_ctrl_*` tools (model parameters, levels,
   staged fitting). See [Control tools reference](#control-tools-reference-pyirena_ctrl_-prefix).
 - **Size Distribution** — `pyirena_ctrl_sizes_*` tools (inversion method,
   size grid, shape, complex background, error handling). See
   [Size Distribution control tools](#control-tools-reference--size-distribution-pyirena_ctrl_sizes_-prefix).
+- **Simple Fits** — `pyirena_ctrl_simple_*` tools (one analytical model at a
+  time: Guinier, Porod, Sphere, Debye-Bueche, Teubner-Strey, Invariant, …).
+  See [Simple Fits control tools](#control-tools-reference--simple-fits-pyirena_ctrl_simple_-prefix).
+
+**Which to reach for.** Simple Fits answers one focused question over a
+restricted Q range ("what is Rg here?", "what is the Porod slope?") and is the
+cheapest to run and to explain — prefer it when the user asks about a single
+feature. Unified Fit describes a whole multi-level curve. Size Distribution
+inverts to a particle-size histogram and needs a dilute single population.
 
 Sessions are in-memory for the lifetime of the MCP server process and
 persist across tool calls within a conversation. The session lifecycle
 (`open_dataset`, `list_open_sessions`, `close_session`,
 `get_session_summary`) and the Q-range tools (`get_data_q_range`,
 `get_fit_q_range`, `set_fit_q_range`, `reset_fit_q_range`) are **shared**
-between both models.
+between all three models.
 
 ---
 
@@ -695,6 +704,67 @@ Returns:
 
 If `suitable` is `false`, surface the `warnings` to the user and consider
 recommending Unified Fit instead of forcing a size-distribution fit.
+
+---
+
+## Control tools reference — Simple Fits (`pyirena_ctrl_simple_` prefix)
+
+One analytical model fitted over a restricted Q range.  Use it when the
+question is about a single feature — an Rg, a Porod slope, a correlation
+length, the invariant — rather than a whole multi-level curve.  Every model
+has its own parameter set, so **always** list the models (or the parameters)
+before setting anything.
+
+### Recommended Simple Fits workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                     # shared
+pyirena_ctrl_simple_list_models()                        # pick a model
+pyirena_ctrl_simple_select_model(session_id, "Guinier")
+pyirena_ctrl_set_fit_q_range(session_id, q_min, q_max)   # shared — required
+pyirena_ctrl_simple_set_parameter(session_id, "Rg", 150) # optional start point
+pyirena_ctrl_simple_run_fit(session_id)
+pyirena_ctrl_simple_get_linearization_image(session_id)  # sanity check
+pyirena_ctrl_simple_save_fit(session_id)
+```
+
+The Q range matters more here than anywhere else: Guinier is only valid for
+roughly `q·Rg < 1.3`, Porod only in the high-Q tail.  Fit, read back the Rg,
+then check `q_max·Rg` and narrow the range if it exceeds ~1.3.
+
+### Model lifecycle & parameters
+
+| Tool | Purpose |
+|------|---------|
+| `pyirena_ctrl_simple_list_models()` | every model with its parameter names, whether it linearizes, whether it supports the complex background, and whether it is a direct calculation (Invariant) |
+| `pyirena_ctrl_simple_select_model(session_id, model_name)` | create the model; **resets parameters and frees them all** |
+| `pyirena_ctrl_simple_get_config(session_id)` | model + all parameters + background setting |
+| `pyirena_ctrl_simple_get_parameters(session_id)` | name, value, bounds, fixed state |
+| `pyirena_ctrl_simple_set_parameter(session_id, name, value)` | starting value |
+| `pyirena_ctrl_simple_set_parameter_bounds(session_id, name, lo, hi)` | bounds; a value outside them is clamped in |
+| `pyirena_ctrl_simple_fix_parameter(session_id, name)` | hold fixed |
+| `pyirena_ctrl_simple_free_parameter(session_id, name)` | let it vary (default) |
+| `pyirena_ctrl_simple_reset_parameters(session_id)` | back to registry defaults |
+| `pyirena_ctrl_simple_set_background(session_id, enabled)` | complex background (adds `BG_B`, `BG_P`, `BG_flat`) |
+
+### Fit, results, persistence
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_simple_run_fit(session_id, no_limits=False)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values |
+| `pyirena_ctrl_simple_get_results(session_id)` | the same summary for the last fit |
+| `pyirena_ctrl_simple_get_fit_image(session_id)` | PNG: log-log data + model, residuals below |
+| `pyirena_ctrl_simple_get_linearization_image(session_id)` | PNG of the linearized plot + slope, intercept, R² |
+| `pyirena_ctrl_simple_save_fit(session_id, output_path=None)` | writes `entry/simple_fit_results` |
+
+The linearized plot is drawn from the **current** parameters, so call it after
+`run_fit` — a straight line through the data is the classic check that the
+model applies over the range you chose, and `r_squared` quantifies it.
+
+Common error codes: `NO_SIMPLE_MODEL` (call `select_model` first), `BAD_PARAM`
+(that parameter belongs to a different model), `ALL_FIXED`, `EMPTY_RANGE`,
+`NO_COMPLEX_BG` (Porod and Power Law carry their own Background parameter),
+`NO_LINEARIZATION`, `NO_FIT`.
 
 ---
 

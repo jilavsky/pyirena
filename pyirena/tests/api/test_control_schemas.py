@@ -38,7 +38,7 @@ def test_schema_names_unique_and_indexed():
     assert len(names) == len(set(names)), "duplicate schema names in TOOL_SCHEMAS"
     assert set(TOOL_SCHEMA_BY_NAME) == set(names)
     # Lock the count so an accidentally-dropped schema is caught.
-    assert len(names) == 51, f"expected 51 control schemas, found {len(names)}"
+    assert len(names) == 66, f"expected 66 control schemas, found {len(names)}"
 
 
 @pytest.mark.parametrize("schema", TOOL_SCHEMAS, ids=lambda s: s["name"])
@@ -99,7 +99,7 @@ def test_mcp_registers_all_tools_structurally():
     """Validate the *whole* registered MCP surface, not just the read tools.
 
     The old smoke test only name-checked 18 read/discovery tools while the
-    server registers 68 (18 read + 50 control). Here we lock the counts and
+    server registers 83 (18 read + 65 control). Here we lock the counts and
     assert every registered tool is structurally complete (has a description
     and a well-formed object input schema).
     """
@@ -115,8 +115,8 @@ def test_mcp_registers_all_tools_structurally():
 
     # Locked counts — adding/removing a tool is an intentional change that must
     # update this test (mirrors the 51-schema lock above).
-    assert len(names) == 68, f"expected 68 registered MCP tools, found {len(names)}"
-    assert len(ctrl_tools) == 50, f"expected 50 control tools, found {len(ctrl_tools)}"
+    assert len(names) == 83, f"expected 83 registered MCP tools, found {len(names)}"
+    assert len(ctrl_tools) == 65, f"expected 65 control tools, found {len(ctrl_tools)}"
     assert len(read_tools) == 18, f"expected 18 read tools, found {len(read_tools)}"
 
     for t in tools:

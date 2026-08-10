@@ -967,6 +967,242 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id"],
         },
     },
+
+    # -----------------------------------------------------------------------
+    # Simple Fits — model lifecycle
+    # -----------------------------------------------------------------------
+    {
+        "name": "list_simple_models",
+        "description": (
+            "List the Simple Fits analytical models (Guinier, Porod, Sphere, "
+            "Debye-Bueche, Teubner-Strey, Invariant, ...) with each model's "
+            "parameter names, whether it has a linearized form, and whether it "
+            "supports the complex background. Needs no session."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "select_simple_model",
+        "description": (
+            "Create a Simple Fits model for the session. Switching model resets "
+            "parameters to that model's defaults, frees all of them, and clears "
+            "any previous fit. Call list_simple_models() first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "model_name": {
+                    "type": "string",
+                    "description": "Model name from list_simple_models().",
+                    "default": "Guinier",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_config",
+        "description": (
+            "Return the Simple Fits configuration: selected model, every "
+            "parameter with value/bounds/fixed state, and background settings."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Simple Fits — parameters
+    # -----------------------------------------------------------------------
+    {
+        "name": "get_simple_parameters",
+        "description": (
+            "List the selected model's parameters with value, bounds and "
+            "whether each is held fixed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_simple_parameter",
+        "description": "Set one parameter's value (its starting point for the fit).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string", "description": "Parameter name."},
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "name", "value"],
+        },
+    },
+    {
+        "name": "set_simple_parameter_bounds",
+        "description": (
+            "Set fitting bounds for one parameter. Pass null for either side to "
+            "leave it unbounded. A current value outside the new bounds is "
+            "clamped into range."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    {
+        "name": "fix_simple_parameter",
+        "description": "Hold one parameter fixed at its current value during the fit.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    {
+        "name": "free_simple_parameter",
+        "description": "Let one parameter vary during the fit (the default).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    {
+        "name": "reset_simple_parameters",
+        "description": (
+            "Reset every parameter to the model's registry defaults, free them "
+            "all, and discard the current fit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_simple_background",
+        "description": (
+            "Enable or disable the complex background (power law + flat) for "
+            "the selected model. Enabling adds BG_B, BG_P and BG_flat to the "
+            "parameter list. Models with their own Background parameter "
+            "(Porod, Power Law) do not support it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "enabled": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Simple Fits — fit, results, persistence
+    # -----------------------------------------------------------------------
+    {
+        "name": "run_simple_fit",
+        "description": (
+            "Fit the selected model to the data inside the current fit Q range "
+            "(set_fit_q_range). Returns chi-squared, reduced chi-squared, dof, "
+            "fitted parameters with 1-sigma uncertainties, and derived values. "
+            "Calculation models (Invariant) are evaluated rather than fitted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "no_limits": {
+                    "type": "boolean",
+                    "description": "Fit unconstrained, ignoring all bounds.",
+                    "default": False,
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_results",
+        "description": (
+            "Return the last Simple Fits result: parameters with uncertainties, "
+            "chi-squared, reduced chi-squared, dof and derived quantities."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_fit_image",
+        "description": (
+            "Render the fit as a PNG: log-log data + model on top, residuals "
+            "below. Returns image_base64."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 800},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_linearization_image",
+        "description": (
+            "Render the model's linearized plot (Guinier plot, Porod plot, ...) "
+            "as a PNG with the fitted line, slope, intercept and R-squared. A "
+            "straight line is the visual test that the model applies over the "
+            "chosen Q range. Errors for models with no linearized form."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 900},
+                "height": {"type": "integer", "default": 700},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_simple_fit",
+        "description": (
+            "Save the Simple Fits result to NXcanSAS HDF5 under "
+            "entry/simple_fit_results, embedding the setup so the GUI panel can "
+            "restore it. Defaults to overwriting the original file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 ]
 
 # Convenience: look up a schema by name

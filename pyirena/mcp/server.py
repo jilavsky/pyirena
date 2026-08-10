@@ -40,7 +40,11 @@ mcp = FastMCP(
         "pyirena_plot_parameter_trend() to visualize."
         "\n\n"
         "CONTROL tools (pyirena_ctrl_ prefix): drive fitting interactively. "
-        "Two models are available — Unified Fit and Size Distribution (Sizes). "
+        "Three models are available — Unified Fit, Size Distribution (Sizes) "
+        "and Simple Fits. Prefer Simple Fits when the question is about one "
+        "feature over a restricted Q range (an Rg, a Porod slope, the "
+        "invariant); Unified Fit for a whole multi-level curve; Sizes to "
+        "invert a dilute single population to a size histogram. "
         "Unified Fit workflow: pyirena_ctrl_open_dataset() → session_id → "
         "pyirena_ctrl_select_model() → pyirena_ctrl_fix_all_except() → "
         "pyirena_ctrl_run_fit() → pyirena_ctrl_get_fit_image() → "
@@ -51,8 +55,15 @@ mcp = FastMCP(
         "fit_power_law_background + fit_flat_background → "
         "pyirena_ctrl_set_fit_q_range() (inversion window) → "
         "pyirena_ctrl_sizes_run_fit() → pyirena_ctrl_sizes_get_fit_image() → "
-        "pyirena_ctrl_sizes_save_fit(). The session and Q-range tools are shared "
-        "between both models. Sessions are in-memory for this server process."
+        "pyirena_ctrl_sizes_save_fit(). "
+        "Simple Fits workflow (pyirena_ctrl_simple_ prefix): "
+        "pyirena_ctrl_open_dataset() → pyirena_ctrl_simple_list_models() → "
+        "pyirena_ctrl_simple_select_model() → pyirena_ctrl_set_fit_q_range() → "
+        "pyirena_ctrl_simple_run_fit() → "
+        "pyirena_ctrl_simple_get_linearization_image() (validity check) → "
+        "pyirena_ctrl_simple_save_fit(). "
+        "The session and Q-range tools are shared between all three models. "
+        "Sessions are in-memory for this server process."
     ),
 )
 
@@ -1007,6 +1018,166 @@ def pyirena_ctrl_sizes_save_fit(
     elsewhere and preserve the original.
     """
     return _ctrl.save_sizes_fit(session_id, output_path=output_path)
+
+
+# ---------------------------------------------------------------------------
+# Control tools — Simple Fits
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def pyirena_ctrl_simple_list_models() -> dict:
+    """List the Simple Fits analytical models with their parameters.
+
+    Guinier (+ Rod/Sheet), Porod, Power Law, Debye Polymer Chain, Sphere,
+    Spheroid, Debye-Bueche, Teubner-Strey, Benedetti-Ciccariello, Hermans,
+    Unified Born Green and the Invariant calculation. Each entry reports its
+    parameter names, whether it has a linearized form, and whether it supports
+    the complex background. Needs no session.
+    """
+    return _ctrl.list_simple_models()
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_select_model(
+    session_id: str, model_name: str = "Guinier"
+) -> dict:
+    """Create a Simple Fits model for the session.
+
+    Switching model resets parameters to that model's defaults, frees them all
+    and clears any previous fit. Call pyirena_ctrl_simple_list_models first.
+    """
+    return _ctrl.select_simple_model(session_id, model_name=model_name)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_get_config(session_id: str) -> dict:
+    """Return the Simple Fits configuration: model, every parameter with
+    value/bounds/fixed state, and the background setting."""
+    return _ctrl.get_simple_config(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_get_parameters(session_id: str) -> dict:
+    """List the selected model's parameters with value, bounds and fixed state."""
+    return _ctrl.get_simple_parameters(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_set_parameter(
+    session_id: str, name: str, value: float
+) -> dict:
+    """Set one Simple Fits parameter value (its starting point for the fit)."""
+    return _ctrl.set_simple_parameter(session_id, name, value)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_set_parameter_bounds(
+    session_id: str,
+    name: str,
+    lo: Optional[float] = None,
+    hi: Optional[float] = None,
+) -> dict:
+    """Set fitting bounds for one Simple Fits parameter.
+
+    Pass null for either side to leave it unbounded. A current value outside
+    the new bounds is clamped into range.
+    """
+    return _ctrl.set_simple_parameter_bounds(session_id, name, lo=lo, hi=hi)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_fix_parameter(session_id: str, name: str) -> dict:
+    """Hold one Simple Fits parameter fixed at its current value."""
+    return _ctrl.fix_simple_parameter(session_id, name)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_free_parameter(session_id: str, name: str) -> dict:
+    """Let one Simple Fits parameter vary during the fit (the default)."""
+    return _ctrl.free_simple_parameter(session_id, name)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_reset_parameters(session_id: str) -> dict:
+    """Reset every Simple Fits parameter to the model defaults and free them all."""
+    return _ctrl.reset_simple_parameters(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_set_background(
+    session_id: str, enabled: bool = True
+) -> dict:
+    """Enable or disable the complex background (power law + flat).
+
+    Enabling adds BG_B, BG_P and BG_flat to the parameter list. Models with
+    their own Background parameter (Porod, Power Law) do not support it.
+    """
+    return _ctrl.set_simple_background(session_id, enabled=enabled)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_run_fit(session_id: str, no_limits: bool = False) -> dict:
+    """Fit the selected Simple Fits model inside the current fit Q range.
+
+    Set the range first with pyirena_ctrl_set_fit_q_range. Returns chi-squared,
+    reduced chi-squared, dof, fitted parameters with 1-sigma uncertainties and
+    derived values. Calculation models (Invariant) are evaluated, not fitted.
+    """
+    return _ctrl.run_simple_fit(session_id, no_limits=no_limits)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_get_results(session_id: str) -> dict:
+    """Return the last Simple Fits result: parameters with uncertainties,
+    chi-squared, reduced chi-squared, dof and derived quantities."""
+    return _ctrl.get_simple_results(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_get_fit_image(
+    session_id: str, width: int = 1024, height: int = 800
+) -> list[Any]:
+    """Render the Simple Fits result as a PNG: log-log data + model on top,
+    residuals below."""
+    result = _ctrl.get_simple_fit_image(session_id, width=width, height=height)
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    return [f"Simple Fits image (session {session_id})",
+            Image(data=_base64.b64decode(b64), format="png")]
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_get_linearization_image(
+    session_id: str, width: int = 900, height: int = 700
+) -> list[Any]:
+    """Render the linearized plot (Guinier plot, Porod plot, ...) with the
+    fitted line, slope, intercept and R-squared.
+
+    A straight line is the visual test that the model applies over the chosen
+    Q range. Models with no linearized form return an error.
+    """
+    result = _ctrl.get_simple_linearization_image(
+        session_id, width=width, height=height
+    )
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    label = (f"Linearization (session {session_id}): "
+             f"slope={result.get('slope')}, R^2={result.get('r_squared')}")
+    return [label, Image(data=_base64.b64decode(b64), format="png")]
+
+
+@mcp.tool()
+def pyirena_ctrl_simple_save_fit(
+    session_id: str, output_path: Optional[str] = None
+) -> dict:
+    """Save the Simple Fits result to NXcanSAS HDF5 (entry/simple_fit_results).
+
+    Embeds the setup so the GUI panel can restore it. Defaults to overwriting
+    the original file; pass output_path to save elsewhere.
+    """
+    return _ctrl.save_simple_fit(session_id, output_path=output_path)
 
 
 # ---------------------------------------------------------------------------
