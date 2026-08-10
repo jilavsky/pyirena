@@ -40,13 +40,15 @@ mcp = FastMCP(
         "pyirena_plot_parameter_trend() to visualize."
         "\n\n"
         "CONTROL tools (pyirena_ctrl_ prefix): drive fitting interactively. "
-        "Four models are available — Unified Fit, Size Distribution (Sizes), "
-        "Simple Fits and Modeling. Prefer Simple Fits when the question is "
+        "Five models are available — Unified Fit, Size Distribution (Sizes), "
+        "Simple Fits, Modeling and WAXS Peak Fit. Prefer Simple Fits when the "
+        "question is "
         "about one feature over a restricted Q range (an Rg, a Porod slope, "
         "the invariant); Unified Fit for a whole multi-level curve; Sizes to "
         "invert a dilute single population to a size histogram; Modeling when "
         "the curve needs several components at once or a specific form factor "
-        "(core-shell, cylinder). "
+        "(core-shell, cylinder); WAXS Peak Fit for wide-angle patterns where "
+        "the questions are peak position, width and integrated area. "
         "Unified Fit workflow: pyirena_ctrl_open_dataset() → session_id → "
         "pyirena_ctrl_select_model() → pyirena_ctrl_fix_all_except() → "
         "pyirena_ctrl_run_fit() → pyirena_ctrl_get_fit_image() → "
@@ -75,7 +77,12 @@ mcp = FastMCP(
         "pyirena_ctrl_modeling_save_fit(). Modeling parameters use dotted "
         "names (dist.mean_size, ff.sld_core, sf.eta) — always list them with "
         "get_population_parameters rather than guessing. "
-        "The session tools are shared between all four models (Modeling has "
+        "WAXS workflow (pyirena_ctrl_waxs_ prefix): pyirena_ctrl_open_dataset() → "
+        "pyirena_ctrl_waxs_select_model() → pyirena_ctrl_waxs_find_peaks() "
+        "(data-driven starting positions) → pyirena_ctrl_waxs_run_fit() → "
+        "pyirena_ctrl_waxs_get_results() (positions, widths, areas) → "
+        "pyirena_ctrl_waxs_save_fit(). "
+        "The session tools are shared between all five tools (Modeling has "
         "its own Q range). "
         "Sessions are in-memory for this server process."
     ),
@@ -1402,6 +1409,222 @@ def pyirena_ctrl_modeling_save_fit(
     elsewhere and preserve the original.
     """
     return _ctrl.save_modeling_fit(session_id, output_path=output_path)
+
+
+# ---------------------------------------------------------------------------
+# Control tools — WAXS Peak Fit
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def pyirena_ctrl_waxs_list_options() -> dict:
+    """List WAXS peak shapes, background shapes and weighting modes.
+
+    Adaptive backgrounds (SNIP, Rolling Quantile Spline, Rolling Ball) are
+    estimated from the data rather than fitted. Needs no session.
+    """
+    return _ctrl.list_waxs_options()
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_select_model(
+    session_id: str, bg_shape: str = "SNIP"
+) -> dict:
+    """Create a WAXS peak-fit model with no peaks yet.
+
+    bg_shape 'SNIP' (default) estimates a smooth background from the data and
+    suits most patterns; polynomial shapes are fitted alongside the peaks.
+    """
+    return _ctrl.select_waxs_model(session_id, bg_shape=bg_shape)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_get_config(session_id: str) -> dict:
+    """Return the WAXS background setup and the current peak list."""
+    return _ctrl.get_waxs_config(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_set_background(session_id: str, bg_shape: str) -> dict:
+    """Switch the background shape, keeping the peaks.
+
+    The usual way to test whether a stubborn residual is a background artefact.
+    """
+    return _ctrl.set_waxs_background(session_id, bg_shape)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_set_background_parameter(
+    session_id: str,
+    name: str,
+    value: Optional[float] = None,
+    fit: Optional[bool] = None,
+    lo: Optional[float] = None,
+    hi: Optional[float] = None,
+) -> dict:
+    """Set a background parameter's value, fit flag or bounds.
+
+    Adaptive backgrounds have a tuning value only — they are estimated, not
+    fitted, so fit flag and bounds are ignored with a note.
+    """
+    return _ctrl.set_waxs_background_parameter(
+        session_id, name, value=value, fit=fit, lo=lo, hi=hi
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_find_peaks(
+    session_id: str,
+    prominence_frac: float = 0.05,
+    min_fwhm: float = 0.001,
+    max_fwhm: float = 0.5,
+    min_distance: float = 0.005,
+    shape: str = "Gauss",
+    replace: bool = True,
+) -> dict:
+    """Detect peaks and add them with close starting values.
+
+    The data-driven way to start instead of guessing positions. Raise
+    prominence_frac for fewer, stronger peaks; lower it to pick up shoulders.
+    """
+    return _ctrl.find_waxs_peaks(
+        session_id,
+        prominence_frac=prominence_frac,
+        min_fwhm=min_fwhm,
+        max_fwhm=max_fwhm,
+        min_distance=min_distance,
+        shape=shape,
+        replace=replace,
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_add_peak(
+    session_id: str,
+    q0: float,
+    shape: str = "Gauss",
+    amplitude: Optional[float] = None,
+    fwhm: float = 0.01,
+) -> dict:
+    """Add one peak at position q0.
+
+    Omit amplitude to take it from the measured intensity there, which starts
+    far closer than a generic default.
+    """
+    return _ctrl.add_waxs_peak(session_id, q0, shape=shape,
+                               amplitude=amplitude, fwhm=fwhm)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_remove_peak(session_id: str, index: int) -> dict:
+    """Remove the peak at this index; later peaks shift down."""
+    return _ctrl.remove_waxs_peak(session_id, index)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_list_peaks(session_id: str) -> dict:
+    """List every peak with its shape, parameters and derived integrated area."""
+    return _ctrl.list_waxs_peaks(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_get_peak_parameters(session_id: str, index: int) -> dict:
+    """Return one peak's parameters, bounds, fit flags and area."""
+    return _ctrl.get_waxs_peak_parameters(session_id, index)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_set_peak_shape(
+    session_id: str, index: int, shape: str
+) -> dict:
+    """Change a peak's shape, keeping A, Q0 and FWHM.
+
+    Pseudo-Voigt adds the eta mixing parameter (0 = Gaussian, 1 = Lorentzian).
+    """
+    return _ctrl.set_waxs_peak_shape(session_id, index, shape)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_set_peak_parameter(
+    session_id: str, index: int, name: str, value: float
+) -> dict:
+    """Set one peak parameter's value (A, Q0, FWHM or eta)."""
+    return _ctrl.set_waxs_peak_parameter(session_id, index, name, value)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_set_peak_parameter_fit(
+    session_id: str, index: int, name: str, fit: bool = True
+) -> dict:
+    """Choose whether one peak parameter is fitted or held.
+
+    Holding Q0 at a known reflection position while fitting width and
+    amplitude is the usual way to fit an identified phase.
+    """
+    return _ctrl.set_waxs_peak_parameter_fit(session_id, index, name, fit=fit)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_set_peak_parameter_bounds(
+    session_id: str,
+    index: int,
+    name: str,
+    lo: Optional[float] = None,
+    hi: Optional[float] = None,
+) -> dict:
+    """Set bounds on one peak parameter; null leaves that side unbounded."""
+    return _ctrl.set_waxs_peak_parameter_bounds(
+        session_id, index, name, lo=lo, hi=hi
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_run_fit(
+    session_id: str, weight_mode: str = "standard"
+) -> dict:
+    """Fit background and peaks inside the current fit Q range.
+
+    weight_mode 'standard' uses 1/sigma^2; 'equal' stops a low-noise
+    background dominating; 'relative' emphasises peaks over the background.
+    Returns quality plus each peak's values, uncertainties and area.
+    """
+    return _ctrl.run_waxs_fit(session_id, weight_mode=weight_mode)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_get_results(session_id: str) -> dict:
+    """Return the last WAXS fit: quality, background, and every peak with
+    position, width, amplitude, 1-sigma uncertainties and integrated area."""
+    return _ctrl.get_waxs_results(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_get_fit_image(
+    session_id: str, width: int = 1024, height: int = 800
+) -> list[Any]:
+    """Render the WAXS fit as a PNG: data, total model, background and each
+    peak drawn separately, with residuals below.
+
+    How you spot a peak that has drifted onto its neighbour or collapsed to
+    zero amplitude.
+    """
+    result = _ctrl.get_waxs_fit_image(session_id, width=width, height=height)
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    return [f"WAXS peak fit image (session {session_id})",
+            Image(data=_base64.b64decode(b64), format="png")]
+
+
+@mcp.tool()
+def pyirena_ctrl_waxs_save_fit(
+    session_id: str, output_path: Optional[str] = None
+) -> dict:
+    """Save the WAXS fit to NXcanSAS HDF5 (entry/waxs_peakfit_results).
+
+    Defaults to overwriting the original file; pass output_path to save
+    elsewhere and preserve the original.
+    """
+    return _ctrl.save_waxs_fit(session_id, output_path=output_path)
 
 
 # ---------------------------------------------------------------------------

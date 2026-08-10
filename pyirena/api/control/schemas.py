@@ -1503,6 +1503,283 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id"],
         },
     },
+
+    # -----------------------------------------------------------------------
+    # WAXS Peak Fit — model lifecycle and background
+    # -----------------------------------------------------------------------
+    {
+        "name": "list_waxs_options",
+        "description": (
+            "List WAXS peak shapes (Gauss, Lorentz, Pseudo-Voigt, LogNormal), "
+            "background shapes with their parameters, and weighting modes. "
+            "Adaptive backgrounds (SNIP, Rolling Quantile Spline, Rolling Ball) "
+            "are estimated from the data rather than fitted. Needs no session."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "select_waxs_model",
+        "description": (
+            "Create a WAXS peak-fit model with no peaks yet. bg_shape 'SNIP' "
+            "(default) estimates a smooth background from the data and suits "
+            "most patterns; polynomial shapes are fitted with the peaks."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "bg_shape": {"type": "string", "default": "SNIP"},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_config",
+        "description": "Return the background setup and the current peak list.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_waxs_background",
+        "description": (
+            "Switch the background shape, resetting its parameters to defaults "
+            "and keeping the peaks — the usual way to test whether a stubborn "
+            "residual is a background artefact."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "bg_shape": {"type": "string"}},
+            "required": ["session_id", "bg_shape"],
+        },
+    },
+    {
+        "name": "set_waxs_background_parameter",
+        "description": (
+            "Set a background parameter's value, fit flag or bounds. Adaptive "
+            "backgrounds have a tuning value only — they are estimated, not "
+            "fitted, so fit flag and bounds are ignored with a note."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+                "value": {"type": ["number", "null"]},
+                "fit": {"type": ["boolean", "null"]},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # WAXS Peak Fit — peaks
+    # -----------------------------------------------------------------------
+    {
+        "name": "find_waxs_peaks",
+        "description": (
+            "Detect peaks in the data and add them with starting positions, "
+            "amplitudes and widths already close — the data-driven way to "
+            "start instead of guessing. Raise prominence_frac for fewer, "
+            "stronger peaks; lower it to pick up shoulders."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "prominence_frac": {"type": "number", "default": 0.05},
+                "min_fwhm": {"type": "number", "default": 0.001},
+                "max_fwhm": {"type": "number", "default": 0.5},
+                "min_distance": {"type": "number", "default": 0.005},
+                "shape": {"type": "string", "default": "Gauss"},
+                "replace": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "add_waxs_peak",
+        "description": (
+            "Add one peak at position q0. Omit amplitude to take it from the "
+            "measured intensity there, which starts far closer than a default."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q0": {"type": "number"},
+                "shape": {"type": "string", "default": "Gauss"},
+                "amplitude": {"type": ["number", "null"]},
+                "fwhm": {"type": "number", "default": 0.01},
+            },
+            "required": ["session_id", "q0"],
+        },
+    },
+    {
+        "name": "remove_waxs_peak",
+        "description": "Remove the peak at this index; later peaks shift down.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "list_waxs_peaks",
+        "description": (
+            "List every peak with its shape, parameters (A, Q0, FWHM, eta) and "
+            "derived integrated area."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_peak_parameters",
+        "description": "Return one peak's parameters, bounds, fit flags and area.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_shape",
+        "description": (
+            "Change a peak's shape, keeping A, Q0 and FWHM. Pseudo-Voigt adds "
+            "the eta mixing parameter (0 = Gaussian, 1 = Lorentzian)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}, "shape": {"type": "string"}},
+            "required": ["session_id", "index", "shape"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_parameter",
+        "description": "Set one peak parameter's value (A, Q0, FWHM or eta).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"}, "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "index", "name", "value"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_parameter_fit",
+        "description": (
+            "Choose whether one peak parameter is fitted or held. Holding Q0 "
+            "at a known reflection position while fitting width and amplitude "
+            "is the usual way to fit an identified phase."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"}, "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "fit": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_parameter_bounds",
+        "description": (
+            "Set bounds on one peak parameter; null leaves that side "
+            "unbounded. A value outside the new range is clamped in."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"}, "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # WAXS Peak Fit — fit, results, persistence
+    # -----------------------------------------------------------------------
+    {
+        "name": "run_waxs_fit",
+        "description": (
+            "Fit background and peaks inside the current fit Q range. "
+            "weight_mode 'standard' uses 1/sigma^2; 'equal' stops a low-noise "
+            "background dominating; 'relative' emphasises peaks. Returns "
+            "quality plus each peak's values, uncertainties and area."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "weight_mode": {
+                    "type": "string",
+                    "enum": ["standard", "equal", "relative"],
+                    "default": "standard",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_results",
+        "description": (
+            "Return the last WAXS fit: chi-squared, reduced chi-squared, dof, "
+            "background parameters and every peak with position, width, "
+            "amplitude, 1-sigma uncertainties and integrated area."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_fit_image",
+        "description": (
+            "Render the fit as a PNG: data, total model, background and each "
+            "peak drawn separately, with residuals below — how you spot a peak "
+            "that drifted onto its neighbour or collapsed to zero amplitude."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 800},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_waxs_fit",
+        "description": (
+            "Save the WAXS fit to NXcanSAS HDF5 under "
+            "entry/waxs_peakfit_results. Defaults to overwriting the original."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 ]
 
 # Convenience: look up a schema by name

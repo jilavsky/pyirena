@@ -43,7 +43,7 @@ from the same seven layers.** Learn the stack once and you can find anything.
 | **io** | `pyirena/io/nxcansas_<tool>.py` | Save/load results into NXcanSAS HDF5 at `entry/<tool>_results`, embedding GUI state as `_pyirena_config` | h5py, core |
 | **gui** | `pyirena/gui/<tool>_panel.py` | Thin Qt shell over the core object; full control state round-trips through `StateManager` | Qt (via `gui/_qt.py`), core, io |
 | **batch** | `pyirena/batch/<tool>.py` | Headless execution of the same core from a dict or JSON config section | core, io |
-| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions | core, io |
+| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions (all five fitting tools) | core, io |
 | **mcp** | `pyirena/mcp/server.py` | Protocol wrapper exposing `pyirena.api` to MCP clients | api |
 | **plotting** | `pyirena/plotting/` | Headless matplotlib rendering | core, matplotlib |
 

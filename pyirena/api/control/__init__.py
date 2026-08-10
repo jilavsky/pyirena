@@ -159,6 +159,30 @@ from pyirena.api.control.modeling import (
     save_modeling_fit,
 )
 
+from pyirena.api.control.waxs_peakfit import (
+    # WAXS — model lifecycle & background
+    list_waxs_options,
+    select_waxs_model,
+    get_waxs_config,
+    set_waxs_background,
+    set_waxs_background_parameter,
+    # WAXS — peaks
+    find_waxs_peaks,
+    add_waxs_peak,
+    remove_waxs_peak,
+    list_waxs_peaks,
+    get_waxs_peak_parameters,
+    set_waxs_peak_shape,
+    set_waxs_peak_parameter,
+    set_waxs_peak_parameter_fit,
+    set_waxs_peak_parameter_bounds,
+    # WAXS — fit, results, persistence
+    run_waxs_fit,
+    get_waxs_results,
+    get_waxs_fit_image,
+    save_waxs_fit,
+)
+
 __all__ = [
     "__version__",
     # A
@@ -213,4 +237,12 @@ __all__ = [
     "set_modeling_background", "set_modeling_q_range",
     "run_modeling_fit", "get_modeling_results", "get_modeling_fit_image",
     "save_modeling_fit",
+    # WAXS Peak Fit
+    "list_waxs_options", "select_waxs_model", "get_waxs_config",
+    "set_waxs_background", "set_waxs_background_parameter",
+    "find_waxs_peaks", "add_waxs_peak", "remove_waxs_peak", "list_waxs_peaks",
+    "get_waxs_peak_parameters", "set_waxs_peak_shape",
+    "set_waxs_peak_parameter", "set_waxs_peak_parameter_fit",
+    "set_waxs_peak_parameter_bounds",
+    "run_waxs_fit", "get_waxs_results", "get_waxs_fit_image", "save_waxs_fit",
 ]

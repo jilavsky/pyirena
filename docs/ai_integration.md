@@ -49,13 +49,13 @@ exposes two families of tools — see
   reading, parameter aggregation across files, headless plotting
   (e.g. `pyirena_summarize_folder`, `pyirena_list_files`).
 - **Control tools** (`pyirena_ctrl_` prefix) — drive fitting
-  interactively and write results back to HDF5. Four models are covered:
-  **Unified Fit** (`pyirena_ctrl_*`), **Size Distribution**
-  (`pyirena_ctrl_sizes_*`), **Simple Fits** (`pyirena_ctrl_simple_*`) and
-  **Modeling** (`pyirena_ctrl_modeling_*`).
+  interactively and write results back to HDF5. **Every fitting tool** is
+  covered: **Unified Fit** (`pyirena_ctrl_*`), **Size Distribution**
+  (`pyirena_ctrl_sizes_*`), **Simple Fits** (`pyirena_ctrl_simple_*`),
+  **Modeling** (`pyirena_ctrl_modeling_*`) and **WAXS Peak Fit**
+  (`pyirena_ctrl_waxs_*`).
   These are stateful (session-based) and, unlike
   the read-only tools, can modify files via the `*_save_fit` tools.
-  WAXS Peak Fit is read-only for now.
 
 ---
 

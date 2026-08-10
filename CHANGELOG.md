@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **WAXS Peak Fit is now agent-drivable — U9 is complete** (feature parity
+  review item U9, issue #13). `pyirena/api/control/waxs_peakfit.py` adds 18
+  tools: background choice (adaptive SNIP and friends, or fitted polynomials),
+  peak finding, add/remove/list peaks, per-peak shape and parameters with fit
+  flags and bounds, the fit with its three weighting modes, results, an image
+  and save to NXcanSAS — exposed over MCP as `pyirena_ctrl_waxs_*`.
+  - **`find_waxs_peaks` is the entry point**: it runs pyIrena's peak detector
+    over the fit Q range and creates peaks with position, amplitude and width
+    already close, so an agent starts from the data rather than from guesses.
+    `prominence_frac` trades spurious detections against missed shoulders.
+  - Every peak reports its **integrated area** (derived from the fitted shape,
+    with a propagated uncertainty) — usually the quantity a WAXS question is
+    actually about.
+  - The fit image draws each peak separately over the background, which is how
+    a peak that has drifted onto its neighbour becomes visible.
+  - The MCP surface grows from 101 to 119 tools. **All five fitting tools —
+    Unified Fit, Sizes, Simple Fits, Modeling and WAXS Peak Fit — now have a
+    control surface.**
 - **Modeling is now agent-drivable** (feature parity review item U9, issue #13).
   `pyirena/api/control/modeling.py` adds 18 tools — population management (add,
   remove, enable, list), per-parameter value/fit/bounds, the non-numeric options
