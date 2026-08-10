@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Modeling is now agent-drivable** (feature parity review item U9, issue #13).
+  `pyirena/api/control/modeling.py` adds 18 tools — population management (add,
+  remove, enable, list), per-parameter value/fit/bounds, the non-numeric options
+  (distribution, form factor, structure factor, peak type, correlations), the
+  background, the Q range, the fit, results, a per-population fit image and save
+  to NXcanSAS — exposed over MCP as `pyirena_ctrl_modeling_*`.
+  - **One flat parameter namespace.** A population's parameters live in plain
+    attributes and in three nested dicts; the surface flattens them to dotted
+    names (`dist.mean_size`, `ff.sld_core`, `sf.eta`, `scale`) and lists only
+    the ones active for the current distribution, form factor and structure
+    factor — the same set the fitter packs. Switching to a core-shell form
+    factor adds its SLD and thickness parameters with sensible defaults and
+    removes `contrast`, whose role the SLDs take over.
+  - The fit image draws **each population separately** alongside the total, so
+    a population that has collapsed to nothing is visible at a glance.
+  - The MCP surface grows from 83 to 101 tools.
+  - Only WAXS Peak Fit remains without a control surface.
 - **Simple Fits is now agent-drivable** (feature parity review item U9, issue
   #13). Interactive control sessions existed for Unified Fit and Size
   Distribution only, so an AI agent could read Simple Fits results but never
@@ -128,6 +145,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are documented as the `_pyirena_config` setup-state shape and agent scripts
   call them. WAXS Peak Fit gained the `load_state()` it never had (it applied
   saved state inline in `__init__`).
+- **The form-factor parameter registry moved to `pyirena/core/form_factors.py`**
+  (`FORM_FACTOR_PARAMS`, `FORM_FACTOR_PARAM_DEFAULTS`,
+  `CONTRAST_FREE_FORM_FACTORS`) from `gui/modeling_panel.py`. Which parameters
+  a core-shell shape needs, and their defaults, sat next to the widgets that
+  drew them, so the api/control layer — which may not import `gui` — could not
+  tell an agent what to set. The GUI now reads the same registry, so a new form
+  factor is declared once, beside its G-matrix builder.
 - **The data-file type table is shared** in `pyirena/core/file_types.py`
   (`FILE_TYPES`, `FILE_TYPE_EXTS`, `files_in_folder()`) instead of being copied
   verbatim into Data Manipulation and Data Merge along with their own

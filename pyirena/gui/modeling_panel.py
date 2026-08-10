@@ -31,6 +31,12 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.distributions import DIST_DEFAULTS, DIST_LABELS, DIST_PARAM_NAMES
+from pyirena.core.form_factors import (
+    CONTRAST_FREE_FORM_FACTORS,
+    form_factor_param_defaults,
+    form_factor_params,
+    list_form_factors,
+)
 from pyirena.core.modeling import (
     DiffractionPeakPopulation,
     GuinierPorodPopulation,
@@ -115,18 +121,24 @@ SF_PARAM_LABELS = {
     'volume_fraction': 'Volume fraction',
 }
 
-# Form-factor display labels and their extra params
+# Form-factor display labels.  The *parameter lists* come from
+# pyirena.core.form_factors (one source of truth, shared with api/control,
+# which may not import from gui/); only the human labels live here.
+_FF_DISPLAY_NAMES = {
+    'sphere':               'Sphere',
+    'spheroid':             'Spheroid',
+    'cylinder_ar':          'Cylinder (Aspect Ratio)',
+    'cylinder_length':      'Cylinder (Length)',
+    'cs_sphere_by_core':    'Core-Shell Sphere (by core R)',
+    'cs_sphere_by_shell':   'Core-Shell Sphere (by shell t)',
+    'cs_sphere_by_total':   'Core-Shell Sphere (by total R)',
+    'css_sphere_by_core':   'Core-Shell-Shell Sphere (by core R)',
+    'cs_spheroid_by_core':  'Core-Shell Spheroid (by core R)',
+    'cs_spheroid_by_total': 'Core-Shell Spheroid (by total R)',
+}
 FF_LABELS = {
-    'sphere':               ('Sphere',                              []),
-    'spheroid':             ('Spheroid',                            ['aspect_ratio']),
-    'cylinder_ar':          ('Cylinder (Aspect Ratio)',             ['aspect_ratio']),
-    'cylinder_length':      ('Cylinder (Length)',                   ['length']),
-    'cs_sphere_by_core':    ('Core-Shell Sphere (by core R)',       ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
-    'cs_sphere_by_shell':   ('Core-Shell Sphere (by shell t)',      ['sld_core', 'sld_shell', 'sld_solvent', 'r_core_fixed']),
-    'cs_sphere_by_total':   ('Core-Shell Sphere (by total R)',      ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
-    'css_sphere_by_core':   ('Core-Shell-Shell Sphere (by core R)', ['sld_core', 'sld_shell1', 'sld_shell2', 'sld_solvent', 't_shell1', 't_shell2']),
-    'cs_spheroid_by_core':  ('Core-Shell Spheroid (by core R)',     ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
-    'cs_spheroid_by_total': ('Core-Shell Spheroid (by total R)',    ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
+    key: (_FF_DISPLAY_NAMES.get(key, key), form_factor_params(key))
+    for key in list_form_factors()
 }
 FF_PARAM_LABELS = {
     'aspect_ratio':  'Aspect ratio (L/R)',
@@ -142,7 +154,7 @@ FF_PARAM_LABELS = {
     'r_core_fixed':  'Core radius R_core [Å]',
 }
 # Form-factor keys that embed SLDs — contrast is fixed at 1.0 and hidden
-_CS_FF_KEYS = frozenset(FF_LABELS) - {'sphere', 'spheroid', 'cylinder_ar', 'cylinder_length'}
+_CS_FF_KEYS = CONTRAST_FREE_FORM_FACTORS
 
 # Unified Fit Level parameter definitions: (key, display_label, default, lo, hi, fit_default)
 UF_PARAMS = [
@@ -846,22 +858,9 @@ class PopulationTab(QWidget):
         self._ff_rows.clear()
         ff_key = self.ff_combo.currentData() or 'sphere'
         _, extra_keys = FF_LABELS.get(ff_key, ('', []))
-        _ff_defaults = {
-            'aspect_ratio':  (1.0,   0.001,   1000.0),
-            'length':        (100.0, 0.1,     1e6),
-            'sld_core':      (10.0,  -100.0,  100.0),   # 10⁻⁶ Å⁻²
-            'sld_shell':     (1.0,   -100.0,  100.0),
-            'sld_shell1':    (1.0,   -100.0,  100.0),
-            'sld_shell2':    (5.0,   -100.0,  100.0),
-            'sld_solvent':   (9.46,  -100.0,  100.0),   # H₂O ≈ 9.46
-            't_shell':       (20.0,  0.1,     1e4),     # Å
-            't_shell1':      (20.0,  0.1,     1e4),     # Å
-            't_shell2':      (20.0,  0.1,     1e4),     # Å
-            'r_core_fixed':  (50.0,  0.1,     1e6),     # Å
-        }
         for row_i, pname in enumerate(extra_keys):
             label = FF_PARAM_LABELS.get(pname, pname)
-            val, lo, hi = _ff_defaults.get(pname, (1.0, 0.01, 100.0))
+            val, lo, hi = form_factor_param_defaults(pname)
             self._add_param_row(
                 self._ff_grid, row_i, pname, label,
                 val, False, lo, hi, self._ff_rows,

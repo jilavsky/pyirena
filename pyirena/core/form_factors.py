@@ -617,6 +617,68 @@ _G_BUILDERS: dict[str, callable] = {
 }
 
 
+#: Extra parameters each form factor takes, beyond the radius grid.
+#:
+#: The single source of truth for "which knobs does this shape have".  It used
+#: to live in ``gui/modeling_panel.py``, which meant the api/control layer —
+#: ``core`` and ``api`` may not import ``gui`` — could not tell an agent what a
+#: core-shell model needs.  The GUI now reads these lists too, so a new form
+#: factor is declared once, here, next to its G-matrix builder.
+FORM_FACTOR_PARAMS: dict[str, list[str]] = {
+    'sphere':               [],
+    'spheroid':             ['aspect_ratio'],
+    'cylinder_ar':          ['aspect_ratio'],
+    'cylinder_length':      ['length'],
+    'cs_sphere_by_core':    ['sld_core', 'sld_shell', 'sld_solvent', 't_shell'],
+    'cs_sphere_by_shell':   ['sld_core', 'sld_shell', 'sld_solvent', 'r_core_fixed'],
+    'cs_sphere_by_total':   ['sld_core', 'sld_shell', 'sld_solvent', 't_shell'],
+    'css_sphere_by_core':   ['sld_core', 'sld_shell1', 'sld_shell2', 'sld_solvent',
+                             't_shell1', 't_shell2'],
+    'cs_spheroid_by_core':  ['sld_core', 'sld_shell', 'sld_solvent', 't_shell',
+                             'aspect_ratio'],
+    'cs_spheroid_by_total': ['sld_core', 'sld_shell', 'sld_solvent', 't_shell',
+                             'aspect_ratio'],
+}
+
+#: Starting value and fitting bounds for each form-factor parameter,
+#: as ``(value, lo, hi)``.  SLDs are in 10⁻⁶ Å⁻²; thicknesses and radii in Å.
+#: The solvent default is water (9.46 × 10⁻⁶ Å⁻²).
+FORM_FACTOR_PARAM_DEFAULTS: dict[str, tuple] = {
+    'aspect_ratio':  (1.0,   0.001,  1000.0),
+    'length':        (100.0, 0.1,    1e6),
+    'sld_core':      (10.0,  -100.0, 100.0),
+    'sld_shell':     (1.0,   -100.0, 100.0),
+    'sld_shell1':    (1.0,   -100.0, 100.0),
+    'sld_shell2':    (5.0,   -100.0, 100.0),
+    'sld_solvent':   (9.46,  -100.0, 100.0),
+    't_shell':       (20.0,  0.1,    1e4),
+    't_shell1':      (20.0,  0.1,    1e4),
+    't_shell2':      (20.0,  0.1,    1e4),
+    'r_core_fixed':  (50.0,  0.1,    1e6),
+}
+
+#: Form factors whose SLDs encode the contrast internally, so a separate
+#: contrast multiplier is meaningless and is pinned to 1.0.
+CONTRAST_FREE_FORM_FACTORS: frozenset = frozenset(FORM_FACTOR_PARAMS) - {
+    'sphere', 'spheroid', 'cylinder_ar', 'cylinder_length',
+}
+
+
+def list_form_factors() -> list[str]:
+    """Names of every supported form factor, in declaration order."""
+    return list(FORM_FACTOR_PARAMS)
+
+
+def form_factor_params(shape: str) -> list[str]:
+    """Extra parameter names for *shape* ([] for a plain sphere, [] if unknown)."""
+    return list(FORM_FACTOR_PARAMS.get(shape, []))
+
+
+def form_factor_param_defaults(name: str) -> tuple:
+    """``(value, lo, hi)`` for a form-factor parameter; a generic default if new."""
+    return FORM_FACTOR_PARAM_DEFAULTS.get(name, (1.0, 0.01, 100.0))
+
+
 def build_g_matrix(
     q: np.ndarray,
     r_grid: np.ndarray,

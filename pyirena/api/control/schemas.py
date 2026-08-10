@@ -1203,6 +1203,306 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id"],
         },
     },
+
+    # -----------------------------------------------------------------------
+    # Modeling — model lifecycle and populations
+    # -----------------------------------------------------------------------
+    {
+        "name": "select_modeling_model",
+        "description": (
+            "Start a Modeling configuration (no populations yet). Modeling "
+            "builds a curve from several populations: size distributions with "
+            "a form factor, unified levels, Guinier-Porod levels, diffraction "
+            "peaks, mass or surface fractals. Q range defaults to the full data."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_modeling_config",
+        "description": (
+            "Return the global Modeling settings (Q range, background, fit "
+            "method, slit smearing) and a summary of every population."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "list_population_types",
+        "description": (
+            "Describe the six Modeling population types with their options, "
+            "and — for size_dist — every distribution, form factor and "
+            "structure factor with the parameters each brings. Needs no "
+            "session; call before add_population."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "add_population",
+        "description": (
+            "Add a population to the Modeling model and return its index and "
+            "parameters. Populations start from generic defaults — set the "
+            "parameters that matter before fitting."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "pop_type": {
+                    "type": "string",
+                    "enum": ["size_dist", "unified_level", "guinier_porod",
+                             "diffraction_peak", "mass_fractal",
+                             "surface_fractal"],
+                    "default": "size_dist",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional name shown in reports and plots.",
+                    "default": "",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "remove_population",
+        "description": "Remove the population at this index; later ones shift down.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "list_populations",
+        "description": (
+            "List every population with its index, type, label, enabled state "
+            "and number of free parameters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_population_enabled",
+        "description": (
+            "Include or exclude a population from the model without deleting "
+            "it — the way to test what a population contributes: fit with it "
+            "off, compare chi-squared, turn it back on."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "enabled": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "index"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Modeling — population parameters
+    # -----------------------------------------------------------------------
+    {
+        "name": "get_population_parameters",
+        "description": (
+            "List the parameters active for this population with value, fit "
+            "flag and bounds. Nested parameters use a dotted prefix: "
+            "'dist.mean_size', 'ff.sld_core', 'sf.eta'. Only parameters the "
+            "current distribution/form factor/structure factor use are listed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "set_population_parameter",
+        "description": (
+            "Set one population parameter's value. Use the dotted names from "
+            "get_population_parameters ('dist.mean_size', 'ff.t_shell', 'scale')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "index", "name", "value"],
+        },
+    },
+    {
+        "name": "set_population_parameter_fit",
+        "description": (
+            "Choose whether one parameter is fitted or held. Modeling has many "
+            "parameters and few constraints — fit a handful at a time."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "fit": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    {
+        "name": "set_population_parameter_bounds",
+        "description": (
+            "Set fitting bounds for one population parameter. Passing null "
+            "keeps that side unchanged (the global fit method needs finite "
+            "bounds). A value outside the new range is clamped in."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    {
+        "name": "set_population_option",
+        "description": (
+            "Set a non-numeric switch on a population: dist_type, form_factor, "
+            "structure_factor, peak_type, correlations, use_porod_transition, "
+            "use_number_dist, n_bins or label. Changing one re-derives the "
+            "active parameters — switching to a core-shell form factor adds "
+            "its SLD and thickness parameters with sensible defaults."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "option": {"type": "string"},
+                "value": {"type": "string"},
+            },
+            "required": ["session_id", "index", "option", "value"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Modeling — global settings, fit, results, persistence
+    # -----------------------------------------------------------------------
+    {
+        "name": "set_modeling_background",
+        "description": "Set the flat background level and/or whether it is fitted.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "value": {"type": ["number", "null"]},
+                "fit": {"type": ["boolean", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_modeling_q_range",
+        "description": (
+            "Set the Q range the Modeling fit uses. Modeling crops the data "
+            "itself, so this — not the shared set_fit_q_range — is what limits "
+            "a Modeling fit. Pass null to leave one end unchanged."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q_min": {"type": ["number", "null"]},
+                "q_max": {"type": ["number", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "run_modeling_fit",
+        "description": (
+            "Fit the enabled populations over the model's Q range. "
+            "fit_method='local' (default) refines from the current values; "
+            "'global' runs differential evolution first, for core-shell models "
+            "whose chi-squared surface has many minima (needs finite bounds). "
+            "Returns quality and every population's fitted parameters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "fit_method": {
+                    "type": "string",
+                    "enum": ["local", "global"],
+                    "default": "local",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_modeling_results",
+        "description": (
+            "Return the last Modeling fit: chi-squared, reduced chi-squared, "
+            "dof, background and each population's parameters plus derived "
+            "quantities (volume fraction, mean radius, Rg, specific surface)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_modeling_fit_image",
+        "description": (
+            "Render the fit as a PNG: log-log data, the total model, and each "
+            "population as a dashed curve, with residuals below. The "
+            "per-population curves show which population carries which part of "
+            "the curve and whether one has collapsed to nothing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 800},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_modeling_fit",
+        "description": (
+            "Save the Modeling fit to NXcanSAS HDF5 under entry/modeling_results. "
+            "Defaults to overwriting the original file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 ]
 
 # Convenience: look up a schema by name

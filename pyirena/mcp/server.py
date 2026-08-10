@@ -40,11 +40,13 @@ mcp = FastMCP(
         "pyirena_plot_parameter_trend() to visualize."
         "\n\n"
         "CONTROL tools (pyirena_ctrl_ prefix): drive fitting interactively. "
-        "Three models are available — Unified Fit, Size Distribution (Sizes) "
-        "and Simple Fits. Prefer Simple Fits when the question is about one "
-        "feature over a restricted Q range (an Rg, a Porod slope, the "
-        "invariant); Unified Fit for a whole multi-level curve; Sizes to "
-        "invert a dilute single population to a size histogram. "
+        "Four models are available — Unified Fit, Size Distribution (Sizes), "
+        "Simple Fits and Modeling. Prefer Simple Fits when the question is "
+        "about one feature over a restricted Q range (an Rg, a Porod slope, "
+        "the invariant); Unified Fit for a whole multi-level curve; Sizes to "
+        "invert a dilute single population to a size histogram; Modeling when "
+        "the curve needs several components at once or a specific form factor "
+        "(core-shell, cylinder). "
         "Unified Fit workflow: pyirena_ctrl_open_dataset() → session_id → "
         "pyirena_ctrl_select_model() → pyirena_ctrl_fix_all_except() → "
         "pyirena_ctrl_run_fit() → pyirena_ctrl_get_fit_image() → "
@@ -62,7 +64,19 @@ mcp = FastMCP(
         "pyirena_ctrl_simple_run_fit() → "
         "pyirena_ctrl_simple_get_linearization_image() (validity check) → "
         "pyirena_ctrl_simple_save_fit(). "
-        "The session and Q-range tools are shared between all three models. "
+        "Modeling workflow (pyirena_ctrl_modeling_ prefix): "
+        "pyirena_ctrl_open_dataset() → pyirena_ctrl_modeling_select_model() → "
+        "pyirena_ctrl_modeling_list_population_types() → "
+        "pyirena_ctrl_modeling_add_population() → set_population_option / "
+        "set_population_parameter / set_population_parameter_fit → "
+        "pyirena_ctrl_modeling_set_q_range() → "
+        "pyirena_ctrl_modeling_run_fit() → "
+        "pyirena_ctrl_modeling_get_fit_image() → "
+        "pyirena_ctrl_modeling_save_fit(). Modeling parameters use dotted "
+        "names (dist.mean_size, ff.sld_core, sf.eta) — always list them with "
+        "get_population_parameters rather than guessing. "
+        "The session tools are shared between all four models (Modeling has "
+        "its own Q range). "
         "Sessions are in-memory for this server process."
     ),
 )
@@ -1178,6 +1192,216 @@ def pyirena_ctrl_simple_save_fit(
     the original file; pass output_path to save elsewhere.
     """
     return _ctrl.save_simple_fit(session_id, output_path=output_path)
+
+
+# ---------------------------------------------------------------------------
+# Control tools — Modeling
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def pyirena_ctrl_modeling_select_model(session_id: str) -> dict:
+    """Start a Modeling configuration (no populations yet).
+
+    Modeling builds a curve from several populations: size distributions with
+    a form factor, Beaucage unified levels, Guinier-Porod levels, diffraction
+    peaks, mass fractals, surface fractals. Q range defaults to the full data.
+    """
+    return _ctrl.select_modeling_model(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_get_config(session_id: str) -> dict:
+    """Return the Modeling settings (Q range, background, fit method, slit
+    smearing) and a summary of every population."""
+    return _ctrl.get_modeling_config(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_list_population_types() -> dict:
+    """Describe the six Modeling population types with their options, and — for
+    size_dist — every distribution, form factor and structure factor with the
+    parameters each brings. Needs no session; call before adding a population.
+    """
+    return _ctrl.list_population_types()
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_add_population(
+    session_id: str, pop_type: str = "size_dist", label: str = ""
+) -> dict:
+    """Add a population and return its index and parameters.
+
+    pop_type: size_dist, unified_level, guinier_porod, diffraction_peak,
+    mass_fractal or surface_fractal. Populations start from generic defaults —
+    set the parameters that matter for the sample before fitting.
+    """
+    return _ctrl.add_population(session_id, pop_type=pop_type, label=label)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_remove_population(session_id: str, index: int) -> dict:
+    """Remove the population at this index; later populations shift down."""
+    return _ctrl.remove_population(session_id, index)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_list_populations(session_id: str) -> dict:
+    """List every population with index, type, label, enabled state and number
+    of free parameters."""
+    return _ctrl.list_populations(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_population_enabled(
+    session_id: str, index: int, enabled: bool = True
+) -> dict:
+    """Include or exclude a population without deleting it.
+
+    The way to test what a population contributes: fit with it off, compare
+    chi-squared, turn it back on.
+    """
+    return _ctrl.set_population_enabled(session_id, index, enabled=enabled)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_get_population_parameters(
+    session_id: str, index: int
+) -> dict:
+    """List the parameters active for this population with value, fit flag and
+    bounds.
+
+    Nested parameters use a dotted prefix: 'dist.mean_size', 'ff.sld_core',
+    'sf.eta'. Only parameters the current distribution / form factor /
+    structure factor actually use are listed.
+    """
+    return _ctrl.get_population_parameters(session_id, index)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_population_parameter(
+    session_id: str, index: int, name: str, value: float
+) -> dict:
+    """Set one population parameter's value (dotted names from
+    pyirena_ctrl_modeling_get_population_parameters)."""
+    return _ctrl.set_population_parameter(session_id, index, name, value)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_population_parameter_fit(
+    session_id: str, index: int, name: str, fit: bool = True
+) -> dict:
+    """Choose whether one population parameter is fitted or held.
+
+    Modeling has many parameters and few constraints — fit a handful at a time.
+    """
+    return _ctrl.set_population_parameter_fit(session_id, index, name, fit=fit)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_population_parameter_bounds(
+    session_id: str,
+    index: int,
+    name: str,
+    lo: Optional[float] = None,
+    hi: Optional[float] = None,
+) -> dict:
+    """Set fitting bounds for one population parameter.
+
+    Passing null keeps that side unchanged (the global fit method needs finite
+    bounds). A value outside the new range is clamped in.
+    """
+    return _ctrl.set_population_parameter_bounds(
+        session_id, index, name, lo=lo, hi=hi
+    )
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_population_option(
+    session_id: str, index: int, option: str, value: str
+) -> dict:
+    """Set a non-numeric switch on a population.
+
+    option: dist_type, form_factor, structure_factor, peak_type, correlations,
+    use_porod_transition, use_number_dist, n_bins or label. Changing one
+    re-derives the active parameters — switching to a core-shell form factor
+    adds its SLD and shell-thickness parameters with sensible defaults.
+    """
+    return _ctrl.set_population_option(session_id, index, option, value)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_background(
+    session_id: str,
+    value: Optional[float] = None,
+    fit: Optional[bool] = None,
+) -> dict:
+    """Set the flat background level and/or whether it is fitted."""
+    return _ctrl.set_modeling_background(session_id, value=value, fit=fit)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_set_q_range(
+    session_id: str,
+    q_min: Optional[float] = None,
+    q_max: Optional[float] = None,
+) -> dict:
+    """Set the Q range the Modeling fit uses.
+
+    Modeling crops the data itself, so this — not pyirena_ctrl_set_fit_q_range —
+    is what limits a Modeling fit. Pass null to leave one end unchanged.
+    """
+    return _ctrl.set_modeling_q_range(session_id, q_min=q_min, q_max=q_max)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_run_fit(
+    session_id: str, fit_method: str = "local"
+) -> dict:
+    """Fit the enabled populations over the model's Q range.
+
+    fit_method 'local' (default) refines from the current values; 'global'
+    runs differential evolution first, for core-shell models whose chi-squared
+    surface has many minima (needs finite bounds on every fitted parameter).
+    """
+    return _ctrl.run_modeling_fit(session_id, fit_method=fit_method)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_get_results(session_id: str) -> dict:
+    """Return the last Modeling fit: chi-squared, reduced chi-squared, dof,
+    background, and each population's parameters plus derived quantities
+    (volume fraction, mean radius, Rg, specific surface)."""
+    return _ctrl.get_modeling_results(session_id)
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_get_fit_image(
+    session_id: str, width: int = 1024, height: int = 800
+) -> list[Any]:
+    """Render the Modeling fit as a PNG: log-log data, the total model, and
+    each population as a dashed curve, with residuals below.
+
+    The per-population curves show which population carries which part of the
+    curve, and whether one has collapsed to nothing.
+    """
+    result = _ctrl.get_modeling_fit_image(session_id, width=width, height=height)
+    if "error" in result:
+        return [result]
+    b64 = result.get("image_base64", "")
+    return [f"Modeling fit image (session {session_id})",
+            Image(data=_base64.b64decode(b64), format="png")]
+
+
+@mcp.tool()
+def pyirena_ctrl_modeling_save_fit(
+    session_id: str, output_path: Optional[str] = None
+) -> dict:
+    """Save the Modeling fit to NXcanSAS HDF5 (entry/modeling_results).
+
+    Defaults to overwriting the original file; pass output_path to save
+    elsewhere and preserve the original.
+    """
+    return _ctrl.save_modeling_fit(session_id, output_path=output_path)
 
 
 # ---------------------------------------------------------------------------

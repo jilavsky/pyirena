@@ -133,6 +133,32 @@ from pyirena.api.control.simple_fits import (
     save_simple_fit,
 )
 
+from pyirena.api.control.modeling import (
+    # Modeling — model lifecycle
+    select_modeling_model,
+    get_modeling_config,
+    list_population_types,
+    # Modeling — populations
+    add_population,
+    remove_population,
+    list_populations,
+    set_population_enabled,
+    # Modeling — population parameters
+    get_population_parameters,
+    set_population_parameter,
+    set_population_parameter_fit,
+    set_population_parameter_bounds,
+    set_population_option,
+    # Modeling — global settings
+    set_modeling_background,
+    set_modeling_q_range,
+    # Modeling — fit, results, persistence
+    run_modeling_fit,
+    get_modeling_results,
+    get_modeling_fit_image,
+    save_modeling_fit,
+)
+
 __all__ = [
     "__version__",
     # A
@@ -177,4 +203,14 @@ __all__ = [
     "run_simple_fit", "get_simple_results",
     "get_simple_fit_image", "get_simple_linearization_image",
     "save_simple_fit",
+    # Modeling
+    "select_modeling_model", "get_modeling_config", "list_population_types",
+    "add_population", "remove_population", "list_populations",
+    "set_population_enabled",
+    "get_population_parameters", "set_population_parameter",
+    "set_population_parameter_fit", "set_population_parameter_bounds",
+    "set_population_option",
+    "set_modeling_background", "set_modeling_q_range",
+    "run_modeling_fit", "get_modeling_results", "get_modeling_fit_image",
+    "save_modeling_fit",
 ]
