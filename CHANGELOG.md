@@ -251,6 +251,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pip install pyirena[mcp]` broke against the newly released mcp 2.0.**
+  The 2.x SDK removed `mcp.server.fastmcp`, which `pyirena/mcp/server.py` is
+  built on, so a fresh install picked up 2.x and failed at import with a
+  misleading "install with pyirena[mcp]" message. The extra is pinned to
+  `mcp>=1.0.0,<2.0` until the server is migrated to the 2.x API.
 - **The GUI test modules errored instead of skipping without Qt.** The new
   table, plot-export and report tests used `pytest.importorskip`, which pytest
   ≥ 8.2 treats as a *broken* module when the import raises a plain ImportError —
