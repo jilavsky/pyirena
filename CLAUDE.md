@@ -84,8 +84,11 @@ save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
    matplotlib-free; `api/plotting.py` and `api/control/` are the only
    non-GUI modules allowed to use matplotlib, and they import it lazily inside
    functions and force the `Agg` backend.
-2. All Qt imports in `gui/` go through `pyirena/gui/_qt.py` — never
-   `from PySide6 import ...` directly. It normalises the PySide6/PyQt6 fallback.
+2. All Qt imports go through `pyirena/gui/_qt.py` — never `from PySide6 import
+   ...` directly, not even inside a function. It normalises the PySide6/PyQt6
+   fallback. Missing a class? Add it to `_qt.py` and its `__all__`.
+   `pyirena/tests/test_gui_qt_contract.py` fails the build on a direct binding
+   import anywhere in the package (tests included) and on a second `_qt.py`.
 3. `pyirena.api` returns JSON-serialisable dicts only. No numpy scalars, no
    model objects, no file handles.
 4. `from_dict()` must supply defaults for every field so that files written by

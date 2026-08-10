@@ -221,13 +221,8 @@ def test_every_file_browser_accepts_drops_and_selects_what_was_dropped(tmp_path)
 
 def test_paths_from_mime_reads_both_urls_and_plain_text(tmp_path):
     _require_qt()
-    from pyirena.gui._qt import QApplication
+    from pyirena.gui._qt import QApplication, QMimeData, QUrl
     from pyirena.gui.file_drop import paths_from_mime
-
-    try:
-        from PySide6.QtCore import QMimeData, QUrl
-    except ImportError:
-        from PyQt6.QtCore import QMimeData, QUrl
 
     app = QApplication.instance() or QApplication([])
     assert app is not None

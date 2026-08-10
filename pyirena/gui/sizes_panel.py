@@ -39,6 +39,7 @@ from pyirena.gui._qt import (
     Qt,
     QTabWidget,
     QTextEdit,
+    QTransform,
     QUrl,
     QVBoxLayout,
     QWidget,
@@ -729,11 +730,6 @@ class SizesFitGraphWindow(QWidget):
         y_lo_vb, y_hi_vb = vb_range[1]
         bar_height = (y_hi_vb - y_lo_vb) * 0.035
         bar_bottom = y_hi_vb - bar_height * 1.3
-
-        try:
-            from PySide6.QtGui import QTransform
-        except ImportError:
-            from PyQt6.QtGui import QTransform
 
         img = pg.ImageItem()
         img.setImage(rgba)

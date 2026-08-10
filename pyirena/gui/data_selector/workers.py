@@ -14,7 +14,7 @@ from pyirena.batch import (
     fit_unified,
     fit_waxs_peaks_from_config,
 )
-from pyirena.gui.data_selector._qt import (
+from pyirena.gui._qt import (
     QThread,
     Signal,
 )

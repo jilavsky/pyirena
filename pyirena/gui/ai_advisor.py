@@ -40,6 +40,7 @@ from pyirena.gui._qt import (
     QIODevice,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
@@ -834,13 +835,6 @@ def launch_unified_fit_advisor(panel) -> None:
     api_key   = _get_api_key(provider)
 
     if not api_key and provider in ("anthropic", "openai"):
-        try:
-            from PySide6.QtWidgets import QMessageBox
-        except ImportError:
-            try:
-                from PyQt6.QtWidgets import QMessageBox
-            except ImportError:
-                from PyQt5.QtWidgets import QMessageBox
         QMessageBox.warning(
             panel, "AI Advisor",
             f"No API key found for {provider}.\n\n"

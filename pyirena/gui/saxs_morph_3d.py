@@ -40,6 +40,7 @@ from pyirena.gui._qt import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -559,7 +560,6 @@ class Voxel3DViewer(QWidget):
             try:
                 self.plotter.screenshot(path)
             except Exception as e:
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, 'Screenshot failed', str(e))
 
     def screenshot(self, path: str):

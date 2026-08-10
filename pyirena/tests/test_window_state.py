@@ -421,10 +421,10 @@ def test_without_shift_a_launch_leaves_the_window_alone(isolated_store, monkeypa
 
 def test_resetting_is_safe_on_anything_a_launcher_might_hold(monkeypatch):
     """Launch sites call this on whatever they have; it must never raise."""
+    _qt_or_skip()
     from pyirena.gui import window_state as ws
     from pyirena.gui._qt import QWidget
 
-    _qt_or_skip()
     monkeypatch.setattr(ws, "shift_held", lambda: True)
 
     assert ws.reset_window_if_shift(None) is False

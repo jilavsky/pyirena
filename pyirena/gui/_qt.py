@@ -98,6 +98,7 @@ QByteArray = QtCore.QByteArray
 QDir = QtCore.QDir
 QEvent = QtCore.QEvent
 QIODevice = QtCore.QIODevice
+QMimeData = QtCore.QMimeData
 QPointF = QtCore.QPointF
 QRectF = QtCore.QRectF
 QThread = QtCore.QThread
@@ -136,7 +137,8 @@ __all__ = [
     "QTableWidgetItem", "QTextBrowser", "QTextEdit", "QToolBar", "QTreeWidget",
     "QTreeWidgetItem", "QVBoxLayout", "QWidget",
     # QtCore
-    "Qt", "QBuffer", "QByteArray", "QDir", "QEvent", "QIODevice", "QPointF",
+    "Qt", "QBuffer", "QByteArray", "QDir", "QEvent", "QIODevice", "QMimeData",
+    "QPointF",
     "QRectF", "QThread", "QTimer", "QUrl",
     # QtGui
     "QAction", "QBrush", "QCloseEvent", "QColor", "QDesktopServices",

@@ -46,6 +46,7 @@ from pyirena.gui._qt import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDesktopServices,
     QDoubleValidator,
     QFileDialog,
     QFrame,
@@ -61,6 +62,7 @@ from pyirena.gui._qt import (
     Qt,
     QTabWidget,
     QThread,
+    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -1285,12 +1287,6 @@ class SaxsMorphPanel(QWidget):
             self.bg_qmax_edit.setText(_fmt(q_hi))
 
     def _open_help(self):
-        try:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-        except ImportError:
-            from PyQt6.QtCore import QUrl
-            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             'https://github.com/jilavsky/pyirena/blob/main/docs/saxs_morph_gui.md'
         ))

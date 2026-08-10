@@ -53,6 +53,7 @@ import pyqtgraph as pg
 from pyirena.gui._qt import (
     QFont,
     QInputDialog,
+    QMenu,
     QPainterPath,
     QPointF,
     QRectF,
@@ -585,11 +586,6 @@ class SlopeLine(pg.GraphicsObject):
         """
         if not self.shape().contains(ev.pos()):
             return []
-
-        try:
-            from PySide6.QtWidgets import QMenu
-        except ImportError:
-            from PyQt6.QtWidgets import QMenu
 
         menu = QMenu()
         hdr = menu.addAction(f'Slope line  n = {self.slope:g}  — drag to reposition')

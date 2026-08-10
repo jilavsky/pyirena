@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One Qt import point at last** (feature parity review item U7, issue #13).
+  The invariant said every Qt import goes through `pyirena/gui/_qt.py`; in
+  practice there were three shims — `gui/_qt.py`, `gui/data_selector/_qt.py` and
+  an inline one in `slit_smearing_ui.py` — plus 22 local
+  `try: PySide6 / except: PyQt6` blocks scattered through ten modules.
+  - `gui/data_selector/_qt.py` is **removed** and its five importers now use
+    `pyirena.gui._qt`; every local block is gone; `QMimeData` was the only name
+    the shim was missing.
+  - Three of those blocks had a **stale `PyQt5` third branch** (`unified_fit`,
+    `modeling_panel`, `ai_advisor`), which on a PyQt6-only install would have
+    raised `ModuleNotFoundError` from inside a paint or a message box rather
+    than falling back.
+  - `pyirena/tests/test_gui_qt_contract.py` keeps it fixed: it fails the build
+    on a direct binding import anywhere in the package (tests included), on a
+    second `_qt.py` in a subpackage, on a name imported from the shim that it
+    does not define, and on a name defined there but absent from `__all__`.
+    It reads the source, so it runs on a machine with no Qt installed.
+  - No behaviour change intended; the one visible edit is that Unified Fit's
+    cursor paint code now uses the shared `Qt` enum instead of a local alias
+    that shadowed it as `QtCore`.
 - **Drag a file onto pyIrena to open it** (feature parity review item A6,
   issue #13).  New `pyirena/gui/file_drop.py`; wired into the Data Selector,
   every fitting panel (through the shared `DataFileLoaderRow`, so Unified Fit,

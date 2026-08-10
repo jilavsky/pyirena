@@ -129,6 +129,26 @@ DOCS & TESTS
 [ ] 31. Run the full test suite, not just the new file
 ```
 
+## Qt imports
+
+One import point, no exceptions:
+
+```python
+from pyirena.gui._qt import QLabel, QTimer, Qt, Signal
+```
+
+If a class is missing, add it to `pyirena/gui/_qt.py` (and to its `__all__`) —
+do **not** write a local `try: from PySide6 … except ImportError: …` block, not
+even inside a function, and not in a test.  Those blocks are how the project
+ended up with three shims and a stale PyQt5 branch that would have failed on a
+PyQt6-only install.  `pyirena/tests/test_gui_qt_contract.py` enforces this: it
+fails on any direct binding import in the package, on a second `_qt.py`
+appearing in a subpackage, on a name imported from `_qt.py` that it does not
+define, and on a name defined there but missing from `__all__`.
+
+Lazy imports are still fine when you want them — `from pyirena.gui._qt import
+QMenu` inside a method is one line and costs nothing after the first call.
+
 ## The standard UX contract
 
 Users come from Igor Pro, Origin, Excel and Matlab.  Features they consider

@@ -39,6 +39,7 @@ from pyirena.gui._qt import (
     QAbstractItemView,
     QAction,
     QComboBox,
+    QDesktopServices,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -58,6 +59,8 @@ from pyirena.gui._qt import (
     QSplitter,
     Qt,
     QTabWidget,
+    QTimer,
+    QUrl,
     QVBoxLayout,
     QWidget,
 )
@@ -775,12 +778,6 @@ class FractalsPanel(QWidget):
     # ── Help / NeXus loading ─────────────────────────────────────────────
 
     def _open_help(self):
-        try:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-        except ImportError:
-            from PyQt6.QtCore import QUrl
-            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             "https://github.com/jilavsky/pyirena/blob/main/docs/fractals_gui.md"
         ))
@@ -1067,10 +1064,6 @@ class FractalsPanel(QWidget):
             self._remove_job_after_delay(job_id, 1500)
 
     def _remove_job_after_delay(self, job_id: str, ms: int = 1500):
-        try:
-            from PySide6.QtCore import QTimer
-        except ImportError:
-            from PyQt6.QtCore import QTimer
         QTimer.singleShot(ms, lambda: self._remove_job(job_id))
 
     def _remove_job(self, job_id: str):

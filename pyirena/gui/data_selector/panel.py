@@ -18,16 +18,7 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
-from pyirena.gui.data_loading import (
-    load_data_file as _load_data_file_fn,
-)
-from pyirena.gui.data_loading import (
-    prompt_dataset_choice as _prompt_dataset_choice_fn,
-)
-from pyirena.gui.data_loading import (
-    read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
-)
-from pyirena.gui.data_selector._qt import (
+from pyirena.gui._qt import (
     QAbstractItemView,
     QAction,
     QApplication,
@@ -54,6 +45,15 @@ from pyirena.gui.data_selector._qt import (
     QUrl,
     QVBoxLayout,
     QWidget,
+)
+from pyirena.gui.data_loading import (
+    load_data_file as _load_data_file_fn,
+)
+from pyirena.gui.data_loading import (
+    prompt_dataset_choice as _prompt_dataset_choice_fn,
+)
+from pyirena.gui.data_loading import (
+    read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
 )
 from pyirena.gui.data_selector.config_dialogs import ConfigManagerDialog, DataSelectorConfigDialog
 from pyirena.gui.data_selector.igor_import import _IgorImportDialog

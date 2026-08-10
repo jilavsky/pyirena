@@ -106,10 +106,7 @@ class TestCsvIncludesFormFactorParams:
     def test_tabulate_emits_ff_columns(self, tmp_path, monkeypatch):
         _require_qt()
         try:
-            try:
-                from PySide6.QtWidgets import QApplication, QListWidgetItem
-            except ImportError:
-                from PyQt6.QtWidgets import QApplication, QListWidgetItem
+            from pyirena.gui._qt import QApplication, QListWidgetItem
         except Exception:
             pytest.skip("Qt not available")
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

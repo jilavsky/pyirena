@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from pyirena.gui._qt import (
+    QFileDialog,
     QHBoxLayout,
     QInputDialog,
     QLineEdit,
@@ -253,11 +254,6 @@ class DataFileLoaderRow(QWidget):
                 log.debug("suppressed exception", exc_info=True)
 
     def _on_open_clicked(self) -> None:
-        try:
-            from PySide6.QtWidgets import QFileDialog
-        except ImportError:
-            from PyQt6.QtWidgets import QFileDialog
-
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open SAS data file",

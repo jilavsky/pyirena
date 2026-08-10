@@ -51,7 +51,9 @@ from pyirena.core.modeling import (
 from pyirena.gui._qt import (
     QApplication,
     QCheckBox,
+    QColor,
     QComboBox,
+    QDesktopServices,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -69,6 +71,7 @@ from pyirena.gui._qt import (
     QTabWidget,
     QThread,
     QTimer,
+    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -2086,15 +2089,6 @@ class ModelingGraphWindow(QWidget):
 # Background worker threads
 # ──────────────────────────────────────────────────────────────────────────────
 
-try:
-    from PySide6.QtCore import QThread
-except ImportError:
-    try:
-        from PyQt6.QtCore import QThread
-    except ImportError:
-        from PyQt5.QtCore import QThread
-
-
 class _FitCancelled(Exception):
     """Raised when the user cancels a fit in progress."""
 
@@ -2925,26 +2919,12 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.qmax_lbl.setText(f'{q_hi:.4g}')
 
     def _open_help(self):
-        try:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-        except ImportError:
-            from PyQt6.QtCore import QUrl
-            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             'https://github.com/jilavsky/pyirena/blob/main/docs/modeling_gui.md'
         ))
 
     def _update_tab_labels(self, *_):
         """Update tab text (with optional label) and color per-population."""
-        try:
-            from PySide6.QtGui import QColor
-        except ImportError:
-            try:
-                from PyQt6.QtGui import QColor
-            except ImportError:
-                from PyQt5.QtGui import QColor
-
         bar = self.pop_tabs.tabBar()
         for i, pw in enumerate(self._pop_widgets):
             active = pw.use_cb.isChecked()

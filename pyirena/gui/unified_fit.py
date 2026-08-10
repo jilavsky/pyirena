@@ -13,7 +13,9 @@ import pyqtgraph as pg
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
 from pyirena.gui._qt import (
     QApplication,
+    QBrush,
     QCheckBox,
+    QColor,
     QComboBox,
     QDesktopServices,
     QDialog,
@@ -24,9 +26,13 @@ from pyirena.gui._qt import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPen,
+    QPointF,
     QPushButton,
     QRadioButton,
+    QRectF,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     Qt,
@@ -229,14 +235,6 @@ class DraggableCursor(pg.GraphicsObject):
         NOTE: Returns a large static rectangle to ensure rendering works.
         dataBounds() returning None ensures we don't affect autoscale.
         """
-        try:
-            from PySide6.QtCore import QRectF
-        except ImportError:
-            try:
-                from PyQt6.QtCore import QRectF
-            except ImportError:
-                from PyQt5.QtCore import QRectF
-
         # Return a large rectangle that covers any reasonable plot range
         # This is safe because dataBounds() returns None, so this won't
         # affect autoscaling
@@ -248,20 +246,6 @@ class DraggableCursor(pg.GraphicsObject):
         if self.plot_item is None:
             log.debug("plot_item is None, skipping paint")
             return
-
-        try:
-            from PySide6.QtCore import QPointF, QRectF
-            from PySide6.QtCore import Qt as QtCore
-            from PySide6.QtGui import QBrush, QColor, QPen
-        except ImportError:
-            try:
-                from PyQt6.QtCore import QPointF, QRectF
-                from PyQt6.QtCore import Qt as QtCore
-                from PyQt6.QtGui import QBrush, QColor, QPen
-            except ImportError:
-                from PyQt5.QtCore import QPointF, QRectF
-                from PyQt5.QtCore import Qt as QtCore
-                from PyQt5.QtGui import QBrush, QColor, QPen
 
         # Get plot Y range in data coordinates
         view_range = self.plot_item.viewRange()
@@ -284,7 +268,7 @@ class DraggableCursor(pg.GraphicsObject):
 
         # Draw vertical dashed line spanning the full plot height
         pen = QPen(QColor(*self.color))
-        pen.setStyle(QtCore.PenStyle.DashLine)
+        pen.setStyle(Qt.PenStyle.DashLine)
         pen.setWidth(2)
         painter.setPen(pen)
 
@@ -293,7 +277,7 @@ class DraggableCursor(pg.GraphicsObject):
 
         # Draw marker at top
         marker_y = y_max * 0.96
-        pen.setStyle(QtCore.PenStyle.SolidLine)
+        pen.setStyle(Qt.PenStyle.SolidLine)
         pen.setWidth(2)
         painter.setPen(pen)
 
@@ -326,7 +310,7 @@ class DraggableCursor(pg.GraphicsObject):
 
         # Draw symbols
         if self.symbol == 'o':  # Circle
-            painter.setBrush(QBrush(QtCore.BrushStyle.NoBrush))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             # Use QRectF for ellipse to ensure float precision
             try:
                 painter.drawEllipse(QPointF(0, marker_y), float(marker_size_x), float(marker_size_y))
@@ -334,7 +318,7 @@ class DraggableCursor(pg.GraphicsObject):
                 log.debug("suppressed exception", exc_info=True)  # Skip if still overflows
 
         elif self.symbol == 's':  # Square
-            painter.setBrush(QBrush(QtCore.BrushStyle.NoBrush))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             try:
                 rect = QRectF(
                     float(-marker_size_x),
@@ -2073,14 +2057,6 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         panel = QWidget()
 
         # Set size policy to prevent content-driven expansion
-        try:
-            from PySide6.QtWidgets import QSizePolicy
-        except ImportError:
-            try:
-                from PyQt6.QtWidgets import QSizePolicy
-            except ImportError:
-                from PyQt5.QtWidgets import QSizePolicy
-
         size_policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         panel.setSizePolicy(size_policy)
         panel.setMinimumWidth(400)

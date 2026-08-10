@@ -14,7 +14,7 @@ import pyqtgraph as pg
 
 log = logging.getLogger(__name__)
 
-from pyirena.gui.data_selector._qt import (
+from pyirena.gui._qt import (
     QAbstractItemView,
     QHBoxLayout,
     QMessageBox,
