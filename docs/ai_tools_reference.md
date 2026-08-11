@@ -45,23 +45,45 @@ results, and save back to HDF5.
 Your job is to help the user understand what's in their data, and — when
 asked — to fit new datasets autonomously using the control tools.
 
-### Control-mode fitting (Unified Fit + Size Distribution)
+### Control-mode fitting (all five tools)
 
 The `pyirena_ctrl_*` tools let you drive pyirena's fitting models
-end-to-end. Two models are available:
+end-to-end. Every fitting tool is now drivable:
 
 - **Unified Fit** — `pyirena_ctrl_*` tools (model parameters, levels,
   staged fitting). See [Control tools reference](#control-tools-reference-pyirena_ctrl_-prefix).
 - **Size Distribution** — `pyirena_ctrl_sizes_*` tools (inversion method,
   size grid, shape, complex background, error handling). See
   [Size Distribution control tools](#control-tools-reference--size-distribution-pyirena_ctrl_sizes_-prefix).
+- **Simple Fits** — `pyirena_ctrl_simple_*` tools (one analytical model at a
+  time: Guinier, Porod, Sphere, Debye-Bueche, Teubner-Strey, Invariant, …).
+  See [Simple Fits control tools](#control-tools-reference--simple-fits-pyirena_ctrl_simple_-prefix).
+- **Modeling** — `pyirena_ctrl_modeling_*` tools (several populations at once:
+  size distributions with form and structure factors, unified levels,
+  Guinier-Porod levels, diffraction peaks, fractals). See
+  [Modeling control tools](#control-tools-reference--modeling-pyirena_ctrl_modeling_-prefix).
+- **WAXS Peak Fit** — `pyirena_ctrl_waxs_*` tools (background choice, peak
+  finding, per-peak shape/position/width, integrated areas). See
+  [WAXS control tools](#control-tools-reference--waxs-peak-fit-pyirena_ctrl_waxs_-prefix).
+
+**Which to reach for.** Simple Fits answers one focused question over a
+restricted Q range ("what is Rg here?", "what is the Porod slope?") and is the
+cheapest to run and to explain — prefer it when the user asks about a single
+feature. Unified Fit describes a whole multi-level curve. Size Distribution
+inverts to a particle-size histogram and needs a dilute single population.
+Modeling is the most powerful and the most work: use it when the curve needs
+*several* components at once — particles plus a large-scale level, or
+particles plus a diffraction peak — or when a specific form factor
+(core-shell, cylinder) matters. WAXS Peak Fit is for wide-angle patterns:
+crystalline reflections on an amorphous background, where the questions are
+peak position, width and integrated area.
 
 Sessions are in-memory for the lifetime of the MCP server process and
 persist across tool calls within a conversation. The session lifecycle
 (`open_dataset`, `list_open_sessions`, `close_session`,
 `get_session_summary`) and the Q-range tools (`get_data_q_range`,
 `get_fit_q_range`, `set_fit_q_range`, `reset_fit_q_range`) are **shared**
-between both models.
+between all five tools (Modeling brings its own Q range).
 
 ---
 
@@ -695,6 +717,241 @@ Returns:
 
 If `suitable` is `false`, surface the `warnings` to the user and consider
 recommending Unified Fit instead of forcing a size-distribution fit.
+
+---
+
+## Control tools reference — Simple Fits (`pyirena_ctrl_simple_` prefix)
+
+One analytical model fitted over a restricted Q range.  Use it when the
+question is about a single feature — an Rg, a Porod slope, a correlation
+length, the invariant — rather than a whole multi-level curve.  Every model
+has its own parameter set, so **always** list the models (or the parameters)
+before setting anything.
+
+### Recommended Simple Fits workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                     # shared
+pyirena_ctrl_simple_list_models()                        # pick a model
+pyirena_ctrl_simple_select_model(session_id, "Guinier")
+pyirena_ctrl_set_fit_q_range(session_id, q_min, q_max)   # shared — required
+pyirena_ctrl_simple_set_parameter(session_id, "Rg", 150) # optional start point
+pyirena_ctrl_simple_run_fit(session_id)
+pyirena_ctrl_simple_get_linearization_image(session_id)  # sanity check
+pyirena_ctrl_simple_save_fit(session_id)
+```
+
+The Q range matters more here than anywhere else: Guinier is only valid for
+roughly `q·Rg < 1.3`, Porod only in the high-Q tail.  Fit, read back the Rg,
+then check `q_max·Rg` and narrow the range if it exceeds ~1.3.
+
+### Model lifecycle & parameters
+
+| Tool | Purpose |
+|------|---------|
+| `pyirena_ctrl_simple_list_models()` | every model with its parameter names, whether it linearizes, whether it supports the complex background, and whether it is a direct calculation (Invariant) |
+| `pyirena_ctrl_simple_select_model(session_id, model_name)` | create the model; **resets parameters and frees them all** |
+| `pyirena_ctrl_simple_get_config(session_id)` | model + all parameters + background setting |
+| `pyirena_ctrl_simple_get_parameters(session_id)` | name, value, bounds, fixed state |
+| `pyirena_ctrl_simple_set_parameter(session_id, name, value)` | starting value |
+| `pyirena_ctrl_simple_set_parameter_bounds(session_id, name, lo, hi)` | bounds; a value outside them is clamped in |
+| `pyirena_ctrl_simple_fix_parameter(session_id, name)` | hold fixed |
+| `pyirena_ctrl_simple_free_parameter(session_id, name)` | let it vary (default) |
+| `pyirena_ctrl_simple_reset_parameters(session_id)` | back to registry defaults |
+| `pyirena_ctrl_simple_set_background(session_id, enabled)` | complex background (adds `BG_B`, `BG_P`, `BG_flat`) |
+
+### Fit, results, persistence
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_simple_run_fit(session_id, no_limits=False)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values |
+| `pyirena_ctrl_simple_get_results(session_id)` | the same summary for the last fit |
+| `pyirena_ctrl_simple_get_fit_image(session_id)` | PNG: log-log data + model, residuals below |
+| `pyirena_ctrl_simple_get_linearization_image(session_id)` | PNG of the linearized plot + slope, intercept, R² |
+| `pyirena_ctrl_simple_save_fit(session_id, output_path=None)` | writes `entry/simple_fit_results` |
+
+The linearized plot is drawn from the **current** parameters, so call it after
+`run_fit` — a straight line through the data is the classic check that the
+model applies over the range you chose, and `r_squared` quantifies it.
+
+Common error codes: `NO_SIMPLE_MODEL` (call `select_model` first), `BAD_PARAM`
+(that parameter belongs to a different model), `ALL_FIXED`, `EMPTY_RANGE`,
+`NO_COMPLEX_BG` (Porod and Power Law carry their own Background parameter),
+`NO_LINEARIZATION`, `NO_FIT`.
+
+---
+
+## Control tools reference — Modeling (`pyirena_ctrl_modeling_` prefix)
+
+Modeling builds a curve from **several populations** at once, so this surface
+is mostly population management.  Reach for it when one analytical model or one
+size distribution cannot describe the data: a size distribution *plus* a
+large-scale unified level, or particles *plus* a diffraction peak.
+
+### Recommended Modeling workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                          # shared
+pyirena_ctrl_modeling_select_model(session_id)
+pyirena_ctrl_modeling_list_population_types()                 # what exists
+pyirena_ctrl_modeling_add_population(session_id, "size_dist", label="pores")
+pyirena_ctrl_modeling_set_population_option(session_id, 0, "form_factor", "sphere")
+pyirena_ctrl_modeling_get_population_parameters(session_id, 0)  # exact names
+pyirena_ctrl_modeling_set_population_parameter(session_id, 0, "dist.mean_size", 80)
+pyirena_ctrl_modeling_set_population_parameter_fit(session_id, 0, "dist.mean_size", true)
+pyirena_ctrl_modeling_set_q_range(session_id, 0.005, 0.35)
+pyirena_ctrl_modeling_run_fit(session_id)
+pyirena_ctrl_modeling_get_fit_image(session_id)
+pyirena_ctrl_modeling_save_fit(session_id)
+```
+
+### One flat parameter namespace
+
+A population's parameters live in different places on the underlying object;
+these tools flatten them into **dotted names**:
+
+| Name | Where it lives |
+|------|----------------|
+| `scale`, `contrast`, `G`, `position` | plain attribute of the population |
+| `dist.mean_size`, `dist.sdeviation` | the size distribution |
+| `ff.sld_core`, `ff.t_shell` | the form factor |
+| `sf.eta`, `sf.radius` | the structure factor |
+
+`get_population_parameters` lists exactly the names that are **active** for the
+population's current distribution, form factor and structure factor — the same
+set the fitter packs.  Enumerate; never guess.  Switching `form_factor` to a
+core-shell variant adds its SLD and thickness parameters with sensible defaults
+and drops any that no longer apply (and removes `contrast`, whose role the SLDs
+take over).
+
+### Population types
+
+| `pop_type` | For |
+|------------|-----|
+| `size_dist` | polydisperse particles: distribution + form factor + optional structure factor |
+| `unified_level` | one Beaucage level (G, Rg, B, P) without assuming a shape |
+| `guinier_porod` | Guinier region joined to a power law (rods, sheets) |
+| `diffraction_peak` | Gaussian / Lorentzian / pseudo-Voigt peak |
+| `mass_fractal` | aggregates: primary radius, fractal dimension, correlation length |
+| `surface_fractal` | rough interfaces, with an optional Porod transition |
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| `..._select_model(session_id)` | start an empty configuration |
+| `..._list_population_types()` | types, options, and every distribution / form factor / structure factor with its parameters |
+| `..._add_population(session_id, pop_type, label)` | add one, returns its index |
+| `..._remove_population(session_id, index)` | remove (later indices shift down) |
+| `..._list_populations(session_id)` | index, type, label, enabled, free-parameter count |
+| `..._set_population_enabled(session_id, index, enabled)` | exclude without deleting |
+| `..._get_population_parameters(session_id, index)` | the active names, values, fit flags, bounds |
+| `..._set_population_parameter(...)` / `..._set_population_parameter_fit(...)` / `..._set_population_parameter_bounds(...)` | value / fitted / bounds |
+| `..._set_population_option(session_id, index, option, value)` | `dist_type`, `form_factor`, `structure_factor`, `peak_type`, `correlations`, `use_porod_transition`, `use_number_dist`, `n_bins`, `label` |
+| `..._set_background(session_id, value, fit)` | flat background |
+| `..._set_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
+| `..._run_fit(session_id, fit_method)` | `"local"` (default) or `"global"` |
+| `..._get_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
+| `..._get_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
+| `..._save_fit(session_id, output_path)` | writes `entry/modeling_results` |
+
+### Working advice
+
+- **Fit a handful of parameters at a time.** Modeling has many parameters and
+  few constraints; freeing everything at once usually finds a meaningless
+  minimum.  Population defaults start mostly held for this reason.
+- **The χ² surface is multimodal.**  `fit_method="local"` refines from where
+  you are; a poor starting point converges to a poor minimum and the tool
+  reports it honestly rather than pretending otherwise.  Use
+  `fit_method="global"` (differential evolution, then a local polish) for
+  core-shell models — it needs finite bounds on every fitted parameter.
+- **Use the per-population curves.**  `get_fit_image` draws each population
+  separately; a population that has collapsed to nothing, or one that carries
+  the whole curve, is obvious at a glance and invisible in the numbers.
+- **Test a population's worth** by disabling it and refitting rather than
+  deleting it.
+
+Common error codes: `NO_MODELING_MODEL`, `BAD_POPULATION` (index),
+`BAD_POPULATION_TYPE`, `BAD_PARAM` (not active for this population),
+`BAD_OPTION` / `BAD_OPTION_VALUE`, `BAD_BOUNDS`, `BAD_RANGE`, `EMPTY_RANGE`,
+`NO_POPULATIONS`, `ALL_FIXED`, `NO_FIT`.
+
+
+---
+
+## Control tools reference — WAXS Peak Fit (`pyirena_ctrl_waxs_` prefix)
+
+A wide-angle pattern is a smooth background with peaks on it.  The questions
+are almost always peak **position** (phase, d-spacing), **width** (crystallite
+size, strain) and **integrated area** (phase fraction) — so the area is
+reported for every peak, derived from the fitted shape rather than fitted
+directly.
+
+### Recommended WAXS workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                     # shared
+pyirena_ctrl_waxs_select_model(session_id, "SNIP")       # adaptive background
+pyirena_ctrl_set_fit_q_range(session_id, q_min, q_max)   # shared, optional
+pyirena_ctrl_waxs_find_peaks(session_id)                 # data-driven start
+pyirena_ctrl_waxs_list_peaks(session_id)                 # check what it found
+pyirena_ctrl_waxs_run_fit(session_id)
+pyirena_ctrl_waxs_get_fit_image(session_id)
+pyirena_ctrl_waxs_save_fit(session_id)
+```
+
+`find_peaks` is the natural entry point: it detects peaks in the data and
+creates them with position, amplitude and width already close, instead of you
+guessing positions.  If it returns spurious peaks on noise, raise
+`prominence_frac`; if it misses a shoulder, lower it.
+
+### Backgrounds
+
+| Kind | Shapes | Behaviour |
+|------|--------|-----------|
+| Adaptive | `SNIP`, `Rolling Quantile Spline`, `Rolling Ball` | estimated from the data, **not** fitted; one tuning value, no fit flag or bounds |
+| Polynomial | `Constant`, `Linear`, `Cubic`, `5th Polynomial` | coefficients fitted alongside the peaks, with fit flags and bounds |
+
+`SNIP` is the sensible default for a pattern with an amorphous halo.  Switching
+background keeps the peaks, which is how you test whether a stubborn residual
+is really a background artefact.
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| `..._list_options()` | peak shapes, background shapes (flagged adaptive), weight modes |
+| `..._select_model(session_id, bg_shape)` | create the model |
+| `..._get_config(session_id)` | background setup + peak list |
+| `..._set_background(session_id, bg_shape)` | switch background, keep peaks |
+| `..._set_background_parameter(...)` | value / fit / bounds |
+| `..._find_peaks(session_id, prominence_frac, …)` | detect and create peaks |
+| `..._add_peak(session_id, q0, shape, amplitude, fwhm)` | place one by hand; amplitude defaults to the measured intensity there |
+| `..._remove_peak(session_id, index)` / `..._list_peaks(session_id)` | manage the list |
+| `..._get_peak_parameters(session_id, index)` | one peak's values, bounds, fit flags, area |
+| `..._set_peak_shape(session_id, index, shape)` | Gauss / Lorentz / Pseudo-Voigt / LogNormal |
+| `..._set_peak_parameter(...)` / `..._set_peak_parameter_fit(...)` / `..._set_peak_parameter_bounds(...)` | `A`, `Q0`, `FWHM`, `eta` |
+| `..._run_fit(session_id, weight_mode)` | `standard` / `equal` / `relative` |
+| `..._get_results(session_id)` | quality, background, peaks with uncertainties and areas |
+| `..._get_fit_image(session_id)` | data, model, background **and each peak** |
+| `..._save_fit(session_id, output_path)` | writes `entry/waxs_peakfit_results` |
+
+### Working advice
+
+- **Hold `Q0` for an identified phase.**  When a reflection position is known,
+  fix it and fit only width and amplitude — that is how you measure crystallite
+  size without letting the peak wander onto a neighbour.
+- **`weight_mode="equal"`** when a strong, low-noise background dominates the
+  fit and weak peaks are being ignored.
+- **`eta` exists only on a Pseudo-Voigt.**  Setting it on a Gauss returns
+  `BAD_PARAM` naming the shape that has it.
+- **Look at the image.**  Each peak is drawn separately over the background; a
+  peak that has drifted onto its neighbour or collapsed to zero amplitude is
+  obvious there and invisible in χ².
+
+Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
+`BAD_PEAK` (index), `BAD_PEAK_SHAPE`, `BAD_PARAM`, `BAD_BOUNDS`,
+`Q0_OUT_OF_RANGE`, `NO_PEAKS`, `BAD_WEIGHT_MODE`, `EMPTY_RANGE`, `NO_FIT`.
 
 ---
 

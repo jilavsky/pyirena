@@ -15,6 +15,7 @@ from typing import Optional
 
 from pyirena.gui._qt import (
     QCheckBox,
+    QDesktopServices,
     QFileDialog,
     QFont,
     QGridLayout,
@@ -27,6 +28,7 @@ from pyirena.gui._qt import (
     QPushButton,
     QRadioButton,
     QThread,
+    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -262,12 +264,6 @@ class ExportToIgorTab(QWidget):
     def _open_output_folder(self) -> None:
         out = self._out_edit.text().strip()
         if out:
-            try:
-                from PySide6.QtCore import QUrl
-                from PySide6.QtGui import QDesktopServices
-            except ImportError:
-                from PyQt6.QtCore import QUrl  # type: ignore
-                from PyQt6.QtGui import QDesktopServices  # type: ignore
             QDesktopServices.openUrl(
                 QUrl.fromLocalFile(str(Path(out).parent))
             )

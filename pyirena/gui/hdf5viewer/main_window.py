@@ -34,6 +34,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.window_state import install_window_state
 
 from . import pyirena_readers as _readers
 from .collect_window import CollectWindow
@@ -86,7 +87,7 @@ class HDF5ViewerWindow(QMainWindow):
 
         self._build_ui()
         self._wire_signals()
-        self._restore_state()
+        self.load_state()
 
         if initial_folder:
             self._file_tree.set_folder(initial_folder)
@@ -160,6 +161,10 @@ class HDF5ViewerWindow(QMainWindow):
 
         # Menu bar
         self._build_menu()
+
+        # Reopen where the user left it, with the three panes as they were.
+        install_window_state(self, 'data_explorer',
+                             splitters={'main': splitter})
 
     def _build_menu(self) -> None:
         menu_bar = self.menuBar()
@@ -542,7 +547,7 @@ class HDF5ViewerWindow(QMainWindow):
 
     # ── State save / restore ───────────────────────────────────────────────
 
-    def _restore_state(self) -> None:
+    def load_state(self) -> None:
         if self._state_manager is None:
             return
         try:
@@ -558,7 +563,7 @@ class HDF5ViewerWindow(QMainWindow):
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    def _save_state(self) -> None:
+    def save_state(self) -> None:
         if self._state_manager is None:
             return
         try:
@@ -575,7 +580,7 @@ class HDF5ViewerWindow(QMainWindow):
     # ── Window lifecycle ───────────────────────────────────────────────────
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._save_state()
+        self.save_state()
         # Close child windows
         for gw in list(self._graph_windows):
             gw.close()

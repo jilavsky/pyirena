@@ -39,6 +39,7 @@ from pyirena.gui._qt import (
     QAbstractItemView,
     QAction,
     QComboBox,
+    QDesktopServices,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -58,6 +59,8 @@ from pyirena.gui._qt import (
     QSplitter,
     Qt,
     QTabWidget,
+    QTimer,
+    QUrl,
     QVBoxLayout,
     QWidget,
 )
@@ -74,6 +77,7 @@ from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer,
     make_popout_button,
 )
+from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_fractals import (
     list_fractal_aggregates,
     load_fractal_aggregate,
@@ -184,7 +188,7 @@ class FractalsPanel(QWidget):
         self._building = True
         self._build_ui()
         self._building = False
-        self._load_state()
+        self.load_state()
         self._wire_workers()
 
     # ── UI construction ──────────────────────────────────────────────────
@@ -200,6 +204,10 @@ class FractalsPanel(QWidget):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         main_layout.addWidget(splitter)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'fractals_panel',
+                             splitters={'main': splitter})
 
     # ── Left panel (controls) ────────────────────────────────────────────
 
@@ -678,7 +686,7 @@ class FractalsPanel(QWidget):
             attraction=gc.attraction, seed=gc.seed,
         )
 
-    def _load_state(self):
+    def load_state(self):
         st = self._state.get("fractals") or {}
         gp = st.get("last_growth_params") or {}
         if "z" in gp:
@@ -738,7 +746,7 @@ class FractalsPanel(QWidget):
                 # File no longer exists — drop the stale path
                 self.nexus_path_edit.clear()
 
-    def _save_state(self):
+    def save_state(self):
         st = {
             "schema_version": 1,
             "last_growth_params": {
@@ -770,12 +778,6 @@ class FractalsPanel(QWidget):
     # ── Help / NeXus loading ─────────────────────────────────────────────
 
     def _open_help(self):
-        try:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-        except ImportError:
-            from PyQt6.QtCore import QUrl
-            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             "https://github.com/jilavsky/pyirena/blob/main/docs/fractals_gui.md"
         ))
@@ -790,7 +792,7 @@ class FractalsPanel(QWidget):
             return
         self.nexus_path_edit.setText(path)
         self._load_unified_from_nexus(Path(path))
-        self._save_state()
+        self.save_state()
 
     def _load_unified_from_nexus(self, filepath: Path):
         # Try to load Unified fit
@@ -1000,13 +1002,13 @@ class FractalsPanel(QWidget):
     def _on_grow_one(self):
         cfg = self._current_growth_config()
         self._growth_worker.enqueue_grow(cfg, label=f"Grow Z={cfg.z} SP={cfg.sticking_prob:.0f}%")
-        self._save_state()
+        self.save_state()
 
     def _on_grow_many(self):
         cfg = self._current_growth_config()
         n = int(self.many_n_spin.value())
         self._growth_worker.enqueue_grow_many(cfg, n)
-        self._save_state()
+        self.save_state()
 
     def _on_optimize(self):
         opt_cfg = self._current_optimizer_config()
@@ -1017,7 +1019,7 @@ class FractalsPanel(QWidget):
             "dmin_target": float(opt_cfg.target_dmin),
             "c_target": float(opt_cfg.target_c),
         }
-        self._save_state()
+        self.save_state()
 
     def _on_cancel_job(self):
         items = self.jobs_list.selectedItems()
@@ -1062,10 +1064,6 @@ class FractalsPanel(QWidget):
             self._remove_job_after_delay(job_id, 1500)
 
     def _remove_job_after_delay(self, job_id: str, ms: int = 1500):
-        try:
-            from PySide6.QtCore import QTimer
-        except ImportError:
-            from PyQt6.QtCore import QTimer
         QTimer.singleShot(ms, lambda: self._remove_job(job_id))
 
     def _remove_job(self, job_id: str):

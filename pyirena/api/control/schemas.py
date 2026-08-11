@@ -967,6 +967,819 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id"],
         },
     },
+
+    # -----------------------------------------------------------------------
+    # Simple Fits — model lifecycle
+    # -----------------------------------------------------------------------
+    {
+        "name": "list_simple_models",
+        "description": (
+            "List the Simple Fits analytical models (Guinier, Porod, Sphere, "
+            "Debye-Bueche, Teubner-Strey, Invariant, ...) with each model's "
+            "parameter names, whether it has a linearized form, and whether it "
+            "supports the complex background. Needs no session."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "select_simple_model",
+        "description": (
+            "Create a Simple Fits model for the session. Switching model resets "
+            "parameters to that model's defaults, frees all of them, and clears "
+            "any previous fit. Call list_simple_models() first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "model_name": {
+                    "type": "string",
+                    "description": "Model name from list_simple_models().",
+                    "default": "Guinier",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_config",
+        "description": (
+            "Return the Simple Fits configuration: selected model, every "
+            "parameter with value/bounds/fixed state, and background settings."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Simple Fits — parameters
+    # -----------------------------------------------------------------------
+    {
+        "name": "get_simple_parameters",
+        "description": (
+            "List the selected model's parameters with value, bounds and "
+            "whether each is held fixed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_simple_parameter",
+        "description": "Set one parameter's value (its starting point for the fit).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string", "description": "Parameter name."},
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "name", "value"],
+        },
+    },
+    {
+        "name": "set_simple_parameter_bounds",
+        "description": (
+            "Set fitting bounds for one parameter. Pass null for either side to "
+            "leave it unbounded. A current value outside the new bounds is "
+            "clamped into range."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    {
+        "name": "fix_simple_parameter",
+        "description": "Hold one parameter fixed at its current value during the fit.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    {
+        "name": "free_simple_parameter",
+        "description": "Let one parameter vary during the fit (the default).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    {
+        "name": "reset_simple_parameters",
+        "description": (
+            "Reset every parameter to the model's registry defaults, free them "
+            "all, and discard the current fit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_simple_background",
+        "description": (
+            "Enable or disable the complex background (power law + flat) for "
+            "the selected model. Enabling adds BG_B, BG_P and BG_flat to the "
+            "parameter list. Models with their own Background parameter "
+            "(Porod, Power Law) do not support it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "enabled": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Simple Fits — fit, results, persistence
+    # -----------------------------------------------------------------------
+    {
+        "name": "run_simple_fit",
+        "description": (
+            "Fit the selected model to the data inside the current fit Q range "
+            "(set_fit_q_range). Returns chi-squared, reduced chi-squared, dof, "
+            "fitted parameters with 1-sigma uncertainties, and derived values. "
+            "Calculation models (Invariant) are evaluated rather than fitted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "no_limits": {
+                    "type": "boolean",
+                    "description": "Fit unconstrained, ignoring all bounds.",
+                    "default": False,
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_results",
+        "description": (
+            "Return the last Simple Fits result: parameters with uncertainties, "
+            "chi-squared, reduced chi-squared, dof and derived quantities."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_fit_image",
+        "description": (
+            "Render the fit as a PNG: log-log data + model on top, residuals "
+            "below. Returns image_base64."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 800},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_simple_linearization_image",
+        "description": (
+            "Render the model's linearized plot (Guinier plot, Porod plot, ...) "
+            "as a PNG with the fitted line, slope, intercept and R-squared. A "
+            "straight line is the visual test that the model applies over the "
+            "chosen Q range. Errors for models with no linearized form."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 900},
+                "height": {"type": "integer", "default": 700},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_simple_fit",
+        "description": (
+            "Save the Simple Fits result to NXcanSAS HDF5 under "
+            "entry/simple_fit_results, embedding the setup so the GUI panel can "
+            "restore it. Defaults to overwriting the original file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
+    # Modeling — model lifecycle and populations
+    # -----------------------------------------------------------------------
+    {
+        "name": "select_modeling_model",
+        "description": (
+            "Start a Modeling configuration (no populations yet). Modeling "
+            "builds a curve from several populations: size distributions with "
+            "a form factor, unified levels, Guinier-Porod levels, diffraction "
+            "peaks, mass or surface fractals. Q range defaults to the full data."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_modeling_config",
+        "description": (
+            "Return the global Modeling settings (Q range, background, fit "
+            "method, slit smearing) and a summary of every population."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "list_population_types",
+        "description": (
+            "Describe the six Modeling population types with their options, "
+            "and — for size_dist — every distribution, form factor and "
+            "structure factor with the parameters each brings. Needs no "
+            "session; call before add_population."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "add_population",
+        "description": (
+            "Add a population to the Modeling model and return its index and "
+            "parameters. Populations start from generic defaults — set the "
+            "parameters that matter before fitting."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "pop_type": {
+                    "type": "string",
+                    "enum": ["size_dist", "unified_level", "guinier_porod",
+                             "diffraction_peak", "mass_fractal",
+                             "surface_fractal"],
+                    "default": "size_dist",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional name shown in reports and plots.",
+                    "default": "",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "remove_population",
+        "description": "Remove the population at this index; later ones shift down.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "list_populations",
+        "description": (
+            "List every population with its index, type, label, enabled state "
+            "and number of free parameters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_population_enabled",
+        "description": (
+            "Include or exclude a population from the model without deleting "
+            "it — the way to test what a population contributes: fit with it "
+            "off, compare chi-squared, turn it back on."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "enabled": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "index"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Modeling — population parameters
+    # -----------------------------------------------------------------------
+    {
+        "name": "get_population_parameters",
+        "description": (
+            "List the parameters active for this population with value, fit "
+            "flag and bounds. Nested parameters use a dotted prefix: "
+            "'dist.mean_size', 'ff.sld_core', 'sf.eta'. Only parameters the "
+            "current distribution/form factor/structure factor use are listed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "set_population_parameter",
+        "description": (
+            "Set one population parameter's value. Use the dotted names from "
+            "get_population_parameters ('dist.mean_size', 'ff.t_shell', 'scale')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "index", "name", "value"],
+        },
+    },
+    {
+        "name": "set_population_parameter_fit",
+        "description": (
+            "Choose whether one parameter is fitted or held. Modeling has many "
+            "parameters and few constraints — fit a handful at a time."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "fit": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    {
+        "name": "set_population_parameter_bounds",
+        "description": (
+            "Set fitting bounds for one population parameter. Passing null "
+            "keeps that side unchanged (the global fit method needs finite "
+            "bounds). A value outside the new range is clamped in."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    {
+        "name": "set_population_option",
+        "description": (
+            "Set a non-numeric switch on a population: dist_type, form_factor, "
+            "structure_factor, peak_type, correlations, use_porod_transition, "
+            "use_number_dist, n_bins or label. Changing one re-derives the "
+            "active parameters — switching to a core-shell form factor adds "
+            "its SLD and thickness parameters with sensible defaults."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+                "option": {"type": "string"},
+                "value": {"type": "string"},
+            },
+            "required": ["session_id", "index", "option", "value"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # Modeling — global settings, fit, results, persistence
+    # -----------------------------------------------------------------------
+    {
+        "name": "set_modeling_background",
+        "description": "Set the flat background level and/or whether it is fitted.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "value": {"type": ["number", "null"]},
+                "fit": {"type": ["boolean", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_modeling_q_range",
+        "description": (
+            "Set the Q range the Modeling fit uses. Modeling crops the data "
+            "itself, so this — not the shared set_fit_q_range — is what limits "
+            "a Modeling fit. Pass null to leave one end unchanged."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q_min": {"type": ["number", "null"]},
+                "q_max": {"type": ["number", "null"]},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "run_modeling_fit",
+        "description": (
+            "Fit the enabled populations over the model's Q range. "
+            "fit_method='local' (default) refines from the current values; "
+            "'global' runs differential evolution first, for core-shell models "
+            "whose chi-squared surface has many minima (needs finite bounds). "
+            "Returns quality and every population's fitted parameters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "fit_method": {
+                    "type": "string",
+                    "enum": ["local", "global"],
+                    "default": "local",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_modeling_results",
+        "description": (
+            "Return the last Modeling fit: chi-squared, reduced chi-squared, "
+            "dof, background and each population's parameters plus derived "
+            "quantities (volume fraction, mean radius, Rg, specific surface)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_modeling_fit_image",
+        "description": (
+            "Render the fit as a PNG: log-log data, the total model, and each "
+            "population as a dashed curve, with residuals below. The "
+            "per-population curves show which population carries which part of "
+            "the curve and whether one has collapsed to nothing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 800},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_modeling_fit",
+        "description": (
+            "Save the Modeling fit to NXcanSAS HDF5 under entry/modeling_results. "
+            "Defaults to overwriting the original file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+
+    # -----------------------------------------------------------------------
+    # WAXS Peak Fit — model lifecycle and background
+    # -----------------------------------------------------------------------
+    {
+        "name": "list_waxs_options",
+        "description": (
+            "List WAXS peak shapes (Gauss, Lorentz, Pseudo-Voigt, LogNormal), "
+            "background shapes with their parameters, and weighting modes. "
+            "Adaptive backgrounds (SNIP, Rolling Quantile Spline, Rolling Ball) "
+            "are estimated from the data rather than fitted. Needs no session."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "select_waxs_model",
+        "description": (
+            "Create a WAXS peak-fit model with no peaks yet. bg_shape 'SNIP' "
+            "(default) estimates a smooth background from the data and suits "
+            "most patterns; polynomial shapes are fitted with the peaks."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "bg_shape": {"type": "string", "default": "SNIP"},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_config",
+        "description": "Return the background setup and the current peak list.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_waxs_background",
+        "description": (
+            "Switch the background shape, resetting its parameters to defaults "
+            "and keeping the peaks — the usual way to test whether a stubborn "
+            "residual is a background artefact."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "bg_shape": {"type": "string"}},
+            "required": ["session_id", "bg_shape"],
+        },
+    },
+    {
+        "name": "set_waxs_background_parameter",
+        "description": (
+            "Set a background parameter's value, fit flag or bounds. Adaptive "
+            "backgrounds have a tuning value only — they are estimated, not "
+            "fitted, so fit flag and bounds are ignored with a note."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "name": {"type": "string"},
+                "value": {"type": ["number", "null"]},
+                "fit": {"type": ["boolean", "null"]},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "name"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # WAXS Peak Fit — peaks
+    # -----------------------------------------------------------------------
+    {
+        "name": "find_waxs_peaks",
+        "description": (
+            "Detect peaks in the data and add them with starting positions, "
+            "amplitudes and widths already close — the data-driven way to "
+            "start instead of guessing. Raise prominence_frac for fewer, "
+            "stronger peaks; lower it to pick up shoulders."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "prominence_frac": {"type": "number", "default": 0.05},
+                "min_fwhm": {"type": "number", "default": 0.001},
+                "max_fwhm": {"type": "number", "default": 0.5},
+                "min_distance": {"type": "number", "default": 0.005},
+                "shape": {"type": "string", "default": "Gauss"},
+                "replace": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "add_waxs_peak",
+        "description": (
+            "Add one peak at position q0. Omit amplitude to take it from the "
+            "measured intensity there, which starts far closer than a default."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "q0": {"type": "number"},
+                "shape": {"type": "string", "default": "Gauss"},
+                "amplitude": {"type": ["number", "null"]},
+                "fwhm": {"type": "number", "default": 0.01},
+            },
+            "required": ["session_id", "q0"],
+        },
+    },
+    {
+        "name": "remove_waxs_peak",
+        "description": "Remove the peak at this index; later peaks shift down.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "list_waxs_peaks",
+        "description": (
+            "List every peak with its shape, parameters (A, Q0, FWHM, eta) and "
+            "derived integrated area."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_peak_parameters",
+        "description": "Return one peak's parameters, bounds, fit flags and area.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}},
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_shape",
+        "description": (
+            "Change a peak's shape, keeping A, Q0 and FWHM. Pseudo-Voigt adds "
+            "the eta mixing parameter (0 = Gaussian, 1 = Lorentzian)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}, "index": {"type": "integer"}, "shape": {"type": "string"}},
+            "required": ["session_id", "index", "shape"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_parameter",
+        "description": "Set one peak parameter's value (A, Q0, FWHM or eta).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"}, "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "index", "name", "value"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_parameter_fit",
+        "description": (
+            "Choose whether one peak parameter is fitted or held. Holding Q0 "
+            "at a known reflection position while fitting width and amplitude "
+            "is the usual way to fit an identified phase."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"}, "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "fit": {"type": "boolean", "default": True},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    {
+        "name": "set_waxs_peak_parameter_bounds",
+        "description": (
+            "Set bounds on one peak parameter; null leaves that side "
+            "unbounded. A value outside the new range is clamped in."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"}, "index": {"type": "integer"},
+                "name": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "index", "name"],
+        },
+    },
+    # -----------------------------------------------------------------------
+    # WAXS Peak Fit — fit, results, persistence
+    # -----------------------------------------------------------------------
+    {
+        "name": "run_waxs_fit",
+        "description": (
+            "Fit background and peaks inside the current fit Q range. "
+            "weight_mode 'standard' uses 1/sigma^2; 'equal' stops a low-noise "
+            "background dominating; 'relative' emphasises peaks. Returns "
+            "quality plus each peak's values, uncertainties and area."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "weight_mode": {
+                    "type": "string",
+                    "enum": ["standard", "equal", "relative"],
+                    "default": "standard",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_results",
+        "description": (
+            "Return the last WAXS fit: chi-squared, reduced chi-squared, dof, "
+            "background parameters and every peak with position, width, "
+            "amplitude, 1-sigma uncertainties and integrated area."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_waxs_fit_image",
+        "description": (
+            "Render the fit as a PNG: data, total model, background and each "
+            "peak drawn separately, with residuals below — how you spot a peak "
+            "that drifted onto its neighbour or collapsed to zero amplitude."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1024},
+                "height": {"type": "integer", "default": 800},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_waxs_fit",
+        "description": (
+            "Save the WAXS fit to NXcanSAS HDF5 under "
+            "entry/waxs_peakfit_results. Defaults to overwriting the original."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 ]
 
 # Convenience: look up a schema by name

@@ -283,7 +283,7 @@ def fit_sizes(
         if distribution is not None and r_grid is not None and len(distribution) > 0:
             peak_r = float(r_grid[int(np.argmax(distribution))])
 
-        # Build a complete params dict matching what the GUI saves via _get_current_state().
+        # Build a complete params dict matching what the GUI saves via _collect_state().
         # This is passed both to save_sizes_results() and returned as 'parameters'.
         ar = s.shape_params.get('aspect_ratio', 1.0) if s.shape == 'spheroid' else None
         save_params = {

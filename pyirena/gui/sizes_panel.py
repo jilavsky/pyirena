@@ -39,13 +39,17 @@ from pyirena.gui._qt import (
     Qt,
     QTabWidget,
     QTextEdit,
+    QTransform,
     QUrl,
     QVBoxLayout,
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu, save_itx_from_plot
+from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
+from pyirena.gui.report_buttons import make_report_buttons
+from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -252,21 +256,13 @@ class SizesFitGraphWindow(QWidget):
         _style_axes(self.distribution_plot)
         self.distribution_plot.getAxis('left').setWidth(65)
 
-        # Export right-click menus (JPEG + ITX) for main and distribution plots
+        # Shared export menu (clipboard, image, whole window, curve CSV, ITX)
         for _plot, _stem in [
             (self.main_plot,         'sizes_iq'),
+            (self.residuals_plot,    'sizes_residuals'),
             (self.distribution_plot, 'sizes_dist'),
         ]:
-            _vb = _plot.getViewBox()
-            _vb.menu.addSeparator()
-            _act_j = _vb.menu.addAction('Save graph as JPEG…')
-            _act_j.triggered.connect(
-                lambda checked=False, p=_plot, s=_stem: self._save_jpeg(p, s)
-            )
-            _act_i = _vb.menu.addAction('Save as Igor Pro ITX…')
-            _act_i.triggered.connect(
-                lambda checked=False, p=_plot: save_itx_from_plot(p, self)
-            )
+            attach_plot_export(_plot, self, _stem, window=self.graphics_layout)
 
         layout.addWidget(self.graphics_layout)
 
@@ -428,23 +424,12 @@ class SizesFitGraphWindow(QWidget):
             symbolBrush=pg.mkBrush('#2c3e50'),
             name=label,
         )
+        # Record the uncertainties so CSV/ITX export a dY column; the drawn
+        # error bars are NaN-separated segments and cannot be read back.
+        if error is not None:
+            tag_curve_uncertainty(self._data_item, np.asarray(error, dtype=float))
         self._ensure_cursors(q_)
         self._set_robust_y_range(I_, q_)
-
-    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Save as JPEG', str(Path.home() / f'{stem}.jpg'),
-            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(self, 'Export failed', str(exc))
 
     def _set_robust_y_range(self, intensity, q=None):
         """Set Y range (and optionally x range) of main plot to percentile-based bounds.
@@ -746,11 +731,6 @@ class SizesFitGraphWindow(QWidget):
         bar_height = (y_hi_vb - y_lo_vb) * 0.035
         bar_bottom = y_hi_vb - bar_height * 1.3
 
-        try:
-            from PySide6.QtGui import QTransform
-        except ImportError:
-            from PyQt6.QtGui import QTransform
-
         img = pg.ImageItem()
         img.setImage(rgba)
         tr = QTransform()
@@ -936,6 +916,10 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.setMinimumSize(1200, 960)
         self.resize(1200, 960)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'sizes_panel',
+                             splitters={'main': main_splitter})
 
     def _open_feature_identifier(self):
         """Open the Feature Identifier dialog (non-modal) for the loaded data."""
@@ -1700,6 +1684,24 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         params_row.addWidget(self.import_params_button)
 
         layout.addLayout(params_row)
+
+        # Row 3b: results as text — clipboard or a Markdown file
+        layout.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='sizes_results',
+            default_stem='size_distribution',
+            file_path_provider=lambda: (self.data or {}).get('filepath', ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self.status_label.setText(msg),
+            folder_provider=lambda: (
+                str(Path((self.data or {}).get('filepath', '')).parent)
+                if (self.data or {}).get('filepath') else None
+            ),
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(
+                self.graph_window, 'graphics_layout', None),
+        ))
 
         # Row 4: Reset to defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
@@ -2697,7 +2699,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
     # ── State save / load ────────────────────────────────────────────────────
 
-    def _get_current_state(self) -> dict:
+    def _collect_state(self) -> dict:
         """Serialize current GUI state to a flat dict."""
         s = self._collect_params()
         state = {
@@ -2802,7 +2804,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 log.warning("Could not restore sizes state: %s", exc)
 
     def save_state(self):
-        state = self._get_current_state()
+        state = self._collect_state()
         self.state_manager.update('sizes', state)
         if self.state_manager.save():
             QMessageBox.information(self, "State Saved", "State saved successfully.")
@@ -2813,7 +2815,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
     def closeEvent(self, event):
         """Auto-save state on close (silent — no confirmation dialog)."""
         try:
-            self.state_manager.update('sizes', self._get_current_state())
+            self.state_manager.update('sizes', self._collect_state())
             self.state_manager.save()
         except Exception as exc:
             log.warning("Could not auto-save sizes state on close: %s", exc)
@@ -2919,7 +2921,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         config['_pyirena_config']['modified'] = now
         config['_pyirena_config']['written_by'] = f"pyIrena {_version}"
 
-        state = self._get_current_state()
+        state = self._collect_state()
         self.state_manager.update('sizes', state)
         config['sizes'] = self.state_manager.get('sizes')
 
@@ -2985,6 +2987,56 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         if self.graph_window:
             self.graph_window.show_success_message(msg)
 
+    # ── Results as text ──────────────────────────────────────────────────────
+
+    def results_for_report(self):
+        """Current results in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        Mirrors ``load_sizes_results()``: the setup state (grid, method, shape,
+        background…) with the fit scalars merged in, so the text a user copies
+        from the panel matches what the Data Selector reports from the saved
+        file.
+        """
+        if self.fit_result is None:
+            return None
+        from datetime import datetime as _dt
+
+        result = self.fit_result
+        try:
+            report = dict(self._collect_state())
+        except Exception:
+            log.debug("suppressed exception collecting sizes state", exc_info=True)
+            report = {}
+
+        report.update({
+            'r_grid':          result.get('r_grid'),
+            'distribution':    result.get('distribution'),
+            'residuals':       result.get('residuals'),
+            'chi_squared':     result.get('chi_squared'),
+            'volume_fraction': result.get('volume_fraction'),
+            'rg':              result.get('rg'),
+            'n_iterations':    result.get('n_iterations'),
+            'slit_length':     float(result.get('slit_length', 0.0) or 0.0),
+            'fit_quality':     getattr(self, '_last_quality_metrics', None),
+            'timestamp':       _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
+        cursor_range = (
+            self.graph_window.get_cursor_range() if self.graph_window else None
+        )
+        if cursor_range is not None:
+            report['cursor_q_min'], report['cursor_q_max'] = cursor_range
+        return report
+
+    def _data_info_for_report(self):
+        """Q/I/error arrays for the report's data-summary section."""
+        if not self.data:
+            return None
+        return {
+            'Q': self.data['Q'],
+            'I': self.data['Intensity'],
+            'I_error': self.data.get('Error'),
+        }
+
     # ── Store results to file ────────────────────────────────────────────────
 
     def store_results_to_file(self):
@@ -3030,7 +3082,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 i_err = i_err_raw
 
             result = self.fit_result
-            params = self._get_current_state()
+            params = self._collect_state()
             # Fit results
             params['chi_squared'] = result.get('chi_squared')
             params['volume_fraction'] = result.get('volume_fraction')
@@ -3051,7 +3103,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             # "Load Setup from File…".  Re-derived from controls so it
             # mirrors exactly what the user sees right now.
             try:
-                setup_state = self._get_current_state()
+                setup_state = self._collect_state()
             except Exception:
                 setup_state = None
 

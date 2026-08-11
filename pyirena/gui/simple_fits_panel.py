@@ -48,6 +48,12 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.plot_export import (
+    attach_plot_export,
+    save_plot_image,
+    tag_curve_uncertainty,
+)
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
     add_plot_annotation,
@@ -60,6 +66,7 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # Friendly display labels for the complex-background parameters.  The dict
@@ -147,12 +154,11 @@ class SimpleFitsGraphWindow(QWidget):
         self.lin_plot.getAxis('left').enableAutoSIPrefix(False)
         self.lin_plot.getAxis('bottom').enableAutoSIPrefix(False)
         self.lin_plot.setTitle('Linearization', color='#555555', size='10pt')
-        # JPEG export for linearization plot
-        _vb_lin = self.lin_plot.getViewBox()
-        _vb_lin.menu.addSeparator()
-        _lin_action = _vb_lin.menu.addAction("Save graph as JPEG…")
-        _lin_action.triggered.connect(
-            lambda checked=False: self._save_lin_plot_as_jpeg()
+        # Shared export menu for the linearization plot.  This panel had JPEG
+        # only and no ITX at all; it now matches every other plot.
+        attach_plot_export(
+            self.lin_plot, self._parent_ref, 'simple_fits_linearization',
+            window=self.graphics_layout,
         )
 
         # ── Height ratios 5:1:4 ───────────────────────────────────────────────
@@ -182,21 +188,9 @@ class SimpleFitsGraphWindow(QWidget):
         layout.addWidget(self.status_label)
 
     def _save_lin_plot_as_jpeg(self):
-        from pyqtgraph.exporters import ImageExporter
-        file_path, _ = QFileDialog.getSaveFileName(
-            self._parent_ref, 'Save Graph as JPEG',
-            str(Path.home() / 'simple_fits_linearization.jpg'),
-            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not file_path:
-            return
-        try:
-            exporter = ImageExporter(self.lin_plot)
-            exporter.parameters()['width'] = 1600
-            exporter.export(file_path)
-        except Exception as exc:
-            QMessageBox.warning(self._parent_ref, 'Export Failed',
-                                f'Could not save image:\n{exc}')
+        """Kept for external callers; the dialog now offers PNG/JPEG/SVG."""
+        save_plot_image(self.lin_plot, self._parent_ref,
+                        'simple_fits_linearization')
 
     # ── Data plotting ─────────────────────────────────────────────────────────
 
@@ -404,6 +398,7 @@ class SimpleFitsGraphWindow(QWidget):
         mask = np.isfinite(q) & np.isfinite(residuals) & (q > 0)
         if mask.sum() < 1:
             return
+        # Named so CSV/ITX export can pick it up (no legend on this panel).
         item = self.residuals_plot.plot(
             q[mask], residuals[mask],
             pen=None,
@@ -411,6 +406,7 @@ class SimpleFitsGraphWindow(QWidget):
             symbolSize=SASPlotStyle.RESID_SIZE,
             symbolPen=None,
             symbolBrush=SASPlotStyle.RESID_BRUSH,
+            name='Residuals',
         )
         self._resid_item = item
 
@@ -468,6 +464,13 @@ class SimpleFitsGraphWindow(QWidget):
         else:
             in_range = np.ones(len(X), dtype=bool)
 
+        # Uncertainties propagated into linearized space by ``linearize()``.
+        # Exported as a dY column / Igor error wave rather than drawn, so a
+        # reader can tell them apart from the data (they used to be absent
+        # from the export entirely).
+        dY = lin_result.get('dY')
+        dY = np.asarray(dY, dtype=float) if dY is not None else None
+
         # ── Out-of-range points: light grey, smaller ──────────────────────────
         out_mask = good & ~in_range
         if out_mask.any():
@@ -476,8 +479,11 @@ class SimpleFitsGraphWindow(QWidget):
                 pen=None,
                 brush=pg.mkBrush(180, 180, 180, 140),
                 size=4,
+                name='Data outside fit range',
             )
             self.lin_plot.addItem(out_item)
+            if dY is not None and len(dY) == len(X):
+                tag_curve_uncertainty(out_item, dY[out_mask])
 
         # ── In-range points: dark, standard size ──────────────────────────────
         in_mask = good & in_range
@@ -485,15 +491,19 @@ class SimpleFitsGraphWindow(QWidget):
             data_item = pg.ScatterPlotItem(
                 x=X[in_mask], y=Y[in_mask],
                 pen=None, brush=SASPlotStyle.DATA_BRUSH, size=5,
+                name='Linearized data',
             )
             self.lin_plot.addItem(data_item)
             self._lin_data_item = data_item
+            if dY is not None and len(dY) == len(X):
+                tag_curve_uncertainty(data_item, dY[in_mask])
 
         # ── Model line ────────────────────────────────────────────────────────
         mask2 = np.isfinite(X_fit) & np.isfinite(Y_fit)
         fit_item = pg.PlotDataItem(
             x=X_fit[mask2], y=Y_fit[mask2],
             pen=SASPlotStyle.FIT_PEN,
+            name='Linearized fit',
         )
         self.lin_plot.addItem(fit_item)
         self._lin_fit_item = fit_item
@@ -646,6 +656,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         self.status_label = QLabel('No data loaded.')
         self.status_label.setStyleSheet('font-size: 11px; color: #555;')
         main_layout.addWidget(self.status_label)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'simple_fits_panel',
+                             splitters={'main': splitter})
 
     def _create_control_panel(self) -> QWidget:
         panel = QWidget()
@@ -967,6 +981,24 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         self.import_btn.clicked.connect(self._import_parameters)
         row_out3.addWidget(self.import_btn)
         layout.addLayout(row_out3)
+
+        # Row 3b: results as text — clipboard or a Markdown file
+        layout.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='simple_fit_results',
+            default_stem='simple_fit',
+            file_path_provider=lambda: (self.data or {}).get('filepath', ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self.status_label.setText(msg),
+            folder_provider=lambda: (
+                str(Path((self.data or {}).get('filepath', '')).parent)
+                if (self.data or {}).get('filepath') else None
+            ),
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(
+                self.graph_window, 'graphics_layout', None),
+        ))
 
         # Row 4: Reset to defaults (full width)
         self.reset_btn = QPushButton('Reset to defaults')
@@ -1822,6 +1854,49 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             f'MC uncertainty done ({n_ok}/{n_runs} successful runs).')
 
     # ── Store in file ─────────────────────────────────────────────────────────
+
+    def results_for_report(self):
+        """Current fit in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        ``SimpleFitModel.fit()`` returns ``chi2`` / ``reduced_chi2`` while the
+        saved-and-reloaded form uses ``chi_squared`` / ``reduced_chi_squared``;
+        the mapping lives here so the panel's text matches the report the Data
+        Selector writes from the file.
+        """
+        if self.fit_result is None:
+            return None
+        from datetime import datetime as _dt
+
+        r = self.fit_result
+        q_fit = r.get('q')
+        q_min = float(np.min(q_fit)) if q_fit is not None and len(q_fit) else None
+        q_max = float(np.max(q_fit)) if q_fit is not None and len(q_fit) else None
+
+        return {
+            'model':               r.get('model'),
+            'chi_squared':         r.get('chi2'),
+            'reduced_chi_squared': r.get('reduced_chi2'),
+            'dof':                 r.get('dof'),
+            'q_min':               q_min,
+            'q_max':               q_max,
+            'use_complex_bg':      bool(getattr(self.model, 'use_complex_bg', False)),
+            'params':              r.get('params', {}),
+            'params_std':          r.get('params_std', {}),
+            'derived':             r.get('derived', {}),
+            'slit_length':         float(r.get('slit_length', 0.0) or 0.0),
+            'fit_quality':         getattr(self, '_last_quality_metrics', None),
+            'timestamp':           _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+    def _data_info_for_report(self):
+        """Q/I/error arrays for the report's data-summary section."""
+        if not self.data:
+            return None
+        return {
+            'Q': self.data['Q'],
+            'I': self.data['Intensity'],
+            'I_error': self.data.get('Error'),
+        }
 
     def _store_results(self):
         if self.data is None:

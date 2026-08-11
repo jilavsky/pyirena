@@ -33,11 +33,15 @@ that peaks standing above a slowly-varying background are correctly identified.
 
 from __future__ import annotations
 
+import copy
+import logging
 import warnings
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy import optimize, signal
+
+log = logging.getLogger(__name__)
 
 # ===========================================================================
 # Constants
@@ -938,6 +942,49 @@ class WAXSPeakFitModel:
         """Set the parameter state from GUI dicts."""
         self.bg_params = bg_params
         self.peaks     = peaks
+
+    # ── Serialisation ─────────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """The fit setup as a plain dict: background shape, its parameters, peaks.
+
+        WAXS keeps its parameters in ``{"value": …, "fit": …, "lo": …, "hi": …}``
+        dicts already, so this is mostly a deep copy — its job is to be the one
+        named place that says *which* pieces constitute the setup, and to make
+        the tool answer the same ``to_dict``/``from_dict`` pair as the others.
+        Results (fitted values, χ², the background curve) are not included.
+        """
+        return {
+            'bg_shape':  str(self.bg_shape),
+            'bg_params': copy.deepcopy(getattr(self, 'bg_params', None)
+                                       or default_bg_params(self.bg_shape)),
+            'peaks':     copy.deepcopy(self.peaks or []),
+            'no_limits': bool(self.no_limits),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'WAXSPeakFitModel':
+        """Rebuild a model from :meth:`to_dict`.
+
+        A missing background shape falls back to the first supported one and a
+        missing parameter dict to that shape's defaults, so a partial or older
+        file opens with a usable model instead of raising.  Peaks are taken as
+        given: they are the user's, and silently dropping one that lacks a key
+        would be worse than letting the fitter report it.
+        """
+        d = d or {}
+        bg_shape = str(d.get('bg_shape') or BG_SHAPES[0])
+        if bg_shape not in BG_SHAPES:
+            log.warning("unknown WAXS background shape %r; using %r",
+                        bg_shape, BG_SHAPES[0])
+            bg_shape = BG_SHAPES[0]
+
+        model = cls(bg_shape=bg_shape,
+                    peaks=copy.deepcopy(d.get('peaks') or []),
+                    no_limits=bool(d.get('no_limits', False)))
+        model.bg_params = copy.deepcopy(d.get('bg_params')
+                                        or default_bg_params(bg_shape))
+        return model
 
     def predict(
         self,

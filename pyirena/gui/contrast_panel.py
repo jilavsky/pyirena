@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
-from pyqtgraph.exporters import ImageExporter
 
 from pyirena.core.scattering_contrast import (
     VACUUM,
@@ -38,7 +37,6 @@ from pyirena.core.scattering_contrast import (
 )
 from pyirena.gui._qt import (
     QAbstractItemView,
-    QAction,
     QApplication,
     QCheckBox,
     QColor,
@@ -55,7 +53,6 @@ from pyirena.gui._qt import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -67,6 +64,13 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.plot_export import (
+    attach_plot_export,
+    export_folder,
+    remember_export_folder,
+)
+from pyirena.gui.table_utils import attach_table_copy
+from pyirena.gui.window_state import install_window_state
 from pyirena.io.contrast_io import (
     DEFAULT_LIBRARY_PATH,
     delete_compound_from_library,
@@ -189,26 +193,13 @@ def _grp_style(color: str) -> str:
 
 
 def _add_jpeg_action(plot_item, parent: QWidget, default_name: str = "graph") -> None:
-    action = QAction("Save graph as JPEG…", parent)
+    """Attach the shared export menu to one of the energy-scan plots.
 
-    def _go() -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            parent,
-            "Save graph as JPEG",
-            str(Path.home() / f"{default_name}.jpg"),
-            "JPEG Images (*.jpg *.jpeg)",
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot_item)
-            exp.parameters()["width"] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(parent, "Export failed", str(exc))
-
-    action.triggered.connect(_go)
-    plot_item.getViewBox().menu.addAction(action)
+    The energy-scan window gains clipboard copy, PNG/JPEG/SVG, curve CSV and
+    Igor ITX like every other pyIrena plot — it previously had JPEG only.
+    """
+    attach_plot_export(plot_item, parent, default_name,
+                       window=getattr(parent, "gl", None))
 
 
 def _ro_item(text: str) -> QTableWidgetItem:
@@ -391,7 +382,10 @@ class ContrastGraphWindow(QWidget):
 
         # Contrast
         contrast = scan_data.get("xray_contrast_anom", np.zeros(len(E)))
-        self._ax_ctr.plot(E, contrast, pen=pg.mkPen("#2980b9", width=2))
+        # Named so the shared CSV/ITX exporters can pick the curve up; the two
+        # plots below already name theirs.
+        self._ax_ctr.plot(E, contrast, pen=pg.mkPen("#2980b9", width=2),
+                          name="X-ray contrast (Δρ)²")
         self._ax_ctr.autoRange()
 
         # Absorption
@@ -514,7 +508,10 @@ class ContrastPanel(QWidget):
         self._build_ui()
         self._refresh_library(1)
         self._refresh_library(2)
-        self._restore_state()
+        self.load_state()
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'scattering_contrast')
 
     # ══════════════════════════════════════════════════════════════════
     #  UI construction
@@ -669,6 +666,9 @@ class ContrastPanel(QWidget):
         iso_tbl.setMaximumHeight(110)
         iso_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         iso_tbl.setStyleSheet("font-size:11px;")
+        # Same clipboard behaviour as every other table (the isotope column is
+        # a combo box, so a whole-table copy reads the selected isotope text).
+        attach_table_copy(iso_tbl)
         refs["iso_table"] = iso_tbl
         iso_lay.addWidget(iso_tbl)
         lay.addWidget(iso_grp)
@@ -847,9 +847,10 @@ class ContrastPanel(QWidget):
         tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         tbl.setAlternatingRowColors(True)
 
-        # Right-click Copy context menu
-        tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tbl.customContextMenuRequested.connect(self._table_context_menu)
+        # Shared clipboard behaviour: right-click menu + Ctrl+C / Ctrl+Shift+C.
+        # Sorting is deliberately NOT enabled — the rows are grouped under
+        # section headers, which a column sort would scramble.
+        attach_table_copy(tbl, on_save_csv=self._export_csv)
 
         for row, (rtype, label, units, _k1, _k2) in enumerate(_T_ROWS):
             if rtype == "hdr":
@@ -896,38 +897,6 @@ class ContrastPanel(QWidget):
             lay.addWidget(btn)
 
         return w
-
-    # ══════════════════════════════════════════════════════════════════
-    #  Table context menu (right-click Copy)
-    # ══════════════════════════════════════════════════════════════════
-
-    def _table_context_menu(self, pos) -> None:
-        # Select the cell under the cursor if nothing (or only other cells) selected
-        item_at = self._tbl.itemAt(pos)
-        if item_at is not None:
-            sel = self._tbl.selectedItems()
-            if item_at not in sel:
-                self._tbl.setCurrentItem(item_at)
-        menu = QMenu(self._tbl)
-        copy_act = QAction("Copy cell", self._tbl)
-        copy_act.setShortcut("Ctrl+C")
-        copy_act.triggered.connect(self._copy_table_selection)
-        menu.addAction(copy_act)
-        menu.exec(self._tbl.viewport().mapToGlobal(pos))
-
-    def _copy_table_selection(self) -> None:
-        items = self._tbl.selectedItems()
-        if not items:
-            return
-        # Collect by row, then column, then join
-        rows: Dict[int, Dict[int, str]] = {}
-        for it in items:
-            rows.setdefault(it.row(), {})[it.column()] = it.text()
-        text = "\n".join(
-            "\t".join(rows[r].get(c, "") for c in sorted(rows[r]))
-            for r in sorted(rows)
-        )
-        QApplication.clipboard().setText(text)
 
     # ══════════════════════════════════════════════════════════════════
     #  Isotope table
@@ -1075,7 +1044,7 @@ class ContrastPanel(QWidget):
             f"X-ray contrast (anom): {_fmt(contrast.xray_contrast_anom)} × 10²⁰ cm⁻⁴  |  "
             f"Neutron contrast: {_fmt(contrast.neutron_contrast)} × 10²⁰ cm⁻⁴"
         )
-        self._save_state()
+        self.save_state()
 
     def _on_energy_scan(self) -> None:
         for n in (1, 2):
@@ -1139,7 +1108,7 @@ class ContrastPanel(QWidget):
         self._set_status(
             f"Energy scan complete: {e_start:.2f}–{e_end:.2f} keV, {n_pts} points."
         )
-        self._save_state()
+        self.save_state()
 
     # ══════════════════════════════════════════════════════════════════
     #  Results table
@@ -1404,11 +1373,12 @@ class ContrastPanel(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Results CSV",
-            str(Path.home() / "contrast_results.csv"),
+            str(Path(export_folder()) / "contrast_results.csv"),
             "CSV Files (*.csv)",
         )
         if not path:
             return
+        remember_export_folder(path)
         try:
             results = {
                 "comp1": self._comp1.__dict__,
@@ -1427,11 +1397,12 @@ class ContrastPanel(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Scan CSV",
-            str(Path.home() / "contrast_scan.csv"),
+            str(Path(export_folder()) / "contrast_scan.csv"),
             "CSV Files (*.csv)",
         )
         if not path:
             return
+        remember_export_folder(path)
         try:
             export_scan_csv(self._scan_data, Path(path))
             self._set_status(f"Scan CSV exported to {Path(path).name}")
@@ -1444,11 +1415,12 @@ class ContrastPanel(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Scan HDF5",
-            str(Path.home() / "contrast_scan.h5"),
+            str(Path(export_folder()) / "contrast_scan.h5"),
             "HDF5 Files (*.h5 *.hdf5)",
         )
         if not path:
             return
+        remember_export_folder(path)
         try:
             meta = {
                 "comp1_name": self._comp1.name if self._comp1 else "",
@@ -1501,7 +1473,7 @@ class ContrastPanel(QWidget):
     #  State save / restore
     # ══════════════════════════════════════════════════════════════════
 
-    def _restore_state(self) -> None:
+    def load_state(self) -> None:
         if self._state_mgr is None:
             return
         st = self._state_mgr.state.get("contrast", {})
@@ -1530,7 +1502,7 @@ class ContrastPanel(QWidget):
         refs["_pending_iso"] = cd.get("isotope_overrides", {})
         self._update_isotope_table(n)
 
-    def _save_state(self) -> None:
+    def save_state(self) -> None:
         if self._state_mgr is None:
             return
         self._state_mgr.state["contrast"] = {
@@ -1546,7 +1518,7 @@ class ContrastPanel(QWidget):
         self._state_mgr.save()
 
     def closeEvent(self, event) -> None:
-        self._save_state()
+        self.save_state()
         if self._graph_win is not None:
             self._graph_win.close()
         super().closeEvent(event)

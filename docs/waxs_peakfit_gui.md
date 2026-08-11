@@ -36,7 +36,9 @@ The window is split into a **left control panel** (≈430 px wide) and a
 - **Add Peak at Q = X.XXX Å⁻¹** — inserts a peak row initialized at that Q
 - **Show data as line / Show data as points** — toggle scatter vs. connected line
 - **Hide / Show error bars** — toggle ±σ vertical bars on data
-- **Save graph as JPEG…** — export at 1600 px width
+- **Copy graph to clipboard**, **Save graph as image…** (PNG/JPEG/SVG at 1600 px),
+  **Save whole window as image…**, **Save curve data as CSV…**, **Save as Igor
+  Pro ITX…** — the standard export menu, described in `GUI_README.md`
 
 ### Vertical cursors
 
@@ -201,6 +203,8 @@ API (`fit_waxs_peaks` / `fit_waxs`).
 | Reset to Defaults | Clear all peaks; reset background to SNIP, weighting to Equal |
 | Save State | Persist GUI state to pyIrena state file |
 | Store in File | Save fit results to `entry/waxs_peakfit_results` in the HDF5 file |
+| Copy results | Put the current peaks on the clipboard as Markdown — per-peak A, Q₀, FWHM, η with 1σ uncertainties and the integrated area, plus χ², background shape and Q range.  Describes the peak rows on screen, so it works before a fit as well as after one |
+| Save report… | The same text as a `.md` file.  **Ctrl-click** (⌘-click on macOS) also saves the graph as a PNG beside it and embeds it as a figure |
 | Results to graphs | Overlay a text annotation with fitted values on the main plot |
 | Export Parameters | Write current parameters to `pyirena_config.json` in the data directory |
 | Import Parameters | Load parameters from a previously exported JSON file |

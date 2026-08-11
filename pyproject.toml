@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyirena"
-version = "1.1.0b6"
+version = "1.1.0b7"
 description = "Python tools for small-angle scattering data analysis."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
@@ -66,7 +66,13 @@ mcp = [
     # MCP server exposing pyirena.api to AI clients (Claude Desktop, Claude
     # Code, custom agents). pyirena.api itself is dependency-free; this extra
     # adds the protocol layer + headless plotting.
-    "mcp>=1.0.0",
+    #
+    # Upper bound: mcp 2.0 removed ``mcp.server.fastmcp``, the FastMCP/Image
+    # entry point pyirena/mcp/server.py is built on, so a fresh install with
+    # 2.x fails at import with a misleading "install pyirena[mcp]" message.
+    # Migrating to the 2.x API is a separate piece of work; until then this
+    # pin keeps `pip install pyirena[mcp]` working. Revisit when migrating.
+    "mcp>=1.0.0,<2.0",
     "matplotlib>=3.5.0",
 ]
 plotting = [

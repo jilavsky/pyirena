@@ -5,7 +5,7 @@ log = logging.getLogger(__name__)
 
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
@@ -13,7 +13,9 @@ import pyqtgraph as pg
 from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
 from pyirena.gui._qt import (
     QApplication,
+    QBrush,
     QCheckBox,
+    QColor,
     QComboBox,
     QDesktopServices,
     QDialog,
@@ -24,9 +26,13 @@ from pyirena.gui._qt import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPen,
+    QPointF,
     QPushButton,
     QRadioButton,
+    QRectF,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     Qt,
@@ -38,13 +44,19 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.plot_export import (
+    attach_plot_export,
+    save_plot_image,
+    tag_curve_uncertainty,
+)
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
     _LimitedAxisItem,
     add_slope_line_menu,
-    save_itx_from_plot,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.window_state import install_window_state
 from pyirena.state import StateManager
 
 # AI advisor — optional; buttons hidden if anthropic/keyring not installed
@@ -223,14 +235,6 @@ class DraggableCursor(pg.GraphicsObject):
         NOTE: Returns a large static rectangle to ensure rendering works.
         dataBounds() returning None ensures we don't affect autoscale.
         """
-        try:
-            from PySide6.QtCore import QRectF
-        except ImportError:
-            try:
-                from PyQt6.QtCore import QRectF
-            except ImportError:
-                from PyQt5.QtCore import QRectF
-
         # Return a large rectangle that covers any reasonable plot range
         # This is safe because dataBounds() returns None, so this won't
         # affect autoscaling
@@ -242,20 +246,6 @@ class DraggableCursor(pg.GraphicsObject):
         if self.plot_item is None:
             log.debug("plot_item is None, skipping paint")
             return
-
-        try:
-            from PySide6.QtCore import QPointF, QRectF
-            from PySide6.QtCore import Qt as QtCore
-            from PySide6.QtGui import QBrush, QColor, QPen
-        except ImportError:
-            try:
-                from PyQt6.QtCore import QPointF, QRectF
-                from PyQt6.QtCore import Qt as QtCore
-                from PyQt6.QtGui import QBrush, QColor, QPen
-            except ImportError:
-                from PyQt5.QtCore import QPointF, QRectF
-                from PyQt5.QtCore import Qt as QtCore
-                from PyQt5.QtGui import QBrush, QColor, QPen
 
         # Get plot Y range in data coordinates
         view_range = self.plot_item.viewRange()
@@ -278,7 +268,7 @@ class DraggableCursor(pg.GraphicsObject):
 
         # Draw vertical dashed line spanning the full plot height
         pen = QPen(QColor(*self.color))
-        pen.setStyle(QtCore.PenStyle.DashLine)
+        pen.setStyle(Qt.PenStyle.DashLine)
         pen.setWidth(2)
         painter.setPen(pen)
 
@@ -287,7 +277,7 @@ class DraggableCursor(pg.GraphicsObject):
 
         # Draw marker at top
         marker_y = y_max * 0.96
-        pen.setStyle(QtCore.PenStyle.SolidLine)
+        pen.setStyle(Qt.PenStyle.SolidLine)
         pen.setWidth(2)
         painter.setPen(pen)
 
@@ -320,7 +310,7 @@ class DraggableCursor(pg.GraphicsObject):
 
         # Draw symbols
         if self.symbol == 'o':  # Circle
-            painter.setBrush(QBrush(QtCore.BrushStyle.NoBrush))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             # Use QRectF for ellipse to ensure float precision
             try:
                 painter.drawEllipse(QPointF(0, marker_y), float(marker_size_x), float(marker_size_y))
@@ -328,7 +318,7 @@ class DraggableCursor(pg.GraphicsObject):
                 log.debug("suppressed exception", exc_info=True)  # Skip if still overflows
 
         elif self.symbol == 's':  # Square
-            painter.setBrush(QBrush(QtCore.BrushStyle.NoBrush))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             try:
                 rect = QRectF(
                     float(-marker_size_x),
@@ -404,6 +394,9 @@ class UnifiedFitGraphWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena - Unified Fit")
         self.setGeometry(100, 100, 900, 700)
+        # No geometry persistence here: despite the name this widget is the
+        # right-hand pane of the panel's splitter, and setting a pane's
+        # geometry fights the layout.  The panel remembers the split instead.
 
         self._itx_technique = 'UnifiedFit'   # ITX export → root:UnifiedFit:<sample>
         self._itx_sample_label = None        # set to current sample in plot_data
@@ -626,26 +619,14 @@ class UnifiedFitGraphWindow(QWidget):
         self.graphics_layout.ci.layout.setRowStretchFactor(0, 4)
         self.graphics_layout.ci.layout.setRowStretchFactor(1, 1)
 
-        # Export menus: JPEG + ITX for main plot
-        vb = self.main_plot.getViewBox()
-        vb.menu.addSeparator()
-        save_action = vb.menu.addAction("Save graph as JPEG…")
-        save_action.triggered.connect(self.save_top_graph_as_jpeg)
-        itx_action = vb.menu.addAction("Save as Igor Pro ITX…")
-        itx_action.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.main_plot, self)
+        # Shared export menu (clipboard, image, whole window, curve CSV, ITX)
+        attach_plot_export(
+            self.main_plot, self, 'unified_fit_graph',
+            window=self.graphics_layout, folder=self._export_folder,
         )
-
-        # Export menus: JPEG + ITX for residual plot
-        vb2 = self.residual_plot.getViewBox()
-        vb2.menu.addSeparator()
-        resid_jpeg = vb2.menu.addAction("Save graph as JPEG…")
-        resid_jpeg.triggered.connect(
-            lambda checked=False: self._save_jpeg(self.residual_plot, 'unified_fit_residuals')
-        )
-        resid_itx = vb2.menu.addAction("Save as Igor Pro ITX…")
-        resid_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.residual_plot, self)
+        attach_plot_export(
+            self.residual_plot, self, 'unified_fit_residuals',
+            window=self.graphics_layout, folder=self._export_folder,
         )
 
         # Porod tab: full-height single plot of I·Q⁴ vs Q (no cursors, no residuals).
@@ -681,16 +662,10 @@ class UnifiedFitGraphWindow(QWidget):
             self.porod_plot.getAxis('right').setStyle(showValues=False)
             self.porod_plot.enableAutoRange()
 
-            # Export menus: JPEG + ITX for Porod plot
-            vb3 = self.porod_plot.getViewBox()
-            vb3.menu.addSeparator()
-            porod_jpeg = vb3.menu.addAction("Save graph as JPEG…")
-            porod_jpeg.triggered.connect(
-                lambda checked=False: self._save_jpeg(self.porod_plot, 'unified_fit_porod')
-            )
-            porod_itx = vb3.menu.addAction("Save as Igor Pro ITX…")
-            porod_itx.triggered.connect(
-                lambda checked=False: save_itx_from_plot(self.porod_plot, self)
+            # Shared export menu for the Porod plot
+            attach_plot_export(
+                self.porod_plot, self, 'unified_fit_porod',
+                window=self.porod_layout, folder=self._export_folder,
             )
         else:
             # Soft clear: remove only data items from the existing plot.
@@ -702,42 +677,18 @@ class UnifiedFitGraphWindow(QWidget):
             if self.porod_plot is not None:
                 self.porod_plot.clear()
 
+    def _export_folder(self):
+        """Folder the export dialogs open in — next to the loaded data."""
+        return getattr(self, 'data_folder', None)
+
     def save_top_graph_as_jpeg(self):
-        """Export the top (main) plot to a JPEG file chosen by the user."""
-        from pyqtgraph.exporters import ImageExporter
+        """Export the top (main) plot to an image file chosen by the user.
 
-        default_name = str(Path(self.data_folder) / "unified_fit_graph.jpg")
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Graph as JPEG",
-            default_name,
-            "JPEG Images (*.jpg *.jpeg);;All Files (*)"
-        )
-        if not file_path:
-            return
-
-        try:
-            exporter = ImageExporter(self.main_plot)
-            # Export at 1600 px wide for good quality; height scales proportionally
-            exporter.parameters()['width'] = 1600
-            exporter.export(file_path)
-        except Exception as e:
-            QMessageBox.warning(self, "Export Failed", f"Could not save image:\n{e}")
-
-    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Save as JPEG', str(Path.home() / f'{stem}.jpg'),
-            'JPEG Images (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(self, 'Export failed', str(exc))
+        Kept as a public method because external callers (and the toolbar) use
+        it; the dialog now offers PNG/JPEG/SVG via the shared exporter.
+        """
+        save_plot_image(self.main_plot, self, 'unified_fit_graph',
+                        folder=self._export_folder())
 
     def clear_result_text_annotations(self):
         """Remove all result text annotations from the graph."""
@@ -798,7 +749,7 @@ class UnifiedFitGraphWindow(QWidget):
         self.main_plot.disableAutoRange()
 
         # Plot data points
-        self.main_plot.plot(
+        data_item = self.main_plot.plot(
             q, intensity,
             pen=None,
             symbol='o',
@@ -806,6 +757,10 @@ class UnifiedFitGraphWindow(QWidget):
             symbolBrush=(100, 100, 255, 150),
             name=label
         )
+        # Error bars are NaN-separated line segments that no exporter can turn
+        # back into uncertainties; record the array so CSV/ITX carry a dY
+        # column matching what is drawn.
+        tag_curve_uncertainty(data_item, error)
 
         # Add error bars if available - batch all segments for fast rendering
         if error is not None and len(error) > 0:
@@ -942,7 +897,7 @@ class UnifiedFitGraphWindow(QWidget):
         # tighter log-decade range than I·Q⁴, so the flash is imperceptible.
         self.porod_plot.getViewBox().disableAutoRange()
 
-        self.porod_plot.plot(
+        porod_item = self.porod_plot.plot(
             q_v.tolist(), i_porod.tolist(),
             pen=None,
             symbol='o',
@@ -950,6 +905,11 @@ class UnifiedFitGraphWindow(QWidget):
             symbolBrush=(100, 100, 255, 150),
             name=label,
         )
+        # Uncertainties in the Porod presentation are dI·Q⁴, matching i_porod.
+        if error is not None and len(error) == len(q):
+            tag_curve_uncertainty(
+                porod_item, np.asarray(error, dtype=float)[valid] * q_v ** 4
+            )
 
         # Error bars: dI scaled by Q⁴ (Q is exact). Skip if not provided.
         if error is not None and len(error) == len(q):
@@ -1015,12 +975,15 @@ class UnifiedFitGraphWindow(QWidget):
         """Plot fit residuals with symmetric Y-axis around 0."""
         self.residual_plot.clear()
         self.residual_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
+        # Named so the curve can be exported (CSV/ITX skip unlabelled items);
+        # the residual plot has no legend, so nothing changes on screen.
         self.residual_plot.plot(
             q, residuals,
             pen=None,
             symbol='o',
             symbolSize=3,
-            symbolBrush=(100, 100, 255, 150)
+            symbolBrush=(100, 100, 255, 150),
+            name='Residuals',
         )
 
         # Set symmetric Y-axis range around 0
@@ -2063,6 +2026,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self.setMinimumSize(1200, 960)  # Same width, 20% taller (800 * 1.2 = 960)
         self.resize(1200, 960)  # Set initial size
 
+        # Reopen where the user left it, at the width they gave the controls.
+        # Hold Shift while opening the tool to ignore the saved geometry.
+        install_window_state(self, 'unified_fit_panel',
+                             splitters={'main': main_splitter})
+
     def format_value_3sig(self, value: float) -> str:
         """Format a value to 3 significant digits for display."""
         from pyirena.gui.fmt_utils import eng_fmt
@@ -2089,14 +2057,6 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         panel = QWidget()
 
         # Set size policy to prevent content-driven expansion
-        try:
-            from PySide6.QtWidgets import QSizePolicy
-        except ImportError:
-            try:
-                from PyQt6.QtWidgets import QSizePolicy
-            except ImportError:
-                from PyQt5.QtWidgets import QSizePolicy
-
         size_policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         panel.setSizePolicy(size_policy)
         panel.setMinimumWidth(400)
@@ -2426,6 +2386,28 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         layout.addLayout(results_buttons3)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        layout.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='fit_results',
+            default_stem='unified_fit',
+            file_path_provider=lambda: (self.data or {}).get('filepath', ''),
+            data_info_provider=self._data_info_for_report,
+            # Looked up lazily: status_label is created further down in the UI
+            # build, after this row.
+            status_setter=lambda msg: self.status_label.setText(msg),
+            folder_provider=lambda: (
+                str(Path((self.data or {}).get('filepath', '')).parent)
+                if (self.data or {}).get('filepath') else None
+            ),
+            # Ctrl/⌘-click also writes the graph beside the report.  The
+            # graphics layout is grabbed rather than the window, so the figure
+            # is the plots alone — no tab bar, no status line.
+            image_widget_provider=lambda: getattr(
+                self.graph_window, 'graphics_layout', None),
+        ))
+
         # Row 4: Reset to Defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
         self.reset_button.setMinimumHeight(26)
@@ -2726,22 +2708,10 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             for i in range(num_levels):
                 params = self.level_widgets[i].get_parameters()
-                level = UnifiedLevel(
-                    Rg=params['Rg'],
-                    G=params['G'],
-                    P=params['P'],
-                    B=params['B'],
-                    RgCO=params['RgCutoff'],
-                    ETA=params['ETA'],
-                    PACK=params['PACK'],
-                    correlations=params['correlated'],
-                    Rg_limits=(params['Rg_low'], params['Rg_high']),
-                    G_limits=(params['G_low'], params['G_high']),
-                    P_limits=(params['P_low'], params['P_high']),
-                    B_limits=(params['B_low'], params['B_high']),
-                    ETA_limits=(params['ETA_low'], params['ETA_high']),
-                    PACK_limits=(params['PACK_low'], params['PACK_high'])
-                )
+                # Draw exactly what the user typed: no links (they would
+                # recompute B from G/Rg/P) and no fit flags (a plot has none).
+                level = UnifiedLevel.from_panel_params(
+                    params, with_links=False, with_fit_flags=False)
                 levels.append(level)
 
             background = float(self.background_value.text() or 0)
@@ -2859,63 +2829,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             for i in range(num_levels):
                 params = self.level_widgets[i].get_parameters()
 
-                # If "No limits?" is checked, use very wide bounds instead of user-specified limits
-                if no_limits:
-                    level = UnifiedLevel(
-                        Rg=params['Rg'],
-                        G=params['G'],
-                        P=params['P'],
-                        B=params['B'],
-                        RgCO=params['RgCutoff'],
-                        ETA=params['ETA'],
-                        PACK=params['PACK'],
-                        correlations=params['correlated'],
-                        fit_Rg=params['fit_Rg'],
-                        fit_G=params['fit_G'],
-                        fit_P=params['fit_P'],
-                        fit_B=params['fit_B'],
-                        fit_ETA=params['fit_ETA'],
-                        fit_PACK=params['fit_PACK'],
-                        # Propagate the parameter links into the core model so B
-                        # (and RgCO) are recomputed at every fit iteration from the
-                        # live G/Rg/P, rather than frozen at the stale GUI value.
-                        link_B=params['estimate_B'],
-                        link_RGCO=params['link_rgco'],
-                        Rg_limits=(0.1, 1e6),      # Default wide bounds
-                        G_limits=(1e-10, 1e10),    # Default wide bounds
-                        P_limits=(0.0, 6.0),       # Default wide bounds
-                        B_limits=(1e-20, 1e10),    # Default wide bounds
-                        ETA_limits=(0.1, 1e6),     # Default wide bounds
-                        PACK_limits=(0.0, 16.0)    # Default wide bounds
-                    )
-                else:
-                    level = UnifiedLevel(
-                        Rg=params['Rg'],
-                        G=params['G'],
-                        P=params['P'],
-                        B=params['B'],
-                        RgCO=params['RgCutoff'],
-                        ETA=params['ETA'],
-                        PACK=params['PACK'],
-                        correlations=params['correlated'],
-                        fit_Rg=params['fit_Rg'],
-                        fit_G=params['fit_G'],
-                        fit_P=params['fit_P'],
-                        fit_B=params['fit_B'],
-                        fit_ETA=params['fit_ETA'],
-                        fit_PACK=params['fit_PACK'],
-                        # Propagate the parameter links into the core model so B
-                        # (and RgCO) are recomputed at every fit iteration from the
-                        # live G/Rg/P, rather than frozen at the stale GUI value.
-                        link_B=params['estimate_B'],
-                        link_RGCO=params['link_rgco'],
-                        Rg_limits=(params['Rg_low'], params['Rg_high']),
-                        G_limits=(params['G_low'], params['G_high']),
-                        P_limits=(params['P_low'], params['P_high']),
-                        B_limits=(params['B_low'], params['B_high']),
-                        ETA_limits=(params['ETA_low'], params['ETA_high']),
-                        PACK_limits=(params['PACK_low'], params['PACK_high'])
-                    )
+                # "No limits?" swaps the user's bounds for wide defaults;
+                # the links are propagated either way so B (and RgCO) are
+                # recomputed at every iteration from the live G/Rg/P.
+                level = UnifiedLevel.from_panel_params(
+                    params, with_limits=not no_limits)
                 levels.append(level)
 
             background = float(self.background_value.text() or 0)
@@ -3045,6 +2963,9 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 sigma=self.data.get('Error'),
                 n_params=max(1, n_free_params),
             )
+            # Kept so the text report can quote the same numbers the status
+            # line shows (same attribute name as sizes_panel).
+            self._last_quality_metrics = metrics
 
             # CorMap (Franke 2015): longest run of same-sign residuals.
             # C/log2(N) ≈ 1.0 means random noise; >> 1 means systematic misfit.
@@ -3437,7 +3358,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     # STATE MANAGEMENT METHODS
 
-    def get_current_state(self) -> Dict:
+    def _collect_state(self) -> Dict:
         """Get current GUI state for saving."""
         state = {
             'num_levels': self.num_levels_spin.value(),
@@ -3507,7 +3428,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         return state
 
-    def apply_state(self, state: Dict):
+    def _apply_state(self, state: Dict):
         """Apply saved state to GUI."""
         # Set number of levels
         self.num_levels_spin.setValue(state.get('num_levels', 1))
@@ -3602,16 +3523,29 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 # Update feasibility status
                 level_widget.update_feasibility_status()
 
+    def get_current_state(self) -> Dict:
+        """Public alias of :meth:`_collect_state`.
+
+        Kept because this name is the documented shape of the embedded
+        ``_pyirena_config`` setup state (see ``pyirena/io/setup_config.py`` and
+        the api/control layer), and AI-agent scripts call it directly.
+        """
+        return self._collect_state()
+
+    def apply_state(self, state: Dict) -> None:
+        """Public alias of :meth:`_apply_state` — see :meth:`get_current_state`."""
+        self._apply_state(state)
+
     def load_state(self):
         """Load state from state manager."""
         state = self.state_manager.get('unified_fit')
         if state:
-            self.apply_state(state)
+            self._apply_state(state)
             log.info("Loaded saved state")
 
     def save_state(self):
         """Save current state."""
-        state = self.get_current_state()
+        state = self._collect_state()
         self.state_manager.update('unified_fit', state)
         if self.state_manager.save():
             QMessageBox.information(self, "State Saved", "Current state has been saved successfully!")
@@ -3640,7 +3574,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             parent=self,
             tool="unified_fit",
             default_folder=default_folder,
-            apply_state=self.apply_state,
+            apply_state=self._apply_state,
             on_status=lambda msg: self.status_label.setText(msg),
             suggested_path=suggested,
         )
@@ -3796,22 +3730,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             for i in range(num_levels):
                 params = self.parameter_backup['levels'][i]
-                level = UnifiedLevel(
-                    Rg=params['Rg'],
-                    G=params['G'],
-                    P=params['P'],
-                    B=params['B'],
-                    RgCO=params['RgCutoff'],
-                    ETA=params['ETA'],
-                    PACK=params['PACK'],
-                    correlations=params['correlated'],
-                    Rg_limits=(params['Rg_low'], params['Rg_high']),
-                    G_limits=(params['G_low'], params['G_high']),
-                    P_limits=(params['P_low'], params['P_high']),
-                    B_limits=(params['B_low'], params['B_high']),
-                    ETA_limits=(params['ETA_low'], params['ETA_high']),
-                    PACK_limits=(params['PACK_low'], params['PACK_high'])
-                )
+                level = UnifiedLevel.from_panel_params(
+                    params, with_links=False, with_fit_flags=False)
                 levels.append(level)
 
             # Update model
@@ -3928,33 +3848,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             levels = []
             for i in range(num_levels):
                 p = level_params_list[i]
-                if no_limits:
-                    lv = UnifiedLevel(
-                        Rg=p['Rg'], G=p['G'], P=p['P'], B=p['B'],
-                        RgCO=p['RgCutoff'], ETA=p['ETA'], PACK=p['PACK'],
-                        correlations=p['correlated'],
-                        fit_Rg=p['fit_Rg'], fit_G=p['fit_G'],
-                        fit_P=p['fit_P'], fit_B=p['fit_B'],
-                        fit_ETA=p['fit_ETA'], fit_PACK=p['fit_PACK'],
-                        Rg_limits=(0.1, 1e6), G_limits=(1e-10, 1e10),
-                        B_limits=(1e-20, 1e10), P_limits=(0.0, 6.0),
-                        ETA_limits=(0.1, 1e6), PACK_limits=(0.0, 16.0),
-                    )
-                else:
-                    lv = UnifiedLevel(
-                        Rg=p['Rg'], G=p['G'], P=p['P'], B=p['B'],
-                        RgCO=p['RgCutoff'], ETA=p['ETA'], PACK=p['PACK'],
-                        correlations=p['correlated'],
-                        fit_Rg=p['fit_Rg'], fit_G=p['fit_G'],
-                        fit_P=p['fit_P'], fit_B=p['fit_B'],
-                        fit_ETA=p['fit_ETA'], fit_PACK=p['fit_PACK'],
-                        Rg_limits=(p['Rg_low'], p['Rg_high']),
-                        G_limits=(p['G_low'], p['G_high']),
-                        B_limits=(p['B_low'], p['B_high']),
-                        P_limits=(p['P_low'], p['P_high']),
-                        ETA_limits=(p['ETA_low'], p['ETA_high']),
-                        PACK_limits=(p['PACK_low'], p['PACK_high']),
-                    )
+                # Monte-Carlo uncertainties re-fit the *same* setup, so the fit
+                # flags and bounds come across; the links are left off to match
+                # the pre-MC model the errors are quoted against.
+                lv = UnifiedLevel.from_panel_params(
+                    p, with_limits=not no_limits, with_links=False)
                 levels.append(lv)
 
             mc_model = UnifiedFitModel(num_levels=num_levels)
@@ -4078,6 +3976,106 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             traceback.print_exc()
             self.graph_window.show_error_message(f"Error displaying results: {str(e)}")
 
+    def _collect_level_dicts(self) -> list:
+        """Per-level parameter dicts in the shape saved to (and loaded from) HDF5.
+
+        Shared by the HDF5 save and the text report so the two can never
+        disagree about what a level contains.  ``Sv`` and ``Invariant`` are read
+        from the display fields, which is where they are computed; they are
+        omitted rather than guessed when unavailable.
+        """
+        levels = []
+        for i in range(self.num_levels_spin.value()):
+            params = self.level_widgets[i].get_parameters()
+
+            def _display_value(text):
+                try:
+                    return float(text) if text not in ('N/A', 'Error', '0') else None
+                except (TypeError, ValueError):
+                    return None
+
+            level_dict = {
+                'G': params['G'],
+                'Rg': params['Rg'],
+                'B': params['B'],
+                'P': params['P'],
+                'RgCutoff': params['RgCutoff'],
+                'ETA': params['ETA'],
+                'PACK': params['PACK'],
+                'correlated': params['correlated'],
+            }
+            sv_val = _display_value(self.level_widgets[i].sv_value.text())
+            if sv_val is not None:
+                level_dict['Sv'] = sv_val
+            inv_val = _display_value(self.level_widgets[i].invariant_value.text())
+            if inv_val is not None:
+                level_dict['Invariant'] = inv_val
+
+            # Monte-Carlo 1σ uncertainties, when a run has produced them.
+            level_errs = ((self.fit_uncertainties or {}).get('levels') or [])
+            if i < len(level_errs):
+                for key, err in (level_errs[i] or {}).items():
+                    if err:
+                        level_dict[f'{key}_err'] = err
+
+            levels.append(level_dict)
+        return levels
+
+    def _data_info_for_report(self) -> Optional[dict]:
+        """Q/I/error arrays for the report's data-summary section."""
+        if not self.data:
+            return None
+        return {
+            'Q': self.data['Q'],
+            'I': self.data['Intensity'],
+            'I_error': self.data.get('Error'),
+        }
+
+    def results_for_report(self) -> dict:
+        """Current fit results in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        Same shape as ``load_unified_fit_results()`` returns, so the text a user
+        copies from the panel matches what the Data Selector reports from the
+        saved file.
+        """
+        from datetime import datetime as _dt
+
+        q = self.data['Q'] if self.data else None
+        intensity = self.data['Intensity'] if self.data else None
+        error = self.data.get('Error') if self.data else None
+
+        intensity_model = None
+        residuals = None
+        if q is not None and self.model is not None:
+            try:
+                intensity_model = self.model.calculate_intensity(q)
+                denom = error if error is not None else intensity
+                residuals = (intensity - intensity_model) / denom
+            except Exception:
+                log.debug("suppressed exception building report model", exc_info=True)
+
+        chi_squared = 0.0
+        if getattr(self, 'fit_result', None):
+            chi_squared = self.fit_result.get('chi_squared', 0.0)
+
+        return {
+            'Q': q,
+            'intensity_data': intensity,
+            'intensity_model': intensity_model,
+            'intensity_error': error,
+            'residuals': residuals,
+            'num_levels': self.num_levels_spin.value(),
+            'background': float(self.background_value.text() or 0),
+            'chi_squared': chi_squared,
+            'levels': self._collect_level_dicts(),
+            'slit_length': (
+                float(self.model.slit_length)
+                if self.model is not None and self.model.use_slit_smearing else 0.0
+            ),
+            'fit_quality': getattr(self, '_last_quality_metrics', None),
+            'timestamp': _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
     def store_results_to_file(self):
         """Store Unified Fit results to NXcanSAS HDF5 file."""
         from pyirena.io.nxcansas_unified import (
@@ -4122,42 +4120,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             # Gather parameters
             num_levels = self.num_levels_spin.value()
-            levels = []
-
-            for i in range(num_levels):
-                params = self.level_widgets[i].get_parameters()
-
-                # Get Sv and Invariant from display fields
-                sv_text = self.level_widgets[i].sv_value.text()
-                inv_text = self.level_widgets[i].invariant_value.text()
-
-                try:
-                    sv_val = float(sv_text) if sv_text not in ['N/A', 'Error', '0'] else None
-                except Exception:
-                    sv_val = None
-
-                try:
-                    inv_val = float(inv_text) if inv_text not in ['N/A', 'Error', '0'] else None
-                except Exception:
-                    inv_val = None
-
-                level_dict = {
-                    'G': params['G'],
-                    'Rg': params['Rg'],
-                    'B': params['B'],
-                    'P': params['P'],
-                    'RgCutoff': params['RgCutoff'],
-                    'ETA': params['ETA'],
-                    'PACK': params['PACK'],
-                    'correlated': params['correlated'],
-                }
-
-                if sv_val is not None:
-                    level_dict['Sv'] = sv_val
-                if inv_val is not None:
-                    level_dict['Invariant'] = inv_val
-
-                levels.append(level_dict)
+            levels = self._collect_level_dicts()
 
             background = float(self.background_value.text() or 0)
 
@@ -4202,7 +4165,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # Save Unified Fit results, embedding the full GUI state so the
             # panel can later restore every control from this file.
             try:
-                setup_state = self.get_current_state()
+                setup_state = self._collect_state()
             except Exception:
                 setup_state = None
 
@@ -4323,7 +4286,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         config['_pyirena_config']['written_by'] = f"pyIrena {_version}"
 
         # Collect full Unified Fit state and write it into the config
-        self.state_manager.update('unified_fit', self.get_current_state())
+        self.state_manager.update('unified_fit', self._collect_state())
         config['unified_fit'] = self.state_manager.get('unified_fit')
 
         try:
@@ -4379,7 +4342,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         unified_state = config['unified_fit']
         self.state_manager.update('unified_fit', unified_state)
-        self.apply_state(unified_state)
+        self._apply_state(unified_state)
 
         written_by = config['_pyirena_config'].get('written_by', 'unknown version')
         msg = f"Unified Fit parameters loaded from: {file_path.name}  (written by {written_by})"
@@ -4395,7 +4358,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def closeEvent(self, event):
         """Handle window close - auto-save state."""
-        state = self.get_current_state()
+        state = self._collect_state()
         self.state_manager.update('unified_fit', state)
         self.state_manager.save()
         event.accept()

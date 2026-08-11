@@ -206,12 +206,23 @@ These rows use `xraydb` Chantler tables at the specified energy.
 | Sample transmission | — | Combined T using the volume fraction setting |
 | X-ray contrast (anomalous) (Δρ)² | 10²⁰ cm⁻⁴ | Using anomalous SLDs |
 
-### Copying values from the results table
+### Copying values from the tables
 
-- Click any cell to select it.
-- Right-click → **Copy cell** (or **Ctrl+C**) to copy to clipboard.
-- Multi-cell selection with Ctrl+click or Shift+click; Ctrl+C copies all selected
-  cells as tab-separated text.
+Both the results table and the **Neutron Isotope Selection** table use the
+standard pyIrena table behaviour:
+
+- Click any cell to select it; Ctrl+click or Shift+click for several.
+- **Ctrl+C** copies the selection as tab-separated text (pastes into Excel,
+  Igor Pro, Origin).  **Ctrl+Shift+C**, or right-click → *Copy with Column
+  Headers*, includes the headers.
+- With nothing selected, Ctrl+C (or right-click → *Copy Whole Table*) copies
+  the entire table — for the isotope table this includes the isotope chosen in
+  each drop-down.
+- Right-click → **Save as CSV…** is the same export as the *Export Results CSV*
+  button.
+
+Column sorting is intentionally not enabled here: the results rows are grouped
+under section headers, which a sort would scramble.
 
 ---
 
@@ -234,7 +245,11 @@ vertical crosshair line moves across all plots simultaneously.
 
 **Log Y axis** — the top checkbox toggles logarithmic Y scale on the contrast plot.
 
-**JPEG export** — right-click on any plot → *Save graph as JPEG…*
+**Export** — right-click on any of the three plots for the standard menu:
+*Copy graph to clipboard*, *Save graph as image…* (PNG/JPEG/SVG), *Save whole
+window as image…*, *Save curve data as CSV…* and *Save as Igor Pro ITX…*.  The
+energy-scan curves previously could only be saved as JPEG or via the *Export
+Scan CSV* button.
 
 Click **Show Graphs** at any time to bring the graph window back to the front.
 

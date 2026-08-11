@@ -114,13 +114,271 @@ HDF5 DATA EXPLORER
         RESULT_X_WAVE pairing) + io/h5xp_extractor.py writes the waves
         and wave-note parameters
 
+STANDARD UX CONTRACT (see below — every new GUI surface)
+[ ] 25. Every table: attach_table_copy() (+ enable_table_sorting() where the
+        row order is not meaningful); CSV export for multi-row results
+[ ] 26. Every plot: attach_plot_export() — or make_sas_plot(parent_widget=…)
+[ ] 27. Every file list: shared filter (gui/file_filter.py), shared sort modes,
+        remembered folder
+
 DOCS & TESTS
-[ ] 25. docs/<tool>_gui.md: user documentation + scripting example
-[ ] 26. CHANGELOG.md entry
-[ ] 27. Tests: math vs analytic ground truth; registry/serialisation
+[ ] 28. docs/<tool>_gui.md: user documentation + scripting example
+[ ] 29. CHANGELOG.md entry
+[ ] 30. Tests: math vs analytic ground truth; registry/serialisation
         round-trip; HDF5 save/load round-trip; batch-config path
-[ ] 28. Run the full test suite, not just the new file
+[ ] 31. Run the full test suite, not just the new file
 ```
+
+## Serialising a tool's state
+
+The core model owns the state; everything else asks it for a dict.  Two
+methods, whatever the tool:
+
+```python
+def to_dict(self) -> dict:      # settings, not results — no data arrays, no χ²
+def from_dict(cls, d: dict):    # a default for *every* field
+```
+
+`from_dict` supplying a default for every field is not politeness, it is the
+backwards-compatibility guarantee: a file written before a field existed has to
+open with that field at its default.  `pyirena/tests/test_core_serialization.py`
+tests both directions for every tool that has the pair, through
+`json.dumps`/`loads` — which is where tuples silently become lists.  Bounds are
+tuples in the model and lists in the file; restore them, because the fitter
+unpacks them.
+
+For a dataclass-based tool, inherit `_SerialisableDataclass`
+(`core/modeling.py`) rather than writing the two methods out: it walks
+`dataclasses.fields()`, so a new field is serialised the moment it is declared.
+Modeling's six population types share one implementation this way, and
+`population_from_dict` dispatches on `pop_type` through the
+`POPULATION_CLASSES` registry — an unknown type from a newer pyIrena loads as a
+size distribution with a warning instead of raising.
+
+**The panel's key names are not the model's.**  `RgCutoff`, `correlated`,
+`estimate_B`, `Rg_low` are baked into saved setups and batch config files and
+cannot be renamed.  Translate in exactly one place —
+`UnifiedLevel.from_panel_params()` is the pattern — and never a second time in
+a panel or a batch module.
+
+## Qt imports
+
+One import point, no exceptions:
+
+```python
+from pyirena.gui._qt import QLabel, QTimer, Qt, Signal
+```
+
+If a class is missing, add it to `pyirena/gui/_qt.py` (and to its `__all__`) —
+do **not** write a local `try: from PySide6 … except ImportError: …` block, not
+even inside a function, and not in a test.  Those blocks are how the project
+ended up with three shims and a stale PyQt5 branch that would have failed on a
+PyQt6-only install.  `pyirena/tests/test_gui_qt_contract.py` enforces this: it
+fails on any direct binding import in the package, on a second `_qt.py`
+appearing in a subpackage, on a name imported from `_qt.py` that it does not
+define, and on a name defined there but missing from `__all__`.
+
+Lazy imports are still fine when you want them — `from pyirena.gui._qt import
+QMenu` inside a method is one line and costs nothing after the first call.
+
+## The standard UX contract
+
+Users come from Igor Pro, Origin, Excel and Matlab.  Features they consider
+part of "a table" or "a graph" are not optional extras, and when they live in
+nobody's spec they get skipped — twice now (the filename filter, then table
+clipboard copy).  Shared helpers exist so each line below is one function call.
+
+**Every table** (`QTableWidget`)
+
+```python
+from pyirena.gui.table_utils import attach_table_copy, enable_table_sorting
+
+attach_table_copy(my_table, on_save_csv=self._save_csv)   # Ctrl+C, Ctrl+Shift+C,
+                                                          # right-click menu
+enable_table_sorting(my_table)      # only if row order carries no meaning
+```
+
+Build numeric cells with `make_numeric_item()` so columns sort numerically, and
+fill the table inside `with populating(my_table):` so an active sort cannot
+scramble half-built rows.  Write CSV with `rows_to_csv_text()` /
+`save_rows_as_csv()` rather than `",".join(...)` — quoting and precision are
+then identical everywhere.  `pyirena/tests/test_gui_table_contract.py` fails
+the build if a new module constructs a table without the helper.
+
+**Every plot** (`pg.PlotItem`)
+
+```python
+from pyirena.gui.plot_export import attach_plot_export
+
+attach_plot_export(my_plot, self, 'my_tool_iq',
+                   window=self.graphics_layout,   # whole-window image
+                   folder=self._export_folder)    # dialogs open next to data
+```
+
+Plots built with `make_sas_plot(..., parent_widget=...)` get this for free.
+The menu is clipboard copy, image (PNG/JPEG/SVG), whole-window image, curve
+CSV and Igor ITX — never add your own image-export action, and never import
+`ImageExporter` outside `plot_export.py`; save dialogs must default to
+`export_folder()`, not `Path.home()`.  `pyirena/tests/test_gui_plot_contract.py`
+enforces all of this.
+
+Two things the exporters cannot infer, so the panel must say them:
+
+- **Name every curve** (`name=...`).  Unnamed curves are exported only as a
+  fallback, labelled from the Y axis, and a plot mixing named and unnamed
+  curves exports the named ones only — an unnamed residual trace next to a
+  named one would silently vanish.
+- **Call `tag_curve_uncertainty(item, dI)`** wherever you draw your own error
+  bars.  Bars are NaN-separated line segments that no exporter can read back,
+  so without this the `dY` column disappears from CSV and ITX while the bars
+  stay visible on screen.  `plot_iq_data` already does it for you.
+
+**Every file list**
+
+```python
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
+from pyirena.core.file_types import FILE_TYPES, files_in_folder
+from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP
+
+self.type_combo.addItems(FILE_TYPES)
+self.sort_combo.addItems(SORT_LABELS)          # never a local label list
+self.sort_combo.setToolTip(SORT_TOOLTIP)
+...
+files = files_in_folder(self.current_folder, self.type_combo.currentText())
+files = sort_names(files, self.sort_combo.currentIndex())
+```
+
+plus the shared filter box and a remembered last folder via `StateManager`.
+Never re-implement a `_sort_key_*` function, never hard-code an extension list,
+and never write your own `os.listdir` loop — `files_in_folder()` (or
+`files_with_extensions()`, when your dropdown is not `FILE_TYPES`) already
+decides how sub-directories, letter case and an unreadable folder are handled,
+and the four browsers disagreed about all three before it was shared.
+`pyirena/tests/test_gui_browser_contract.py` fails the build on each of these.
+
+There is deliberately **no** shared `FileBrowserWidget`. The logic is shared —
+filtering, sorting, the file-type table, listing, drag-and-drop — while the
+widget assembly is not, because the four browsers differ in ways a common
+widget would have to be configured around anyway: the Data Explorer is a tree
+with lazy sub-folder expansion, Data Merge shows two linked instances, Data
+Manipulation adds a context menu, and the Data Selector alone offers text files
+and the convert-on-load path. Duplicated assembly with no logic in it does not
+drift; duplicated logic does.
+
+A file list should also **accept dropped files**, in one call:
+
+```python
+from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
+
+enable_file_drop(self, self.open_dropped_paths)      # whole panel, not just the list
+self.file_list.setToolTip(drop_hint("a folder or data files"))
+```
+
+`enable_file_drop` installs an event filter (no subclassing), rejects the drag
+while it is still over the window if nothing dropped is openable, expands a
+dropped folder one level, and hands you absolute paths already de-duplicated
+and sorted.  Your handler switches folder with `first_folder(paths)` and selects
+the rest; a single-dataset target uses `paths[0]`.  Never parse the mime data
+yourself — Finder sends URLs, some apps send text, and `paths_from_mime()`
+already reads both.
+
+**Every top-level window** — remember where it was:
+
+```python
+from pyirena.gui.window_state import install_window_state
+
+install_window_state(self, 'my_tool', splitters={'main': self.main_splitter})
+```
+
+and one line at the launch site, so the tool answers Shift-click:
+
+```python
+reset_window_if_shift(self.my_tool_window)   # before .show()
+self.my_tool_window.show()
+```
+
+One call restores size, position and splitter sizes, and saves them on close.
+Do not call `resize()`/`move()` from saved numbers yourself: `window_state`
+owns the policy for a screen layout that has changed since the geometry was
+saved (see `resolve_geometry`), and that is the part that goes wrong.  Geometry
+lives in its own `window_geometry.json`, *not* in the tool's `StateManager`
+section — panels each hold their own `StateManager` and a `save()` rewrites the
+whole file, so geometry written there is clobbered by the next panel to close.
+Register only real windows.  A widget that ends up inside a splitter is a
+pane, and setting a pane's geometry fights the layout (the symptom is the
+*neighbouring* pane changing width); `window_state` checks `isWindow()` on
+every apply, so a mistake is a no-op rather than a puzzle.  Pane widths are
+recorded and restored at the first layout, because a splitter has no width in
+the constructor — do not expect `install_window_state` to have touched the
+splitter by the time it returns.
+
+Panels are constructed once and reused, so the reset gesture cannot live in
+the constructor: `install_window_state` records the window's coded default
+before applying anything saved, and `reset_window()` restores *that*.  Adding a
+tool without the launch-site line is caught by
+`pyirena/tests/test_window_state.py`, which reads the Data Selector's
+launchers.  Set `GEOMETRY_PERSISTENCE_ENABLED = False` in that module to switch
+the whole feature off.
+
+**Every fit panel** — results reachable as text, not only as HDF5:
+
+```python
+from pyirena.gui.report_buttons import make_report_buttons
+
+layout.addLayout(make_report_buttons(
+    self, self.results_for_report, tool_key='my_tool_results',
+    default_stem='my_tool', status_setter=lambda m: self.status_label.setText(m),
+    image_widget_provider=lambda: self.graph_window.graphics_layout,
+))
+```
+
+`image_widget_provider` enables Ctrl/⌘-click → report plus embedded graph
+figure; return the `GraphicsLayoutWidget` (the plots alone), not the window,
+or the figure will contain tab bars and status lines.
+
+`results_for_report()` returns the dict shape
+`pyirena.io.load_<tool>_results()` produces — the *saved* key names, not the
+fit object's internal ones — and `pyirena.core.reporting` renders it.  Add the
+tool's section there rather than formatting text in the panel, so the panel,
+the Data Selector report and the MCP `export_fit_report` cannot drift apart.
+
+**Every panel** — state methods use one naming convention, so a helper can call
+them and a reader of one panel knows the next:
+
+| Method | Visibility | Does |
+|---|---|---|
+| `save_state()` | public | collect + write to `StateManager` (+ `save()`) |
+| `load_state()` | public | read from `StateManager` + apply |
+| `_collect_state()` | private | return the state dict |
+| `_apply_state(state)` | private | apply a state dict to the widgets |
+
+The private halves are optional for small panels, the public pair is not —
+`pyirena/tests/test_gui_state_contract.py` fails the build if a panel is
+missing it or brings back one of the retired names (`_save_state`,
+`_load_state`, `_restore_state`, `_get_current_state`).  An **embedded
+component** whose parent owns the persistence lifecycle (the Diffraction Lines
+tab inside WAXS) instead exposes `collect_state()` / `apply_state()` publicly,
+because the parent is the caller.
+
+`UnifiedFitPanel` additionally keeps `get_current_state()` / `apply_state()` as
+public aliases: those names are quoted in `pyirena/io/setup_config.py` and the
+api/control layer as the shape of the embedded `_pyirena_config` setup state,
+and agent scripts call them.
+
+Also on every panel: params-to-JSON, and tooltips on buttons.
+
+**Params-to-JSON — one deliberate split.**  Analysis tools append their section
+to a shared `pyirena_config.json` that drives the batch pipeline.  **Data Merge**
+and **Data Manipulation** write their *own* config file instead, and that is
+intentional, not an oversight to be tidied away: both produce **new data files**
+that a later pipeline stage consumes, so their config has to live next to that
+stage, in a different folder and a different pipeline step from the analysis
+config.  Unifying them would break instrument data-reduction pipelines.
+**Fractals** is a visualization tool with no batch use case and no JSON by
+design.  **Scattering Contrast** persists compounds through its own HDF5 library
+(`io/contrast_io.py`).
+
+**Every result** — reachable via HDF5 *and* `pyirena.api`.
 
 ## Wiring points in detail
 

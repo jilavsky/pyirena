@@ -22,10 +22,18 @@ from pyirena.gui._qt import (
     QSplitter,
     Qt,
     QTableWidget,
-    QTableWidgetItem,
     QToolBar,
     QVBoxLayout,
     QWidget,
+)
+from pyirena.gui.plot_export import attach_plot_export, save_widget_image
+from pyirena.gui.table_utils import (
+    attach_table_copy,
+    enable_table_sorting,
+    make_numeric_item,
+    make_text_item,
+    populating,
+    save_rows_as_csv,
 )
 
 
@@ -108,6 +116,11 @@ class CollectWindow(QWidget):
         self._table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
+        # Clipboard copy (Ctrl+C / Ctrl+Shift+C / right-click) so a handful of
+        # collected numbers no longer needs a CSV round-trip, plus numeric
+        # column sorting.
+        attach_table_copy(self._table, on_save_csv=self._save_csv)
+        enable_table_sorting(self._table)
         splitter.addWidget(self._table)
 
         # Plot
@@ -137,32 +150,27 @@ class CollectWindow(QWidget):
         self._table.setRowCount(0)
 
         xs, ys, yes = [], [], []
-        for r in rows:
-            row_i = self._table.rowCount()
-            self._table.insertRow(row_i)
+        # Sorting off while filling: Qt re-sorts after every setItem() and
+        # would scramble a row that is still being built.
+        with populating(self._table):
+            for r in rows:
+                row_i = self._table.rowCount()
+                self._table.insertRow(row_i)
 
-            fname = Path(r.get("file", "?")).name
-            xv    = r.get("x_value")
-            yv    = r.get("y_value")
-            ye    = r.get("y_error")
+                fname = Path(r.get("file", "?")).name
+                xv    = r.get("x_value")
+                yv    = r.get("y_value")
+                ye    = r.get("y_error")
 
-            def _cell(val):
-                s = f"{val:.6g}" if isinstance(val, float) else str(val or "")
-                item = QTableWidgetItem(s)
-                item.setTextAlignment(
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                )
-                return item
+                self._table.setItem(row_i, 0, make_text_item(fname))
+                self._table.setItem(row_i, 1, make_numeric_item(xv))
+                self._table.setItem(row_i, 2, make_numeric_item(yv))
+                self._table.setItem(row_i, 3, make_numeric_item(ye))
 
-            self._table.setItem(row_i, 0, QTableWidgetItem(fname))
-            self._table.setItem(row_i, 1, _cell(xv))
-            self._table.setItem(row_i, 2, _cell(yv))
-            self._table.setItem(row_i, 3, _cell(ye))
-
-            if xv is not None and yv is not None:
-                xs.append(float(xv))
-                ys.append(float(yv))
-                yes.append(float(ye) if ye is not None else None)
+                if xv is not None and yv is not None:
+                    xs.append(float(xv))
+                    ys.append(float(yv))
+                    yes.append(float(ye) if ye is not None else None)
 
         self._status.setText(f"{len(rows)} file(s) collected")
 
@@ -172,12 +180,14 @@ class CollectWindow(QWidget):
         xs_arr = np.array(xs)
         ys_arr = np.array(ys)
 
-        # Scatter plot
+        # Scatter plot.  Named so the shared CSV/clipboard exporters label the
+        # column with the collected quantity instead of a generic fallback.
         scatter = pg.ScatterPlotItem(
             xs_arr, ys_arr,
             pen=pg.mkPen("#2980b9"),
             brush=pg.mkBrush("#2980b9"),
             size=8,
+            name=self._y_label,
         )
         self._plot.addItem(scatter)
 
@@ -202,11 +212,20 @@ class CollectWindow(QWidget):
     # ── ViewBox right-click menu ───────────────────────────────────────────
 
     def _add_viewbox_menu(self) -> None:
+        # Shared export block (clipboard, image, curve CSV) plus this window's
+        # own ITX writer, which exports the collected X/Y/error waves with the
+        # right axis labels rather than the generic curve dump.  The generic
+        # ITX entry is suppressed so the menu does not show two of them.
+        attach_plot_export(self._plot, self, self._image_stem(),
+                           window=self, itx=False)
         vb = self._plot.getViewBox()
-        vb.menu.addSeparator()
-        act_itx = QAction("Save ITX (Igor Pro)…", self)
+        act_itx = QAction("Save collected values as ITX (Igor Pro)…", self)
         act_itx.triggered.connect(self._save_itx)
         vb.menu.addAction(act_itx)
+
+    def _image_stem(self) -> str:
+        return re.sub(r"[^\w\s-]", "", self._window_title).strip().replace(" ", "_") \
+            or "collected_values"
 
     # ── Export ─────────────────────────────────────────────────────────────
 
@@ -215,39 +234,23 @@ class CollectWindow(QWidget):
         return str(Path.cwd() / ((safe or "collected_values") + ext))
 
     def _save_csv(self) -> None:
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save CSV", self._default_path(".csv"),
-            "CSV files (*.csv);;All files (*)",
-        )
-        if not filepath:
-            return
-        if not filepath.lower().endswith(".csv"):
-            filepath += ".csv"
-
-        lines = [f"File,{self._x_label},{self._y_label},Error"]
-        for r in self._rows:
-            fname = Path(r.get("file", "?")).name
-            xv = r.get("x_value", "")
-            yv = r.get("y_value", "")
-            ye = r.get("y_error", "")
-            lines.append(f"{fname},{xv},{yv},{ye}")
-
-        try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
+        # Shared writer: full precision from the stored values (not the 6-digit
+        # display text) and proper quoting when a label contains a comma.
+        headers = ["File", self._x_label, self._y_label, "Error"]
+        rows = [
+            [
+                Path(r.get("file", "?")).name,
+                r.get("x_value"),
+                r.get("y_value"),
+                r.get("y_error"),
+            ]
+            for r in self._rows
+        ]
+        save_rows_as_csv(self, headers, rows, self._default_path(".csv"), "Save CSV")
 
     def _save_jpeg(self) -> None:
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Save as JPEG", self._default_path(".jpg"),
-            "JPEG images (*.jpg);;All files (*)",
-        )
-        if not filepath:
-            return
-        if not filepath.lower().endswith((".jpg", ".jpeg")):
-            filepath += ".jpg"
-        self.grab().save(filepath, "JPEG", 95)
+        """Toolbar button: save the whole window (table + plot) as an image."""
+        save_widget_image(self, self, self._image_stem())
 
     def _save_itx(self) -> None:
         xs, ys, yes = [], [], []

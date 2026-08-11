@@ -4,7 +4,7 @@ Orientation file for AI agents working in this repository. Read this first; it
 tells you *where* things are and *what rules apply*, not what every function
 does. For details, follow the pointers into `docs/`.
 
-Last update date: 07-08-2026 ; version:1.1.0b6
+Last update date: 10-08-2026 ; version:1.1.0b7
 
 pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
 package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,
@@ -43,7 +43,7 @@ from the same seven layers.** Learn the stack once and you can find anything.
 | **io** | `pyirena/io/nxcansas_<tool>.py` | Save/load results into NXcanSAS HDF5 at `entry/<tool>_results`, embedding GUI state as `_pyirena_config` | h5py, core |
 | **gui** | `pyirena/gui/<tool>_panel.py` | Thin Qt shell over the core object; full control state round-trips through `StateManager` | Qt (via `gui/_qt.py`), core, io |
 | **batch** | `pyirena/batch/<tool>.py` | Headless execution of the same core from a dict or JSON config section | core, io |
-| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions | core, io |
+| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions (all five fitting tools) | core, io |
 | **mcp** | `pyirena/mcp/server.py` | Protocol wrapper exposing `pyirena.api` to MCP clients | api |
 | **plotting** | `pyirena/plotting/` | Headless matplotlib rendering | core, matplotlib |
 
@@ -53,10 +53,15 @@ not survive scripting, batch runs, or setup restore — that is a bug, not a
 limitation.
 
 The layer stack is the *target* architecture and older tools do not all reach
-it yet — serialisation helpers are named `to_dict`/`from_dict` in newer core
-modules but not universally, and panel state methods appear as
-`_collect_state`, `collect_state`, `_save_state` and `save_state` depending on
-vintage. Follow the convention in the module you are editing; follow
+it yet. Core serialisation is `to_dict`/`from_dict` and now exists for Unified
+Fit, Sizes, Modeling, Simple Fits and WAXS Peak Fit (plus `from_panel_params`
+in `core/unified.py` and `population_from_dict` in `core/modeling.py`, which
+own the translation from the panel's historical key names); SAXS Morph,
+Contrast, Merge, Manipulation and Fractals still serialise in their io/gui
+layers. `pyirena/tests/test_core_serialization.py` holds the round-trip and
+old-file tests. Panel state methods, by contrast, are now uniform
+(`save_state`/`load_state` public, `_collect_state`/`_apply_state` private) and
+enforced by `pyirena/tests/test_gui_state_contract.py`. Follow
 `docs/developer_adding_features.md` for anything new. HDF5 group names are
 mostly `entry/<tool>_results` but not mechanically derived — Simple Fits writes
 `entry/simple_fit_results`. Check `pyirena/io/nxcansas_<tool>.py` rather than
@@ -71,7 +76,10 @@ objects:
 
 Support modules that are not tools: `pyirena/state/` (StateManager, setup
 save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
-`fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`.
+`fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`,
+`reporting.py` (the one Markdown report builder, shared by gui/api/batch),
+`fmt_utils.py`, `file_sorting.py` (filename sort keys for every file browser),
+`file_types.py` (data-file type table + folder listing).
 
 ### Layering invariants — do not break these
 
@@ -81,8 +89,11 @@ save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
    matplotlib-free; `api/plotting.py` and `api/control/` are the only
    non-GUI modules allowed to use matplotlib, and they import it lazily inside
    functions and force the `Agg` backend.
-2. All Qt imports in `gui/` go through `pyirena/gui/_qt.py` — never
-   `from PySide6 import ...` directly. It normalises the PySide6/PyQt6 fallback.
+2. All Qt imports go through `pyirena/gui/_qt.py` — never `from PySide6 import
+   ...` directly, not even inside a function. It normalises the PySide6/PyQt6
+   fallback. Missing a class? Add it to `_qt.py` and its `__all__`.
+   `pyirena/tests/test_gui_qt_contract.py` fails the build on a direct binding
+   import anywhere in the package (tests included) and on a second `_qt.py`.
 3. `pyirena.api` returns JSON-serialisable dicts only. No numpy scalars, no
    model objects, no file handles.
 4. `from_dict()` must supply defaults for every field so that files written by
@@ -172,7 +183,18 @@ convention in the file you are editing rather than converting it.
 
 **GUI.** One panel per tool, one file per panel. Panels are thin — if you are
 writing a loop with numpy in a `*_panel.py`, it belongs in `core/`. Every panel
-must expose state collection and a `load_state()` so setup save/restore works.
+exposes the public pair `save_state()` / `load_state()`, with `_collect_state()`
+/ `_apply_state(dict)` as the private halves; embedded components driven by a
+parent expose `collect_state()` / `apply_state()` instead.
+Shared UX behaviour comes from shared modules, never a local reimplementation:
+filter boxes use `gui/file_filter.py`, file-list sorting uses
+`core/file_sorting.py`, tables use `gui/table_utils.py`
+(`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`), plot export
+uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
+`parent_widget`), and text reports come from `core/reporting.py` via
+`gui/report_buttons.py`. The full list is the "standard UX contract" in
+`docs/developer_adding_features.md`; `pyirena/tests/test_gui_table_contract.py`
+and `test_gui_plot_contract.py` enforce it.
 
 **Testing.** New math needs a test in `pyirena/tests/`. New HDF5 fields need a
 round-trip test in `test_nxcansas_roundtrips.py`. New api surface needs a test

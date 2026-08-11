@@ -50,6 +50,64 @@ details. Summary of disposition:
   updated to the single-source-version reality; `scratch_sizes_diagnosis/`
   untracked; wheel no longer ships tests.
 
+## Resolved in 1.1.0b7 — feature parity review (issue #13)
+
+An agent review on 2026-08-08 found the same behaviour implemented several
+times over across panels, and features present in one tool but missing from its
+neighbours.  The review file itself has been removed now that the work has
+landed; what follows is the disposition, because the *decisions* outlive the
+findings.  Implementation detail is in `CHANGELOG.md` under 1.1.0b7.
+
+**Unified (duplication removed)**
+
+- **U1** table clipboard/sort/CSV → `gui/table_utils.py` (7 tables).
+- **U2** graph export → `gui/plot_export.py` (8 implementations → 1).
+- **U3** filename sort keys → `core/file_sorting.py` (4 copies → 1).
+- **U4** file browsers — *scoped down deliberately*, see below.
+- **U5** panel state methods → one naming convention, contract-tested.
+- **U6** `to_dict`/`from_dict` for Unified Fit, Modeling and WAXS Peak Fit,
+  with the callers migrated onto them.
+- **U7** Qt imports → the single `gui/_qt.py` shim; three shims and 22 local
+  fallback blocks removed, three of them carrying a stale PyQt5 branch.
+- **U9** agent control surfaces for Simple Fits, Modeling and WAXS Peak Fit —
+  all five fitting tools now have one.
+- **U10** `_pyirena_config` embedding for SAXS Morph; the per-tool policy is
+  documented in `docs/HDF5_NxcanSAS_structure.md`.
+
+**Added (features a tool lacked)**
+
+- **A1/A2/A10** copy, numeric sort and CSV on the tables that had none.
+- **A3/A4/A8** whole-window image export, curve CSV, remembered export folder.
+- **A5** Markdown fit reports on all five fitting tools, plus Ctrl/⌘-click to
+  save the graph alongside and embed it.
+- **A6** drag-and-drop file opening on every browser and fit panel.
+- **A9** window geometry, position and control-panel width remembered, with a
+  screen-layout bailout and a per-tool Shift-click reset.
+
+**Cancelled — deliberate, not forgotten**
+
+- **A7 batch for Fractals** — Fractals is a visualization tool, not an analysis
+  technique; it does not need a batch path.
+- **U8 shared batch config loader** — Data Merge and Data Manipulation each run
+  from their own JSON at a specific point in a reduction pipeline; unifying the
+  loader would break the instrument pipeline.
+- **Batch for Data Manipulation** — wanted, but needs the whole tool revised
+  first.  Filed as its own GitHub issue.
+
+**Considered and not done**
+
+- **A shared `FileBrowserWidget` (U4 as written).**  After U1–U3 and A6 the
+  browsers share all the *logic* — filtering, sorting, the file-type table,
+  folder listing, drag-and-drop.  What remains duplicated is widget assembly
+  with no logic in it, and the four differ in ways a common widget would have
+  to be configured around anyway (the Data Explorer is a tree with lazy
+  sub-folder expansion, Data Merge shows two linked instances, Data
+  Manipulation adds a context menu, the Data Selector alone offers text files).
+  Reasoning is recorded in `docs/developer_adding_features.md`; the small
+  extractions that were worth doing landed instead.
+- **MCP 2.x migration.**  `mcp<2` is pinned for now; migrating is its own
+  project and nothing needs it yet.
+
 ## Reviewed — deferred / not worth fixing now
 
 These were part of the review's recommendations but are disproportionate for a

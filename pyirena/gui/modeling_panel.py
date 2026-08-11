@@ -31,6 +31,12 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.distributions import DIST_DEFAULTS, DIST_LABELS, DIST_PARAM_NAMES
+from pyirena.core.form_factors import (
+    CONTRAST_FREE_FORM_FACTORS,
+    form_factor_param_defaults,
+    form_factor_params,
+    list_form_factors,
+)
 from pyirena.core.modeling import (
     DiffractionPeakPopulation,
     GuinierPorodPopulation,
@@ -41,11 +47,14 @@ from pyirena.core.modeling import (
     SizeDistPopulation,
     SurfaceFractalPopulation,
     UnifiedLevelPopulation,
+    population_from_dict,
 )
 from pyirena.gui._qt import (
     QApplication,
     QCheckBox,
+    QColor,
     QComboBox,
+    QDesktopServices,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -63,21 +72,24 @@ from pyirena.gui._qt import (
     QTabWidget,
     QThread,
     QTimer,
+    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.plot_export import attach_plot_export, save_plot_image
+from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
     add_plot_annotation,
     add_slope_line_menu,
     plot_iq_data,
-    save_itx_from_plot,
     set_robust_y_range,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
+from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager
 
@@ -114,18 +126,24 @@ SF_PARAM_LABELS = {
     'volume_fraction': 'Volume fraction',
 }
 
-# Form-factor display labels and their extra params
+# Form-factor display labels.  The *parameter lists* come from
+# pyirena.core.form_factors (one source of truth, shared with api/control,
+# which may not import from gui/); only the human labels live here.
+_FF_DISPLAY_NAMES = {
+    'sphere':               'Sphere',
+    'spheroid':             'Spheroid',
+    'cylinder_ar':          'Cylinder (Aspect Ratio)',
+    'cylinder_length':      'Cylinder (Length)',
+    'cs_sphere_by_core':    'Core-Shell Sphere (by core R)',
+    'cs_sphere_by_shell':   'Core-Shell Sphere (by shell t)',
+    'cs_sphere_by_total':   'Core-Shell Sphere (by total R)',
+    'css_sphere_by_core':   'Core-Shell-Shell Sphere (by core R)',
+    'cs_spheroid_by_core':  'Core-Shell Spheroid (by core R)',
+    'cs_spheroid_by_total': 'Core-Shell Spheroid (by total R)',
+}
 FF_LABELS = {
-    'sphere':               ('Sphere',                              []),
-    'spheroid':             ('Spheroid',                            ['aspect_ratio']),
-    'cylinder_ar':          ('Cylinder (Aspect Ratio)',             ['aspect_ratio']),
-    'cylinder_length':      ('Cylinder (Length)',                   ['length']),
-    'cs_sphere_by_core':    ('Core-Shell Sphere (by core R)',       ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
-    'cs_sphere_by_shell':   ('Core-Shell Sphere (by shell t)',      ['sld_core', 'sld_shell', 'sld_solvent', 'r_core_fixed']),
-    'cs_sphere_by_total':   ('Core-Shell Sphere (by total R)',      ['sld_core', 'sld_shell', 'sld_solvent', 't_shell']),
-    'css_sphere_by_core':   ('Core-Shell-Shell Sphere (by core R)', ['sld_core', 'sld_shell1', 'sld_shell2', 'sld_solvent', 't_shell1', 't_shell2']),
-    'cs_spheroid_by_core':  ('Core-Shell Spheroid (by core R)',     ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
-    'cs_spheroid_by_total': ('Core-Shell Spheroid (by total R)',    ['sld_core', 'sld_shell', 'sld_solvent', 't_shell', 'aspect_ratio']),
+    key: (_FF_DISPLAY_NAMES.get(key, key), form_factor_params(key))
+    for key in list_form_factors()
 }
 FF_PARAM_LABELS = {
     'aspect_ratio':  'Aspect ratio (L/R)',
@@ -141,7 +159,7 @@ FF_PARAM_LABELS = {
     'r_core_fixed':  'Core radius R_core [Å]',
 }
 # Form-factor keys that embed SLDs — contrast is fixed at 1.0 and hidden
-_CS_FF_KEYS = frozenset(FF_LABELS) - {'sphere', 'spheroid', 'cylinder_ar', 'cylinder_length'}
+_CS_FF_KEYS = CONTRAST_FREE_FORM_FACTORS
 
 # Unified Fit Level parameter definitions: (key, display_label, default, lo, hi, fit_default)
 UF_PARAMS = [
@@ -845,22 +863,9 @@ class PopulationTab(QWidget):
         self._ff_rows.clear()
         ff_key = self.ff_combo.currentData() or 'sphere'
         _, extra_keys = FF_LABELS.get(ff_key, ('', []))
-        _ff_defaults = {
-            'aspect_ratio':  (1.0,   0.001,   1000.0),
-            'length':        (100.0, 0.1,     1e6),
-            'sld_core':      (10.0,  -100.0,  100.0),   # 10⁻⁶ Å⁻²
-            'sld_shell':     (1.0,   -100.0,  100.0),
-            'sld_shell1':    (1.0,   -100.0,  100.0),
-            'sld_shell2':    (5.0,   -100.0,  100.0),
-            'sld_solvent':   (9.46,  -100.0,  100.0),   # H₂O ≈ 9.46
-            't_shell':       (20.0,  0.1,     1e4),     # Å
-            't_shell1':      (20.0,  0.1,     1e4),     # Å
-            't_shell2':      (20.0,  0.1,     1e4),     # Å
-            'r_core_fixed':  (50.0,  0.1,     1e6),     # Å
-        }
         for row_i, pname in enumerate(extra_keys):
             label = FF_PARAM_LABELS.get(pname, pname)
-            val, lo, hi = _ff_defaults.get(pname, (1.0, 0.01, 100.0))
+            val, lo, hi = form_factor_param_defaults(pname)
             self._add_param_row(
                 self._ff_grid, row_i, pname, label,
                 val, False, lo, hi, self._ff_rows,
@@ -1859,23 +1864,14 @@ class ModelingGraphWindow(QWidget):
         # Link X axes so Q range is synchronised
         self.resid_plot.setXLink(self.iq_plot)
 
-        # JPEG + ITX export right-click
-        vb = self.iq_plot.getViewBox()
-        vb.menu.addSeparator()
-        act = vb.menu.addAction('Save I(Q) graph as JPEG…')
-        act.triggered.connect(self._save_iq_jpeg)
-        act_itx = vb.menu.addAction('Save as Igor Pro ITX…')
-        act_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.iq_plot, self)
-        )
-        vb2 = self.dist_plot.getViewBox()
-        vb2.menu.addSeparator()
-        act2 = vb2.menu.addAction('Save size distribution as JPEG…')
-        act2.triggered.connect(self._save_dist_jpeg)
-        act2_itx = vb2.menu.addAction('Save as Igor Pro ITX…')
-        act2_itx.triggered.connect(
-            lambda checked=False: save_itx_from_plot(self.dist_plot, self)
-        )
+        # Shared export menu (clipboard, image, whole window, curve CSV, ITX)
+        for _plot, _stem in [
+            (self.iq_plot,    'modeling_iq'),
+            (self.resid_plot, 'modeling_residuals'),
+            (self.dist_plot,  'modeling_dist'),
+        ]:
+            attach_plot_export(_plot, self, _stem, window=self.gl,
+                               folder=self._export_folder)
 
     @staticmethod
     def _style_axes(plot, show_top_values=False):
@@ -2021,10 +2017,12 @@ class ModelingGraphWindow(QWidget):
         """Plot normalised residuals on the residuals panel."""
         self.resid_plot.clear()
         self.resid_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
+        # Named so CSV/ITX export can pick it up (no legend on this panel).
         self.resid_plot.plot(
             q, residuals,
             pen=None, symbol='o', symbolSize=4,
             symbolBrush='#2980b9', symbolPen=None,
+            name='Residuals',
         )
 
     def _clear_model_items(self):
@@ -2073,43 +2071,24 @@ class ModelingGraphWindow(QWidget):
             f'font-size: 10pt; color: {fg}; {bg_css}'
         )
 
-    # ── JPEG exports ──────────────────────────────────────────────────────────
+    # ── Image exports ─────────────────────────────────────────────────────────
 
-    def _save_jpeg(self, plot_item, default_name: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Save as JPEG',
-            str(Path(self.data_folder) / default_name),
-            'JPEG (*.jpg *.jpeg);;All Files (*)',
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot_item)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as e:
-            QMessageBox.warning(self, 'Export failed', str(e))
+    def _export_folder(self):
+        """Folder the export dialogs open in — next to the loaded data."""
+        return getattr(self, 'data_folder', None)
 
     def _save_iq_jpeg(self):
-        self._save_jpeg(self.iq_plot, 'modeling_iq.jpg')
+        save_plot_image(self.iq_plot, self, 'modeling_iq',
+                        folder=self._export_folder())
 
     def _save_dist_jpeg(self):
-        self._save_jpeg(self.dist_plot, 'modeling_dist.jpg')
+        save_plot_image(self.dist_plot, self, 'modeling_dist',
+                        folder=self._export_folder())
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Background worker threads
 # ──────────────────────────────────────────────────────────────────────────────
-
-try:
-    from PySide6.QtCore import QThread
-except ImportError:
-    try:
-        from PyQt6.QtCore import QThread
-    except ImportError:
-        from PyQt5.QtCore import QThread
-
 
 class _FitCancelled(Exception):
     """Raised when the user cancels a fit in progress."""
@@ -2251,7 +2230,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self._auto_update_timer.timeout.connect(self._do_auto_update)
 
         self._build_ui()
-        self._load_state()
+        self.load_state()
         self._update_prefit_buttons_enabled()
 
     # ── UI construction ──────────────────────────────────────────────────────
@@ -2270,6 +2249,10 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         layout.addWidget(splitter)
 
         self.graph.cursor_moved.connect(self._on_cursor_moved)
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'modeling_panel',
+                             splitters={'main': splitter})
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -2612,6 +2595,20 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                               "Use 'Save params to JSON' to create a compatible file."))
         lay.addLayout(out3)
 
+        # Row 3b: results as text — clipboard or a Markdown file
+        lay.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='modeling_results',
+            default_stem='modeling',
+            file_path_provider=lambda: str(self._file_path or ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self.graph.set_status(msg, 'success'),
+            folder_provider=self._get_data_folder,
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(self.graph, 'gl', None),
+        ))
+
         # Row 4: Reset to Defaults (full width)
         lay.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
                              'Reset all parameters to their default values.'))
@@ -2676,7 +2673,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     # ── State (load/save) ────────────────────────────────────────────────────
 
-    def _load_state(self):
+    def load_state(self):
         mod_state = self._state.get('modeling') or {}
         self.bg_edit.setText(_fmt(mod_state.get('background', 0.0)))
         self.bg_fit_cb.setChecked(mod_state.get('fit_background', True))
@@ -2739,7 +2736,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             state['q_max'] = float(q_hi)
         return state
 
-    def _save_state(self):
+    def save_state(self):
         self._state.update('modeling', self._collect_state())
         self._state.save()
 
@@ -2923,26 +2920,12 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.qmax_lbl.setText(f'{q_hi:.4g}')
 
     def _open_help(self):
-        try:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-        except ImportError:
-            from PyQt6.QtCore import QUrl
-            from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl(
             'https://github.com/jilavsky/pyirena/blob/main/docs/modeling_gui.md'
         ))
 
     def _update_tab_labels(self, *_):
         """Update tab text (with optional label) and color per-population."""
-        try:
-            from PySide6.QtGui import QColor
-        except ImportError:
-            try:
-                from PyQt6.QtGui import QColor
-            except ImportError:
-                from PyQt5.QtGui import QColor
-
         bar = self.pop_tabs.tabBar()
         for i, pw in enumerate(self._pop_widgets):
             active = pw.use_cb.isChecked()
@@ -3331,7 +3314,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_mc.setEnabled(True)
         self.btn_save.setEnabled(True)
         self.btn_revert.setEnabled(self._pre_fit_state is not None)
-        self._save_state()
+        self.save_state()
 
     def _on_fit_error(self, msg: str):
         self._restore_fit_button()
@@ -3448,6 +3431,30 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_fit.setEnabled(True)
 
     # ── Save / Export ─────────────────────────────────────────────────────────
+
+    def results_for_report(self):
+        """Current fit in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        Delegates to :func:`pyirena.core.modeling.result_to_report_dict`, which
+        is also what the saved-file shape looks like, so the text copied from
+        the panel matches the Data Selector's report for the same fit.
+        """
+        if self._last_result is None:
+            return None
+        from pyirena.core.modeling import result_to_report_dict
+
+        return result_to_report_dict(
+            self._last_result,
+            fit_quality=getattr(self, '_last_quality_metrics', None),
+        )
+
+    def _data_info_for_report(self):
+        """Q/I/error arrays for the report's data-summary section."""
+        q = getattr(self, '_q', None)
+        intensity = getattr(self, '_I', None)
+        if q is None or intensity is None:
+            return None
+        return {'Q': q, 'I': intensity, 'I_error': getattr(self, '_dI', None)}
 
     def save_results(self):
         """Save ModelingResult to the current HDF5 file."""
@@ -3568,7 +3575,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         Reads the ``_pyirena_config`` attribute embedded by
         :func:`pyirena.io.nxcansas_modeling.save_modeling_results` (or by
         the pyirena-ai agent) and applies it by pushing the state into
-        :class:`StateManager` and triggering :meth:`_load_state`, the same
+        :class:`StateManager` and triggering :meth:`load_state`, the same
         path used by JSON import.
         """
         from pyirena.gui.setup_loader import prompt_and_load_setup
@@ -3582,7 +3589,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         def _apply(state: dict) -> None:
             self._state.update("modeling", state)
-            self._load_state()
+            self.load_state()
 
         prompt_and_load_setup(
             parent=self,
@@ -3622,7 +3629,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             )
             return
         self._state.update('modeling', config['modeling'])
-        self._load_state()
+        self.load_state()
         self.graph.set_status(f'Parameters imported from {Path(path).name}', 'success')
 
     def _results_to_graph(self):
@@ -3690,12 +3697,12 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         self._state.reset('modeling')
-        self._load_state()
+        self.load_state()
         self.graph.set_status('Parameters reset to defaults.', 'success')
 
     def closeEvent(self, event):
         """Save state automatically when the window is closed."""
-        self._save_state()
+        self.save_state()
         super().closeEvent(event)
 
 
@@ -3704,206 +3711,48 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _pop_to_dict(pop) -> dict:
-    """Serialize any population dataclass to a dict (for JSON export)."""
-    pt = getattr(pop, 'pop_type', 'size_dist')
-    if pt == 'unified_level':
-        return {
-            'pop_type': 'unified_level',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
-            'Rg': pop.Rg, 'fit_Rg': pop.fit_Rg, 'Rg_limits': list(pop.Rg_limits),
-            'B': pop.B, 'fit_B': pop.fit_B, 'B_limits': list(pop.B_limits),
-            'P': pop.P, 'fit_P': pop.fit_P, 'P_limits': list(pop.P_limits),
-            'RgCO': pop.RgCO, 'fit_RgCO': pop.fit_RgCO, 'RgCO_limits': list(pop.RgCO_limits),
-            'correlations': pop.correlations,
-            'ETA': pop.ETA, 'fit_ETA': pop.fit_ETA, 'ETA_limits': list(pop.ETA_limits),
-            'PACK': pop.PACK, 'fit_PACK': pop.fit_PACK, 'PACK_limits': list(pop.PACK_limits),
-        }
-    if pt == 'diffraction_peak':
-        return {
-            'pop_type': 'diffraction_peak',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'peak_type': pop.peak_type,
-            'position': pop.position, 'fit_position': pop.fit_position,
-            'position_limits': list(pop.position_limits),
-            'amplitude': pop.amplitude, 'fit_amplitude': pop.fit_amplitude,
-            'amplitude_limits': list(pop.amplitude_limits),
-            'width': pop.width, 'fit_width': pop.fit_width,
-            'width_limits': list(pop.width_limits),
-            'eta_voigt': pop.eta_voigt, 'fit_eta_voigt': pop.fit_eta_voigt,
-            'eta_voigt_limits': list(pop.eta_voigt_limits),
-        }
-    if pt == 'guinier_porod':
-        return {
-            'pop_type': 'guinier_porod',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
-            'Rg1': pop.Rg1, 'fit_Rg1': pop.fit_Rg1, 'Rg1_limits': list(pop.Rg1_limits),
-            's1': pop.s1, 'fit_s1': pop.fit_s1, 's1_limits': list(pop.s1_limits),
-            'P': pop.P, 'fit_P': pop.fit_P, 'P_limits': list(pop.P_limits),
-            'Rg2': pop.Rg2, 'fit_Rg2': pop.fit_Rg2, 'Rg2_limits': list(pop.Rg2_limits),
-            's2': pop.s2, 'fit_s2': pop.fit_s2, 's2_limits': list(pop.s2_limits),
-            'RgCO': pop.RgCO, 'fit_RgCO': pop.fit_RgCO, 'RgCO_limits': list(pop.RgCO_limits),
-            'correlations': pop.correlations,
-            'ETA': pop.ETA, 'fit_ETA': pop.fit_ETA, 'ETA_limits': list(pop.ETA_limits),
-            'PACK': pop.PACK, 'fit_PACK': pop.fit_PACK, 'PACK_limits': list(pop.PACK_limits),
-        }
-    if pt == 'mass_fractal':
-        return {
-            'pop_type': 'mass_fractal',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'Phi': pop.Phi, 'fit_Phi': pop.fit_Phi, 'Phi_limits': list(pop.Phi_limits),
-            'Radius': pop.Radius, 'fit_Radius': pop.fit_Radius, 'Radius_limits': list(pop.Radius_limits),
-            'Beta': pop.Beta, 'fit_Beta': pop.fit_Beta, 'Beta_limits': list(pop.Beta_limits),
-            'Dv': pop.Dv, 'fit_Dv': pop.fit_Dv, 'Dv_limits': list(pop.Dv_limits),
-            'Ksi': pop.Ksi, 'fit_Ksi': pop.fit_Ksi, 'Ksi_limits': list(pop.Ksi_limits),
-            'Eta': pop.Eta, 'fit_Eta': pop.fit_Eta, 'Eta_limits': list(pop.Eta_limits),
-            'Contrast': pop.Contrast, 'fit_Contrast': pop.fit_Contrast,
-            'Contrast_limits': list(pop.Contrast_limits),
-        }
-    if pt == 'surface_fractal':
-        return {
-            'pop_type': 'surface_fractal',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'Surface': pop.Surface, 'fit_Surface': pop.fit_Surface,
-            'Surface_limits': list(pop.Surface_limits),
-            'Ds': pop.Ds, 'fit_Ds': pop.fit_Ds, 'Ds_limits': list(pop.Ds_limits),
-            'Ksi': pop.Ksi, 'fit_Ksi': pop.fit_Ksi, 'Ksi_limits': list(pop.Ksi_limits),
-            'Contrast': pop.Contrast, 'fit_Contrast': pop.fit_Contrast,
-            'Contrast_limits': list(pop.Contrast_limits),
-            'use_porod_transition': pop.use_porod_transition,
-            'Qc': pop.Qc, 'fit_Qc': pop.fit_Qc, 'Qc_limits': list(pop.Qc_limits),
-            'QcWidth': pop.QcWidth, 'fit_QcWidth': pop.fit_QcWidth,
-            'QcWidth_limits': list(pop.QcWidth_limits),
-        }
-    # size_dist
-    return {
-        'pop_type': 'size_dist',
-        'enabled':          pop.enabled,
-        'label':            pop.label,
-        'dist_type':        pop.dist_type,
-        'dist_params':      pop.dist_params,
-        'dist_params_fit':  pop.dist_params_fit,
-        'dist_params_limits': {k: list(v) for k, v in pop.dist_params_limits.items()},
-        'form_factor':      pop.form_factor,
-        'ff_params':        pop.ff_params,
-        'ff_params_fit':    pop.ff_params_fit,
-        'ff_params_limits': {k: list(v) for k, v in pop.ff_params_limits.items()},
-        'structure_factor': pop.structure_factor,
-        'sf_params':        pop.sf_params,
-        'sf_params_fit':    pop.sf_params_fit,
-        'sf_params_limits': {k: list(v) for k, v in pop.sf_params_limits.items()},
-        'contrast':         pop.contrast,
-        'fit_contrast':     pop.fit_contrast,
-        'contrast_limits':  list(pop.contrast_limits),
-        'scale':            pop.scale,
-        'fit_scale':        pop.fit_scale,
-        'scale_limits':     list(pop.scale_limits),
-        'use_number_dist':  pop.use_number_dist,
-        'n_bins':           pop.n_bins,
-    }
+    """Serialize any population dataclass to a dict (for JSON export).
+
+    Delegates to the dataclass's own :meth:`to_dict`, which walks its fields.
+    The hand-written version this replaces produced exactly the same keys and
+    values for all six population types — verified field by field — but had to
+    be edited every time a population gained a parameter.
+    """
+    return pop.to_dict()
 
 
 def _pop_from_dict(d: dict):
-    """Deserialize a dict to a population dataclass (dispatches on pop_type)."""
-    pt = d.get('pop_type', 'size_dist')
-    if pt == 'unified_level':
-        pop = UnifiedLevelPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['G', 'Rg', 'B', 'P', 'RgCO']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        pop.correlations = bool(d.get('correlations', False))
-        for key in ['ETA', 'PACK']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        return pop
-    if pt == 'diffraction_peak':
-        pop = DiffractionPeakPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        pop.peak_type = d.get('peak_type', 'gaussian')
-        for key in ['position', 'amplitude', 'width', 'eta_voigt']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        return pop
-    if pt == 'guinier_porod':
-        pop = GuinierPorodPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO', 'ETA', 'PACK']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        pop.correlations = bool(d.get('correlations', False))
-        return pop
-    if pt == 'mass_fractal':
-        pop = MassFractalPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        return pop
-    if pt == 'surface_fractal':
-        pop = SurfaceFractalPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['Surface', 'Ds', 'Ksi', 'Contrast', 'Qc', 'QcWidth']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        pop.use_porod_transition = bool(d.get('use_porod_transition', False))
-        return pop
-    return _pop_from_dict_size_dist(d)
+    """Deserialize a dict to a population dataclass (dispatches on pop_type).
+
+    Delegates to :func:`pyirena.core.modeling.population_from_dict`; the panel
+    used to carry its own copy of the six-branch rebuild, which is the sort of
+    duplicate that quietly stops matching the dataclass it is rebuilding.
+    """
+    pop = population_from_dict(d)
+    if (d or {}).get('pop_type', 'size_dist') == 'size_dist':
+        # A size-distribution population saved without "enabled" has always
+        # come back disabled here — kept so old state files open the way they
+        # used to.
+        pop.enabled = bool((d or {}).get('enabled', False))
+    return pop
 
 
 def _pop_from_dict_size_dist(d: dict) -> SizeDistPopulation:
-    """Deserialize a dict → SizeDistPopulation (reads size-dist keys only)."""
-    pop = SizeDistPopulation()
-    pop.enabled          = d.get('enabled', False)
-    pop.label            = d.get('label', '')
-    pop.dist_type        = d.get('dist_type', 'lognormal')
-    pop.dist_params      = d.get('dist_params', dict(DIST_DEFAULTS['lognormal']))
-    pop.dist_params_fit  = d.get('dist_params_fit', {})
-    pop.dist_params_limits = {k: tuple(v) for k, v in
-                               d.get('dist_params_limits', {}).items()}
-    pop.form_factor      = d.get('form_factor', 'sphere')
-    pop.ff_params        = d.get('ff_params', {})
-    pop.ff_params_fit    = d.get('ff_params_fit', {})
-    pop.ff_params_limits = {k: tuple(v) for k, v in
-                             d.get('ff_params_limits', {}).items()}
-    pop.structure_factor = d.get('structure_factor', 'none')
-    pop.sf_params        = d.get('sf_params', {})
-    pop.sf_params_fit    = d.get('sf_params_fit', {})
-    pop.sf_params_limits = {k: tuple(v) for k, v in
-                             d.get('sf_params_limits', {}).items()}
-    pop.contrast         = float(d.get('contrast', 1.0))
-    pop.fit_contrast     = bool(d.get('fit_contrast', False))
-    cl = d.get('contrast_limits', [0.0, 1e10])
-    pop.contrast_limits  = (cl[0], cl[1])
-    pop.scale            = float(d.get('scale', 0.001))
-    pop.fit_scale        = bool(d.get('fit_scale', True))
-    sl = d.get('scale_limits', [1e-8, 1.0])
-    pop.scale_limits     = (sl[0], sl[1])
-    pop.use_number_dist  = bool(d.get('use_number_dist', False))
-    pop.n_bins           = int(d.get('n_bins', 200))
+    """Deserialize a dict → SizeDistPopulation (reads size-dist keys only).
+
+    Used when the panel restores a population of another type: the size-dist
+    controls are still filled in from whatever the dict carries, so switching
+    the type back does not lose what the user had.
+    """
+    d = d or {}
+    pop = SizeDistPopulation.from_dict(d)
+    # Two defaults this path has always used, which differ from the
+    # dataclass's: a population is off unless the state says otherwise, and a
+    # missing distribution falls back to the log-normal defaults rather than to
+    # an empty dict.
+    pop.enabled = bool(d.get('enabled', False))
+    if not d.get('dist_params'):
+        pop.dist_params = dict(DIST_DEFAULTS['lognormal'])
     return pop
 
 

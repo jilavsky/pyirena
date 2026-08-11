@@ -7,6 +7,453 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b7] - 2026-08-10
+
+A consolidation release, implementing the feature-parity review in issue #13.
+The theme is that behaviour a user thinks of as belonging to "a table", "a
+graph" or "a file browser" is now implemented once and available everywhere,
+rather than per panel: tables copy and sort, graphs export the same five ways,
+browsers accept dropped files, windows reopen where you left them, and all five
+fitting tools write Markdown reports and can be driven by an agent.  Nine
+duplicated implementations were removed along the way, three of which had
+already drifted apart.  See `PLAN.md` for the full disposition, including what
+was deliberately *not* done.
+
+### Added
+
+- **File browsers share their remaining logic** (feature parity review item
+  U4, issue #13 — scoped down deliberately, see below).
+  - The Data Selector was the last browser keeping its own extension lists and
+    its own `os.listdir` loop; it now uses `core.file_types`, so all four
+    browsers answer the awkward questions the same way (skip sub-directories,
+    match case-insensitively, treat an unreadable folder as empty rather than
+    raising — the Data Selector used to show an error message instead).
+    New `files_with_extensions()` serves a browser whose dropdown is not
+    `FILE_TYPES`; `files_in_folder()` now delegates to it, so there is one
+    listing implementation.
+  - The post-drop "switch folder, select what was dropped" step, written three
+    times during the drag-and-drop work, is now `select_dropped_in_list()`.
+  - `test_gui_browser_contract.py` grew four checks: every browser accepts
+    drops, none walks a folder by hand, none hard-codes extensions, and the
+    list browsers share the drop-selection step.
+  - **A shared `FileBrowserWidget` was considered and deliberately not built.**
+    After U1–U3 and the drag-and-drop work, what remains duplicated across the
+    four browsers is widget assembly with no logic in it — and they differ in
+    ways a common widget would have to be configured around regardless: the
+    Data Explorer is a tree with lazy sub-folder expansion, Data Merge shows
+    two linked instances, Data Manipulation adds a context menu, and the Data
+    Selector alone offers text files and the convert-on-load path. The reason
+    is recorded in `docs/developer_adding_features.md` so the question does not
+    get re-opened from scratch.
+- **Core model objects serialise themselves — `to_dict`/`from_dict`**
+  (feature parity review item U6, issue #13).  Added to Unified Fit, Modeling
+  and WAXS Peak Fit, joining Sizes and Simple Fits; the callers that used to
+  build those dicts by hand now go through the model.
+  - **Unified Fit.**  `UnifiedLevel`/`UnifiedFitModel` gained the pair, plus
+    `UnifiedLevel.from_panel_params()` — the one place that translates the
+    panel's historical vocabulary (`RgCutoff` → `RgCO`, `correlated` →
+    `correlations`, `estimate_B` → `link_B`, `Rg_low`/`Rg_high` → `Rg_limits`),
+    which is baked into saved setups and batch configs and so cannot be
+    renamed.  It replaced **eight** hand-written conversions: six in the panel
+    (graph, both fit branches, undo, both Monte-Carlo branches) and two in
+    `batch/unified.py`.  The flags `with_limits` / `with_links` /
+    `with_fit_flags` keep each call site's exact behaviour — notably the graph
+    and undo paths, which must *not* enable `link_B`, since that recomputes B
+    from G, Rg and P and would change the drawn curve.
+  - **Modeling.**  A `_SerialisableDataclass` mixin walks
+    `dataclasses.fields()`, so all six population types share one
+    implementation and a new parameter is serialised the moment it is declared.
+    `population_from_dict()` dispatches through a `POPULATION_CLASSES`
+    registry; an unrecognised `pop_type` (a file from a newer pyIrena) loads as
+    a size distribution with a warning instead of raising.  This removed three
+    near-identical six-branch deserialisers — in `batch/modeling.py`, in
+    `gui/modeling_panel.py`, and a fourth that was already dead — and the
+    panel's hand-written serialiser, which was verified field-by-field to
+    produce exactly the same dict for all six types before being deleted.
+  - **WAXS Peak Fit.**  `WAXSPeakFitModel.to_dict`/`from_dict` cover background
+    shape, background parameters and peaks; an unknown background shape falls
+    back with a warning, and `to_dict` deep-copies so a caller cannot edit the
+    live peak list by accident.
+  - Two historical quirks were preserved on purpose rather than tidied away: a
+    size-distribution population whose config or state omits `enabled` still
+    loads *disabled* (batch and GUI both did this; every other population type
+    defaults to enabled), and the panel's size-dist restore still falls back to
+    the log-normal defaults for a missing `dist_params`.
+- **SAXS Morph result files now carry the panel setup** (feature parity review
+  item U10, issue #13).  `save_saxs_morph_results(..., setup_state=...)` embeds
+  the `_pyirena_config` attribute the other five fitting tools already wrote,
+  the panel gained a **Load Setup from File…** button, and batch runs embed
+  their config section too — so a batch-produced result opens in the GUI with
+  every control set.  The physics scalars were already stored; what was missing
+  was the input mode, the cursor Q range and the background pre-fit windows.
+  - The per-tool policy is now written down in
+    `docs/HDF5_NxcanSAS_structure.md`: six tools embed the setup, Data Merge
+    and Data Manipulation record **NXprocess provenance** instead (they run
+    inside reduction pipelines driven by their own JSON, where a GUI session
+    never existed), and Fractals stores every growth parameter as explicit
+    datasets that `load_fractal_aggregate()` rebuilds.  A test fails the build
+    if a tool is missing from that table.
+- **One Qt import point at last** (feature parity review item U7, issue #13).
+  The invariant said every Qt import goes through `pyirena/gui/_qt.py`; in
+  practice there were three shims — `gui/_qt.py`, `gui/data_selector/_qt.py` and
+  an inline one in `slit_smearing_ui.py` — plus 22 local
+  `try: PySide6 / except: PyQt6` blocks scattered through ten modules.
+  - `gui/data_selector/_qt.py` is **removed** and its five importers now use
+    `pyirena.gui._qt`; every local block is gone; `QMimeData` was the only name
+    the shim was missing.
+  - Three of those blocks had a **stale `PyQt5` third branch** (`unified_fit`,
+    `modeling_panel`, `ai_advisor`), which on a PyQt6-only install would have
+    raised `ModuleNotFoundError` from inside a paint or a message box rather
+    than falling back.
+  - `pyirena/tests/test_gui_qt_contract.py` keeps it fixed: it fails the build
+    on a direct binding import anywhere in the package (tests included), on a
+    second `_qt.py` in a subpackage, on a name imported from the shim that it
+    does not define, and on a name defined there but absent from `__all__`.
+    It reads the source, so it runs on a machine with no Qt installed.
+  - No behaviour change intended; the one visible edit is that Unified Fit's
+    cursor paint code now uses the shared `Qt` enum instead of a local alias
+    that shadowed it as `QtCore`.
+- **Drag a file onto pyIrena to open it** (feature parity review item A6,
+  issue #13).  New `pyirena/gui/file_drop.py`; wired into the Data Selector,
+  every fitting panel (through the shared `DataFileLoaderRow`, so Unified Fit,
+  Sizes, Simple Fits, Modeling, WAXS and SAXS Morph all gained it at once), the
+  Data Explorer file tree, and the Data Merge and Data Manipulation file lists.
+  - Dropping a **folder** offers the data files inside it, one level deep — a
+    measurement directory can be dragged in whole.
+  - The drag is **refused while it is still over the window** if nothing in it
+    is openable, so the cursor answers before the user lets go.  Files pyIrena
+    cannot read are dropped from the list rather than failing later.
+  - Both drop payloads are read: Finder/Explorer send file URLs, some
+    applications send plain text paths.
+  - Text files still go through the clean-and-convert path, so a dropped
+    `.dat` behaves exactly like one opened from the dialog.
+  - Installed through an event filter, so no existing widget had to be
+    subclassed; `collect_dropped_paths()` is pure and covered by 23 tests.
+- **Windows reopen where you left them** (feature parity review item A9,
+  issue #13).  New `pyirena/gui/window_state.py` saves size, position and
+  splitter sizes for every pyIrena window — so the width you gave the left
+  control panel survives a restart, not just the window frame.
+  - **The failure mode this is really about is a changed display setup.**  A
+    position saved on a monitor that is no longer attached would reopen the
+    window somewhere it can be neither seen nor dragged back.  Saved geometry
+    is checked against the screens that exist *now*: a window that would be
+    unreachable is moved onto the nearest real screen and shrunk only if it no
+    longer fits, and if it cannot be placed sensibly the tool falls back to its
+    default size.  The whole policy is the pure function `resolve_geometry()`,
+    tested against removed monitors, negative screen origins,
+    larger-than-screen windows and a grid of off-screen positions.
+  - **Per-tool reset, the Irena gesture:** hold **Shift** while clicking a
+    tool's button and that tool forgets its position and opens centred at its
+    default size, control-panel width included.  Because panels are built once
+    and reused, `install_window_state()` records each window's coded default
+    *before* applying anything saved, so the gesture works on the tenth launch
+    as well as the first; a panel's separate graph window is reset with it.
+    `pyirena/tests/test_window_state.py` reads the launcher source and fails
+    the build if a new tool is wired up without it.
+  - Pane widths are recorded and applied **at the first layout**, not in the
+    constructor: a panel sets its splitter while that splitter still has no
+    width, so anything read or written before Qt's first layout pass is a
+    placeholder.  They are stored as *fractions*, since a reset re-centres the
+    window at a different size than the splitter currently has.
+  - Geometry is only ever applied to real windows (`is_top_level`).  Unified
+    Fit's and WAXS's `…GraphWindow` classes are the right-hand *pane* of their
+    panel, and setting a pane's geometry fought the layout — which surfaced as
+    the control panel coming back much too wide after a reset.  Both are no
+    longer registered, and the guard makes the same mistake harmless in future.
+  - **Global escape hatch:** hold **Shift** while launching `pyirena-gui`, or
+    set `PYIRENA_RESET_WINDOWS=1`, to discard every saved geometry and open all
+    windows at their defaults.
+  - Minimised and full-screen windows are not saved.
+  - Geometry is stored in its own `window_geometry.json` next to the pyIrena
+    state file, deliberately: each panel holds its own `StateManager` and
+    `save()` rewrites the whole file from that copy, so geometry kept there was
+    clobbered by whichever panel closed last.
+  - `GEOMETRY_PERSISTENCE_ENABLED = False` in `window_state.py` disables the
+    feature outright, and the placement tunables (minimum visible area,
+    title-bar grab height, edge margin) are named constants at the top of the
+    module for fine-tuning.
+- **WAXS Peak Fit is now agent-drivable — U9 is complete** (feature parity
+  review item U9, issue #13). `pyirena/api/control/waxs_peakfit.py` adds 18
+  tools: background choice (adaptive SNIP and friends, or fitted polynomials),
+  peak finding, add/remove/list peaks, per-peak shape and parameters with fit
+  flags and bounds, the fit with its three weighting modes, results, an image
+  and save to NXcanSAS — exposed over MCP as `pyirena_ctrl_waxs_*`.
+  - **`find_waxs_peaks` is the entry point**: it runs pyIrena's peak detector
+    over the fit Q range and creates peaks with position, amplitude and width
+    already close, so an agent starts from the data rather than from guesses.
+    `prominence_frac` trades spurious detections against missed shoulders.
+  - Every peak reports its **integrated area** (derived from the fitted shape,
+    with a propagated uncertainty) — usually the quantity a WAXS question is
+    actually about.
+  - The fit image draws each peak separately over the background, which is how
+    a peak that has drifted onto its neighbour becomes visible.
+  - The MCP surface grows from 101 to 119 tools. **All five fitting tools —
+    Unified Fit, Sizes, Simple Fits, Modeling and WAXS Peak Fit — now have a
+    control surface.**
+- **Modeling is now agent-drivable** (feature parity review item U9, issue #13).
+  `pyirena/api/control/modeling.py` adds 18 tools — population management (add,
+  remove, enable, list), per-parameter value/fit/bounds, the non-numeric options
+  (distribution, form factor, structure factor, peak type, correlations), the
+  background, the Q range, the fit, results, a per-population fit image and save
+  to NXcanSAS — exposed over MCP as `pyirena_ctrl_modeling_*`.
+  - **One flat parameter namespace.** A population's parameters live in plain
+    attributes and in three nested dicts; the surface flattens them to dotted
+    names (`dist.mean_size`, `ff.sld_core`, `sf.eta`, `scale`) and lists only
+    the ones active for the current distribution, form factor and structure
+    factor — the same set the fitter packs. Switching to a core-shell form
+    factor adds its SLD and thickness parameters with sensible defaults and
+    removes `contrast`, whose role the SLDs take over.
+  - The fit image draws **each population separately** alongside the total, so
+    a population that has collapsed to nothing is visible at a glance.
+  - The MCP surface grows from 83 to 101 tools.
+  - Only WAXS Peak Fit remains without a control surface.
+- **Simple Fits is now agent-drivable** (feature parity review item U9, issue
+  #13). Interactive control sessions existed for Unified Fit and Size
+  Distribution only, so an AI agent could read Simple Fits results but never
+  produce them. `pyirena/api/control/simple_fits.py` adds 15 tools — model
+  listing and selection, per-parameter value/bounds/fix/free, the complex
+  background, the fit, results, a fit image, a linearization image, and save to
+  NXcanSAS — exposed over MCP as `pyirena_ctrl_simple_*`. The session and
+  Q-range tools are shared with the existing surfaces, so a conversation can
+  open a dataset once and try Unified Fit, Sizes and Simple Fits on it.
+  Modeling and WAXS Peak Fit remain to be wired.
+  - The linearization tool returns the slope, intercept and R² alongside the
+    image, which gives an agent a numeric handle on "is this model valid over
+    this Q range?" rather than only a picture.
+  - The MCP surface grows from 68 to 83 tools; the schema/callable/MCP parity
+    tests and their locked counts are updated with it.
+- **Data Merge gained the full sort dropdown** the other three file browsers
+  have (feature parity review item U3, issue #13). It sorted silently by order
+  number with no way to reorder a temperature or time series. Both dataset
+  columns now offer all ten modes — filename, temperature, time, order number,
+  pressure, each ascending and descending — defaulting to order number ↑ so
+  the view opens exactly as before, and each column remembers its own choice
+  between sessions (`data_merge` state schema 2).
+
+- **"Copy results" and "Save report…" on the fit panels** (feature parity review
+  item A5, issue #13). Igor Irena wrote every fit to the notebook; in pyIrena a
+  fit panel's only exits were save-to-HDF5 (then tabulate in the Data Selector)
+  or reading numbers off the widgets one at a time — while the api/control layer
+  had `export_fit_report` for AI agents and not for people. **Unified Fit, Size
+  Distribution, Simple Fits, Modeling and WAXS Peak Fit** now each have two
+  buttons that put the current results on the clipboard, or into a `.md` file,
+  as Markdown: parameters with their Monte-Carlo uncertainties, fit quality
+  (including the robust metrics), the data summary and the setup. WAXS reports
+  the peak rows on screen, so it works before a fit as well as after one.
+- **Ctrl-click (⌘-click on macOS) "Save report…" saves the report *and* the
+  graph**: a PNG of the panel's plots is written next to the `.md` with the
+  same name and embedded in it as a figure, replacing the save-report,
+  save-graph, find-both, insert-the-image sequence. The link is relative, so
+  moving the pair together keeps the figure working, and the result renders in
+  GitHub, VS Code, Jupyter, Obsidian and pandoc — `pandoc report.md -o
+  report.docx` yields a Word document with the graph in place. The figure is
+  the plots alone (the graphics layout is captured, not the window), so no tab
+  bar or status line appears in it. A plain click still writes text only, and a
+  graph that cannot be captured costs the figure, not the report.
+- `pyirena.core.modeling.result_to_report_dict()` flattens a live
+  `ModelingResult` into the saved-results dict shape, so the Modeling panel can
+  report the fit it is holding without a save-and-reload round-trip.
+  Populations are flattened with `dataclasses.asdict`, so a new population type
+  or parameter reaches the report with no change to the converter.
+- The text comes from **one builder shared by every consumer**
+  (`pyirena/core/reporting.py`), so a value cannot be formatted one way in the
+  panel and another way in the report: the panel buttons, the Data Selector's
+  *Create Report*, and the MCP `export_fit_report` all render the same sections
+  from the same dict shape (`load_<tool>_results()`, which is also what
+  `pyirena.api.results` returns).
+
+- **Copy any graph to the clipboard, and save it as PNG, SVG or CSV** (feature
+  parity review items U2 / A3 / A4 / A8, issue #13). Every plot's right-click
+  menu now offers the same five actions, from one shared implementation in
+  `pyirena/gui/plot_export.py`:
+  - **Copy graph to clipboard** — the graph as an image, ready to paste into
+    PowerPoint, Word, email or an electronic notebook. This is Igor's
+    Edit→Copy, which had no equivalent anywhere in pyIrena.
+  - **Save graph as image…** — PNG (now the default), JPEG or SVG, selected by
+    the file filter or the extension typed. JPEG compression visibly smears the
+    thin lines and small text of a log-log SAS plot; it stays available for
+    users who need it.
+  - **Save whole window as image…** — every stacked panel (data + residuals +
+    distribution) in one image, alongside the single-plot export.
+  - **Save curve data as CSV…** — the plotted curves as text for Excel, Origin,
+    Matlab or pandas: one `X`/`Y` column pair per curve, plus `dY` where
+    uncertainties exist, padded when curves have different lengths. Previously
+    the only text export was Igor `.itx`.
+  - Curves the panel never labelled are exported too, named from the Y axis.
+    Residual panels, the Simple Fits linearization, the Contrast (Δρ)² plot and
+    the collected-values scatter all plot without a legend name, and every
+    export used to refuse with "No named data curves found to export" while the
+    curve was plainly visible. `ScatterPlotItem` and bare `PlotCurveItem`
+    curves are collected as well — the linearization plot is built from those
+    and could not be exported at all. Error-bar segments are still never
+    mistaken for data.
+  - Uncertainties now reach the export from panels that draw their own data
+    scatter (Unified Fit including the Porod tab, Sizes, WAXS). Only
+    `plot_iq_data` recorded them before, so a CSV or ITX from those panels
+    silently lacked the `dY` column although error bars were on screen. Panels
+    record them with the new `tag_curve_uncertainty()`.
+  - **Save as Igor Pro ITX…** — now available on every plot rather than most of
+    them, and the file reproduces how the curve looks in pyIrena: scatter data
+    imports as markers (`mode=3, marker=19`), model curves as lines. Igor draws
+    every imported wave as a line by default, so exported data points used to
+    arrive as a zig-zag line indistinguishable from a model curve.
+    Uncertainties import as Igor error bars rather than as an extra trace.
+- **Export dialogs remember where you last saved**, falling back to the panel's
+  data folder before anything has been exported, instead of defaulting to the
+  home directory (five dialogs) or the process working directory (the HDF5
+  Viewer's). Where the user last chose to save takes priority over the data
+  folder — a panel that reset to its data folder every time looks like the
+  memory is broken. The folder persists across restarts under a new `exports`
+  section of the state file.
+- `pyirena/tests/test_gui_plot_contract.py` — a source-level guard that fails
+  the build if a module drives pyqtgraph's exporters directly, adds its own
+  JPEG/PNG menu entry, or points a save dialog at `Path.home()`. The plot half
+  of the standard UX contract is now written down in
+  `docs/developer_adding_features.md`.
+
+### Changed
+
+- **Panel state methods follow one naming convention** (feature parity review
+  item U5, issue #13). The same two operations had grown six names —
+  `save_state` / `_save_state` / `load_state` / `_load_state` /
+  `_restore_state` / `_get_current_state` — so reading one panel taught you
+  nothing about the next and no shared helper could call them. Every panel now
+  exposes public `save_state()` / `load_state()` with private
+  `_collect_state()` / `_apply_state(state)`; embedded components driven by a
+  parent (the Diffraction Lines tab inside WAXS) expose `collect_state()` /
+  `apply_state()`. Pure rename, no behaviour change. `UnifiedFitPanel` keeps
+  `get_current_state()` / `apply_state()` as public aliases because those names
+  are documented as the `_pyirena_config` setup-state shape and agent scripts
+  call them. WAXS Peak Fit gained the `load_state()` it never had (it applied
+  saved state inline in `__init__`).
+- **The form-factor parameter registry moved to `pyirena/core/form_factors.py`**
+  (`FORM_FACTOR_PARAMS`, `FORM_FACTOR_PARAM_DEFAULTS`,
+  `CONTRAST_FREE_FORM_FACTORS`) from `gui/modeling_panel.py`. Which parameters
+  a core-shell shape needs, and their defaults, sat next to the widgets that
+  drew them, so the api/control layer — which may not import `gui` — could not
+  tell an agent what to set. The GUI now reads the same registry, so a new form
+  factor is declared once, beside its G-matrix builder.
+- **The data-file type table is shared** in `pyirena/core/file_types.py`
+  (`FILE_TYPES`, `FILE_TYPE_EXTS`, `files_in_folder()`) instead of being copied
+  verbatim into Data Manipulation and Data Merge along with their own
+  `os.listdir` loops. Qt-free, so a batch script enumerates a folder with the
+  same extensions and exclusions the GUI shows. An unreadable folder or an
+  unknown type now lists nothing rather than raising. This is the tractable
+  part of the review's "one file-browser widget" (U4); the widget itself needs
+  the Data Selector's browser extracted from its panel first and remains open.
+- **The filename sort keys are shared** in `pyirena/core/file_sorting.py`
+  instead of existing as three verbatim copies (Data Selector, Data Explorer,
+  Data Manipulation) plus a lone order-number copy in Data Merge. A new sort
+  mode or a regex fix had to be applied in four places and would be missed in
+  some — the failure mode that produced the filter incident. The module is
+  Qt-free, so batch and api code can order input files exactly as the GUI
+  displays them. All four dropdowns now share one label list (Data Selector's
+  double-spaced labels are gone) and one tooltip documenting the recognised
+  patterns — two of the four had no tooltip at all.
+- **The Markdown report builder moved to `pyirena/core/reporting.py`** from
+  `gui/data_selector/report.py`, which now re-exports it. `api/` and `core/`
+  may not import from `gui/`, so the builder had to move for the panels and the
+  control layer to share it; the generated text is byte-for-byte unchanged
+  (verified against the pre-move output). `gui/fmt_utils.py` moved to
+  `core/fmt_utils.py` for the same reason and also re-exports. The control
+  layer's own smaller Unified-Fit-only Markdown report is gone; its
+  agent-specific fit-flag and bounds table is appended to the shared report
+  instead.
+- **Eight parallel plot-export implementations collapsed into one.**
+  `sas_plot.py`, `data_selector/plot_utils.py`, `unified_fit.py` (twice),
+  `waxs_peakfit_panel.py`, `sizes_panel.py`, `modeling_panel.py`,
+  `contrast_panel.py` and `simple_fits_panel.py` each had their own "add export
+  to a plot" code, disagreeing on menu wording ("Save graph as JPEG…" vs "Save
+  as JPEG…"), on what was captured (the plot vs the whole window), and on the
+  default folder. They now all call `attach_plot_export()`. Curve collection is
+  shared with the ITX exporter, so CSV and ITX always agree on what is on the
+  plot. `save_itx_from_plot` and `_itx_folder_cmds` moved to the new module and
+  are re-exported from `sas_plot` for existing callers.
+- Plots that were missing exports gained them: **Simple Fits** had JPEG but no
+  ITX and none on its linearization plot; **Modeling** and **Contrast** had
+  JPEG but no ITX; the Unified Fit **residual and Porod** plots, the Sizes
+  **residuals** plot and the Modeling **residuals** plot had no export menu at
+  all. The HDF5 Viewer's graph window keeps its specialised NXcanSAS-aware
+  PNG/HDF5/ITX exporters and gains clipboard copy.
+
+- **Clipboard copy, column sorting and CSV export on every table** (feature
+  parity review items U1 / A1 / A2 / A10, issue #13). Of the nine tables in
+  the GUI, only two supported copying — with two different bespoke
+  implementations — so collected values, similarity results and the isotope
+  table were dead ends: a handful of numbers required a CSV file round-trip,
+  and the similarity results could not be exported at all. All tables now
+  share one implementation, `pyirena/gui/table_utils.py`, modelled on
+  `file_filter.py`: one module, one behaviour, one tooltip, one test file.
+  - **Ctrl+C** copies the selection as tab-separated text (pastes cleanly into
+    Excel, Igor Pro and Origin); **Ctrl+Shift+C** includes the column headers;
+    right-click offers Copy / Copy with Column Headers / Copy Whole Table and,
+    where the panel supports it, *Save as CSV…*. With nothing selected, copy
+    falls back to the whole table instead of silently doing nothing.
+    Non-contiguous ctrl-click selections copy as a compact block of just the
+    selected rows and columns.
+  - **Click-a-header sorting** on the Data Selector *Tabulate Results* table,
+    the HDF5 Viewer *Collect* and *Multi-Collect* windows, and the Data
+    Manipulation similarity results. Numeric columns sort numerically —
+    9 < 10 < 100, not "10" < "9" — with blanks and placeholders ("—", "(ref)")
+    always last. Turning sorting on does not reorder anything by itself: rows
+    stay in the order the panel supplied until a header is clicked, and (on
+    Qt ≥ 6.1) a third click returns to that natural order. Sorting is
+    deliberately *not* enabled on the Contrast results table (rows are grouped
+    under section headers) or the Multi-Collect item list (its row order
+    defines the output columns).
+  - **Save CSV… for the Data Manipulation similarity results**, which
+    previously had no export of any kind — filename, p-value, longest run,
+    number of points and accepted/rejected at full precision.
+  - The Contrast isotope table and the Multi-Collect item list gained copy
+    support; a whole-table copy of the isotope table includes the isotope
+    picked in each drop-down.
+- `pyirena/tests/test_gui_table_contract.py` — a source-level guard that fails
+  if a new module constructs a `QTableWidget` without calling
+  `attach_table_copy()`, or hand-rolls clipboard code again. The standard UX
+  contract it enforces is now written down in `docs/developer_adding_features.md`.
+
+### Fixed
+
+- **`pip install pyirena[mcp]` broke against the newly released mcp 2.0.**
+  The 2.x SDK removed `mcp.server.fastmcp`, which `pyirena/mcp/server.py` is
+  built on, so a fresh install picked up 2.x and failed at import with a
+  misleading "install with pyirena[mcp]" message. The extra is pinned to
+  `mcp>=1.0.0,<2.0` until the server is migrated to the 2.x API.
+- **The GUI test modules errored instead of skipping without Qt.** The new
+  table, plot-export and report tests used `pytest.importorskip`, which pytest
+  ≥ 8.2 treats as a *broken* module when the import raises a plain ImportError —
+  and `pyirena.gui._qt` raises one carrying an installation hint. The plain
+  (no-GUI) CI job reported collection errors rather than skips; they now skip
+  cleanly, like the older GUI tests.
+- **Descending sorts put files without the pattern first.** Sorting a folder by
+  Temperature ↓ opened with every unmatched file — logs, notes, a stray average
+  — above the hottest measurement, because reversing the list also reversed the
+  "no pattern" sentinel. Unmatched files now sort last in both directions, as
+  the tooltip has always claimed, and keep their relative order among
+  themselves. Affects all four file browsers.
+- **An unknown WAXS peak shape aborted the whole report.** The area of a peak
+  is recomputed for files written before areas were stored; a shape this build
+  does not recognise raised out of `peak_area()` and no report was produced at
+  all. It now costs one table cell ("N/A"). A peak area with no uncertainty
+  shows "—" rather than "± 0", which read as a measured zero.
+- **Igor wave names could collide.** Names were truncated to Igor's 31-character
+  limit *after* the `_01`/`_02` index was appended, so two curves with long,
+  similar labels produced the same wave name and Igor silently overwrote the
+  first. The label is now truncated to leave room for the index.
+- **The Simple Fits linearization exported no uncertainties.** `linearize()`
+  propagates dY into linearized space, but the panel discarded it; the CSV and
+  ITX now carry it (as an Igor error wave), and the grey out-of-range points
+  are labelled *Data outside fit range* so they are not mistaken for one.
+- **CSV export from the Collect and Multi-Collect windows corrupted rows whose
+  labels contained a comma.** Both windows built their CSV with
+  `",".join(...)`, so an item label such as `Rg, A` silently split into two
+  columns. All CSV writing now goes through `rows_to_csv_text()`, which uses
+  the stdlib `csv` writer (proper quoting) and formats floats with `%.10g` —
+  the same precision the ITX exporters use.
+- **Contrast results table: Ctrl+C did not work.** The shortcut was declared on
+  a `QAction` created inside the context-menu handler, so it never fired while
+  the menu was closed. It is now a real shortcut on the table.
+
 ## [1.1.0b6] - 2026-08-07
 
 ### Added

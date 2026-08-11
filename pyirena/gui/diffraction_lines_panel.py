@@ -224,7 +224,7 @@ class DiffractionLinesPanel(QWidget):
         self._q_max: float = 10.0
 
         self._build_ui()
-        self._apply_state(self._state_mgr.get("diffraction_lines", default={}))
+        self.apply_state(self._state_mgr.get("diffraction_lines", default={}))
 
     # ─────────────────────────────────────────────────────────────────────
     # UI
@@ -442,7 +442,7 @@ class DiffractionLinesPanel(QWidget):
         self._row_widgets.clear()
         self._pattern_cache.clear()
         self._update_empty_label()
-        self._save_state()
+        self.save_state()
         self.patterns_changed.emit([])
 
     def collect_state(self) -> Dict:
@@ -476,7 +476,7 @@ class DiffractionLinesPanel(QWidget):
     # State load / save
     # ─────────────────────────────────────────────────────────────────────
 
-    def _apply_state(self, state: Dict) -> None:
+    def apply_state(self, state: Dict) -> None:
         if not state:
             return
         wl = state.get("wavelength_a")
@@ -523,7 +523,7 @@ class DiffractionLinesPanel(QWidget):
         # Initial emit so graph shows persisted patterns at startup
         self._recompute_and_emit()
 
-    def _save_state(self) -> None:
+    def save_state(self) -> None:
         self._state_mgr.update("diffraction_lines", self.collect_state())
         # Don't call save() here — main panel saves on its own cadence
 
@@ -570,7 +570,7 @@ class DiffractionLinesPanel(QWidget):
         self._rows_vbox.insertWidget(self._rows_vbox.count() - 1, row)
         self._update_empty_label()
         if emit:
-            self._save_state()
+            self.save_state()
             self._recompute_and_emit()
 
     def _remove_row(self, row: _CifRowWidget) -> None:
@@ -583,7 +583,7 @@ class DiffractionLinesPanel(QWidget):
         row.setParent(None)
         row.deleteLater()
         self._update_empty_label()
-        self._save_state()
+        self.save_state()
         self._recompute_and_emit()
 
     def _update_empty_label(self) -> None:
@@ -606,7 +606,7 @@ class DiffractionLinesPanel(QWidget):
     # ─────────────────────────────────────────────────────────────────────
 
     def _on_row_changed(self) -> None:
-        self._save_state()
+        self.save_state()
         self._recompute_and_emit()
 
     def _on_wavelength_changed(self, _v: float) -> None:
@@ -616,16 +616,16 @@ class DiffractionLinesPanel(QWidget):
             self._wl_auto_chk.setChecked(False)
             self._wl_auto_chk.blockSignals(False)
         self._pattern_cache.clear()
-        self._save_state()
+        self.save_state()
         self._recompute_and_emit()
 
     def _on_wl_auto_toggled(self) -> None:
-        self._save_state()
+        self.save_state()
         # If user just re-enabled auto, the next set_data() call will overwrite
 
     def _on_delta_L_changed(self, _v: float) -> None:
         self._update_ratio_label()
-        self._save_state()
+        self.save_state()
         # Cache untouched: distance shift is applied at emit time
         self._recompute_and_emit()
 
@@ -636,7 +636,7 @@ class DiffractionLinesPanel(QWidget):
             self._lcal_auto_chk.setChecked(False)
             self._lcal_auto_chk.blockSignals(False)
         self._update_ratio_label()
-        self._save_state()
+        self.save_state()
         self._recompute_and_emit()
 
     def _on_L_cal_auto_toggled(self, _state: int) -> None:
@@ -646,11 +646,11 @@ class DiffractionLinesPanel(QWidget):
             self._lcal_spin.setValue(self._sdd_from_file)
             self._lcal_spin.blockSignals(False)
             self._update_ratio_label()
-            self._save_state()
+            self.save_state()
             self._recompute_and_emit()
         else:
             self._update_ratio_label()
-            self._save_state()
+            self.save_state()
 
     def _update_ratio_label(self) -> None:
         l_cal = float(self._lcal_spin.value())
@@ -694,7 +694,7 @@ class DiffractionLinesPanel(QWidget):
             self._add_entry(p, emit=False)
             added += 1
         if added:
-            self._save_state()
+            self.save_state()
             self._recompute_and_emit()
 
     # ─────────────────────────────────────────────────────────────────────

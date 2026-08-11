@@ -12,7 +12,6 @@ Entry points
 from __future__ import annotations
 
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -29,6 +28,8 @@ from pyirena.core.data_manipulation import (
     SubtractConfig,
     TrimConfig,
 )
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
+from pyirena.core.file_types import FILE_TYPES, files_in_folder
 from pyirena.gui._qt import (
     QAbstractItemView,
     QApplication,
@@ -63,6 +64,12 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.file_drop import (
+    drop_hint,
+    enable_file_drop,
+    first_folder,
+    select_dropped_in_list,
+)
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
@@ -72,59 +79,23 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     set_robust_y_range,
 )
+from pyirena.gui.table_utils import (
+    NumericTableWidgetItem,
+    attach_table_copy,
+    enable_table_sorting,
+    make_numeric_item,
+    populating,
+    save_rows_as_csv,
+)
+from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-_FILE_TYPES = ["HDF5 Nexus", "HDF5 Generic", "Text (.dat/.txt/.csv)"]
-_FILE_TYPE_EXTS = {
-    "HDF5 Nexus":            ('.h5', '.hdf5', '.hdf'),
-    "HDF5 Generic":          ('.h5', '.hdf5', '.hdf'),
-    "Text (.dat/.txt/.csv)": ('.dat', '.txt', '.csv'),
-}
-
-# Sort helpers — same as hdf5viewer/file_tree.py
-def _sort_key_name(name: str) -> str:
-    return name.lower()
-
-def _sort_key_temperature(name: str) -> float:
-    m = re.search(r'_(-?\d+(?:\.\d+)?)C(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_time(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)min(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_order(name: str) -> float:
-    # Strip extension then scan _-segments right-to-left for a bare integer
-    # (digits only).  Skips any suffix that contains letters, including
-    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
-    stem = re.sub(r'\.[^.]+$', '', name)
-    for part in reversed(stem.split('_')):
-        if re.fullmatch(r'\d+', part):
-            return float(part)
-    return float('inf')
-
-def _sort_key_pressure(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-_SORT_LABELS = [
-    "Filename A\u2192Z", "Filename Z\u2192A",
-    "Temperature \u2191", "Temperature \u2193",
-    "Time \u2191", "Time \u2193",
-    "Order number \u2191", "Order number \u2193",
-    "Pressure \u2191", "Pressure \u2193",
-]
-_SORT_KEYS: list = [
-    _sort_key_name, _sort_key_name,
-    _sort_key_temperature, _sort_key_temperature,
-    _sort_key_time, _sort_key_time,
-    _sort_key_order, _sort_key_order,
-    _sort_key_pressure, _sort_key_pressure,
-]
+# Sort modes come from the one shared implementation; see
+# pyirena.core.file_sorting (they used to be copied into every browser).
 
 # Distinct colors for multi-dataset plots (average tab)
 _DATASET_COLORS = [
@@ -206,7 +177,7 @@ class _ManipFileBrowser(QWidget):
         type_row = QHBoxLayout()
         type_row.addWidget(QLabel("Type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(_FILE_TYPES)
+        self.type_combo.addItems(FILE_TYPES)
         self.type_combo.currentTextChanged.connect(self._refresh_file_list)
         type_row.addWidget(self.type_combo, stretch=1)
         layout.addLayout(type_row)
@@ -215,7 +186,8 @@ class _ManipFileBrowser(QWidget):
         sort_row = QHBoxLayout()
         sort_row.addWidget(QLabel("Sort:"))
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(_SORT_LABELS)
+        self.sort_combo.addItems(SORT_LABELS)
+        self.sort_combo.setToolTip(SORT_TOOLTIP)
         self.sort_combo.setCurrentIndex(6)  # Order number up
         self.sort_combo.currentIndexChanged.connect(self._refresh_file_list)
         sort_row.addWidget(self.sort_combo, stretch=1)
@@ -242,7 +214,12 @@ class _ManipFileBrowser(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_list.customContextMenuRequested.connect(self._show_context_menu)
+        self.file_list.setToolTip(drop_hint("a folder or data files"))
         layout.addWidget(self.file_list, stretch=1)
+
+        # Dropping a folder browses it; dropping files browses their folder and
+        # selects them.
+        enable_file_drop(self, self.open_dropped_paths)
 
         self.setMinimumWidth(200)
         self.setMaximumWidth(260)
@@ -254,6 +231,19 @@ class _ManipFileBrowser(QWidget):
         self.folder_label.setText(os.path.basename(folder))
         self.folder_label.setToolTip(folder)
         self._refresh_file_list()
+
+    def open_dropped_paths(self, paths: List[str]) -> None:
+        """Browse the dropped folder (or the dropped files' folder) and select them."""
+        if not paths:
+            return
+
+        folder = first_folder(paths)
+        if folder and folder != self.current_folder:
+            self.set_folder(folder)
+            if self.folder_changed_callback is not None:
+                self.folder_changed_callback(folder)
+
+        select_dropped_in_list(self.file_list, paths, self.current_folder)
 
     def get_file_type(self) -> str:
         return self.type_combo.currentText()
@@ -284,25 +274,8 @@ class _ManipFileBrowser(QWidget):
                 self.folder_changed_callback(folder)
 
     def _refresh_file_list(self) -> None:
-        if not self.current_folder or not os.path.isdir(self.current_folder):
-            return
-        exts = _FILE_TYPE_EXTS[self.type_combo.currentText()]
-        try:
-            files = [
-                f for f in os.listdir(self.current_folder)
-                if os.path.isfile(os.path.join(self.current_folder, f))
-                and Path(f).suffix.lower() in exts
-            ]
-        except PermissionError:
-            files = []
-
-        # Sort
-        idx = self.sort_combo.currentIndex()
-        key_fn = _SORT_KEYS[idx]
-        reverse = (idx % 2 == 1)
-        files.sort(key=key_fn, reverse=reverse)
-
-        self._all_files = files
+        files = files_in_folder(self.current_folder, self.type_combo.currentText())
+        self._all_files = sort_names(files, self.sort_combo.currentIndex())
         self._apply_filter()
 
     def _apply_filter(self) -> None:
@@ -592,6 +565,9 @@ class DataManipulationPanel(QWidget):
         self._build_ui()
         self._connect_auto_signals()
         self.load_state()
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'data_manipulation')
 
     # ================================================================== #
     #  UI construction                                                     #
@@ -929,6 +905,21 @@ class DataManipulationPanel(QWidget):
         self._sim_reject_btn.clicked.connect(self._on_similarity_auto_reject)
         btn_row.addWidget(self._sim_reject_btn)
 
+        # A similarity check over 50 files used to be view-only: no copy, no
+        # export.  Save CSV here, clipboard copy on the table itself.
+        self._sim_csv_btn = QPushButton("Save CSV…")
+        self._sim_csv_btn.setStyleSheet(
+            "background-color: #16a085; color: white; font-weight: bold;"
+        )
+        self._sim_csv_btn.setFixedHeight(26)
+        self._sim_csv_btn.setEnabled(False)
+        self._sim_csv_btn.setToolTip(
+            "Save the similarity results table as CSV.\n"
+            "Ctrl+C on the table copies the selection to the clipboard instead."
+        )
+        self._sim_csv_btn.clicked.connect(self._save_similarity_csv)
+        btn_row.addWidget(self._sim_csv_btn)
+
         btn_row.addStretch()
         sim_layout.addLayout(btn_row)
 
@@ -950,7 +941,10 @@ class DataManipulationPanel(QWidget):
             3, QHeaderView.ResizeMode.ResizeToContents
         )
         self._sim_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._sim_results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # Cells must be selectable to be copyable; attach_table_copy also
+        # installs Ctrl+C / Ctrl+Shift+C and the right-click menu.
+        attach_table_copy(self._sim_results_table, on_save_csv=self._save_similarity_csv)
+        enable_table_sorting(self._sim_results_table)
         # No fixed/minimum height — table sizes to its content inside the
         # scroll area; setFixedHeight() is called after each populate().
         self._sim_results_table.setVisible(False)
@@ -1724,40 +1718,67 @@ class DataManipulationPanel(QWidget):
         self._sim_results = []
         self._sim_results_table.setVisible(False)
         self._sim_reject_btn.setEnabled(False)
+        self._sim_csv_btn.setEnabled(False)
 
     def _populate_sim_table(self) -> None:
         """Fill the results QTableWidget from self._sim_results."""
         self._sim_results_table.setRowCount(0)
-        for r in self._sim_results:
-            row = self._sim_results_table.rowCount()
-            self._sim_results_table.insertRow(row)
+        # Sorting off while filling; re-enabled on exit by the context manager.
+        with populating(self._sim_results_table):
+            for r in self._sim_results:
+                row = self._sim_results_table.rowCount()
+                self._sim_results_table.insertRow(row)
 
-            if r.n_points > 0:
-                p_text = f"{r.p_value:.4f}"
-                run_text = f"{r.longest_run} / {r.n_points}"
-            else:
-                p_text = "— (ref)"
-                run_text = "—"
+                if r.n_points > 0:
+                    p_item = make_numeric_item(r.p_value, fmt="{:.4f}", align_right=False)
+                    run_text = f"{r.longest_run} / {r.n_points}"
+                else:
+                    # Reference dataset: no p-value.  Sorts with the blanks.
+                    p_item = NumericTableWidgetItem("— (ref)", None)
+                    run_text = "—"
 
-            if r.accepted:
-                status_text, fg, bg = "Accepted", QColor("#196f3d"), QColor("#d5f5e3")
-            else:
-                status_text, fg, bg = "Rejected", QColor("#922b21"), QColor("#fde8e8")
+                if r.accepted:
+                    status_text, fg, bg = "Accepted", QColor("#196f3d"), QColor("#d5f5e3")
+                else:
+                    status_text, fg, bg = "Rejected", QColor("#922b21"), QColor("#fde8e8")
 
-            cells = [
-                QTableWidgetItem(r.filename),
-                QTableWidgetItem(p_text),
-                QTableWidgetItem(run_text),
-                QTableWidgetItem(status_text),
-            ]
-            for col in (1, 2, 3):
-                cells[col].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            cells[3].setForeground(fg)
-            for col, item in enumerate(cells):
-                item.setBackground(bg)
-                self._sim_results_table.setItem(row, col, item)
+                cells = [
+                    QTableWidgetItem(r.filename),
+                    p_item,
+                    QTableWidgetItem(run_text),
+                    QTableWidgetItem(status_text),
+                ]
+                for col in (1, 2, 3):
+                    cells[col].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                cells[3].setForeground(fg)
+                for col, item in enumerate(cells):
+                    item.setBackground(bg)
+                    self._sim_results_table.setItem(row, col, item)
 
         self._sim_results_table.resizeRowsToContents()
+        self._sim_csv_btn.setEnabled(bool(self._sim_results))
+
+    def _save_similarity_csv(self) -> None:
+        """Write the similarity results to CSV (full precision, shared writer)."""
+        if not self._sim_results:
+            self._status.setText("No similarity results to save — run a check first.")
+            return
+        headers = ["File", "p-value", "Longest run", "N points", "Status"]
+        rows = [
+            [
+                r.filename,
+                r.p_value if r.n_points > 0 else None,
+                r.longest_run if r.n_points > 0 else None,
+                r.n_points if r.n_points > 0 else None,
+                "Accepted" if r.accepted else "Rejected",
+            ]
+            for r in self._sim_results
+        ]
+        folder = self._fb.current_folder or str(Path.home())
+        default = str(Path(folder) / "similarity_results.csv")
+        path = save_rows_as_csv(self, headers, rows, default, "Save similarity results as CSV")
+        if path:
+            self._status.setText(f"Similarity results saved to {Path(path).name}")
 
     def _clear_similarity_results(self) -> None:
         """Invalidate stale similarity results when selection changes."""
@@ -1769,6 +1790,7 @@ class DataManipulationPanel(QWidget):
         self._sim_results_table.setVisible(False)
         self._sim_reject_btn.setText("Auto-reject 0 below threshold")
         self._sim_reject_btn.setEnabled(False)
+        self._sim_csv_btn.setEnabled(False)
 
     def _preview_subtract(self) -> None:
         selected = self._fb.get_selected_filenames()

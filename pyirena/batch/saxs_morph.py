@@ -172,7 +172,9 @@ def fit_saxs_morph(
     out_path = None
     if save_to_nexus and data_file.suffix.lower() in ('.h5', '.hdf5', '.nxs'):
         try:
-            save_saxs_morph_results(data_file, result)
+            # Embed the config section as the setup state, so the panel's
+            # "Load Setup from File…" restores a batch-produced result too.
+            save_saxs_morph_results(data_file, result, setup_state=dict(sm_cfg))
             out_path = data_file
         except Exception:
             log.error(f"[pyirena.batch.fit_saxs_morph] Save error:\n"

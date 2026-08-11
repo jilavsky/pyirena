@@ -43,6 +43,11 @@ class StateManager:
     # Default state for the entire application
     DEFAULT_STATE = {
         "version": "1.0",
+        "exports": {
+            # Folder of the last graph/table export, so every save dialog opens
+            # where the previous one left off (see gui/plot_export.py).
+            "last_folder": "",
+        },
         "data_selector": {
             "last_folder": "",
             "error_fraction": 0.05,   # uncertainty = I × error_fraction when file has no error column
@@ -279,13 +284,18 @@ class StateManager:
         },
         "data_merge": {
             # schema_version 1: initial release
-            "schema_version": 1,
+            # schema_version 2: per-dataset sort_index (file browsers gained the
+            #                   shared sort dropdown; 6 = Order number up, the
+            #                   order this panel always used)
+            "schema_version": 2,
             "folder1": None,
             "folder2": None,
             "file_type1": "HDF5 Nexus",
             "file_type2": "HDF5 Nexus",
             "filter1": "",
             "filter2": "",
+            "sort_index1": 6,
+            "sort_index2": 6,
             "output_folder": None,
             "q_overlap_min": None,
             "q_overlap_max": None,

@@ -14,19 +14,13 @@ import pyqtgraph as pg
 
 log = logging.getLogger(__name__)
 
-from pyirena.gui.data_selector._qt import (
+from pyirena.gui._qt import (
     QAbstractItemView,
-    QApplication,
-    QFileDialog,
     QHBoxLayout,
-    QKeySequence,
-    QMenu,
     QMessageBox,
     QPushButton,
-    QShortcut,
     Qt,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +34,13 @@ from pyirena.gui.data_selector.plot_utils import (
     _style_plot,
 )
 from pyirena.gui.sas_plot import add_slope_line_menu
+from pyirena.gui.table_utils import (
+    NumericTableWidgetItem,
+    attach_table_copy,
+    enable_table_sorting,
+    populating,
+    save_rows_as_csv,
+)
 from pyirena.io.hdf5 import readGenericNXcanSAS
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.io.text_import import ensure_nxcansas_sibling
@@ -961,6 +962,7 @@ class TabulateResultsWindow(QWidget):
 
         self._headers: list = []
         self._rows: list    = []
+        self._default_save_path: str = ''
 
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(True)
@@ -968,13 +970,11 @@ class TabulateResultsWindow(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._show_context_menu)
 
-        copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.table)
-        copy_shortcut.activated.connect(lambda: self._copy_selection(include_headers=False))
-        copy_headers_shortcut = QShortcut(QKeySequence("Ctrl+Shift+C"), self.table)
-        copy_headers_shortcut.activated.connect(lambda: self._copy_selection(include_headers=True))
+        # Shared clipboard behaviour (context menu + Ctrl+C / Ctrl+Shift+C) and
+        # click-a-header sorting, identical to every other pyIrena table.
+        attach_table_copy(self.table, on_save_csv=self._save_csv)
+        enable_table_sorting(self.table)
 
         self.save_btn = QPushButton("Save as CSV…")
         self.save_btn.setMinimumHeight(32)
@@ -1006,80 +1006,30 @@ class TabulateResultsWindow(QWidget):
         self._rows    = rows
         self._default_save_path = default_save_path
 
-        self.table.setColumnCount(len(headers))
-        self.table.setRowCount(len(rows))
-        self.table.setHorizontalHeaderLabels(headers)
+        with populating(self.table):
+            self.table.setColumnCount(len(headers))
+            self.table.setRowCount(len(rows))
+            self.table.setHorizontalHeaderLabels(headers)
 
-        for r, row in enumerate(rows):
-            for c, val in enumerate(row):
-                text = '' if val is None else str(val)
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.table.setItem(r, c, item)
+            for r, row in enumerate(rows):
+                for c, val in enumerate(row):
+                    text = '' if val is None else str(val)
+                    # Numeric-aware item: displays the formatted text but sorts
+                    # on the underlying number, so 9 < 10 < 100 (not "10" < "9").
+                    item = NumericTableWidgetItem(text)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.table.setItem(r, c, item)
 
         self.table.resizeColumnsToContents()
         self.save_btn.setEnabled(bool(rows))
         self.show()
 
-    def _show_context_menu(self, pos):
-        """Right-click menu on the table: plain copy or copy-with-headers."""
-        if not self.table.selectedItems():
-            return
-        menu = QMenu(self.table)
-        copy_action = menu.addAction("Copy")
-        copy_headers_action = menu.addAction("Copy with Column Headers")
-        action = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if action == copy_action:
-            self._copy_selection(include_headers=False)
-        elif action == copy_headers_action:
-            self._copy_selection(include_headers=True)
-
-    def _copy_selection(self, include_headers: bool = False):
-        """
-        Copy the current selection to the clipboard as tab-separated text.
-
-        Supports arbitrary selections: single cells, whole rows/columns
-        (selected via header clicks), rectangular blocks, and non-contiguous
-        multi-selections (ctrl-click). Non-contiguous row/column selections
-        are copied as a dense grid over the selected rows x selected columns,
-        with any unselected intersection left blank.
-        """
-        items = self.table.selectedItems()
-        if not items:
-            return
-
-        rows = sorted({item.row() for item in items})
-        cols = sorted({item.column() for item in items})
-        row_index = {r: i for i, r in enumerate(rows)}
-        col_index = {c: i for i, c in enumerate(cols)}
-
-        grid = [['' for _ in cols] for _ in rows]
-        for item in items:
-            grid[row_index[item.row()]][col_index[item.column()]] = item.text()
-
-        lines = []
-        if include_headers:
-            lines.append('\t'.join(self._headers[c] for c in cols))
-        lines.extend('\t'.join(row) for row in grid)
-
-        QApplication.clipboard().setText('\n'.join(lines))
-
     def _save_csv(self):
-        import csv as _csv
-        path, _ = QFileDialog.getSaveFileName(
+        """Write the stored (unformatted) values to CSV via the shared writer."""
+        save_rows_as_csv(
             self,
-            "Save tabulated results as CSV",
+            self._headers,
+            self._rows,
             self._default_save_path,
-            "CSV files (*.csv);;All files (*)",
+            "Save tabulated results as CSV",
         )
-        if not path:
-            return
-        if not path.lower().endswith('.csv'):
-            path += '.csv'
-        with open(path, 'w', newline='', encoding='utf-8') as fh:
-            writer = _csv.writer(fh)
-            writer.writerow(self._headers)
-            writer.writerows(
-                ['' if v is None else v for v in row]
-                for row in self._rows
-            )

@@ -84,7 +84,9 @@ The tool is available three ways:
 
 - Log-log I(Q) plot with the top axis showing R = pi/Q.
 - Input data displayed as scatter points; result overlaid as a thick green line.
-- Right-click the plot for JPEG export and (on the Average tab) dataset removal.
+- Right-click the plot for the standard export menu (clipboard copy, image,
+  curve CSV, Igor ITX — see `GUI_README.md`) and, on the Average tab, dataset
+  removal.
 
 ### Output panel (right)
 
@@ -198,6 +200,16 @@ could not be loaded.
 **Auto-reject N below threshold** deselects all rejected frames in one
 click and re-computes the average.  Manual right-click removal on the
 graph still works independently.
+
+**Getting the numbers out.** The results table is no longer view-only:
+
+- **Ctrl+C** copies the selected cells as tab-separated text (Ctrl+Shift+C
+  includes the column headers); with nothing selected the whole table is
+  copied.  Right-click for the same options.
+- **Save CSV…** writes every row — filename, p-value, longest run, number of
+  points, accepted/rejected — at full precision.
+- Click a column header to sort; sorting the p-value column numerically brings
+  the worst frames to the top.  The reference frame ("— (ref)") sorts last.
 
 > **How to choose a p-value threshold**
 > Run the tool on a clean test dataset (frames you know are undamaged) and

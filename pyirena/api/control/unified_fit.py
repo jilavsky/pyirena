@@ -1902,6 +1902,60 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
     return {"ok": True, "file_path": str(target)}
 
 
+def _report_data_info(s) -> dict:
+    """Session data arrays in the shape ``core.reporting`` expects."""
+    return {"Q": s.q, "I": s.intensity, "I_error": s.error}
+
+
+def _report_results_dict(s, chi_sq, quality) -> dict:
+    """Session fit state as a ``load_unified_fit_results()``-shaped dict.
+
+    Lets the control layer render its report with the same builder as the GUI
+    instead of formatting a second, slightly different table of its own.
+    """
+    from datetime import datetime as _dt
+
+    import numpy as _np
+
+    model = s.model
+    intensity_model = None
+    residuals = None
+    try:
+        intensity_model = model.calculate_intensity(s.q)
+        denom = s.error if s.error is not None else s.intensity
+        residuals = (s.intensity - intensity_model) / denom
+    except Exception:
+        residuals = _np.zeros_like(s.q)
+
+    levels = []
+    for lv in model.levels[: model.num_levels]:
+        level = {
+            "G": lv.G, "Rg": lv.Rg, "B": lv.B, "P": lv.P,
+            "RgCutoff": getattr(lv, "RgCO", 0.0),
+            "correlated": bool(getattr(lv, "correlations", False)),
+            "ETA": getattr(lv, "ETA", 0.0),
+            "PACK": getattr(lv, "PACK", 0.0),
+        }
+        levels.append(level)
+
+    return {
+        "Q": s.q,
+        "intensity_data": s.intensity,
+        "intensity_model": intensity_model,
+        "intensity_error": s.error,
+        "residuals": residuals,
+        "num_levels": model.num_levels,
+        "background": float(getattr(model, "background", 0.0) or 0.0),
+        "chi_squared": chi_sq if chi_sq is not None else 0.0,
+        "levels": levels,
+        "slit_length": (
+            float(model.slit_length) if getattr(model, "use_slit_smearing", False) else 0.0
+        ),
+        "fit_quality": quality or None,
+        "timestamp": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
 def export_fit_report(session_id: str, format: str = "json") -> dict:
     """Export a human-readable or machine-readable fit report.
 
@@ -1919,7 +1973,6 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
 
     params = _param_table(s.model)
     chi_sq = s.last_fit_result.get("reduced_chi_squared")
-    chi_sq_str = f"{chi_sq:.4f}" if chi_sq is not None else "n/a"
     quality = _quality_scalars(_compute_quality(s.model))
 
     if format == "json":
@@ -1937,32 +1990,22 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
         return {"format": "json", "content": json.dumps(report, indent=2)}
 
     elif format == "markdown":
-        lines = [
-            "# Unified Fit Report",
-            "",
-            f"**File:** {s.file_path}",
-            f"**Model:** Unified Fit — {s.model.num_levels} level(s)",
-            f"**Reduced χ²:** {chi_sq_str}",
-        ]
-        if quality:
-            s_val = quality.get("robust_scale_s")
-            floor = quality.get("realistic_reduced_chi2_floor")
-            mfm = quality.get("max_abs_frac_misfit")
-            if s_val is not None:
-                floor_s = f" (realistic reduced-χ² floor ≈ {floor:.1f})" if floor is not None else ""
-                lines.append(f"**σ-scale (robust):** {s_val:.2f}×{floor_s}")
-            if mfm is not None:
-                lines.append(f"**Max |(I−M)/I|:** {mfm * 100:.1f}%")
-            csr = quality.get("longest_same_sign_run")
-            if csr is not None:
-                lines.append(f"**Longest same-sign run:** {csr}")
-        lines += [
-            "",
-            "## Parameters",
-            "",
-            "| Parameter | Value | Fixed | Lo | Hi | Units |",
-            "|-----------|-------|-------|----|----|-------|",
-        ]
+        # Same builder the GUI's "Copy results" button and the Data Selector's
+        # Create Report use, so an agent and a user reading over their shoulder
+        # see identical numbers and wording.
+        from pyirena.core.reporting import build_report
+
+        content = build_report(
+            s.file_path or "results",
+            data_info=_report_data_info(s),
+            fit_results=_report_results_dict(s, chi_sq, quality),
+        )
+        # The per-parameter fit flags and bounds are an agent-only concern
+        # (the GUI shows them as checkboxes), so they are appended rather than
+        # pushed into the shared report.
+        lines = [content, "## Fit Control", "",
+                 "| Parameter | Value | Fixed | Lo | Hi | Units |",
+                 "|-----------|-------|-------|----|----|-------|"]
         for p in params:
             lo_s = f"{p['lo']:.3g}" if p["lo"] is not None else "—"
             hi_s = f"{p['hi']:.3g}" if p["hi"] is not None else "—"
@@ -1970,6 +2013,7 @@ def export_fit_report(session_id: str, format: str = "json") -> dict:
                 f"| {p['name']} | {p['value']:.4g} | {'Yes' if p['fixed'] else 'No'} "
                 f"| {lo_s} | {hi_s} | {p['units']} |"
             )
+        lines.append("")
         return {"format": "markdown", "content": "\n".join(lines)}
 
     else:

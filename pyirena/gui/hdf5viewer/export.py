@@ -19,9 +19,17 @@ if TYPE_CHECKING:
 
 
 def _default_save_path(title: str, ext: str) -> str:
-    """Return CWD / sanitised_title + ext as the default save path."""
+    """Return remembered-export-folder / sanitised_title + ext.
+
+    Uses the shared folder memory so this window's dialogs open where the last
+    export went, like every other save dialog in pyIrena (they used to default
+    to the process working directory, which is wherever the app was launched
+    from).
+    """
+    from pyirena.gui.plot_export import export_folder
+
     safe = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "_")
-    return str(Path.cwd() / ((safe or "graph") + ext))
+    return str(Path(export_folder()) / ((safe or "graph") + ext))
 
 
 # ── JPEG / PNG ─────────────────────────────────────────────────────────────

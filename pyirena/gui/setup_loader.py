@@ -7,7 +7,7 @@ Each panel exposes a small wrapper that supplies:
   - a status-reporting hook (one for success, one for warnings).
 
 This module centralises the file-dialog, the error-handling, and the
-tool-mismatch guard so the five panels don't repeat 30 lines of identical
+tool-mismatch guard so the panels don't repeat 30 lines of identical
 boilerplate each.  Keeping it in one place also makes the UX uniform.
 """
 from __future__ import annotations
@@ -34,6 +34,7 @@ TOOL_GROUP_PATH = {
     "modeling":     "entry/modeling_results",
     "simple_fits":  "entry/simple_fit_results",
     "waxs_peakfit": "entry/waxs_peakfit_results",
+    "saxs_morph":   "entry/saxs_morph_results",
 }
 
 # Human-readable label per tool — used in dialog titles and status messages.
@@ -43,6 +44,7 @@ TOOL_LABEL = {
     "modeling":     "Modeling",
     "simple_fits":  "Simple Fits",
     "waxs_peakfit": "WAXS Peak Fit",
+    "saxs_morph":   "SAXS Morph",
 }
 
 

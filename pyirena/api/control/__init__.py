@@ -111,6 +111,78 @@ from pyirena.api.control.sizes import (
     save_sizes_fit,
 )
 
+from pyirena.api.control.simple_fits import (
+    # Simple Fits — model lifecycle
+    list_simple_models,
+    select_simple_model,
+    get_simple_config,
+    # Simple Fits — parameters
+    get_simple_parameters,
+    set_simple_parameter,
+    set_simple_parameter_bounds,
+    fix_simple_parameter,
+    free_simple_parameter,
+    reset_simple_parameters,
+    set_simple_background,
+    # Simple Fits — fit & results
+    run_simple_fit,
+    get_simple_results,
+    get_simple_fit_image,
+    get_simple_linearization_image,
+    # Simple Fits — persistence
+    save_simple_fit,
+)
+
+from pyirena.api.control.modeling import (
+    # Modeling — model lifecycle
+    select_modeling_model,
+    get_modeling_config,
+    list_population_types,
+    # Modeling — populations
+    add_population,
+    remove_population,
+    list_populations,
+    set_population_enabled,
+    # Modeling — population parameters
+    get_population_parameters,
+    set_population_parameter,
+    set_population_parameter_fit,
+    set_population_parameter_bounds,
+    set_population_option,
+    # Modeling — global settings
+    set_modeling_background,
+    set_modeling_q_range,
+    # Modeling — fit, results, persistence
+    run_modeling_fit,
+    get_modeling_results,
+    get_modeling_fit_image,
+    save_modeling_fit,
+)
+
+from pyirena.api.control.waxs_peakfit import (
+    # WAXS — model lifecycle & background
+    list_waxs_options,
+    select_waxs_model,
+    get_waxs_config,
+    set_waxs_background,
+    set_waxs_background_parameter,
+    # WAXS — peaks
+    find_waxs_peaks,
+    add_waxs_peak,
+    remove_waxs_peak,
+    list_waxs_peaks,
+    get_waxs_peak_parameters,
+    set_waxs_peak_shape,
+    set_waxs_peak_parameter,
+    set_waxs_peak_parameter_fit,
+    set_waxs_peak_parameter_bounds,
+    # WAXS — fit, results, persistence
+    run_waxs_fit,
+    get_waxs_results,
+    get_waxs_fit_image,
+    save_waxs_fit,
+)
+
 __all__ = [
     "__version__",
     # A
@@ -146,4 +218,31 @@ __all__ = [
     "run_sizes_fit", "get_sizes_distribution", "get_sizes_results",
     "get_sizes_fit_image",
     "suggest_sizes_setup", "save_sizes_fit",
+    # Simple Fits
+    "list_simple_models", "select_simple_model", "get_simple_config",
+    "get_simple_parameters", "set_simple_parameter",
+    "set_simple_parameter_bounds",
+    "fix_simple_parameter", "free_simple_parameter", "reset_simple_parameters",
+    "set_simple_background",
+    "run_simple_fit", "get_simple_results",
+    "get_simple_fit_image", "get_simple_linearization_image",
+    "save_simple_fit",
+    # Modeling
+    "select_modeling_model", "get_modeling_config", "list_population_types",
+    "add_population", "remove_population", "list_populations",
+    "set_population_enabled",
+    "get_population_parameters", "set_population_parameter",
+    "set_population_parameter_fit", "set_population_parameter_bounds",
+    "set_population_option",
+    "set_modeling_background", "set_modeling_q_range",
+    "run_modeling_fit", "get_modeling_results", "get_modeling_fit_image",
+    "save_modeling_fit",
+    # WAXS Peak Fit
+    "list_waxs_options", "select_waxs_model", "get_waxs_config",
+    "set_waxs_background", "set_waxs_background_parameter",
+    "find_waxs_peaks", "add_waxs_peak", "remove_waxs_peak", "list_waxs_peaks",
+    "get_waxs_peak_parameters", "set_waxs_peak_shape",
+    "set_waxs_peak_parameter", "set_waxs_peak_parameter_fit",
+    "set_waxs_peak_parameter_bounds",
+    "run_waxs_fit", "get_waxs_results", "get_waxs_fit_image", "save_waxs_fit",
 ]

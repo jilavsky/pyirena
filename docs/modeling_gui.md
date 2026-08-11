@@ -576,6 +576,13 @@ The Derived Results panel (below the graph) shows post-fit quantities:
   (even if the application is closed).
 - **Save JSON / Load JSON** exports/imports all population parameters to a portable
   JSON file for sharing or archiving.
+- **Copy results / Save report…** render the current fit as Markdown text —
+  χ², background, Q range and every enabled population with its parameters and
+  derived quantities (volume fraction, mean radius) — for the clipboard or a
+  `.md` file.  The same text the Data Selector's *Create Report* produces from
+  the saved file, without the save-and-reload round-trip.
+  **Ctrl-click** (⌘-click on macOS) *Save report…* also writes the graph as a
+  PNG beside the report and embeds it as a figure.
 
 ---
 

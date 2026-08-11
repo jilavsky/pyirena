@@ -38,11 +38,13 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import time
 import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from typing import Optional
 
@@ -51,6 +53,8 @@ from scipy.optimize import differential_evolution, least_squares, minimize
 from scipy.special import erf as _scipy_erf
 
 from pyirena.core.unified import sphere_amplitude as _sphere_amplitude
+
+log = logging.getLogger(__name__)
 
 # Thread-count environment variables read by the common BLAS / OpenMP backends.
 # When running differential_evolution across worker processes we pin these to 1
@@ -257,11 +261,81 @@ from pyirena.core import distributions as D
 from pyirena.core.form_factors import bin_widths, build_g_matrix
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Serialisation
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _jsonify(value):
+    """Plain-Python form of a value, for JSON and HDF5.
+
+    Tuples become lists (JSON has no tuple and would not give one back), numpy
+    scalars become Python numbers (``json`` refuses them outright), and both
+    conversions recurse into the nested dicts a population uses for its
+    parameters.
+    """
+    if isinstance(value, tuple):
+        return [_jsonify(v) for v in value]
+    if isinstance(value, list):
+        return [_jsonify(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _jsonify(v) for k, v in value.items()}
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _restore(value, default):
+    """Undo :func:`_jsonify` for one field, guided by the field's default.
+
+    The default says what shape the field is meant to have: a tuple default
+    means bounds and the two-element list from JSON has to become a tuple
+    again, because the fitter unpacks them.  A dict default whose own values
+    are tuples (``dist_params_limits`` and friends) gets the same treatment one
+    level down.
+    """
+    if isinstance(default, tuple) and isinstance(value, (list, tuple)):
+        return tuple(value)
+    if isinstance(default, dict) and isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            proto = next(iter(default.values()), None)
+            out[key] = (tuple(item)
+                        if isinstance(proto, tuple) and isinstance(item, (list, tuple))
+                        else item)
+        return out
+    return value
+
+
+class _SerialisableDataclass:
+    """``to_dict`` / ``from_dict`` driven by the dataclass fields themselves.
+
+    Modeling has six population types, each with fifteen-odd fields; writing
+    the two conversions out per type is how the io layer ended up with six
+    branches in each direction that had to be kept in step by hand.  Walking
+    ``dataclasses.fields()`` instead means a new field is serialised the moment
+    it is declared, and an unknown key in an old file is ignored rather than
+    raising.
+    """
+
+    def to_dict(self) -> dict:
+        """This object's fields as a plain, JSON-serialisable dict."""
+        return {f.name: _jsonify(getattr(self, f.name)) for f in dataclass_fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: dict):
+        """Rebuild from :meth:`to_dict`; every missing field takes its default."""
+        obj = cls()
+        for f in dataclass_fields(cls):
+            if d and f.name in d and d[f.name] is not None:
+                setattr(obj, f.name, _restore(d[f.name], getattr(obj, f.name)))
+        return obj
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Dataclasses
 # ──────────────────────────────────────────────────────────────────────────────
 
 @dataclass
-class SizeDistPopulation:
+class SizeDistPopulation(_SerialisableDataclass):
     """All parameters for one size-distribution population.
 
     Attributes
@@ -333,7 +407,7 @@ class SizeDistPopulation:
 
 
 @dataclass
-class UnifiedLevelPopulation:
+class UnifiedLevelPopulation(_SerialisableDataclass):
     """Single Beaucage Unified Fit level as a Modeling population.
 
     Computes: I(q) = G·exp(-q²Rg²/3) + B·Q*⁻ᴾ·exp(-q²RgCO²/3)
@@ -368,7 +442,7 @@ class UnifiedLevelPopulation:
 
 
 @dataclass
-class DiffractionPeakPopulation:
+class DiffractionPeakPopulation(_SerialisableDataclass):
     """Diffraction peak (Gaussian, Lorentzian, or pseudo-Voigt) as a Modeling population.
 
     Gaussian:    A · exp(-(q-q₀)² / (2σ²))
@@ -394,7 +468,7 @@ class DiffractionPeakPopulation:
 
 
 @dataclass
-class GuinierPorodPopulation:
+class GuinierPorodPopulation(_SerialisableDataclass):
     """Guinier-Porod piecewise scattering model (Hammouda 2010, J. Appl. Cryst. 43, 716).
 
     Always 6 shape parameters: G, Rg1, s1, P, Rg2, s2.
@@ -435,7 +509,7 @@ class GuinierPorodPopulation:
 
 
 @dataclass
-class MassFractalPopulation:
+class MassFractalPopulation(_SerialisableDataclass):
     """Mass fractal aggregate scattering (Teixeira 1988, J. Appl. Cryst. 21, 781).
 
     Sphere primary particles (Beta=1) with a fractal structure factor.
@@ -468,7 +542,7 @@ class MassFractalPopulation:
 
 
 @dataclass
-class SurfaceFractalPopulation:
+class SurfaceFractalPopulation(_SerialisableDataclass):
     """Surface fractal scattering (Teixeira 1988, J. Appl. Cryst. 21, 781).
 
     π · Contrast · Ksi⁴ · Surface · Γ(5-Ds) · sin((3-Ds)·atan(Q·Ksi))
@@ -535,6 +609,86 @@ class ModelingConfig:
     use_slit_smearing: bool = False
     slit_length: float = 0.0
 
+    def to_dict(self) -> dict:
+        """The whole fit setup as a plain dict — populations included.
+
+        Settings only, in the same spirit as the other cores: the data, the
+        fitted curve and the χ² of the last run are results and live in
+        :class:`ModelingResult`.
+        """
+        return {
+            'populations':       [pop.to_dict() for pop in self.populations],
+            'background':        float(self.background),
+            'fit_background':    bool(self.fit_background),
+            'background_limits': [float(v) for v in self.background_limits],
+            'q_min':             float(self.q_min),
+            'q_max':             float(self.q_max),
+            'no_limits':         bool(self.no_limits),
+            'n_mc_runs':         int(self.n_mc_runs),
+            'fit_method':        str(self.fit_method),
+            'de_workers':        int(self.de_workers),
+            'mc_workers':        int(self.mc_workers),
+            'use_slit_smearing': bool(self.use_slit_smearing),
+            'slit_length':       float(self.slit_length),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'ModelingConfig':
+        """Rebuild a configuration from :meth:`to_dict`.
+
+        Every field falls back to its default, so a file written before
+        ``fit_method`` or the worker counts existed opens with the serial local
+        fit it was actually run with.
+        """
+        d = d or {}
+        cfg = cls()
+        cfg.populations = [population_from_dict(pd) for pd in (d.get('populations') or [])]
+        for name in ('background', 'q_min', 'q_max', 'slit_length'):
+            if d.get(name) is not None:
+                setattr(cfg, name, float(d[name]))
+        for name in ('fit_background', 'no_limits', 'use_slit_smearing'):
+            if d.get(name) is not None:
+                setattr(cfg, name, bool(d[name]))
+        for name in ('n_mc_runs', 'de_workers', 'mc_workers'):
+            if d.get(name) is not None:
+                setattr(cfg, name, int(d[name]))
+        if d.get('fit_method'):
+            cfg.fit_method = str(d['fit_method'])
+        limits = d.get('background_limits')
+        if limits is not None and len(limits) == 2:
+            cfg.background_limits = (float(limits[0]), float(limits[1]))
+        return cfg
+
+
+#: Every population type, keyed by the ``pop_type`` written to file.  One
+#: mapping instead of the ``if pop_type == …`` ladders that had to be repeated
+#: wherever a population was rebuilt.
+POPULATION_CLASSES = {
+    'size_dist':        SizeDistPopulation,
+    'unified_level':    UnifiedLevelPopulation,
+    'diffraction_peak': DiffractionPeakPopulation,
+    'guinier_porod':    GuinierPorodPopulation,
+    'mass_fractal':     MassFractalPopulation,
+    'surface_fractal':  SurfaceFractalPopulation,
+}
+
+
+def population_from_dict(d: dict):
+    """Rebuild the right population class from a saved dict.
+
+    An unrecognised ``pop_type`` — a file from a newer pyIrena — falls back to
+    a size distribution rather than raising, so the rest of the fit still
+    opens and the user sees something they can correct.
+    """
+    d = d or {}
+    pop_type = d.get('pop_type', 'size_dist')
+    cls = POPULATION_CLASSES.get(pop_type)
+    if cls is None:
+        log.warning("unknown population type %r; loading it as a size distribution",
+                    pop_type)
+        cls = SizeDistPopulation
+    return cls.from_dict(d)
+
 
 @dataclass
 class ModelingResult:
@@ -563,6 +717,59 @@ class ModelingResult:
     # (None otherwise).  Saved alongside model_I so downstream plots/readers can
     # offer a smeared/ideal toggle (parity with Unified/Sizes/Simple).
     model_I_ideal: Optional[np.ndarray] = None
+
+
+def result_to_report_dict(result: "ModelingResult",
+                          fit_quality: Optional[dict] = None) -> dict:
+    """Flatten a :class:`ModelingResult` into the saved-results dict shape.
+
+    ``pyirena.core.reporting`` (and everything else that reads modeling results)
+    works on the dict ``load_modeling_results()`` returns, not on the live
+    population objects.  This converter lets a panel report the fit it is
+    holding without saving to HDF5 and loading it back.
+
+    Populations are flattened with ``dataclasses.asdict``, so a new population
+    type or parameter appears in the report automatically — there is no
+    per-type list here to fall out of date.  Only enabled populations that took
+    part in the fit are included, each carrying its ``derived`` quantities.
+
+    Args:
+        result: The fit result to describe.
+        fit_quality: Optional robust fit-quality metrics dict.
+
+    Returns:
+        A dict with ``chi_squared``, ``reduced_chi_squared``, ``dof``,
+        ``background``, ``q_min``, ``q_max``, ``slit_length``, ``timestamp``
+        and a ``populations`` list.
+    """
+    from dataclasses import asdict, is_dataclass
+
+    cfg = result.config
+    populations = []
+    for k, pop_index in enumerate(result.pop_indices):
+        pop = cfg.populations[pop_index]
+        flat = asdict(pop) if is_dataclass(pop) else dict(vars(pop))
+        flat["population_index"] = pop_index + 1
+        flat["enabled"] = True
+        flat["derived"] = result.derived[k] if k < len(result.derived) else {}
+        populations.append(flat)
+
+    slit_length = float(getattr(cfg, "slit_length", 0.0) or 0.0)
+    if not getattr(cfg, "use_slit_smearing", False):
+        slit_length = 0.0
+
+    return {
+        "chi_squared":         float(result.chi_squared),
+        "reduced_chi_squared": float(result.reduced_chi_squared),
+        "dof":                 int(result.dof),
+        "background":          float(cfg.background),
+        "q_min":               float(cfg.q_min),
+        "q_max":               float(cfg.q_max),
+        "slit_length":         slit_length,
+        "timestamp":           result.timestamp,
+        "populations":         populations,
+        "fit_quality":         fit_quality,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

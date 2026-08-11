@@ -70,7 +70,10 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
-from pyirena.gui.sas_plot import DSpacingAxisItem, save_itx_from_plot
+from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
+from pyirena.gui.report_buttons import make_report_buttons
+from pyirena.gui.sas_plot import DSpacingAxisItem
+from pyirena.gui.window_state import install_window_state
 
 # ── colour palette for peaks ──────────────────────────────────────────────
 _PEAK_COLORS = [
@@ -532,6 +535,8 @@ class WAXSPeakFitGraphWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("pyIrena – WAXS Peak Fit")
         self.setGeometry(120, 120, 900, 700)
+        # No geometry persistence here: this is the panel's right-hand pane,
+        # not a window (see gui/window_state.is_top_level).
 
         self._itx_technique = 'WAXSPeakFit'   # ITX export → root:WAXSPeakFit:<sample>
         self._itx_sample_label = None         # set by WAXSPeakFitPanel.set_data
@@ -648,33 +653,8 @@ class WAXSPeakFitGraphWindow(QWidget):
             ax.enableAutoSIPrefix(False)
 
     def _add_jpeg_export(self, plot: pg.PlotItem, stem: str):
-        """Add 'Save as JPEG…' and 'Save as Igor Pro ITX…' to the ViewBox right-click menu."""
-        vb = plot.getViewBox()
-        vb.menu.addSeparator()
-        act = vb.menu.addAction("Save as JPEG…")
-        act.triggered.connect(
-            lambda checked=False, p=plot, s=stem: self._save_jpeg(p, s)
-        )
-        act_itx = vb.menu.addAction("Save as Igor Pro ITX…")
-        act_itx.triggered.connect(
-            lambda checked=False, p=plot: save_itx_from_plot(p, self)
-        )
-
-    def _save_jpeg(self, plot: pg.PlotItem, stem: str):
-        from pyqtgraph.exporters import ImageExporter
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save as JPEG",
-            str(Path.home() / f"{stem}.jpg"),
-            "JPEG Images (*.jpg *.jpeg);;All Files (*)",
-        )
-        if not path:
-            return
-        try:
-            exp = ImageExporter(plot)
-            exp.parameters()['width'] = 1600
-            exp.export(path)
-        except Exception as exc:
-            QMessageBox.warning(self, "Export failed", str(exc))
+        """Attach the shared export menu (clipboard, image, curve CSV, ITX)."""
+        attach_plot_export(plot, self, stem, window=getattr(self, 'gl', None))
 
     # ── Cursor helpers ────────────────────────────────────────────────────
 
@@ -844,6 +824,10 @@ class WAXSPeakFitGraphWindow(QWidget):
             symbolBrush=pg.mkBrush('#2c3e50'),
             name=label,
         )
+        # Uncertainties for CSV/ITX export, masked to match the plotted points.
+        if dI is not None:
+            tag_curve_uncertainty(self._data_item,
+                                  np.asarray(dI, dtype=float)[mask])
         # Error bars (thin gray vertical segments, NaN-separated)
         if dI is not None:
             dI_ = np.asarray(dI, float)
@@ -1227,7 +1211,11 @@ class WAXSPeakFitPanel(QWidget):
         root.addWidget(splitter)
 
         # ── Apply saved state ─────────────────────────────────────────────
-        self._apply_state(self._state_mgr.get("waxs_peakfit", default={}))
+        self.load_state()
+
+        # Reopen where the user left it (Shift while opening = defaults).
+        install_window_state(self, 'waxs_peakfit_panel',
+                             splitters={'main': splitter})
 
     # ===========================================================================
     # Left panel construction
@@ -1579,6 +1567,22 @@ class WAXSPeakFitPanel(QWidget):
             b.clicked.connect(slot)
             row3.addWidget(b)
         ll.addLayout(row3)
+
+        # Row 3b: results as text — clipboard or a Markdown file
+        ll.addLayout(make_report_buttons(
+            self,
+            self.results_for_report,
+            tool_key='waxs_peakfit_results',
+            default_stem='waxs_peakfit',
+            file_path_provider=lambda: str(self._filepath or ''),
+            data_info_provider=self._data_info_for_report,
+            status_setter=lambda msg: self._set_status(msg),
+            folder_provider=lambda: (
+                str(self._filepath.parent) if self._filepath else None
+            ),
+            # Ctrl/⌘-click also writes the graph beside the report.
+            image_widget_provider=lambda: getattr(self._graph, 'gl', None),
+        ))
 
         # Row 4: Reset to Defaults (full width)
         reset_btn = QPushButton("Reset to Defaults")
@@ -2245,8 +2249,16 @@ class WAXSPeakFitPanel(QWidget):
     # Slots: Results buttons
     # ===========================================================================
 
-    def _save_state(self):
-        state = self._get_current_state()
+    def load_state(self):
+        """Restore every control from the saved state (public half of the pair).
+
+        The panel used to apply saved state inline in ``__init__`` with no named
+        entry point, so nothing outside could re-apply it.
+        """
+        self._apply_state(self._state_mgr.get("waxs_peakfit", default={}))
+
+    def save_state(self):
+        state = self._collect_state()
         self._state_mgr.update("waxs_peakfit", state)
         # Persist diffraction-lines tab too (CIF list, wavelength, last folder)
         self._state_mgr.update(
@@ -2260,7 +2272,7 @@ class WAXSPeakFitPanel(QWidget):
     def closeEvent(self, event):
         """Auto-save state on close (the explicit Save State button was removed)."""
         try:
-            self._save_state()
+            self.save_state()
         except Exception as exc:
             log.warning("Could not auto-save WAXS peak-fit state on close: %s", exc)
         super().closeEvent(event)
@@ -2289,6 +2301,52 @@ class WAXSPeakFitPanel(QWidget):
             on_status=lambda msg: self._set_status(msg),
             suggested_path=suggested,
         )
+
+    def results_for_report(self) -> Optional[Dict]:
+        """Current peak fit in the dict shape :mod:`pyirena.core.reporting` takes.
+
+        ``WAXSPeakFitModel.fit()`` returns ``chi2`` / ``reduced_chi2`` while the
+        saved-and-reloaded form uses ``chi_squared`` / ``reduced_chi_squared``;
+        the mapping lives here so the panel's text matches the report the Data
+        Selector writes from the file.  Reads the peak rows directly, so the
+        report describes what is on screen even when the last fit is older than
+        a hand edit.
+        """
+        peaks = self._get_peaks()
+        if not peaks:
+            return None
+        from datetime import datetime as _dt
+
+        cached = self._last_fit_result or {}
+        cached_peak_std = cached.get("peaks_std", [])
+        peaks_std = [
+            cached_peak_std[i] if i < len(cached_peak_std) else {}
+            for i in range(len(peaks))
+        ]
+        try:
+            q_min, q_max = self._graph.get_q_range()
+        except Exception:
+            q_min = q_max = None
+
+        return {
+            "n_peaks":             len(peaks),
+            "bg_shape":            self._bg_combo.currentText(),
+            "chi_squared":         cached.get("chi2"),
+            "reduced_chi_squared": cached.get("reduced_chi2"),
+            "dof":                 cached.get("dof"),
+            "q_min":               q_min,
+            "q_max":               q_max,
+            "peaks":               peaks,
+            "peaks_std":           peaks_std,
+            "fit_quality":         getattr(self, "_last_quality_metrics", None),
+            "timestamp":           _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    def _data_info_for_report(self) -> Optional[Dict]:
+        """Q/I/error arrays for the report's data-summary section."""
+        if self._q is None or self._I is None:
+            return None
+        return {"Q": self._q, "I": self._I, "I_error": self._dI}
 
     def _store_in_file(self):
         if self._filepath is None:
@@ -2338,7 +2396,7 @@ class WAXSPeakFitPanel(QWidget):
             # Snapshot the full GUI state for round-trip restore via
             # "Load Setup from File…".
             try:
-                setup_state = self._get_current_state()
+                setup_state = self._collect_state()
             except Exception:
                 setup_state = None
             save_waxs_peakfit_results(
@@ -2409,7 +2467,7 @@ class WAXSPeakFitPanel(QWidget):
                 from pyirena import __version__ as _version
             except Exception:
                 _version = 'unknown'
-            state = self._get_current_state()
+            state = self._collect_state()
             # Load existing config and merge so other tool sections are preserved
             config_path = Path(path)
             config: Dict = {}
@@ -2472,7 +2530,7 @@ class WAXSPeakFitPanel(QWidget):
     # State helpers
     # ===========================================================================
 
-    def _get_current_state(self) -> Dict:
+    def _collect_state(self) -> Dict:
         qmin, qmax = self._graph.get_q_range()
         _WEIGHT_MAP = {0: "standard", 1: "equal", 2: "relative"}
         return {

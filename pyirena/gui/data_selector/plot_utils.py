@@ -4,16 +4,10 @@ pyirena.gui.data_selector.plot_utils — shared pyqtgraph helpers (palette, axes
 Split from the original monolithic data_selector.py (no behavior change).
 """
 
-from pathlib import Path
-
 import numpy as np
 import pyqtgraph as pg
 
-from pyirena.gui.data_selector._qt import (
-    QAction,
-    QFileDialog,
-)
-from pyirena.gui.sas_plot import save_itx_from_plot
+from pyirena.gui.plot_export import attach_plot_export
 
 
 # ── Shared colour palette for multi-file graphs ────────────────────────────
@@ -118,36 +112,19 @@ def _iq_error_bars(q, I, err, cap_frac=0.02):
     return np.array(x_lines, dtype=float), np.array(y_lines, dtype=float)
 
 
-# ── JPEG export helper ─────────────────────────────────────────────────────
-def _add_jpeg_export(window, *plot_items):
+# ── Export helper ──────────────────────────────────────────────────────────
+def _add_jpeg_export(window, *plot_items, default_name: str = 'pyirena_graph'):
     """
-    Add 'Save as JPEG' and 'Save as Igor Pro ITX' actions to the ViewBox
-    context menu of every PlotItem passed in.  JPEG captures the whole
-    *window* widget; ITX exports named curves from the individual plot_item.
-    """
-    def _save():
-        path, _ = QFileDialog.getSaveFileName(
-            window, "Save as JPEG",
-            str(Path.home()),
-            "JPEG images (*.jpg *.jpeg);;All files (*)",
-        )
-        if not path:
-            return
-        if not path.lower().endswith(('.jpg', '.jpeg')):
-            path += '.jpg'
-        window.grab().save(path, 'JPEG', 95)
+    Give every PlotItem passed in the standard pyIrena export menu.
 
+    Kept under its historical name because the viewer windows call it in five
+    places; the behaviour now comes from ``pyirena.gui.plot_export`` — clipboard
+    copy, PNG/JPEG/SVG image of the plot, an image of the whole *window* (which
+    is what this helper used to do for JPEG, so nothing is lost), curve CSV,
+    and Igor ITX.
+    """
     for plot_item in plot_items:
-        act = QAction("Save as JPEG…", window)
-        act.triggered.connect(_save)
-        plot_item.getViewBox().menu.addAction(act)
-
-        act_itx = QAction("Save as Igor Pro ITX…", window)
-        act_itx.triggered.connect(
-            lambda checked=False, p=plot_item, w=window:
-                save_itx_from_plot(p, w)
-        )
-        plot_item.getViewBox().menu.addAction(act_itx)
+        attach_plot_export(plot_item, window, default_name, window=window)
 
 
 def _rescaled_view(residuals):

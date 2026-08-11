@@ -19,10 +19,10 @@ log = logging.getLogger(__name__)
 
 
 import os
-import re
 from pathlib import Path
 from typing import Callable
 
+from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
 from pyirena.gui._qt import (
     QBrush,
     QColor,
@@ -41,62 +41,14 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 
 # ── Extensions treated as HDF5 files ───────────────────────────────────────
 HDF5_EXTENSIONS = {".h5", ".hdf5", ".hdf", ".nxs", ".h5xp"}
 
-# ── Sort key functions (copied from data_selector.py) ──────────────────────
-def _sort_key_name(name: str) -> str:
-    return name.lower()
-
-def _sort_key_temperature(name: str) -> float:
-    m = re.search(r'_(-?\d+(?:\.\d+)?)C(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_time(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)min(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-def _sort_key_order(name: str) -> float:
-    # Strip extension then scan _-segments right-to-left for a bare integer
-    # (digits only).  Skips any suffix that contains letters, including
-    # _merged, _mrg, _scaled, and unit-bearing tokens like _10min or _5C.
-    stem = re.sub(r'\.[^.]+$', '', name)
-    for part in reversed(stem.split('_')):
-        if re.fullmatch(r'\d+', part):
-            return float(part)
-    return float('inf')
-
-def _sort_key_pressure(name: str) -> float:
-    m = re.search(r'_(\d+(?:\.\d+)?)PSI(?=_|\.|$)', name, re.IGNORECASE)
-    return float(m.group(1)) if m else float('inf')
-
-_SORT_LABELS = [
-    "Filename A→Z",
-    "Filename Z→A",
-    "Temperature ↑",
-    "Temperature ↓",
-    "Time ↑",
-    "Time ↓",
-    "Order number ↑",
-    "Order number ↓",
-    "Pressure ↑",
-    "Pressure ↓",
-]
-
-_SORT_KEYS: list[Callable[[str], float | str]] = [
-    _sort_key_name,        # 0
-    _sort_key_name,        # 1
-    _sort_key_temperature, # 2
-    _sort_key_temperature, # 3
-    _sort_key_time,        # 4
-    _sort_key_time,        # 5
-    _sort_key_order,       # 6
-    _sort_key_order,       # 7
-    _sort_key_pressure,    # 8
-    _sort_key_pressure,    # 9
-]
+# Sort modes come from the one shared implementation; see
+# pyirena.core.file_sorting (they used to be copied into every browser).
 
 # Qt user-data role used to store the absolute file path on file items
 _PATH_ROLE = Qt.ItemDataRole.UserRole
@@ -158,7 +110,8 @@ class FileTreeWidget(QWidget):
 
         # Sort row
         self._sort_combo = QComboBox()
-        self._sort_combo.addItems(_SORT_LABELS)
+        self._sort_combo.addItems(SORT_LABELS)
+        self._sort_combo.setToolTip(SORT_TOOLTIP)
         self._sort_combo.setCurrentIndex(self._sort_index)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         layout.addWidget(self._sort_combo)
@@ -184,7 +137,13 @@ class FileTreeWidget(QWidget):
         self._tree.setIndentation(14)
         self._tree.itemExpanded.connect(self._on_item_expanded)
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
+        self._tree.setToolTip(drop_hint("a folder or HDF5 files"))
         layout.addWidget(self._tree, 1)
+
+        # Dropping a folder browses it; dropping files browses their folder and
+        # selects them.  Installed on the whole widget so the drop target is the
+        # entire left pane, not just the tree rows.
+        enable_file_drop(self, self.open_dropped_paths, extensions=tuple(HDF5_EXTENSIONS))
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -201,6 +160,42 @@ class FileTreeWidget(QWidget):
         self._folder_label.setToolTip(folder)
         self._refresh_tree()
         self.folder_changed.emit(folder)
+
+    def open_dropped_paths(self, paths: list[str]) -> None:
+        """Browse what was dropped: switch to its folder and select the files.
+
+        Dropping a folder is the common case (a measurement directory), and
+        ``collect_dropped_paths`` has already expanded it to the HDF5 files
+        inside, so both gestures land here the same way.
+        """
+        if not paths:
+            return
+
+        folder = first_folder(paths)
+        if folder and folder != self._root_folder:
+            self.set_folder(folder)
+
+        wanted = {os.path.basename(p) for p in paths
+                  if os.path.dirname(p) == self._root_folder}
+        if not wanted:
+            return
+
+        self._tree.clearSelection()
+        matched = 0
+        root = self._tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if item.data(0, _PATH_ROLE) and item.text(0) in wanted:
+                item.setSelected(True)
+                matched += 1
+                if matched == 1:
+                    self._tree.scrollToItem(item)
+        if not matched and self._filter_text:
+            # The dropped files exist but the filter hides them; clearing it is
+            # less confusing than a drop that appears to do nothing.
+            log.info("dropped files hidden by filter %r — clearing it", self._filter_text)
+            self.set_filter("")
+            self.open_dropped_paths(paths)
 
     def get_selected_paths(self) -> list[str]:
         """Return absolute paths of all currently selected file items."""
@@ -333,10 +328,7 @@ class FileTreeWidget(QWidget):
     # ── Sort / filter ──────────────────────────────────────────────────────
 
     def _sort_names(self, names: list[str]) -> list[str]:
-        idx = self._sort_index
-        key_fn = _SORT_KEYS[min(idx, len(_SORT_KEYS) - 1)]
-        reverse = bool(idx % 2)
-        return sorted(names, key=key_fn, reverse=reverse)
+        return sort_names(names, self._sort_index)
 
     def _on_sort_changed(self, idx: int) -> None:
         self._sort_index = idx

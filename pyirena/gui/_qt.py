@@ -98,6 +98,7 @@ QByteArray = QtCore.QByteArray
 QDir = QtCore.QDir
 QEvent = QtCore.QEvent
 QIODevice = QtCore.QIODevice
+QMimeData = QtCore.QMimeData
 QPointF = QtCore.QPointF
 QRectF = QtCore.QRectF
 QThread = QtCore.QThread
@@ -114,10 +115,12 @@ QDoubleValidator = QtGui.QDoubleValidator
 QFont = QtGui.QFont
 QIcon = QtGui.QIcon
 QIntValidator = QtGui.QIntValidator
+QKeySequence = QtGui.QKeySequence
 QPainterPath = QtGui.QPainterPath
 QPainterPathStroker = QtGui.QPainterPathStroker
 QPen = QtGui.QPen
 QPixmap = QtGui.QPixmap
+QShortcut = QtGui.QShortcut
 QTransform = QtGui.QTransform
 
 __all__ = [
@@ -134,10 +137,12 @@ __all__ = [
     "QTableWidgetItem", "QTextBrowser", "QTextEdit", "QToolBar", "QTreeWidget",
     "QTreeWidgetItem", "QVBoxLayout", "QWidget",
     # QtCore
-    "Qt", "QBuffer", "QByteArray", "QDir", "QEvent", "QIODevice", "QPointF",
+    "Qt", "QBuffer", "QByteArray", "QDir", "QEvent", "QIODevice", "QMimeData",
+    "QPointF",
     "QRectF", "QThread", "QTimer", "QUrl",
     # QtGui
     "QAction", "QBrush", "QCloseEvent", "QColor", "QDesktopServices",
-    "QDoubleValidator", "QFont", "QIcon", "QIntValidator", "QPainterPath",
-    "QPainterPathStroker", "QPen", "QPixmap", "QTransform",
+    "QDoubleValidator", "QFont", "QIcon", "QIntValidator", "QKeySequence",
+    "QPainterPath", "QPainterPathStroker", "QPen", "QPixmap", "QShortcut",
+    "QTransform",
 ]

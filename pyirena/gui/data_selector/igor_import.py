@@ -7,7 +7,7 @@ Split from the original monolithic data_selector.py (no behavior change).
 from pathlib import Path
 from typing import Dict, List
 
-from pyirena.gui.data_selector._qt import (
+from pyirena.gui._qt import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
