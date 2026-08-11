@@ -24,11 +24,43 @@ a common foundation (the API/MCP extensions) but ship independently:
 
 | # | Plan | Summary | Status |
 |---|------|---------|--------|
-| 0 | [Overall plan](00-overall-plan.md) | Strategic vision, sequencing, cross-cutting concerns | Draft |
-| 1 | [API & MCP extensions](01-api-and-mcp-extensions.md) | Extend `pyirena/api/` with control tools (set/fix/free parameters, run fits, get residuals). Foundation for everything else. | Draft |
-| 2 | [Standalone AI app](02-standalone-ai-app.md) | New separate package (`pyirena-ai` or similar) that imports pyirena and uses an LLM to autonomously fit datasets and folders. | Draft |
-| 3 | [In-GUI AI advisor](03-ai-advisor-in-gui.md) | Small additional panel in the existing pyirena GUI: grab current fit screenshot + parameters, send to LLM, display advice. Low-effort, high-value. | Draft |
-| 1a | [Phase 1 detailed plan: Unified Fit control](phase-1-unified-fit-control.md) | Concrete implementation plan for Subproject 1 with Unified Fit as the test case. Tool catalog, milestones, investigations. | Draft — for review |
+| 0 | [Overall plan](00-overall-plan.md) | Strategic vision, sequencing, cross-cutting concerns | Partly delivered — see status note below |
+| 1 | [API & MCP extensions](01-api-and-mcp-extensions.md) | Extend `pyirena/api/` with control tools (set/fix/free parameters, run fits, get residuals). Foundation for everything else. | **Shipped** (1.1.0b5–b7) — `pyirena/api/control/` covers all five fitting tools |
+| 2 | [Standalone AI app](02-standalone-ai-app.md) | New separate package (`pyirena-ai` or similar) that imports pyirena and uses an LLM to autonomously fit datasets and folders. | **Not started** — the open subproject |
+| 3 | [In-GUI AI advisor](03-ai-advisor-in-gui.md) | Small additional panel in the existing pyirena GUI: grab current fit screenshot + parameters, send to LLM, display advice. Low-effort, high-value. | **Shipped** — `pyirena/gui/ai_advisor.py` |
+| 1a | [Phase 1 detailed plan: Unified Fit control](phase-1-unified-fit-control.md) | Concrete implementation plan for Subproject 1 with Unified Fit as the test case. Tool catalog, milestones, investigations. | **Shipped** — then extended to Sizes, Simple Fits, Modeling and WAXS |
+
+## Status as of 1.1.0b7 (2026-08-10)
+
+This folder is **kept** because the initiative is not finished, but much of it
+has landed and the plans have not been rewritten to match.  Read them as the
+original intent, not as the current state.
+
+**Landed**
+
+- The control surface (subproject 1) exists for all five fitting tools —
+  Unified Fit, Size Distribution, Simple Fits, Modeling and WAXS Peak Fit —
+  under `pyirena/api/control/`, exposed as ~119 MCP tools.
+- Fit-quality metrics (plans 04/05) shipped: `core/fit_metrics.py`,
+  `gui/quality_display.py`, `io/nxcansas_fit_quality.py`.
+- The in-GUI advisor (subproject 3) shipped as `gui/ai_advisor.py`.
+- Setup state is embedded in result files (`_pyirena_config`) so an agent run
+  can be reopened and continued in the GUI — six tools, see
+  `docs/HDF5_NxcanSAS_structure.md`.
+
+**Open — worth a fresh look before more work**
+
+- **Subproject 2, the standalone agent app**, is untouched.  It is the piece
+  that would actually close the loop, and it is also the piece whose design
+  assumptions are oldest.
+- Whether the control surface is *sufficient* for autonomous fitting has not
+  been tested end to end by an agent working unattended; the tools exist, the
+  agentic loop around them does not.
+- `mcp` is pinned to `<2`.  Migrating to 2.x is its own project and should be
+  decided before building anything new on top.
+- The remaining tools (SAXS Morph, Fractals, Contrast, Merge, Manipulation)
+  have no control surface, and it is not obvious that they should — decide per
+  tool rather than for completeness.
 
 ## Reading order
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b7] - 2026-08-10
+
+A consolidation release, implementing the feature-parity review in issue #13.
+The theme is that behaviour a user thinks of as belonging to "a table", "a
+graph" or "a file browser" is now implemented once and available everywhere,
+rather than per panel: tables copy and sort, graphs export the same five ways,
+browsers accept dropped files, windows reopen where you left them, and all five
+fitting tools write Markdown reports and can be driven by an agent.  Nine
+duplicated implementations were removed along the way, three of which had
+already drifted apart.  See `PLAN.md` for the full disposition, including what
+was deliberately *not* done.
+
 ### Added
 
 - **File browsers share their remaining logic** (feature parity review item
