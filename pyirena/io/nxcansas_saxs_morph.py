@@ -54,11 +54,22 @@ def save_saxs_morph_results(
     filepath: Path,
     result: SaxsMorphResult,
     group_name: str = GROUP_NAME,
+    setup_state: Optional[dict] = None,
 ) -> None:
     """Save a SaxsMorphResult to ``entry/<group_name>``.
 
     The file is created with a minimal NXcanSAS shell if it does not exist;
     an existing group of the same name is replaced.
+
+    Args:
+        filepath: HDF5 file to create or append to.
+        result: The morphology result to store.
+        group_name: Results group name inside ``entry``.
+        setup_state: Optional full GUI state dict (the ``saxs_morph`` section
+            from ``StateManager``).  Embedded as the ``_pyirena_config`` JSON
+            attribute so "Load Setup from File…" can restore every control —
+            the config *scalars* stored below describe the calculation, but
+            not the cursor Q range or which input mode the user was in.
     """
     filepath = Path(filepath)
     timestamp = result.timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -87,6 +98,10 @@ def save_saxs_morph_results(
         grp.attrs['analysis_type'] = 'SAXS Morph'
         grp.attrs['program'] = 'pyirena'
         grp.attrs['timestamp'] = timestamp
+
+        if setup_state:
+            from pyirena.io.setup_config import write_setup_config
+            write_setup_config(grp, "saxs_morph", setup_state)
 
         cfg = result.config
 

@@ -886,6 +886,14 @@ class SaxsMorphPanel(QWidget):
         )
         self.btn_save.clicked.connect(self._save_result)
         save_row.addWidget(self.btn_save)
+
+        self.btn_load_setup = QPushButton('Load Setup from File…')
+        self.btn_load_setup.setToolTip(
+            'Restore every control from the setup embedded in a SAXS Morph\n'
+            'result file (written by Save/Append to HDF5… or by a batch run).'
+        )
+        self.btn_load_setup.clicked.connect(self._load_setup_from_file)
+        save_row.addWidget(self.btn_load_setup)
         lay.addLayout(save_row)
 
         # ── Export Config row ────────────────────────────────────────────
@@ -1155,7 +1163,7 @@ class SaxsMorphPanel(QWidget):
 
     # ── State (load/save) ────────────────────────────────────────────────
 
-    def _current_state(self) -> dict:
+    def _collect_state(self) -> dict:
         st = {
             'voxel_size_render': self.render_size_combo.currentData(),
             'box_size_A':        _parse(self.box_size_edit.text(), 1000.0),
@@ -1185,7 +1193,17 @@ class SaxsMorphPanel(QWidget):
         return st
 
     def load_state(self):
-        st = self._state.get('saxs_morph') or {}
+        """Restore from the state manager (called at start-up)."""
+        self._apply_state(self._state.get('saxs_morph') or {})
+
+    def _apply_state(self, st: dict) -> None:
+        """Apply a state dict to the controls.
+
+        Shared by start-up restore and by "Load Setup from File…", so a setup
+        read out of an HDF5 file lands in the panel the same way the saved
+        session does.
+        """
+        st = st or {}
 
         # Voxel grid
         self._select_combo_value(self.render_size_combo, st.get('voxel_size_render', 256))
@@ -1219,7 +1237,7 @@ class SaxsMorphPanel(QWidget):
         self._on_mode_changed()
 
     def save_state(self):
-        self._state.update('saxs_morph', self._current_state())
+        self._state.update('saxs_morph', self._collect_state())
         self._state.save()
 
     @staticmethod
@@ -1355,7 +1373,7 @@ class SaxsMorphPanel(QWidget):
     # ── Action: Graph Model ──────────────────────────────────────────────
 
     def _make_config(self) -> SaxsMorphConfig:
-        st = self._current_state()
+        st = self._collect_state()
         cfg = SaxsMorphConfig(
             q_min=st['q_min'], q_max=st['q_max'],
             power_law_q_min=st['power_law_q_min'],
@@ -1690,10 +1708,36 @@ class SaxsMorphPanel(QWidget):
         if not path:
             return
         try:
-            save_saxs_morph_results(Path(path), self._last_result)
+            save_saxs_morph_results(Path(path), self._last_result,
+                                    setup_state=self._collect_state())
             QMessageBox.information(self, 'Saved', f'Result saved to:\n{path}')
         except Exception as e:
             QMessageBox.critical(self, 'Save failed', str(e))
+
+    def _load_setup_from_file(self):
+        """Restore the full SAXS Morph setup from a NXcanSAS file.
+
+        Reads the ``_pyirena_config`` attribute embedded by
+        :func:`pyirena.io.nxcansas_saxs_morph.save_saxs_morph_results` and
+        replays it through :meth:`_apply_state`.
+        """
+        from pyirena.gui.setup_loader import prompt_and_load_setup
+
+        if self._file_path:
+            default_folder = str(Path(self._file_path).parent)
+            suggested = str(self._file_path)
+        else:
+            default_folder = str(Path.home())
+            suggested = None
+
+        prompt_and_load_setup(
+            parent=self,
+            tool="saxs_morph",
+            default_folder=default_folder,
+            apply_state=self._apply_state,
+            on_status=lambda msg: self.graph.set_status(msg, style='success'),
+            suggested_path=suggested,
+        )
 
     def _export_config(self):
         """Append (or replace) the saxs_morph section in a pyirena_config.json
@@ -1774,7 +1818,7 @@ class SaxsMorphPanel(QWidget):
         # consumes (input_mode, voxel_size_render, box_size_A, …).  Persist
         # to the StateManager too so the next session starts from the same
         # parameters.
-        sm_state = self._current_state()
+        sm_state = self._collect_state()
         self._state.update('saxs_morph', sm_state)
         self._state.save()
         config['saxs_morph'] = sm_state

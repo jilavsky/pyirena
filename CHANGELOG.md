@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Core model objects serialise themselves — `to_dict`/`from_dict`**
+  (feature parity review item U6, issue #13).  Added to Unified Fit, Modeling
+  and WAXS Peak Fit, joining Sizes and Simple Fits; the callers that used to
+  build those dicts by hand now go through the model.
+  - **Unified Fit.**  `UnifiedLevel`/`UnifiedFitModel` gained the pair, plus
+    `UnifiedLevel.from_panel_params()` — the one place that translates the
+    panel's historical vocabulary (`RgCutoff` → `RgCO`, `correlated` →
+    `correlations`, `estimate_B` → `link_B`, `Rg_low`/`Rg_high` → `Rg_limits`),
+    which is baked into saved setups and batch configs and so cannot be
+    renamed.  It replaced **eight** hand-written conversions: six in the panel
+    (graph, both fit branches, undo, both Monte-Carlo branches) and two in
+    `batch/unified.py`.  The flags `with_limits` / `with_links` /
+    `with_fit_flags` keep each call site's exact behaviour — notably the graph
+    and undo paths, which must *not* enable `link_B`, since that recomputes B
+    from G, Rg and P and would change the drawn curve.
+  - **Modeling.**  A `_SerialisableDataclass` mixin walks
+    `dataclasses.fields()`, so all six population types share one
+    implementation and a new parameter is serialised the moment it is declared.
+    `population_from_dict()` dispatches through a `POPULATION_CLASSES`
+    registry; an unrecognised `pop_type` (a file from a newer pyIrena) loads as
+    a size distribution with a warning instead of raising.  This removed three
+    near-identical six-branch deserialisers — in `batch/modeling.py`, in
+    `gui/modeling_panel.py`, and a fourth that was already dead — and the
+    panel's hand-written serialiser, which was verified field-by-field to
+    produce exactly the same dict for all six types before being deleted.
+  - **WAXS Peak Fit.**  `WAXSPeakFitModel.to_dict`/`from_dict` cover background
+    shape, background parameters and peaks; an unknown background shape falls
+    back with a warning, and `to_dict` deep-copies so a caller cannot edit the
+    live peak list by accident.
+  - Two historical quirks were preserved on purpose rather than tidied away: a
+    size-distribution population whose config or state omits `enabled` still
+    loads *disabled* (batch and GUI both did this; every other population type
+    defaults to enabled), and the panel's size-dist restore still falls back to
+    the log-normal defaults for a missing `dist_params`.
+- **SAXS Morph result files now carry the panel setup** (feature parity review
+  item U10, issue #13).  `save_saxs_morph_results(..., setup_state=...)` embeds
+  the `_pyirena_config` attribute the other five fitting tools already wrote,
+  the panel gained a **Load Setup from File…** button, and batch runs embed
+  their config section too — so a batch-produced result opens in the GUI with
+  every control set.  The physics scalars were already stored; what was missing
+  was the input mode, the cursor Q range and the background pre-fit windows.
+  - The per-tool policy is now written down in
+    `docs/HDF5_NxcanSAS_structure.md`: six tools embed the setup, Data Merge
+    and Data Manipulation record **NXprocess provenance** instead (they run
+    inside reduction pipelines driven by their own JSON, where a GUI session
+    never existed), and Fractals stores every growth parameter as explicit
+    datasets that `load_fractal_aggregate()` rebuilds.  A test fails the build
+    if a tool is missing from that table.
 - **One Qt import point at last** (feature parity review item U7, issue #13).
   The invariant said every Qt import goes through `pyirena/gui/_qt.py`; in
   practice there were three shims — `gui/_qt.py`, `gui/data_selector/_qt.py` and

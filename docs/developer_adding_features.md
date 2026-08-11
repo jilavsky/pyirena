@@ -129,6 +129,38 @@ DOCS & TESTS
 [ ] 31. Run the full test suite, not just the new file
 ```
 
+## Serialising a tool's state
+
+The core model owns the state; everything else asks it for a dict.  Two
+methods, whatever the tool:
+
+```python
+def to_dict(self) -> dict:      # settings, not results — no data arrays, no χ²
+def from_dict(cls, d: dict):    # a default for *every* field
+```
+
+`from_dict` supplying a default for every field is not politeness, it is the
+backwards-compatibility guarantee: a file written before a field existed has to
+open with that field at its default.  `pyirena/tests/test_core_serialization.py`
+tests both directions for every tool that has the pair, through
+`json.dumps`/`loads` — which is where tuples silently become lists.  Bounds are
+tuples in the model and lists in the file; restore them, because the fitter
+unpacks them.
+
+For a dataclass-based tool, inherit `_SerialisableDataclass`
+(`core/modeling.py`) rather than writing the two methods out: it walks
+`dataclasses.fields()`, so a new field is serialised the moment it is declared.
+Modeling's six population types share one implementation this way, and
+`population_from_dict` dispatches on `pop_type` through the
+`POPULATION_CLASSES` registry — an unknown type from a newer pyIrena loads as a
+size distribution with a warning instead of raising.
+
+**The panel's key names are not the model's.**  `RgCutoff`, `correlated`,
+`estimate_B`, `Rg_low` are baked into saved setups and batch config files and
+cannot be renamed.  Translate in exactly one place —
+`UnifiedLevel.from_panel_params()` is the pattern — and never a second time in
+a panel or a batch module.
+
 ## Qt imports
 
 One import point, no exceptions:

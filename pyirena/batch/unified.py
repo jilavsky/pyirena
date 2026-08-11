@@ -23,6 +23,38 @@ log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_config, _load_data
 
+#: Defaults for a bound the config file leaves out, matching the wide bounds
+#: the GUI ships with.
+_LIMIT_DEFAULTS = {
+    'G': (0.0, 1e10), 'Rg': (0.1, 1e6), 'B': (0.0, 1e10),
+    'P': (0.0, 6.0), 'ETA': (0.1, 1e6), 'PACK': (0.0, 16.0),
+}
+
+
+def _flatten_level_config(ls: Dict) -> Dict:
+    """Turn one level of the JSON config into the panel's flat key names.
+
+    Accepts both spellings a config file may use for a parameter: the nested
+    ``{'value': …, 'fit': …, 'low_limit': …, 'high_limit': …}`` form written by
+    the GUI, and a bare number for hand-written configs.
+    """
+    flat: Dict = {
+        'RgCutoff':   float(ls.get('RgCutoff', 0.0)),
+        'correlated': bool(ls.get('correlated', False)),
+        'estimate_B': bool(ls.get('estimate_B', False)),
+        'link_rgco':  bool(ls.get('link_rgco', False)),
+    }
+    for name, (lo_default, hi_default) in _LIMIT_DEFAULTS.items():
+        entry = ls.get(name, {})
+        if not isinstance(entry, dict):
+            flat[name] = float(entry)
+            continue
+        flat[name] = float(entry.get('value', 0.0))
+        flat[f'fit_{name}'] = bool(entry.get('fit', False))
+        flat[f'{name}_low'] = float(entry.get('low_limit', lo_default))
+        flat[f'{name}_high'] = float(entry.get('high_limit', hi_default))
+    return flat
+
 
 def _state_to_model(unified_state: Dict) -> UnifiedFitModel:
     """Convert the unified_fit config section into a configured UnifiedFitModel."""
@@ -35,58 +67,14 @@ def _state_to_model(unified_state: Dict) -> UnifiedFitModel:
     model.fit_background = bool(bg.get('fit', False))
 
     for i, ls in enumerate(unified_state.get('levels', [])[:num_levels]):
-        def _v(param, key='value', default=0.0):
-            entry = ls.get(param, {})
-            if isinstance(entry, dict):
-                return float(entry.get(key, default))
-            return float(entry)
-
-        def _b(param, key, default=False):
-            entry = ls.get(param, {})
-            if isinstance(entry, dict):
-                return bool(entry.get(key, default))
-            return default
-
-        if no_limits:
-            level = UnifiedLevel(
-                G=_v('G'), Rg=_v('Rg'), B=_v('B'), P=_v('P'),
-                RgCO=float(ls.get('RgCutoff', 0.0)),
-                ETA=_v('ETA'), PACK=_v('PACK'),
-                correlations=bool(ls.get('correlated', False)),
-                # Propagate parameter links so B (and RgCO) are recomputed at
-                # every fit iteration from the live G/Rg/P, mirroring the GUI's
-                # run_fit().  estimate_B == "Calculate B" maps to link_B.
-                link_B=bool(ls.get('estimate_B', False)),
-                link_RGCO=bool(ls.get('link_rgco', False)),
-                fit_G=_b('G', 'fit'), fit_Rg=_b('Rg', 'fit'),
-                fit_B=_b('B', 'fit'), fit_P=_b('P', 'fit'),
-                fit_ETA=_b('ETA', 'fit'), fit_PACK=_b('PACK', 'fit'),
-                # Wide default bounds
-                G_limits=(1e-10, 1e10), Rg_limits=(0.1, 1e6),
-                B_limits=(1e-20, 1e10), P_limits=(0.0, 6.0),
-                ETA_limits=(0.1, 1e6), PACK_limits=(0.0, 16.0),
-            )
-        else:
-            level = UnifiedLevel(
-                G=_v('G'), Rg=_v('Rg'), B=_v('B'), P=_v('P'),
-                RgCO=float(ls.get('RgCutoff', 0.0)),
-                ETA=_v('ETA'), PACK=_v('PACK'),
-                correlations=bool(ls.get('correlated', False)),
-                # Propagate parameter links so B (and RgCO) are recomputed at
-                # every fit iteration from the live G/Rg/P, mirroring the GUI's
-                # run_fit().  estimate_B == "Calculate B" maps to link_B.
-                link_B=bool(ls.get('estimate_B', False)),
-                link_RGCO=bool(ls.get('link_rgco', False)),
-                fit_G=_b('G', 'fit'), fit_Rg=_b('Rg', 'fit'),
-                fit_B=_b('B', 'fit'), fit_P=_b('P', 'fit'),
-                fit_ETA=_b('ETA', 'fit'), fit_PACK=_b('PACK', 'fit'),
-                G_limits=(_v('G', 'low_limit'), _v('G', 'high_limit', 1e10)),
-                Rg_limits=(_v('Rg', 'low_limit', 0.1), _v('Rg', 'high_limit', 1e6)),
-                B_limits=(_v('B', 'low_limit'), _v('B', 'high_limit', 1e10)),
-                P_limits=(_v('P', 'low_limit'), _v('P', 'high_limit', 6.0)),
-                ETA_limits=(_v('ETA', 'low_limit', 0.1), _v('ETA', 'high_limit', 1e6)),
-                PACK_limits=(_v('PACK', 'low_limit'), _v('PACK', 'high_limit', 16.0)),
-            )
+        # The config file stores each parameter as a small dict
+        # ({'value': …, 'fit': …, 'low_limit': …, 'high_limit': …}); the core
+        # model speaks the panel's flat key names.  Flatten here, then let
+        # UnifiedLevel.from_panel_params own the field mapping — it is the same
+        # translation the GUI does, and keeping two copies is how the batch path
+        # and the GUI drifted apart before.
+        level = UnifiedLevel.from_panel_params(
+            _flatten_level_config(ls), with_limits=not no_limits)
 
         model.levels[i] = level
 

@@ -2708,22 +2708,10 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             for i in range(num_levels):
                 params = self.level_widgets[i].get_parameters()
-                level = UnifiedLevel(
-                    Rg=params['Rg'],
-                    G=params['G'],
-                    P=params['P'],
-                    B=params['B'],
-                    RgCO=params['RgCutoff'],
-                    ETA=params['ETA'],
-                    PACK=params['PACK'],
-                    correlations=params['correlated'],
-                    Rg_limits=(params['Rg_low'], params['Rg_high']),
-                    G_limits=(params['G_low'], params['G_high']),
-                    P_limits=(params['P_low'], params['P_high']),
-                    B_limits=(params['B_low'], params['B_high']),
-                    ETA_limits=(params['ETA_low'], params['ETA_high']),
-                    PACK_limits=(params['PACK_low'], params['PACK_high'])
-                )
+                # Draw exactly what the user typed: no links (they would
+                # recompute B from G/Rg/P) and no fit flags (a plot has none).
+                level = UnifiedLevel.from_panel_params(
+                    params, with_links=False, with_fit_flags=False)
                 levels.append(level)
 
             background = float(self.background_value.text() or 0)
@@ -2841,63 +2829,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             for i in range(num_levels):
                 params = self.level_widgets[i].get_parameters()
 
-                # If "No limits?" is checked, use very wide bounds instead of user-specified limits
-                if no_limits:
-                    level = UnifiedLevel(
-                        Rg=params['Rg'],
-                        G=params['G'],
-                        P=params['P'],
-                        B=params['B'],
-                        RgCO=params['RgCutoff'],
-                        ETA=params['ETA'],
-                        PACK=params['PACK'],
-                        correlations=params['correlated'],
-                        fit_Rg=params['fit_Rg'],
-                        fit_G=params['fit_G'],
-                        fit_P=params['fit_P'],
-                        fit_B=params['fit_B'],
-                        fit_ETA=params['fit_ETA'],
-                        fit_PACK=params['fit_PACK'],
-                        # Propagate the parameter links into the core model so B
-                        # (and RgCO) are recomputed at every fit iteration from the
-                        # live G/Rg/P, rather than frozen at the stale GUI value.
-                        link_B=params['estimate_B'],
-                        link_RGCO=params['link_rgco'],
-                        Rg_limits=(0.1, 1e6),      # Default wide bounds
-                        G_limits=(1e-10, 1e10),    # Default wide bounds
-                        P_limits=(0.0, 6.0),       # Default wide bounds
-                        B_limits=(1e-20, 1e10),    # Default wide bounds
-                        ETA_limits=(0.1, 1e6),     # Default wide bounds
-                        PACK_limits=(0.0, 16.0)    # Default wide bounds
-                    )
-                else:
-                    level = UnifiedLevel(
-                        Rg=params['Rg'],
-                        G=params['G'],
-                        P=params['P'],
-                        B=params['B'],
-                        RgCO=params['RgCutoff'],
-                        ETA=params['ETA'],
-                        PACK=params['PACK'],
-                        correlations=params['correlated'],
-                        fit_Rg=params['fit_Rg'],
-                        fit_G=params['fit_G'],
-                        fit_P=params['fit_P'],
-                        fit_B=params['fit_B'],
-                        fit_ETA=params['fit_ETA'],
-                        fit_PACK=params['fit_PACK'],
-                        # Propagate the parameter links into the core model so B
-                        # (and RgCO) are recomputed at every fit iteration from the
-                        # live G/Rg/P, rather than frozen at the stale GUI value.
-                        link_B=params['estimate_B'],
-                        link_RGCO=params['link_rgco'],
-                        Rg_limits=(params['Rg_low'], params['Rg_high']),
-                        G_limits=(params['G_low'], params['G_high']),
-                        P_limits=(params['P_low'], params['P_high']),
-                        B_limits=(params['B_low'], params['B_high']),
-                        ETA_limits=(params['ETA_low'], params['ETA_high']),
-                        PACK_limits=(params['PACK_low'], params['PACK_high'])
-                    )
+                # "No limits?" swaps the user's bounds for wide defaults;
+                # the links are propagated either way so B (and RgCO) are
+                # recomputed at every iteration from the live G/Rg/P.
+                level = UnifiedLevel.from_panel_params(
+                    params, with_limits=not no_limits)
                 levels.append(level)
 
             background = float(self.background_value.text() or 0)
@@ -3794,22 +3730,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             for i in range(num_levels):
                 params = self.parameter_backup['levels'][i]
-                level = UnifiedLevel(
-                    Rg=params['Rg'],
-                    G=params['G'],
-                    P=params['P'],
-                    B=params['B'],
-                    RgCO=params['RgCutoff'],
-                    ETA=params['ETA'],
-                    PACK=params['PACK'],
-                    correlations=params['correlated'],
-                    Rg_limits=(params['Rg_low'], params['Rg_high']),
-                    G_limits=(params['G_low'], params['G_high']),
-                    P_limits=(params['P_low'], params['P_high']),
-                    B_limits=(params['B_low'], params['B_high']),
-                    ETA_limits=(params['ETA_low'], params['ETA_high']),
-                    PACK_limits=(params['PACK_low'], params['PACK_high'])
-                )
+                level = UnifiedLevel.from_panel_params(
+                    params, with_links=False, with_fit_flags=False)
                 levels.append(level)
 
             # Update model
@@ -3926,33 +3848,11 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             levels = []
             for i in range(num_levels):
                 p = level_params_list[i]
-                if no_limits:
-                    lv = UnifiedLevel(
-                        Rg=p['Rg'], G=p['G'], P=p['P'], B=p['B'],
-                        RgCO=p['RgCutoff'], ETA=p['ETA'], PACK=p['PACK'],
-                        correlations=p['correlated'],
-                        fit_Rg=p['fit_Rg'], fit_G=p['fit_G'],
-                        fit_P=p['fit_P'], fit_B=p['fit_B'],
-                        fit_ETA=p['fit_ETA'], fit_PACK=p['fit_PACK'],
-                        Rg_limits=(0.1, 1e6), G_limits=(1e-10, 1e10),
-                        B_limits=(1e-20, 1e10), P_limits=(0.0, 6.0),
-                        ETA_limits=(0.1, 1e6), PACK_limits=(0.0, 16.0),
-                    )
-                else:
-                    lv = UnifiedLevel(
-                        Rg=p['Rg'], G=p['G'], P=p['P'], B=p['B'],
-                        RgCO=p['RgCutoff'], ETA=p['ETA'], PACK=p['PACK'],
-                        correlations=p['correlated'],
-                        fit_Rg=p['fit_Rg'], fit_G=p['fit_G'],
-                        fit_P=p['fit_P'], fit_B=p['fit_B'],
-                        fit_ETA=p['fit_ETA'], fit_PACK=p['fit_PACK'],
-                        Rg_limits=(p['Rg_low'], p['Rg_high']),
-                        G_limits=(p['G_low'], p['G_high']),
-                        B_limits=(p['B_low'], p['B_high']),
-                        P_limits=(p['P_low'], p['P_high']),
-                        ETA_limits=(p['ETA_low'], p['ETA_high']),
-                        PACK_limits=(p['PACK_low'], p['PACK_high']),
-                    )
+                # Monte-Carlo uncertainties re-fit the *same* setup, so the fit
+                # flags and bounds come across; the links are left off to match
+                # the pre-MC model the errors are quoted against.
+                lv = UnifiedLevel.from_panel_params(
+                    p, with_limits=not no_limits, with_links=False)
                 levels.append(lv)
 
             mc_model = UnifiedFitModel(num_levels=num_levels)

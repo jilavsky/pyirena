@@ -152,6 +152,118 @@ class UnifiedLevel:
 
         return LOW_LIMIT <= difference <= HIGH_LIMIT
 
+    # ── Serialisation ────────────────────────────────────────────────────
+    #
+    # One shape for a level's state, owned by the model rather than by whoever
+    # happens to be saving it.  Keys are the attribute names, so the mapping
+    # needs no lookup table and cannot drift as fields are added.
+
+    #: Fields that make up a level's state.  Results (Sv, Invariant, fitted
+    #: uncertainties) are deliberately absent: they are computed *from* a level,
+    #: not part of it, and belong to the results dict written by the io layer.
+    _VALUE_FIELDS = ('Rg', 'G', 'P', 'B', 'ETA', 'PACK', 'RgCO', 'K')
+    _FLAG_FIELDS = ('correlations', 'mass_fractal', 'link_RGCO', 'link_B',
+                    'fit_Rg', 'fit_G', 'fit_P', 'fit_B', 'fit_ETA', 'fit_PACK',
+                    'fit_RgCO')
+    _LIMIT_FIELDS = ('Rg_limits', 'G_limits', 'P_limits', 'B_limits',
+                     'ETA_limits', 'PACK_limits', 'RgCO_limits')
+
+    def to_dict(self) -> dict:
+        """This level's parameters as a plain, JSON-serialisable dict.
+
+        Bounds become two-element lists rather than tuples so the result
+        survives a JSON round trip unchanged (``json`` turns tuples into lists
+        on the way out and never turns them back).
+        """
+        out = {name: float(getattr(self, name)) for name in self._VALUE_FIELDS}
+        out.update({name: bool(getattr(self, name)) for name in self._FLAG_FIELDS})
+        out.update({name: [float(v) for v in getattr(self, name)]
+                    for name in self._LIMIT_FIELDS})
+        return out
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'UnifiedLevel':
+        """Rebuild a level from :meth:`to_dict`.
+
+        Every field falls back to its dataclass default, so a file written by an
+        older pyIrena — which knew nothing of ``fit_RgCO`` or ``mass_fractal`` —
+        still loads, with the new fields at their defaults.
+        """
+        level = cls()
+        d = d or {}
+        for name in cls._VALUE_FIELDS:
+            if d.get(name) is not None:
+                setattr(level, name, float(d[name]))
+        for name in cls._FLAG_FIELDS:
+            if d.get(name) is not None:
+                setattr(level, name, bool(d[name]))
+        for name in cls._LIMIT_FIELDS:
+            pair = d.get(name)
+            if pair is not None and len(pair) == 2:
+                setattr(level, name, (float(pair[0]), float(pair[1])))
+        return level
+
+    @classmethod
+    def from_panel_params(cls, params: dict, *,
+                          with_limits: bool = True,
+                          with_links: bool = True,
+                          with_fit_flags: bool = True) -> 'UnifiedLevel':
+        """Build a level from the *panel's* key names.
+
+        The GUI, the batch JSON config and the embedded ``_pyirena_config`` all
+        speak a second vocabulary — ``RgCutoff`` for ``RgCO``, ``correlated``
+        for ``correlations``, ``estimate_B`` for ``link_B``, ``Rg_low``/
+        ``Rg_high`` for ``Rg_limits`` — which is baked into files users already
+        have and so cannot be renamed.  This is the one place that translates
+        it; the conversion used to be written out by hand at eight call sites,
+        each with slightly different coverage.
+
+        Args:
+            params: Panel-shaped parameter dict (``LevelWidget.get_parameters``).
+            with_limits: Take bounds from the dict.  False leaves the wide
+                defaults in place, which is what the "no limits" fit mode wants.
+            with_links: Honour ``estimate_B`` / ``link_rgco``.  These *change
+                the computed intensity* (B is recalculated from G, Rg and P at
+                every evaluation), so a caller that only wants to draw the curve
+                the user typed passes False.
+            with_fit_flags: Take the per-parameter fit check boxes.
+
+        Returns:
+            A configured :class:`UnifiedLevel`.
+        """
+        params = params or {}
+
+        def _f(key, default=0.0):
+            try:
+                return float(params.get(key, default))
+            except (TypeError, ValueError):
+                return float(default)
+
+        level = cls(
+            Rg=_f('Rg'), G=_f('G'), P=_f('P'), B=_f('B'),
+            ETA=_f('ETA'), PACK=_f('PACK'), RgCO=_f('RgCutoff'),
+            correlations=bool(params.get('correlated', False)),
+        )
+        if with_links:
+            level.link_B = bool(params.get('estimate_B', False))
+            level.link_RGCO = bool(params.get('link_rgco', False))
+        if with_fit_flags:
+            for attr, key in (('fit_Rg', 'fit_Rg'), ('fit_G', 'fit_G'),
+                              ('fit_P', 'fit_P'), ('fit_B', 'fit_B'),
+                              ('fit_ETA', 'fit_ETA'), ('fit_PACK', 'fit_PACK')):
+                if key in params:
+                    setattr(level, attr, bool(params[key]))
+        if with_limits:
+            for attr, lo, hi in (('Rg_limits', 'Rg_low', 'Rg_high'),
+                                 ('G_limits', 'G_low', 'G_high'),
+                                 ('P_limits', 'P_low', 'P_high'),
+                                 ('B_limits', 'B_low', 'B_high'),
+                                 ('ETA_limits', 'ETA_low', 'ETA_high'),
+                                 ('PACK_limits', 'PACK_low', 'PACK_high')):
+                if lo in params and hi in params:
+                    setattr(level, attr, (_f(lo), _f(hi)))
+        return level
+
     def slit_smearing_note(self, slit_length: float = 0.0) -> str:
         """Soft warning when this level's feature is washed out by the slit.
 
@@ -214,6 +326,61 @@ class UnifiedFitModel:
         self.fit_intensity: Optional[np.ndarray] = None
         self.chi_squared: Optional[float] = None
         self.reduced_chi_squared: Optional[float] = None
+
+    # ── Serialisation ────────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """The whole model's parameters as a plain dict — no data, no results.
+
+        Same convention as :meth:`SizesDistribution.to_dict`: what you would
+        need to rebuild the model and fit again, not what came out of the last
+        fit.  The data arrays, the cached smearer and the fit outputs are
+        excluded; they are large, they are not settings, and two of them are
+        not serialisable at all.
+        """
+        return {
+            'num_levels':        int(self.num_levels),
+            'levels':            [lv.to_dict() for lv in self.levels],
+            'background':        float(self.background),
+            'fit_background':    bool(self.fit_background),
+            'background_limits': [float(v) for v in self.background_limits],
+            'use_slit_smearing': bool(self.use_slit_smearing),
+            'slit_length':       float(self.slit_length),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'UnifiedFitModel':
+        """Rebuild a model from :meth:`to_dict`.
+
+        Missing keys fall back to the constructor's defaults, so a dict written
+        by an older version — or a hand-written one carrying only levels —
+        still produces a usable model.  ``num_levels`` follows the levels
+        actually present when the two disagree, since a level list is harder to
+        get wrong than a count.
+        """
+        d = d or {}
+        level_dicts = d.get('levels') or []
+        num_levels = int(d.get('num_levels', len(level_dicts) or 1))
+        if level_dicts:
+            num_levels = len(level_dicts)
+        num_levels = max(1, min(5, num_levels))
+
+        model = cls(num_levels=num_levels)
+        if level_dicts:
+            model.levels = [UnifiedLevel.from_dict(ld) for ld in level_dicts]
+
+        if d.get('background') is not None:
+            model.background = float(d['background'])
+        if d.get('fit_background') is not None:
+            model.fit_background = bool(d['fit_background'])
+        limits = d.get('background_limits')
+        if limits is not None and len(limits) == 2:
+            model.background_limits = (float(limits[0]), float(limits[1]))
+        if d.get('use_slit_smearing') is not None:
+            model.use_slit_smearing = bool(d['use_slit_smearing'])
+        if d.get('slit_length') is not None:
+            model.slit_length = float(d['slit_length'])
+        return model
 
     def sphere_amplitude(self, q: np.ndarray, eta: float) -> np.ndarray:
         """

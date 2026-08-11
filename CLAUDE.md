@@ -53,8 +53,13 @@ not survive scripting, batch runs, or setup restore — that is a bug, not a
 limitation.
 
 The layer stack is the *target* architecture and older tools do not all reach
-it yet — serialisation helpers are named `to_dict`/`from_dict` in newer core
-modules but not universally. Panel state methods, by contrast, are now uniform
+it yet. Core serialisation is `to_dict`/`from_dict` and now exists for Unified
+Fit, Sizes, Modeling, Simple Fits and WAXS Peak Fit (plus `from_panel_params`
+in `core/unified.py` and `population_from_dict` in `core/modeling.py`, which
+own the translation from the panel's historical key names); SAXS Morph,
+Contrast, Merge, Manipulation and Fractals still serialise in their io/gui
+layers. `pyirena/tests/test_core_serialization.py` holds the round-trip and
+old-file tests. Panel state methods, by contrast, are now uniform
 (`save_state`/`load_state` public, `_collect_state`/`_apply_state` private) and
 enforced by `pyirena/tests/test_gui_state_contract.py`. Follow
 `docs/developer_adding_features.md` for anything new. HDF5 group names are

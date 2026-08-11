@@ -47,6 +47,7 @@ from pyirena.core.modeling import (
     SizeDistPopulation,
     SurfaceFractalPopulation,
     UnifiedLevelPopulation,
+    population_from_dict,
 )
 from pyirena.gui._qt import (
     QApplication,
@@ -3710,206 +3711,48 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _pop_to_dict(pop) -> dict:
-    """Serialize any population dataclass to a dict (for JSON export)."""
-    pt = getattr(pop, 'pop_type', 'size_dist')
-    if pt == 'unified_level':
-        return {
-            'pop_type': 'unified_level',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
-            'Rg': pop.Rg, 'fit_Rg': pop.fit_Rg, 'Rg_limits': list(pop.Rg_limits),
-            'B': pop.B, 'fit_B': pop.fit_B, 'B_limits': list(pop.B_limits),
-            'P': pop.P, 'fit_P': pop.fit_P, 'P_limits': list(pop.P_limits),
-            'RgCO': pop.RgCO, 'fit_RgCO': pop.fit_RgCO, 'RgCO_limits': list(pop.RgCO_limits),
-            'correlations': pop.correlations,
-            'ETA': pop.ETA, 'fit_ETA': pop.fit_ETA, 'ETA_limits': list(pop.ETA_limits),
-            'PACK': pop.PACK, 'fit_PACK': pop.fit_PACK, 'PACK_limits': list(pop.PACK_limits),
-        }
-    if pt == 'diffraction_peak':
-        return {
-            'pop_type': 'diffraction_peak',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'peak_type': pop.peak_type,
-            'position': pop.position, 'fit_position': pop.fit_position,
-            'position_limits': list(pop.position_limits),
-            'amplitude': pop.amplitude, 'fit_amplitude': pop.fit_amplitude,
-            'amplitude_limits': list(pop.amplitude_limits),
-            'width': pop.width, 'fit_width': pop.fit_width,
-            'width_limits': list(pop.width_limits),
-            'eta_voigt': pop.eta_voigt, 'fit_eta_voigt': pop.fit_eta_voigt,
-            'eta_voigt_limits': list(pop.eta_voigt_limits),
-        }
-    if pt == 'guinier_porod':
-        return {
-            'pop_type': 'guinier_porod',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'G': pop.G, 'fit_G': pop.fit_G, 'G_limits': list(pop.G_limits),
-            'Rg1': pop.Rg1, 'fit_Rg1': pop.fit_Rg1, 'Rg1_limits': list(pop.Rg1_limits),
-            's1': pop.s1, 'fit_s1': pop.fit_s1, 's1_limits': list(pop.s1_limits),
-            'P': pop.P, 'fit_P': pop.fit_P, 'P_limits': list(pop.P_limits),
-            'Rg2': pop.Rg2, 'fit_Rg2': pop.fit_Rg2, 'Rg2_limits': list(pop.Rg2_limits),
-            's2': pop.s2, 'fit_s2': pop.fit_s2, 's2_limits': list(pop.s2_limits),
-            'RgCO': pop.RgCO, 'fit_RgCO': pop.fit_RgCO, 'RgCO_limits': list(pop.RgCO_limits),
-            'correlations': pop.correlations,
-            'ETA': pop.ETA, 'fit_ETA': pop.fit_ETA, 'ETA_limits': list(pop.ETA_limits),
-            'PACK': pop.PACK, 'fit_PACK': pop.fit_PACK, 'PACK_limits': list(pop.PACK_limits),
-        }
-    if pt == 'mass_fractal':
-        return {
-            'pop_type': 'mass_fractal',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'Phi': pop.Phi, 'fit_Phi': pop.fit_Phi, 'Phi_limits': list(pop.Phi_limits),
-            'Radius': pop.Radius, 'fit_Radius': pop.fit_Radius, 'Radius_limits': list(pop.Radius_limits),
-            'Beta': pop.Beta, 'fit_Beta': pop.fit_Beta, 'Beta_limits': list(pop.Beta_limits),
-            'Dv': pop.Dv, 'fit_Dv': pop.fit_Dv, 'Dv_limits': list(pop.Dv_limits),
-            'Ksi': pop.Ksi, 'fit_Ksi': pop.fit_Ksi, 'Ksi_limits': list(pop.Ksi_limits),
-            'Eta': pop.Eta, 'fit_Eta': pop.fit_Eta, 'Eta_limits': list(pop.Eta_limits),
-            'Contrast': pop.Contrast, 'fit_Contrast': pop.fit_Contrast,
-            'Contrast_limits': list(pop.Contrast_limits),
-        }
-    if pt == 'surface_fractal':
-        return {
-            'pop_type': 'surface_fractal',
-            'enabled': pop.enabled,
-            'label': pop.label,
-            'Surface': pop.Surface, 'fit_Surface': pop.fit_Surface,
-            'Surface_limits': list(pop.Surface_limits),
-            'Ds': pop.Ds, 'fit_Ds': pop.fit_Ds, 'Ds_limits': list(pop.Ds_limits),
-            'Ksi': pop.Ksi, 'fit_Ksi': pop.fit_Ksi, 'Ksi_limits': list(pop.Ksi_limits),
-            'Contrast': pop.Contrast, 'fit_Contrast': pop.fit_Contrast,
-            'Contrast_limits': list(pop.Contrast_limits),
-            'use_porod_transition': pop.use_porod_transition,
-            'Qc': pop.Qc, 'fit_Qc': pop.fit_Qc, 'Qc_limits': list(pop.Qc_limits),
-            'QcWidth': pop.QcWidth, 'fit_QcWidth': pop.fit_QcWidth,
-            'QcWidth_limits': list(pop.QcWidth_limits),
-        }
-    # size_dist
-    return {
-        'pop_type': 'size_dist',
-        'enabled':          pop.enabled,
-        'label':            pop.label,
-        'dist_type':        pop.dist_type,
-        'dist_params':      pop.dist_params,
-        'dist_params_fit':  pop.dist_params_fit,
-        'dist_params_limits': {k: list(v) for k, v in pop.dist_params_limits.items()},
-        'form_factor':      pop.form_factor,
-        'ff_params':        pop.ff_params,
-        'ff_params_fit':    pop.ff_params_fit,
-        'ff_params_limits': {k: list(v) for k, v in pop.ff_params_limits.items()},
-        'structure_factor': pop.structure_factor,
-        'sf_params':        pop.sf_params,
-        'sf_params_fit':    pop.sf_params_fit,
-        'sf_params_limits': {k: list(v) for k, v in pop.sf_params_limits.items()},
-        'contrast':         pop.contrast,
-        'fit_contrast':     pop.fit_contrast,
-        'contrast_limits':  list(pop.contrast_limits),
-        'scale':            pop.scale,
-        'fit_scale':        pop.fit_scale,
-        'scale_limits':     list(pop.scale_limits),
-        'use_number_dist':  pop.use_number_dist,
-        'n_bins':           pop.n_bins,
-    }
+    """Serialize any population dataclass to a dict (for JSON export).
+
+    Delegates to the dataclass's own :meth:`to_dict`, which walks its fields.
+    The hand-written version this replaces produced exactly the same keys and
+    values for all six population types — verified field by field — but had to
+    be edited every time a population gained a parameter.
+    """
+    return pop.to_dict()
 
 
 def _pop_from_dict(d: dict):
-    """Deserialize a dict to a population dataclass (dispatches on pop_type)."""
-    pt = d.get('pop_type', 'size_dist')
-    if pt == 'unified_level':
-        pop = UnifiedLevelPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['G', 'Rg', 'B', 'P', 'RgCO']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        pop.correlations = bool(d.get('correlations', False))
-        for key in ['ETA', 'PACK']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        return pop
-    if pt == 'diffraction_peak':
-        pop = DiffractionPeakPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        pop.peak_type = d.get('peak_type', 'gaussian')
-        for key in ['position', 'amplitude', 'width', 'eta_voigt']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        return pop
-    if pt == 'guinier_porod':
-        pop = GuinierPorodPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['G', 'Rg1', 's1', 'P', 'Rg2', 's2', 'RgCO', 'ETA', 'PACK']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        pop.correlations = bool(d.get('correlations', False))
-        return pop
-    if pt == 'mass_fractal':
-        pop = MassFractalPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['Phi', 'Radius', 'Beta', 'Dv', 'Ksi', 'Eta', 'Contrast']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        return pop
-    if pt == 'surface_fractal':
-        pop = SurfaceFractalPopulation()
-        pop.enabled = bool(d.get('enabled', True))
-        pop.label = d.get('label', '')
-        for key in ['Surface', 'Ds', 'Ksi', 'Contrast', 'Qc', 'QcWidth']:
-            setattr(pop, key, float(d.get(key, getattr(pop, key))))
-            setattr(pop, f'fit_{key}', bool(d.get(f'fit_{key}', getattr(pop, f'fit_{key}'))))
-            lim = d.get(f'{key}_limits', list(getattr(pop, f'{key}_limits')))
-            setattr(pop, f'{key}_limits', tuple(lim))
-        pop.use_porod_transition = bool(d.get('use_porod_transition', False))
-        return pop
-    return _pop_from_dict_size_dist(d)
+    """Deserialize a dict to a population dataclass (dispatches on pop_type).
+
+    Delegates to :func:`pyirena.core.modeling.population_from_dict`; the panel
+    used to carry its own copy of the six-branch rebuild, which is the sort of
+    duplicate that quietly stops matching the dataclass it is rebuilding.
+    """
+    pop = population_from_dict(d)
+    if (d or {}).get('pop_type', 'size_dist') == 'size_dist':
+        # A size-distribution population saved without "enabled" has always
+        # come back disabled here — kept so old state files open the way they
+        # used to.
+        pop.enabled = bool((d or {}).get('enabled', False))
+    return pop
 
 
 def _pop_from_dict_size_dist(d: dict) -> SizeDistPopulation:
-    """Deserialize a dict → SizeDistPopulation (reads size-dist keys only)."""
-    pop = SizeDistPopulation()
-    pop.enabled          = d.get('enabled', False)
-    pop.label            = d.get('label', '')
-    pop.dist_type        = d.get('dist_type', 'lognormal')
-    pop.dist_params      = d.get('dist_params', dict(DIST_DEFAULTS['lognormal']))
-    pop.dist_params_fit  = d.get('dist_params_fit', {})
-    pop.dist_params_limits = {k: tuple(v) for k, v in
-                               d.get('dist_params_limits', {}).items()}
-    pop.form_factor      = d.get('form_factor', 'sphere')
-    pop.ff_params        = d.get('ff_params', {})
-    pop.ff_params_fit    = d.get('ff_params_fit', {})
-    pop.ff_params_limits = {k: tuple(v) for k, v in
-                             d.get('ff_params_limits', {}).items()}
-    pop.structure_factor = d.get('structure_factor', 'none')
-    pop.sf_params        = d.get('sf_params', {})
-    pop.sf_params_fit    = d.get('sf_params_fit', {})
-    pop.sf_params_limits = {k: tuple(v) for k, v in
-                             d.get('sf_params_limits', {}).items()}
-    pop.contrast         = float(d.get('contrast', 1.0))
-    pop.fit_contrast     = bool(d.get('fit_contrast', False))
-    cl = d.get('contrast_limits', [0.0, 1e10])
-    pop.contrast_limits  = (cl[0], cl[1])
-    pop.scale            = float(d.get('scale', 0.001))
-    pop.fit_scale        = bool(d.get('fit_scale', True))
-    sl = d.get('scale_limits', [1e-8, 1.0])
-    pop.scale_limits     = (sl[0], sl[1])
-    pop.use_number_dist  = bool(d.get('use_number_dist', False))
-    pop.n_bins           = int(d.get('n_bins', 200))
+    """Deserialize a dict → SizeDistPopulation (reads size-dist keys only).
+
+    Used when the panel restores a population of another type: the size-dist
+    controls are still filled in from whatever the dict carries, so switching
+    the type back does not lose what the user had.
+    """
+    d = d or {}
+    pop = SizeDistPopulation.from_dict(d)
+    # Two defaults this path has always used, which differ from the
+    # dataclass's: a population is off unless the state says otherwise, and a
+    # missing distribution falls back to the log-normal defaults rather than to
+    # an empty dict.
+    pop.enabled = bool(d.get('enabled', False))
+    if not d.get('dist_params'):
+        pop.dist_params = dict(DIST_DEFAULTS['lognormal'])
     return pop
 
 
