@@ -106,3 +106,72 @@ def test_every_browser_uses_the_shared_sort_modes():
         "These browsers lack the shared sort dropdown (SORT_LABELS + "
         "SORT_TOOLTIP from pyirena.core.file_sorting):\n  " + "\n  ".join(missing)
     )
+
+
+def test_every_browser_accepts_dropped_files():
+    """Drag-and-drop is part of "a file browser", not a per-panel extra."""
+    missing = [
+        rel for rel in BROWSERS
+        if "enable_file_drop" not in (REPO / rel).read_text(encoding="utf-8")
+    ]
+    assert not missing, (
+        "These browsers do not accept dropped files; call enable_file_drop() "
+        "from pyirena.gui.file_drop:\n  " + "\n  ".join(missing)
+    )
+
+
+def test_no_browser_lists_a_folder_by_hand():
+    """One listing implementation, in pyirena.core.file_types.
+
+    Every hand-rolled ``os.listdir`` loop answers the awkward questions its own
+    way — sub-directories, case, an unreadable folder — and the four browsers
+    disagreed about all three before this was shared.
+    """
+    pattern = re.compile(r"for \w+ in os\.listdir\(")
+    offenders = []
+    for rel in BROWSERS:
+        text = (REPO / rel).read_text(encoding="utf-8")
+        if pattern.search(text):
+            offenders.append(rel)
+    assert not offenders, (
+        "These browsers walk a folder themselves; use files_in_folder() or "
+        "files_with_extensions() from pyirena.core.file_types:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_no_browser_keeps_its_own_extension_list():
+    """The extensions per data type live in one table.
+
+    A private ``['.hdf', '.h5', '.hdf5']`` in a panel is how a browser ends up
+    not listing the file type someone added last month.
+    """
+    pattern = re.compile(r"=\s*\[\s*['\"]\.(?:hdf|h5|txt|dat|csv)['\"]")
+    offenders = []
+    for rel in BROWSERS:
+        text = (REPO / rel).read_text(encoding="utf-8")
+        if pattern.search(text):
+            offenders.append(rel)
+    assert not offenders, (
+        "These browsers hard-code file extensions; take them from "
+        "pyirena.core.file_types (FILE_TYPE_EXTS / extensions_for):\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_list_browsers_share_the_drop_selection_step():
+    """"Switch folder, select what was dropped" is written once.
+
+    The tree browser is excluded: its items are tree nodes carrying full paths,
+    so it selects them its own way.
+    """
+    list_browsers = [rel for rel in BROWSERS if "file_tree" not in rel]
+    missing = [
+        rel for rel in list_browsers
+        if "select_dropped_in_list" not in (REPO / rel).read_text(encoding="utf-8")
+    ]
+    assert not missing, (
+        "These browsers re-implement the post-drop selection; use "
+        "select_dropped_in_list() from pyirena.gui.file_drop:\n  "
+        + "\n  ".join(missing)
+    )

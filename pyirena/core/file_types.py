@@ -30,6 +30,7 @@ __all__ = [
     "DEFAULT_FILE_TYPE",
     "extensions_for",
     "files_in_folder",
+    "files_with_extensions",
 ]
 
 #: Dropdown entries, in display order.
@@ -62,6 +63,38 @@ def extensions_for(file_type: str) -> Tuple[str, ...]:
     return FILE_TYPE_EXTS.get(file_type, ())
 
 
+def files_with_extensions(folder: str, extensions: Sequence[str]) -> List[str]:
+    """List file *names* in *folder* whose extension is in *extensions*.
+
+    The lower-level half of :func:`files_in_folder`, for a browser whose
+    dropdown is not :data:`FILE_TYPES` — the Data Selector offers an "All
+    supported files" entry that spans two of them.  Sharing this much still
+    gives every browser the same answers to the awkward questions: skip
+    sub-directories, match the extension case-insensitively, and treat an
+    unreadable folder as empty rather than raising.
+
+    Args:
+        folder: Directory to list.  A missing or non-directory path yields [].
+        extensions: Lower-case extensions with a leading dot.
+
+    Returns:
+        Unsorted file names — pass through
+        :func:`pyirena.core.file_sorting.sort_names` for display order.
+    """
+    if not folder or not os.path.isdir(folder) or not extensions:
+        return []
+    wanted = {e.lower() for e in extensions}
+    try:
+        entries = os.listdir(folder)
+    except OSError:
+        return []
+    return [
+        name for name in entries
+        if os.path.isfile(os.path.join(folder, name))
+        and Path(name).suffix.lower() in wanted
+    ]
+
+
 def files_in_folder(folder: str, file_type: str = DEFAULT_FILE_TYPE) -> List[str]:
     """List the file *names* in *folder* matching *file_type*.
 
@@ -78,17 +111,4 @@ def files_in_folder(folder: str, file_type: str = DEFAULT_FILE_TYPE) -> List[str
         Unsorted file names — pass through
         :func:`pyirena.core.file_sorting.sort_names` for display order.
     """
-    if not folder or not os.path.isdir(folder):
-        return []
-    exts: Sequence[str] = extensions_for(file_type)
-    if not exts:
-        return []
-    try:
-        entries = os.listdir(folder)
-    except OSError:
-        return []
-    return [
-        name for name in entries
-        if os.path.isfile(os.path.join(folder, name))
-        and Path(name).suffix.lower() in exts
-    ]
+    return files_with_extensions(folder, extensions_for(file_type))

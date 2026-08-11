@@ -54,7 +54,12 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
-from pyirena.gui.file_drop import drop_hint, enable_file_drop, first_folder
+from pyirena.gui.file_drop import (
+    drop_hint,
+    enable_file_drop,
+    first_folder,
+    select_dropped_in_list,
+)
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
@@ -256,14 +261,7 @@ class _DatasetSelectorWidget(QWidget):
             if self.folder_changed_callback is not None:
                 self.folder_changed_callback(folder)
 
-        wanted = {os.path.basename(p) for p in paths
-                  if os.path.dirname(p) == self.current_folder}
-        self.file_list.clearSelection()
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-            if item.text() in wanted:
-                item.setSelected(True)
-                self.file_list.scrollToItem(item)
+        select_dropped_in_list(self.file_list, paths, self.current_folder)
 
     def get_file_type(self) -> str:
         return self.type_combo.currentText()

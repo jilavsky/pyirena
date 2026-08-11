@@ -18,6 +18,7 @@ import numpy as np
 import pyqtgraph as pg
 
 from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
+from pyirena.core.file_types import extensions_for, files_with_extensions
 from pyirena.gui._qt import (
     QAbstractItemView,
     QAction,
@@ -68,7 +69,11 @@ from pyirena.gui.data_selector.results_windows import (
     WAXSPeakFitResultsWindow,
 )
 from pyirena.gui.data_selector.workers import BatchWorker, UpdateCheckWorker
-from pyirena.gui.file_drop import enable_file_drop, first_folder
+from pyirena.gui.file_drop import (
+    enable_file_drop,
+    first_folder,
+    select_dropped_in_list,
+)
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.gui.unified_fit import UnifiedFitPanel
@@ -87,9 +92,11 @@ class DataSelectorPanel(QWidget):
     Provides file browsing, filtering, and data visualization capabilities.
     """
 
-    # File extensions for different data types
-    HDF5_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
-    TEXT_EXTENSIONS = ['.txt', '.dat', '.csv']
+    # File extensions, from the one table in core/file_types.py.  Kept as
+    # class attributes because other code reads them, but no longer a second
+    # copy of the list — an extension added there is picked up here.
+    HDF5_EXTENSIONS = list(extensions_for("HDF5 Nexus"))
+    TEXT_EXTENSIONS = list(extensions_for("Text (.dat/.txt/.csv)"))
 
     def __init__(self):
         super().__init__()
@@ -1025,17 +1032,7 @@ class DataSelectorPanel(QWidget):
             self.refresh_button.setEnabled(True)
             self.refresh_file_list()
 
-        wanted = {os.path.basename(p) for p in paths
-                  if os.path.dirname(p) == self.current_folder}
-        self.file_list.clearSelection()
-        matched = 0
-        for row in range(self.file_list.count()):
-            item = self.file_list.item(row)
-            if item.text() in wanted:
-                item.setSelected(True)
-                matched += 1
-                if matched == 1:
-                    self.file_list.scrollToItem(item)
+        matched = select_dropped_in_list(self.file_list, paths, self.current_folder)
 
         if matched:
             self.status_label.setText(
@@ -1088,24 +1085,14 @@ class DataSelectorPanel(QWidget):
         if not self.current_folder:
             return
 
-        extensions = self.get_file_extensions()
-
-        try:
-            files = []
-            for file in os.listdir(self.current_folder):
-                file_path = os.path.join(self.current_folder, file)
-                if os.path.isfile(file_path):
-                    _, ext = os.path.splitext(file)
-                    if ext.lower() in extensions:
-                        files.append(file)
-
-            self.file_list.addItems(files)
-            self.status_label.setText(f"Found {len(files)} files")
-            self.sort_file_list()   # apply current sort-combo order
-            self.update_plot_button_state()
-
-        except Exception as e:
-            self.status_label.setText(f"Error reading folder: {e}")
+        # One listing implementation for every browser: sub-directories
+        # skipped, extensions matched case-insensitively, an unreadable folder
+        # reported as empty rather than raising.
+        files = files_with_extensions(self.current_folder, self.get_file_extensions())
+        self.file_list.addItems(files)
+        self.status_label.setText(f"Found {len(files)} files")
+        self.sort_file_list()   # apply current sort-combo order
+        self.update_plot_button_state()
 
     def filter_files(self, filter_text: str):
         """Filter the file list based on search text.

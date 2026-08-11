@@ -249,10 +249,21 @@ files = sort_names(files, self.sort_combo.currentIndex())
 ```
 
 plus the shared filter box and a remembered last folder via `StateManager`.
-Never re-implement a `_sort_key_*` function: the temperature/time/pressure/order
-regexes live in `core/file_sorting.py` only, and
-`pyirena/tests/test_gui_browser_contract.py` fails the build if a browser
-grows its own copy or hard-codes the labels.
+Never re-implement a `_sort_key_*` function, never hard-code an extension list,
+and never write your own `os.listdir` loop — `files_in_folder()` (or
+`files_with_extensions()`, when your dropdown is not `FILE_TYPES`) already
+decides how sub-directories, letter case and an unreadable folder are handled,
+and the four browsers disagreed about all three before it was shared.
+`pyirena/tests/test_gui_browser_contract.py` fails the build on each of these.
+
+There is deliberately **no** shared `FileBrowserWidget`. The logic is shared —
+filtering, sorting, the file-type table, listing, drag-and-drop — while the
+widget assembly is not, because the four browsers differ in ways a common
+widget would have to be configured around anyway: the Data Explorer is a tree
+with lazy sub-folder expansion, Data Merge shows two linked instances, Data
+Manipulation adds a context menu, and the Data Selector alone offers text files
+and the convert-on-load path. Duplicated assembly with no logic in it does not
+drift; duplicated logic does.
 
 A file list should also **accept dropped files**, in one call:
 

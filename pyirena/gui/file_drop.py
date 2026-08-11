@@ -44,6 +44,7 @@ __all__ = [
     "collect_dropped_paths",
     "enable_file_drop",
     "paths_from_mime",
+    "select_dropped_in_list",
 ]
 
 #: Extensions pyIrena can open, as a sensible default for any drop target.
@@ -253,6 +254,43 @@ def enable_file_drop(
 def drop_hint(target: str = "files") -> str:
     """Tooltip line advertising the feature, so it is discoverable."""
     return f"You can also drag {target} here from Finder/Explorer."
+
+
+def select_dropped_in_list(list_widget, paths: Sequence[str], folder: str) -> int:
+    """Select the dropped files in a ``QListWidget`` and scroll to the first.
+
+    The second half of every drop handler: the browser has switched folder, and
+    now the files the user actually dragged should be the selection.  Only
+    paths from *folder* are considered — several folders can be dropped at once
+    and a file list shows one.
+
+    Args:
+        list_widget: The ``QListWidget`` showing file *names*.
+        paths: Absolute paths from the drop.
+        folder: The folder the browser is now showing.
+
+    Returns:
+        How many items were selected — zero means the drop landed on files the
+        current type/filter settings hide, which is worth telling the user
+        rather than leaving the drop looking like it did nothing.
+    """
+    wanted = {os.path.basename(p) for p in paths if os.path.dirname(p) == folder}
+    if not wanted:
+        return 0
+    try:
+        list_widget.clearSelection()
+        matched = 0
+        for row in range(list_widget.count()):
+            item = list_widget.item(row)
+            if item.text() in wanted:
+                item.setSelected(True)
+                matched += 1
+                if matched == 1:
+                    list_widget.scrollToItem(item)
+        return matched
+    except Exception:
+        log.debug("could not select dropped files", exc_info=True)
+        return 0
 
 
 def first_folder(paths: Sequence[str]) -> Optional[str]:

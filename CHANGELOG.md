@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **File browsers share their remaining logic** (feature parity review item
+  U4, issue #13 — scoped down deliberately, see below).
+  - The Data Selector was the last browser keeping its own extension lists and
+    its own `os.listdir` loop; it now uses `core.file_types`, so all four
+    browsers answer the awkward questions the same way (skip sub-directories,
+    match case-insensitively, treat an unreadable folder as empty rather than
+    raising — the Data Selector used to show an error message instead).
+    New `files_with_extensions()` serves a browser whose dropdown is not
+    `FILE_TYPES`; `files_in_folder()` now delegates to it, so there is one
+    listing implementation.
+  - The post-drop "switch folder, select what was dropped" step, written three
+    times during the drag-and-drop work, is now `select_dropped_in_list()`.
+  - `test_gui_browser_contract.py` grew four checks: every browser accepts
+    drops, none walks a folder by hand, none hard-codes extensions, and the
+    list browsers share the drop-selection step.
+  - **A shared `FileBrowserWidget` was considered and deliberately not built.**
+    After U1–U3 and the drag-and-drop work, what remains duplicated across the
+    four browsers is widget assembly with no logic in it — and they differ in
+    ways a common widget would have to be configured around regardless: the
+    Data Explorer is a tree with lazy sub-folder expansion, Data Merge shows
+    two linked instances, Data Manipulation adds a context menu, and the Data
+    Selector alone offers text files and the convert-on-load path. The reason
+    is recorded in `docs/developer_adding_features.md` so the question does not
+    get re-opened from scratch.
 - **Core model objects serialise themselves — `to_dict`/`from_dict`**
   (feature parity review item U6, issue #13).  Added to Unified Fit, Modeling
   and WAXS Peak Fit, joining Sizes and Simple Fits; the callers that used to
