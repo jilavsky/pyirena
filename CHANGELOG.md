@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modeling & Unified Fit: micro-stepping local fits (`diff_step=1e-3`).**
+  `least_squares` now uses a finite-difference Jacobian step of 0.1 % of each
+  parameter's value — the scipy analogue of Igor's per-parameter epsilon,
+  which Igor Irena needed for the same reason. With scipy's default step
+  (√eps ≈ 1.5e-8 relative), the locally exact Jacobian made TRF advance in
+  micro-steps on stiff, strongly correlated surfaces (a mean size of 5×10⁴
+  fitted alongside peak widths of 4×10⁻³; B and P in the USAXS power-law
+  region), exhausting the ~2400-evaluation budget every round without meeting
+  any tolerance. With the 0.1 % secant step the same fits converge in ~30–90
+  evaluations to an equal or better χ² (measured 20–35× fewer evaluations on
+  two user datasets; a pathological 10-minute fit now finishes in ~10 s).
+  The Unified Fit restart loop also gets the relative (1e-4·χ²) stop
+  threshold described below.
 - **Modeling: runaway 10-minute fits on misspecified models.** When a model
   structurally could not reach the data (e.g. a strong low-Q upturn with
   `scale` pinned at its limit), every local-fit round exhausted its evaluation

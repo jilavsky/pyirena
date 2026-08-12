@@ -2060,11 +2060,25 @@ class ModelingEngine:
                 # to show for it (see testData/bad1.h5). Genuine "press Fit
                 # again" improvements are orders of magnitude above 1e-4·χ²,
                 # so well-behaved fits are unaffected.
+                # diff_step=1e-3: finite-difference Jacobian step of 0.1% of
+                # each parameter's value — the scipy equivalent of Igor's
+                # per-parameter epsilon (starting step as a fraction of the
+                # value), which Irena needed for exactly this reason. scipy's
+                # default step (√eps ≈ 1.5e-8 relative) yields a locally exact
+                # Jacobian, and on stiff, strongly correlated surfaces (a
+                # mean_size of 5×10⁴ fitted next to peak widths of 4×10⁻³)
+                # TRF then advances in micro-steps: ~2400 evaluations per
+                # round without meeting any tolerance. A 1e-3 secant slope
+                # probes the surface at the scale of steps worth taking; the
+                # same fits then converge in ~30–90 evaluations to an equal or
+                # better χ² (verified on testData/bad1.h5 and Example2:
+                # ~20–35× fewer evaluations).
                 ls_common = dict(
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     bounds=(lo_arr, hi_arr),
                     method='trf',
                     x_scale='jac',
+                    diff_step=1e-3,
                     max_nfev=300,
                     ftol=1e-12, xtol=1e-12, gtol=1e-12,
                 )

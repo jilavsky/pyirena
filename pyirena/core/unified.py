@@ -690,9 +690,19 @@ class UnifiedFitModel:
         # to a genuine minimum.
         # Tolerance kwargs are only meaningful (and 'x_scale' only accepted) for
         # the bounded methods; 'lm' keeps scipy defaults.
+        # diff_step=1e-3: finite-difference Jacobian step of 0.1% of each
+        # parameter's value — the scipy analogue of Igor's per-parameter
+        # epsilon. With the default √eps relative step, TRF's locally exact
+        # Jacobian can drive micro-stepping on stiff correlated surfaces
+        # (e.g. B and P in the USAXS power-law region, where a small change
+        # in P demands an orders-of-magnitude change in B); a 0.1% secant
+        # slope probes the surface at the scale of steps actually worth
+        # taking and converges in far fewer evaluations (see the same change
+        # in core/modeling.py, verified 20–35× faster on Modeling data).
         tol_kwargs: Dict = {}
         if method in ('trf', 'dogbox'):
-            tol_kwargs = dict(x_scale='jac', ftol=1e-12, xtol=1e-12, gtol=1e-12)
+            tol_kwargs = dict(x_scale='jac', diff_step=1e-3,
+                              ftol=1e-12, xtol=1e-12, gtol=1e-12)
 
         # Internal restart loop: re-seed the solver from its own result until
         # χ² stops improving. This is the automated equivalent of a user
@@ -711,7 +721,11 @@ class UnifiedFitModel:
         )
         for _ in range(max_restarts - 1):
             chi2 = float(np.sum(result.fun ** 2))
-            if prev_chi2 - chi2 <= 1e-8 * max(chi2, 1.0):
+            # Relative threshold (1e-4·χ²): see the identical guard in
+            # core/modeling.py — on a model that cannot reach the data,
+            # numerical wiggles of a few counts on a huge χ² passed the old
+            # 1e-8·χ² test and every restart ran at full cost.
+            if prev_chi2 - chi2 <= 1e-4 * max(chi2, 1.0):
                 break
             prev_chi2 = chi2
             result = least_squares(
