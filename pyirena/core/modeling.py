@@ -718,6 +718,11 @@ class ModelingResult:
     # offer a smeared/ideal toggle (parity with Unified/Sizes/Simple).
     model_I_ideal: Optional[np.ndarray] = None
 
+    # Plain-language diagnostics from the fit (parameters pinned at limits,
+    # non-convergence, unphysically broad distribution, huge reduced χ²).
+    # Transient — shown by the GUI/batch layers, not persisted to HDF5.
+    fit_warnings: list = field(default_factory=list)
+
 
 def result_to_report_dict(result: "ModelingResult",
                           fit_quality: Optional[dict] = None) -> dict:
@@ -1073,6 +1078,78 @@ def apply_structure_factor(
         vf = float(pop.sf_params.get('volume_fraction', 0.1))
         return I_raw * _hard_sphere_sf(q, rad, vf)
     raise ValueError(f"Unknown structure factor: {pop.structure_factor!r}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Fit diagnostics — plain-language warnings returned on ModelingResult
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _format_param_key(key: tuple) -> str:
+    """Human-readable name for a ``_pack_params`` key tuple."""
+    if tuple(key) == ('background',):
+        return 'background'
+    return f"population {key[1] + 1} {key[-1]}"
+
+
+def _pinned_parameter_warnings(
+    x: np.ndarray, lo: np.ndarray, hi: np.ndarray, keys: list,
+) -> list:
+    """Warn for every fitted parameter that ended pinned at a fit limit.
+
+    A parameter riding its limit means the optimizer wanted to go further —
+    the reported value is dictated by the limit, not by the data. On badly
+    misspecified models (see testData/bad1.h5, where ``scale`` pinned at its
+    upper limit while the model sat ~600× below the low-Q data) this is the
+    clearest available signal of what is actually wrong.
+
+    The closeness test is relative to the limit's own magnitude (not the
+    lo–hi span): many limits span decades (e.g. 0 … 1e10), where a
+    span-relative test would flag every small value as "at the lower limit".
+    """
+    out = []
+    for xv, lv, hv, key in zip(np.atleast_1d(x), lo, hi, keys):
+        name = _format_param_key(key)
+        if xv <= lv + 1e-3 * max(abs(lv), 1e-12):
+            out.append(
+                f"{name} = {xv:.4g} is pinned at its lower fit limit ({lv:g})")
+        elif xv >= hv - 1e-3 * max(abs(hv), 1e-12):
+            out.append(
+                f"{name} = {xv:.4g} is pinned at its upper fit limit ({hv:g})")
+    return out
+
+
+def _model_sanity_warnings(cfg: 'ModelingConfig', rchi2: float) -> list:
+    """Post-fit sanity checks on the fitted configuration.
+
+    Flags a lognormal ``sdeviation`` above 3 (the radius grid then spans from
+    Å to mm — the population is almost certainly being abused to mimic a
+    power law) and a grossly large reduced χ² (the model cannot reach the
+    data anywhere; more restarts will not fix that).
+    """
+    out = []
+    for i, pop in enumerate(cfg.populations):
+        if not getattr(pop, 'enabled', False):
+            continue
+        if getattr(pop, 'pop_type', 'size_dist') != 'size_dist':
+            continue
+        if getattr(pop, 'dist_type', '') != 'lognormal':
+            continue
+        s = float(pop.dist_params.get('sdeviation', 0.0))
+        if s > 3.0:
+            out.append(
+                f"population {i + 1} lognormal sdeviation = {s:.3g} — the "
+                f"distribution spans an unphysically wide size range; the "
+                f"population is likely compensating for scattering the model "
+                f"cannot otherwise describe (try adding a power-law/unified "
+                f"level or another population)"
+            )
+    if rchi2 > 1e3:
+        out.append(
+            f"reduced χ² = {rchi2:.3g} — the model is far from the data; "
+            f"check whether the populations can reach the measured intensity "
+            f"over the whole fitted Q range"
+        )
+    return out
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1910,6 +1987,11 @@ class ModelingEngine:
         cfg = deepcopy(config)
         x0, lo, hi, keys = self._pack_params(cfg)
 
+        # Plain-language diagnostics collected during the fit and returned on
+        # the result (GUI shows them in the status line, batch logs them).
+        fit_warn: list = []
+        converged = True
+
         if len(x0) == 0:
             # Nothing to fit — just evaluate
             I_model, pop_idx, pop_I, pop_dist = self.total_intensity_maybe_smeared(
@@ -1929,6 +2011,7 @@ class ModelingEngine:
                     options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-4},
                 )
                 x_best = result.x
+                converged = bool(result.success)
             else:
                 lo_arr = np.array(lo, dtype=float)
                 hi_arr = np.array(hi, dtype=float)
@@ -1966,6 +2049,17 @@ class ModelingEngine:
                 # Modeling GUI worker wraps self._residuals to raise on each
                 # evaluation for "Cancel Fit"; because every restart calls
                 # self._residuals, cancellation stays responsive across the loop.
+                #
+                # The restart threshold is RELATIVE (1e-4·χ²). A model that
+                # structurally cannot reach the data (e.g. a huge low-Q upturn
+                # with `scale` pinned at its limit and a lognormal σ driven to
+                # extremes) leaves TRF wandering a nearly flat χ² valley: every
+                # round exhausts max_nfev, and with χ² ~ 10⁶ even numerical
+                # wiggles of a few counts exceeded the old 1e-8·χ² threshold —
+                # so all 5 restarts ran, ≈ 10 minutes of fitting with nothing
+                # to show for it (see testData/bad1.h5). Genuine "press Fit
+                # again" improvements are orders of magnitude above 1e-4·χ²,
+                # so well-behaved fits are unaffected.
                 ls_common = dict(
                     args=(keys, cfg, q_fit, I_fit, dI_fit),
                     bounds=(lo_arr, hi_arr),
@@ -1979,12 +2073,16 @@ class ModelingEngine:
                 result = least_squares(self._residuals, x_seed, **ls_common)
                 for _ in range(max_restarts - 1):
                     chi2 = float(np.sum(result.fun ** 2))
-                    if prev_chi2 - chi2 <= 1e-8 * max(chi2, 1.0):
+                    if prev_chi2 - chi2 <= 1e-4 * max(chi2, 1.0):
                         break
                     prev_chi2 = chi2
                     result = least_squares(
                         self._residuals, result.x, **ls_common)
                 x_best = result.x
+                # status 0 = max_nfev exhausted without meeting any tolerance
+                converged = (result.status != 0)
+                fit_warn.extend(
+                    _pinned_parameter_warnings(x_best, lo_arr, hi_arr, keys))
 
             self._unpack_params(x_best, keys, cfg)
 
@@ -1999,6 +2097,13 @@ class ModelingEngine:
             dof = max(len(q_fit) - len(x0), 1)
 
         rchi2 = chi2 / dof
+
+        if not converged:
+            fit_warn.append(
+                "fit stopped at the evaluation budget without converging — "
+                "the parameters are the best found so far, not a settled minimum"
+            )
+        fit_warn.extend(_model_sanity_warnings(cfg, rchi2))
 
         # Ideal (pinhole) total for saving — None unless smearing was used.
         model_I_ideal = self.total_intensity_ideal(cfg, q_fit)
@@ -2027,6 +2132,7 @@ class ModelingEngine:
             number_dists=num_dists,
             derived=derived,
             model_I_ideal=model_I_ideal,
+            fit_warnings=fit_warn,
         )
 
     # ── Monte-Carlo uncertainty ──────────────────────────────────────────────

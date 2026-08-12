@@ -3302,7 +3302,16 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             msg = (f'Fit done.  χ² = {result.chi_squared:.4f},  '
                    f'χ²/dof = {result.reduced_chi_squared:.4f},  '
                    f'DOF = {result.dof}{_q_suffix}')
-            self.graph.set_status(msg, 'success')
+            warns = getattr(result, 'fit_warnings', None) or []
+            if warns:
+                # Status line gets a compact summary; full text goes to the
+                # console so nothing is lost on long warning lists.
+                for w in warns:
+                    print(f'Modeling fit warning: {w}')
+                msg += '  ⚠ ' + '  |  '.join(warns)
+                self.graph.set_status(msg, 'warning')
+            else:
+                self.graph.set_status(msg, 'success')
         except Exception as exc:
             import traceback
             traceback.print_exc()

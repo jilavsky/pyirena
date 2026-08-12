@@ -929,6 +929,7 @@ def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
         "n_free_parameters": n_free,
         "background": _f(result.config.background),
         "populations": _fitted_population_rows(result),
+        "warnings": [str(w) for w in getattr(result, 'fit_warnings', None) or []],
     }
 
 

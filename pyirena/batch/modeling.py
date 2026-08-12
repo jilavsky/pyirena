@@ -180,6 +180,8 @@ def fit_modeling(
     try:
         engine = ModelingEngine()
         fit_result = engine.fit(modeling_config, q, I, dI)
+        for w in getattr(fit_result, 'fit_warnings', None) or []:
+            log.warning(f"[pyirena.batch.fit_modeling] {w}")
     except Exception:
         log.error(f"[pyirena.batch.fit_modeling] Fit error:\n{traceback.format_exc()}")
         return {'success': False, 'message': 'Modeling fit failed (see console for details)'}

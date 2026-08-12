@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Modeling: runaway 10-minute fits on misspecified models.** When a model
+  structurally could not reach the data (e.g. a strong low-Q upturn with
+  `scale` pinned at its limit), every local-fit round exhausted its evaluation
+  budget in a nearly flat χ² valley and the internal restart loop ran all five
+  rounds — χ² improvements of a few counts on χ² ~ 10⁶ passed the old
+  `1e-8·χ²` restart test. The threshold is now `1e-4·χ²` (relative), which
+  stops such fits after two rounds while leaving genuine "press Fit again"
+  improvements (orders of magnitude larger) unaffected. Reproduced with
+  `testData/bad1.h5`.
+
+### Added
+
+- **Modeling: post-fit diagnostics** on `ModelingResult.fit_warnings`, shown
+  in the GUI status line, logged by `batch.fit_modeling`, and returned as
+  `warnings` by the agent-control `modeling_run_fit`. Warns when a fitted
+  parameter ends pinned at a fit limit, when the fit stopped at its evaluation
+  budget without converging, when a lognormal `sdeviation` exceeds 3
+  (unphysically broad — usually mimicking a power law), and when reduced χ²
+  is above 10³ (model cannot reach the data).
+
 ## [1.1.0b7] - 2026-08-10
 
 A consolidation release, implementing the feature-parity review in issue #13.
