@@ -1373,6 +1373,7 @@ def run_fit(
     max_iter: Optional[int] = None,
     tolerance: Optional[float] = None,
     random_seed: Optional[int] = None,
+    walk_limits: bool = True,
 ) -> dict:
     """Run the fitting algorithm on the current session's model and data.
 
@@ -1389,11 +1390,22 @@ def run_fit(
         integration).  Pass the same seed to reproduce a fit exactly from an
         audit trail.  Stored in the returned dict and in last_fit_result so
         pyirena-ai can stamp it into the audit JSON.
+    walk_limits : bool, optional
+        Default True: use
+        :meth:`~pyirena.core.unified.UnifiedFitModel.fit_with_limit_walking`,
+        matching the GUI Fit button — when a fitted parameter ends pinned at
+        a limit, the limits are recentred on the fitted value
+        (``panel_auto_limits``) and the fit rerun, so an optimum far outside
+        the current limits window is still reached in one call.  Pass False
+        to treat the current bounds (e.g. from set_parameter_bounds) as hard
+        constraints; the fit then stops at the bound and reports the
+        parameter in ``pinned_parameters``.
 
     Returns
     -------
     dict with keys: success, chi_squared, reduced_chi_squared, iterations,
-    message, random_seed, parameters_updated (list of {name, value}).
+    message, random_seed, parameters_updated (list of {name, value}),
+    pinned_parameters, warnings.
     """
     s = get_session(session_id)
     if s is None:
@@ -1421,7 +1433,10 @@ def run_fit(
         kwargs["max_iterations"] = int(max_iter)
 
     try:
-        result = s.model.fit(q_fit, I_fit, err_fit, **kwargs)
+        if walk_limits:
+            result = s.model.fit_with_limit_walking(q_fit, I_fit, err_fit, **kwargs)
+        else:
+            result = s.model.fit(q_fit, I_fit, err_fit, **kwargs)
     except Exception as exc:
         return make_error(
             f"Fit failed with exception: {exc}",
@@ -1442,6 +1457,19 @@ def run_fit(
     # mis-scaled).  Full arrays/bands available via get_fit_quality().
     quality = _quality_scalars(_compute_quality(s.model))
 
+    # Parameters still sitting at a fit limit after the fit (after walking,
+    # this list is normally empty; with walk_limits=False it shows which
+    # bound stopped the fit — the difficult-to-debug case).
+    pinned = [f"level {i + 1} {name}"
+              for i, name in s.model.pinned_fitted_parameters()]
+    warnings_list = []
+    if pinned:
+        warnings_list.append(
+            "fitted parameter(s) pinned at a limit: " + ", ".join(pinned)
+            + " — the reported value is dictated by the bound, not the data"
+            + ("" if walk_limits else
+               "; rerun with walk_limits=True or widen the bounds"))
+
     return {
         "success":             bool(result.get("success", False)),
         "chi_squared":         float(result.get("chi_squared", float("nan"))),
@@ -1451,6 +1479,8 @@ def run_fit(
         "random_seed":         random_seed,
         "parameters_updated":  updated,
         "quality":             quality,
+        "pinned_parameters":   pinned,
+        "warnings":            warnings_list,
         # Report smearing state so the AI advisor can explain that fitted
         # parameters are ideal-space and the model was compared smeared.
         "slit_smearing_applied": bool(getattr(s.model, "use_slit_smearing", False)

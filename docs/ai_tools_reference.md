@@ -506,13 +506,23 @@ high-Q tails before fitting. Either end can be `null` to leave it unchanged.
 
 ### Fit execution
 
-#### `pyirena_ctrl_run_fit(session_id, max_iter=None)`
-Runs the fitting algorithm synchronously. Returns:
+#### `pyirena_ctrl_run_fit(session_id, max_iter=None, walk_limits=True)`
+Runs the fitting algorithm synchronously. With `walk_limits=True` (default,
+same behaviour as the GUI Fit button): when a fitted parameter ends pinned at
+a limit, the limits are recentred on the fitted value and the fit rerun (up
+to 4 walks), so an optimum far outside the current limits window — e.g. a B
+that must change by orders of magnitude after a change in P — is reached in
+one call. Pass `walk_limits=False` to treat bounds from
+`set_parameter_bounds` as hard constraints. Returns:
 - `success` (bool)
 - `chi_squared`, `reduced_chi_squared` (float)
 - `iterations` (int)
 - `message` (fit status from scipy)
 - `parameters_updated` (list of {name, value})
+- `pinned_parameters` (list of str) — fitted parameters that ended at a
+  bound (normally empty when walking; with `walk_limits=False` it shows
+  which bound stopped the fit)
+- `warnings` (list of str) — plain-language notes on the pinned parameters
 - `quality` (dict) — robust fit-quality scalars: `robust_scale_s`,
   `realistic_reduced_chi2_floor`, `max_abs_frac_misfit`, `q_at_max_frac_misfit`,
   `median_frac_uncertainty`, `n_outliers_3s`, `longest_same_sign_run`,

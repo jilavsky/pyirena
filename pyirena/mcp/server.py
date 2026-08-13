@@ -691,15 +691,22 @@ def pyirena_ctrl_detect_features(
 def pyirena_ctrl_run_fit(
     session_id: str,
     max_iter: Optional[int] = None,
+    walk_limits: bool = True,
 ) -> dict:
     """Run the fitting algorithm.
 
     Uses current parameter values as starting point and the current Q range.
     Re-running after a partial fit continues from where it left off.
-    Returns chi_squared, reduced_chi_squared, iterations, and updated parameter values.
+    Returns chi_squared, reduced_chi_squared, iterations, updated parameter
+    values, pinned_parameters and warnings.
     Good fit: reduced_chi_squared close to 1.0.
+    walk_limits=True (default, same as the GUI Fit button): when a fitted
+    parameter ends pinned at a limit, limits are recentred on the fitted value
+    and the fit rerun, so a distant optimum is reached in one call.  Pass
+    False to keep bounds set via set_parameter_bounds as hard constraints;
+    check pinned_parameters in the result to see which bound stopped the fit.
     """
-    return _ctrl.run_fit(session_id, max_iter=max_iter)
+    return _ctrl.run_fit(session_id, max_iter=max_iter, walk_limits=walk_limits)
 
 
 # --- Quality assessment ---

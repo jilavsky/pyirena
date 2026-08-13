@@ -492,7 +492,9 @@ TOOL_SCHEMAS: list[dict] = [
             "starting point and the current Q range restriction. "
             "Re-running uses the previous fitted values as the new starting point "
             "(re-calling after partial convergence is a valid strategy). "
-            "Returns chi_squared, reduced_chi_squared, and the updated parameter values."
+            "Returns chi_squared, reduced_chi_squared, the updated parameter "
+            "values, pinned_parameters (fitted parameters that ended at a "
+            "bound) and warnings."
         ),
         "input_schema": {
             "type": "object",
@@ -512,6 +514,18 @@ TOOL_SCHEMAS: list[dict] = [
                         "Seed numpy RNG before the fit. Pass the same value to "
                         "reproduce a fit from an audit trail. Stored in the result "
                         "and in session.last_fit_result for stamping into audit JSON."
+                    ),
+                },
+                "walk_limits": {
+                    "type": "boolean",
+                    "description": (
+                        "Default true (same as the GUI Fit button): when a fitted "
+                        "parameter ends pinned at a limit, recentre the limits on "
+                        "the fitted value and refit, so an optimum far outside the "
+                        "current limits window is reached in one call. Pass false "
+                        "to keep bounds from set_parameter_bounds as hard "
+                        "constraints; pinned_parameters in the result then shows "
+                        "which bound stopped the fit."
                     ),
                 },
             },

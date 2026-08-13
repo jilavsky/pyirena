@@ -285,6 +285,36 @@ class UnifiedLevel:
         return ''
 
 
+def panel_auto_limits(name: str, value: float) -> Tuple[float, float]:
+    """The Unified panel's auto-derived fit limits for a level parameter.
+
+    This is the single home of the "limits follow the value" policy the GUI
+    has always applied (``fix_limits``): a multiplicative window around the
+    current value, clamped to each parameter's physically sensible range.
+    Used by the panel to refresh the limit fields and by
+    :meth:`UnifiedFitModel.fit_with_limit_walking` to walk pinned
+    parameters toward a distant optimum.
+
+    Args:
+        name:  One of 'G', 'Rg', 'B', 'P', 'ETA', 'PACK'.
+        value: Current parameter value (must be > 0 for a useful window).
+
+    Returns:
+        (low, high) limits.
+    """
+    v = float(value)
+    if name == 'P':
+        return (max(1.0, v * 0.5), min(5.0, v * 1.5))
+    if name == 'Rg':
+        return (max(0.1, v * 0.2), v * 5.0)
+    if name == 'ETA':
+        return (max(0.1, v * 0.2), v * 5.0)
+    if name == 'PACK':
+        return (max(0.0, v * 0.2), min(12.0, v * 5.0))
+    # G, B: plain multiplicative window
+    return (v * 0.2, v * 5.0)
+
+
 class UnifiedFitModel:
     """
     Complete Unified fit model supporting multiple structural levels.
@@ -774,6 +804,83 @@ class UnifiedFitModel:
         }
 
         return results
+
+    # ── Limit walking (GUI-style repeated fitting) ────────────────────────
+
+    #: Fitted level parameters that participate in limit walking.
+    _WALKABLE = ('G', 'Rg', 'B', 'P', 'ETA', 'PACK')
+
+    def pinned_fitted_parameters(self) -> list:
+        """Return ``[(level_idx, name), …]`` for fitted parameters at a limit.
+
+        A parameter counts as pinned when it sits within 0.1 % of either
+        bound.  Parameters at a zero bound are skipped — recentring a window
+        around zero cannot make progress.  ETA/PACK use their *effective*
+        fit flags (they are only live when correlations are on).
+        """
+        pinned = []
+        for i, level in enumerate(self.levels[:self.num_levels]):
+            for name in self._WALKABLE:
+                if name == 'ETA':
+                    if not level.fit_ETA_effective:
+                        continue
+                elif name == 'PACK':
+                    if not level.fit_PACK_effective:
+                        continue
+                elif not getattr(level, f'fit_{name}', False):
+                    continue
+                value = float(getattr(level, name))
+                lo, hi = getattr(level, f'{name}_limits')
+                if value <= 0:
+                    continue
+                if lo > 0 and value <= lo * 1.001:
+                    pinned.append((i, name))
+                elif hi > 0 and value >= hi * 0.999:
+                    pinned.append((i, name))
+        return pinned
+
+    def fit_with_limit_walking(self, q, intensity, error=None,
+                               max_walks: int = 4, **fit_kwargs) -> Dict:
+        """Fit, and while fitted parameters end pinned at panel-style
+        auto-limits, recentre the limits on the fitted values and refit.
+
+        The Unified panel keeps each parameter's limits centred on its value
+        (B: value×0.2 … ×5; P: ×0.5 … ×1.5 clamped to [1, 5]; see
+        :func:`panel_auto_limits`), refreshing them after every fit.  When
+        the optimum lies far outside that window — changing P by ~1 moves
+        the matching B by orders of magnitude in the USAXS range — a single
+        bounded fit stops with B pinned at a limit, and users historically
+        pressed Fit repeatedly, each press walking the window another
+        factor of 5.  This method automates exactly that loop, so one call
+        reaches the interior optimum.
+
+        Only intended for panel-maintained limits.  Batch runs with
+        explicit user limits in the config should call :meth:`fit` directly
+        — those limits are a deliberate constraint, not a moving window.
+
+        Args:
+            q, intensity, error: As for :meth:`fit`.
+            max_walks: Maximum number of recentre-and-refit passes.
+            **fit_kwargs: Passed through to :meth:`fit`.
+
+        Returns:
+            The result dict of the final :meth:`fit` call.
+        """
+        result = self.fit(q, intensity, error, **fit_kwargs)
+        for _ in range(max_walks):
+            if not self.pinned_fitted_parameters():
+                break
+            for level in self.levels[:self.num_levels]:
+                for name in self._WALKABLE:
+                    if not getattr(level, f'fit_{name}', False):
+                        continue
+                    value = float(getattr(level, name))
+                    if value <= 0:
+                        continue
+                    setattr(level, f'{name}_limits',
+                            panel_auto_limits(name, value))
+            result = self.fit(q, intensity, error, **fit_kwargs)
+        return result
 
     def calculate_invariant(self, level_idx: int = 0,
                            q_min: float = 0.0,

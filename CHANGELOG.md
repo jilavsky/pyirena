@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Unified Fit: "press Fit repeatedly" caused by the moving limits window.**
+  The panel keeps each parameter's fit limits centred on its current value
+  (B: value×0.2 … ×5; see `fix_limits`). When the optimum lies far outside
+  that window — changing P by ~1 moves the matching B by orders of magnitude
+  in the USAXS range — a single bounded fit converged correctly *within its
+  box* but ended with B pinned at a limit, and each further Fit press only
+  moved B another factor of 5 (this was never a tolerance, restart-loop, or
+  step-size problem). The Fit button now uses
+  `UnifiedFitModel.fit_with_limit_walking()`: while a fitted parameter ends
+  pinned at a panel auto-limit, the limits are recentred on the fitted values
+  and the fit rerun (up to 4 walks), so one press reaches the interior
+  optimum. The auto-limits policy itself now lives once, in
+  `panel_auto_limits()` (core), used by both the panel and the walker. Batch
+  fits with explicit config limits are unchanged — those limits are treated
+  as deliberate constraints. The agent-control `run_fit` uses the same
+  walking by default (`walk_limits=True`, opt out with False) and now
+  returns `pinned_parameters` and `warnings` so a bound-stopped fit is
+  visible instead of silently wrong.
 - **Modeling & Unified Fit: micro-stepping local fits (`diff_step=1e-3`).**
   `least_squares` now uses a finite-difference Jacobian step of 0.1 % of each
   parameter's value — the scipy analogue of Igor's per-parameter epsilon,

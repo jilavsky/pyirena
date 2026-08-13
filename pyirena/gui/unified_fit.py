@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
-from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, panel_auto_limits
 from pyirena.gui._qt import (
     QApplication,
     QBrush,
@@ -1713,63 +1713,30 @@ class LevelParametersWidget(QWidget):
                 self.rg_fit.setChecked(False)
                 self.g_value.setText("0")
             elif g_val > 0:
-                self.g_low.setText(self._format_value(g_val * 0.2))
-                self.g_high.setText(self._format_value(g_val * 5))
+                lo, hi = panel_auto_limits('G', g_val)
+                self.g_low.setText(self._format_value(lo))
+                self.g_high.setText(self._format_value(hi))
         except ValueError:
             log.debug("suppressed exception", exc_info=True)
 
-        # Fix Rg limits: low >= 0.1; high = value*5 (no upper cap so value stays in range)
-        try:
-            rg_val = float(self.rg_value.text() or 0)
-            if rg_val > 0:
-                low_val = max(0.1, rg_val * 0.2)
-                high_val = rg_val * 5
-                self.rg_low.setText(self._format_value(low_val))
-                self.rg_high.setText(self._format_value(high_val))
-        except ValueError:
-            log.debug("suppressed exception", exc_info=True)
-
-        # Fix B limits
-        try:
-            b_val = float(self.b_value.text() or 0)
-            if b_val > 0:
-                self.b_low.setText(self._format_value(b_val * 0.2))
-                self.b_high.setText(self._format_value(b_val * 5))
-        except ValueError:
-            log.debug("suppressed exception", exc_info=True)
-
-        # Fix P limits - 0.5-1.5x, clamped to [1, 5]
-        try:
-            p_val = float(self.p_value.text() or 0)
-            if p_val > 0:
-                low_val = max(1.0, p_val * 0.5)
-                high_val = min(5.0, p_val * 1.5)
-                self.p_low.setText(self._format_value(low_val))
-                self.p_high.setText(self._format_value(high_val))
-        except ValueError:
-            log.debug("suppressed exception", exc_info=True)
-
-        # Fix ETA limits: low >= 0.1; high = value*5 (no upper cap)
-        try:
-            eta_val = float(self.eta_value.text() or 0)
-            if eta_val > 0:
-                low_val = max(0.1, eta_val * 0.2)
-                high_val = eta_val * 5
-                self.eta_low.setText(self._format_value(low_val))
-                self.eta_high.setText(self._format_value(high_val))
-        except ValueError:
-            log.debug("suppressed exception", exc_info=True)
-
-        # Fix PACK limits - absolute limits [0, 12]
-        try:
-            pack_val = float(self.pack_value.text() or 0)
-            if pack_val > 0:
-                low_val = max(0.0, pack_val * 0.2)
-                high_val = min(12.0, pack_val * 5)
-                self.pack_low.setText(self._format_value(low_val))
-                self.pack_high.setText(self._format_value(high_val))
-        except ValueError:
-            log.debug("suppressed exception", exc_info=True)
+        # Remaining limits all follow the shared panel_auto_limits policy
+        # (core/unified.py) — the same policy fit_with_limit_walking uses to
+        # walk pinned parameters, so the two can never drift apart.
+        for name, val_w, lo_w, hi_w in (
+            ('Rg',   self.rg_value,   self.rg_low,   self.rg_high),
+            ('B',    self.b_value,    self.b_low,    self.b_high),
+            ('P',    self.p_value,    self.p_low,    self.p_high),
+            ('ETA',  self.eta_value,  self.eta_low,  self.eta_high),
+            ('PACK', self.pack_value, self.pack_low, self.pack_high),
+        ):
+            try:
+                val = float(val_w.text() or 0)
+                if val > 0:
+                    lo, hi = panel_auto_limits(name, val)
+                    lo_w.setText(self._format_value(lo))
+                    hi_w.setText(self._format_value(hi))
+            except ValueError:
+                log.debug("suppressed exception", exc_info=True)
 
     def get_parameters(self) -> Dict:
         """Get all parameters for this level."""
@@ -2898,7 +2865,14 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # Run fit
             self.status_label.setText(f"Fitting {num_levels} level(s) with {num_points} points...")
 
-            result = self.model.fit(q_fit, intensity_fit, error_fit)
+            # fit_with_limit_walking: the panel keeps limits centred on the
+            # current values (fix_limits), so when the optimum lies far
+            # outside that window (changing P moves the matching B by orders
+            # of magnitude) a plain fit ends pinned at a limit and the user
+            # had to press Fit repeatedly. The walking fit recentres the
+            # auto-limits and refits until nothing is pinned — one press now
+            # does what several used to.
+            result = self.model.fit_with_limit_walking(q_fit, intensity_fit, error_fit)
             self.fit_result = result
 
             # Update GUI with fitted values and reset limits around them
