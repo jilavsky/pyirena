@@ -52,14 +52,12 @@ All functions return plain dicts.  Errors are
 """
 from __future__ import annotations
 
-import base64
-import tempfile
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
 from pyirena.api._paths import PathSecurityError, resolve_safe
+from pyirena.api.control._images import render_png
 from pyirena.api.control.errors import make_error, no_fit, no_session
 
 __all__ = [
@@ -337,15 +335,9 @@ def _f(value):
     return out if np.isfinite(out) else None
 
 
-def _render_image(fig, session_id: str, tag: str, dpi: int) -> str:
-    import matplotlib.pyplot as plt  # noqa: PLC0415
-
-    tmp = Path(tempfile.gettempdir()) / "pyirena-ctrl"
-    tmp.mkdir(parents=True, exist_ok=True)
-    out = tmp / f"modeling_{tag}_{session_id}.png"
-    fig.savefig(out, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-    return base64.b64encode(out.read_bytes()).decode("ascii")
+def _render_image(fig, session_id: str, tag: str, dpi: int) -> tuple[str, str]:
+    """Save the figure; return ``(base64 PNG, absolute path on disk)``."""
+    return render_png(fig, f"modeling_{tag}_{session_id}", dpi)
 
 
 # ---------------------------------------------------------------------------
@@ -1046,7 +1038,8 @@ def get_modeling_fit_image(
     ax2.grid(True, which="both", alpha=0.25)
 
     fig.tight_layout()
-    return {"ok": True, "image_base64": _render_image(fig, session_id, "fit", dpi)}
+    b64, image_path = _render_image(fig, session_id, "fit", dpi)
+    return {"ok": True, "image_base64": b64, "image_path": image_path}
 
 
 # ---------------------------------------------------------------------------

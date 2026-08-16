@@ -23,10 +23,7 @@ and are lost when the process exits.
 """
 from __future__ import annotations
 
-import base64
 import os
-import tempfile
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -36,6 +33,7 @@ from pyirena.api._paths import (
     resolve_safe,
     resolve_safe_file,
 )
+from pyirena.api.control._images import render_png
 from pyirena.api.control.errors import (
     bad_param,
     make_error,
@@ -144,8 +142,12 @@ def _decimated(arr: np.ndarray, max_points: int = 500) -> list:
     return [v if np.isfinite(v) else None for v in sub.tolist()]
 
 
-def _render_fit_image(session: Session, width: int, height: int, dpi: int = 120) -> str:
-    """Render data + model (+ residuals if fit was run) as base64 PNG.
+def _render_fit_image(
+    session: Session, width: int, height: int, dpi: int = 120,
+) -> tuple[str, str]:
+    """Render data + model (+ residuals if fit was run) as a PNG.
+
+    Returns ``(base64 PNG, absolute path on disk)``.
 
     Matches the visual layout of pyirena's UnifiedFitResultsWindow:
       - Top panel (log-log): data points + model line (+ per-level dashed)
@@ -225,13 +227,8 @@ def _render_fit_image(session: Session, width: int, height: int, dpi: int = 120)
 
     fig.tight_layout()
 
-    # Save to temp file and return base64
-    tmp = Path(tempfile.gettempdir()) / "pyirena-ctrl"
-    tmp.mkdir(parents=True, exist_ok=True)
-    out = tmp / f"fit_{session.session_id}.png"
-    fig.savefig(out, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-    return base64.b64encode(out.read_bytes()).decode("ascii")
+    # Save to the plot cache and return both the base64 payload and the path
+    return render_png(fig, f"fit_{session.session_id}", dpi)
 
 
 # ---------------------------------------------------------------------------
@@ -1701,7 +1698,7 @@ def get_fit_image(
     height: int = 768,
     format: str = "png",
 ) -> dict:
-    """Capture the current fit as a PNG image (base64-encoded).
+    """Capture the current fit as a PNG image.
 
     Works before a fit is run (shows data + initial model) and after a fit
     (adds residuals subplot).  The layout mirrors pyirena's Unified Fit
@@ -1713,6 +1710,11 @@ def get_fit_image(
         Output image dimensions in pixels.
     format : str
         Only "png" is supported in Phase 1.
+
+    Returns
+    -------
+    dict with ``image_base64`` (for inline display) and ``image_path`` (the
+    same PNG on disk, for clients that cannot render images inline).
     """
     s = get_session(session_id)
     if s is None:
@@ -1721,12 +1723,13 @@ def get_fit_image(
         return no_model(session_id)
 
     try:
-        b64 = _render_fit_image(s, width=width, height=height)
+        b64, image_path = _render_fit_image(s, width=width, height=height)
     except Exception as exc:
         return make_error(f"Image generation failed: {exc}", code="PLOT_ERROR")
 
     return {
         "image_base64": b64,
+        "image_path":   image_path,
         "format":       "png",
         "width":        width,
         "height":       height,

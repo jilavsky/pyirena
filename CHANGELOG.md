@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **MCP: every image tool failed to return its picture.** `pyirena_plot_iq`,
+  `pyirena_plot_parameter_trend` and all eight `pyirena_ctrl_*_image` tools
+  rendered and saved their PNG, then died on the way back to the client with
+  `Unable to serialize unknown type: ... fastmcp.utilities.types.Image`.
+  Cause: FastMCP ≥ 1.10 derives a *structured output* JSON schema from a
+  tool's return annotation and serialises the return value against it, and
+  the `Image` object is not JSON-serialisable — so the annotation
+  `-> list[Any]` silently opted every image tool into a code path that could
+  never succeed. Images belong in the unstructured content array; image tools
+  are now registered through `_image_tool()`, which disables structured
+  output (and falls back to the plain decorator on mcp < 1.10, where the
+  feature does not exist). Claude Desktop / claude.ai reported this as "the
+  plot tool has a serialization bug but it did save the PNG to disk".
+
+### Added
+
+- **MCP: image tools now report the PNG's path as well as the image.** Each
+  returns a text block (`"<label>\nPNG saved to: /abs/path.png"`) followed by
+  the inline `image/png` content block. Previously the control-API image
+  tools returned base64 only, so a client that does not render inline images
+  — AnythingLLM in some modes, plain agent loops — had no way to reach the
+  plot and told users no file existed. The control API dicts gained a
+  matching `image_path` key alongside `image_base64`.
+- **`PYIRENA_PLOT_CACHE` now also directs control-API fit images.** It
+  previously only affected `plot_iq` / `plot_parameter_trend`; fit images
+  were hardwired to `<tempdir>/pyirena-ctrl` (still the default). Point it at
+  a browsable folder when the user will want to open the PNGs themselves.
+
+### Changed
+
+- **PNG rendering for the control API lives in one place**,
+  `pyirena/api/control/_images.py` (`render_png`, `image_cache_dir`),
+  replacing five near-identical private copies in `unified_fit.py`,
+  `sizes.py`, `simple_fits.py`, `modeling.py` and `waxs_peakfit.py`.
+
 ## [1.1.0b8] - 2026-08-13
 
 ### Fixed

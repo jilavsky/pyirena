@@ -23,7 +23,7 @@ Quick start
 >>> ctrl.fix_all_except(sid, ["Rg_1", "G_1", "background"])
 >>> ctrl.run_fit(sid)
 >>> print(ctrl.get_chi_squared(sid))
->>> ctrl.get_fit_image(sid)   # returns {"image_base64": "...", ...}
+>>> ctrl.get_fit_image(sid)   # {"image_base64": "...", "image_path": "...", ...}
 >>> ctrl.save_fit(sid)
 
 All functions return plain dicts.  Errors are {"error": ..., "code": ...,

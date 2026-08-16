@@ -254,14 +254,16 @@ when the user asks "tell me everything about sample_X".
 
 ---
 
-### Plotting (returns mixed text + image content)
+### Images (returns mixed text + image content)
 
-Both plotting tools return a **two-item content list**, not a single
-value. You must handle both items by content type:
+**Every** pyirena tool that produces a picture behaves the same way — the
+two plotting tools below and all eight `pyirena_ctrl_*_image` tools. Each
+returns a **two-item content list**, not a single value. Handle both items
+by content type:
 
 | Index | `type` | What it contains |
 |-------|--------|-----------------|
-| 0 | `text` | `"Plot saved to: /abs/path/to/file.png"` — the on-disk location |
+| 0 | `text` | A one-line label, then `"PNG saved to: /abs/path/to/file.png"` — the on-disk location |
 | 1 | `image` | The PNG encoded as base64; `mimeType` is `"image/png"` |
 
 **Critical: never print or forward item 1 as a string.** It is raw
@@ -272,18 +274,32 @@ garbled text to the user. Always branch on `content[i].type`:
 ```python
 for item in tool_result.content:
     if item.type == "text":
-        print(item.text)          # file path — safe to show
+        print(item.text)          # label + file path — safe to show
     elif item.type == "image":
         display_image(item.data)  # base64 PNG — render, don't print
 ```
 
-If the AI client renders content items by type natively (Claude Desktop,
-Claude Code, MCP Inspector), the image appears inline automatically and
-you do not need to handle it manually.
+If the AI client renders content items by type natively (Claude Desktop /
+claude.ai, Claude Code, ChatGPT in developer mode, MCP Inspector), the image
+appears inline automatically and you do not need to handle it manually.
 
 If the client does not render images (AnythingLLM in some modes, custom
-pipelines), skip the image item entirely and tell the user the file path
-from item 0 so they can open the PNG manually.
+pipelines), skip the image item entirely and give the user the file path
+from item 0 so they can open the PNG manually. The path is always present —
+the PNG is written to disk before it is encoded, so there is a real file
+even when the picture cannot be shown.
+
+PNGs are written under `$PYIRENA_PLOT_CACHE` when that is set; otherwise
+`plot_iq` / `plot_parameter_trend` write to `<tempdir>/pyirena-mcp` and the
+control-API image tools write to `<tempdir>/pyirena-ctrl`. Set
+`PYIRENA_PLOT_CACHE` to a folder the user can browse if they will want to
+open the files themselves.
+
+**Implementation note (for anyone editing `pyirena/mcp/server.py`):** image
+tools are registered with `@_image_tool()`, not `@mcp.tool()`. FastMCP ≥ 1.10
+otherwise derives a structured-output JSON schema from the return annotation
+and fails to serialise the `Image` object, so the call errors out *after* the
+PNG is written and the client sees a serialization error instead of a plot.
 
 #### `pyirena_plot_iq(paths, overlay=True, log_x=True, log_y=True, output_path=None)`
 Plots I(Q) for one or more files. Saves PNG to `PYIRENA_PLOT_CACHE`

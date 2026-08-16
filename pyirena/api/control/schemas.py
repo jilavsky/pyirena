@@ -1166,7 +1166,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "get_simple_fit_image",
         "description": (
             "Render the fit as a PNG: log-log data + model on top, residuals "
-            "below. Returns image_base64."
+            "below. Returns image_base64 (inline) and image_path (on disk)."
         ),
         "input_schema": {
             "type": "object",

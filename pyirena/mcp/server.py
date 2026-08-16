@@ -270,26 +270,60 @@ def pyirena_summarize_sample(folder: str, sample: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Plotting — returns inline images
+# Images — how pyirena returns pictures over MCP
 # ---------------------------------------------------------------------------
+#
+# Every image tool returns a two-item content list:
+#
+#   1. a text block naming the PNG's absolute path on disk
+#   2. an MCP image content block  {"type": "image", "data": "<base64>",
+#      "mimeType": "image/png"}
+#
+# That pair is the portable answer.  The image block is what Claude Desktop /
+# claude.ai, ChatGPT and other MCP hosts render inline; the text block is the
+# fallback for clients that drop image blocks (AnythingLLM in some versions,
+# terminal clients, plain LLM agents), which can then open or hand off the
+# file instead of being told the picture does not exist.
+#
+# Registration matters as much as the payload.  FastMCP >= 1.10 derives a
+# *structured output* JSON schema from a tool's return annotation and then
+# serialises the return value against it.  ``Image`` is not JSON-serialisable,
+# so an image tool annotated ``-> list[Any]`` fails with
+#     Unable to serialize unknown type: <class '...fastmcp.utilities.types.Image'>
+# *after* the PNG has been written — the client sees only an error.  Images
+# belong in the unstructured content array, so image tools opt out of
+# structured output via ``_image_tool``.
 
-def _plot_result_as_mcp_content(result: dict) -> list[Any]:
-    """Return plot output as mixed MCP content for clients such as AnythingLLM.
+def _image_tool(**kwargs: Any):
+    """``@mcp.tool()`` for tools that return image content blocks.
 
-    AnythingLLM's MCP image renderer looks for image-bearing items in the
-    MCP tool result content array. Returning a short text item followed by a
-    FastMCP Image keeps the saved file path visible while still allowing
-    FastMCP to serialize the PNG as:
-        {"type": "image", "data": "...base64...", "mimeType": "image/png"}
+    Disables FastMCP's structured-output schema (mcp >= 1.10). On older mcp
+    releases there is no structured output and the plain decorator is already
+    correct, so the ``TypeError`` fallback keeps those working.
     """
+    try:
+        return mcp.tool(structured_output=False, **kwargs)
+    except TypeError:  # pragma: no cover - mcp < 1.10
+        return mcp.tool(**kwargs)
+
+
+def _image_content(
+    label: str,
+    png_bytes: bytes,
+    path: Optional[str] = None,
+) -> list[Any]:
+    """Build the standard [text, image] content pair."""
+    text = f"{label}\nPNG saved to: {path}" if path else label
+    return [text, Image(data=png_bytes, format="png")]
+
+
+def _plot_result_as_mcp_content(result: dict, label: str) -> list[Any]:
+    """Turn a pyirena.api.plotting result into MCP content."""
     path = Path(result["path"])
-    return [
-        f"Plot saved to: {path}",
-        Image(data=path.read_bytes(), format="png"),
-    ]
+    return _image_content(label, path.read_bytes(), str(path))
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_plot_iq(
     paths: list[str],
     overlay: bool = True,
@@ -308,10 +342,10 @@ def pyirena_plot_iq(
         paths=paths, overlay=overlay, log_x=log_x, log_y=log_y,
         output_path=output_path, return_base64=False,
     )
-    return _plot_result_as_mcp_content(result)
+    return _plot_result_as_mcp_content(result, "I(Q) plot")
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_plot_parameter_trend(
     folder: str,
     tool: str,
@@ -332,7 +366,9 @@ def pyirena_plot_parameter_trend(
         subgroup_index=subgroup_index, sample_filter=sample_filter,
         output_path=output_path, return_base64=False,
     )
-    return _plot_result_as_mcp_content(result)
+    return _plot_result_as_mcp_content(
+        result, f"{parameter} trend across {tool} results"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,16 +395,33 @@ import base64 as _base64
 from pyirena.api import control as _ctrl
 
 
-def _ctrl_image_result(result: dict, session_id: str) -> list[Any]:
-    """Convert a get_fit_image / get_residuals_image result to MCP content."""
-    if "error" in result:
+def _ctrl_image_result(result: dict, label: str) -> list[Any]:
+    """Convert a control-API image result to MCP content.
+
+    Control-API image functions return ``{"image_base64": ..., "image_path":
+    ...}`` (or an error dict).  Both halves are passed through: the base64
+    payload becomes the inline image block, the path becomes the text block.
+    """
+    if not isinstance(result, dict) or "error" in result:
         return [result]
-    b64 = result.get("image_base64", "")
-    label = (
-        f"Fit image (session {session_id})"
-        + (" — includes residuals subplot" if result.get("has_residuals") else " — pre-fit preview")
+    b64 = result.get("image_base64") or ""
+    if not b64:
+        return [{
+            "error": "No image was produced.",
+            "code": "NO_IMAGE",
+            "result": result,
+        }]
+    return _image_content(label, _base64.b64decode(b64), result.get("image_path"))
+
+
+def _fit_image_label(result: dict, session_id: str) -> str:
+    """Label for the Unified Fit image, noting whether residuals are included."""
+    suffix = (
+        " — includes residuals subplot"
+        if isinstance(result, dict) and result.get("has_residuals")
+        else " — pre-fit preview"
     )
-    return [label, Image(data=_base64.b64decode(b64), format="png")]
+    return f"Fit image (session {session_id}){suffix}"
 
 
 # --- Session lifecycle ---
@@ -751,7 +804,7 @@ def pyirena_ctrl_get_fit_quality(session_id: str, n_bands: int = 4) -> dict:
     return _ctrl.get_fit_quality(session_id, n_bands=n_bands)
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_get_fit_image(
     session_id: str,
     width: int = 1024,
@@ -764,10 +817,10 @@ def pyirena_ctrl_get_fit_image(
     Examine the image to assess fit quality before deciding next steps.
     """
     result = _ctrl.get_fit_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, session_id)
+    return _ctrl_image_result(result, _fit_image_label(result, session_id))
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_get_residuals_image(
     session_id: str,
     width: int = 1024,
@@ -775,7 +828,7 @@ def pyirena_ctrl_get_residuals_image(
 ) -> list[Any]:
     """Capture fit + residuals panel as an inline PNG. Requires a completed fit."""
     result = _ctrl.get_residuals_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, session_id)
+    return _ctrl_image_result(result, _fit_image_label(result, session_id))
 
 
 # --- Persistence ---
@@ -979,18 +1032,14 @@ def pyirena_ctrl_sizes_fit_flat_background(
     return _ctrl.fit_flat_background(session_id, q_min, q_max)
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_sizes_get_background_image(
     session_id: str, width: int = 1024, height: int = 768
 ) -> list[Any]:
     """Render the data with the current complex background overlaid (log-log).
     Use to visually confirm the background before inverting."""
     result = _ctrl.get_background_preview_image(session_id, width=width, height=height)
-    if "error" in result:
-        return [result]
-    b64 = result.get("image_base64", "")
-    return [f"Background preview (session {session_id})",
-            Image(data=_base64.b64decode(b64), format="png")]
+    return _ctrl_image_result(result, f"Background preview (session {session_id})")
 
 
 @mcp.tool()
@@ -1022,18 +1071,14 @@ def pyirena_ctrl_sizes_get_results(session_id: str) -> dict:
     return _ctrl.get_sizes_results(session_id)
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_sizes_get_fit_image(
     session_id: str, width: int = 1024, height: int = 900
 ) -> list[Any]:
     """Render the Sizes fit as a two-panel PNG: (top) log-log data + model
     (+ background), (bottom) the size distribution P(r) vs r."""
     result = _ctrl.get_sizes_fit_image(session_id, width=width, height=height)
-    if "error" in result:
-        return [result]
-    b64 = result.get("image_base64", "")
-    return [f"Sizes fit image (session {session_id})",
-            Image(data=_base64.b64decode(b64), format="png")]
+    return _ctrl_image_result(result, f"Sizes fit image (session {session_id})")
 
 
 @mcp.tool()
@@ -1161,21 +1206,17 @@ def pyirena_ctrl_simple_get_results(session_id: str) -> dict:
     return _ctrl.get_simple_results(session_id)
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_simple_get_fit_image(
     session_id: str, width: int = 1024, height: int = 800
 ) -> list[Any]:
     """Render the Simple Fits result as a PNG: log-log data + model on top,
     residuals below."""
     result = _ctrl.get_simple_fit_image(session_id, width=width, height=height)
-    if "error" in result:
-        return [result]
-    b64 = result.get("image_base64", "")
-    return [f"Simple Fits image (session {session_id})",
-            Image(data=_base64.b64decode(b64), format="png")]
+    return _ctrl_image_result(result, f"Simple Fits image (session {session_id})")
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_simple_get_linearization_image(
     session_id: str, width: int = 900, height: int = 700
 ) -> list[Any]:
@@ -1188,12 +1229,9 @@ def pyirena_ctrl_simple_get_linearization_image(
     result = _ctrl.get_simple_linearization_image(
         session_id, width=width, height=height
     )
-    if "error" in result:
-        return [result]
-    b64 = result.get("image_base64", "")
     label = (f"Linearization (session {session_id}): "
              f"slope={result.get('slope')}, R^2={result.get('r_squared')}")
-    return [label, Image(data=_base64.b64decode(b64), format="png")]
+    return _ctrl_image_result(result, label)
 
 
 @mcp.tool()
@@ -1388,7 +1426,7 @@ def pyirena_ctrl_modeling_get_results(session_id: str) -> dict:
     return _ctrl.get_modeling_results(session_id)
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_modeling_get_fit_image(
     session_id: str, width: int = 1024, height: int = 800
 ) -> list[Any]:
@@ -1399,11 +1437,7 @@ def pyirena_ctrl_modeling_get_fit_image(
     curve, and whether one has collapsed to nothing.
     """
     result = _ctrl.get_modeling_fit_image(session_id, width=width, height=height)
-    if "error" in result:
-        return [result]
-    b64 = result.get("image_base64", "")
-    return [f"Modeling fit image (session {session_id})",
-            Image(data=_base64.b64decode(b64), format="png")]
+    return _ctrl_image_result(result, f"Modeling fit image (session {session_id})")
 
 
 @mcp.tool()
@@ -1604,7 +1638,7 @@ def pyirena_ctrl_waxs_get_results(session_id: str) -> dict:
     return _ctrl.get_waxs_results(session_id)
 
 
-@mcp.tool()
+@_image_tool()
 def pyirena_ctrl_waxs_get_fit_image(
     session_id: str, width: int = 1024, height: int = 800
 ) -> list[Any]:
@@ -1615,11 +1649,7 @@ def pyirena_ctrl_waxs_get_fit_image(
     zero amplitude.
     """
     result = _ctrl.get_waxs_fit_image(session_id, width=width, height=height)
-    if "error" in result:
-        return [result]
-    b64 = result.get("image_base64", "")
-    return [f"WAXS peak fit image (session {session_id})",
-            Image(data=_base64.b64decode(b64), format="png")]
+    return _ctrl_image_result(result, f"WAXS peak fit image (session {session_id})")
 
 
 @mcp.tool()
