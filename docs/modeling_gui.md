@@ -503,6 +503,8 @@ higher values give a large speedup on multi-core machines for slow fits — e.g.
 a core-shell global fit that takes ~60 s serially drops to ~17 s on 6 cores.
 Notes:
 - The result is independent of the worker count (same minimum, same χ²).
+- **Setting `cores` above ~10 buys essentially nothing.** See
+  [Why more cores stop helping](#why-more-cores-stop-helping) below.
 - Speedup only helps when each model evaluation is non-trivial (core-shell,
   spheroidal, large Q arrays / many bins). For cheap models the process
   overhead can make parallel *no faster* — leave `cores` at 1 there.
@@ -542,7 +544,36 @@ seconds. If the host cannot start worker processes, the passes fall back to
 serial with a warning rather than failing.
 
 Uncertainties do not depend on how many cores you use — a given run produces the
-same numbers serially and in parallel.
+same numbers serially and in parallel. As with the global fit, **more than ~10
+cores is not worth setting** — see below.
+
+### Why more cores stop helping
+
+Both `cores` settings saturate well below the core count, and it is worth knowing
+where, because a large value costs memory and GUI responsiveness for no speed.
+
+Measured on an 18-core machine, with the same core-shell model (1406 Q-points,
+199 radius bins, 10 free parameters):
+
+| cores | Global fit | MC, 50 passes |
+|---|---|---|
+| 1  | 130 s | 62 s |
+| 4  | —     | 20 s |
+| 6  | 21 s  | —    |
+| 8  | —     | 14 s |
+| 10 | 15 s  | 14 s |
+| 15 | 15 s  | 12 s |
+| 18 | 14 s  | 12 s |
+
+The curve flattens near 8–10 workers and is flat after that. The reason is that
+a model evaluation is dominated by elementwise NumPy arithmetic over the
+(Q × radius-bin) G matrix — a few megabytes per evaluation — so the workers
+compete for memory bandwidth rather than for CPU. Adding processes past that
+point adds traffic, not throughput.
+
+Practical guidance: **10 is a sensible maximum for both settings.** Going higher
+is not wrong, just pointless; going *lower* (say 6–8) costs little and leaves the
+machine usable while a long fit runs.
 
 **Cancelling.** While MC is running the button becomes **Cancel MC**. Cancelling
 does not interrupt passes already in flight, so it takes effect within roughly

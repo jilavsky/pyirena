@@ -39,6 +39,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Modeling fits are ~3x faster, with identical results.** A user-supplied
+  core-shell model (1406 Q-points, 199 radius bins, 10 free parameters) went
+  from 50 s to 16 s for a global fit and 39 s to 12 s for 50 Monte-Carlo
+  passes, on the same 18-core machine. Every fitted parameter and every MC
+  uncertainty is unchanged; the full test suite is unchanged. Four
+  independent causes, all in the per-iteration hot path:
+  - `schulz_zimm_cdf` and `gauss_cdf` called `scipy.stats.gamma.cdf` /
+    `norm.cdf`, whose `rv_continuous` wrapper costs ~14 µs per *scalar* call.
+    `generate_radius_grid` makes a few hundred of those per fit iteration
+    while walking the CDF out to the distribution tails. They now call
+    `scipy.special.gammainc` / `ndtr` — the functions scipy itself dispatches
+    to — for bit-identical results at ~1/33 the cost.
+  - `total_intensity` rebuilt each population's radius grid a second time
+    after `calculate_pop_intensity` had already built it. The grid is now
+    returned by the same call, and memoised on the distribution parameters
+    that define it, so a Jacobian step that leaves them alone reuses it.
+  - The core-shell sphere G matrix (all three of `cs_sphere_by_core`,
+    `_by_shell` and `_by_total`) was assembled with a Python loop over radius
+    bins. It is now one vectorised expression; where the shell thickness is
+    constant across bins, half the sin/cos work is recovered by angle
+    addition. The core-shell-shell and core-shell-spheroid builders have
+    their own helpers and still loop — same opportunity, not yet taken.
+  - Each population's I(Q) is memoised during a fit on the full set of
+    parameters it depends on, so a step in the background or in another
+    population skips it entirely.
+- **The fit-time G-matrix cache now keys on the Q grid as well.** It keyed
+  only on the radius grid and form-factor parameters, which is why
+  `total_intensity_ideal` had to avoid it: with slit smearing on, a fit
+  evaluates the model on both the data grid and the smearer's extended grid.
+  Mismatched lengths raised; two same-length grids would have silently reused
+  the wrong matrix.
+- **Documented where parallel fitting stops paying off** (`docs/modeling_gui.md`).
+  Both the global-fit and MC-uncertainty `cores` settings flatten out around
+  8–10 workers — model evaluation is bound by memory bandwidth over the G
+  matrix, not by CPU — so values above ~10 cost resources without saving time.
 - **PNG rendering for the control API lives in one place**,
   `pyirena/api/control/_images.py` (`render_png`, `image_cache_dir`),
   replacing five near-identical private copies in `unified_fit.py`,

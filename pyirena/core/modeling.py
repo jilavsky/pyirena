@@ -1381,9 +1381,20 @@ class ModelingEngine:
         # only; reused when scale/background/SF params change but G inputs don't.
         # Cleared at the start of every fit() call.
         self._fit_g_cache: dict[int, np.ndarray] = {}
-        self._fit_g_keys:  dict[int, str] = {}
+        # pop_index -> (key string, the q array G was built on)
+        self._fit_g_keys:  dict[int, tuple] = {}
         # Cached slit smearer, rebuilt when (q, slit_length) change.
         self._smearer = None
+        # Most recent radius grid and its bin widths, keyed on the distribution
+        # inputs that define them. Building the grid inverts the CDF numerically
+        # and is expensive; an optimiser step that leaves dist_params alone (most
+        # of a finite-difference Jacobian) reuses it.
+        self._rg_cache: dict = {}
+        # Fit-time per-population intensity memo, keyed on every parameter the
+        # population's I(Q) depends on. Lets a step that touched only the
+        # background or another population skip this one outright.
+        # Cleared at the start of every fit() call.
+        self._pop_memo: dict = {}
 
     # ── Slit smearing ─────────────────────────────────────────────────────────
 
@@ -1438,9 +1449,40 @@ class ModelingEngine:
 
     def build_radius_grid(self, pop: SizeDistPopulation) -> np.ndarray:
         """Return the non-linear radius grid for *pop*."""
-        return D.generate_radius_grid(
+        return self._radius_grid_and_widths(pop)[0]
+
+    def _radius_grid_and_widths(self, pop: SizeDistPopulation):
+        """(radius grid, bin widths) for *pop*, memoised on their inputs.
+
+        The grid depends only on the distribution type, its parameters and the
+        bin count, so this holds a single entry and returns it whenever those
+        are unchanged. Both arrays are treated as read-only by every caller.
+        """
+        key = (pop.dist_type, tuple(sorted(pop.dist_params.items())), pop.n_bins)
+        cache = self._rg_cache
+        if cache.get('key') == key:
+            return cache['rg'], cache['dr']
+        rg = D.generate_radius_grid(
             pop.dist_type, pop.dist_params,
             n_bins=pop.n_bins, tail_precision=0.01,
+        )
+        dr = bin_widths(rg)
+        cache['key'], cache['rg'], cache['dr'] = key, rg, dr
+        return rg, dr
+
+    @staticmethod
+    def _pop_memo_key(pop: SizeDistPopulation) -> tuple:
+        """Every parameter a size-distribution population's I(Q) depends on.
+
+        Used by the fit-time memo in :meth:`total_intensity`. Anything that can
+        change the returned curve must appear here.
+        """
+        return (
+            pop.dist_type, tuple(sorted(pop.dist_params.items())), pop.n_bins,
+            pop.form_factor, tuple(sorted(pop.ff_params.items())),
+            pop.contrast, pop.scale, pop.use_number_dist,
+            getattr(pop, 'structure_factor', 'none'),
+            tuple(sorted(getattr(pop, 'sf_params', {}).items())),
         )
 
     # ── Distribution ─────────────────────────────────────────────────────────
@@ -1530,8 +1572,10 @@ class ModelingEngine:
         return G
 
     def clear_cache(self) -> None:
-        """Discard all cached G matrices."""
+        """Discard every cached intermediate — G matrices, radius grid, memo."""
         self._g_cache.clear()
+        self._rg_cache.clear()
+        self._pop_memo.clear()
 
     @staticmethod
     def _fit_g_cache_key(r_grid: np.ndarray, pop: SizeDistPopulation) -> str:
@@ -1541,6 +1585,10 @@ class ModelingEngine:
         of its bytes), form factor name, ff_params, and contrast.  Deliberately
         excludes scale, background, and sf_params so that optimizer steps that
         only touch those parameters can reuse the cached G matrix.
+
+        G also depends on *q*, but hashing it on every evaluation would cost
+        more than it saves; the caller pairs this key with the q array itself
+        and compares that by identity.  See :meth:`_pop_intensity_and_grid`.
         """
         data = {
             'r': hashlib.md5(r_grid.tobytes()).hexdigest(),
@@ -1570,17 +1618,33 @@ class ModelingEngine:
                         cache.  Must be supplied when use_cache=False to enable
                         smart reuse; ignored when use_cache=True.
         """
-        radius_grid = self.build_radius_grid(pop)
+        return self._pop_intensity_and_grid(pop, q, use_cache, pop_index)[:3]
+
+    def _pop_intensity_and_grid(
+        self, pop: SizeDistPopulation, q: np.ndarray,
+        use_cache: bool = True,
+        pop_index: Optional[int] = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """As :meth:`calculate_pop_intensity`, plus the radius grid it used.
+
+        ``total_intensity`` needs the grid too, and rebuilding it there cost as
+        much as the intensity itself.
+        """
+        radius_grid, dr = self._radius_grid_and_widths(pop)
         vol_dist, num_dist = self.build_distributions(pop, radius_grid)
 
         if use_cache:
             # "Graph Model": use full-hash cache (params won't change mid-call)
             G = self.build_g_matrix(pop, q, radius_grid, use_cache=True)
         elif pop_index is not None:
-            # Fitting: rebuild G only when its inputs (r_grid / FF / contrast)
-            # actually changed; reuse it when only scale/bg/SF params moved.
+            # Fitting: rebuild G only when its inputs (q / r_grid / FF /
+            # contrast) actually changed; reuse it when only scale/bg/SF params
+            # moved. q is compared by identity rather than hashed — a fit holds
+            # its grids alive throughout, and with slit smearing on it evaluates
+            # on two of them (the data grid and the smearer's extended grid).
             fit_key = self._fit_g_cache_key(radius_grid, pop)
-            if self._fit_g_keys.get(pop_index) == fit_key:
+            cached_key = self._fit_g_keys.get(pop_index)
+            if cached_key is not None and cached_key[1] is q and cached_key[0] == fit_key:
                 G = self._fit_g_cache[pop_index]
             else:
                 G = build_g_matrix(
@@ -1589,7 +1653,7 @@ class ModelingEngine:
                     **pop.ff_params,
                 )
                 self._fit_g_cache[pop_index] = G
-                self._fit_g_keys[pop_index]  = fit_key
+                self._fit_g_keys[pop_index]  = (fit_key, q)
         else:
             # Fallback: always build fresh (no caching at all)
             G = build_g_matrix(
@@ -1598,10 +1662,9 @@ class ModelingEngine:
                 **pop.ff_params,
             )
 
-        dr = bin_widths(radius_grid)
         I_raw = G @ (vol_dist * dr)   # [cm⁻¹]
         I_pop = apply_structure_factor(I_raw, q, pop)
-        return I_pop, vol_dist, num_dist
+        return I_pop, vol_dist, num_dist, radius_grid
 
     # ── Total intensity ──────────────────────────────────────────────────────
 
@@ -1640,12 +1703,30 @@ class ModelingEngine:
                     I_pop = _surface_fractal_intensity(q, pop)
                     rg, vd, nd = None, None, None
                 else:  # size_dist
-                    I_pop, vd, nd = self.calculate_pop_intensity(
-                        pop, q,
-                        use_cache=use_cache,
-                        pop_index=(i if not use_cache else None),
-                    )
-                    rg = self.build_radius_grid(pop)
+                    # Fitting path only: reuse this population's curve outright
+                    # when the optimiser step moved none of its parameters.
+                    memo_key = None
+                    hit = None
+                    if not use_cache:
+                        memo_key = self._pop_memo_key(pop)
+                        cached = self._pop_memo.get(i)
+                        # The entry keeps its own reference to q, so identity is
+                        # a sound test — the smeared path evaluates on q_ext and
+                        # must not collide with the data grid.
+                        if (cached is not None
+                                and cached[1] is q
+                                and cached[0] == memo_key):
+                            hit = cached
+                    if hit is not None:
+                        _, _, rg, vd, nd, I_pop = hit
+                    else:
+                        I_pop, vd, nd, rg = self._pop_intensity_and_grid(
+                            pop, q,
+                            use_cache=use_cache,
+                            pop_index=(i if not use_cache else None),
+                        )
+                        if memo_key is not None:
+                            self._pop_memo[i] = (memo_key, q, rg, vd, nd, I_pop)
             except Exception as e:
                 warnings.warn(f"Population {i+1} failed: {e}", RuntimeWarning)
                 continue
@@ -1971,9 +2052,11 @@ class ModelingEngine:
         Returns:
             ModelingResult containing fitted parameters and derived quantities.
         """
-        # Fresh fit — discard any G matrices cached from a previous fit() call
+        # Fresh fit — discard anything cached from a previous fit() call
         self._fit_g_cache.clear()
         self._fit_g_keys.clear()
+        self._rg_cache.clear()
+        self._pop_memo.clear()
 
         # Crop q range
         mask = (q >= config.q_min) & (q <= config.q_max)
