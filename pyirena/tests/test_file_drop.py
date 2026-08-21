@@ -238,33 +238,40 @@ def test_paths_from_mime_reads_both_urls_and_plain_text(tmp_path):
     assert paths_from_mime(text_mime) == [one]
 
 
-def test_text_drop_payloads_normalise_to_native_paths():
+@pytest.mark.parametrize("flavour", ["posix", "windows"])
+def test_text_drop_payloads_normalise_to_native_paths(flavour, monkeypatch):
     """Every spelling of a dropped path must come back with native separators.
 
-    Windows CI caught this: ``QUrl.toLocalFile()`` returns ``C:/Users/...``
-    with forward slashes, and Explorer sends ``file:///C:/Users/...``.  Both
-    used to reach the panels unnormalised, where they compare unequal to the
-    same file found by a folder scan.  The Windows half is exercised here by
-    swapping in ntpath, so a POSIX-only CI run still catches a regression.
+    Windows CI caught the bug this guards: ``QUrl.toLocalFile()`` returns
+    ``C:/Users/...`` with forward slashes, and Explorer sends
+    ``file:///C:/Users/...``.  Both used to reach the panels unnormalised,
+    where they compare unequal to the same file found by a folder scan.
+
+    Both flavours are simulated on whichever host runs the suite, so a
+    Linux-only run still catches a Windows regression and vice versa.  The
+    stand-ins are installed on the ``file_drop`` module rather than on ``os``
+    itself -- ``fd.os`` *is* the global module, so assigning to ``fd.os.path``
+    would repoint ``os.path`` for the whole process.
     """
     import ntpath
     import nturl2path
+    import posixpath
+    from types import SimpleNamespace
+    from urllib.parse import unquote
 
     from pyirena.gui import file_drop as fd
 
-    posix_cases = {
-        "/data/a.h5": "/data/a.h5",
-        "file:///data/a.h5": "/data/a.h5",
-        "file:///data/my%20file.h5": "/data/my file.h5",
-        "": "",
-    }
-    for payload, want in posix_cases.items():
-        assert fd._path_from_text_line(payload) == want, payload
-
-    real_ospath, real_u2p = fd.os.path, fd.url2pathname
-    fd.os.path, fd.url2pathname = ntpath, nturl2path.url2pathname
-    try:
-        win_cases = {
+    if flavour == "posix":
+        pathmod, u2p = posixpath, unquote
+        cases = {
+            "/data/a.h5": "/data/a.h5",
+            "file:///data/a.h5": "/data/a.h5",
+            "file:///data/my%20file.h5": "/data/my file.h5",
+            "": "",
+        }
+    else:
+        pathmod, u2p = ntpath, nturl2path.url2pathname
+        cases = {
             # Explorer / Qt: a proper file URL with an empty authority.
             "file:///C:/Users/me/a.h5": r"C:\Users\me\a.h5",
             # Applications that drop the third slash send a bare path.
@@ -272,8 +279,10 @@ def test_text_drop_payloads_normalise_to_native_paths():
             # Already a path, but with the separators Qt prefers.
             "C:/Users/me/a.h5": r"C:\Users\me\a.h5",
             "file:///C:/Users/me/my%20file.h5": r"C:\Users\me\my file.h5",
+            "": "",
         }
-        for payload, want in win_cases.items():
-            assert fd._path_from_text_line(payload) == want, payload
-    finally:
-        fd.os.path, fd.url2pathname = real_ospath, real_u2p
+
+    monkeypatch.setattr(fd, "os", SimpleNamespace(path=pathmod))
+    monkeypatch.setattr(fd, "url2pathname", u2p)
+    for payload, want in cases.items():
+        assert fd._path_from_text_line(payload) == want, payload
