@@ -551,7 +551,7 @@ def test_every_tool_launcher_honours_the_shift_gesture():
 
     import pyirena
 
-    source = (Path(pyirena.__file__).parent / "gui" / "data_selector" / "panel.py").read_text()
+    source = (Path(pyirena.__file__).parent / "gui" / "data_selector" / "panel.py").read_text(encoding="utf-8")
     shown = set(re.findall(r"self\.(\w+_window)\.show\(\)", source))
     reset = set(re.findall(r"reset_window_if_shift\(self\.(\w+_window)\)", source))
 

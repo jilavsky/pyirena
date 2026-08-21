@@ -237,7 +237,7 @@ def test_save_curves_as_csv_writes_the_file(iq_plot, tmp_path, monkeypatch):
     _accept_dialog(monkeypatch, target)
     written = pe.save_curves_as_csv(iq_plot, None, "test_graph")
     assert written == str(target)
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     assert text.startswith("X (Data),Y (Data),dY (Data)")
     assert len(text.splitlines()) == 41       # header + 40 points
 
@@ -306,7 +306,7 @@ def test_itx_export_writes_waves_and_log_commands(iq_plot, tmp_path, monkeypatch
     _accept_dialog(monkeypatch, target)
     pe.save_itx_from_plot(iq_plot, None, "test_graph")
 
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     assert text.startswith("IGOR\n")
     assert "WAVES/D  X_Data_01" in text
     assert "WAVES/D  Y_Data_01" in text
@@ -333,7 +333,7 @@ def test_itx_marks_scatter_curves_as_markers_and_lines_as_lines(
 
     _accept_dialog(monkeypatch, tmp_path / "styled.itx")
     pe.save_itx_from_plot(plot, None, "styled")
-    text = (tmp_path / "styled.itx").read_text()
+    text = (tmp_path / "styled.itx").read_text(encoding="utf-8")
 
     assert "X ModifyGraph mode(Y_Data_01)=3,marker(Y_Data_01)=19" in text
     assert "X ModifyGraph mode(Y_Fit_02)=0,lsize(Y_Fit_02)=1.5" in text
@@ -354,7 +354,7 @@ def test_itx_wave_names_stay_unique_when_labels_are_long(
 
     _accept_dialog(monkeypatch, tmp_path / "long.itx")
     pe.save_itx_from_plot(plot, None, "long")
-    text = (tmp_path / "long.itx").read_text()
+    text = (tmp_path / "long.itx").read_text(encoding="utf-8")
 
     waves = [ln.split()[-1] for ln in text.splitlines() if ln.startswith("WAVES")]
     assert len(waves) == len(set(waves)), f"duplicate wave names: {waves}"
@@ -379,7 +379,7 @@ def test_itx_export_routes_into_an_igor_data_folder(iq_plot, tmp_path, monkeypat
     _accept_dialog(monkeypatch, tmp_path / "graph.itx")
     pe.save_itx_from_plot(iq_plot, None, "test_graph",
                           technique="Sizes", sample="AeroGel_500C.h5")
-    text = (tmp_path / "graph.itx").read_text()
+    text = (tmp_path / "graph.itx").read_text(encoding="utf-8")
     assert "X NewDataFolder/O/S root:Sizes" in text
     assert "X NewDataFolder/O/S root:Sizes:'AeroGel_500C'" in text   # extension dropped
     assert "X SetDataFolder root:" in text

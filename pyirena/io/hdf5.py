@@ -22,6 +22,38 @@ Q_UNIT_TO_ANGSTROM = {
 }
 
 
+def _read_text_lines(filepath):
+    """Read a data file as text, tolerating whichever encoding it arrived in.
+
+    Instrument software writes headers in whatever the authoring machine used.
+    UTF-8 is overwhelmingly the common case and is tried first, with
+    ``utf-8-sig`` so that a byte-order mark from a Windows editor is consumed
+    rather than glued onto the first value.  A file that is not valid UTF-8 —
+    typically an older cp1252/ISO-8859-1 header carrying a degree sign or an
+    Angstrom — then falls back to latin-1, which cannot fail: every byte maps
+    to a code point.  Only the header text can be affected either way; the
+    numeric columns are ASCII in any of these encodings.
+
+    Reading with the platform default instead (what ``open(path)`` does) makes
+    the same file load on Linux and raise UnicodeDecodeError on Windows.
+
+    Args:
+        filepath: Path to the text data file.
+
+    Returns:
+        list[str]: The file's lines, newlines included.
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
+            return f.readlines()
+    except UnicodeDecodeError:
+        logging.info(
+            f"{os.path.basename(filepath)} is not UTF-8; re-reading as latin-1"
+        )
+        with open(filepath, 'r', encoding='latin-1') as f:
+            return f.readlines()
+
+
 def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
     """
     Read text data files (.dat, .txt, .csv) with Q, Intensity, and optional
@@ -61,8 +93,7 @@ def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
     try:
         # Try to read the file, detecting and skipping header rows
         # First, read all lines to find where numeric data starts
-        with open(filepath, 'r') as f:
-            lines = f.readlines()
+        lines = _read_text_lines(filepath)
 
         # Detect the column delimiter from the first data-bearing line:
         # a comma present outside of a comment means a comma-separated file.
@@ -95,8 +126,11 @@ def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
                 skip_rows = i + 1
                 continue
 
-        # Now read data with proper skip_rows
-        data = np.loadtxt(filepath, comments='#', skiprows=skip_rows, delimiter=delimiter)
+        # Now read data with proper skip_rows.  Parse the lines already decoded
+        # above rather than reopening the path: np.loadtxt(path) would decode a
+        # second time with the platform default encoding, which is cp1252 on
+        # Windows and would undo the fallback in _read_text_lines.
+        data = np.loadtxt(lines, comments='#', skiprows=skip_rows, delimiter=delimiter)
 
         if data.ndim == 1:
             # Single row, reshape

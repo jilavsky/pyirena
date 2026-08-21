@@ -126,7 +126,7 @@ def test_save_report_writes_markdown(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(rb, "save_report", rb.save_report)   # keep real function
     written = save_report(None, "# report\n", "unified_fit")
     assert written == str(target)
-    assert target.read_text() == "# report\n"
+    assert target.read_text(encoding="utf-8") == "# report\n"
 
 
 def test_save_report_appends_the_extension(qapp, tmp_path, monkeypatch):
@@ -185,7 +185,7 @@ def test_save_report_with_a_widget_writes_png_beside_the_md(qapp, tmp_path,
         assert image.exists() and image.stat().st_size > 0
         assert image.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
-        text = target.read_text()
+        text = target.read_text(encoding="utf-8")
         # Relative link: moving report + image together keeps the figure alive.
         assert f"![Graph]({image.name})" in text
         assert str(tmp_path) not in text
@@ -201,7 +201,7 @@ def test_save_report_without_a_widget_writes_no_image(qapp, tmp_path, monkeypatc
                         staticmethod(lambda *a, **k: (str(target), "")))
     rb.save_report(None, "# pyIrena Report\n", "plain")
     assert not (tmp_path / "plain_report.png").exists()
-    assert "![Graph]" not in target.read_text()
+    assert "![Graph]" not in target.read_text(encoding="utf-8")
 
 
 def test_save_report_still_writes_when_the_graph_cannot_be_captured(
@@ -219,7 +219,7 @@ def test_save_report_still_writes_when_the_graph_cannot_be_captured(
     written = rb.save_report(None, "# pyIrena Report\n", "r",
                              image_widget=object())   # cannot be grabbed
     assert written == str(target)
-    assert target.read_text() == "# pyIrena Report\n"
+    assert target.read_text(encoding="utf-8") == "# pyIrena Report\n"
     assert warned, "the user must be told the figure is missing"
 
 

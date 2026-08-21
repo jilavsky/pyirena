@@ -236,3 +236,44 @@ def test_paths_from_mime_reads_both_urls_and_plain_text(tmp_path):
     text_mime = QMimeData()
     text_mime.setText(f"file://{one}\n")
     assert paths_from_mime(text_mime) == [one]
+
+
+def test_text_drop_payloads_normalise_to_native_paths():
+    """Every spelling of a dropped path must come back with native separators.
+
+    Windows CI caught this: ``QUrl.toLocalFile()`` returns ``C:/Users/...``
+    with forward slashes, and Explorer sends ``file:///C:/Users/...``.  Both
+    used to reach the panels unnormalised, where they compare unequal to the
+    same file found by a folder scan.  The Windows half is exercised here by
+    swapping in ntpath, so a POSIX-only CI run still catches a regression.
+    """
+    import ntpath
+    import nturl2path
+
+    from pyirena.gui import file_drop as fd
+
+    posix_cases = {
+        "/data/a.h5": "/data/a.h5",
+        "file:///data/a.h5": "/data/a.h5",
+        "file:///data/my%20file.h5": "/data/my file.h5",
+        "": "",
+    }
+    for payload, want in posix_cases.items():
+        assert fd._path_from_text_line(payload) == want, payload
+
+    real_ospath, real_u2p = fd.os.path, fd.url2pathname
+    fd.os.path, fd.url2pathname = ntpath, nturl2path.url2pathname
+    try:
+        win_cases = {
+            # Explorer / Qt: a proper file URL with an empty authority.
+            "file:///C:/Users/me/a.h5": r"C:\Users\me\a.h5",
+            # Applications that drop the third slash send a bare path.
+            r"file://C:\Users\me\a.h5": r"C:\Users\me\a.h5",
+            # Already a path, but with the separators Qt prefers.
+            "C:/Users/me/a.h5": r"C:\Users\me\a.h5",
+            "file:///C:/Users/me/my%20file.h5": r"C:\Users\me\my file.h5",
+        }
+        for payload, want in win_cases.items():
+            assert fd._path_from_text_line(payload) == want, payload
+    finally:
+        fd.os.path, fd.url2pathname = real_ospath, real_u2p

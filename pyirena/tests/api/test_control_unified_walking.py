@@ -28,9 +28,19 @@ def _make_powerlaw_file(folder: Path) -> Path:
 
 
 def _setup_pinned_start(sid: str) -> None:
-    """Pure power-law level starting 100× above the true B, panel-style limits."""
-    assert "error" not in ctrl.select_model(sid, "unified_fit")
-    assert "error" not in ctrl.add_unified_level(sid)
+    """Pure power-law level starting 100× above the true B, panel-style limits.
+
+    One level only.  select_model already supplies level 1, so calling
+    add_unified_level here used to leave a second, entirely default level free
+    in the fit — a duplicate power law the data cannot distinguish from the
+    first.  Its G and B then drift to their 1e-10 / 1e-20 lower bounds, and
+    whether they land *on* the bound or just above it is numerical luck that
+    differs between platforms.  That is what made this test fail on Windows
+    only, reporting level 2 as pinned.
+    """
+    sel = ctrl.select_model(sid, "unified_fit")
+    assert "error" not in sel
+    assert sel["nlevels"] == 1, "select_model no longer starts with one level"
     assert "error" not in ctrl.set_parameter_value(sid, "G_1", 0.0)
     assert "error" not in ctrl.fix_parameter(sid, "G_1")
     assert "error" not in ctrl.set_parameter_value(sid, "Rg_1", 1e10)

@@ -77,3 +77,46 @@ class TestQUnitConversion:
         _write(tmp_path / 'a.dat', "1.0 100.0 5.0\n")
         with pytest.raises(ValueError, match="Unknown q_unit"):
             readTextFile(str(tmp_path), 'a.dat', q_unit='1/parsec')
+
+
+class TestReadTextFileEncodings:
+    """A data file must load whatever encoding its header arrived in.
+
+    Reading with the platform default made these files load on Linux and raise
+    UnicodeDecodeError on Windows, where the default is cp1252.  Both the
+    header scan and the np.loadtxt pass have to agree on the encoding, so both
+    now work from one decoded read.
+    """
+
+    BODY = "\n".join(f"{q} {i} {e}" for q, i, e in ROWS) + "\n"
+
+    def _check(self, tmp_path, name, raw: bytes):
+        (tmp_path / name).write_bytes(raw)
+        data = readTextFile(str(tmp_path), name)
+        assert data is not None, f"{name} failed to load"
+        np.testing.assert_allclose(data['Q'], [r[0] for r in ROWS])
+        np.testing.assert_allclose(data['Intensity'], [r[1] for r in ROWS])
+        return data
+
+    def test_utf8_header_with_angstrom(self, tmp_path):
+        self._check(tmp_path, 'utf8.dat',
+                    ("# Q (Å⁻¹)  I (cm⁻¹)  dI\n" + self.BODY).encode('utf-8'))
+
+    def test_latin1_header_falls_back(self, tmp_path):
+        # 0xC5 alone is a valid latin-1 'Å' but invalid UTF-8, so strict UTF-8
+        # decoding raises and the reader must retry rather than give up.
+        raw = b"# Q (1/\xc5)  I  dI\n" + self.BODY.encode('ascii')
+        with pytest.raises(UnicodeDecodeError):
+            raw.decode('utf-8')
+        self._check(tmp_path, 'latin1.dat', raw)
+
+    def test_utf8_bom_does_not_eat_the_first_data_row(self, tmp_path):
+        # A BOM from a Windows editor used to glue ﻿ onto the first value,
+        # which failed the float() probe and silently dropped that data point.
+        data = self._check(tmp_path, 'bom.dat',
+                           b"\xef\xbb\xbf" + self.BODY.encode('utf-8'))
+        assert len(data['Q']) == len(ROWS)
+
+    def test_bom_with_a_header_line(self, tmp_path):
+        self._check(tmp_path, 'bomhdr.dat',
+                    b"\xef\xbb\xbf" + ("# Q I dI\n" + self.BODY).encode('utf-8'))

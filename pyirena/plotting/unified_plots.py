@@ -216,7 +216,9 @@ def export_fit_results(model, filename: str, include_levels: bool = True):
         filename: Output file path
         include_levels: Include individual level contributions
     """
-    with open(filename, 'w') as f:
+    # Å and cm⁻¹ go into this file, so the encoding cannot be left to the
+    # platform default — that is cp1252 on Windows and raises.
+    with open(filename, 'w', encoding='utf-8') as f:
         # Header
         f.write("=" * 70 + "\n")
         f.write("UNIFIED FIT MODEL - FIT RESULTS\n")

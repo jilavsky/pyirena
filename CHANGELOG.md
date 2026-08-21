@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+CI now runs the test suite on macOS (arm64) and Windows as well as Linux, which
+immediately turned up four platform-specific defects. Three were in the tests
+themselves; the drag-and-drop one was real and had been shipping.
+
+### Fixed
+
+- **A UTF-8 BOM silently dropped the first data point of a text file.** This is
+  not Windows-specific — it affected every platform. `readTextFile` opened the
+  file with the platform default encoding, so a byte-order mark from a Windows
+  editor arrived as a `\ufeff` glued onto the first Q value. That failed the
+  `float()` probe used to find where the header ends, so the line was
+  classified as another header row and skipped: a four-point file loaded as
+  three points, with no warning. The file is now read as `utf-8-sig`, which
+  consumes the BOM.
+- **Text data files whose header was not UTF-8 failed to load on Windows.**
+  Same root cause from the other direction: an older instrument header carrying
+  a cp1252/ISO-8859-1 `Å` or degree sign is not valid UTF-8, and the platform
+  default on Windows is cp1252, so the same file loaded on Linux and raised
+  `UnicodeDecodeError` on Windows. `readTextFile` now tries UTF-8 and falls
+  back to latin-1, which cannot fail — only header text is affected either way,
+  since the numeric columns are ASCII in all of these encodings. The fix had to
+  cover two reads, not one: `np.loadtxt` defaults to `encoding=None`, meaning
+  the platform default, so it would have raised on the second pass over a file
+  the first pass had just recovered. Both now work from a single decoded read.
+- **Dropped files arrived with the wrong path separators on Windows.**
+  `paths_from_mime` returned whatever Qt handed it, and `QUrl.toLocalFile()`
+  gives `C:/Users/...` with forward slashes. The plain-text branch was worse: it
+  stripped seven characters off `file://` unconditionally, turning Explorer's
+  `file:///C:/Users/x` into `/C:/Users/x`, which is not a path at all. A dropped
+  file therefore compared unequal to the same file found by a folder scan.
+  Real file URLs now go through `urllib.request.url2pathname` (which knows
+  `/C:/x` means `C:\x`, and un-escapes `%20`), the malformed `file://C:\x`
+  spelling that some applications send is taken literally, and every result is
+  normalised to native separators.
+- **`export_fit_results` crashed on Windows.** It writes `Å` and `cm⁻¹` into a
+  plain text file without specifying an encoding, so it raised
+  `UnicodeEncodeError` under cp1252. It has no test, which is why CI did not
+  flag it; found by inspection while fixing the above.
+
+### Changed
+
+- **Tests run on three operating systems.** `test` became a deliberately sparse
+  matrix rather than the full cartesian product: Linux sweeps Python
+  3.10/3.11/3.13, and macOS-arm64 and Windows each get 3.12. Version bugs need
+  the Python sweep; platform bugs need the platform, and the extra six
+  combinations of a full matrix buy almost nothing. `test-gui` runs on all
+  three under `QT_QPA_PLATFORM=offscreen`, with the `apt-get` step gated to
+  Linux. Both jobs carry a 45-minute timeout.
+- **Three test-only Windows failures fixed.** Six `Path.read_text()` calls
+  reading UTF-8 content — a source file, and `.itx` exports containing `cm⁻¹` —
+  decoded as cp1252 and raised; the ITX *writer* was already correct. Four more
+  in `test_report_buttons` were one `χ²` away from the same failure and got the
+  same treatment. Separately,
+  `test_run_fit_walks_to_distant_optimum_by_default` called
+  `add_unified_level()` on top of the level `select_model()` already creates,
+  leaving a second, entirely default level free in the fit — a duplicate power
+  law the data cannot distinguish from the first, whose G and B drift onto
+  their `1e-10`/`1e-20` lower bounds. Whether they land *on* a bound or just
+  above it is numerical noise that differs by platform, which is why only
+  Windows reported them as pinned. The spurious level is gone and the
+  one-level assumption is now asserted rather than assumed.
+
 ## [1.1.0b9] - 2026-08-21
 
 Performance release: Modeling fits run about three times faster with unchanged

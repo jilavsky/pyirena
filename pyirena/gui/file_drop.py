@@ -36,6 +36,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
+from urllib.request import url2pathname
 
 log = logging.getLogger(__name__)
 
@@ -135,6 +136,33 @@ def _scan_folder(folder: Path, accepted: set, depth: int) -> List[str]:
     return out
 
 
+def _path_from_text_line(line: str) -> str:
+    """Turn one line of a text drop payload into a native filesystem path.
+
+    Qt hands back ``C:/Users/...`` on Windows and applications send several
+    spellings of a file URL, so both are normalised here rather than in every
+    caller.  A path that reaches a panel with the wrong separator compares
+    unequal to the same file discovered by a folder scan, which is how a
+    dropped file ends up loaded twice.
+    """
+    if not line:
+        return ""
+    if line.startswith("file://"):
+        rest = line[7:]
+        if rest.startswith("/"):
+            # A well-formed file URL carries an empty authority, so the
+            # remainder is ``/tmp/x`` on POSIX and ``/C:/Users/x`` on Windows.
+            # url2pathname knows the difference (and un-escapes ``%20``).
+            line = url2pathname(rest)
+        else:
+            # Some applications drop the third slash and send ``file://C:\x``.
+            # That is not a URL; take it literally rather than mangling it.
+            line = rest
+    if not line:
+        return ""
+    return os.path.normpath(line)
+
+
 def paths_from_mime(mime) -> List[str]:
     """Extract filesystem paths from a Qt drop payload.
 
@@ -148,14 +176,12 @@ def paths_from_mime(mime) -> List[str]:
             for url in mime.urls():
                 local = url.toLocalFile()
                 if local:
-                    paths.append(local)
+                    paths.append(os.path.normpath(local))
         if not paths and mime.hasText():
             for line in mime.text().splitlines():
-                line = line.strip()
-                if line.startswith("file://"):
-                    line = line[7:]
-                if line:
-                    paths.append(line)
+                local = _path_from_text_line(line.strip())
+                if local:
+                    paths.append(local)
     except Exception:
         log.debug("could not read drop payload", exc_info=True)
     return paths
