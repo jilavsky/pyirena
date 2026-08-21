@@ -20,11 +20,24 @@ jobs:
         run: ruff check pyirena
 
   test:
-    runs-on: ubuntu-latest
+    # Sparse matrix, deliberately not the full cartesian product: Linux sweeps
+    # the supported Python range (that is what version bugs need), macOS and
+    # Windows get one modern Python each (that is what platform bugs need --
+    # HDF5 file locking, case-insensitive filesystems, path separators, the
+    # binary .pxp reader). macos-latest is arm64, so it also covers Apple
+    # silicon numpy/BLAS, which is what most of our users actually run.
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.13']
+        include:
+          - {os: ubuntu-latest,  python-version: '3.10'}
+          - {os: ubuntu-latest,  python-version: '3.11'}
+          - {os: ubuntu-latest,  python-version: '3.13'}
+          - {os: macos-latest,   python-version: '3.12'}
+          - {os: windows-latest, python-version: '3.12'}
 
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +60,19 @@ jobs:
     # Runs the suite with the optional GUI extras installed so the tests that
     # otherwise skip in the `test` job (periodictable / xraydb / Dans_Diffraction
     # and the Qt-backed panels) actually execute here.
-    runs-on: ubuntu-latest
+    #
+    # QT_QPA_PLATFORM=offscreen on every platform: uniform and reliable in CI.
+    # It does mean the native "windows"/"cocoa" plugins are not exercised, so
+    # this catches Qt *version* and widget-logic differences across platforms
+    # but not platform-plugin rendering differences.
+    name: test-gui (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +82,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install headless Qt system libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
