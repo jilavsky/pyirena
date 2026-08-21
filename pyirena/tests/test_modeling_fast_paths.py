@@ -18,11 +18,19 @@ import pytest
 from scipy import stats
 
 from pyirena.core import distributions as D
-from pyirena.core.form_factors import _cs_g_from_pairs, _sphere_amplitude
+from pyirena.core.form_factors import (
+    _GL_NODES,
+    _GL_WEIGHTS,
+    _build_g_css_sphere_by_core,
+    _cs_g_from_pairs,
+    _cs_spheroid_g_from_pairs,
+    _sphere_amplitude,
+)
 from pyirena.core.modeling import (
     DiffractionPeakPopulation,
     ModelingConfig,
     ModelingEngine,
+    PopulationEvaluationError,
     SizeDistPopulation,
 )
 
@@ -134,6 +142,146 @@ class TestCoreShellGVectorised:
         ref = _cs_g_reference(q, np.array([80.0]), np.array([120.0]), 9.9, 9.4, 9.46)
         assert G.shape == (32, 1)
         assert np.max(np.abs(G - ref)) <= 1e-11 * np.max(np.abs(ref))
+
+    @pytest.mark.parametrize("qr", [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8])
+    def test_guinier_regime_precision(self, qr):
+        """sin(x) - x*cos(x) cancels as x -> 0 and needs the Taylor branch.
+
+        Small particles at USAXS Q reach this regime; without the branch the
+        result is only ~5 digits by qr = 1e-5 and meaningless by qr = 1e-7.
+        Checked per element, not relative to the peak of the matrix.
+        """
+        r_t = 100.0
+        q = np.array([qr / r_t])
+        got = _cs_g_from_pairs(q, np.array([60.0]), np.array([r_t]), 9.9, 9.4, 9.46)
+        ref = _cs_g_reference(q, np.array([60.0]), np.array([r_t]), 9.9, 9.4, 9.46)
+        assert got[0, 0] == pytest.approx(ref[0, 0], rel=1e-12)
+
+
+# ── C (cont.). the other two per-bin loops ───────────────────────────────────
+
+def _css_g_reference(q, r_grid, sld_core, sld_shell1, sld_shell2, sld_solvent,
+                     t_shell1, t_shell2):
+    """The per-bin loop `_build_g_css_sphere_by_core` replaced."""
+    r_c = np.asarray(r_grid, dtype=float)
+    r_m = r_c + t_shell1
+    r_t = r_m + t_shell2
+    d1, d2, d3 = (sld_core - sld_shell1, sld_shell1 - sld_shell2,
+                  sld_shell2 - sld_solvent)
+    G = np.empty((len(q), len(r_c)), dtype=float)
+    for j in range(len(r_c)):
+        r_t_j = float(r_t[j])
+        V_c = (4.0 / 3.0) * np.pi * float(r_c[j]) ** 3
+        V_m = (4.0 / 3.0) * np.pi * float(r_m[j]) ** 3
+        V_t = (4.0 / 3.0) * np.pi * r_t_j ** 3
+        F = (d1 * V_c * _sphere_amplitude(q * float(r_c[j]))
+             + d2 * V_m * _sphere_amplitude(q * float(r_m[j]))
+             + d3 * V_t * _sphere_amplitude(q * r_t_j))
+        G[:, j] = F ** 2 / V_t
+    return G * 1e-4
+
+
+def _cs_spheroid_g_reference(q, r_c_arr, r_t_arr, sld_core, sld_shell,
+                             sld_solvent, aspect_ratio):
+    """The per-bin loop `_cs_spheroid_g_from_pairs` replaced."""
+    AR = float(aspect_ratio)
+    cos_a = 0.5 * (_GL_NODES + 1.0)
+    weights = 0.5 * _GL_WEIGHTS
+    stretch = np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_a ** 2)
+    d_rho_c, d_rho_s = sld_core - sld_shell, sld_shell - sld_solvent
+    G = np.empty((len(q), len(r_c_arr)), dtype=float)
+    for j in range(len(r_c_arr)):
+        R_c, R_t = float(r_c_arr[j]), float(r_t_arr[j])
+        V_c = (4.0 / 3.0) * np.pi * R_c ** 3 * AR
+        V_t = (4.0 / 3.0) * np.pi * R_t ** 3 * AR
+        F_c = _sphere_amplitude(q[:, None] * (R_c * stretch))
+        F_t = _sphere_amplitude(q[:, None] * (R_t * stretch))
+        G[:, j] = ((d_rho_c * V_c * F_c + d_rho_s * V_t * F_t) ** 2 @ weights) / V_t
+    return G * 1e-4
+
+
+class TestOtherCoreShellBuildersVectorised:
+    def test_css_sphere_matches_per_bin_loop(self):
+        rng = np.random.default_rng(20260821)
+        for _ in range(20):
+            q = np.sort(10.0 ** rng.uniform(-4, 0.5, 150))
+            r = np.sort(10.0 ** rng.uniform(0, 3.5, 90))
+            t1 = float(10.0 ** rng.uniform(0, 2.5))
+            t2 = float(10.0 ** rng.uniform(0, 2.5))
+            slds = rng.uniform(-5, 15, 4)
+            got = _build_g_css_sphere_by_core(q, r, 1.0, *slds, t1, t2)
+            ref = _css_g_reference(q, r, *slds, t1, t2)
+            assert np.max(np.abs(got - ref)) <= 1e-11 * np.max(np.abs(ref))
+
+    @pytest.mark.parametrize("aspect_ratio", [0.2, 0.9, 1.0, 1.7, 8.0])
+    def test_cs_spheroid_matches_per_bin_loop(self, aspect_ratio):
+        """Oblate through prolate; AR = 1 must reduce to the sphere case."""
+        rng = np.random.default_rng(31415)
+        q = np.sort(10.0 ** rng.uniform(-3.5, 0.3, 120))
+        r_t = np.sort(10.0 ** rng.uniform(1, 3.0, 70))
+        r_c = np.maximum(r_t - 40.0, 0.0)
+        slds = rng.uniform(-5, 15, 3)
+        got = _cs_spheroid_g_from_pairs(q, r_c, r_t, *slds, aspect_ratio)
+        ref = _cs_spheroid_g_reference(q, r_c, r_t, *slds, aspect_ratio)
+        assert np.max(np.abs(got - ref)) <= 1e-11 * np.max(np.abs(ref))
+
+    def test_cs_spheroid_unit_aspect_ratio_equals_cs_sphere(self):
+        """AR = 1 is a sphere, so the two builders must agree."""
+        q = np.logspace(-3, -0.5, 100)
+        r_t = np.linspace(60.0, 300.0, 50)
+        r_c = r_t - 25.0
+        spheroid = _cs_spheroid_g_from_pairs(q, r_c, r_t, 9.9, 9.4, 9.46, 1.0)
+        sphere = _cs_g_from_pairs(q, r_c, r_t, 9.9, 9.4, 9.46)
+        assert np.max(np.abs(spheroid - sphere)) <= 1e-11 * np.max(np.abs(sphere))
+
+
+# ── Strict evaluation during fitting ─────────────────────────────────────────
+
+class TestStrictEvaluation:
+    @staticmethod
+    def _broken_config():
+        cfg = _two_population_config()
+        # An unknown form factor makes build_g_matrix raise ValueError, the same
+        # shape of failure as a bad parameter combination or a coding error.
+        cfg.populations[0].form_factor = 'no_such_form_factor'
+        return cfg
+
+    def test_display_path_still_warns_and_skips(self):
+        """A half-typed parameter must not take the GUI panel down."""
+        q = np.logspace(-2.4, -0.1, 64)
+        with pytest.warns(RuntimeWarning, match="Population 1 failed"):
+            I, pop_idx, _, _ = ModelingEngine().total_intensity(
+                self._broken_config(), q, use_cache=True)
+        assert pop_idx == [1]                 # only the peak survived
+        assert np.all(np.isfinite(I))
+
+    def test_strict_raises_instead_of_dropping(self):
+        q = np.logspace(-2.4, -0.1, 64)
+        with pytest.raises(PopulationEvaluationError, match="Population 1"):
+            ModelingEngine().total_intensity(
+                self._broken_config(), q, use_cache=False, strict=True)
+
+    def test_fit_refuses_a_model_it_cannot_evaluate(self):
+        """The regression this guards: the fit used to 'succeed' without it.
+
+        With the population silently dropped, fit() converged on the remaining
+        terms and returned a result whose reduced chi-squared bore no relation
+        to the model the user asked for.
+        """
+        q = np.logspace(-2.4, -0.1, 200)
+        I = np.full_like(q, 1e-3)
+        dI = 0.05 * I
+        with pytest.raises(PopulationEvaluationError):
+            ModelingEngine().fit(self._broken_config(), q, I, dI)
+
+    def test_healthy_fit_reports_no_rejected_trials(self):
+        cfg = _two_population_config()
+        q = np.logspace(-2.4, -0.1, 200)
+        eng = ModelingEngine()
+        I_true, _, _, _ = eng.total_intensity(cfg, q, use_cache=True)
+        res = eng.fit(cfg, q, I_true, 0.01 * I_true)
+        assert eng._eval_failures == 0
+        assert not any('rejected' in w for w in (res.fit_warnings or []))
 
 
 # ── B + D. radius-grid reuse and the per-population memo ─────────────────────

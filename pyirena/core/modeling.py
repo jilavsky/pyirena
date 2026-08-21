@@ -56,6 +56,23 @@ from pyirena.core.unified import sphere_amplitude as _sphere_amplitude
 
 log = logging.getLogger(__name__)
 
+
+class PopulationEvaluationError(RuntimeError):
+    """A population's I(Q) could not be computed.
+
+    Raised only on paths that must not silently continue — chiefly fitting,
+    where dropping a population from the model changes chi-squared and the fit
+    would otherwise report success for a model that is missing one of its
+    components. Display paths keep warning and skipping so a half-typed
+    parameter cannot take the panel down.
+    """
+
+
+# Weighted residual substituted for one failed trial evaluation during fitting.
+# Large enough that the optimiser rejects the point outright, small enough that
+# the sum of squares over a full Q range stays finite.
+_FAILED_TRIAL_RESIDUAL = 1e8
+
 # Thread-count environment variables read by the common BLAS / OpenMP backends.
 # When running differential_evolution across worker processes we pin these to 1
 # so N workers don't each spawn a full BLAS thread pool and oversubscribe the
@@ -1390,6 +1407,10 @@ class ModelingEngine:
         # and is expensive; an optimiser step that leaves dist_params alone (most
         # of a finite-difference Jacobian) reuses it.
         self._rg_cache: dict = {}
+        # Trial evaluations rejected during the current fit because a population
+        # could not be computed, and the message from the most recent one.
+        self._eval_failures: int = 0
+        self._eval_failure_last: str = ''
         # Fit-time per-population intensity memo, keyed on every parameter the
         # population's I(Q) depends on. Lets a step that touched only the
         # background or another population skip this one outright.
@@ -1413,18 +1434,21 @@ class ModelingEngine:
 
     def total_intensity_maybe_smeared(
         self, config: "ModelingConfig", q: np.ndarray, use_cache: bool = True,
+        strict: bool = False,
     ):
         """total_intensity, slit-smeared when config requests it.
 
         Evaluates all populations + background on the extended grid and applies
         the smearing operator to the total and to each per-population curve, so
         both the fit and the plotted overlays are consistent with the data.
+
+        *strict* is forwarded to :meth:`total_intensity`; see there.
         """
         smearer = self._get_smearer(q, config)
         if smearer is None:
-            return self.total_intensity(config, q, use_cache=use_cache)
+            return self.total_intensity(config, q, use_cache=use_cache, strict=strict)
         I_ext, pop_idx, pop_I_ext, pop_dist = self.total_intensity(
-            config, smearer.q_ext, use_cache=False)
+            config, smearer.q_ext, use_cache=False, strict=strict)
         I_total = smearer.smear(I_ext)
         pop_I = [smearer.smear(Ip) for Ip in pop_I_ext]
         return I_total, pop_idx, pop_I, pop_dist
@@ -1671,11 +1695,21 @@ class ModelingEngine:
     def total_intensity(
         self, config: ModelingConfig, q: np.ndarray,
         use_cache: bool = True,
+        strict: bool = False,
     ) -> tuple[np.ndarray, list, list, list]:
         """Calculate summed model intensity over all enabled populations.
 
         Returns (I_total, pop_indices, pop_I_list, pop_dist_list)
         where pop_dist_list is list of (radius_grid, vol_dist, num_dist).
+
+        Args:
+            strict: what to do when a population cannot be evaluated.
+                False (default, display paths) warns and leaves that population
+                out of the sum, so a half-typed parameter cannot take a panel
+                down. True (fitting) raises
+                :class:`PopulationEvaluationError` instead — a silently dropped
+                population changes chi-squared, and the fit would go on to
+                report success for a model missing one of its components.
         """
         I_total = np.zeros(len(q), dtype=float)
         pop_indices = []
@@ -1728,6 +1762,11 @@ class ModelingEngine:
                         if memo_key is not None:
                             self._pop_memo[i] = (memo_key, q, rg, vd, nd, I_pop)
             except Exception as e:
+                if strict:
+                    raise PopulationEvaluationError(
+                        f"Population {i+1} "
+                        f"({getattr(pop, 'pop_type', 'size_dist')}) failed: {e}"
+                    ) from e
                 warnings.warn(f"Population {i+1} failed: {e}", RuntimeWarning)
                 continue
 
@@ -1904,9 +1943,24 @@ class ModelingEngine:
         self, x: np.ndarray, keys: list, config: ModelingConfig,
         q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
     ) -> np.ndarray:
-        """Weighted residuals for least_squares."""
+        """Weighted residuals for least_squares.
+
+        Evaluated strictly: a population that cannot be computed must never be
+        quietly dropped from a trial, because the resulting chi-squared would be
+        that of a smaller model and the optimiser would be free to prefer it.
+        Instead the trial is scored as maximally bad, so the optimiser walks
+        away from that corner of parameter space, and the failure is counted for
+        :meth:`fit` to report. A model that fails at the *starting* parameters
+        is a different matter — ``fit`` checks that up front and raises.
+        """
         self._unpack_params(x, keys, config)
-        I_model, _, _, _ = self.total_intensity_maybe_smeared(config, q, use_cache=False)
+        try:
+            I_model, _, _, _ = self.total_intensity_maybe_smeared(
+                config, q, use_cache=False, strict=True)
+        except PopulationEvaluationError as exc:
+            self._eval_failures += 1
+            self._eval_failure_last = str(exc)
+            return np.full(len(q), _FAILED_TRIAL_RESIDUAL, dtype=float)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             resid = (I - I_model) / np.maximum(sigma, 1e-30)
@@ -2051,12 +2105,19 @@ class ModelingEngine:
 
         Returns:
             ModelingResult containing fitted parameters and derived quantities.
+
+        Raises:
+            PopulationEvaluationError: the model cannot be evaluated at the
+                starting parameters. Continuing would fit a model with that
+                population missing and report success for it.
         """
         # Fresh fit — discard anything cached from a previous fit() call
         self._fit_g_cache.clear()
         self._fit_g_keys.clear()
         self._rg_cache.clear()
         self._pop_memo.clear()
+        self._eval_failures = 0
+        self._eval_failure_last = ''
 
         # Crop q range
         mask = (q >= config.q_min) & (q <= config.q_max)
@@ -2070,6 +2131,12 @@ class ModelingEngine:
         cfg = deepcopy(config)
         x0, lo, hi, keys = self._pack_params(cfg)
 
+        # Fail fast on a model that cannot be evaluated at all. Without this a
+        # broken population is dropped from every trial alike, so the optimiser
+        # converges happily and the fit reports success for a model that is
+        # quietly missing one of its components.
+        self.total_intensity_maybe_smeared(cfg, q_fit, use_cache=False, strict=True)
+
         # Plain-language diagnostics collected during the fit and returned on
         # the result (GUI shows them in the status line, batch logs them).
         fit_warn: list = []
@@ -2078,7 +2145,7 @@ class ModelingEngine:
         if len(x0) == 0:
             # Nothing to fit — just evaluate
             I_model, pop_idx, pop_I, pop_dist = self.total_intensity_maybe_smeared(
-                cfg, q_fit, use_cache=True
+                cfg, q_fit, use_cache=True, strict=True
             )
             resid = (I_fit - I_model) / dI_fit
             chi2 = float(np.sum(resid ** 2))
@@ -2187,11 +2254,22 @@ class ModelingEngine:
             self._unpack_params(x_best, keys, config)
 
             I_model, pop_idx, pop_I, pop_dist = self.total_intensity_maybe_smeared(
-                cfg, q_fit, use_cache=False
+                cfg, q_fit, use_cache=False, strict=True
             )
             resid = (I_fit - I_model) / dI_fit
             chi2 = float(np.sum(resid ** 2))
             dof = max(len(q_fit) - len(x0), 1)
+
+            if self._eval_failures:
+                # Counted in this process only: the parallel global search
+                # evaluates on worker engines, which are still strict but keep
+                # their own tallies.
+                fit_warn.append(
+                    f"{self._eval_failures} trial parameter set(s) were rejected "
+                    f"because a population could not be evaluated there "
+                    f"(last: {self._eval_failure_last}) — the reported fit does "
+                    f"not use them, but check the parameter limits"
+                )
 
         rchi2 = chi2 / dof
 

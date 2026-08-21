@@ -55,6 +55,67 @@ def _sphere_amplitude(qr: np.ndarray) -> np.ndarray:
     return out
 
 
+def _sin_minus_x_cos(sin_x: np.ndarray, cos_x: np.ndarray,
+                     x: np.ndarray, x_min: float) -> np.ndarray:
+    """sin(x) − x·cos(x), accurate all the way down to x = 0.
+
+    This combination is the r³-free core of Δρ·V(r)·f_sph(qr) (see
+    :func:`_cs_g_from_pairs`). Written literally it cancels catastrophically as
+    x → 0: the true value is ~x³/3 while both terms are ~x, so at qr = 1e-5
+    only ~5 significant digits survive and by qr = 1e-7 the result is worthless.
+    That is the Guinier plateau of a small particle at USAXS q — a regime real
+    data reaches — so below the same 1e-3 threshold :func:`_sphere_amplitude`
+    uses, the exact Taylor expansion is substituted:
+
+        sin x − x·cos x = x³/3 − x⁵/30 + x⁷/840 = (x³/3)(1 − x²/10 + x⁴/280)
+
+    Args:
+        sin_x, cos_x: sin(x) and cos(x), already computed by the caller (which
+            may have obtained them by angle addition rather than directly).
+        x:     the argument itself.
+        x_min: a lower bound on x over the whole array. Callers pass
+            ``min(q)·min(r)``, which is exact for non-negative q and r and
+            costs O(M+N) instead of a full pass, so the correction is skipped
+            outright whenever no element is small.
+    """
+    out = sin_x - x * cos_x
+    if x_min >= 1e-3:
+        return out
+    x2 = x * x
+    return np.where(x < 1e-3,
+                    (x2 * x / 3.0) * (1.0 - x2 / 10.0 + x2 * x2 / 280.0),
+                    out)
+
+
+def _shell_step_amplitude(q, radii, d_rhos, vol_factor: float = 1.0):
+    """Σₖ Δρₖ · V(Rₖ) · f_sph(q·Rₖ), vectorised over (M,N).
+
+    The generic centrosymmetric amplitude: one term per SLD step, each weighted
+    by the volume enclosed at that step's outer boundary. Uses the same identity
+    as :func:`_cs_g_from_pairs` — the r³ in V(r) cancels the one in f_sph, so
+    the whole sum is ``4π/q³ · Σₖ Δρₖ·[sin(q·Rₖ) − q·Rₖ·cos(q·Rₖ)]`` and no
+    volume array is ever formed.
+
+    Args:
+        q:          (M,1) column of Q values [Å⁻¹].
+        radii:      sequence of (1,N) radius rows, innermost first [Å].
+        d_rhos:     matching sequence of SLD steps [10⁻⁶ Å⁻²].
+        vol_factor: extra constant volume factor — the aspect ratio for
+                    spheroids, whose V = (4/3)π R³ · AR.
+
+    Returns:
+        (M,N) amplitude array.
+    """
+    q_lo = float(np.min(q))
+    acc = None
+    for r, d_rho in zip(radii, d_rhos):
+        x = q * r
+        term = d_rho * _sin_minus_x_cos(
+            np.sin(x), np.cos(x), x, q_lo * float(np.min(r)))
+        acc = term if acc is None else acc + term
+    return (4.0 * np.pi * vol_factor / (q * q * q)) * acc
+
+
 def sphere_ff(q: np.ndarray, r: float) -> np.ndarray:
     """
     Sphere form factor per unit volume fraction.
@@ -385,14 +446,14 @@ def _cs_g_from_pairs(
 
     1. Δρ·V(r)·f_sph(qr) = 4π·Δρ·[sin(qr) − qr·cos(qr)] / q³, because the r³ in
        V(r) cancels the r³ in f_sph's denominator. One divide by q³ replaces a
-       full (M,N) volume array and the small-qr Taylor branch.
+       full (M,N) volume array.
     2. When the shell thickness R_total − R_core is the same in every bin (the
        ``by_core`` and ``by_total`` polydispersity modes), sin/cos(q·R_core)
        follow from sin/cos(q·R_total) by angle addition, halving the
        transcendental work.
 
     Agreement with the per-bin loop was verified to ~1e-13 relative-to-peak
-    across all three polydispersity modes.
+    across all three polydispersity modes, and per-element down to qr = 1e-8.
     """
     d_rho_c = float(sld_core)   - float(sld_shell)    # 10⁻⁶ Å⁻²
     d_rho_s = float(sld_shell)  - float(sld_solvent)  # 10⁻⁶ Å⁻²
@@ -420,8 +481,12 @@ def _cs_g_from_pairs(
         cos_c = np.cos(x_c0)
 
     x_c = q * r_c
+    q_lo = float(np.min(q))
+    core  = _sin_minus_x_cos(sin_c, cos_c, x_c, q_lo * float(np.min(r_c)))
+    total = _sin_minus_x_cos(sin_t, cos_t, x_t, q_lo * float(np.min(r_t)))
+
     pre = 4.0 * np.pi / (q * q * q)
-    F = pre * (d_rho_c * (sin_c - x_c * cos_c) + d_rho_s * (sin_t - x_t * cos_t))
+    F = pre * (d_rho_c * core + d_rho_s * total)
 
     V_t = (4.0 / 3.0) * np.pi * r_t ** 3              # total sphere volume [Å³]
     return (F * F) / V_t * 1e-4   # convert to cm⁻¹ per unit vol-frac
@@ -526,6 +591,9 @@ def _build_g_css_sphere_by_core(
 
     r_grid = R_core;  R_mid = R_core + t_shell1;  R_total = R_mid + t_shell2.
     The ``contrast`` argument is accepted for API consistency but ignored.
+
+    Vectorised over both axes with the same r³-cancellation identity as
+    :func:`_cs_g_from_pairs`, one term per SLD step instead of two.
     """
     r_c = np.asarray(r_grid, dtype=float)
     r_m = r_c + float(t_shell1)
@@ -535,16 +603,14 @@ def _build_g_css_sphere_by_core(
     d_rho_2 = float(sld_shell1) - float(sld_shell2)
     d_rho_3 = float(sld_shell2) - float(sld_solvent)
 
-    M, N = len(q), len(r_c)
-    G = np.empty((M, N), dtype=float)
-    for j in range(N):
-        r_t_j = float(r_t[j])
-        V_t = (4.0 / 3.0) * np.pi * r_t_j ** 3
-        F = _coreshell_shell_f(
-            q, float(r_c[j]), float(r_m[j]), r_t_j, d_rho_1, d_rho_2, d_rho_3
-        )
-        G[:, j] = F ** 2 / V_t
-    return G * 1e-4
+    q2 = np.asarray(q, dtype=float)[:, None]              # (M,1)
+    F = _shell_step_amplitude(
+        q2,
+        (r_c[None, :], r_m[None, :], r_t[None, :]),
+        (d_rho_1, d_rho_2, d_rho_3),
+    )
+    V_t = (4.0 / 3.0) * np.pi * r_t[None, :] ** 3
+    return (F * F) / V_t * 1e-4
 
 
 def _cs_spheroid_g_from_pairs(
@@ -569,38 +635,34 @@ def _cs_spheroid_g_from_pairs(
 
     The exact orientation average of the squared amplitude is:
       ⟨F²⟩ = ∫₀¹ F²(q, α) d(cosα)  ≈  Σₖ wₖ · F²(q, αₖ)
+
+    The quadrature loop runs over the K orientations rather than the N radius
+    bins: each iteration is then one fully vectorised (M,N) evaluation, and
+    there are far fewer of them (K = 50 against N = 200 or more in a typical
+    fit). Stretching a radius by ``stretch[k]`` is the same as stretching q, so
+    each orientation reduces to the ordinary sphere-shell amplitude evaluated
+    on a scaled q.
     """
     AR = float(aspect_ratio)
-    cos_t   = 0.5 * (_GL_NODES + 1.0)   # (K,)
+    cos_a   = 0.5 * (_GL_NODES + 1.0)    # (K,)
     weights = 0.5 * _GL_WEIGHTS          # (K,)
+    stretch = np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_a ** 2)   # (K,)
 
     d_rho_c = float(sld_core)  - float(sld_shell)
     d_rho_s = float(sld_shell) - float(sld_solvent)
 
-    M, N = len(q), len(r_c_arr)
-    G = np.empty((M, N), dtype=float)
+    q   = np.asarray(q,       dtype=float)[:, None]   # (M,1)
+    r_c = np.asarray(r_c_arr, dtype=float)[None, :]   # (1,N)
+    r_t = np.asarray(r_t_arr, dtype=float)[None, :]   # (1,N)
 
-    for j in range(N):
-        R_c = float(r_c_arr[j])
-        R_t = float(r_t_arr[j])
-        V_c = (4.0 / 3.0) * np.pi * R_c ** 3 * AR
-        V_t = (4.0 / 3.0) * np.pi * R_t ** 3 * AR
+    acc = np.zeros((q.shape[0], r_c.shape[1]), dtype=float)
+    for w_k, s_k in zip(weights, stretch):
+        F = _shell_step_amplitude(
+            q * s_k, (r_c, r_t), (d_rho_c, d_rho_s), vol_factor=AR)
+        acc += w_k * F * F
 
-        # r_eff at each GL angle for core and total radii — shape (K,)
-        stretch = np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_t ** 2)
-        r_eff_c = R_c * stretch   # (K,)
-        r_eff_t = R_t * stretch   # (K,)
-
-        # Sphere amplitudes — shape (M, K)
-        F_c = _sphere_amplitude(q[:, np.newaxis] * r_eff_c)
-        F_t = _sphere_amplitude(q[:, np.newaxis] * r_eff_t)
-
-        # Core-shell amplitude at each angle — (M, K)
-        F_cs = d_rho_c * V_c * F_c + d_rho_s * V_t * F_t
-
-        G[:, j] = (F_cs ** 2 @ weights) / V_t
-
-    return G * 1e-4
+    V_t = (4.0 / 3.0) * np.pi * r_t ** 3 * AR
+    return acc / V_t * 1e-4
 
 
 def _build_g_cs_spheroid_by_core(

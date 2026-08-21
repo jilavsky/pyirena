@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modeling: a population that could not be evaluated was silently dropped,
+  and the fit reported success without it.** `total_intensity` caught every
+  per-population exception, issued a `RuntimeWarning`, and left that population
+  out of the sum. During a fit that happens identically at every trial, so the
+  optimiser converged happily on the remaining terms and returned a result
+  whose reduced chi-squared belonged to a different model than the one asked
+  for — observed for real at reduced chi-squared 62 where the intact model
+  gives 0.51. Fitting is now strict: `fit()` evaluates the model once at the
+  starting parameters and raises `PopulationEvaluationError` if it cannot,
+  and a population that fails only at some trial point makes that trial
+  maximally bad (so the optimiser walks away from it) and is counted in the
+  fit warnings instead of vanishing. Display paths are unchanged — they still
+  warn and skip, so a half-typed parameter cannot take a GUI panel down.
+- **Modeling: the core-shell G matrix lost precision in the Guinier regime.**
+  Introduced by the vectorisation below and caught before release. Factoring
+  the r³ out of Δρ·V(r)·f_sph(qr) leaves `sin(x) − x·cos(x)`, which cancels
+  catastrophically as x → 0: ~5 significant digits by qr = 1e-5 and 32 % error
+  by qr = 1e-7, a regime small particles at USAXS Q genuinely reach. The
+  vectorised builders now switch to the exact Taylor expansion below the same
+  qr = 1e-3 threshold `_sphere_amplitude` uses, restoring full precision (the
+  branch is skipped entirely, at no cost, when no element is small).
 - **MCP: every image tool failed to return its picture.** `pyirena_plot_iq`,
   `pyirena_plot_parameter_trend` and all eight `pyirena_ctrl_*_image` tools
   rendered and saved their PNG, then died on the way back to the client with
@@ -59,11 +80,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `_by_shell` and `_by_total`) was assembled with a Python loop over radius
     bins. It is now one vectorised expression; where the shell thickness is
     constant across bins, half the sin/cos work is recovered by angle
-    addition. The core-shell-shell and core-shell-spheroid builders have
-    their own helpers and still loop — same opportunity, not yet taken.
+    addition.
   - Each population's I(Q) is memoised during a fit on the full set of
     parameters it depends on, so a step in the background or in another
     population skips it entirely.
+- **The remaining two per-bin loops are vectorised too**, on the same identity,
+  through a shared `_shell_step_amplitude` helper: the core-shell-shell sphere
+  over both axes at once, and the core-shell spheroid over its 50
+  Gauss-Legendre orientations rather than its (typically 200+) radius bins, so
+  each iteration is one full Q x bin evaluation and there are far fewer of
+  them. Both are ~1.8x faster and agree with the loops they replace to 4e-14
+  relative-to-peak. This is what a slow core-shell-shell or core-shell-spheroid
+  fit was waiting on; the spheroid is still much the most expensive form factor
+  because of the orientational average.
 - **The fit-time G-matrix cache now keys on the Q grid as well.** It keyed
   only on the radius grid and form-factor parameters, which is why
   `total_intensity_ideal` had to avoid it: with slit smearing on, a fit
