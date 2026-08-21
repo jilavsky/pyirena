@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b9] - 2026-08-21
+
+Performance release: Modeling fits run about three times faster with unchanged
+results. Also fixes a class of silently wrong Modeling fit, in which a
+population that could not be evaluated was dropped from the model without
+failing the fit.
+
 ### Fixed
 
 - **Modeling: a population that could not be evaluated was silently dropped,
