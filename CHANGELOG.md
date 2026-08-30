@@ -11,7 +11,49 @@ CI now runs the test suite on macOS (arm64) and Windows as well as Linux, which
 immediately turned up four platform-specific defects. Three were in the tests
 themselves; the drag-and-drop one was real and had been shipping.
 
+### Added
+
+- **`validationData/` — synthetic data with exactly known parameters, for
+  validating pyIrena and for comparing it with Igor Pro Irena.** 27 datasets
+  covering Size Distribution, Unified Fit (including slit smearing), Modeling
+  (size distributions, Unified levels, diffraction peaks, hard-sphere structure
+  factor, mass and surface fractals, Guinier-Porod), Simple Fits, WAXS Peak Fit,
+  Data Merge and Data Manipulation. Each is written as a 3-column ASCII file
+  with the ground truth in its header, a noise-free `_ideal.dat` companion, and
+  an NXcanSAS HDF5 file carrying the exact curve and a JSON of the generating
+  parameters under `entry/ground_truth/`.
+
+  The intensities are computed by `validationData/_models.py`, which implements
+  every model from the published literature and **does not import pyIrena**, so
+  recovering the parameters tests pyIrena's mathematics rather than its
+  self-consistency. `generate_validation_data.py` regenerates the files
+  deterministically (per-dataset seed derived from the dataset name) and writes
+  the `README.md` manifest and `ground_truth.json`.
+  `run_validation_report.py` fits every file and writes
+  `VALIDATION_RESULTS.md` / `.csv`, with empty Irena columns for a
+  side-by-side comparison against the Igor package.
+- `pyirena/tests/test_validation_data.py` — asserts that pyIrena's forward
+  models agree with the independent implementations to machine precision, that
+  every generated file loads, and that a fast subset of the datasets recovers
+  its generating parameters.
+- `pyirena/tests/test_modeling_structure_factor.py` — regression tests for the
+  structure-factor fitting bug below.
+
 ### Fixed
+
+- **Modeling: structure-factor parameters were never actually fitted.** The
+  hard-sphere radius and volume fraction (and the Interferences `eta`/`pack`)
+  were packed into the fit vector under the key group `'sf'`, which the
+  *surface fractal* population already used for its own attributes.
+  `_unpack_params` matched the surface-fractal branch first, so each optimiser
+  step wrote those values onto the population as stray attributes instead of
+  into `pop.sf_params`. The model never saw them change: they contributed
+  nothing to chi-squared and `fit()` returned them at exactly their starting
+  values, with no warning. Structure-factor parameters now use their own key
+  group `'sfp'`. Found while building `validationData/`; on the hard-sphere
+  validation dataset the fit went from reduced chi-squared 397 (all four
+  structure-factor and distribution parameters wrong by 8-40 %) to 1.15 with
+  every parameter within 0.2 % of truth.
 
 - **A UTF-8 BOM silently dropped the first data point of a text file.** This is
   not Windows-specific — it affected every platform. `readTextFile` opened the

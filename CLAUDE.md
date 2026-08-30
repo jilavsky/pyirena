@@ -22,13 +22,20 @@ pytest pyirena/tests/api     # api/mcp layer only
 ruff check pyirena/          # lint (line-length 100, config in pyproject.toml)
 pyirena-gui                  # launch the main GUI
 pyirena-mcp                  # run the MCP server (stdio)
+
+python validationData/generate_validation_data.py   # rebuild the synthetic
+                                                    # validation data + manifest
+python validationData/run_validation_report.py      # fit it all, write
+                                                    # VALIDATION_RESULTS.md/.csv
 ```
 
 Console entry points are declared in `pyproject.toml` under
 `[project.scripts]` — that is the authoritative list, don't duplicate it here.
 
-Test data lives in `testData/`. Tests must not require a display; Qt-dependent
-tests mock dialogs (see `pyirena/tests/api/conftest.py`).
+Test data lives in `testData/`. Synthetic data with *exactly known* parameters,
+used to validate the analysis maths and to compare pyIrena with Igor Irena,
+lives in `validationData/` — see `docs/validation.md`. Tests must not require a
+display; Qt-dependent tests mock dialogs (see `pyirena/tests/api/conftest.py`).
 
 ---
 
@@ -147,6 +154,7 @@ change how you should work.
 | Touching HDF5 read/write | `docs/HDF5_NxcanSAS_structure.md` |
 | Working on the api/MCP layer | `pyirena/api/README.md`, `docs/ai_tools_reference.md`, `docs/ai_integration.md` |
 | Writing or fixing tests | `docs/testing.md` |
+| Validating the maths, or comparing results with Igor Irena | `docs/validation.md`, `validationData/README.md` |
 | Working on batch/scripting | `docs/batch_api.md` |
 | Importing Igor `.pxp` files | `docs/igor_pxp_import.md` |
 | Loading or cleaning input data | `docs/data_import_and_cleaning.md` |
@@ -216,9 +224,11 @@ user-visible changes.
   depends on.
 - Do not add dependencies without asking. The dependency set is deliberately
   small and split across extras.
-- `temp/`, `testData/`, `scripts/` and `planning/` are excluded from ruff and
-  are not part of the shipped package. `scripts/` holds diagnostic one-offs, not
-  supported tooling.
+- `temp/`, `testData/`, `validationData/`, `scripts/` and `planning/` are
+  excluded from ruff and are not part of the shipped package. `scripts/` holds
+  diagnostic one-offs, not supported tooling. `validationData/` is generated —
+  edit `_spec.py` and re-run the generator rather than editing a data file or
+  its `README.md` by hand.
 - Ask before large refactors. The codebase is validated against Igor Irena
   results; a "cleaner" rewrite that shifts a numerical result is a regression.
 

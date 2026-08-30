@@ -1784,7 +1784,8 @@ class ModelingEngine:
         """Flatten fittable parameters into a 1-D vector.
 
         Returns (x0, lo, hi, keys) where keys is a list of
-        ('pop', pop_idx, 'dist'|'ff'|'sf'|'contrast'|'scale', param_name)
+        ('pop', pop_idx, 'dist'|'ff'|'sfp'|'contrast'|'scale', param_name)
+        or ('pop', pop_idx, 'uf'|'gp'|'mf'|'sf'|'peak', attr_name)
         or ('background',).
         """
         x0, lo, hi, keys = [], [], [], []
@@ -1892,7 +1893,10 @@ class ModelingEngine:
                     val = float(pop.sf_params.get(name, 1.0))
                     lim = pop.sf_params_limits.get(name, (0.0, 1e10))
                     x0.append(val); lo.append(lim[0]); hi.append(lim[1])
-                    keys.append(('pop', i, 'sf', name))
+                    # 'sfp', not 'sf': the surface-fractal population already
+                    # owns the 'sf' group, and these live in pop.sf_params
+                    # rather than as attributes on the population.
+                    keys.append(('pop', i, 'sfp', name))
 
             # Scale
             if pop.fit_scale:
@@ -1930,7 +1934,7 @@ class ModelingEngine:
                     pop.dist_params[name] = float(val)
                 elif group == 'ff':
                     pop.ff_params[name] = float(val)
-                elif group == 'sf':
+                elif group == 'sfp':
                     pop.sf_params[name] = float(val)
                 elif group == 'scale':
                     pop.scale = float(val)

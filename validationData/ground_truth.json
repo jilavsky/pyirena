@@ -1,0 +1,2113 @@
+[
+  {
+    "tool": "Size Distribution",
+    "model": "Single log-normal volume distribution of solid spheres",
+    "equation": "I(Q) = 1e-4 * contrast * INT V(r) F_sph^2(Qr) P_V(r) dr",
+    "parameters": [
+      {
+        "name": "distribution",
+        "value": "log-normal (volume weighted)",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "R_median",
+        "value": 100.0,
+        "unit": "A",
+        "note": "median of P_V(r)"
+      },
+      {
+        "name": "sigma_log",
+        "value": 0.25,
+        "unit": "-",
+        "note": "log-space standard deviation"
+      },
+      {
+        "name": "volume_fraction",
+        "value": 0.01,
+        "unit": "-",
+        "note": "INT P_V(r) dr"
+      },
+      {
+        "name": "contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": "(delta-rho)^2"
+      },
+      {
+        "name": "background",
+        "value": 0.0,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "R_mode",
+        "value": 93.94130628134758,
+        "unit": "A",
+        "note": "median*exp(-sigma^2)"
+      },
+      {
+        "name": "R_mean_vol",
+        "value": 103.17434074991027,
+        "unit": "A",
+        "note": "median*exp(sigma^2/2)"
+      },
+      {
+        "name": "R_rms",
+        "value": 106.44944589178593,
+        "unit": "A",
+        "note": "reported by pyIrena as 'Rg'"
+      }
+    ],
+    "name": "sizes_sphere_lognormal",
+    "folder": "sizes",
+    "generated": "2026-08-30",
+    "q_min": 0.0008000000000000004,
+    "q_max": 0.35,
+    "n_points": 350,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 63358.29965891237,
+      "seed": 3027962536,
+      "median_relative_error": 0.010003445394215785,
+      "max_relative_error": 0.11075109538865267,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "sizes/sizes_sphere_lognormal.dat",
+      "ascii_ideal": "sizes/sizes_sphere_lognormal_ideal.dat",
+      "nxcansas": "sizes/sizes_sphere_lognormal.h5"
+    }
+  },
+  {
+    "tool": "Size Distribution",
+    "model": "Bimodal log-normal volume distribution of solid spheres",
+    "equation": "I(Q) = 1e-4 * contrast * INT V(r) F_sph^2(Qr) [P_1(r)+P_2(r)] dr",
+    "parameters": [
+      {
+        "name": "R_median_1",
+        "value": 40.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "sigma_log_1",
+        "value": 0.18,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "volume_fraction_1",
+        "value": 0.004,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "R_median_2",
+        "value": 250.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "sigma_log_2",
+        "value": 0.22,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "volume_fraction_2",
+        "value": 0.01,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.0,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "R_mode_1",
+        "value": 38.72477027666251,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "R_mode_2",
+        "value": 238.18815245080273,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "volume_fraction_total",
+        "value": 0.014,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "name": "sizes_sphere_bimodal",
+    "folder": "sizes",
+    "generated": "2026-08-30",
+    "q_min": 0.0004999999999999999,
+    "q_max": 0.4,
+    "n_points": 400,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 68857.15401904512,
+      "seed": 3407787525,
+      "median_relative_error": 0.010002581626888787,
+      "max_relative_error": 0.11783288255374481,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "sizes/sizes_sphere_bimodal.dat",
+      "ascii_ideal": "sizes/sizes_sphere_bimodal_ideal.dat",
+      "nxcansas": "sizes/sizes_sphere_bimodal.h5"
+    }
+  },
+  {
+    "tool": "Size Distribution",
+    "model": "Log-normal spheres on a flat background",
+    "equation": "I(Q) = 1e-4*contrast*INT V(r) F_sph^2(Qr) P_V(r) dr + flat",
+    "parameters": [
+      {
+        "name": "R_median",
+        "value": 120.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "sigma_log",
+        "value": 0.22,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "volume_fraction",
+        "value": 0.006,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "background_flat",
+        "value": 0.02,
+        "unit": "1/cm",
+        "note": "dominates above Q ~ 0.15 1/A; fit it there before inverting"
+      }
+    ],
+    "derived": [
+      {
+        "name": "R_mode",
+        "value": 114.33031317638532,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "R_mean_vol",
+        "value": 122.93942357296461,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "R_rms",
+        "value": 125.9508489037734,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "name": "sizes_sphere_flat_background",
+    "folder": "sizes",
+    "generated": "2026-08-30",
+    "q_min": 0.0008000000000000004,
+    "q_max": 0.35,
+    "n_points": 350,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 12526.461239554254,
+      "seed": 1916699605,
+      "median_relative_error": 0.010023608455687009,
+      "max_relative_error": 0.06298455059069187,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "sizes/sizes_sphere_flat_background.dat",
+      "ascii_ideal": "sizes/sizes_sphere_flat_background_ideal.dat",
+      "nxcansas": "sizes/sizes_sphere_flat_background.h5"
+    }
+  },
+  {
+    "tool": "Size Distribution",
+    "model": "Log-normal volume distribution of oblate spheroids (AR = 0.3)",
+    "equation": "I(Q) = 1e-4*contrast*INT V(r,AR) <F_ell^2(Q,r,AR)>_orient P_V(r) dr",
+    "parameters": [
+      {
+        "name": "shape",
+        "value": "spheroid",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "aspect_ratio",
+        "value": 0.3,
+        "unit": "-",
+        "note": "semi-axes (r, r, AR*r)"
+      },
+      {
+        "name": "R_median",
+        "value": 150.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "sigma_log",
+        "value": 0.2,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "volume_fraction",
+        "value": 0.008,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "contrast",
+        "value": 50.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.0,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "R_mode",
+        "value": 144.1184158728485,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "R_rms",
+        "value": 156.12161612885822,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "name": "sizes_spheroid_lognormal",
+    "folder": "sizes",
+    "generated": "2026-08-30",
+    "q_min": 0.0004999999999999999,
+    "q_max": 0.29999999999999993,
+    "n_points": 320,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 61853.17618278981,
+      "seed": 312993427,
+      "median_relative_error": 0.010007348671128246,
+      "max_relative_error": 0.11436721702442659,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "sizes/sizes_spheroid_lognormal.dat",
+      "ascii_ideal": "sizes/sizes_spheroid_lognormal_ideal.dat",
+      "nxcansas": "sizes/sizes_spheroid_lognormal.h5"
+    }
+  },
+  {
+    "tool": "Unified Fit",
+    "model": "Single Beaucage Unified level (Guinier + Porod), flat background",
+    "equation": "I(Q) = G exp(-Q^2 Rg^2/3) + B/Q*^P + bg,  Q* = Q/erf(K Q Rg/sqrt6)^3,  K = 1 for P>3",
+    "parameters": [
+      {
+        "name": "G",
+        "value": 100.0,
+        "unit": "1/cm",
+        "note": "Guinier prefactor"
+      },
+      {
+        "name": "Rg",
+        "value": 200.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "P",
+        "value": 4.0,
+        "unit": "-",
+        "note": "power-law slope"
+      },
+      {
+        "name": "B",
+        "value": 3.045e-07,
+        "unit": "cm^-1 A^-P",
+        "note": "= G exp(-P/2)(3P/2)^(P/2)/Rg^P (smooth join)"
+      },
+      {
+        "name": "background",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "K",
+        "value": 1.0,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "I(0)",
+        "value": 100.01,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Q_rollover",
+        "value": 0.014142135623730952,
+        "unit": "1/A",
+        "note": ""
+      }
+    ],
+    "name": "unified_one_level",
+    "folder": "unified",
+    "generated": "2026-08-30",
+    "q_min": 0.0004999999999999999,
+    "q_max": 0.29999999999999993,
+    "n_points": 350,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 27407.193800515666,
+      "seed": 1260015518,
+      "median_relative_error": 0.010118771945824834,
+      "max_relative_error": 0.06111474562299545,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "unified/unified_one_level.dat",
+      "ascii_ideal": "unified/unified_one_level_ideal.dat",
+      "nxcansas": "unified/unified_one_level.h5"
+    }
+  },
+  {
+    "tool": "Unified Fit",
+    "model": "Two-level Beaucage Unified model with level-2 low-Q cut-off",
+    "equation": "I(Q) = SUM_i [G_i exp(-Q^2 Rg_i^2/3) + B_i/Q*_i^P_i exp(-Q^2 RgCO_i^2/3)] + bg",
+    "parameters": [
+      {
+        "name": "G_1",
+        "value": 8.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg_1",
+        "value": 120.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "P_1",
+        "value": 4.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B_1",
+        "value": 1.88e-07,
+        "unit": "cm^-1 A^-P",
+        "note": ""
+      },
+      {
+        "name": "RgCO_1",
+        "value": 0.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "G_2",
+        "value": 4000.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg_2",
+        "value": 1200.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "P_2",
+        "value": 3.2,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B_2",
+        "value": 1.393e-06,
+        "unit": "cm^-1 A^-P",
+        "note": ""
+      },
+      {
+        "name": "RgCO_2",
+        "value": 120.0,
+        "unit": "A",
+        "note": "linked to Rg of level 1"
+      },
+      {
+        "name": "background",
+        "value": 0.02,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "I(0)",
+        "value": 4008.02,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "name": "unified_two_level",
+    "folder": "unified",
+    "generated": "2026-08-30",
+    "q_min": 0.0001,
+    "q_max": 0.29999999999999993,
+    "n_points": 450,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 13809.361869091257,
+      "seed": 286680045,
+      "median_relative_error": 0.01012981639607571,
+      "max_relative_error": 0.06096339186571689,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "unified/unified_two_level.dat",
+      "ascii_ideal": "unified/unified_two_level_ideal.dat",
+      "nxcansas": "unified/unified_two_level.h5"
+    }
+  },
+  {
+    "tool": "Unified Fit (slit smearing)",
+    "model": "Single Unified level, infinite-slit smeared",
+    "equation": "I_smr(Q) = (1/SL) INT_0^SL I_ideal(sqrt(Q^2+l^2)) dl",
+    "parameters": [
+      {
+        "name": "G",
+        "value": 100.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg",
+        "value": 200.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "P",
+        "value": 4.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B",
+        "value": 3.045e-07,
+        "unit": "cm^-1 A^-P",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "slit_length_dQl",
+        "value": 0.03,
+        "unit": "1/A",
+        "note": "written as entry/sasdata/dQl in the HDF5"
+      }
+    ],
+    "derived": [],
+    "slit_length": 0.03,
+    "name": "unified_one_level_slitsmeared",
+    "folder": "unified",
+    "generated": "2026-08-30",
+    "q_min": 0.0004999999999999999,
+    "q_max": 0.29999999999999993,
+    "n_points": 350,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 27411.74224621131,
+      "seed": 2570568956,
+      "median_relative_error": 0.010371644190235566,
+      "max_relative_error": 0.06111054663193247,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "unified/unified_one_level_slitsmeared.dat",
+      "ascii_ideal": "unified/unified_one_level_slitsmeared_ideal.dat",
+      "nxcansas": "unified/unified_one_level_slitsmeared.h5"
+    }
+  },
+  {
+    "tool": "Modeling",
+    "model": "Population 1: log-normal spheres.  Population 2: Unified level.",
+    "equation": "I(Q) = I_sizedist(Q) + I_unified(Q) + bg",
+    "parameters": [
+      {
+        "name": "pop1_type",
+        "value": "size_dist / lognormal / sphere",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_min_size",
+        "value": 0.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "pop1_mean_size",
+        "value": 30.0,
+        "unit": "A",
+        "note": "log-normal median"
+      },
+      {
+        "name": "pop1_sdeviation",
+        "value": 0.3,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_scale",
+        "value": 0.005,
+        "unit": "-",
+        "note": "INT P_V(r) dr"
+      },
+      {
+        "name": "pop1_contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "pop2_type",
+        "value": "unified_level",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop2_G",
+        "value": 20000.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "pop2_Rg",
+        "value": 4000.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "pop2_P",
+        "value": 3.5,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop2_B",
+        "value": 1.5634480805790573e-08,
+        "unit": "cm^-1 A^-P",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "modeling_sizedist_plus_unified",
+    "folder": "modeling",
+    "generated": "2026-08-30",
+    "q_min": 4.9999999999999996e-05,
+    "q_max": 0.5,
+    "n_points": 480,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 20749.882451965117,
+      "seed": 1656842697,
+      "median_relative_error": 0.010233970200966912,
+      "max_relative_error": 0.068389045426454,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "modeling/modeling_sizedist_plus_unified.dat",
+      "ascii_ideal": "modeling/modeling_sizedist_plus_unified_ideal.dat",
+      "nxcansas": "modeling/modeling_sizedist_plus_unified.h5"
+    }
+  },
+  {
+    "tool": "Modeling",
+    "model": "Population 1: log-normal spheres.  Population 2: Gaussian diffraction peak.",
+    "equation": "I(Q) = I_sizedist(Q) + A exp(-(Q-Q0)^2/(2 w^2)) + bg",
+    "parameters": [
+      {
+        "name": "pop1_type",
+        "value": "size_dist / lognormal / sphere",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_min_size",
+        "value": 0.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "pop1_mean_size",
+        "value": 60.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "pop1_sdeviation",
+        "value": 0.25,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_scale",
+        "value": 0.004,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_contrast",
+        "value": 80.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "pop2_type",
+        "value": "diffraction_peak / gaussian",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop2_amplitude",
+        "value": 5.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "pop2_position",
+        "value": 0.15,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "pop2_width",
+        "value": 0.012,
+        "unit": "1/A",
+        "note": "Gaussian sigma, NOT FWHM"
+      },
+      {
+        "name": "background",
+        "value": 0.005,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "peak_FWHM",
+        "value": 0.028257840540371393,
+        "unit": "1/A",
+        "note": ""
+      }
+    ],
+    "name": "modeling_sizedist_plus_peak",
+    "folder": "modeling",
+    "generated": "2026-08-30",
+    "q_min": 0.003000000000000001,
+    "q_max": 0.5,
+    "n_points": 450,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 50847.858557495194,
+      "seed": 1155364236,
+      "median_relative_error": 0.010132198052314904,
+      "max_relative_error": 0.06250416920546628,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "modeling/modeling_sizedist_plus_peak.dat",
+      "ascii_ideal": "modeling/modeling_sizedist_plus_peak_ideal.dat",
+      "nxcansas": "modeling/modeling_sizedist_plus_peak.h5"
+    }
+  },
+  {
+    "tool": "Modeling",
+    "model": "Log-normal spheres with a Percus-Yevick hard-sphere structure factor",
+    "equation": "I(Q) = I_sizedist(Q) * S_PY(Q; R_HS, phi_HS) + bg",
+    "parameters": [
+      {
+        "name": "pop1_type",
+        "value": "size_dist / lognormal / sphere",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_min_size",
+        "value": 0.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "pop1_mean_size",
+        "value": 50.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "pop1_sdeviation",
+        "value": 0.12,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_scale",
+        "value": 0.2,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "pop1_contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "structure_factor",
+        "value": "hard_sphere",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "sf_radius",
+        "value": 50.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "sf_volume_fraction",
+        "value": 0.25,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "modeling_hardsphere",
+    "folder": "modeling",
+    "generated": "2026-08-30",
+    "q_min": 0.003000000000000001,
+    "q_max": 0.5,
+    "n_points": 450,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 6306.94435478287,
+      "seed": 1762171967,
+      "median_relative_error": 0.010050126066585207,
+      "max_relative_error": 0.08504822423015473,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "modeling/modeling_hardsphere.dat",
+      "ascii_ideal": "modeling/modeling_hardsphere_ideal.dat",
+      "nxcansas": "modeling/modeling_hardsphere.h5"
+    }
+  },
+  {
+    "tool": "Modeling",
+    "model": "Mass-fractal aggregate of spherical primary particles (Teixeira 1988)",
+    "equation": "I(Q) = phi*contrast*1e-4*V*[bracket*S_f(Q)+(1-eta)^2]*F_sph^2(QR) + bg",
+    "parameters": [
+      {
+        "name": "pop_type",
+        "value": "mass_fractal",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Phi",
+        "value": 0.005,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Radius",
+        "value": 40.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "Dv",
+        "value": 2.4,
+        "unit": "-",
+        "note": "mass fractal dimension"
+      },
+      {
+        "name": "Ksi",
+        "value": 800.0,
+        "unit": "A",
+        "note": "aggregate correlation length"
+      },
+      {
+        "name": "Eta",
+        "value": 0.5,
+        "unit": "-",
+        "note": "packing term"
+      },
+      {
+        "name": "Beta",
+        "value": 1.0,
+        "unit": "-",
+        "note": "aspect ratio (sphere)"
+      },
+      {
+        "name": "Contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "modeling_mass_fractal",
+    "folder": "modeling",
+    "generated": "2026-08-30",
+    "q_min": 0.00030000000000000014,
+    "q_max": 0.29999999999999993,
+    "n_points": 400,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 24414.681295700415,
+      "seed": 2358675931,
+      "median_relative_error": 0.010030257370748462,
+      "max_relative_error": 0.06472203512016036,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "modeling/modeling_mass_fractal.dat",
+      "ascii_ideal": "modeling/modeling_mass_fractal_ideal.dat",
+      "nxcansas": "modeling/modeling_mass_fractal.h5"
+    }
+  },
+  {
+    "tool": "Modeling",
+    "model": "Surface-fractal scattering (Teixeira 1988)",
+    "equation": "I(Q) = pi*contrast*Ksi^4*S*Gamma(5-Ds)*sin[(3-Ds)atan(Q Ksi)]/[(1+Q^2Ksi^2)^((5-Ds)/2) Q Ksi] + bg",
+    "parameters": [
+      {
+        "name": "pop_type",
+        "value": "surface_fractal",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Surface",
+        "value": 20000.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Ds",
+        "value": 2.4,
+        "unit": "-",
+        "note": "surface fractal dimension"
+      },
+      {
+        "name": "Ksi",
+        "value": 600.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "Contrast",
+        "value": 100.0,
+        "unit": "1e20 cm^-4",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "Porod_slope_high_Q",
+        "value": 3.6,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "name": "modeling_surface_fractal",
+    "folder": "modeling",
+    "generated": "2026-08-30",
+    "q_min": 0.0004999999999999999,
+    "q_max": 0.29999999999999993,
+    "n_points": 380,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 8527.710376102877,
+      "seed": 3936854831,
+      "median_relative_error": 0.010008927183271298,
+      "max_relative_error": 0.08330781061007733,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "modeling/modeling_surface_fractal.dat",
+      "ascii_ideal": "modeling/modeling_surface_fractal_ideal.dat",
+      "nxcansas": "modeling/modeling_surface_fractal.h5"
+    }
+  },
+  {
+    "tool": "Modeling",
+    "model": "Guinier-Porod model, single level with dimensionality s1 = 1 (rod-like)",
+    "equation": "I(Q<Q1) = G Q^-s1 exp(-Q^2 Rg1^2/(3-s1)); I(Q>=Q1) = D Q^-P",
+    "parameters": [
+      {
+        "name": "pop_type",
+        "value": "guinier_porod",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "G",
+        "value": 150.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg1",
+        "value": 90.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "s1",
+        "value": 1.0,
+        "unit": "-",
+        "note": "0 = globular, 1 = rod, 2 = lamella"
+      },
+      {
+        "name": "P",
+        "value": 3.6,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Rg2",
+        "value": 10000000000.0,
+        "unit": "A",
+        "note": "collapsed (single level)"
+      },
+      {
+        "name": "s2",
+        "value": 0.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "background",
+        "value": 0.005,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "Q1",
+        "value": 0.017916128329552333,
+        "unit": "1/A",
+        "note": ""
+      }
+    ],
+    "name": "modeling_guinier_porod",
+    "folder": "modeling",
+    "generated": "2026-08-30",
+    "q_min": 0.0020000000000000005,
+    "q_max": 0.4,
+    "n_points": 400,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 3172.660310232699,
+      "seed": 1241706239,
+      "median_relative_error": 0.010035686962246796,
+      "max_relative_error": 0.09307694359810355,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "modeling/modeling_guinier_porod.dat",
+      "ascii_ideal": "modeling/modeling_guinier_porod_ideal.dat",
+      "nxcansas": "modeling/modeling_guinier_porod.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Guinier",
+    "equation": "I(Q) = I0 exp(-Q^2 Rg^2/3)",
+    "parameters": [
+      {
+        "name": "I0",
+        "value": 250.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg",
+        "value": 45.0,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "Q_max*Rg",
+        "value": 1.3499999999999999,
+        "unit": "-",
+        "note": "Guinier validity limit ~1.3"
+      }
+    ],
+    "name": "simple_guinier",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.0020000000000000005,
+    "q_max": 0.029999999999999995,
+    "n_points": 200,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 1.7660488101420344,
+      "seed": 192184972,
+      "median_relative_error": 0.04958392034218298,
+      "max_relative_error": 0.06525384404687089,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_guinier.dat",
+      "ascii_ideal": "simple_fits/simple_guinier_ideal.dat",
+      "nxcansas": "simple_fits/simple_guinier.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Guinier Rod",
+    "equation": "I(Q) = I0 exp(-Q^2 Rc^2/2)/Q",
+    "parameters": [
+      {
+        "name": "I0",
+        "value": 5.0,
+        "unit": "cm^-1 A^-1",
+        "note": ""
+      },
+      {
+        "name": "Rc",
+        "value": 25.0,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "simple_guinier_rod",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.004999999999999999,
+    "q_max": 0.07999999999999999,
+    "n_points": 200,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 17.61401897222671,
+      "seed": 538831288,
+      "median_relative_error": 0.01890338948826145,
+      "max_relative_error": 0.08253470432527989,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_guinier_rod.dat",
+      "ascii_ideal": "simple_fits/simple_guinier_rod_ideal.dat",
+      "nxcansas": "simple_fits/simple_guinier_rod.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Guinier Sheet",
+    "equation": "I(Q) = I0 exp(-Q^2 Rg^2)/Q^2",
+    "parameters": [
+      {
+        "name": "I0",
+        "value": 0.02,
+        "unit": "cm^-1 A^-2",
+        "note": ""
+      },
+      {
+        "name": "Rg",
+        "value": 15.0,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "simple_guinier_sheet",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.01,
+    "q_max": 0.1,
+    "n_points": 200,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 658.9047224356227,
+      "seed": 2739133858,
+      "median_relative_error": 0.013965646764358797,
+      "max_relative_error": 0.08543785183772555,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_guinier_sheet.dat",
+      "ascii_ideal": "simple_fits/simple_guinier_sheet_ideal.dat",
+      "nxcansas": "simple_fits/simple_guinier_sheet.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Porod",
+    "equation": "I(Q) = Kp Q^-4 + bg",
+    "parameters": [
+      {
+        "name": "Kp",
+        "value": 2.5e-06,
+        "unit": "cm^-1 A^-4",
+        "note": ""
+      },
+      {
+        "name": "Background",
+        "value": 0.05,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "simple_porod",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.049999999999999996,
+    "q_max": 0.5,
+    "n_points": 200,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 5548.520153103952,
+      "seed": 2585338660,
+      "median_relative_error": 0.058630206842561046,
+      "max_relative_error": 0.06084146098448224,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_porod.dat",
+      "ascii_ideal": "simple_fits/simple_porod_ideal.dat",
+      "nxcansas": "simple_fits/simple_porod.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Power Law",
+    "equation": "I(Q) = Prefactor Q^-Exponent + bg",
+    "parameters": [
+      {
+        "name": "Prefactor",
+        "value": 0.0012,
+        "unit": "cm^-1 A^-n",
+        "note": ""
+      },
+      {
+        "name": "Exponent",
+        "value": 3.2,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Background",
+        "value": 0.02,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "simple_power_law",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.01,
+    "q_max": 0.4,
+    "n_points": 250,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 4580.159214373302,
+      "seed": 4090444554,
+      "median_relative_error": 0.011244630570125931,
+      "max_relative_error": 0.07235122924418291,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_power_law.dat",
+      "ascii_ideal": "simple_fits/simple_power_law_ideal.dat",
+      "nxcansas": "simple_fits/simple_power_law.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Sphere (monodisperse) + flat background",
+    "equation": "I(Q) = Scale |3(sin x - x cos x)/x^3|^2 + BG_flat, x = QR",
+    "parameters": [
+      {
+        "name": "Scale",
+        "value": 8.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "R",
+        "value": 120.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "BG_flat",
+        "value": 0.01,
+        "unit": "1/cm",
+        "note": "fit with the complex background, flat term only"
+      }
+    ],
+    "derived": [
+      {
+        "name": "Q_first_minimum",
+        "value": 0.037445,
+        "unit": "1/A",
+        "note": ""
+      }
+    ],
+    "name": "simple_sphere",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.0020000000000000005,
+    "q_max": 0.15,
+    "n_points": 500,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 27045.041019008448,
+      "seed": 3077917839,
+      "median_relative_error": 0.01056527876162588,
+      "max_relative_error": 0.06162349457422023,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_sphere.dat",
+      "ascii_ideal": "simple_fits/simple_sphere_ideal.dat",
+      "nxcansas": "simple_fits/simple_sphere.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Debye Polymer Chain",
+    "equation": "I(Q) = Scale 2(exp(-x)-1+x)/x^2, x = Q^2 Rg^2",
+    "parameters": [
+      {
+        "name": "Scale",
+        "value": 15.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg",
+        "value": 60.0,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "simple_debye_chain",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.003000000000000001,
+    "q_max": 0.29999999999999993,
+    "n_points": 300,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 1902.1349542390656,
+      "seed": 1210075857,
+      "median_relative_error": 0.013443236491938609,
+      "max_relative_error": 0.07612758368245574,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_debye_chain.dat",
+      "ascii_ideal": "simple_fits/simple_debye_chain_ideal.dat",
+      "nxcansas": "simple_fits/simple_debye_chain.h5"
+    }
+  },
+  {
+    "tool": "Simple Fits",
+    "model": "Debye-Bueche",
+    "equation": "I(Q) = Prefactor Eta^2 xi^3/(1+Q^2 xi^2)^2",
+    "parameters": [
+      {
+        "name": "Prefactor",
+        "value": 1.0,
+        "unit": "cm^-1 A^-3",
+        "note": ""
+      },
+      {
+        "name": "Eta",
+        "value": 0.05,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "CorrLength",
+        "value": 80.0,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "I(0)",
+        "value": 1280.0000000000002,
+        "unit": "1/cm",
+        "note": "only the product Prefactor*Eta^2 is determined by a fit"
+      }
+    ],
+    "name": "simple_debye_bueche",
+    "folder": "simple_fits",
+    "generated": "2026-08-30",
+    "q_min": 0.0020000000000000005,
+    "q_max": 0.20000000000000004,
+    "n_points": 300,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 5731.792411152787,
+      "seed": 1541744988,
+      "median_relative_error": 0.010086026446948223,
+      "max_relative_error": 0.09540731544764378,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "simple_fits/simple_debye_bueche.dat",
+      "ascii_ideal": "simple_fits/simple_debye_bueche_ideal.dat",
+      "nxcansas": "simple_fits/simple_debye_bueche.h5"
+    }
+  },
+  {
+    "tool": "WAXS Peak Fit",
+    "model": "Three Gaussian peaks on a linear background",
+    "equation": "I(Q) = bg0 + bg1 Q + SUM_i A_i exp[-4 ln2 (Q-Q0_i)^2/FWHM_i^2]",
+    "parameters": [
+      {
+        "name": "background_shape",
+        "value": "Linear",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "bg0",
+        "value": 8.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "bg1",
+        "value": 1.5,
+        "unit": "cm^-1 A",
+        "note": ""
+      },
+      {
+        "name": "peak1_shape",
+        "value": "Gauss",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "peak1_A",
+        "value": 100.0,
+        "unit": "1/cm",
+        "note": "peak height at Q0"
+      },
+      {
+        "name": "peak1_Q0",
+        "value": 1.85,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak1_FWHM",
+        "value": 0.09,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak2_shape",
+        "value": "Gauss",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "peak2_A",
+        "value": 60.0,
+        "unit": "1/cm",
+        "note": "peak height at Q0"
+      },
+      {
+        "name": "peak2_Q0",
+        "value": 2.55,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak2_FWHM",
+        "value": 0.12,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak3_shape",
+        "value": "Gauss",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "peak3_A",
+        "value": 35.0,
+        "unit": "1/cm",
+        "note": "peak height at Q0"
+      },
+      {
+        "name": "peak3_Q0",
+        "value": 3.05,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak3_FWHM",
+        "value": 0.15,
+        "unit": "1/A",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "peak1_area",
+        "value": 9.580203174881037,
+        "unit": "cm^-1 A^-1",
+        "note": "A*FWHM*sqrt(pi/(4 ln2))"
+      },
+      {
+        "name": "peak1_d_spacing",
+        "value": 3.3963163822592355,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "peak2_area",
+        "value": 7.6641625399048285,
+        "unit": "cm^-1 A^-1",
+        "note": "A*FWHM*sqrt(pi/(4 ln2))"
+      },
+      {
+        "name": "peak2_d_spacing",
+        "value": 2.463994238109642,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "peak3_area",
+        "value": 5.588451852013938,
+        "unit": "cm^-1 A^-1",
+        "note": "A*FWHM*sqrt(pi/(4 ln2))"
+      },
+      {
+        "name": "peak3_d_spacing",
+        "value": 2.0600607564523234,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "name": "waxs_three_gauss",
+    "folder": "waxs",
+    "generated": "2026-08-30",
+    "q_min": 1.2,
+    "q_max": 4.0,
+    "n_points": 700,
+    "q_spacing": "linear",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 27.750027750027744,
+      "seed": 1368163545,
+      "median_relative_error": 0.05322529876488927,
+      "max_relative_error": 0.06145846448734997,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "waxs/waxs_three_gauss.dat",
+      "ascii_ideal": "waxs/waxs_three_gauss_ideal.dat",
+      "nxcansas": "waxs/waxs_three_gauss.h5"
+    }
+  },
+  {
+    "tool": "WAXS Peak Fit",
+    "model": "Two pseudo-Voigt peaks on a cubic-polynomial background",
+    "equation": "I(Q) = SUM_k bg_k Q^k + SUM_i A_i[eta L_i(Q) + (1-eta) G_i(Q)]",
+    "parameters": [
+      {
+        "name": "background_shape",
+        "value": "Cubic",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "bg0",
+        "value": 10.0,
+        "unit": "cm^-1 A^0",
+        "note": ""
+      },
+      {
+        "name": "bg1",
+        "value": -2.0,
+        "unit": "cm^-1 A^1",
+        "note": ""
+      },
+      {
+        "name": "bg2",
+        "value": 0.8,
+        "unit": "cm^-1 A^2",
+        "note": ""
+      },
+      {
+        "name": "bg3",
+        "value": -0.05,
+        "unit": "cm^-1 A^3",
+        "note": ""
+      },
+      {
+        "name": "peak1_shape",
+        "value": "Pseudo-Voigt",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "peak1_A",
+        "value": 200.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "peak1_Q0",
+        "value": 2.1,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak1_FWHM",
+        "value": 0.07,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak1_eta",
+        "value": 0.4,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "peak2_shape",
+        "value": "Pseudo-Voigt",
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "peak2_A",
+        "value": 90.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "peak2_Q0",
+        "value": 2.95,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak2_FWHM",
+        "value": 0.11,
+        "unit": "1/A",
+        "note": ""
+      },
+      {
+        "name": "peak2_eta",
+        "value": 0.4,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "peak1_area",
+        "value": 17.737982393273725,
+        "unit": "cm^-1 A^-1",
+        "note": ""
+      },
+      {
+        "name": "peak1_d_spacing",
+        "value": 2.9919930034188504,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "peak2_area",
+        "value": 12.543287549529275,
+        "unit": "cm^-1 A^-1",
+        "note": ""
+      },
+      {
+        "name": "peak2_d_spacing",
+        "value": 2.1298933244676563,
+        "unit": "A",
+        "note": ""
+      }
+    ],
+    "name": "waxs_pseudovoigt",
+    "folder": "waxs",
+    "generated": "2026-08-30",
+    "q_min": 1.5,
+    "q_max": 4.0,
+    "n_points": 650,
+    "q_spacing": "linear",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 30.38513028664166,
+      "seed": 4129793739,
+      "median_relative_error": 0.054837095376296996,
+      "max_relative_error": 0.06144456569641382,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "waxs/waxs_pseudovoigt.dat",
+      "ascii_ideal": "waxs/waxs_pseudovoigt_ideal.dat",
+      "nxcansas": "waxs/waxs_pseudovoigt.h5"
+    }
+  },
+  {
+    "tool": "Data Merge",
+    "model": "Low-Q (USAXS-like) branch of a two-level Unified curve, correct scale",
+    "equation": "I(Q) = I_unified_2level(Q)",
+    "parameters": [
+      {
+        "name": "scale_factor",
+        "value": 1.0,
+        "unit": "-",
+        "note": "reference branch"
+      },
+      {
+        "name": "G1",
+        "value": 8.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Rg1",
+        "value": 120.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "P1",
+        "value": 4.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B1",
+        "value": 1.88e-07,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "G2",
+        "value": 4000.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Rg2",
+        "value": 1200.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "P2",
+        "value": 3.2,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B2",
+        "value": 1.393e-06,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "RgCO2",
+        "value": 120.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "bg",
+        "value": 0.02,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "merge_usaxs",
+    "folder": "merge",
+    "generated": "2026-08-30",
+    "q_min": 0.0001,
+    "q_max": 0.049999999999999996,
+    "n_points": 300,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 2240.840998330897,
+      "seed": 183252891,
+      "median_relative_error": 0.01004548757031734,
+      "max_relative_error": 0.09505964509326717,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "merge/merge_usaxs.dat",
+      "ascii_ideal": "merge/merge_usaxs_ideal.dat",
+      "nxcansas": "merge/merge_usaxs.h5"
+    }
+  },
+  {
+    "tool": "Data Merge",
+    "model": "High-Q (SAXS-like) branch of the SAME curve, deliberately mis-scaled by 1.15",
+    "equation": "I(Q) = 1.15 * I_unified_2level(Q)",
+    "parameters": [
+      {
+        "name": "scale_factor",
+        "value": 1.15,
+        "unit": "-",
+        "note": "merge should recover 1/1.15 = 0.869565 for this branch"
+      },
+      {
+        "name": "G1",
+        "value": 8.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Rg1",
+        "value": 120.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "P1",
+        "value": 4.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B1",
+        "value": 1.88e-07,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "G2",
+        "value": 4000.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "Rg2",
+        "value": 1200.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "P2",
+        "value": 3.2,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B2",
+        "value": 1.393e-06,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "RgCO2",
+        "value": 120.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "bg",
+        "value": 0.02,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "expected_recovered_scale",
+        "value": 0.8695652173913044,
+        "unit": "-",
+        "note": ""
+      }
+    ],
+    "name": "merge_saxs",
+    "folder": "merge",
+    "generated": "2026-08-30",
+    "q_min": 0.004999999999999999,
+    "q_max": 0.5,
+    "n_points": 320,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 12072.733400545938,
+      "seed": 652841110,
+      "median_relative_error": 0.03927234065503089,
+      "max_relative_error": 0.060834353605029666,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "merge/merge_saxs.dat",
+      "ascii_ideal": "merge/merge_saxs_ideal.dat",
+      "nxcansas": "merge/merge_saxs.h5"
+    }
+  },
+  {
+    "tool": "Data Manipulation",
+    "model": "Reference curve (single Unified level)",
+    "equation": "I(Q) = G exp(-Q^2Rg^2/3) + B/Q*^P",
+    "parameters": [
+      {
+        "name": "G",
+        "value": 100.0,
+        "unit": "1/cm",
+        "note": ""
+      },
+      {
+        "name": "Rg",
+        "value": 200.0,
+        "unit": "A",
+        "note": ""
+      },
+      {
+        "name": "P",
+        "value": 4.0,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "B",
+        "value": 3.045e-07,
+        "unit": "cm^-1 A^-P",
+        "note": ""
+      }
+    ],
+    "derived": [],
+    "name": "manipulate_reference",
+    "folder": "manipulation",
+    "generated": "2026-08-30",
+    "q_min": 0.001,
+    "q_max": 0.29999999999999993,
+    "n_points": 300,
+    "q_spacing": "log",
+    "noise": {
+      "model": "sigma = sqrt(I/kappa + (rel*I)^2); I_obs = I + sigma*N(0,1)",
+      "rel_systematic": 0.01,
+      "target_rel_at_5th_percentile": 0.06,
+      "kappa": 2361088.5166191356,
+      "seed": 3138783688,
+      "median_relative_error": 0.010005626424519038,
+      "max_relative_error": 0.10661335486896684,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "manipulation/manipulate_reference.dat",
+      "ascii_ideal": "manipulation/manipulate_reference_ideal.dat",
+      "nxcansas": "manipulation/manipulate_reference.h5"
+    }
+  },
+  {
+    "tool": "Data Manipulation",
+    "model": "The reference curve scaled and offset by known constants",
+    "equation": "I_input(Q) = a * I_reference(Q) + b  (applied to the NOISY reference, so the inverse is exact)",
+    "parameters": [
+      {
+        "name": "a_multiply",
+        "value": 2.5,
+        "unit": "-",
+        "note": ""
+      },
+      {
+        "name": "b_add",
+        "value": 0.3,
+        "unit": "1/cm",
+        "note": ""
+      }
+    ],
+    "derived": [
+      {
+        "name": "inverse_operation",
+        "value": "subtract 0.3 then divide by 2.5",
+        "unit": "-",
+        "note": "must reproduce manipulate_reference to machine precision"
+      }
+    ],
+    "name": "manipulate_input",
+    "folder": "manipulation",
+    "generated": "2026-08-30",
+    "q_min": 0.001,
+    "q_max": 0.29999999999999993,
+    "n_points": 300,
+    "q_spacing": "log",
+    "noise": {
+      "model": "exact transform of manipulate_reference: I = 2.5 * I_manipulate_reference + 0.3",
+      "rel_systematic": 0.0,
+      "target_rel_at_5th_percentile": 0.0,
+      "kappa": NaN,
+      "seed": 3138783688,
+      "median_relative_error": 0.009641492031956255,
+      "max_relative_error": 0.010267486829696191,
+      "n_points_redrawn": 0
+    },
+    "files": {
+      "ascii": "manipulation/manipulate_input.dat",
+      "ascii_ideal": "manipulation/manipulate_input_ideal.dat",
+      "nxcansas": "manipulation/manipulate_input.h5"
+    }
+  }
+]
