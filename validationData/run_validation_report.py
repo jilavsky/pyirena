@@ -9,10 +9,15 @@ the appropriate pyIrena tool on each ``.h5`` file, and writes
     VALIDATION_RESULTS.md    human-readable tables, one section per tool
     VALIDATION_RESULTS.csv   the same rows, machine readable
 
-Both carry an empty **Irena** column: run the same files through the Igor Pro
-Irena package with the settings printed for each dataset and fill it in, and the
-result is a side-by-side validation table suitable for publication as
-supplementary material.
+Both carry an **Irena** column, filled from ``irena_values.csv`` — the values
+obtained by analysing the same files in the Igor Pro Irena package, keyed by
+dataset and quantity.  Quantities with no entry there are left blank.  Because
+those numbers live in the repository as data rather than as text inside a
+document, regenerating the report never loses them; to add more, add rows to the
+CSV (or edit a copy of the table and run ``fill_irena_deviations.py
+--export-csv``) and run this script again.
+
+``irena_notes.md``, if present, is appended verbatim as a commentary section.
 
 Starting values for every fit are deliberately offset from the truth (see
 ``START_OFFSET``) so that convergence to the correct answer is demonstrated,
@@ -43,6 +48,54 @@ START_OFFSET = 0.60
 
 ROWS: list[dict] = []
 NOTES: list[str] = []
+
+IRENA_CSV = HERE / "irena_values.csv"
+IRENA_NOTES = HERE / "irena_notes.md"
+
+#: {(dataset, quantity): (value or None, status, note)} from irena_values.csv.
+#: A None value with status "not comparable" marks a quantity Irena defines
+#: differently, rendered as ``*`` rather than left blank.
+IRENA: dict = {}
+
+
+def load_irena() -> None:
+    """Read the hand-entered Irena results, if the CSV is present."""
+    import csv
+    if not IRENA_CSV.exists():
+        return
+    with IRENA_CSV.open(newline="") as fh:
+        for r in csv.DictReader(fh):
+            raw = (r.get("irena_value") or "").strip()
+            try:
+                val = float(raw) if raw else None
+            except ValueError:
+                NOTES.append(f"irena_values.csv: could not parse "
+                             f"{r['dataset']}/{r['quantity']} = {raw!r}")
+                continue
+            IRENA[(r["dataset"], r["quantity"])] = (
+                val, (r.get("status") or "").strip(),
+                (r.get("note") or "").strip(), raw)
+
+
+def irena_for(row: dict):
+    """Return (display string, deviation from truth or nan) for one row.
+
+    The value is rendered exactly as it was entered in the CSV: the significant
+    figures quoted are the experimenter's claim about the precision of that
+    result, and re-formatting them would overstate or lose it.  The deviation,
+    by contrast, is computed against the full-precision true value rather than
+    the rounded one printed in the table.
+    """
+    hit = IRENA.get((row["dataset"], row["quantity"]))
+    if hit is None:
+        return "", float("nan")
+    val, status, _note, raw = hit
+    if val is None:
+        return ("*" if status == "not comparable" else ""), float("nan")
+    truth = row["truth"]
+    if isinstance(truth, (int, float)) and truth != 0:
+        return raw, 100.0 * (val - truth) / truth
+    return raw, float("nan")
 
 
 def row(dataset, tool, quantity, unit, truth, fitted, tol_pct, settings="",
@@ -574,10 +627,17 @@ def fit_modeling(meta):
     res = eng.fit(cfg, q, I, dI)
     fitted = res.config
 
-    pops = ", ".join(getattr(p, "pop_type", "size_dist") for p in cfg.populations)
+    def _pop_label(p):
+        t = getattr(p, "pop_type", "size_dist")
+        c = getattr(p, "contrast", None)
+        if c is None:
+            c = getattr(p, "Contrast", None)
+        return f"{t} (contrast {c:g}e20 cm^-4)" if c is not None else t
+
+    pops = ", ".join(_pop_label(p) for p in cfg.populations)
     settings = (f"populations: {pops}; local (TRF) fit, "
-                f"size-distribution grid 200 bins, contrast held fixed, "
-                f"start = {START_OFFSET:.2f}x truth")
+                f"size-distribution grid 200 bins, contrast held fixed at the "
+                f"value quoted above, start = {START_OFFSET:.2f}x truth")
 
     for label, unit, key, getter, tol in checks:
         row(meta["name"], meta["tool"], label, unit, truth_of(meta, key),
@@ -765,9 +825,14 @@ def write_csv(path):
         w = csv.writer(fh)
         w.writerow(cols)
         for r in ROWS:
+            ir_s, ir_dev = irena_for(r)
+            hit = IRENA.get((r["dataset"], r["quantity"]))
+            gap = ""
+            if hit and hit[0]:
+                gap = fmt(100.0 * (r["pyirena"] - hit[0]) / hit[0])
             w.writerow([r["tool"], r["dataset"], r["quantity"], r["unit"],
                         fmt(r["truth"]), fmt(r["pyirena"]), fmt(r["dev_pct"]),
-                        fmt(r["tol_pct"]), r["status"], "", "", "",
+                        fmt(r["tol_pct"]), r["status"], ir_s, fmt(ir_dev), gap,
                         r["settings"], r["comment"]])
 
 
@@ -779,12 +844,15 @@ used to synthesise the data**.  The data files, and the generator that produced
 them, are in this folder; see `README.md` for the full ground truth and
 `ground_truth.json` for the machine-readable version.
 
-The **Irena** columns are deliberately empty.  Analyse the same files in the
-Igor Pro Irena package using the settings quoted for each dataset, enter the
-values, and the table becomes a direct implementation-to-implementation
-comparison against a common, exactly known reference.
+The **Irena** column holds the corresponding value obtained with the Igor Pro
+Irena package, analysing the same file with the settings quoted for each
+dataset.  Where it is filled, the table is a three-way comparison: both
+implementations measured against one common, exactly known reference.  A blank
+Irena cell means that quantity has not been analysed in Irena or that Irena does
+not report it; `*` marks a quantity Irena defines differently, so the numbers
+are not directly comparable.  These values are read from `irena_values.csv`.
 
-Deviation is `100 (fitted - true) / true`.  `Tol` is the tolerance the pyIrena
+Both deviations are `100 (fitted - true) / true`.  `Tol` is the tolerance the pyIrena
 regression test enforces; a blank tolerance marks a quantity that is reported
 for information but is not expected to be individually determined by the data
 (a correlated prefactor, a polynomial coefficient, a reduced chi-squared).
@@ -804,6 +872,15 @@ def write_markdown(path, failures):
     n_pass = sum(1 for r in ROWS if r["status"] == "PASS")
     lines.append(f"**Summary: {n_pass} of {n_scored} scored comparisons within "
                  f"tolerance** ({len(ROWS)} rows in total).\n")
+
+    stats = agreement_stats()
+    if stats:
+        n, py_med, ir_med, gap_med = stats
+        lines.append(
+            f"Over the {n} quantities both packages report, the median deviation "
+            f"from the known truth is **{py_med:.2f} % for pyIrena and "
+            f"{ir_med:.2f} % for Irena**, and the median difference **between the "
+            f"two packages is {gap_med:.2f} %**.\n")
     if NOTES:
         lines.append("Notes from this run:\n")
         lines += [f"* {n}" for n in NOTES] + [""]
@@ -826,14 +903,20 @@ def write_markdown(path, failures):
                 mark = {"PASS": "yes", "FAIL": "**CHECK**"}.get(r["status"], "-")
                 d = r["dev_pct"]
                 dev_s = f"{d:+.3f}" if isinstance(d, float) and np.isfinite(d) else ""
+                ir_s, ir_dev = irena_for(r)
+                ir_dev_s = f"{ir_dev:+.3f}" if np.isfinite(ir_dev) else ""
                 lines.append(
                     f"| {r['quantity']} | {r['unit']} | {fmt(r['truth'])} | "
                     f"{fmt(r['pyirena'])} | {dev_s} | "
-                    f"{fmt(r['tol_pct'])} | {mark} |  |  |")
+                    f"{fmt(r['tol_pct'])} | {mark} | {ir_s} | {ir_dev_s} |")
             comments = dict.fromkeys(r["comment"] for r in drows if r["comment"])
             for c in comments:
                 lines.append(f"\n> {c}")
             lines.append("")
+    if IRENA_NOTES.exists():
+        lines.append("---\n")
+        lines.append(IRENA_NOTES.read_text().split("-->", 1)[-1].strip())
+        lines.append("")
     if failures:
         lines.append("## Rows outside tolerance\n")
         for r in failures:
@@ -844,7 +927,27 @@ def write_markdown(path, failures):
     Path(path).write_text("\n".join(lines) + "\n")
 
 
+def agreement_stats():
+    """(n, median |pyIrena-true|, median |Irena-true|, median |pyIrena-Irena|) in %."""
+    py, ir, gap = [], [], []
+    for r in ROWS:
+        hit = IRENA.get((r["dataset"], r["quantity"]))
+        if not hit or hit[0] is None:
+            continue
+        t, p, i = r["truth"], r["pyirena"], hit[0]
+        if not isinstance(t, (int, float)) or t == 0 or not isinstance(p, (int, float)):
+            continue
+        py.append(abs(100 * (p - t) / t))
+        ir.append(abs(100 * (i - t) / t))
+        gap.append(abs(100 * (p - i) / i) if i else float("nan"))
+    if not py:
+        return None
+    med = lambda xs: sorted(xs)[len(xs) // 2]                     # noqa: E731
+    return len(py), med(py), med(ir), med(gap)
+
+
 def main():
+    load_irena()
     manifest = json.loads((HERE / "ground_truth.json").read_text())
     metas = {m["name"]: m for m in manifest}
 
@@ -879,6 +982,14 @@ def main():
     n_scored = sum(1 for r in ROWS if r["status"])
     print(f"\n{len(ROWS)} comparisons, {n_scored} scored, "
           f"{n_scored - len(failures)} within tolerance.")
+    stats = agreement_stats()
+    if stats:
+        n, py_med, ir_med, gap_med = stats
+        print(f"{n} quantities also analysed in Irena "
+              f"(from {IRENA_CSV.name}): median |pyIrena-true| {py_med:.3f} %, "
+              f"|Irena-true| {ir_med:.3f} %, |pyIrena-Irena| {gap_med:.3f} %")
+    else:
+        print(f"no Irena values found ({IRENA_CSV.name} missing or empty)")
     for r in failures:
         print(f"  OUTSIDE TOLERANCE: {r['dataset']} / {r['quantity']}: "
               f"{fmt(r['dev_pct'])} % (tol {fmt(r['tol_pct'])} %)")

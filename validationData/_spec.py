@@ -10,8 +10,9 @@ implements every formula independently from the published literature.
 
 from __future__ import annotations
 
-import _models as M
 import numpy as np
+
+import _models as M
 
 # ---------------------------------------------------------------------------
 # helpers

@@ -38,6 +38,20 @@ themselves; the drag-and-drop one was real and had been shipping.
   its generating parameters.
 - `pyirena/tests/test_modeling_structure_factor.py` — regression tests for the
   structure-factor fitting bug below.
+- **Igor Pro Irena results are now part of the validation report.**
+  `validationData/irena_values.csv` holds the values obtained with the Igor
+  package, keyed by dataset and quantity, and `run_validation_report.py` reads
+  it to fill the `Irena` and `Irena dev %` columns, compute the agreement
+  statistics, and append the commentary in `irena_notes.md`. Because those
+  numbers are data in the repository rather than text inside a document,
+  regenerating the report never loses them. Over the 98 quantities both
+  packages currently report, the median deviation from the known truth is
+  0.19 % for pyIrena and 0.31 % for Irena, and the median difference between
+  the two packages is 0.04 %.
+- `validationData/fill_irena_deviations.py --export-csv` writes a hand-edited
+  table's Irena column back into `irena_values.csv`.
+- `validationData/md_to_docx.py` renders a results table as a landscape Word
+  document (real tables, built-in heading styles) for a manuscript draft.
 
 ### Fixed
 

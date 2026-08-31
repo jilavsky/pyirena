@@ -34,7 +34,11 @@ model.
 | `_spec.py` | the dataset definitions: parameters, Q ranges, derived quantities |
 | `generate_validation_data.py` | writes the data files, the manifest and the JSON |
 | `run_validation_report.py` | fits every file with pyIrena, writes the results tables |
-| `VALIDATION_RESULTS.md` / `.csv` | truth vs pyIrena for every parameter, with empty Irena columns |
+| `VALIDATION_RESULTS.md` / `.csv` | truth vs pyIrena vs Irena for every parameter |
+| `irena_values.csv` | the values obtained with Igor Pro Irena, keyed by dataset and quantity — the source the report reads |
+| `irena_notes.md` | hand-written commentary on the comparison, appended verbatim to the report |
+| `fill_irena_deviations.py` | fills the `Irena dev %` column of a hand-edited copy of the table; `--export-csv` writes its Irena column back to `irena_values.csv` |
+| `md_to_docx.py` | renders any of these tables as a Word document for a manuscript draft |
 | `sizes/ unified/ modeling/ simple_fits/ waxs/ merge/ manipulation/` | the data |
 
 Each dataset ships as three files:
@@ -66,7 +70,33 @@ than assume it.
 2. Use the tool settings quoted for that dataset in `VALIDATION_RESULTS.md` —
    the same size grid, the same number of bins, the same fixed parameters — so
    both packages solve the same problem.
-3. Enter the Irena values in the `Irena` column of `VALIDATION_RESULTS.csv`.
+3. Add the Irena values to `validationData/irena_values.csv` — one row per
+   `(dataset, quantity)` — and re-run `run_validation_report.py`. The Irena
+   column, its deviation from the truth, and the agreement statistics are then
+   part of the generated report.
+
+   Working in the Markdown table instead is also supported: fill the `Irena`
+   column by hand, then
+
+   ```bash
+   python3 validationData/fill_irena_deviations.py <table>.md --export-csv
+   ```
+
+   computes the `Irena dev %` column and writes the values back into
+   `irena_values.csv`, so they survive the next regeneration. Both scripts are
+   idempotent.
+
+Because the Irena results live in the repository as data rather than as text
+inside a document, a results table can be rebuilt at any time — moving a copy
+into a manuscript folder does not put the numbers at risk.
+
+To hand the table to a co-author or a journal:
+
+```bash
+python3 validationData/md_to_docx.py VALIDATION_RESULTS.md
+```
+
+which writes a landscape Word document with real tables and heading styles.
 
 The result is a three-way table: known truth, pyIrena, Irena.  That is the form
 the comparison should take in a paper or a referee response, because it
@@ -96,6 +126,10 @@ tables say so rather than hiding it:
   generator integrates over ±6σ.
 * **Nuisance backgrounds.** A small flat background that contributes a few
   percent of the intensity anywhere is weakly determined; it is scored loosely.
+
+Where a quantity is one the two packages define differently, `irena_values.csv`
+records it with status `not comparable` and the report prints `*` rather than a
+misleading number; `irena_notes.md` explains each case.
 
 Every row also carries a **model-versus-exact-curve** comparison — the median
 and maximum point-by-point deviation of the fitted model from `<name>_ideal.dat`
