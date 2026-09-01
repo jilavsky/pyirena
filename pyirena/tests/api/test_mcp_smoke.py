@@ -41,3 +41,84 @@ def test_mcp_module_imports_and_registers_tools():
             pytest.skip("Could not introspect FastMCP tool registry")
     missing = expected - names
     assert not missing, f"MCP server is missing tools: {missing}"
+
+
+class _FastmcpBlocker:
+    """Meta-path finder that makes ``import mcp.server.fastmcp`` fail.
+
+    Lets us exercise the import guard in ``pyirena/mcp/server.py`` without
+    actually installing a broken mcp.
+    """
+
+    def __init__(self, exc):
+        self.exc = exc
+
+    def find_spec(self, name, path=None, target=None):
+        if name == "mcp.server.fastmcp" or name.startswith("mcp.server.fastmcp."):
+            raise self.exc
+        return None
+
+
+def _import_server_with(monkeypatch, exc, reported_version):
+    """Import pyirena.mcp.server with fastmcp broken; return the raised message."""
+    import importlib
+    import importlib.metadata
+    import sys
+
+    real_version = importlib.metadata.version
+
+    def fake_version(name):
+        if name == "mcp":
+            if reported_version is None:
+                raise importlib.metadata.PackageNotFoundError("mcp")
+            return reported_version
+        return real_version(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+
+    saved = {k: v for k, v in sys.modules.items() if k.startswith("pyirena.mcp")}
+    for k in saved:
+        monkeypatch.delitem(sys.modules, k, raising=False)
+    monkeypatch.delitem(sys.modules, "mcp.server.fastmcp", raising=False)
+
+    blocker = _FastmcpBlocker(exc)
+    sys.meta_path.insert(0, blocker)
+    try:
+        with pytest.raises(ImportError) as excinfo:
+            importlib.import_module("pyirena.mcp.server")
+        return str(excinfo.value)
+    finally:
+        sys.meta_path.remove(blocker)
+        sys.modules.pop("pyirena.mcp.server", None)
+
+
+def test_import_guard_when_mcp_missing(monkeypatch):
+    msg = _import_server_with(
+        monkeypatch, ModuleNotFoundError("No module named 'mcp'", name="mcp"), None
+    )
+    assert "pip install pyirena[mcp]" in msg
+
+
+def test_import_guard_names_mcp_2_explicitly(monkeypatch):
+    """mcp 2.x must not be misreported as 'mcp is not installed'.
+
+    mcp 2.0 renamed FastMCP to MCPServer and left ``mcp.server.fastmcp`` as a
+    stub raising ModuleNotFoundError (an ImportError subclass), so the guard
+    has to distinguish it from a genuinely absent package.
+    """
+    stub_error = ModuleNotFoundError(
+        "No module named 'mcp.server.fastmcp'. This is mcp 2.x, ...",
+        name="mcp.server.fastmcp",
+    )
+    msg = _import_server_with(monkeypatch, stub_error, "2.0.1")
+    assert "2.0.1" in msg
+    assert "mcp>=1.0.0,<2.0" in msg
+    assert "pip install pyirena[mcp]" not in msg  # the misleading advice
+
+
+def test_import_guard_surfaces_other_failures(monkeypatch):
+    msg = _import_server_with(
+        monkeypatch, ImportError("cannot import name 'Image'"), "1.27.1"
+    )
+    assert "1.27.1" in msg
+    assert "cannot import name 'Image'" in msg

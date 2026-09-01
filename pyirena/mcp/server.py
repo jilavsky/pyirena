@@ -20,10 +20,44 @@ from typing import Any, Optional
 try:
     from mcp.server.fastmcp import FastMCP, Image
 except ImportError as exc:  # pragma: no cover - import guard
-    raise ImportError(
-        "The 'mcp' package is required to run pyirena-mcp. "
-        "Install with: pip install pyirena[mcp]"
-    ) from exc
+    # Three different failures land here and they need three different fixes.
+    # mcp 2.0 renamed ``FastMCP`` to ``MCPServer`` and replaced
+    # ``mcp.server.fastmcp`` with a stub that raises ModuleNotFoundError --
+    # a subclass of ImportError -- so a single "install pyirena[mcp]" message
+    # would tell users to install a package they already have.
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        _installed_mcp = _pkg_version("mcp")
+    except Exception:  # pragma: no cover - distribution metadata unavailable
+        _installed_mcp = None
+
+    _mcp_major = -1
+    if _installed_mcp:
+        try:
+            _mcp_major = int(_installed_mcp.split(".", 1)[0])
+        except ValueError:  # pragma: no cover - unparseable version string
+            _mcp_major = -1
+
+    if _installed_mcp is None:
+        _hint = (
+            "The 'mcp' package is required to run pyirena-mcp. "
+            "Install with: pip install pyirena[mcp]"
+        )
+    elif _mcp_major >= 2:
+        _hint = (
+            f"pyirena-mcp requires the mcp 1.x SDK, but mcp {_installed_mcp} is "
+            "installed. mcp 2.0 renamed FastMCP to MCPServer and removed "
+            "'mcp.server.fastmcp', which pyirena/mcp/server.py is built on. "
+            "Fix with:  pip install 'mcp>=1.0.0,<2.0'  -- or upgrade pyirena "
+            "itself (pip install -U 'pyirena[mcp]'), which pins mcp<2 as of "
+            "1.1.0b7. pyirena has not been migrated to the mcp 2.x API yet."
+        )
+    else:
+        _hint = (
+            f"Could not import 'mcp.server.fastmcp' from mcp {_installed_mcp}: {exc}"
+        )
+    raise ImportError(_hint) from exc
 
 from pyirena import api as papi
 

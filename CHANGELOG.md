@@ -55,6 +55,18 @@ themselves; the drag-and-drop one was real and had been shipping.
 
 ### Fixed
 
+- **`pyirena-mcp` gave the wrong advice when mcp 2.x was installed.** The
+  import guard in `pyirena/mcp/server.py` caught every `ImportError` and
+  answered with "install with: pip install pyirena[mcp]". mcp 2.0 replaced
+  `mcp.server.fastmcp` with a stub that raises `ModuleNotFoundError` — an
+  `ImportError` subclass — so users who already had mcp installed, just the
+  wrong major version, were told to install a package they already had, and
+  the SDK's own migration hint was swallowed. The guard now reports the
+  installed mcp version and the actual fix (`pip install 'mcp>=1.0.0,<2.0'`,
+  or upgrade pyirena, which has pinned `mcp<2` since 1.1.0b7). Reached only
+  by installs that predate that pin or that upgrade `mcp` by hand — the extra
+  itself is unchanged.
+
 - **Modeling: structure-factor parameters were never actually fitted.** The
   hard-sphere radius and volume fraction (and the Interferences `eta`/`pack`)
   were packed into the fit vector under the key group `'sf'`, which the
