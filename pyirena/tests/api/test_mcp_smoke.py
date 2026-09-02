@@ -64,6 +64,7 @@ def _import_server_with(monkeypatch, exc, reported_version):
     import importlib
     import importlib.metadata
     import sys
+    import types
 
     real_version = importlib.metadata.version
 
@@ -80,6 +81,16 @@ def _import_server_with(monkeypatch, exc, reported_version):
     for k in saved:
         monkeypatch.delitem(sys.modules, k, raising=False)
     monkeypatch.delitem(sys.modules, "mcp.server.fastmcp", raising=False)
+
+    # The blocker below only fires for the leaf module, so the parent packages
+    # have to resolve first -- otherwise, on a machine where mcp is not
+    # installed at all (CI), the import dies at ``mcp`` with a plain
+    # "No module named 'mcp'" and the injected exception is never seen.
+    for parent in ("mcp", "mcp.server"):
+        if parent not in sys.modules:
+            stub = types.ModuleType(parent)
+            stub.__path__ = []  # mark as a package so submodule import proceeds
+            monkeypatch.setitem(sys.modules, parent, stub)
 
     blocker = _FastmcpBlocker(exc)
     sys.meta_path.insert(0, blocker)
