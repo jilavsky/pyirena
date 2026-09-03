@@ -896,6 +896,103 @@ def _diffraction_peak_intensity(
     return pop.amplitude * (eta * l + (1.0 - eta) * g)
 
 
+# ── Analytic population derivatives (for the hybrid fit Jacobian) ──────────────
+#
+# Closed-form partials for the cleanly-differentiable population types, keyed by
+# the parameter *name* used in _pack_params.  Each mirrors its intensity function
+# term for term (same K/erf/Q* clamps) so the derivative is exactly consistent
+# with the forward model.  Populations without an entry here (size_dist,
+# guinier_porod, mass_fractal, surface_fractal) fall back to finite differences
+# inside the Jacobian assembler — see ModelingEngine._model_jacobian.
+
+
+def _unified_level_derivs(q: np.ndarray, pop) -> dict:
+    """∂I/∂param for a Unified Level population; keys G, Rg, B, P, RgCO, ETA, PACK."""
+    K = 1.0 if pop.P > 3.0 else 1.06
+    Rg = max(pop.Rg, 1e-10)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        u = K * q * Rg / np.sqrt(6.0)
+        erf_raw = _scipy_erf(u)
+        E = np.maximum(erf_raw, 1e-10)
+        not_clamped = erf_raw > 1e-10
+        Q_star = q / (E ** 3)
+        Q_star_safe = np.maximum(Q_star, 1e-100)
+        guinier = pop.G * np.exp(-q ** 2 * Rg ** 2 / 3.0)
+        cutoff = (np.exp(-pop.RgCO ** 2 * q ** 2 / 3.0)
+                  if pop.RgCO > 0 else np.ones_like(q))
+        power_law = pop.B / Q_star_safe ** pop.P * cutoff
+    bare = guinier + power_law
+    derf_du = 2.0 / np.sqrt(np.pi) * np.exp(-u ** 2)
+
+    dG = np.exp(-q ** 2 * Rg ** 2 / 3.0)
+    dRg = guinier * (-2.0 * q ** 2 * Rg / 3.0) + np.where(
+        not_clamped,
+        power_law * (3.0 * pop.P / E) * derf_du * (K * q / np.sqrt(6.0)),
+        0.0,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        dP = power_law * (3.0 * np.log(E) - np.log(q))
+    dB = power_law / pop.B if pop.B != 0 else np.zeros_like(q)
+    dRgCO = (power_law * (-2.0 * pop.RgCO * q ** 2 / 3.0)
+             if pop.RgCO > 0 else np.zeros_like(q))
+
+    d = {'G': dG, 'Rg': dRg, 'P': dP, 'B': dB, 'RgCO': dRgCO,
+         'ETA': np.zeros_like(q), 'PACK': np.zeros_like(q)}
+
+    if pop.correlations and pop.PACK > 0:
+        f = _sphere_amplitude(q, pop.ETA)
+        D = 1.0 + pop.PACK * f
+        for k in ('G', 'Rg', 'P', 'B', 'RgCO'):
+            d[k] = d[k] / D
+        d['PACK'] = -bare * f / D ** 2
+        x = q * pop.ETA
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fp = 3.0 * ((x ** 2 - 3.0) * np.sin(x)
+                        + 3.0 * x * np.cos(x)) / x ** 4
+        fp = np.where(x < 1e-3, -x / 5.0, fp)
+        d['ETA'] = -bare * pop.PACK * (q * fp) / D ** 2
+    return d
+
+
+def _diffraction_peak_derivs(q: np.ndarray, pop) -> dict:
+    """∂I/∂param for a diffraction peak; keys position, amplitude, width, eta_voigt."""
+    dq = q - pop.position
+    w = max(pop.width, 1e-10)
+    g = np.exp(-dq ** 2 / (2.0 * w ** 2))
+    lor = 1.0 / (1.0 + (dq / w) ** 2)
+    A = pop.amplitude
+
+    dg_pos = g * (dq / w ** 2)
+    dg_w = g * (dq ** 2 / w ** 3)
+    dl_pos = (2.0 * dq / w ** 2) * lor ** 2
+    dl_w = (2.0 * dq ** 2 / w ** 3) * lor ** 2
+
+    if pop.peak_type == 'gaussian':
+        return {'amplitude': g, 'position': A * dg_pos, 'width': A * dg_w,
+                'eta_voigt': np.zeros_like(q)}
+    if pop.peak_type == 'lorentzian':
+        return {'amplitude': lor, 'position': A * dl_pos, 'width': A * dl_w,
+                'eta_voigt': np.zeros_like(q)}
+    # pseudo-Voigt
+    eta = float(np.clip(pop.eta_voigt, 0.0, 1.0))
+    return {
+        'amplitude': eta * lor + (1.0 - eta) * g,
+        'position': A * (eta * dl_pos + (1.0 - eta) * dg_pos),
+        'width': A * (eta * dl_w + (1.0 - eta) * dg_w),
+        'eta_voigt': A * (lor - g),
+    }
+
+
+#: Population types with closed-form derivatives, mapping pop_type → deriv fn.
+_POP_ANALYTIC_DERIVS = {
+    'unified_level': _unified_level_derivs,
+    'diffraction_peak': _diffraction_peak_derivs,
+}
+
+
 def _guinier_porod_intensity(
     q: np.ndarray, pop: 'GuinierPorodPopulation',
 ) -> np.ndarray:
@@ -1416,6 +1513,12 @@ class ModelingEngine:
         # background or another population skip this one outright.
         # Cleared at the start of every fit() call.
         self._pop_memo: dict = {}
+        # When on (default), the local TRF fit is driven by a hybrid analytic/
+        # finite-difference Jacobian (_jacobian): closed-form columns for the
+        # unified-level and diffraction-peak populations and the background,
+        # finite differences for the rest.  Any failure falls back to scipy's
+        # own finite-difference Jacobian.  Implementation detail — not serialised.
+        self.use_analytic_jacobian: bool = True
 
     # ── Slit smearing ─────────────────────────────────────────────────────────
 
@@ -1978,6 +2081,133 @@ class ModelingEngine:
         resid = self._residuals(x, keys, config, q, I, sigma)
         return float(np.sum(resid ** 2))
 
+    # ── Hybrid analytic/finite-difference Jacobian ────────────────────────────
+    #
+    # scipy needs one full Jacobian matrix, so a mix of analytic and
+    # finite-difference columns must be assembled by hand.  Columns for the
+    # cleanly-differentiable population types (unified_level 'uf', diffraction
+    # peak 'peak') and the constant background come from closed-form
+    # derivatives; every other parameter (size-dist shape/ff/sf, guinier_porod,
+    # fractals, scale, contrast) is finite-differenced against the same strict
+    # total-intensity model.  Analytic columns remove the bulk of the per-
+    # iteration model evaluations for typed-population fits; the remainder cost
+    # the same as before.
+
+    #: Parameter groups (from _pack_params keys) with closed-form derivatives.
+    _ANALYTIC_GROUPS = {'uf': 'unified_level', 'peak': 'diffraction_peak'}
+
+    def _model_jacobian(
+        self, config: ModelingConfig, q: np.ndarray, keys: list,
+    ) -> np.ndarray:
+        """Assemble ∂I_model/∂param for every packed parameter (ideal model).
+
+        Analytic where the parameter belongs to a differentiable population type
+        or the background; finite-difference (central, reusing the strict model)
+        elsewhere.  Column order matches *keys* / :meth:`_pack_params`.
+        """
+        n = len(keys)
+        J = np.zeros((len(q), n), dtype=float)
+
+        # Cache each analytic population's derivative dict so multiple fitted
+        # parameters of one population share a single evaluation.
+        analytic_cache: dict = {}
+        fd_cols: list = []   # indices needing finite differences
+
+        for col, key in enumerate(keys):
+            if key[0] == 'background':
+                J[:, col] = 1.0
+                continue
+            _, i, group, name = key
+            if group in self._ANALYTIC_GROUPS:
+                pop = config.populations[i]
+                if i not in analytic_cache:
+                    analytic_cache[i] = _POP_ANALYTIC_DERIVS[pop.pop_type](q, pop)
+                J[:, col] = analytic_cache[i][name]
+            else:
+                fd_cols.append(col)
+
+        # Finite-difference the remaining columns against the strict total model.
+        if fd_cols:
+            base, _, _, _ = self.total_intensity(
+                config, q, use_cache=False, strict=True)
+            x_all = np.array([self._param_value(config, keys[c]) for c in fd_cols],
+                             dtype=float)
+            for idx, col in enumerate(fd_cols):
+                v0 = x_all[idx]
+                step = 1e-3 * abs(v0) if v0 != 0 else 1e-6
+                self._set_param_value(config, keys[col], v0 + step)
+                plus, _, _, _ = self.total_intensity(
+                    config, q, use_cache=False, strict=True)
+                self._set_param_value(config, keys[col], v0)   # restore
+                J[:, col] = (plus - base) / step
+        return J
+
+    @staticmethod
+    def _param_value(config: ModelingConfig, key: tuple) -> float:
+        """Current value of the parameter named by a _pack_params key."""
+        if key[0] == 'background':
+            return float(config.background)
+        _, i, group, name = key
+        pop = config.populations[i]
+        if group in ('uf', 'gp', 'mf', 'sf', 'peak'):
+            return float(getattr(pop, name))
+        if group == 'dist':
+            return float(pop.dist_params.get(name, 1.0))
+        if group == 'ff':
+            return float(pop.ff_params.get(name, 1.0))
+        if group == 'sfp':
+            return float(pop.sf_params.get(name, 1.0))
+        if group == 'scale':
+            return float(pop.scale)
+        if group == 'contrast':
+            return float(pop.contrast)
+        raise KeyError(group)
+
+    @staticmethod
+    def _set_param_value(config: ModelingConfig, key: tuple, val: float) -> None:
+        """Write a single parameter named by a _pack_params key (FD helper).
+
+        Mirrors the group→target mapping in :meth:`_unpack_params` for one key.
+        """
+        if key[0] == 'background':
+            config.background = float(val)
+            return
+        _, i, group, name = key
+        pop = config.populations[i]
+        if group in ('uf', 'gp', 'mf', 'sf', 'peak'):
+            setattr(pop, name, float(val))
+        elif group == 'dist':
+            pop.dist_params[name] = float(val)
+        elif group == 'ff':
+            pop.ff_params[name] = float(val)
+        elif group == 'sfp':
+            pop.sf_params[name] = float(val)
+        elif group == 'scale':
+            pop.scale = float(val)
+        elif group == 'contrast':
+            pop.contrast = float(val)
+
+    def _jacobian(
+        self, x: np.ndarray, keys: list, config: ModelingConfig,
+        q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+    ) -> np.ndarray:
+        """Jacobian of the weighted residuals for least_squares.
+
+        residual = (I - I_model)/sigma  ⇒  d(resid)/dθ = -(1/sigma)·dI_model/dθ.
+        With slit smearing the ideal-model Jacobian is evaluated on the extended
+        grid and pushed through the same cached sparse operator as the forward
+        model — smearing is linear, so it commutes with differentiation.
+        """
+        self._unpack_params(x, keys, config)
+        smearer = self._get_smearer(q, config)
+        if smearer is None:
+            J_model = self._model_jacobian(config, q, keys)
+        else:
+            J_model = smearer.smear_columns(
+                self._model_jacobian(config, smearer.q_ext, keys))
+        inv_sigma = 1.0 / np.maximum(sigma, 1e-30)
+        return -inv_sigma[:, None] * J_model
+
     def _run_global_de(
         self, lo_arr: np.ndarray, hi_arr: np.ndarray, keys: list,
         cfg: ModelingConfig, q_fit: np.ndarray, I_fit: np.ndarray,
@@ -2232,20 +2462,37 @@ class ModelingEngine:
                     bounds=(lo_arr, hi_arr),
                     method='trf',
                     x_scale='jac',
-                    diff_step=1e-3,
                     max_nfev=300,
                     ftol=1e-12, xtol=1e-12, gtol=1e-12,
                 )
+
+                # x_scale='jac' works identically with an analytic or
+                # finite-difference Jacobian, so the scaling/tolerance behaviour
+                # is unchanged.  The hybrid analytic Jacobian (_jacobian) removes
+                # the model evaluations scipy would spend finite-differencing the
+                # unified-level/peak/background columns; the size-dist/fractal
+                # columns are still differenced, inside _jacobian.
+                def _solve(x_seed_):
+                    if self.use_analytic_jacobian:
+                        try:
+                            return least_squares(
+                                self._residuals, x_seed_, jac=self._jacobian,
+                                **ls_common)
+                        except Exception:
+                            self._unpack_params(
+                                np.asarray(x_seed_, dtype=float), keys, cfg)
+                    return least_squares(
+                        self._residuals, x_seed_, diff_step=1e-3, **ls_common)
+
                 prev_chi2 = np.inf
                 max_restarts = 5
-                result = least_squares(self._residuals, x_seed, **ls_common)
+                result = _solve(x_seed)
                 for _ in range(max_restarts - 1):
                     chi2 = float(np.sum(result.fun ** 2))
                     if prev_chi2 - chi2 <= 1e-4 * max(chi2, 1.0):
                         break
                     prev_chi2 = chi2
-                    result = least_squares(
-                        self._residuals, result.x, **ls_common)
+                    result = _solve(result.x)
                 x_best = result.x
                 # status 0 = max_nfev exhausted without meeting any tolerance
                 converged = (result.status != 0)
