@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.optimize import least_squares
-from scipy.special import erf, gamma
+from scipy.special import digamma, erf, gamma
 
 from pyirena.core.smearing import SlitSmearer
 
@@ -351,6 +351,16 @@ class UnifiedFitModel:
         self.slit_length: float = 0.0
         self._smearer: Optional[SlitSmearer] = None
 
+        # Fit tuning.  When on (default), fit() supplies an analytic Jacobian to
+        # least_squares instead of scipy's finite-difference approximation, which
+        # removes the N_params+1 model evaluations spent probing each iteration
+        # (~83% of evals on a typical fit) and firms up convergence on the stiff
+        # B/P-correlated USAXS surface.  Purely an implementation detail: it does
+        # not change the fitted result, so it is deliberately NOT serialised.  If
+        # _jacobian ever raises, fit() falls back to the finite-difference path
+        # for that solve, so a fit can never regress to failure because of it.
+        self.use_analytic_jacobian: bool = True
+
         # Fit results
         self.fit_result = None
         self.fit_intensity: Optional[np.ndarray] = None
@@ -653,6 +663,17 @@ class UnifiedFitModel:
 
         return np.array(lower), np.array(upper)
 
+    def _weights(self) -> np.ndarray:
+        """Least-squares weights ``1/error`` (unit weights when no errors).
+
+        Shared by :meth:`_residuals` and :meth:`_jacobian` so the residual and
+        its Jacobian are weighted identically — the Jacobian scipy receives must
+        be the derivative of exactly the residual scipy receives.
+        """
+        if self.error_data is not None and np.any(self.error_data > 0):
+            return 1.0 / self.error_data
+        return np.ones_like(self.I_data)
+
     def _residuals(self, params: np.ndarray) -> np.ndarray:
         """Calculate weighted residuals for fitting."""
         self._unpack_parameters(params)
@@ -661,15 +682,210 @@ class UnifiedFitModel:
         # the (smeared) data on the same footing.
         model_intensity = self.calculate_intensity_smeared(self.q_data)
 
-        # Calculate weighted residuals
-        if self.error_data is not None and np.any(self.error_data > 0):
-            weights = 1.0 / self.error_data
-        else:
-            weights = np.ones_like(self.I_data)
-
-        residuals = (self.I_data - model_intensity) * weights
+        residuals = (self.I_data - model_intensity) * self._weights()
 
         return residuals
+
+    # ── Analytic Jacobian ─────────────────────────────────────────────────
+    #
+    # The Unified model is a smooth analytic sum of Guinier and power-law terms,
+    # so its derivatives w.r.t. every fitted parameter are available in closed
+    # form.  Supplying them to least_squares removes the N_params+1 model
+    # evaluations scipy would otherwise spend building a finite-difference
+    # Jacobian each iteration.  Every derivative below mirrors
+    # calculate_level_intensity term for term — including its numerical clamps —
+    # so the Jacobian is exactly the derivative of the residual scipy also sees.
+
+    def _level_derivatives(self, q: np.ndarray, level_idx: int,
+                           prev_Rg: float) -> Dict[str, np.ndarray]:
+        """Closed-form derivatives of one level's intensity contribution.
+
+        Returns a dict mapping parameter name → ``dI_level/dparam`` (each an
+        array over ``q``), where ``I_level`` is this level's contribution to the
+        total intensity *including* the Born-Green correlation factor.  The
+        ``'prevRg'`` entry is the cross-level derivative w.r.t. the previous
+        level's Rg, nonzero only under ``link_RGCO`` for an upper level.
+
+        Mirrors :meth:`calculate_level_intensity` exactly (same K/erf/Q* clamps,
+        same derived-B handling) so the derivatives stay consistent with the
+        forward model at every point.
+        """
+        level = self.levels[level_idx]
+        level.auto_calculate_K()
+
+        RgCO = level.RgCO
+        linked_rgco = level.link_RGCO and level_idx > 0
+        if linked_rgco:
+            RgCO = prev_Rg
+
+        # Match the forward model's derived-B handling (mass_fractal wins).
+        if level.mass_fractal:
+            level.auto_calculate_B_mass_fractal()
+        elif level.link_B:
+            level.auto_calculate_B()
+
+        K = level.K
+        sqrt_6 = np.sqrt(6.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            u = K * q * level.Rg / sqrt_6
+            erf_raw = erf(u)
+            erf_term = np.maximum(erf_raw, 1e-10)
+            not_clamped = erf_raw > 1e-10        # derivative is 0 where clamped
+            Q_star = q / (erf_term ** 3)
+            Q_star_safe = np.maximum(Q_star, 1e-100)
+
+        guinier = level.G * np.exp(-q ** 2 * level.Rg ** 2 / 3.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cutoff_exp = np.exp(-RgCO ** 2 * q ** 2 / 3.0)
+            power_law = (level.B / (Q_star_safe ** level.P)) * cutoff_exp
+        bare = guinier + power_law
+
+        # d(erf(u))/du = 2/√π · exp(-u²);  du/dRg = K q / √6
+        derf_du = 2.0 / np.sqrt(np.pi) * np.exp(-u ** 2)
+
+        # Base partials of the bare (pre-correlation) intensity, treating B as
+        # the independent power-law prefactor.
+        dG = np.exp(-q ** 2 * level.Rg ** 2 / 3.0)          # guinier ∝ G
+        dRg = guinier * (-2.0 * q ** 2 * level.Rg / 3.0)    # guinier part
+        dRg = dRg + np.where(                                # power-law-via-erf
+            not_clamped,
+            power_law * (3.0 * level.P / erf_term) * derf_du * (K * q / sqrt_6),
+            0.0,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            dP = power_law * (3.0 * np.log(erf_term) - np.log(q))
+        dB = power_law / level.B if level.B != 0 else np.zeros_like(q)
+        dRgCO = power_law * (-2.0 * RgCO * q ** 2 / 3.0)
+
+        # Chain rule for derived B: in link_B / mass_fractal mode B is not a free
+        # parameter, so its dependence on G, Rg, P flows into their columns via
+        # dpw/dB = power_law/B.  (mass_fractal takes precedence, as in the model.)
+        if level.mass_fractal and level.Rg > 0 and level.B != 0:
+            # B = G · P · Rg^-P · Γ(P/2)
+            dB_dG = level.B / level.G
+            dB_dRg = -level.P * level.B / level.Rg
+            dB_dP = level.B * (1.0 / level.P - np.log(level.Rg)
+                               + 0.5 * digamma(level.P / 2.0))
+            dG = dG + dB * dB_dG
+            dRg = dRg + dB * dB_dRg
+            dP = dP + dB * dB_dP
+        elif level.link_B and level.Rg > 0 and level.B != 0:
+            # B = G · exp(-P/2) · (3P/2)^(P/2) · Rg^-P
+            dB_dG = level.B / level.G
+            dB_dRg = -level.P * level.B / level.Rg
+            dB_dP = level.B * (0.5 * np.log(1.5 * level.P) - np.log(level.Rg))
+            dG = dG + dB * dB_dG
+            dRg = dRg + dB * dB_dRg
+            dP = dP + dB * dB_dP
+
+        d = {'Rg': dRg, 'G': dG, 'P': dP, 'B': dB, 'RgCO': dRgCO,
+             'ETA': np.zeros_like(q), 'PACK': np.zeros_like(q),
+             'prevRg': np.zeros_like(q)}
+
+        if linked_rgco:
+            # Cutoff uses the previous level's Rg: dI/d(prev Rg) via the cutoff.
+            d['prevRg'] = power_law * (-2.0 * prev_Rg * q ** 2 / 3.0)
+
+        # Correlation factor  I = bare / D,  D = 1 + PACK·f(q, ETA).
+        if level.correlations and level.PACK > 0:
+            f = self.sphere_amplitude(q, level.ETA)
+            D = 1.0 + level.PACK * f
+            for k in ('Rg', 'G', 'P', 'B', 'RgCO', 'prevRg'):
+                d[k] = d[k] / D
+            d['PACK'] = -bare * f / D ** 2
+            # df/dη = q·f'(x), x = qη, f'(x) = 3[(x²-3)sin x + 3x cos x]/x⁴,
+            # with the small-x limit f'(x) → -x/5 (avoids 0/0 cancellation and
+            # mirrors sphere_amplitude's qη→0 branch, whose value is constant).
+            x = q * level.ETA
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                fp = 3.0 * ((x ** 2 - 3.0) * np.sin(x)
+                            + 3.0 * x * np.cos(x)) / x ** 4
+            fp = np.where(x < 1e-3, -x / 5.0, fp)
+            d['ETA'] = -bare * level.PACK * (q * fp) / D ** 2
+
+        return d
+
+    def _model_jacobian(self, q: np.ndarray) -> np.ndarray:
+        """Analytic Jacobian of the ideal (pinhole) total intensity.
+
+        Columns are ``∂ calculate_intensity / ∂param`` for each free parameter,
+        in the exact order of :meth:`_pack_parameters`.  Shape
+        ``(len(q), n_free_params)``.  Slit smearing is applied by the caller
+        (:meth:`_jacobian`), since it is a fixed linear operator that commutes
+        with differentiation.
+        """
+        q = np.asarray(q, dtype=float)
+        n = len(self._pack_parameters())
+        J = np.zeros((len(q), n))
+
+        # Per-level derivatives, threading prev_Rg exactly as calculate_intensity.
+        derivs: List[Dict[str, np.ndarray]] = []
+        prev_Rg = 0.0
+        for i in range(self.num_levels):
+            derivs.append(self._level_derivatives(q, i, prev_Rg))
+            prev_Rg = self.levels[i].Rg
+
+        # Assemble columns in packing order, recording each level's Rg column so
+        # the cross-level link_RGCO term lands on the previous level's Rg.
+        rg_col: Dict[int, int] = {}
+        col = 0
+        for i in range(self.num_levels):
+            level = self.levels[i]
+            d = derivs[i]
+            if level.fit_Rg:
+                rg_col[i] = col
+                J[:, col] += d['Rg']
+                col += 1
+            if level.fit_G:
+                J[:, col] += d['G']
+                col += 1
+            if level.fit_P:
+                J[:, col] += d['P']
+                col += 1
+            if level.fit_B and not level.link_B and not level.mass_fractal:
+                J[:, col] += d['B']
+                col += 1
+            if level.fit_ETA_effective:
+                J[:, col] += d['ETA']
+                col += 1
+            if level.fit_PACK_effective:
+                J[:, col] += d['PACK']
+                col += 1
+            if level.fit_RgCO and not level.link_RGCO:
+                J[:, col] += d['RgCO']
+                col += 1
+
+        for i in range(1, self.num_levels):
+            contrib = derivs[i]['prevRg']
+            if (i - 1) in rg_col and np.any(contrib):
+                J[:, rg_col[i - 1]] += contrib
+
+        if self.fit_background:
+            J[:, col] = 1.0
+            col += 1
+
+        return J
+
+    def _jacobian(self, params: np.ndarray) -> np.ndarray:
+        """Jacobian of the weighted residuals, for :func:`least_squares`.
+
+        Residual ``r = (I_data - I_model)·w`` ⇒ ``dr/dθ = -w · dI_model/dθ``.
+        With slit smearing on, the ideal-model Jacobian is evaluated on the
+        extended grid and pushed through the same cached sparse operator as the
+        forward model (``smear_columns``) — smearing is linear, so it commutes
+        with differentiation and the Jacobian stays consistent with the residual.
+        """
+        self._unpack_parameters(params)
+        smearer = self._get_smearer(self.q_data)
+        if smearer is None:
+            J_model = self._model_jacobian(self.q_data)
+        else:
+            J_model = smearer.smear_columns(self._model_jacobian(smearer.q_ext))
+        return -self._weights()[:, None] * J_model
 
     def fit(self, q: np.ndarray, intensity: np.ndarray,
             error: Optional[np.ndarray] = None,
@@ -731,8 +947,41 @@ class UnifiedFitModel:
         # in core/modeling.py, verified 20–35× faster on Modeling data).
         tol_kwargs: Dict = {}
         if method in ('trf', 'dogbox'):
-            tol_kwargs = dict(x_scale='jac', diff_step=1e-3,
+            # diff_step (0.1%-of-value finite-difference step) only matters on
+            # the finite-difference path; when an analytic Jacobian is supplied
+            # scipy ignores it, so it is added below only for the FD fallback.
+            tol_kwargs = dict(x_scale='jac',
                               ftol=1e-12, xtol=1e-12, gtol=1e-12)
+
+        # x_scale='jac' rescales parameters by their Jacobian-column norms every
+        # iteration; it works identically whether the Jacobian is analytic or
+        # finite-difference, so the scaling/tolerance behaviour above is
+        # unchanged by supplying an analytic Jacobian.
+        def _solve(x0):
+            """One least_squares solve, analytic Jacobian with FD fallback.
+
+            The analytic Jacobian removes the N_params+1 model evaluations scipy
+            spends per iteration approximating it.  If it ever raises, fall back
+            to scipy's finite-difference Jacobian for this solve so a fit can
+            never fail because of the analytic path.
+            """
+            if self.use_analytic_jacobian:
+                try:
+                    return least_squares(
+                        self._residuals, x0, jac=self._jacobian,
+                        bounds=(lower, upper), method=method,
+                        max_nfev=max_iterations, verbose=verbose, **tol_kwargs,
+                    )
+                except Exception:
+                    self._unpack_parameters(np.asarray(x0, dtype=float))
+            fd_kwargs = dict(tol_kwargs)
+            if method in ('trf', 'dogbox'):
+                fd_kwargs['diff_step'] = 1e-3
+            return least_squares(
+                self._residuals, x0,
+                bounds=(lower, upper), method=method,
+                max_nfev=max_iterations, verbose=verbose, **fd_kwargs,
+            )
 
         # Internal restart loop: re-seed the solver from its own result until
         # χ² stops improving. This is the automated equivalent of a user
@@ -744,11 +993,7 @@ class UnifiedFitModel:
         x_current = np.asarray(p0, dtype=float)
         prev_chi2 = np.inf
         max_restarts = 5
-        result = least_squares(
-            self._residuals, x_current,
-            bounds=(lower, upper), method=method,
-            max_nfev=max_iterations, verbose=verbose, **tol_kwargs,
-        )
+        result = _solve(x_current)
         for _ in range(max_restarts - 1):
             chi2 = float(np.sum(result.fun ** 2))
             # Relative threshold (1e-4·χ²): see the identical guard in
@@ -758,11 +1003,7 @@ class UnifiedFitModel:
             if prev_chi2 - chi2 <= 1e-4 * max(chi2, 1.0):
                 break
             prev_chi2 = chi2
-            result = least_squares(
-                self._residuals, result.x,
-                bounds=(lower, upper), method=method,
-                max_nfev=max_iterations, verbose=verbose, **tol_kwargs,
-            )
+            result = _solve(result.x)
         self.fit_result = result
 
         # Unpack final parameters
