@@ -185,6 +185,74 @@ def eval_peak(q: np.ndarray, shape: str, params: Dict) -> np.ndarray:
     raise ValueError(f"Unknown peak shape: {shape!r}")
 
 
+# ---------------------------------------------------------------------------
+# Analytic peak derivatives (for the fit Jacobian)
+# ---------------------------------------------------------------------------
+#
+# Gauss, Lorentz and Pseudo-Voigt are elementary closed forms, so their partial
+# derivatives w.r.t. each parameter are exact and cheap.  Supplying them to
+# curve_fit removes the N_params+1 model evaluations scipy spends per iteration
+# estimating the Jacobian by finite differences (that cost is what forced the
+# relaxed 1e-5 tolerances on large, many-peak WAXS fits).  LogNormal is
+# deliberately absent: it normalises by the sampled grid maximum, so ∂/∂Q0 and
+# ∂/∂FWHM are only piecewise-smooth — those peaks stay on the finite-difference
+# path (see PEAK_SHAPES_WITH_JAC).
+
+#: Peak shapes with an analytic derivative available.  A fit whose peaks are all
+#: in this set uses an analytic Jacobian; any LogNormal peak drops the whole fit
+#: back to scipy's finite-difference Jacobian.
+PEAK_SHAPES_WITH_JAC: frozenset = frozenset({"Gauss", "Lorentz", "Pseudo-Voigt"})
+
+
+def _gauss_peak_derivs(q, A, Q0, FWHM):
+    """Partial derivatives of :func:`gauss_peak` → dict keyed by param name."""
+    sigma = FWHM / (2.0 * np.sqrt(2.0 * _LN2))
+    peak = A * np.exp(-0.5 * ((q - Q0) / sigma) ** 2)
+    return {
+        "A": peak / A if A != 0 else np.exp(-0.5 * ((q - Q0) / sigma) ** 2),
+        "Q0": peak * (q - Q0) / sigma ** 2,
+        # sigma ∝ FWHM, so d/dFWHM = peak·(q-Q0)²/sigma² · (1/FWHM)
+        "FWHM": peak * ((q - Q0) ** 2 / sigma ** 2) / FWHM,
+    }
+
+
+def _lorentz_peak_derivs(q, A, Q0, FWHM):
+    """Partial derivatives of :func:`lorentz_peak` → dict keyed by param name."""
+    gamma = FWHM / 2.0
+    denom = (q - Q0) ** 2 + gamma ** 2
+    peak = A * gamma ** 2 / denom
+    # d/dgamma = A·2γ·(q-Q0)²/denom²;  dgamma/dFWHM = 1/2
+    dgamma = A * 2.0 * gamma * (q - Q0) ** 2 / denom ** 2
+    return {
+        "A": peak / A if A != 0 else gamma ** 2 / denom,
+        "Q0": A * gamma ** 2 * (2.0 * (q - Q0)) / denom ** 2,
+        "FWHM": dgamma * 0.5,
+    }
+
+
+def eval_peak_derivs(q: np.ndarray, shape: str, params: Dict) -> Dict[str, np.ndarray]:
+    """Analytic partial derivatives of one peak, keyed by parameter name.
+
+    Only defined for the shapes in :data:`PEAK_SHAPES_WITH_JAC`; raises
+    ``KeyError`` for LogNormal (whose grid-max normalisation is not cleanly
+    differentiable), signalling the caller to fall back to finite differences.
+    """
+    A, Q0, FWHM = float(params["A"]), float(params["Q0"]), float(params["FWHM"])
+    if shape == "Gauss":
+        return _gauss_peak_derivs(q, A, Q0, FWHM)
+    if shape == "Lorentz":
+        return _lorentz_peak_derivs(q, A, Q0, FWHM)
+    if shape == "Pseudo-Voigt":
+        eta = float(np.clip(params.get("eta", 0.5), 0.0, 1.0))
+        dl = _lorentz_peak_derivs(q, A, Q0, FWHM)
+        dg = _gauss_peak_derivs(q, A, Q0, FWHM)
+        d = {k: eta * dl[k] + (1.0 - eta) * dg[k] for k in ("A", "Q0", "FWHM")}
+        # d/deta = Lorentz − Gauss
+        d["eta"] = lorentz_peak(q, A, Q0, FWHM) - gauss_peak(q, A, Q0, FWHM)
+        return d
+    raise KeyError(f"No analytic derivative for peak shape {shape!r}")
+
+
 # Closed-form integrals of the supported peak shapes (∫ peak(q) dq from
 # −∞ to +∞, in the same units as I·Q — typically cm⁻¹·Å⁻¹).
 #
@@ -846,6 +914,16 @@ class WAXSPeakFitModel:
         self.peaks      = peaks          # list of param dicts (shape + per-param sub-dicts)
         self.no_limits  = no_limits
 
+        # When on (default), fit() supplies curve_fit an analytic Jacobian
+        # instead of finite differences — cheaper per iteration (the FD cost
+        # scales with the peak count, which is what forced the relaxed 1e-5
+        # tolerances) and an exact gradient.  Only used when every peak shape has
+        # an analytic derivative (see PEAK_SHAPES_WITH_JAC); a LogNormal peak or
+        # any failure transparently falls back to the finite-difference path, so
+        # the fitted result is never worse.  Implementation detail — not
+        # serialised.
+        self.use_analytic_jacobian = True
+
     # ── Parameter vector helpers ──────────────────────────────────────────
 
     def _build_param_list(self) -> List[Tuple[str, float, bool, Optional[float], Optional[float]]]:
@@ -935,6 +1013,60 @@ class WAXSPeakFitModel:
             return result
 
         return f
+
+    def _can_use_analytic_jac(self) -> bool:
+        """True when an analytic Jacobian is available for this fit.
+
+        Requires the flag on and every peak shape to have an analytic
+        derivative.  A single LogNormal peak (grid-max normalised, not cleanly
+        differentiable) sends the whole fit back to finite differences.
+        """
+        if not getattr(self, "use_analytic_jacobian", True):
+            return False
+        return all(p["shape"] in PEAK_SHAPES_WITH_JAC for p in self.peaks)
+
+    def _make_jac_func(self, free_tags, fixed_vals, adaptive_bg=None):
+        """Return ``jac(q, *free_params) → (len(q), n_free)`` for curve_fit.
+
+        Column order matches *free_tags* exactly (the order curve_fit passes and
+        expects back).  Each free tag is either a polynomial-background
+        coefficient (``bg:bg{i}`` → column ``q**i``; adaptive backgrounds carry
+        no free params) or a peak parameter (``p{i}:name`` → that peak's analytic
+        partial).  Peaks are summed independently, so a peak-parameter column
+        depends only on its own peak; fixed params get no column.
+        """
+        n_peaks     = len(self.peaks)
+        peak_shapes = [p["shape"] for p in self.peaks]
+        peak_pnames = [_PEAK_PARAM_NAMES[s] for s in peak_shapes]
+
+        def jac(q, *free_vals):
+            q = np.asarray(q, dtype=float)
+            full: Dict[str, float] = dict(fixed_vals)
+            for tag, v in zip(free_tags, free_vals):
+                full[tag] = float(v)
+
+            # Per-peak analytic derivative dicts, computed once.
+            peak_derivs: List[Dict[str, np.ndarray]] = []
+            for i in range(n_peaks):
+                p = {pn: full[f"p{i}:{pn}"] for pn in peak_pnames[i]}
+                peak_derivs.append(eval_peak_derivs(q, peak_shapes[i], p))
+
+            cols = np.empty((len(q), len(free_tags)), dtype=float)
+            for j, tag in enumerate(free_tags):
+                if tag.startswith("bg:"):
+                    # Polynomial background coefficient bg{i} → ∂/∂c_i = q**i.
+                    # Tag is "bg:bg{i}"; the coefficient index is the trailing
+                    # integer.  (Not reached for adaptive backgrounds, which are
+                    # constant.)
+                    idx = int(tag.rsplit("bg", 1)[1])
+                    cols[:, j] = q ** idx
+                else:
+                    # p{i}:name
+                    pi, pname = tag[1:].split(":", 1)
+                    cols[:, j] = peak_derivs[int(pi)][pname]
+            return cols
+
+        return jac
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -1115,19 +1247,41 @@ class WAXSPeakFitModel:
         # Clamp p0 inside bounds
         p0 = np.clip(p0, lb, ub)
 
-        try:
+        # Common curve_fit arguments.  With finite differences scipy spends
+        # N_params+1 model evaluations per iteration probing the Jacobian, which
+        # on large many-peak fits forced the relaxed 1e-5 tolerances below.  When
+        # every peak has an analytic derivative we hand curve_fit an exact
+        # Jacobian instead and restore tight tolerances — the per-iteration cost
+        # collapses, so the "thousands of Jacobian iterations" problem does not
+        # recur.  Any peak without a derivative (LogNormal) keeps the FD path and
+        # its relaxed tolerances.
+        fit_kwargs = dict(
+            sigma=sigma_, absolute_sigma=absolute_sigma_for_cov,
+            bounds=(lb, ub), maxfev=10_000,
+        )
+        if self._can_use_analytic_jac():
+            fit_kwargs["jac"] = self._make_jac_func(
+                free_tags, fixed_vals, adaptive_bg=adaptive_bg_fit)
+            fit_kwargs.update(ftol=1e-8, xtol=1e-8, gtol=1e-8)
+        else:
+            fit_kwargs.update(ftol=1e-5, xtol=1e-5, gtol=1e-5)
+
+        def _run_curve_fit(kwargs):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                popt, pcov = optimize.curve_fit(
-                    f, q_, I_, p0=p0,
-                    sigma=sigma_, absolute_sigma=absolute_sigma_for_cov,
-                    bounds=(lb, ub),
-                    maxfev=10_000,
-                    # Relaxed convergence: scipy default ~1.5e-8 (machine precision)
-                    # causes thousands of Jacobian iterations for large datasets.
-                    # 1e-5 is more than adequate for WAXS peak positions/widths.
-                    ftol=1e-5, xtol=1e-5, gtol=1e-5,
-                )
+                return optimize.curve_fit(f, q_, I_, p0=p0, **kwargs)
+
+        try:
+            try:
+                popt, pcov = _run_curve_fit(fit_kwargs)
+            except Exception:
+                # Analytic-Jacobian path failed — retry once on finite
+                # differences so a fit never fails because of the Jacobian.
+                if "jac" not in fit_kwargs:
+                    raise
+                fd_kwargs = {k: v for k, v in fit_kwargs.items() if k != "jac"}
+                fd_kwargs.update(ftol=1e-5, xtol=1e-5, gtol=1e-5)
+                popt, pcov = _run_curve_fit(fd_kwargs)
             success = True
             message = "Fit converged."
         except optimize.OptimizeWarning as exc:

@@ -505,12 +505,99 @@ def calculate_invariant(
 
 
 # ===========================================================================
+# Analytic model derivatives (for the fit Jacobian)
+# ===========================================================================
+# Each ``_d_<model>(q, *params)`` returns an ``(len(q), n_params)`` array whose
+# columns are ∂formula/∂param, in the same parameter order as the formula.
+# Supplying these to curve_fit removes the N_params+1 model evaluations scipy
+# otherwise spends per iteration estimating the Jacobian by finite differences.
+#
+# Only the elementary closed-form models have a derivative here; the registry's
+# optional ``'jacobian'`` key wires them in, and curve_fit falls back to finite
+# differences for any model without one (Sphere, Spheroid, Benedetti-Ciccariello,
+# Hermans, Hybrid Hermans, Unified Born Green — quadratures, parameter branches
+# and clamps make their closed-form derivatives impractical/error-prone).  Each
+# derivative mirrors its formula's ``np.where(q > 0, …, 0)`` guards so it stays
+# consistent with the model at every point.
+
+
+def _d_guinier(q, I0, Rg):
+    e = np.exp(-q**2 * Rg**2 / 3.0)
+    return np.stack([e, I0 * e * (-2.0 * q**2 * Rg / 3.0)], axis=1)
+
+
+def _d_guinier_rod(q, I0, Rc):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        e = np.exp(-q**2 * Rc**2 / 2.0)
+        d_I0 = np.where(q > 0, e / q, 0.0)
+        d_Rc = np.where(q > 0, -I0 * q * Rc * e, 0.0)  # (e/q)·(-q²Rc) = -q·Rc·e
+    return np.stack([d_I0, d_Rc], axis=1)
+
+
+def _d_guinier_sheet(q, I0, Rg):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        e = np.exp(-q**2 * Rg**2)
+        d_I0 = np.where(q > 0, e / q**2, 0.0)
+        d_Rg = np.where(q > 0, -2.0 * I0 * Rg * e, 0.0)  # (e/q²)·(-2q²Rg)
+    return np.stack([d_I0, d_Rg], axis=1)
+
+
+def _d_porod(q, Kp, Background):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        d_Kp = np.where(q > 0, 1.0 / q**4, 0.0)
+    return np.stack([d_Kp, np.ones_like(q)], axis=1)
+
+
+def _d_power_law(q, Prefactor, Exponent, Background):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        pw = np.where(q > 0, q**(-Exponent), 0.0)
+        d_Exp = np.where(q > 0, -Prefactor * q**(-Exponent) * np.log(q), 0.0)
+    return np.stack([pw, d_Exp, np.ones_like(q)], axis=1)
+
+
+def _d_debye_polymer_chain(q, Scale, Rg):
+    x = q**2 * Rg**2
+    with np.errstate(divide='ignore', invalid='ignore'):
+        val = np.where(x < 1e-6, 1.0 - x / 3.0,
+                       2.0 * (np.exp(-x) - 1.0 + x) / x**2)
+        # dval/dx, with the matching Taylor limit as x→0
+        dval_dx = np.where(x < 1e-6, -1.0 / 3.0 + x / 6.0,
+                           2.0 * (2.0 - x - (x + 2.0) * np.exp(-x)) / x**3)
+    return np.stack([val, Scale * dval_dx * (2.0 * q**2 * Rg)], axis=1)
+
+
+def _d_debye_bueche(q, Prefactor, Eta, CorrLength):
+    xi = CorrLength
+    denom = 1.0 + q**2 * xi**2
+    d_Pref = Eta**2 * xi**3 / denom**2
+    d_Eta = Prefactor * 2.0 * Eta * xi**3 / denom**2
+    d_xi = Prefactor * Eta**2 * (3.0 * xi**2 / denom**2
+                                 - 4.0 * q**2 * xi**4 / denom**3)
+    return np.stack([d_Pref, d_Eta, d_xi], axis=1)
+
+
+def _d_teubner_strey(q, Prefactor, A, C1, C2):
+    denom = A + C1 * q**2 + C2 * q**4
+    with np.errstate(divide='ignore', invalid='ignore'):
+        nz = denom != 0.0
+        d_Pref = np.where(nz, 1.0 / denom, 0.0)
+        base = np.where(nz, -Prefactor / denom**2, 0.0)
+        d_A = base
+        d_C1 = base * q**2
+        d_C2 = base * q**4
+    return np.stack([d_Pref, d_A, d_C1, d_C2], axis=1)
+
+
+# ===========================================================================
 # MODEL_REGISTRY
 # ===========================================================================
 # Each entry:
 #   'params'        : list of (name, default, lower_bound, upper_bound)
 #                     lower/upper_bound: None → −inf / +inf
 #   'formula'       : callable (q, *params) → np.ndarray
+#   'jacobian'      : (optional) callable (q, *params) → (len(q), n_params)
+#                     analytic derivative columns.  When present, fit() hands it
+#                     to curve_fit; absent → scipy uses finite differences.
 #   'linearization' : str key or None
 #                     'guinier' | 'guinier_rod' | 'guinier_sheet' | 'porod'
 #   'complex_bg'    : True if a complex background (A·Q^-n + flat) can be
@@ -526,6 +613,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('Rg', 50.0,  0.1,   10_000.0),
         ],
         'formula': _guinier,
+        'jacobian': _d_guinier,
         'linearization': 'guinier',
         'complex_bg': True,
     },
@@ -535,6 +623,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('Rc', 10.0, 0.1,   10_000.0),
         ],
         'formula': _guinier_rod,
+        'jacobian': _d_guinier_rod,
         'linearization': 'guinier_rod',
         'complex_bg': True,
     },
@@ -544,6 +633,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('Rg', 10.0, 0.1,   10_000.0),
         ],
         'formula': _guinier_sheet,
+        'jacobian': _d_guinier_sheet,
         'linearization': 'guinier_sheet',
         'complex_bg': True,
     },
@@ -553,6 +643,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('Background', 0.0, None,  None),
         ],
         'formula': _porod,
+        'jacobian': _d_porod,
         'linearization': 'porod',
         'complex_bg': False,
     },
@@ -563,6 +654,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('Background', 0.0, None,  None),
         ],
         'formula': _power_law,
+        'jacobian': _d_power_law,
         'linearization': None,
         'complex_bg': False,
     },
@@ -572,6 +664,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('Rg',    50.0, 0.1,   100_000.0),
         ],
         'formula': _debye_polymer_chain,
+        'jacobian': _d_debye_polymer_chain,
         'linearization': None,
         'complex_bg': True,
     },
@@ -601,6 +694,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('CorrLength', 100.0, 0.1,   100_000.0),
         ],
         'formula': _debye_bueche,
+        'jacobian': _d_debye_bueche,
         'linearization': None,
         'complex_bg': True,
     },
@@ -612,6 +706,7 @@ MODEL_REGISTRY: dict[str, dict] = {
             ('C2',        5000.0, 1e-30, None),
         ],
         'formula': _teubner_strey,
+        'jacobian': _d_teubner_strey,
         'linearization': None,
         'complex_bg': True,
     },
@@ -762,6 +857,12 @@ class SimpleFitModel:
         # without desmearing and is disabled when smearing is active (Q5).
         self.use_slit_smearing: bool = False
         self.slit_length: float = 0.0
+        # When on (default), fit() hands curve_fit the model's analytic Jacobian
+        # (registry 'jacobian' key) instead of finite differences — cheaper and
+        # an exact gradient.  Models without an analytic derivative, or any
+        # failure, transparently fall back to finite differences.
+        # Implementation detail — not serialised.
+        self.use_analytic_jacobian: bool = True
         self._reset_to_defaults()
 
     # ── Calculation-model helpers ─────────────────────────────────────────────
@@ -971,6 +1072,39 @@ class SimpleFitModel:
 
         return func
 
+    def _build_jac_func(self):
+        """Return an analytic Jacobian ``jac(q, *params) → (len(q), n_params)``.
+
+        Returns ``None`` when the active model has no analytic derivative, so
+        the caller leaves ``curve_fit`` on its finite-difference default.  The
+        column order matches :meth:`_build_fit_func`'s parameter order — the
+        model's own columns first, then, when the complex background is active,
+        the three background columns (∂/∂BG_B, ∂/∂BG_P, ∂/∂BG_flat), which are
+        elementary and always analytic.
+        """
+        entry = MODEL_REGISTRY[self.model]
+        model_jac = entry.get('jacobian')
+        if model_jac is None:
+            return None
+        n_model = len(entry['params'])
+        use_bg = self.use_complex_bg and entry['complex_bg']
+
+        if use_bg:
+            def jac(q, *all_params):
+                model_params = all_params[:n_model]
+                BG_B, BG_P, _BG_flat = all_params[n_model:]
+                cols = model_jac(q, *model_params)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    pw = np.where(q > 0, q**(-BG_P), 0.0)         # ∂/∂BG_B
+                    d_P = np.where(q > 0, -BG_B * pw * np.log(q), 0.0)  # ∂/∂BG_P
+                bg_cols = np.stack([pw, d_P, np.ones_like(q)], axis=1)
+                return np.concatenate([cols, bg_cols], axis=1)
+        else:
+            def jac(q, *all_params):
+                return model_jac(q, *all_params)
+
+        return jac
+
     # ── Fitting ───────────────────────────────────────────────────────────────
 
     def fit(
@@ -1042,6 +1176,9 @@ class SimpleFitModel:
         free_names = [s[0] for s in free_specs]
 
         base_func = self._build_fit_func()
+        # Analytic model Jacobian (None when the active model has no closed-form
+        # derivative — curve_fit then falls back to finite differences).
+        base_jac = self._build_jac_func() if self.use_analytic_jacobian else None
 
         # ── Slit smearing: wrap the analytic model so it is smeared before
         # comparison with the (smeared) data.  The model is analytic, so
@@ -1065,6 +1202,22 @@ class SimpleFitModel:
                 from pyirena.core.smearing import smear_model as _smear_model
                 return _smear_model(lambda qq: _raw_func(qq, *vals),
                                     q_arr, self.slit_length)
+
+            # Smearing is a fixed linear operator W (I_smeared = W·I_ideal on the
+            # extended grid), so it commutes with differentiation: the smeared
+            # Jacobian is just W applied to each ideal-model derivative column.
+            # smear_columns applies the same cached W the model uses, in one
+            # sparse matmul, keeping residual and Jacobian consistent.
+            if base_jac is not None:
+                _raw_jac = base_jac
+
+                def base_jac(q_arr, *vals):  # noqa: F811 - intentional shadow
+                    q_arr = np.asarray(q_arr, dtype=float)
+                    if q_arr.shape == qf.shape and q_arr is qf:
+                        cols_ext = _raw_jac(_fit_smearer.q_ext, *vals)
+                        return _fit_smearer.smear_columns(cols_ext)
+                    # Off-grid (rare): fall back to finite differences.
+                    raise RuntimeError("analytic Jacobian only cached for fit grid")
 
             if float(np.max(qf)) < self.slit_length:
                 _slit_warning = (
@@ -1111,6 +1264,20 @@ class SimpleFitModel:
             ]
             return base_func(q_arr, *all_vals)
 
+        # Column indices (into the full parameter list) of the free params, in
+        # the order curve_fit passes them — used to slice the full analytic
+        # Jacobian down to the free columns.
+        _free_col_idx = [all_names.index(n) for n in free_names]
+
+        def jac(q_arr, *free_vals):
+            free_map = dict(zip(free_names, free_vals))
+            all_vals = [
+                fixed[n] if n in fixed else free_map[n]
+                for n in all_names
+            ]
+            full_cols = base_jac(q_arr, *all_vals)   # (len(q), n_all_params)
+            return full_cols[:, _free_col_idx]
+
         p0 = [s[1] for s in free_specs]
         if no_limits:
             bounds_lo = [-np.inf] * len(free_names)
@@ -1123,15 +1290,22 @@ class SimpleFitModel:
         p0 = [max(lo, min(hi, v)) if not (np.isinf(lo) and np.isinf(hi)) else v
               for v, lo, hi in zip(p0, bounds_lo, bounds_hi)]
 
+        cf_kwargs = dict(
+            p0=p0, sigma=dIf, absolute_sigma=absolute_sigma_for_cov,
+            bounds=(bounds_lo, bounds_hi), maxfev=100_000,
+        )
         try:
-            popt, pcov = curve_fit(
-                func, qf, If,
-                p0=p0,
-                sigma=dIf,
-                absolute_sigma=absolute_sigma_for_cov,
-                bounds=(bounds_lo, bounds_hi),
-                maxfev=100_000,
-            )
+            if base_jac is not None:
+                # Analytic Jacobian removes the N_params+1 model evaluations
+                # scipy spends per iteration on finite differences.  If it ever
+                # raises (e.g. off the cached smearing grid), retry once on
+                # finite differences so a fit never fails because of it.
+                try:
+                    popt, pcov = curve_fit(func, qf, If, jac=jac, **cf_kwargs)
+                except Exception:
+                    popt, pcov = curve_fit(func, qf, If, **cf_kwargs)
+            else:
+                popt, pcov = curve_fit(func, qf, If, **cf_kwargs)
         except Exception as exc:
             return self._failure(str(exc))
 

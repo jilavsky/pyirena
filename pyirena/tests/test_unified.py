@@ -122,6 +122,82 @@ class TestUnifiedFitModel:
         assert abs(fit_model.levels[0].Rg - 50.0) / 50.0 < 0.2  # Within 20%
         assert abs(fit_model.levels[0].G - 1000.0) / 1000.0 < 0.2
 
+    def test_analytic_and_fd_jacobian_agree(self):
+        """The analytic-Jacobian fit reaches the same optimum as the FD one.
+
+        The analytic Jacobian is an optimisation of *how* the fit is driven, not
+        *what* it converges to: both paths must land on the same parameters and
+        chi-squared.  Fitting the same synthetic data with the flag on and off
+        pins that.
+        """
+        q = np.logspace(-3, 0, 120)
+
+        truth = UnifiedFitModel(num_levels=1)
+        truth.levels[0].Rg = 60.0
+        truth.levels[0].G = 1200.0
+        truth.levels[0].P = 4.0
+        truth.levels[0].B = 2e-3
+        truth.background = 0.01
+        I_true = truth.calculate_intensity(q)
+
+        np.random.seed(7)
+        I_meas = I_true + 0.02 * I_true * np.random.randn(len(q))
+        I_err = 0.05 * I_true
+
+        def fit(analytic):
+            m = UnifiedFitModel(num_levels=1)
+            m.levels[0].Rg = 45.0
+            m.levels[0].G = 900.0
+            m.levels[0].P = 3.7
+            m.levels[0].B = 1e-3
+            m.levels[0].fit_P = True
+            m.background = 0.0
+            m.use_analytic_jacobian = analytic
+            res = m.fit(q, I_meas, I_err, verbose=0)
+            return m, res
+
+        m_ana, res_ana = fit(True)
+        m_fd, res_fd = fit(False)
+
+        assert res_ana['success'] and res_fd['success']
+        assert res_ana['reduced_chi_squared'] == pytest.approx(
+            res_fd['reduced_chi_squared'], rel=1e-4)
+        for name in ('Rg', 'G', 'P', 'B'):
+            assert getattr(m_ana.levels[0], name) == pytest.approx(
+                getattr(m_fd.levels[0], name), rel=1e-3)
+        assert m_ana.background == pytest.approx(m_fd.background, rel=1e-3)
+
+    def test_analytic_jacobian_falls_back_on_error(self):
+        """A raising analytic Jacobian must not break the fit — it falls back.
+
+        Sabotage ``_jacobian`` so the analytic path always raises; the fit must
+        still complete via the finite-difference fallback and recover the
+        parameters.
+        """
+        q = np.logspace(-3, 0, 100)
+        truth = UnifiedFitModel(num_levels=1)
+        truth.levels[0].Rg = 55.0
+        truth.levels[0].G = 1000.0
+        truth.levels[0].B = 1e-3
+        truth.background = 0.01
+        I_true = truth.calculate_intensity(q)
+        I_err = 0.05 * I_true
+
+        m = UnifiedFitModel(num_levels=1)
+        m.levels[0].Rg = 45.0
+        m.levels[0].G = 800.0
+        m.background = 0.0
+        m.use_analytic_jacobian = True
+
+        def _boom(_params):
+            raise RuntimeError("analytic Jacobian sabotaged")
+
+        m._jacobian = _boom
+        res = m.fit(q, I_true, I_err, verbose=0)
+
+        assert res['success']
+        assert abs(m.levels[0].Rg - 55.0) / 55.0 < 0.2
+
     def test_calculate_invariant(self):
         """Test invariant calculation."""
         model = UnifiedFitModel(num_levels=1)

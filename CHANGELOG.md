@@ -180,6 +180,23 @@ independently — and compared, quantity by quantity, against Igor Pro Irena.
 
 ### Changed
 
+- **The four gradient-based fitting tools now use analytic Jacobians.** Unified
+  Fit, WAXS Peak Fit, Simple Fits and Modeling supply
+  `scipy.optimize.least_squares` / `curve_fit` an exact analytic Jacobian
+  instead of its finite-difference approximation, which spent `N_params + 1`
+  model evaluations per iteration (~83 % of all evaluations on a typical fit)
+  probing gradients. Fitted results are unchanged — every derivative is verified
+  against a finite-difference reference to ~1e-10, and analytic vs
+  finite-difference fits converge to identical parameters and χ² — but fits run
+  roughly 1.5–3× faster in typical cases, and up to ~8× faster (with better
+  convergence) on many-peak WAXS fits, where the finite-difference cost had
+  forced relaxed convergence tolerances that are now restored. Each tool keeps
+  the analytic path on by default with automatic fall-back to finite differences
+  for the sub-models where a closed form is impractical (e.g. LogNormal WAXS
+  peaks; the size-distribution shape parameters in Modeling, whose radius grid
+  comes from a numerical CDF inversion). The toggle is an implementation detail
+  and is not serialised. Size Distribution is unaffected — it solves a
+  regularised linear inverse problem and already uses exact gradients.
 - **Tests run on three operating systems.** `test` became a deliberately sparse
   matrix rather than the full cartesian product: Linux sweeps Python
   3.10/3.11/3.13, and macOS-arm64 and Windows each get 3.12. Version bugs need
