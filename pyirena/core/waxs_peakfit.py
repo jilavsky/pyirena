@@ -192,8 +192,7 @@ def eval_peak(q: np.ndarray, shape: str, params: Dict) -> np.ndarray:
 # Gauss, Lorentz and Pseudo-Voigt are elementary closed forms, so their partial
 # derivatives w.r.t. each parameter are exact and cheap.  Supplying them to
 # curve_fit removes the N_params+1 model evaluations scipy spends per iteration
-# estimating the Jacobian by finite differences (that cost is what forced the
-# relaxed 1e-5 tolerances on large, many-peak WAXS fits).  LogNormal is
+# estimating the Jacobian by finite differences.  LogNormal is
 # deliberately absent: it normalises by the sampled grid maximum, so ∂/∂Q0 and
 # ∂/∂FWHM are only piecewise-smooth — those peaks stay on the finite-difference
 # path (see PEAK_SHAPES_WITH_JAC).
@@ -916,12 +915,12 @@ class WAXSPeakFitModel:
 
         # When on (default), fit() supplies curve_fit an analytic Jacobian
         # instead of finite differences — cheaper per iteration (the FD cost
-        # scales with the peak count, which is what forced the relaxed 1e-5
-        # tolerances) and an exact gradient.  Only used when every peak shape has
-        # an analytic derivative (see PEAK_SHAPES_WITH_JAC); a LogNormal peak or
-        # any failure transparently falls back to the finite-difference path, so
-        # the fitted result is never worse.  Implementation detail — not
-        # serialised.
+        # scales with the peak count) and an exact gradient.  Convergence
+        # tolerances are unaffected: both paths use 1e-5, see fit().  Only used
+        # when every peak shape has an analytic derivative (see
+        # PEAK_SHAPES_WITH_JAC); a LogNormal peak or any failure transparently
+        # falls back to the finite-difference path, so the fitted result is
+        # never worse.  Implementation detail — not serialised.
         self.use_analytic_jacobian = True
 
     # ── Parameter vector helpers ──────────────────────────────────────────
@@ -1248,23 +1247,31 @@ class WAXSPeakFitModel:
         p0 = np.clip(p0, lb, ub)
 
         # Common curve_fit arguments.  With finite differences scipy spends
-        # N_params+1 model evaluations per iteration probing the Jacobian, which
-        # on large many-peak fits forced the relaxed 1e-5 tolerances below.  When
+        # N_params+1 model evaluations per iteration probing the Jacobian; when
         # every peak has an analytic derivative we hand curve_fit an exact
-        # Jacobian instead and restore tight tolerances — the per-iteration cost
-        # collapses, so the "thousands of Jacobian iterations" problem does not
-        # recur.  Any peak without a derivative (LogNormal) keeps the FD path and
-        # its relaxed tolerances.
+        # Jacobian instead and that cost disappears.  Any peak without a
+        # derivative (LogNormal) stays on the finite-difference path.
+        #
+        # Tolerances stay at 1e-5 on BOTH paths.  This is a deliberate choice,
+        # not a leftover from the finite-difference era: WAXS data with real
+        # counting statistics does not support convergence criteria far below
+        # its own uncertainties, and Igor Irena has always fitted these peaks
+        # with comparably loose settings.  Tightening to 1e-8 was tried and
+        # reverted — it does not merely cost time, it interacts with
+        # maxfev=10_000 to make large many-peak fits exceed the evaluation
+        # budget, at which point curve_fit raises and the handler below returns
+        # the user's *starting* parameters.  Measured on 15 Gaussians / 4000
+        # points / 47 free parameters: 1e-5 converges in 27 s, while 1e-8 spent
+        # 268 s and then failed outright.  Do not tighten these without also
+        # raising maxfev and re-testing at that scale.
         fit_kwargs = dict(
             sigma=sigma_, absolute_sigma=absolute_sigma_for_cov,
             bounds=(lb, ub), maxfev=10_000,
+            ftol=1e-5, xtol=1e-5, gtol=1e-5,
         )
         if self._can_use_analytic_jac():
             fit_kwargs["jac"] = self._make_jac_func(
                 free_tags, fixed_vals, adaptive_bg=adaptive_bg_fit)
-            fit_kwargs.update(ftol=1e-8, xtol=1e-8, gtol=1e-8)
-        else:
-            fit_kwargs.update(ftol=1e-5, xtol=1e-5, gtol=1e-5)
 
         def _run_curve_fit(kwargs):
             with warnings.catch_warnings():
@@ -1277,10 +1284,11 @@ class WAXSPeakFitModel:
             except Exception:
                 # Analytic-Jacobian path failed — retry once on finite
                 # differences so a fit never fails because of the Jacobian.
+                # Tolerances are already 1e-5 on both paths, so the retry
+                # differs from the first attempt only in dropping `jac`.
                 if "jac" not in fit_kwargs:
                     raise
                 fd_kwargs = {k: v for k, v in fit_kwargs.items() if k != "jac"}
-                fd_kwargs.update(ftol=1e-5, xtol=1e-5, gtol=1e-5)
                 popt, pcov = _run_curve_fit(fd_kwargs)
             success = True
             message = "Fit converged."

@@ -69,7 +69,6 @@ from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
     CHIP_BUTTON_CSS,
-    READONLY_FIELD_CSS,
     SOFT_AMBER,
     SOFT_GREEN,
     soft_button_css,

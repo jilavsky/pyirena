@@ -76,8 +76,8 @@ from pyirena.gui.file_drop import (
 )
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.sizes_panel import SizesFitPanel
-from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.theme import apply_theme
+from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.window_state import install_window_state, reset_window_if_shift
 from pyirena.io.hdf5 import readGenericNXcanSAS
 from pyirena.io.nxcansas_unified import load_unified_fit_results

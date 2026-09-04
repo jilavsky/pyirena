@@ -89,11 +89,11 @@ from pyirena.gui.sas_plot import (
     set_robust_y_range,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
-from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.theme import (
-    apply_theme,
     CHIP_BUTTON_CSS,
+    apply_theme,
 )
+from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager

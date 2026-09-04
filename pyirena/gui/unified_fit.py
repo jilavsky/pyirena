@@ -59,10 +59,10 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
-    apply_theme,
     SOFT_AMBER,
-    soft_button_css,
     SOFT_GREEN,
+    apply_theme,
+    soft_button_css,
 )
 from pyirena.gui.window_state import install_window_state
 from pyirena.state import StateManager

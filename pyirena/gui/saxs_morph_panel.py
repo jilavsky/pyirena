@@ -79,8 +79,8 @@ from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer,
     make_popout_button,
 )
-from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.gui.theme import apply_theme
+from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_saxs_morph import (
     save_saxs_morph_results,

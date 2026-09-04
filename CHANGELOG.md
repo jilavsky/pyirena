@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b11] - 2026-09-04
+
+### Changed
+
+- **The four gradient-based fitting tools now use analytic Jacobians.** Unified
+  Fit, WAXS Peak Fit, Simple Fits and Modeling hand
+  `scipy.optimize.least_squares` / `curve_fit` a closed-form Jacobian instead of
+  letting it approximate one by finite differences. The finite-difference path
+  spent `N_params + 1` model evaluations per iteration purely probing gradients;
+  on a two-level Unified fit that is 418 of 478 model evaluations (87 %), which
+  the analytic path removes outright — 60 evaluations for the same
+  χ² = 3.80967e4. Wall-clock gain is smaller than the evaluation-count gain,
+  because scipy's own trust-region linear algebra is unchanged: measured
+  **1.7–2.1× on Unified Fit**, **1.4–2.2× on Modeling** with unified-level or
+  diffraction-peak populations, **1.0–2.0× on Simple Fits** depending on model,
+  and **~1.8× on large many-peak WAXS Peak Fit** (see the tolerance note
+  below).
+
+  Each tool keeps the analytic path on by default and falls back to finite
+  differences automatically — both for sub-models where a closed form is
+  impractical (LogNormal WAXS peaks; the size-distribution shape parameters in
+  Modeling, whose radius grid comes from a numerical CDF inversion) and for any
+  unexpected failure, so a fit can never fail because of the Jacobian. Modeling
+  is a hybrid: closed-form columns for unified-level, diffraction-peak and
+  background parameters, finite differences for the rest, assembled into one
+  matrix. The toggle is an implementation detail and is not serialised. Size
+  Distribution is unaffected — it solves a regularised linear inverse problem
+  and already uses exact gradients.
+
+  Every derivative is verified against high-accuracy central differences, and
+  the full `validationData/` suite refits identically: **195/195 checks still
+  PASS with no status change**. Two caveats on "results are unchanged":
+  Debye-Bueche's `Prefactor` and `Eta` shift by a few percent because only their
+  product `Prefactor·Eta²` is determined by the data (that product is conserved
+  to 7 significant figures, and `CorrLength` is unchanged); and a Modeling fit
+  containing a size-distribution population can land in a different local
+  minimum, because an exact gradient traverses a multimodal landscape by a
+  different route — neither path is reliably better.
+
+  An exact gradient also fixes fits that finite differences could not do at all.
+  A Debye polymer chain fitted over a USAXS range (q from 1e-4 Å⁻¹) previously
+  stalled at its starting Rg — the forward model's small-`q²Rg²` cancellation
+  noise swamps scipy's default `sqrt(eps)` difference step, so the gradient was
+  pure noise. It now converges: Rg = 10.05 against a true 10.0, reduced
+  χ² = 1.01 instead of 205.
+
+- **WAXS Peak Fit convergence tolerances stay at 1e-5 — a deliberate decision.**
+  The analytic-Jacobian work initially tightened `ftol`/`xtol`/`gtol` to 1e-8 on
+  the grounds that exact gradients had made iterations cheap. That is reverted.
+  WAXS data with real counting statistics does not support convergence criteria
+  far below its own uncertainties — 1e-8 is well past the point where the fit is
+  describing noise rather than structure — and Igor Irena has always fitted
+  these peaks with comparably loose settings without trouble. Keeping 1e-5 is
+  the scientifically honest setting, not a performance compromise.
+
+  Tightening also turned out to be actively unsafe at scale, because tolerance
+  and iteration budget are coupled and only one was changed. With
+  `maxfev = 10_000` unchanged, a large many-peak fit at 1e-8 exhausts its
+  evaluation budget before meeting the criterion; `curve_fit` then raises and
+  the handler returns the user's **starting** parameters with
+  `success = False`. Measured on 15 Gaussians / 4000 points / 47 free
+  parameters: 1e-5 converges in 27 s, while 1e-8 spent 268 s and then failed
+  outright. The comment in `fit()` records this so the tolerances are not
+  tightened again without also raising `maxfev`.
+
+  With tolerances equal on both paths, the analytic Jacobian's benefit in WAXS
+  is a clean speed-up on the same answer: the 15-peak fit above takes 28.7 s
+  against 52.7 s on finite differences, and a 20-Gaussian / 8000-point fit
+  takes 23.4 s against 61.2 s — both converging to the same reduced χ² as the
+  finite-difference path (459.55 on the 20-peak fit, matching to five
+  significant figures).
+
+### Fixed
+
+- **`ruff check pyirena` failed CI.** Five lint errors had accumulated in the
+  GUI layer as fallout from the b10 theme work: four unsorted import blocks
+  (`data_selector/panel.py`, `modeling_panel.py`, `saxs_morph_panel.py`,
+  `unified_fit.py`, all from `pyirena.gui.theme` imports being appended rather
+  than merged in order) and one unused import (`READONLY_FIELD_CSS` in
+  `simple_fits_panel.py`). All are import-ordering only, with no change in
+  behaviour. Verified clean under both ruff 0.15 and 0.16 — the workflow
+  installs ruff unpinned, so it picks up whatever is current.
+
 ## [1.1.0b10] - 2026-09-04
 
 Usability and correctness release, driven by what users hit in practice.
@@ -180,23 +263,6 @@ independently — and compared, quantity by quantity, against Igor Pro Irena.
 
 ### Changed
 
-- **The four gradient-based fitting tools now use analytic Jacobians.** Unified
-  Fit, WAXS Peak Fit, Simple Fits and Modeling supply
-  `scipy.optimize.least_squares` / `curve_fit` an exact analytic Jacobian
-  instead of its finite-difference approximation, which spent `N_params + 1`
-  model evaluations per iteration (~83 % of all evaluations on a typical fit)
-  probing gradients. Fitted results are unchanged — every derivative is verified
-  against a finite-difference reference to ~1e-10, and analytic vs
-  finite-difference fits converge to identical parameters and χ² — but fits run
-  roughly 1.5–3× faster in typical cases, and up to ~8× faster (with better
-  convergence) on many-peak WAXS fits, where the finite-difference cost had
-  forced relaxed convergence tolerances that are now restored. Each tool keeps
-  the analytic path on by default with automatic fall-back to finite differences
-  for the sub-models where a closed form is impractical (e.g. LogNormal WAXS
-  peaks; the size-distribution shape parameters in Modeling, whose radius grid
-  comes from a numerical CDF inversion). The toggle is an implementation detail
-  and is not serialised. Size Distribution is unaffected — it solves a
-  regularised linear inverse problem and already uses exact gradients.
 - **Tests run on three operating systems.** `test` became a deliberately sparse
   matrix rather than the full cartesian product: Linux sweeps Python
   3.10/3.11/3.13, and macOS-arm64 and Windows each get 3.12. Version bugs need
