@@ -53,6 +53,7 @@ from pyirena.gui.plot_export import (
     save_plot_image,
     tag_curve_uncertainty,
 )
+from pyirena.gui.q_range_ui import QRangeFields
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
@@ -66,6 +67,13 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.theme import (
+    CHIP_BUTTON_CSS,
+    READONLY_FIELD_CSS,
+    SOFT_AMBER,
+    SOFT_GREEN,
+    soft_button_css,
+)
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -707,38 +715,30 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         model_row.addWidget(self.model_combo, 1)
         layout.addLayout(model_row)
 
-        # ── Q range (cursor-driven, read-only display) ────────────────────────
+        # ── Q range (cursors ↔ editable fields) ───────────────────────────────
+        # Irena let the user type the fit limits; QRangeFields restores that
+        # and is shared with Modeling and Unified Fit so all three behave the
+        # same.  Typed values are validated, clamped to the data, and pushed
+        # to the cursors, which stay the single source of truth.
         q_box = QGroupBox('Q range for fit')
-        q_layout = QGridLayout()
+        q_layout = QVBoxLayout()
         q_layout.setContentsMargins(6, 4, 6, 4)
         q_box.setLayout(q_layout)
 
-        cursor_hint = QLabel('Drag cursors on I(Q) graph to set Q range')
-        cursor_hint.setStyleSheet('font-size: 10px; color: #7f8c8d; font-style: italic;')
-        cursor_hint.setWordWrap(True)
-        q_layout.addWidget(cursor_hint, 0, 0, 1, 3)
-
-        q_layout.addWidget(QLabel('Q min:'), 1, 0)
-        self.q_min_display = QLineEdit()
-        self.q_min_display.setReadOnly(True)
-        self.q_min_display.setPlaceholderText('(cursor A)')
-        self.q_min_display.setStyleSheet(
-            'background-color: #ecf0f1; color: #7f8c8d;'
+        self.q_range_fields = QRangeFields(
+            get_range=lambda: self.graph_window.get_cursor_range(),
+            set_range=lambda lo, hi: self.graph_window.set_cursor_range(lo, hi),
+            get_data_range=self._data_q_range,
         )
-        self.q_min_display.setMaximumWidth(90)
-        q_layout.addWidget(self.q_min_display, 1, 1)
-        q_layout.addWidget(QLabel('Å⁻¹'), 1, 2)
-
-        q_layout.addWidget(QLabel('Q max:'), 2, 0)
-        self.q_max_display = QLineEdit()
-        self.q_max_display.setReadOnly(True)
-        self.q_max_display.setPlaceholderText('(cursor B)')
-        self.q_max_display.setStyleSheet(
-            'background-color: #ecf0f1; color: #7f8c8d;'
-        )
-        self.q_max_display.setMaximumWidth(90)
-        q_layout.addWidget(self.q_max_display, 2, 1)
-        q_layout.addWidget(QLabel('Å⁻¹'), 2, 2)
+        # status_label is built after the control panel, so route through a
+        # method rather than binding to a widget that does not exist yet.
+        self.q_range_fields.message.connect(self._set_status)
+        self.q_range_fields.range_changed.connect(self._on_q_range_typed)
+        q_layout.addWidget(self.q_range_fields)
+        # Back-compat aliases: existing code (and saved-state round-trips)
+        # refer to these two line edits by name.
+        self.q_min_display = self.q_range_fields.q_min_edit
+        self.q_max_display = self.q_range_fields.q_max_edit
         layout.addWidget(q_box)
 
         # ── Global fitting options ─────────────────────────────────────────────
@@ -830,10 +830,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         _bg_prefit_layout = QHBoxLayout(self._bg_prefit_row)
         _bg_prefit_layout.setContentsMargins(0, 0, 0, 0)
         _bg_prefit_layout.setSpacing(4)
-        _bg_helper_style = (
-            'QPushButton { font-size: 10px; padding: 1px 6px; background-color: #ecf0f1; }'
-            'QPushButton:hover { background-color: #dfe4e6; }'
-        )
+        # theme.CHIP_BUTTON_CSS pins BOTH background and text colour — the
+        # old style named only background-color and vanished (light text on a
+        # light box) under a dark system theme.
+        _bg_helper_style = CHIP_BUTTON_CSS
 
         self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
         self.prefit_bp_btn.setMaximumHeight(22)
@@ -937,7 +937,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.store_btn = QPushButton('Store in File')
         self.store_btn.setMinimumHeight(26)
-        self.store_btn.setStyleSheet('background-color: lightgreen;')
+        self.store_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.store_btn.setToolTip(
             'Save fit results to the HDF5 (NXcanSAS) file.\n'
             'The full GUI setup is embedded so "Load Setup from File…" can\n'
@@ -948,7 +948,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.load_setup_btn = QPushButton('Load Setup from File…')
         self.load_setup_btn.setMinimumHeight(26)
-        self.load_setup_btn.setStyleSheet('background-color: #ffe082;')
+        self.load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
         self.load_setup_btn.setToolTip(
             'Restore every Simple Fits control (model, parameter values,\n'
             'bounds, fit flags, q-range, …) from a NXcanSAS file previously\n'
@@ -963,7 +963,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         row_out3 = QHBoxLayout()
         self.export_btn = QPushButton('Save params to JSON')
         self.export_btn.setMinimumHeight(26)
-        self.export_btn.setStyleSheet('background-color: lightgreen;')
+        self.export_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.export_btn.setToolTip(
             'Save current fit parameters to a pyIrena JSON file.\n'
             'Use "Load params from JSON" to restore them later.'
@@ -973,7 +973,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.import_btn = QPushButton('Load params from JSON')
         self.import_btn.setMinimumHeight(26)
-        self.import_btn.setStyleSheet('background-color: lightgreen;')
+        self.import_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.import_btn.setToolTip(
             'Load fit parameters from a previously saved pyIrena JSON file.\n'
             'Use "Save params to JSON" to create a compatible file.'
@@ -1091,9 +1091,15 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         # rows keep their checkbox — it controls whether the background
         # prefit (buttons + saved-range replay) refits that term (currently
         # BG_P: fit both B and P vs. hold P and fit B only).
+        any_fittable = (not is_calc) or use_bg
         if is_calc and self._fit_col_header_lbl is not None:
             self._fit_col_header_lbl.setVisible(
                 self.model.use_complex_bg and entry['complex_bg'])
+        # With no fittable row left (Invariant without a complex background)
+        # the lo/hi columns are empty — hide their headers too.
+        for _hdr in (self._lo_header_lbl, self._hi_header_lbl):
+            if _hdr is not None and not any_fittable:
+                _hdr.setVisible(False)
 
         param_specs = list(entry['params'])
         if use_bg:
@@ -1120,7 +1126,14 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             fit_chk = QCheckBox()
             fit_chk.setChecked(not saved_fixed.get(name, False))
             fit_chk.setToolTip(f'Fit {name}?  Uncheck to hold fixed during fitting.')
-            fit_chk.setVisible((not is_calc) or name.startswith('BG_'))
+            # A calculation model (Invariant) runs no least squares, so its
+            # own parameters are never fitted — only the BG_* terms are, via
+            # the background prefit.  Anything that cannot be fitted has no
+            # use for lo/hi bounds either: showing empty limit boxes next to
+            # a non-fittable Contrast only prompts users to ask what they are
+            # for.  `fittable` therefore drives the Fit? box *and* the bounds.
+            fittable = (not is_calc) or name.startswith('BG_')
+            fit_chk.setVisible(fittable)
             grid.addWidget(fit_chk, row, 0, alignment=Qt.AlignmentFlag.AlignCenter)
             self._param_fit_checks[name] = fit_chk
 
@@ -1145,7 +1158,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             lo_edit.setValidator(QDoubleValidator(-1e30, 1e30, 8))
             lo_edit.setMaximumWidth(65)
             lo_edit.setMinimumWidth(50)
-            lo_edit.setVisible(not no_limits)
+            lo_edit.setVisible(fittable and not no_limits)
             grid.addWidget(lo_edit, row, 3)
             self._param_lo_edits[name] = lo_edit
 
@@ -1155,7 +1168,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             hi_edit.setValidator(QDoubleValidator(-1e30, 1e30, 8))
             hi_edit.setMaximumWidth(65)
             hi_edit.setMinimumWidth(50)
-            hi_edit.setVisible(not no_limits)
+            hi_edit.setVisible(fittable and not no_limits)
             grid.addWidget(hi_edit, row, 4)
             self._param_hi_edits[name] = hi_edit
 
@@ -1402,22 +1415,37 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
     # ── Q range helpers ───────────────────────────────────────────────────────
 
+    def _set_status(self, text: str):
+        """Write to the bottom status label if it exists yet."""
+        lbl = getattr(self, 'status_label', None)
+        if lbl is not None:
+            lbl.setText(text)
+
+    def _data_q_range(self):
+        """Return the loaded data's (q_lo, q_hi), or None — used to clamp typed Q."""
+        if not self.data:
+            return None
+        q = self.data.get('Q')
+        if q is None or len(q) == 0:
+            return None
+        return float(np.nanmin(q)), float(np.nanmax(q))
+
+    def _on_q_range_typed(self, q_min: float, q_max: float):
+        """The user typed a Q range and the cursors have been moved to it.
+
+        Refresh anything that is derived from the fit window so the graph and
+        the panel agree immediately, without waiting for the next Fit.
+        """
+        self._auto_graph_model()
+
     def _update_q_display(self):
-        """Read cursor positions and update the read-only Q range display fields."""
-        q_min, q_max = self.graph_window.get_cursor_range()
-        if q_min is not None:
-            self.q_min_display.setText(f'{q_min:.6g}')
-        if q_max is not None:
-            self.q_max_display.setText(f'{q_max:.6g}')
+        """Refresh the Q range fields from the cursor positions."""
+        self.q_range_fields.refresh()
 
     def _get_q_range(self):
         """Return (q_min, q_max) from cursor positions, updating the display."""
         q_min, q_max = self.graph_window.get_cursor_range()
-        # Update display fields
-        if q_min is not None:
-            self.q_min_display.setText(f'{q_min:.6g}')
-        if q_max is not None:
-            self.q_max_display.setText(f'{q_max:.6g}')
+        self.q_range_fields.refresh()
         return q_min, q_max
 
     def _get_filtered_data(self):

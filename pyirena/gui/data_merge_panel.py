@@ -67,6 +67,7 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     set_robust_y_range,
 )
+from pyirena.gui.theme import apply_theme
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -1884,7 +1885,7 @@ def main() -> None:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
-        app.setStyle('Fusion')
+    apply_theme(app)
 
     window = DataMergePanel()
     if args.folder1:

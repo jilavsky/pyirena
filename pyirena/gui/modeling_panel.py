@@ -79,6 +79,7 @@ from pyirena.gui._qt import (
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, save_plot_image
+from pyirena.gui.q_range_ui import QRangeFields
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
@@ -89,6 +90,10 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
+from pyirena.gui.theme import (
+    apply_theme,
+    CHIP_BUTTON_CSS,
+)
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_modeling import save_modeling_results
 from pyirena.state import StateManager
@@ -261,6 +266,19 @@ def _sep(orientation='h') -> QFrame:
     f.setFrameShadow(QFrame.Shadow.Sunken)
     f.setStyleSheet('color: #cccccc;')
     return f
+
+
+def _is_checked(state) -> bool:
+    """True when a ``QCheckBox.stateChanged`` payload means "checked".
+
+    PySide6 delivers an ``int``; PyQt6 can deliver a ``Qt.CheckState``.  Both
+    compare equal to ``Qt.CheckState.Checked.value`` (2), so normalise here
+    rather than repeating the dance at every call site.
+    """
+    try:
+        return int(state) == int(Qt.CheckState.Checked.value)
+    except (TypeError, ValueError):
+        return bool(state)
 
 
 def _fmt(v: float) -> str:
@@ -520,7 +538,15 @@ class PopulationTab(QWidget):
                 self.contrast_edit, self.contrast_lo_edit, self.contrast_hi_edit))
         phys_lay.addWidget(self.contrast_edit, 0, 1)
         self.contrast_fit_cb = QCheckBox('Fit')
-        self.contrast_fit_cb.stateChanged.connect(self._emit_changed)
+        # Contrast and Scale are degenerate: I(q) enters the model only through
+        # the product Contrast x Scale, so fitting both leaves the fit with an
+        # unconstrained direction and the covariance matrix singular.  At most
+        # one may be fitted — see _on_contrast_fit_changed.
+        self.contrast_fit_cb.setToolTip(
+            'Fit the contrast (Δρ)².\n'
+            'Contrast and Scale have the same effect on the model, so only one\n'
+            'of the two can be fitted — checking this unchecks Scale.')
+        self.contrast_fit_cb.stateChanged.connect(self._on_contrast_fit_changed)
         phys_lay.addWidget(self.contrast_fit_cb, 0, 2)
         self.contrast_lo_edit = ScrubbableLineEdit()
         self.contrast_lo_edit.setText('0.0')
@@ -541,7 +567,11 @@ class PopulationTab(QWidget):
         phys_lay.addWidget(self.scale_edit, 1, 1)
         self.scale_fit_cb = QCheckBox('Fit')
         self.scale_fit_cb.setChecked(True)
-        self.scale_fit_cb.stateChanged.connect(self._emit_changed)
+        self.scale_fit_cb.setToolTip(
+            'Fit the scale [= Vf(1−Vf)].\n'
+            'Scale and Contrast have the same effect on the model, so only one\n'
+            'of the two can be fitted — checking this unchecks Contrast.')
+        self.scale_fit_cb.stateChanged.connect(self._on_scale_fit_changed)
         phys_lay.addWidget(self.scale_fit_cb, 1, 2)
         self.scale_lo_edit = ScrubbableLineEdit()
         self.scale_lo_edit.setText('1e-8')
@@ -996,9 +1026,7 @@ class PopulationTab(QWidget):
         """Vol-dist and num-dist are mutually exclusive; always one must be on."""
         if self._building:
             return
-        checked = (state == Qt.CheckState.Checked.value
-                   if hasattr(Qt.CheckState, 'Checked')
-                   else state == 2)
+        checked = _is_checked(state)
         self._building = True
         if checked:
             self.num_dist_rb.setChecked(False)
@@ -1012,9 +1040,7 @@ class PopulationTab(QWidget):
         """Num-dist and vol-dist are mutually exclusive; always one must be on."""
         if self._building:
             return
-        checked = (state == Qt.CheckState.Checked.value
-                   if hasattr(Qt.CheckState, 'Checked')
-                   else state == 2)
+        checked = _is_checked(state)
         self._building = True
         if checked:
             self.vol_dist_rb.setChecked(False)
@@ -1023,6 +1049,46 @@ class PopulationTab(QWidget):
             self.vol_dist_rb.setChecked(True)
         self._building = False
         self._emit_changed()
+
+    def _on_contrast_fit_changed(self, state):
+        """Contrast and Scale are degenerate — fitting both is not allowed.
+
+        The size-distribution model intensity scales as ``Contrast × Scale``,
+        so the two parameters are perfectly correlated: a fit that frees both
+        has a flat direction, and the least-squares solver either wanders or
+        returns a singular covariance (meaningless uncertainties).  Neither
+        fitted is fine — that is just a fixed prefactor — so the rule is "at
+        most one", with the box the user just ticked winning.
+        """
+        if self._building:
+            return
+        if _is_checked(state):
+            self._building = True
+            self.scale_fit_cb.setChecked(False)
+            self._building = False
+        self._emit_changed()
+
+    def _on_scale_fit_changed(self, state):
+        """Mirror of :meth:`_on_contrast_fit_changed` — last box ticked wins."""
+        if self._building:
+            return
+        if _is_checked(state):
+            self._building = True
+            self.contrast_fit_cb.setChecked(False)
+            self._building = False
+        self._emit_changed()
+
+    def _enforce_contrast_scale_exclusive(self):
+        """Normalise a loaded state that has both Fit boxes checked.
+
+        Setups written before the exclusivity rule (or hand-edited JSON) can
+        carry ``fit_contrast`` and ``fit_scale`` both true.  Keep Scale, which
+        is what the panel defaults to fitting, and drop Contrast.
+        """
+        if self.contrast_fit_cb.isChecked() and self.scale_fit_cb.isChecked():
+            was_building, self._building = self._building, True
+            self.contrast_fit_cb.setChecked(False)
+            self._building = was_building
 
     def _on_scale_changed(self):
         scale = _parse(self.scale_edit.text(), 0.001)
@@ -1397,6 +1463,7 @@ class PopulationTab(QWidget):
         self.vol_dist_rb.setChecked(not pop.use_number_dist)
         self.num_dist_rb.setChecked(pop.use_number_dist)
         self.nbins_spin.setValue(pop.n_bins)
+        self._enforce_contrast_scale_exclusive()
         self._on_scale_changed()
         self.label_edit.setText(pop.label)
 
@@ -2288,15 +2355,22 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         lay.addWidget(self.data_loader)
         self._build_slit_row(lay)
 
-        # ── Q range display + No limits ──────────────────────────────────
+        # ── Q fit range (cursors ↔ editable fields) + No limits ──────────
+        # Was a pair of read-only labels; now the same editable QRangeFields
+        # widget Simple Fits and Unified Fit use, so the Q window can be typed
+        # exactly as in Irena and every tool behaves identically.
         q_row = QHBoxLayout()
         q_row.addWidget(QLabel('Q fit range:'))
-        self.qmin_lbl = QLabel('—')
-        self.qmax_lbl = QLabel('—')
-        q_row.addWidget(QLabel('min'))
-        q_row.addWidget(self.qmin_lbl)
-        q_row.addWidget(QLabel('max'))
-        q_row.addWidget(self.qmax_lbl)
+        self.q_range_fields = QRangeFields(
+            get_range=lambda: self.graph.get_q_range() if self.graph else None,
+            set_range=lambda lo, hi: self.graph.set_q_range(lo, hi),
+            get_data_range=self._data_q_range,
+            hint=False,
+        )
+        self.q_range_fields.message.connect(
+            lambda msg: self.graph.set_status(msg, 'info') if self.graph else None)
+        self.q_range_fields.range_changed.connect(self._on_q_range_typed)
+        q_row.addWidget(self.q_range_fields)
         q_row.addStretch()
         self.no_limits_cb = QCheckBox('No limits?')
         self.no_limits_cb.setToolTip('Unconstrained fit — remove all parameter bounds')
@@ -2390,11 +2464,11 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         # only enabled when the current tab is a Unified Fit Level population.
         # "Fit Flat" targets the global Background field above.
         bg_prefit_row = QHBoxLayout()
-        _bg_helper_style = (
-            'QPushButton { font-size: 10px; padding: 1px 6px; background-color: #ecf0f1; }'
-            'QPushButton:hover { background-color: #dfe4e6; }'
-            'QPushButton:disabled { color: #aaa; }'
-        )
+        # theme.CHIP_BUTTON_CSS pins BOTH background and text colour.  The
+        # old inline style set only background-color, so under a dark system
+        # theme these buttons rendered as near-white text on a near-white box
+        # and were effectively invisible.
+        _bg_helper_style = CHIP_BUTTON_CSS
         self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
         self.prefit_bp_btn.setMaximumHeight(22)
         self.prefit_bp_btn.setStyleSheet(_bg_helper_style)
@@ -2914,10 +2988,20 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             self.fit_method_combo.setEnabled(not no_lim)
         self._sync_de_workers_enabled()
 
+    def _data_q_range(self):
+        """Return the loaded data's (q_lo, q_hi), or None — used to clamp typed Q."""
+        if self._data_q is None or len(self._data_q) == 0:
+            return None
+        return float(np.nanmin(self._data_q)), float(np.nanmax(self._data_q))
+
+    def _on_q_range_typed(self, q_lo: float, q_hi: float):
+        """The user typed a Q range; cursors already moved. Refresh the model."""
+        if self.autoupdate_cb.isChecked() and self._data_q is not None:
+            self._graph_model()
+
     def _on_cursor_moved(self):
-        q_lo, q_hi = self.graph.get_q_range()
-        self.qmin_lbl.setText(f'{q_lo:.4g}')
-        self.qmax_lbl.setText(f'{q_hi:.4g}')
+        """Keep the editable Q min / Q max fields in step with cursor drags."""
+        self.q_range_fields.refresh()
 
     def _open_help(self):
         QDesktopServices.openUrl(QUrl(
@@ -3027,9 +3111,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             f'Q ∈ [{q_min:.4g}, {q_max:.4g}] Å⁻¹', 'success',
         )
 
-        q_lo, q_hi = self.graph.get_q_range()
-        self.qmin_lbl.setText(f'{q_lo:.4g}')
-        self.qmax_lbl.setText(f'{q_hi:.4g}')
+        self.q_range_fields.refresh()
 
         self.btn_graph.setEnabled(True)
         self.btn_fit.setEnabled(True)
@@ -3795,6 +3877,7 @@ def main():
     setup_logging("gui")
     install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_theme(app)
     panel = ModelingPanel()
     panel.show()
 

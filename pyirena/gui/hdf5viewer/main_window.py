@@ -104,7 +104,7 @@ class HDF5ViewerWindow(QMainWindow):
 
         # Application title + Help button
         title_w = QWidget()
-        title_w.setStyleSheet("background:#ecf0f1; border-bottom:1px solid #bdc3c7;")
+        title_w.setStyleSheet("background:#ecf0f1; color:#202020; border-bottom:1px solid #bdc3c7;")
         title_row = QHBoxLayout(title_w)
         title_row.setContentsMargins(0, 0, 6, 0)
         title_row.setSpacing(6)

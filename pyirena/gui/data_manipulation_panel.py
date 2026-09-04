@@ -87,6 +87,7 @@ from pyirena.gui.table_utils import (
     populating,
     save_rows_as_csv,
 )
+from pyirena.gui.theme import apply_theme
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -2356,7 +2357,7 @@ def main() -> None:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
-        app.setStyle('Fusion')
+    apply_theme(app)
 
     window = DataManipulationPanel()
     if args.folder:

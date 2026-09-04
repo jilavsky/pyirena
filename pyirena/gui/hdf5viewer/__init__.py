@@ -26,7 +26,9 @@ def main(initial_folder: str | None = None) -> None:
     from pyirena.gui._qt import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setStyle("Fusion")
+
+    from pyirena.gui.theme import apply_theme
+    apply_theme(app)
 
     window = HDF5ViewerWindow(initial_folder=initial_folder)
     window.show()

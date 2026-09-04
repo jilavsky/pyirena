@@ -698,7 +698,7 @@ class Slice2DViewer(QWidget):
             self.image_view.ui.graphicsView.setBackground('w')
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        self.image_view.setStyleSheet('background-color: white;')
+        self.image_view.setStyleSheet('background-color: white; color: #202020;')
         # Black axes against white background — match the 3D viewer style.
         for ax_name in ('left', 'bottom', 'top', 'right'):
             ax = plot_item.getAxis(ax_name)

@@ -179,7 +179,11 @@ Workflow:
    low-Q power-law term while the flat background is still re-determined).
    The same gating applies in scripted/batch runs via `param_fixed`.
 3. Enter **Contrast** Δρ² in units of 10²⁰ cm⁻⁴ (default 100; use the
-   Scattering Contrast calculator if needed).
+   Scattering Contrast calculator if needed).  The Invariant is a direct
+   integration, not a least-squares fit, so Contrast is used exactly as
+   entered — it has no **Fit?** box and no lo/hi limit fields.  (The
+   background terms `B`, `P` and flat *are* determined by the prefit and keep
+   theirs.)
 4. Position the cursors over the Q range to integrate and press
    **Calculate Invariant**.
 
@@ -264,16 +268,23 @@ high-Q region where the data has flattened for **Fit Flat**.
 
 ## Q range selection
 
-Two methods:
+The **Q range for fit** box and the two graph cursors are two views of the same
+thing — change either and the other follows.
 
-**Manual entry:** type Q min and Q max directly into the fields.
+**Manual entry:** type a value into **Q min** or **Q max** and press Return (or
+click away).  The cursors move to match.  Values are checked as you commit
+them: both must be positive and different, a pair entered the wrong way round
+is swapped for you, and values outside the loaded data are clamped to its Q
+range.  A rejected entry reverts and the status line says why.
 
-**Cursor-driven:** drag the two vertical cursor lines on the I(Q) plot to bracket
-the region of interest, then click **"Set Q from cursors"**.  The Q min/max fields
-update automatically.
+**Cursor-driven:** drag the two vertical cursor lines (**A** = Q min, **B** =
+Q max) on the I(Q) plot.  The fields update as you drag.
 
 Only data points inside the Q range are used for fitting.  The model is evaluated
 and plotted over the full data Q range so you can see extrapolation quality.
+
+The same **Q range for fit** control appears in Modeling and Unified Fit and
+behaves identically there.
 
 ---
 

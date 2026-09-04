@@ -70,6 +70,7 @@ from pyirena.gui.plot_export import (
     remember_export_folder,
 )
 from pyirena.gui.table_utils import attach_table_copy
+from pyirena.gui.theme import apply_theme
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.contrast_io import (
     DEFAULT_LIBRARY_PATH,
@@ -1546,6 +1547,7 @@ def main() -> None:
     from pyirena.state.state_manager import StateManager
 
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_theme(app)
     state_manager = StateManager()
     win = ContrastPanel(state_manager=state_manager)
     win.show()

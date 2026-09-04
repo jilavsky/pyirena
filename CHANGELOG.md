@@ -7,11 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-CI now runs the test suite on macOS (arm64) and Windows as well as Linux, which
-immediately turned up four platform-specific defects. Three were in the tests
-themselves; the drag-and-drop one was real and had been shipping.
+## [1.1.0b10] - 2026-09-04
+
+Usability and correctness release, driven by what users hit in practice.
+
+The largest fix is that pyIrena was unreadable for anyone whose operating
+system is set to a dark colour scheme: it now ships its own theme instead of
+inheriting the desktop's. The fit Q range can be typed again, as in Irena, with
+one identical control in Simple Fits, Modeling and Unified Fit. Two parameter
+controls that invited meaningless fits — Modeling's Contrast *and* Scale both
+fittable, Simple Fits' bounds on a Contrast the Invariant never fits — are
+gone.
+
+Underneath, CI now runs the test suite on macOS (arm64) and Windows as well as
+Linux, which immediately turned up four platform-specific defects (three in the
+tests, one real and shipping), and a new `validationData/` set of 27 synthetic
+datasets with exactly known parameters lets pyIrena's mathematics be checked
+independently — and compared, quantity by quantity, against Igor Pro Irena.
 
 ### Added
+
+- **`pyirena/gui/theme.py` — pyIrena now ships its own light theme.**
+  `apply_theme(app)` installs the Fusion style, an explicit `QPalette` and a
+  baseline stylesheet on the `QApplication`, so every panel renders the same
+  on every platform whatever the desktop's light/dark setting (see *Fixed*
+  below for what this cures). It also exports the semantic colour tokens and
+  the `accent_button_css` / `chip_button_css` / `soft_button_css` /
+  `readonly_field_css` / `status_css` helpers panels should use instead of
+  hardcoding hex values — every helper emits a background **and** a text
+  colour. `PYIRENA_NATIVE_THEME=1` falls back to the platform style.
+- **`pyirena/gui/q_range_ui.py` — one editable "Q range for fit" control,
+  shared by every tool.** `QRangeFields` restores Irena's behaviour of
+  *typing* the fit limits as well as dragging the graph cursors, and is now
+  embedded in Simple Fits, Modeling and Unified Fit so the three cannot drift
+  apart. Typed values are validated (positive, distinct), swapped when entered
+  the wrong way round, clamped to the loaded data's Q range, and then pushed
+  to the cursors, which remain the single source of truth.
+- `pyirena/tests/test_gui_theme_contract.py`, `test_gui_q_range_fields.py`
+  and `test_gui_fit_flag_rules.py` — regression tests for all of the above.
+  The theme contract fails the build if any new inline stylesheet sets a
+  background without a text colour.
 
 - **`validationData/` — synthetic data with exactly known parameters, for
   validating pyIrena and for comparing it with Igor Pro Irena.** 27 datasets
@@ -54,6 +89,35 @@ themselves; the drag-and-drop one was real and had been shipping.
   document (real tables, built-in heading styles) for a manuscript draft.
 
 ### Fixed
+
+- **Controls were unreadable when the operating system was set to a dark
+  colour scheme.** Reported from a beamline user's machine: the Modeling
+  panel's "Fit B/P btwn cursors" and "Fit Flat btwn cursors" buttons appeared
+  as blank whitish boxes the user never realised were buttons, and the
+  *Population type* / *Distribution* pull-downs could not be read. The cause
+  was structural rather than local — several hundred inline stylesheets set a
+  `background-color` written for a light scheme without naming a text colour,
+  so Qt took the text colour from the *system* palette and painted near-white
+  on near-white; controls with no inline style at all were left entirely to
+  the platform's dark rendering. Rather than chase every OS × theme
+  combination, pyIrena now applies its own palette at startup
+  (`pyirena.gui.theme.apply_theme`, wired into all eight GUI entry points),
+  which also matches the plots — they are drawn on a hard white background
+  throughout. The stylesheets that set a background with no text colour have
+  been converted to theme helpers, and a test now blocks new ones.
+- **Modeling → size-distribution populations let *Contrast* and *Scale* be
+  fitted at the same time.** The two enter the model only as their product, so
+  freeing both leaves the least-squares problem with a flat direction: the
+  solver wanders and the covariance matrix is singular, making the reported
+  uncertainties meaningless. Checking either "Fit" box now clears the other
+  (last one ticked wins); holding both fixed is still allowed, and a setup
+  loaded with both flags set is normalised to fitting *Scale*.
+- **Simple Fits → Invariant showed lo/hi limit fields for *Contrast*.** The
+  Invariant is a direct calculation with no least-squares step, so its
+  Contrast is never fitted and the bounds did nothing but prompt users to ask
+  what they were for. Bound fields (and the lo/hi column headers) now follow
+  the "Fit?" box: they are shown only for parameters that can actually be
+  fitted, so the background `B`, `P` and flat terms keep theirs.
 
 - **`pyirena-mcp` gave the wrong advice when mcp 2.x was installed.** The
   import guard in `pyirena/mcp/server.py` caught every `ImportError` and

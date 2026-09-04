@@ -73,6 +73,10 @@ from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import DSpacingAxisItem
+from pyirena.gui.theme import (
+    SOFT_AMBER,
+    soft_button_css,
+)
 from pyirena.gui.window_state import install_window_state
 
 # ── colour palette for peaks ──────────────────────────────────────────────
@@ -1539,7 +1543,7 @@ class WAXSPeakFitPanel(QWidget):
         row2.addWidget(store_btn)
 
         load_setup_btn = QPushButton("Load Setup from File…")
-        load_setup_btn.setStyleSheet("background-color: #ffe082;")
+        load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
         load_setup_btn.setMinimumHeight(26)
         load_setup_btn.setToolTip(
             "Restore every WAXS Peak Fit control (peak list, background, q-range, …)\n"

@@ -141,7 +141,7 @@ class FeatureIdentifierDialog(QWidget):
         self.summary.setReadOnly(True)
         self.summary.setMinimumHeight(220)
         self.summary.setStyleSheet(
-            "QTextEdit{background:#fbfbfb;border:1px solid #ddd;"
+            "QTextEdit{background:#fbfbfb;color:#202020;border:1px solid #ddd;"
             "font-family:Consolas,monospace;font-size:11px;}"
         )
 

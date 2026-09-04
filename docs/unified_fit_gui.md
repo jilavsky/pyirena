@@ -132,6 +132,10 @@ The graph window has two tabs you can switch between at any time. Both update to
 - Drag cursor A (red) or cursor B (blue) to bracket the Q range of interest
 - Cursor positions feed into "Fit Rg/G btwn cursors", "Fit P/B btwn cursors", and the global Fit Q range
 - Cursors clamp to data boundaries when a new dataset is loaded
+- The **Q range for fit** box in the control panel shows the same two values and
+  is editable: type a Q and press Return and the cursor moves there.  Entries
+  are validated (positive, distinct), swapped if reversed, and clamped to the
+  data's Q range.  Simple Fits and Modeling have the identical control.
 
 ### Tab 2 — "Porod (I·Q⁴)"
 

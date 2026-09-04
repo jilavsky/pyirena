@@ -80,6 +80,7 @@ from pyirena.gui.saxs_morph_3d import (
     make_popout_button,
 )
 from pyirena.gui.unified_fit import _SafeInfiniteLine
+from pyirena.gui.theme import apply_theme
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_saxs_morph import (
     save_saxs_morph_results,
@@ -856,7 +857,7 @@ class SaxsMorphPanel(QWidget):
         self.result_lbl.setTextFormat(Qt.TextFormat.RichText)
         self.result_lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.result_lbl.setStyleSheet(
-            'background:#fafafa;border:1px solid #ddd;border-radius:4px;'
+            'background:#fafafa;color:#202020;border:1px solid #ddd;border-radius:4px;'
             'padding:8px;font-size:11pt;')
         results_row.addWidget(self.result_lbl, stretch=1)
 
@@ -865,7 +866,7 @@ class SaxsMorphPanel(QWidget):
         self.morph_lbl.setTextFormat(Qt.TextFormat.RichText)
         self.morph_lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.morph_lbl.setStyleSheet(
-            'background:#f4faf6;border:1px solid #ccd;border-radius:4px;'
+            'background:#f4faf6;color:#202020;border:1px solid #ccd;border-radius:4px;'
             'padding:8px;font-size:10pt;')
         results_row.addWidget(self.morph_lbl, stretch=1)
 
@@ -1883,6 +1884,7 @@ def main():
     setup_logging("gui")
     install_excepthook()
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_theme(app)
     panel = SaxsMorphPanel()
     panel.show()
     if len(sys.argv) > 1:

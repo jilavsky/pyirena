@@ -118,6 +118,7 @@ QIntValidator = QtGui.QIntValidator
 QKeySequence = QtGui.QKeySequence
 QPainterPath = QtGui.QPainterPath
 QPainterPathStroker = QtGui.QPainterPathStroker
+QPalette = QtGui.QPalette
 QPen = QtGui.QPen
 QPixmap = QtGui.QPixmap
 QShortcut = QtGui.QShortcut
@@ -143,6 +144,7 @@ __all__ = [
     # QtGui
     "QAction", "QBrush", "QCloseEvent", "QColor", "QDesktopServices",
     "QDoubleValidator", "QFont", "QIcon", "QIntValidator", "QKeySequence",
-    "QPainterPath", "QPainterPathStroker", "QPen", "QPixmap", "QShortcut",
+    "QPainterPath", "QPainterPathStroker", "QPalette", "QPen", "QPixmap",
+    "QShortcut",
     "QTransform",
 ]

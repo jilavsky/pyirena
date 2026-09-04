@@ -22,6 +22,7 @@ from pyirena.gui._qt import (
     QDoubleValidator,
     QFileDialog,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,6 +50,7 @@ from pyirena.gui.plot_export import (
     save_plot_image,
     tag_curve_uncertainty,
 )
+from pyirena.gui.q_range_ui import QRangeFields
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
     RadiusAxisItem,
@@ -56,6 +58,12 @@ from pyirena.gui.sas_plot import (
     add_slope_line_menu,
 )
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.theme import (
+    apply_theme,
+    SOFT_AMBER,
+    soft_button_css,
+    SOFT_GREEN,
+)
 from pyirena.gui.window_state import install_window_state
 from pyirena.state import StateManager
 
@@ -389,6 +397,10 @@ class UnifiedFitGraphWindow(QWidget):
 
     Much faster than matplotlib version with built-in cursor support.
     """
+
+    #: Emitted whenever either Q cursor moves, so the panel's editable
+    #: Q min / Q max fields can track a drag live.
+    cursor_moved = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1055,6 +1067,7 @@ class UnifiedFitGraphWindow(QWidget):
             new_pos_linear = 10**new_pos_log
             if new_pos_linear < self.cursor_right:
                 self.cursor_left = new_pos_linear
+                self.cursor_moved.emit()
             else:
                 # Defer snap-back so it never happens mid-drag inside pyqtgraph
                 QTimer.singleShot(0, self._snap_left_cursor)
@@ -1082,6 +1095,7 @@ class UnifiedFitGraphWindow(QWidget):
             new_pos_linear = 10**new_pos_log
             if new_pos_linear > self.cursor_left:
                 self.cursor_right = new_pos_linear
+                self.cursor_moved.emit()
             else:
                 # Defer snap-back so it never happens mid-drag inside pyqtgraph
                 QTimer.singleShot(0, self._snap_right_cursor)
@@ -1105,6 +1119,38 @@ class UnifiedFitGraphWindow(QWidget):
         if self.cursor_left is not None and self.cursor_right is not None:
             return (self.cursor_left, self.cursor_right)
         return None
+
+    def set_cursor_range(self, q_min: float, q_max: float):
+        """Move both Q cursors to *q_min* / *q_max* (linear Å⁻¹).
+
+        Counterpart of :meth:`get_cursor_range`, added so the panel's editable
+        Q min / Q max fields can drive the cursors the same way Simple Fits,
+        Size Distribution and Modeling do.  Positions are stored linearly and
+        drawn in log10 space, matching :meth:`add_cursors`.
+
+        The ``_cursor_updating`` guard is held across the two ``setValue``
+        calls: without it the first line's ``sigPositionChanged`` fires while
+        the second is still at its old position, and the "cursors crossed"
+        snap-back in :meth:`on_left_cursor_moved` would undo the move.
+        """
+        q_min, q_max = float(q_min), float(q_max)
+        if q_min > q_max:
+            q_min, q_max = q_max, q_min
+        if q_min <= 0 or q_max <= 0 or q_min == q_max:
+            return
+        self.cursor_left, self.cursor_right = q_min, q_max
+        if self.cursor_left_line is None or self.cursor_right_line is None:
+            # No data plotted yet — add_cursors() will pick up the values.
+            return
+        self._cursor_updating = True
+        try:
+            self.cursor_left_line.setValue(np.log10(q_min))
+            self.cursor_right_line.setValue(np.log10(q_max))
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        finally:
+            self._cursor_updating = False
+        self.cursor_moved.emit()
 
 
 class LevelParametersWidget(QWidget):
@@ -1974,6 +2020,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         # Right panel (graph) - maintain 67% width ratio
         self.graph_window = UnifiedFitGraphWindow()
+        # Keep the editable Q min / Q max fields in step with cursor drags.
+        self.graph_window.cursor_moved.connect(self.q_range_fields.refresh)
         main_splitter.addWidget(self.graph_window)
 
         # Set initial sizes (1:2 ratio = 33%:67%) and stretch factors to maintain ratio
@@ -2018,6 +2066,19 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self._feature_dialog.show()
         self._feature_dialog.raise_()
         self._feature_dialog.activateWindow()
+
+    def _data_q_range(self):
+        """Return the loaded data's (q_lo, q_hi), or None — used to clamp typed Q."""
+        q = getattr(self.graph_window, 'q_data', None) if self.graph_window else None
+        if q is None or len(q) == 0:
+            return None
+        return float(np.nanmin(q)), float(np.nanmax(q))
+
+    def _set_status(self, text: str):
+        """Write to the status label if it has been built yet."""
+        lbl = getattr(self, 'status_label', None)
+        if lbl is not None:
+            lbl.setText(text)
 
     def create_control_panel(self) -> QWidget:
         """Create the left control panel."""
@@ -2065,6 +2126,26 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         # + status label (hidden until data is loaded).  Handlers live in the
         # mixin; this panel supplies _sync_smearing_to_model + _reload_data_with_smearing.
         self._build_slit_row(layout)
+
+        # ── Q range for fit (cursors ↔ editable fields) ─────────────────
+        # Unified Fit previously showed the fit window nowhere at all — the
+        # user had to read it off the cursors.  The same QRangeFields widget
+        # used by Simple Fits, Modeling and Size Distribution now gives every
+        # tool an identical, editable Q min / Q max.
+        q_box = QGroupBox("Q range for fit")
+        q_box_layout = QVBoxLayout(q_box)
+        q_box_layout.setContentsMargins(6, 4, 6, 4)
+        self.q_range_fields = QRangeFields(
+            get_range=lambda: self.graph_window.get_cursor_range()
+            if self.graph_window else None,
+            set_range=lambda lo, hi: self.graph_window.set_cursor_range(lo, hi),
+            get_data_range=self._data_q_range,
+        )
+        self.q_range_fields.message.connect(self._set_status)
+        q_box_layout.addWidget(self.q_range_fields)
+        layout.addWidget(q_box)
+        # graph_window does not exist yet at this point (the control panel is
+        # built first) — cursor_moved is connected right after it is created.
 
         # ── Controls: levels, no limits, Identify Features ─────────────
         top_controls = QHBoxLayout()
@@ -2305,7 +2386,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
-        self.store_data_button.setStyleSheet("background-color: lightgreen;")
+        self.store_data_button.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.store_data_button.setToolTip(
             "Save fit results (parameters and model curve) into the source HDF5/NXcanSAS file.\n"
             "Results are appended as a pyirena NXprocess group, and the full\n"
@@ -2316,7 +2397,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.load_setup_button = QPushButton("Load Setup from File…")
         self.load_setup_button.setMinimumHeight(26)
-        self.load_setup_button.setStyleSheet("background-color: #ffe082;")
+        self.load_setup_button.setStyleSheet(soft_button_css(SOFT_AMBER))
         self.load_setup_button.setToolTip(
             "Restore every Unified Fit control (parameters, fit flags, bounds,\n"
             "link options, cursors, …) from a NXcanSAS file previously saved\n"
@@ -2333,7 +2414,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.export_params_button = QPushButton("Save params to JSON")
         self.export_params_button.setMinimumHeight(26)
-        self.export_params_button.setStyleSheet("background-color: lightgreen;")
+        self.export_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.export_params_button.setToolTip(
             "Save current Unified Fit parameters to a pyIrena JSON file.\n"
             "Use 'Load params from JSON' to restore them later."
@@ -2343,7 +2424,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.import_params_button = QPushButton("Load params from JSON")
         self.import_params_button.setMinimumHeight(26)
-        self.import_params_button.setStyleSheet("background-color: lightgreen;")
+        self.import_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.import_params_button.setToolTip(
             "Load Unified Fit parameters from a previously saved pyIrena JSON file.\n"
             "Use 'Save params to JSON' to create a compatible file."
@@ -2590,6 +2671,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         # Update status
         if hasattr(self, 'status_label'):
             self.status_label.setText(f"Loaded: {label} ({len(q)} points)")
+            self.q_range_fields.refresh()
 
     # ── Slit smearing (row + handlers live in SlitSmearingMixin) ────────────
     def _sync_smearing_to_model(self):
@@ -4341,7 +4423,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 def main():
     """Main entry point."""
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
+    apply_theme(app)
 
     window = UnifiedFitPanel()
 

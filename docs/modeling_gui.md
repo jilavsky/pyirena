@@ -128,6 +128,16 @@ and an optional **structure factor** for inter-particle correlations.
 | Distribution params | Shape-specific parameters (see Distributions table) |
 | Scale | Overall scale factor (proportional to volume fraction × (1 − volume fraction) for hard-sphere-like systems) |
 | Contrast | (Δρ)² in units of 10²⁰ cm⁻⁴ |
+
+> **Scale and Contrast cannot both be fitted.** The model intensity depends on
+> them only through their product, so freeing both leaves the fit with a flat
+> direction: the solver drifts and the reported uncertainties are meaningless.
+> Checking either **Fit** box therefore clears the other — the box you tick
+> last is the one that is fitted.  Leaving both unchecked is fine; that just
+> holds the prefactor at the value you entered.  Fit **Scale** when you want a
+> volume fraction from a known contrast (the usual case), and **Contrast** when
+> the volume fraction is known independently.
+
 | Form factor | Particle shape (see Form Factors table) |
 | FF params | Extra form factor parameters (e.g. aspect ratio for spheroids) |
 | Structure factor | Inter-particle structure factor |
@@ -449,7 +459,7 @@ Population colors are fixed per index:
 | **Background** | Flat additive background [cm⁻¹]; check **Fit** to optimize it |
 | **Fit** (method) | Selector to the right of Background: **Standard (local)** or **Global (DE→local)** — see below |
 | **No limits?** | When checked, fitting is unconstrained (Nelder-Mead); unchecked uses TRF with bounds |
-| **Qmin / Qmax** | Q range for fitting (drag the vertical cursor lines in the graph) |
+| **Q min / Q max** | Q range for fitting.  Type a value and press Return, or drag the vertical cursor lines in the graph — the two stay in sync.  Entries are validated (positive, distinct), swapped if reversed, and clamped to the data's Q range. |
 | **Graph Model** | Compute and display the forward model without fitting |
 | **Fix limits?** | Set every fit limit to ≈0.2×…5× the current value (clamped to valid ranges) — a quick way to bound a constrained or global fit |
 | **Fit** | Run optimization and update all parameters |

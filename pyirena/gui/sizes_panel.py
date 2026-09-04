@@ -49,6 +49,12 @@ from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
+from pyirena.gui.theme import (
+    READONLY_FIELD_CSS,
+    SOFT_AMBER,
+    SOFT_GREEN,
+    soft_button_css,
+)
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -1070,13 +1076,13 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self.qmin_display = QLineEdit("—")
         self.qmin_display.setReadOnly(True)
         self.qmin_display.setMaximumWidth(90)
-        self.qmin_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        self.qmin_display.setStyleSheet(READONLY_FIELD_CSS)
         q_row.addWidget(self.qmin_display)
         q_row.addWidget(QLabel("  Q max:"))
         self.qmax_display = QLineEdit("—")
         self.qmax_display.setReadOnly(True)
         self.qmax_display.setMaximumWidth(90)
-        self.qmax_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        self.qmax_display.setStyleSheet(READONLY_FIELD_CSS)
         q_row.addWidget(self.qmax_display)
         q_row.addWidget(QLabel("Å⁻¹"))
         q_row.addStretch()
@@ -1087,13 +1093,13 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self.rmax_display = QLineEdit("—")
         self.rmax_display.setReadOnly(True)
         self.rmax_display.setMaximumWidth(90)
-        self.rmax_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        self.rmax_display.setStyleSheet(READONLY_FIELD_CSS)
         d_row.addWidget(self.rmax_display)
         d_row.addWidget(QLabel("  R min:"))
         self.rmin_display = QLineEdit("—")
         self.rmin_display.setReadOnly(True)
         self.rmin_display.setMaximumWidth(90)
-        self.rmin_display.setStyleSheet("background-color: #ecf0f1; color: #7f8c8d;")
+        self.rmin_display.setStyleSheet(READONLY_FIELD_CSS)
         d_row.addWidget(self.rmin_display)
         d_row.addWidget(QLabel("Å"))
         d_row.addStretch()
@@ -1638,7 +1644,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.store_file_button = QPushButton("Store in File")
         self.store_file_button.setMinimumHeight(26)
-        self.store_file_button.setStyleSheet("background-color: lightgreen;")
+        self.store_file_button.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.store_file_button.setToolTip(
             "Save fit results (parameters and model curves) into the source HDF5/NXcanSAS file.\n"
             "Results are appended as a pyirena NXprocess group, and the full\n"
@@ -1649,7 +1655,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.load_setup_button = QPushButton("Load Setup from File…")
         self.load_setup_button.setMinimumHeight(26)
-        self.load_setup_button.setStyleSheet("background-color: #ffe082;")
+        self.load_setup_button.setStyleSheet(soft_button_css(SOFT_AMBER))
         self.load_setup_button.setToolTip(
             "Restore every Sizes control (shape, r-range, method, bounds, …)\n"
             "from a NXcanSAS file previously saved by pyirena or by the\n"
@@ -1665,7 +1671,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.export_params_button = QPushButton("Save params to JSON")
         self.export_params_button.setMinimumHeight(26)
-        self.export_params_button.setStyleSheet("background-color: lightgreen;")
+        self.export_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.export_params_button.setToolTip(
             "Save current Sizes parameters to a pyIrena JSON file.\n"
             "Use 'Load params from JSON' to restore them later."
@@ -1675,7 +1681,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.import_params_button = QPushButton("Load params from JSON")
         self.import_params_button.setMinimumHeight(26)
-        self.import_params_button.setStyleSheet("background-color: lightgreen;")
+        self.import_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
         self.import_params_button.setToolTip(
             "Load Sizes parameters from a previously saved pyIrena JSON file.\n"
             "Use 'Save params to JSON' to create a compatible file."

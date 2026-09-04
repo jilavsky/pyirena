@@ -233,6 +233,63 @@ Two things the exporters cannot infer, so the panel must say them:
   so without this the `dY` column disappears from CSV and ITX while the bars
   stay visible on screen.  `plot_iq_data` already does it for you.
 
+**Every colour you write into a stylesheet** — name the text colour too:
+
+```python
+from pyirena.gui.theme import (
+    CHIP_BUTTON_CSS, accent_button_css, soft_button_css,
+    readonly_field_css, status_css, ACCENT_GREEN, SOFT_AMBER,
+)
+
+self.fit_btn.setStyleSheet(accent_button_css(ACCENT_GREEN, '#1e8449'))
+self.prefit_btn.setStyleSheet(CHIP_BUTTON_CSS)
+self.load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
+self.readout.setStyleSheet(readonly_field_css())
+```
+
+Qt overrides only the properties a stylesheet actually names, so
+`setStyleSheet('background-color: #ecf0f1')` leaves the *text* colour to the
+platform palette.  On a desktop set to a dark scheme that palette is near-white
+— which is how the Modeling panel's "Fit B/P btwn cursors" and "Fit Flat btwn
+cursors" buttons shipped as invisible white boxes.  `pyirena.gui.theme` exists
+so the pairing is not something you have to remember: every helper emits a
+background *and* a foreground, and the tokens (`ACCENT_*`, `CHIP_*`,
+`READONLY_*`, `OK_BG`/`OK_TEXT`, …) are semantic, so a future dark variant is a
+change to one table rather than to 300 call sites.
+
+`apply_theme(app)` — called from every GUI entry point right after
+`QApplication(...)` — installs the Fusion style, an explicit palette and a
+baseline stylesheet, so pyIrena looks the same on every platform regardless of
+the system setting, and so unstyled controls (combo boxes, spin boxes, list
+views) cannot be rendered unreadably either.  Never call `app.setStyle('Fusion')`
+directly; `PYIRENA_NATIVE_THEME=1` is the escape hatch for debugging.
+`pyirena/tests/test_gui_theme_contract.py` fails the build on a new inline
+style that sets a background without a colour.
+
+**Every cursor-driven Q range** — one shared, editable control:
+
+```python
+from pyirena.gui.q_range_ui import QRangeFields
+
+self.q_range_fields = QRangeFields(
+    get_range=lambda: self.graph_window.get_cursor_range(),
+    set_range=lambda lo, hi: self.graph_window.set_cursor_range(lo, hi),
+    get_data_range=self._data_q_range,      # for clamping typed values
+)
+self.q_range_fields.message.connect(self._set_status)
+self.graph_window.cursor_moved.connect(self.q_range_fields.refresh)
+```
+
+Users come from Irena, where the fit limits could be *typed* as well as dragged.
+`QRangeFields` gives Simple Fits, Modeling and Unified Fit an identical
+editable `Q min` / `Q max`: it validates the pair (positive, distinct), swaps
+values entered the wrong way round, clamps to the loaded data, then moves the
+cursors — which stay the single source of truth, so the fields are always
+re-read from them afterwards.  Do not build another pair of read-only Q labels;
+if your graph lacks `set_cursor_range`, add it (see
+`UnifiedFitGraphWindow.set_cursor_range` for the re-entrancy guard the two
+cursor lines need).
+
 **Every file list**
 
 ```python

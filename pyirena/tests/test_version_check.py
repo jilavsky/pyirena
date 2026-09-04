@@ -38,6 +38,20 @@ def test_prerelease_ordering():
     assert is_newer("1.1.0rc1", "1.1.0b9")
 
 
+def test_double_digit_beta_beats_single_digit():
+    """b10 is newer than b9 — the string-comparison trap.
+
+    The prerelease number is parsed as an int precisely so that the tenth beta
+    does not sort *before* the ninth; a naive comparison would leave every
+    1.1.0b9 user without an update notice for the rest of the beta series.
+    """
+    assert is_newer("1.1.0b10", "1.1.0b9")
+    assert not is_newer("1.1.0b9", "1.1.0b10")
+    assert is_newer("1.1.0b10", "1.1.0b2")
+    assert not is_newer("1.1.0b10", "1.1.0b10")
+    assert is_newer("1.1.0", "1.1.0b10")
+
+
 def test_leading_v_is_stripped():
     assert is_newer("v1.2.0", "1.1.0")
 
