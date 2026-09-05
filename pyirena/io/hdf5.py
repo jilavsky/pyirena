@@ -499,7 +499,10 @@ def _read_one_sasdata(f, data_path):
     if i_path in f:
         dataset = f[i_path]
         intensity = dataset[()]
-        Int_attributes = dataset.attrs
+        # Copy attributes before the file is closed.  Returning h5py's live
+        # AttributeManager made downstream public-API records unusable after
+        # readGenericNXcanSAS returned.
+        Int_attributes = dict(dataset.attrs)
         units = Int_attributes.get('units')
         # Kfactor and other instrument-specific attributes are only present in
         # USAXS/calibrated data files; use .get() so plain NXcanSAS files read
@@ -520,7 +523,7 @@ def _read_one_sasdata(f, data_path):
     if q_path in f:
         dataset = f[q_path]
         Q = dataset[()]
-        Q_attributes = dataset.attrs
+        Q_attributes = dict(dataset.attrs)
 
     # --- Error (uncertainties pointer, else 'Idev') --------------------------
     uncertainties_key = _attr_first_str(Int_attributes.get('uncertainties')) or 'Idev'
@@ -528,7 +531,7 @@ def _read_one_sasdata(f, data_path):
     if err_path in f:
         dataset = f[err_path]
         Error = dataset[()]
-        Error_attributes = dataset.attrs
+        Error_attributes = dict(dataset.attrs)
 
     # --- Q resolution (resolutions pointer, else 'Qdev') ---------------------
     resolutions_key = _attr_first_str(Q_attributes.get('resolutions')) or 'Qdev'
@@ -536,7 +539,7 @@ def _read_one_sasdata(f, data_path):
     if dq_path in f:
         dataset = f[dq_path]
         dQ = dataset[()]
-        dQ_attributes = dataset.attrs
+        dQ_attributes = dict(dataset.attrs)
 
     # --- Slit-smearing metadata (NXcanSAS slit-length resolution) ------------
     # Slit-smeared data declare Q@resolutions="dQw,dQl": the per-point width

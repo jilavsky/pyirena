@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0b12] - 2026-09-04
+
+### Added
+
+- Added a stable, Qt-independent scattering I/O boundary for companion tools:
+  `ScatteringLocation`, `ScatteringRecord`, `discover_scattering()`, and
+  `load_scattering()`. Discovery includes all NXcanSAS entries, slit-smeared
+  variants, conventional simple-HDF5 Q/I groups, and read-only text imports.
+- Exposed `create_h5xp()` and `write_iq_data()` through `pyirena.io` for
+  supported Igor data export without importing an implementation module.
+- Added the minimal `pyirena[qtplot]` extra containing only PySide6 and
+  PyQtGraph for plotting companion applications such as Bernardyn.
+
+### Fixed
+
+- Copied HDF5 dataset attributes before closing their source file, so units and
+  metadata returned from `readGenericNXcanSAS()` remain usable by callers.
+
 ## [1.1.0b11] - 2026-09-04
 
 ### Changed

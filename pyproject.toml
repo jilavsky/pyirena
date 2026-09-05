@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyirena"
-version = "1.1.0b11"
+version = "1.1.0b12"
 description = "Python tools for small-angle scattering data analysis."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
@@ -42,6 +42,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+qtplot = [
+    # Minimal reusable Qt plotting layer for companion applications.
+    "PySide6>=6.4.0,!=6.7.*,!=6.10.*",
+    "pyqtgraph>=0.13.0",
+]
 gui = [
     "matplotlib>=3.5.0",
     "PySide6>=6.4.0,!=6.7.*,!=6.10.*",
