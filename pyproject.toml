@@ -39,6 +39,8 @@ dependencies = [
     "scipy>=1.8.0",
     "h5py>=3.0.0",
     "igor2>=0.5.13",
+    # Used by the public HDF5 reader when writing metadata attributes.
+    "six>=1.16",
 ]
 
 [project.optional-dependencies]

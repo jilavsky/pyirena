@@ -108,6 +108,7 @@ https://github.com/jilavsky/pyirena/issues.
 | numpy | ≥ 1.20 | Numerical arrays |
 | scipy | ≥ 1.7 | Optimization, fitting |
 | h5py | ≥ 3.0 | HDF5 / NXcanSAS file I/O |
+| six | ≥ 1.16 | HDF5 metadata compatibility |
 
 ### GUI (required to run the interactive GUI)
 

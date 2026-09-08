@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Declared `six` as a core runtime dependency. PyIrena's public HDF5 reader
+  uses it for metadata handling, so clean installations can now import the
+  scattering-data API without an undeclared dependency.
+
 ## [1.1.0] - 2026-09-08
 
 First stable release of the 1.1 line. The code is identical to `1.1.0b12`;
