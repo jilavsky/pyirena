@@ -22,7 +22,7 @@ Starting values for every fit were offset from the truth (typically 0.6x) so
 that the tables demonstrate convergence rather than assume it.
 
 
-Generated 2026-08-31 by `validationData/run_validation_report.py`.
+Generated 2026-09-08 by `validationData/run_validation_report.py`.
 
 **Summary: 195 of 195 scored comparisons within tolerance** (225 rows in total).
 
@@ -111,14 +111,14 @@ Over the 98 quantities both packages report, the median deviation from the known
 
 | quantity | unit | true | pyIrena | dev % | tol % | in tol? | **Irena** | **Irena dev %** |
 |---|---|---|---|---|---|---|---|---|
-| G | 1/cm | 100 | 99.9499 | -0.050 | 3 | yes | 99.95 | -0.050 |
+| G | 1/cm | 100 | 99.9498 | -0.050 | 3 | yes | 99.95 | -0.050 |
 | Rg | A | 200 | 199.844 | -0.078 | 2 | yes | 199.8 | -0.100 |
-| P | - | 4 | 4.00924 | +0.231 | 2 | yes | 4.009 | +0.225 |
-| B | cm^-1 A^-P | 3.04500e-07 | 2.95156e-07 | -3.069 | 25 | yes | 2.95e-7 | -3.120 |
+| P | - | 4 | 4.00923 | +0.231 | 2 | yes | 4.009 | +0.225 |
+| B | cm^-1 A^-P | 3.04500e-07 | 2.95171e-07 | -3.064 | 25 | yes | 2.95e-7 | -3.120 |
 | background | 1/cm | 0.01 | 0.01006 | +0.600 | 15 | yes | 0.01006 | +0.600 |
 | reduced chi^2 | - | 1 | 0.979006 | -2.099 |  | - |  |  |
-| model vs exact curve: median abs. deviation | % | 0 | 0.0832303 |  | 2 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 0.590335 |  | 12 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.0828329 |  | 2 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 0.589873 |  | 12 | yes |  |  |
 
 > B and P are strongly correlated (B carries units cm^-1 A^-P), so B has a wide tolerance whenever P is a free parameter
 
@@ -132,18 +132,18 @@ Over the 98 quantities both packages report, the median deviation from the known
 
 | quantity | unit | true | pyIrena | dev % | tol % | in tol? | **Irena** | **Irena dev %** |
 |---|---|---|---|---|---|---|---|---|
-| G_1 | 1/cm | 8 | 7.96184 | -0.477 | 3 | yes | 7.9617 | -0.479 |
+| G_1 | 1/cm | 8 | 7.96186 | -0.477 | 3 | yes | 7.9617 | -0.479 |
 | Rg_1 | A | 120 | 119.829 | -0.143 | 2 | yes | 119.83 | -0.142 |
-| P_1 | - | 4 | 3.93526 | -1.618 | 2 | yes | 3.9354 | -1.615 |
-| B_1 | cm^-1 A^-P | 1.88000e-07 | 2.32120e-07 | +23.468 | 25 | yes | 2.3206e-7 | +23.436 |
+| P_1 | - | 4 | 3.93526 | -1.619 | 2 | yes | 3.9354 | -1.615 |
+| B_1 | cm^-1 A^-P | 1.88000e-07 | 2.32125e-07 | +23.471 | 25 | yes | 2.3206e-7 | +23.436 |
 | G_2 | 1/cm | 4000 | 4001.17 | +0.029 | 3 | yes | 4001. | +0.025 |
 | Rg_2 | A | 1200 | 1202 | +0.167 | 2 | yes | 1202 | +0.167 |
 | P_2 | - | 3.2 | 3.18946 | -0.329 | 2 | yes | 3.1894 | -0.331 |
-| B_2 | cm^-1 A^-P | 1.39300e-06 | 1.47606e-06 | +5.963 | 25 | yes | 1.4765e-6 | +5.994 |
-| background | 1/cm | 0.02 | 0.0201605 | +0.802 | 15 | yes | 0.02016 | +0.800 |
+| B_2 | cm^-1 A^-P | 1.39300e-06 | 1.47601e-06 | +5.959 | 25 | yes | 1.4765e-6 | +5.994 |
+| background | 1/cm | 0.02 | 0.0201604 | +0.802 | 15 | yes | 0.02016 | +0.800 |
 | reduced chi^2 | - | 1 | 1.06538 | +6.538 |  | - |  |  |
-| model vs exact curve: median abs. deviation | % | 0 | 0.153929 |  | 2 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 1.7138 |  | 12 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.153888 |  | 2 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 1.71387 |  | 12 | yes |  |  |
 
 > B and P are strongly correlated (B carries units cm^-1 A^-P), so B has a wide tolerance whenever P is a free parameter
 
@@ -159,14 +159,14 @@ Over the 98 quantities both packages report, the median deviation from the known
 
 | quantity | unit | true | pyIrena | dev % | tol % | in tol? | **Irena** | **Irena dev %** |
 |---|---|---|---|---|---|---|---|---|
-| G | 1/cm | 100 | 99.8555 | -0.144 | 3 | yes |  |  |
+| G | 1/cm | 100 | 99.8558 | -0.144 | 3 | yes |  |  |
 | Rg | A | 200 | 200.098 | +0.049 | 2 | yes |  |  |
-| P | - | 4 | 4.00443 | +0.111 | 2 | yes |  |  |
-| B | cm^-1 A^-P | 3.04500e-07 | 3.00025e-07 | -1.470 | 25 | yes |  |  |
-| background | 1/cm | 0.01 | 0.00996062 | -0.394 | 15 | yes |  |  |
+| P | - | 4 | 4.00444 | +0.111 | 2 | yes |  |  |
+| B | cm^-1 A^-P | 3.04500e-07 | 3.00013e-07 | -1.474 | 25 | yes |  |  |
+| background | 1/cm | 0.01 | 0.00996066 | -0.393 | 15 | yes |  |  |
 | reduced chi^2 | - | 1 | 0.930125 | -6.988 |  | - |  |  |
-| model vs exact curve: median abs. deviation | % | 0 | 0.181991 |  | 2 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 0.412501 |  | 12 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.181945 |  | 2 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 0.412444 |  | 12 | yes |  |  |
 
 > B and P are strongly correlated (B carries units cm^-1 A^-P), so B has a wide tolerance whenever P is a free parameter
 
@@ -187,12 +187,12 @@ Over the 98 quantities both packages report, the median deviation from the known
 | pop1 scale | - | 0.005 | 0.00500931 | +0.186 | 6 | yes | 0.004947 | -1.060 |
 | pop2 G | 1/cm | 20000 | 19996 | -0.020 | 4 | yes | 19999.7 | -0.001 |
 | pop2 Rg | A | 4000 | 3998.8 | -0.030 | 4 | yes | 4000.4 | +0.010 |
-| pop2 P | - | 3.5 | 3.49239 | -0.217 | 3 | yes | 3.503 | +0.086 |
-| pop2 B | cm^-1 A^-P | 1.56345e-08 | 1.64675e-08 | +5.328 | 25 | yes | 1.551e-8 | -0.796 |
+| pop2 P | - | 3.5 | 3.49238 | -0.218 | 3 | yes | 3.503 | +0.086 |
+| pop2 B | cm^-1 A^-P | 1.56345e-08 | 1.64682e-08 | +5.333 | 25 | yes | 1.551e-8 | -0.796 |
 | background | 1/cm | 0.01 | 0.00994733 | -0.527 | 30 | yes | 0.00998 | -0.200 |
 | reduced chi^2 | - | 1 | 1.03921 | +3.921 |  | - | 1.0535 | +5.350 |
-| model vs exact curve: median abs. deviation | % | 0 | 0.213212 |  | 3 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 2.16489 |  | 15 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.213211 |  | 3 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 2.16483 |  | 15 | yes |  |  |
 
 > a small flat background is a weakly determined nuisance parameter
 
@@ -207,13 +207,13 @@ Over the 98 quantities both packages report, the median deviation from the known
 | pop1 mean_size (log-normal median) | A | 60 | 60.1816 | +0.303 | 4 | yes | 59.119 | -1.468 |
 | pop1 sdeviation | - | 0.25 | 0.260352 | +4.141 | 6 | yes | 0.261 | +4.400 |
 | pop1 scale | - | 0.004 | 0.00400364 | +0.091 | 6 | yes | 0.003955 | -1.125 |
-| pop2 amplitude | 1/cm | 5 | 4.99142 | -0.172 | 5 | yes | 4.992 | -0.160 |
+| pop2 amplitude | 1/cm | 5 | 4.99144 | -0.171 | 5 | yes | 4.992 | -0.160 |
 | pop2 position | 1/A | 0.15 | 0.149981 | -0.013 | 1 | yes | 0.1494 | -0.400 |
 | pop2 width (sigma) | 1/A | 0.012 | 0.0120011 | +0.009 | 6 | yes | 0.01413 | +17.750 |
 | background | 1/cm | 0.005 | 0.00501291 | +0.258 | 30 | yes | 0.005008 | +0.160 |
 | reduced chi^2 | - | 1 | 1.18594 | +18.594 |  | - | 1.131 | +13.100 |
-| model vs exact curve: median abs. deviation | % | 0 | 0.335475 |  | 3 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 2.45529 |  | 15 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.335414 |  | 3 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 2.45532 |  | 15 | yes |  |  |
 
 > a small flat background is a weakly determined nuisance parameter
 
@@ -251,7 +251,7 @@ Over the 98 quantities both packages report, the median deviation from the known
 | Ksi | A | 800 | 800.352 | +0.044 | 8 | yes |  |  |
 | background | 1/cm | 0.01 | 0.0102148 | +2.148 | 30 | yes |  |  |
 | reduced chi^2 | - | 1 | 1.09383 | +9.383 |  | - |  |  |
-| model vs exact curve: median abs. deviation | % | 0 | 0.0725479 |  | 3 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.072548 |  | 3 | yes |  |  |
 | model vs exact curve: max abs. deviation | % | 0 | 2.27086 |  | 15 | yes |  |  |
 
 > a small flat background is a weakly determined nuisance parameter
@@ -393,7 +393,7 @@ Over the 98 quantities both packages report, the median deviation from the known
 | Rg | A | 60 | 60.0224 | +0.037 | 3 | yes |  |  |
 | reduced chi^2 | - | 1 | 1.08716 | +8.716 |  | - |  |  |
 | model vs exact curve: median abs. deviation | % | 0 | 0.11394 |  | 2 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 0.14104 |  | 12 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 0.141041 |  | 12 | yes |  |  |
 
 > fitted model compared point-by-point with <name>_ideal.dat
 
@@ -403,13 +403,13 @@ Over the 98 quantities both packages report, the median deviation from the known
 
 | quantity | unit | true | pyIrena | dev % | tol % | in tol? | **Irena** | **Irena dev %** |
 |---|---|---|---|---|---|---|---|---|
-| Prefactor | cm^-1 A^-3 | 1 | 0.817249 | -18.275 |  | - |  |  |
-| Eta | - | 0.05 | 0.0553398 | +10.680 |  | - |  |  |
+| Prefactor | cm^-1 A^-3 | 1 | 0.782174 | -21.783 |  | - |  |  |
+| Eta | - | 0.05 | 0.056567 | +13.134 |  | - |  |  |
 | CorrLength | A | 80 | 79.951 | -0.061 | 3 | yes |  |  |
 | Prefactor * Eta^2 | cm^-1 A^-3 | 0.0025 | 0.00250282 | +0.113 | 3 | yes |  |  |
 | reduced chi^2 | - | 1 | 0.967369 | -3.263 |  | - |  |  |
-| model vs exact curve: median abs. deviation | % | 0 | 0.105291 |  | 2 | yes |  |  |
-| model vs exact curve: max abs. deviation | % | 0 | 0.173263 |  | 12 | yes |  |  |
+| model vs exact curve: median abs. deviation | % | 0 | 0.10529 |  | 2 | yes |  |  |
+| model vs exact curve: max abs. deviation | % | 0 | 0.173262 |  | 12 | yes |  |  |
 
 > degenerate with the other prefactor - only the product is determined by the data
 
@@ -462,10 +462,10 @@ Over the 98 quantities both packages report, the median deviation from the known
 
 | quantity | unit | true | pyIrena | dev % | tol % | in tol? | **Irena** | **Irena dev %** |
 |---|---|---|---|---|---|---|---|---|
-| bg0 | - | 10 | 11.9979 | +19.979 |  | - | * |  |
-| bg1 | - | -2 | -4.51983 | +125.992 |  | - | * |  |
-| bg2 | - | 0.8 | 1.84822 | +131.027 |  | - | * |  |
-| bg3 | - | -0.05 | -0.189004 | +278.007 |  | - | * |  |
+| bg0 | - | 10 | 11.9978 | +19.978 |  | - | * |  |
+| bg1 | - | -2 | -4.51982 | +125.991 |  | - | * |  |
+| bg2 | - | 0.8 | 1.84821 | +131.027 |  | - | * |  |
+| bg3 | - | -0.05 | -0.189003 | +278.006 |  | - | * |  |
 | background at Q = 1.5 | 1/cm | 8.63125 | 8.7387 | +1.245 | 5 | yes |  |  |
 | background at Q = 2.12 | 1/cm | 8.88271 | 8.92544 | +0.481 | 5 | yes |  |  |
 | background at Q = 2.75 | 1/cm | 9.51016 | 9.61476 | +1.100 | 5 | yes |  |  |

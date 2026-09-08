@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-08
+
+First stable release of the 1.1 line. The code is identical to `1.1.0b12`;
+this entry summarises what 1.1.0 brings over **1.0.1**. Per-change detail,
+including every fix, lives in the `1.1.0b1` – `1.1.0b12` entries below.
+
+Saved-file compatibility is preserved: NXcanSAS result files written by 1.0.x
+load unchanged, and `from_dict()` supplies a default for every field added
+during the 1.1 cycle.
+
+### Highlights
+
+- **Slit smearing across all fitting tools** (b1). Unified Fit, Sizes,
+  Modeling, Simple Fits and WAXS Peak Fit can fit slit-smeared USAXS/Matilda
+  data directly, with the smearing geometry carried through result files and
+  merge provenance.
+- **Fits are substantially faster, with the same numbers.** Analytic Jacobians
+  replaced finite differences in the four gradient-based tools — 1.7–2.1× on
+  Unified Fit, 1.4–2.2× on Modeling, up to 2× on Simple Fits, ~1.8× on large
+  WAXS fits (b11) — on top of a ~3× vectorisation of the Modeling hot path
+  (b9) and parallel Monte-Carlo uncertainty (b4). An exact gradient also fixes
+  fits finite differences could not do at all, such as a Debye chain over a
+  USAXS Q range.
+- **pyIrena is agent-drivable.** `pyirena/api/control/` exposes interactive
+  fitting sessions for all five fitting tools, wrapped by an MCP server
+  (b5–b7), with the control/MCP write surface confined to `PYIRENA_DATA_ROOT`
+  (b2).
+- **A validation suite with exactly known answers** (`validationData/`, b10):
+  synthetic data generated from known parameters, refitted end-to-end into
+  `VALIDATION_RESULTS.md`, with **Igor Pro Irena results tabulated alongside**
+  for 98 of the quantities. Current status: **195 of 195 scored comparisons
+  within tolerance**; median deviation from truth 0.185 % for pyIrena versus
+  0.308 % for Igor Irena, and 0.040 % between the two packages.
+- **A uniform UX contract across every panel** (b7): clipboard copy, column
+  sorting and CSV export on every table; graph copy/PNG/SVG/CSV export
+  everywhere; "Copy results" and "Save report…" on the fit panels; regex file
+  filters; shared filename sorting; drag-and-drop file opening; windows that
+  reopen where you left them.
+- **Readable on every desktop** (b10): pyIrena ships its own light theme, so
+  controls no longer become unreadable under a dark OS appearance.
+- **Core model objects serialise themselves** (b7). `to_dict`/`from_dict` on
+  Unified Fit, Sizes, Modeling, Simple Fits and WAXS Peak Fit make panel
+  state, batch configs and HDF5 contents one shape rather than three.
+- **A stable, Qt-independent scattering I/O boundary** for companion tools
+  (b12): `discover_scattering()` / `load_scattering()` plus the minimal
+  `pyirena[qtplot]` extra.
+- **Tested on Linux, macOS and Windows** (b10), with Windows-specific
+  encoding, path-separator and BOM bugs fixed.
+- **Installation troubleshooting**: `pyirena-doctor` diagnoses wrong-environment
+  and missing-extra installs instead of reporting "GUI dependencies not
+  installed" (b4).
+
+### Changed (compatibility notes since 1.0.1)
+
+- **Minimum Python is now 3.10** (was 3.9); tested on 3.10, 3.11 and 3.13.
+- **NumPy floor raised to ≥ 2.0**, matching the `numpy.trapezoid` calls the
+  core already made.
+- **`pyirena[mcp]` pins `mcp<2`** — pyIrena has not been migrated to the
+  mcp 2.x API.
+- **The Simple Fits model formerly misspelled "Treubner-Strey" is now
+  "Teubner-Strey"**; old result files still load.
+
+
 ## [1.1.0b12] - 2026-09-04
 
 ### Added

@@ -6,9 +6,7 @@ Python tools for small-angle scattering (SAS) data analysis. A port of the Igor 
 [Irena](https://usaxs.xray.aps.anl.gov/software/irena) package. Includes interactive
 GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/USAXS data.
 
-**Current release: v1.0.1**
-
-**Current beta release: v1.1.0b12**
+**Current release: v1.1.0**
 
 [![PyPI version](https://img.shields.io/pypi/v/pyirena.svg)](https://pypi.org/project/pyirena/)
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -32,7 +30,7 @@ core library only (no GUI), use `pip install pyirena`.
 
 **Trying a pre-release (beta) version:**
 
-Beta releases (e.g. `1.1.0b12`) are published to PyPI ahead of a stable release
+Beta releases (e.g. `1.2.0b1`) are published to PyPI ahead of a stable release
 for early testing. `pip` does not install pre-releases by default, so pass
 `--pre` explicitly:
 
@@ -40,10 +38,10 @@ for early testing. `pip` does not install pre-releases by default, so pass
 pip install --pre "pyirena[gui]"
 ```
 
-To install a specific beta rather than whatever is newest:
+To install a specific version rather than whatever is newest:
 
 ```bash
-pip install "pyirena[gui]==1.1.0b12"
+pip install "pyirena[gui]==1.1.0"
 ```
 
 Pre-releases may contain incomplete or breaking changes — see

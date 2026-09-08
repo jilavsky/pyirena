@@ -1,6 +1,6 @@
 # Scattering discovery and loading API
 
-PyIrena 1.1.0b12 provides a stable, Qt-independent boundary for applications
+PyIrena 1.1.0 provides a stable, Qt-independent boundary for applications
 that need its tested data readers without depending on GUI internals.
 
 ```python
@@ -25,7 +25,7 @@ Companion Qt plotting applications can request the small shared dependency set
 with:
 
 ```bash
-python -m pip install "pyirena[qtplot]>=1.1.0b12"
+python -m pip install "pyirena[qtplot]>=1.1.0"
 ```
 
 Igor H5XP data writers are also public:

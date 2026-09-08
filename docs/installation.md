@@ -80,7 +80,7 @@ pip install -e .
 
 ### Trying a pre-release (beta) version from PyPI
 
-Beta releases (e.g. `1.1.0b12`) are published to PyPI ahead of a stable
+Beta releases (e.g. `1.2.0b1`) are published to PyPI ahead of a stable
 release for early testing. `pip` ignores pre-releases by default, so pass
 `--pre` explicitly:
 
@@ -88,10 +88,10 @@ release for early testing. `pip` ignores pre-releases by default, so pass
 pip install --pre "pyirena[gui]"
 ```
 
-Or pin an exact beta version:
+Or pin an exact version:
 
 ```bash
-pip install "pyirena[gui]==1.1.0b12"
+pip install "pyirena[gui]==1.1.0"
 ```
 
 See [CHANGELOG.md](../CHANGELOG.md) for what changed, and report issues at
