@@ -98,10 +98,16 @@ def test_open_dataset_exposes_use_slit_smeared():
 def test_mcp_registers_all_tools_structurally():
     """Validate the *whole* registered MCP surface, not just the read tools.
 
-    The old smoke test only name-checked 18 read/discovery tools while the
-    server registers 119 (18 read + 101 control). Here we lock the counts and
-    assert every registered tool is structurally complete (has a description
-    and a well-formed object input schema).
+    Most of the 102 control schemas above are NOT individually registered as
+    MCP tools any more: ``pyirena_ctrl_*`` (minus session lifecycle) used to
+    be a 1:1 wrapper per schema (101 tools), which combined with a client's
+    other active MCP tools could exceed a provider-side cap on the number of
+    tools in a single request (the ANL Argo gateway proxy: 128 tools). They
+    are now reached through the fixed ``pyirena_call`` dispatcher
+    (``pyirena/mcp/dispatch.py``), built directly from ``TOOL_SCHEMA_BY_NAME``.
+    Here we lock the (now much smaller) counts and assert every registered
+    tool is structurally complete (has a description and a well-formed
+    object input schema).
     """
     pytest.importorskip("mcp")
     import asyncio
@@ -110,13 +116,21 @@ def test_mcp_registers_all_tools_structurally():
 
     tools = asyncio.run(mcp.list_tools())
     names = [t.name for t in tools]
-    ctrl_tools = [n for n in names if n.startswith("pyirena_ctrl_")]
-    read_tools = [n for n in names if not n.startswith("pyirena_ctrl_")]
+    dispatcher_tools = [
+        n for n in names
+        if n in {"pyirena_call", "pyirena_list_categories", "pyirena_list_tools",
+                 "pyirena_describe_tool"}
+    ]
+    session_tools = [n for n in names if n.startswith("pyirena_ctrl_")]
+    read_tools = [n for n in names if n not in dispatcher_tools and n not in session_tools]
 
     # Locked counts — adding/removing a tool is an intentional change that must
-    # update this test (mirrors the 51-schema lock above).
-    assert len(names) == 119, f"expected 119 registered MCP tools, found {len(names)}"
-    assert len(ctrl_tools) == 101, f"expected 101 control tools, found {len(ctrl_tools)}"
+    # update this test (mirrors the 102-schema lock above). A regression that
+    # re-adds a per-function pyirena_ctrl_* wrapper instead of dispatching
+    # through pyirena_call should fail here first.
+    assert len(names) == 26, f"expected 26 registered MCP tools, found {len(names)}"
+    assert len(dispatcher_tools) == 4, f"expected 4 dispatcher tools, found {len(dispatcher_tools)}"
+    assert len(session_tools) == 4, f"expected 4 session-lifecycle tools, found {len(session_tools)}"
     assert len(read_tools) == 18, f"expected 18 read tools, found {len(read_tools)}"
 
     for t in tools:

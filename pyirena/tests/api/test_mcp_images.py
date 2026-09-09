@@ -30,19 +30,21 @@ _PNG = base64.b64decode(
 )
 _PNG_B64 = base64.b64encode(_PNG).decode("ascii")
 
-# Every tool that returns a picture, with the pyirena.api.control function it
-# delegates to. The control functions are stubbed so the test needs no data
-# file and no matplotlib run.
-IMAGE_TOOLS = {
-    "pyirena_ctrl_get_fit_image": "get_fit_image",
-    "pyirena_ctrl_get_residuals_image": "get_residuals_image",
-    "pyirena_ctrl_sizes_get_background_image": "get_background_preview_image",
-    "pyirena_ctrl_sizes_get_fit_image": "get_sizes_fit_image",
-    "pyirena_ctrl_simple_get_fit_image": "get_simple_fit_image",
-    "pyirena_ctrl_simple_get_linearization_image": "get_simple_linearization_image",
-    "pyirena_ctrl_modeling_get_fit_image": "get_modeling_fit_image",
-    "pyirena_ctrl_waxs_get_fit_image": "get_waxs_fit_image",
-}
+# Every pyirena.api.control function that returns a picture. These are no
+# longer individual MCP tools -- they're reached through the pyirena_call
+# dispatcher (pyirena/mcp/dispatch.py) -- so the tests below call
+# "pyirena_call" with {"name": <this>, "arguments": {...}}. The control
+# functions are stubbed so the test needs no data file and no matplotlib run.
+IMAGE_TOOLS = (
+    "get_fit_image",
+    "get_residuals_image",
+    "get_background_preview_image",
+    "get_sizes_fit_image",
+    "get_simple_fit_image",
+    "get_simple_linearization_image",
+    "get_modeling_fit_image",
+    "get_waxs_fit_image",
+)
 PLOT_TOOLS = ("pyirena_plot_iq", "pyirena_plot_parameter_trend")
 
 
@@ -64,7 +66,7 @@ def test_image_tools_have_no_structured_output_schema():
     from pyirena.mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
-    expected = set(IMAGE_TOOLS) | set(PLOT_TOOLS)
+    expected = {"pyirena_call"} | set(PLOT_TOOLS)
     by_name = {t.name: t for t in tools}
 
     missing = expected - set(by_name)
@@ -77,9 +79,9 @@ def test_image_tools_have_no_structured_output_schema():
     )
 
 
-@pytest.mark.parametrize("tool_name,ctrl_func", sorted(IMAGE_TOOLS.items()))
+@pytest.mark.parametrize("ctrl_func", IMAGE_TOOLS)
 def test_control_image_tool_returns_text_path_and_inline_image(
-    tool_name, ctrl_func, tmp_path, monkeypatch
+    ctrl_func, tmp_path, monkeypatch
 ):
     from pyirena.mcp import server
 
@@ -98,22 +100,24 @@ def test_control_image_tool_returns_text_path_and_inline_image(
         raising=True,
     )
 
-    content = _content(asyncio.run(server.mcp.call_tool(tool_name, {"session_id": "s1"})))
+    content = _content(asyncio.run(server.mcp.call_tool(
+        "pyirena_call", {"name": ctrl_func, "arguments": {"session_id": "s1"}}
+    )))
     texts, images = _split(content)
 
-    assert len(images) == 1, f"{tool_name} returned no inline image block"
+    assert len(images) == 1, f"pyirena_call({ctrl_func!r}) returned no inline image block"
     assert images[0].mimeType == "image/png"
     assert base64.b64decode(images[0].data) == _PNG
 
-    assert texts, f"{tool_name} returned no text block"
+    assert texts, f"pyirena_call({ctrl_func!r}) returned no text block"
     assert str(png_path) in texts[0].text, (
         "the text block must carry the PNG path so clients that cannot render "
         "images inline can still open the file"
     )
 
 
-@pytest.mark.parametrize("tool_name,ctrl_func", sorted(IMAGE_TOOLS.items()))
-def test_control_image_tool_passes_errors_through_as_text(tool_name, ctrl_func, monkeypatch):
+@pytest.mark.parametrize("ctrl_func", IMAGE_TOOLS)
+def test_control_image_tool_passes_errors_through_as_text(ctrl_func, monkeypatch):
     """An error dict must stay a readable error, not become a broken image."""
     from mcp.types import ImageContent
 
@@ -126,7 +130,9 @@ def test_control_image_tool_passes_errors_through_as_text(tool_name, ctrl_func, 
         raising=True,
     )
 
-    content = _content(asyncio.run(server.mcp.call_tool(tool_name, {"session_id": "nope"})))
+    content = _content(asyncio.run(server.mcp.call_tool(
+        "pyirena_call", {"name": ctrl_func, "arguments": {"session_id": "nope"}}
+    )))
     assert not any(isinstance(c, ImageContent) for c in content)
     assert "NO_SESSION" in "".join(getattr(c, "text", "") for c in content)
 

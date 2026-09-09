@@ -8,13 +8,32 @@ If you are an AI assistant with access to pyirena tools, read this
 document — or have it inlined into your system prompt — before asking
 questions about a user's analysis data.
 
-> **Tool name prefixes:**
-> - `pyirena_` — read-only tools that query existing fit results
-> - `pyirena_ctrl_` — control tools that drive fitting interactively
+> **Tool surface at a glance:**
+> - `pyirena_*` — read-only tools that query existing fit results, plus
+>   discovery and plotting.
+> - `pyirena_ctrl_open_dataset` / `list_open_sessions` / `close_session` /
+>   `get_session_summary` — session lifecycle, always available as their
+>   own MCP tools.
+> - Everything else that drives fitting — model selection, parameters,
+>   fit execution, quality, persistence, across all five fitting tools —
+>   is **not** its own MCP tool any more. It is reached through a fixed
+>   4-tool dispatcher: `pyirena_list_categories()`, `pyirena_list_tools
+>   (category)`, `pyirena_describe_tool(name)`, and `pyirena_call(name,
+>   arguments)`. This keeps pyirena-mcp's registered tool count small
+>   (~26) regardless of how many `pyirena.api.control` functions exist —
+>   large MCP tool counts can exceed provider-side caps on the number of
+>   tools in a single request (e.g. a 128-tool limit observed via one
+>   gateway proxy).
 >
-> Both sets are globally unambiguous when the client connects to multiple
-> MCP servers. The underlying Python library uses `pyirena.api` (read)
-> and `pyirena.api.control` (control) with no prefix.
+> **What this means for you below:** every tool name shown in the
+> "Control tools reference" sections (e.g. `run_sizes_fit`,
+> `select_modeling_model`) is a `name` argument for `pyirena_call`, not a
+> standalone MCP tool — `pyirena_call("run_sizes_fit", {"session_id": ...})`
+> where this document writes `run_sizes_fit(session_id, ...)`. Call
+> `pyirena_describe_tool(name)` if you need the exact JSON schema rather
+> than the prose parameter list here. The underlying Python library uses
+> `pyirena.api` (read) and `pyirena.api.control` (control, dispatched by
+> exactly these bare names) with no prefix.
 
 ---
 
@@ -47,24 +66,25 @@ asked — to fit new datasets autonomously using the control tools.
 
 ### Control-mode fitting (all five tools)
 
-The `pyirena_ctrl_*` tools let you drive pyirena's fitting models
-end-to-end. Every fitting tool is now drivable:
+The control tools, dispatched through `pyirena_call`, let you drive
+pyirena's fitting models end-to-end. Every fitting tool is now drivable,
+one dispatcher category each:
 
-- **Unified Fit** — `pyirena_ctrl_*` tools (model parameters, levels,
-  staged fitting). See [Control tools reference](#control-tools-reference-pyirena_ctrl_-prefix).
-- **Size Distribution** — `pyirena_ctrl_sizes_*` tools (inversion method,
+- **Unified Fit** — category `"unified"` (model parameters, levels,
+  staged fitting). See [Control tools reference](#control-tools-reference--unified-fit-dispatcher-category-unified).
+- **Size Distribution** — category `"sizes"` (inversion method,
   size grid, shape, complex background, error handling). See
-  [Size Distribution control tools](#control-tools-reference--size-distribution-pyirena_ctrl_sizes_-prefix).
-- **Simple Fits** — `pyirena_ctrl_simple_*` tools (one analytical model at a
+  [Size Distribution control tools](#control-tools-reference--size-distribution-dispatcher-category-sizes).
+- **Simple Fits** — category `"simple"` (one analytical model at a
   time: Guinier, Porod, Sphere, Debye-Bueche, Teubner-Strey, Invariant, …).
-  See [Simple Fits control tools](#control-tools-reference--simple-fits-pyirena_ctrl_simple_-prefix).
-- **Modeling** — `pyirena_ctrl_modeling_*` tools (several populations at once:
+  See [Simple Fits control tools](#control-tools-reference--simple-fits-dispatcher-category-simple).
+- **Modeling** — category `"modeling"` (several populations at once:
   size distributions with form and structure factors, unified levels,
   Guinier-Porod levels, diffraction peaks, fractals). See
-  [Modeling control tools](#control-tools-reference--modeling-pyirena_ctrl_modeling_-prefix).
-- **WAXS Peak Fit** — `pyirena_ctrl_waxs_*` tools (background choice, peak
+  [Modeling control tools](#control-tools-reference--modeling-dispatcher-category-modeling).
+- **WAXS Peak Fit** — category `"waxs"` (background choice, peak
   finding, per-peak shape/position/width, integrated areas). See
-  [WAXS control tools](#control-tools-reference--waxs-peak-fit-pyirena_ctrl_waxs_-prefix).
+  [WAXS control tools](#control-tools-reference--waxs-peak-fit-dispatcher-category-waxs).
 
 **Which to reach for.** Simple Fits answers one focused question over a
 restricted Q range ("what is Rg here?", "what is the Porod slope?") and is the
@@ -257,9 +277,12 @@ when the user asks "tell me everything about sample_X".
 ### Images (returns mixed text + image content)
 
 **Every** pyirena tool that produces a picture behaves the same way — the
-two plotting tools below and all eight `pyirena_ctrl_*_image` tools. Each
-returns a **two-item content list**, not a single value. Handle both items
-by content type:
+two plotting tools below and every `pyirena_call(name="get_*_image", ...)`
+call (`get_fit_image`, `get_residuals_image`, `get_background_preview_image`,
+`get_sizes_fit_image`, `get_simple_fit_image`,
+`get_simple_linearization_image`, `get_modeling_fit_image`,
+`get_waxs_fit_image`). Each returns a **two-item content list**, not a
+single value. Handle both items by content type:
 
 | Index | `type` | What it contains |
 |-------|--------|-----------------|
@@ -322,10 +345,13 @@ scans for sample X."
 
 ---
 
-## Control tools reference (`pyirena_ctrl_` prefix)
+## Control tools reference — Unified Fit (dispatcher category `"unified"`)
 
 These tools use sessions. Always start with `pyirena_ctrl_open_dataset()`,
 capture the returned `session_id`, and pass it to every subsequent call.
+Everything below except the session-lifecycle tools is called as
+`pyirena_call(name, arguments)` — see the banner at the top of this
+document.
 
 ### Recommended fitting workflow
 
@@ -337,30 +363,30 @@ start fitting blind.
 pyirena_ctrl_open_dataset(file_path)           → session_id + data summary
 
 # Step 0: understand the curve structure FIRST
-pyirena_ctrl_detect_features(session_id)       → segments, knees, recommended_nlevels
+detect_features(session_id)       → segments, knees, recommended_nlevels
 # → use recommended_nlevels for nlevels below
 # → use guinier_knees[i].q_min..q_max for fit_local_guinier Q windows
 # → use segments for initial P estimate per level
 
-pyirena_ctrl_select_model(session_id, nlevels=N)   # N from detect_features
-pyirena_ctrl_get_model_description(session_id) → read before fitting
-pyirena_ctrl_get_data_q_range(session_id)      → know your Q range
-pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)  # if needed
+select_model(session_id, nlevels=N)   # N from detect_features
+get_model_description(session_id) → read before fitting
+get_data_q_range(session_id)      → know your Q range
+set_fit_q_range(session_id, q_min=…, q_max=…)  # if needed
 
 # Optional: get local starting values from the detected regions
-pyirena_ctrl_fit_local_guinier(session_id, q_min=knee.q_min, q_max=knee.q_max)
-pyirena_ctrl_fit_local_power_law(session_id, q_min=seg.q_min, q_max=seg.q_max)
-pyirena_ctrl_set_parameter_value(session_id, "Rg_1", rg_from_local)
-pyirena_ctrl_set_parameter_value(session_id, "P_1", p_from_local)
+fit_local_guinier(session_id, q_min=knee.q_min, q_max=knee.q_max)
+fit_local_power_law(session_id, q_min=seg.q_min, q_max=seg.q_max)
+set_parameter_value(session_id, "Rg_1", rg_from_local)
+set_parameter_value(session_id, "P_1", p_from_local)
 
-pyirena_ctrl_fix_all_except(session_id, ["Rg_1","G_1","background"])
-pyirena_ctrl_run_fit(session_id)               → chi_squared, params
-pyirena_ctrl_get_fit_image(session_id)         → inspect visually
+fix_all_except(session_id, ["Rg_1","G_1","background"])
+run_fit(session_id)               → chi_squared, params
+get_fit_image(session_id)         → inspect visually
 # if chi_squared > ~5, free more params or add a level, run again
-pyirena_ctrl_free_parameter(session_id, "P_1")
-pyirena_ctrl_run_fit(session_id)               → improved chi_squared
-pyirena_ctrl_save_fit(session_id)              → write back to HDF5
-pyirena_ctrl_export_fit_report(session_id)     → markdown summary
+free_parameter(session_id, "P_1")
+run_fit(session_id)               → improved chi_squared
+save_fit(session_id)              → write back to HDF5
+export_fit_report(session_id)     → markdown summary
 ```
 
 ### Session lifecycle
@@ -376,10 +402,10 @@ pyirena_ctrl_export_fit_report(session_id)     → markdown summary
 
 | Tool | Returns |
 |------|---------|
-| `pyirena_ctrl_list_available_models()` | `["unified_fit", "sizes"]` (+ per-model `details`) |
-| `pyirena_ctrl_select_model(session_id, model_name="unified_fit", nlevels=1)` | full parameter table |
-| `pyirena_ctrl_get_model_parameters(session_id)` | current parameter table |
-| `pyirena_ctrl_get_model_description(session_id)` | physical meaning of each param + tips |
+| `list_available_models()` | `["unified_fit", "sizes"]` (+ per-model `details`) |
+| `select_model(session_id, model_name="unified_fit", nlevels=1)` | full parameter table |
+| `get_model_parameters(session_id)` | current parameter table |
+| `get_model_description(session_id)` | physical meaning of each param + tips |
 
 ### Parameter control
 
@@ -389,12 +415,12 @@ model-wide params (`background`).
 
 | Tool | Effect |
 |------|--------|
-| `pyirena_ctrl_set_parameter_value(session_id, param_name, value)` | set starting value |
-| `pyirena_ctrl_set_parameter_bounds(session_id, param_name, lo, hi)` | constrain range |
-| `pyirena_ctrl_fix_parameter(session_id, param_name)` | hold fixed |
-| `pyirena_ctrl_free_parameter(session_id, param_name)` | release for fitting |
-| `pyirena_ctrl_fix_all_except(session_id, ["Rg_1", "G_1", …])` | staged fitting setup |
-| `pyirena_ctrl_reset_parameters_to_defaults(session_id)` | factory defaults |
+| `set_parameter_value(session_id, param_name, value)` | set starting value |
+| `set_parameter_bounds(session_id, param_name, lo, hi)` | constrain range |
+| `fix_parameter(session_id, param_name)` | hold fixed |
+| `free_parameter(session_id, param_name)` | release for fitting |
+| `fix_all_except(session_id, ["Rg_1", "G_1", …])` | staged fitting setup |
+| `reset_parameters_to_defaults(session_id)` | factory defaults |
 
 **Staged fitting strategy** (recommended):
 1. `fix_all_except(["background"])` → fit background first
@@ -406,21 +432,21 @@ model-wide params (`background`).
 
 | Tool | Effect |
 |------|--------|
-| `pyirena_ctrl_add_unified_level(session_id, position=-1)` | add level (−1 = append) |
-| `pyirena_ctrl_remove_unified_level(session_id, level)` | remove 1-based level |
+| `add_unified_level(session_id, position=-1)` | add level (−1 = append) |
+| `remove_unified_level(session_id, level)` | remove 1-based level |
 
 After adding/removing a level, all parameters are renumbered and prior fit results are cleared.
 
 ### Feature detection — call before selecting a model
 
-#### `pyirena_ctrl_detect_features(session_id, q_min=None, q_max=None, q_max_clip=0.6, config_overrides=None)`
+#### `detect_features(session_id, q_min=None, q_max=None, q_max_clip=0.6, config_overrides=None)`
 
 Analyses the loaded I(Q) curve in log-log space and segments it into regions
 where the power-law slope `d(log I)/d(log Q)` is approximately constant.
 Returns a structured description of the curve's features without modifying
 the model.
 
-**When to call:** always call this *before* `pyirena_ctrl_select_model`.  The
+**When to call:** always call this *before* `select_model`.  The
 return value tells you how many Unified Fit levels are needed and where to
 find them, so you don't pick the wrong model complexity.
 
@@ -512,17 +538,17 @@ gets shallower going high-Q to low-Q, the physical Guinier-knee signature.
 
 | Tool | Effect |
 |------|--------|
-| `pyirena_ctrl_get_data_q_range(session_id)` | full data Q range |
-| `pyirena_ctrl_get_fit_q_range(session_id)` | current fit Q range |
-| `pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)` | restrict fit range |
-| `pyirena_ctrl_reset_fit_q_range(session_id)` | restore full data range |
+| `get_data_q_range(session_id)` | full data Q range |
+| `get_fit_q_range(session_id)` | current fit Q range |
+| `set_fit_q_range(session_id, q_min=…, q_max=…)` | restrict fit range |
+| `reset_fit_q_range(session_id)` | restore full data range |
 
 Use `set_fit_q_range` to exclude beam-stop artefacts at low-Q or noisy
 high-Q tails before fitting. Either end can be `null` to leave it unchanged.
 
 ### Fit execution
 
-#### `pyirena_ctrl_run_fit(session_id, max_iter=None, walk_limits=True)`
+#### `run_fit(session_id, max_iter=None, walk_limits=True)`
 Runs the fitting algorithm synchronously. With `walk_limits=True` (default,
 same behaviour as the GUI Fit button): when a fitted parameter ends pinned at
 a limit, the limits are recentred on the fitted value and the fit rerun (up
@@ -544,7 +570,7 @@ one call. Pass `walk_limits=False` to treat bounds from
   `median_frac_uncertainty`, `n_outliers_3s`, `longest_same_sign_run`,
   `sign_autocorr_lag1`, `sigma_available`. See **Quality assessment** below for
   how to read these. (Full per-point arrays + per-band breakdown:
-  `pyirena_ctrl_get_fit_quality`.)
+  `get_fit_quality`.)
 
 **Interpreting reduced_chi_squared — read this carefully:**
 Reported uncertainties σ in SAXS are *frequently mis-scaled*, so reduced χ² alone
@@ -566,13 +592,13 @@ parameter values — this is intentional and useful.
 
 | Tool | Returns |
 |------|---------|
-| `pyirena_ctrl_get_chi_squared(session_id)` | `chi_squared`, `reduced_chi_squared` |
-| `pyirena_ctrl_get_residuals(session_id)` | `residuals` (normalised), `rescaled_residual`, `frac_misfit_percent`, `summary` (rms / max_abs / mean / `robust_scale_s`) |
-| `pyirena_ctrl_get_fit_quality(session_id, n_bands=4)` | full robust diagnostics (scalars + per-point arrays + per-band) |
-| `pyirena_ctrl_get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
-| `pyirena_ctrl_get_residuals_image(session_id)` | same image; requires completed fit |
+| `get_chi_squared(session_id)` | `chi_squared`, `reduced_chi_squared` |
+| `get_residuals(session_id)` | `residuals` (normalised), `rescaled_residual`, `frac_misfit_percent`, `summary` (rms / max_abs / mean / `robust_scale_s`) |
+| `get_fit_quality(session_id, n_bands=4)` | full robust diagnostics (scalars + per-point arrays + per-band) |
+| `get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
+| `get_residuals_image(session_id)` | same image; requires completed fit |
 
-#### `pyirena_ctrl_get_fit_quality(session_id, n_bands=4)` — robust diagnostics
+#### `get_fit_quality(session_id, n_bands=4)` — robust diagnostics
 
 The recommended way to judge a fit when σ may be mis-scaled. Returns **facts
 only** (no good/bad verdict — you apply the thresholds). Fields:
@@ -620,12 +646,12 @@ check `content.type`, render the `image` item, show the `text` item as a label.
 
 | Tool | Effect |
 |------|--------|
-| `pyirena_ctrl_save_fit(session_id, output_path=None)` | write fit to HDF5 (default: overwrites source) |
-| `pyirena_ctrl_export_fit_report(session_id, format="markdown")` | returns report text |
+| `save_fit(session_id, output_path=None)` | write fit to HDF5 (default: overwrites source) |
+| `export_fit_report(session_id, format="markdown")` | returns report text |
 
 ---
 
-## Control tools reference — Size Distribution (`pyirena_ctrl_sizes_` prefix)
+## Control tools reference — Size Distribution (dispatcher category `"sizes"`)
 
 These tools fit a **particle size distribution** P(r) by inverting I(Q).
 They share the session and Q-range tools above — `open_dataset`,
@@ -636,7 +662,7 @@ distribution is fitted over).
 **When is a size distribution appropriate?** Only for dilute samples with a
 single, identifiable particle population over a limited size range. It is
 *not* a general-purpose model — for multi-level hierarchical structure use
-Unified Fit instead. Always call `pyirena_ctrl_sizes_suggest_setup` first;
+Unified Fit instead. Always call `suggest_sizes_setup` first;
 it tells you whether the data is a viable candidate and recommends a setup.
 
 ### Recommended size-distribution workflow
@@ -645,37 +671,37 @@ it tells you whether the data is a viable candidate and recommends a setup.
 pyirena_ctrl_open_dataset(file_path)                  → session_id + data summary
 
 # Step 0: check suitability + get recommendations FIRST
-pyirena_ctrl_sizes_suggest_setup(session_id)
+suggest_sizes_setup(session_id)
    → suitable (bool), recommended {r_min, r_max, inversion_q_min/max,
      power_law_q_min/max, background_q_min/max}, warnings[]
 # → if suitable=false, tell the user why (warnings) before proceeding.
 
-pyirena_ctrl_sizes_select_model(session_id, method="maxent")   # MaxEnt = default
-pyirena_ctrl_sizes_set_shape(session_id, shape="sphere", contrast=1.0)
-pyirena_ctrl_sizes_set_size_grid(session_id, r_min=…, r_max=…, n_bins=200)
-pyirena_ctrl_sizes_set_error_handling(session_id, error_scale=1.0)
+select_sizes_model(session_id, method="maxent")   # MaxEnt = default
+set_shape(session_id, shape="sphere", contrast=1.0)
+set_size_grid(session_id, r_min=…, r_max=…, n_bins=200)
+set_error_handling(session_id, error_scale=1.0)
 
 # Complex background = power_law_B·q^(-P) + flat. Fit each over its OWN window:
-pyirena_ctrl_sizes_fit_power_law_background(session_id, q_min=…, q_max=…)  # low-Q
-pyirena_ctrl_sizes_fit_flat_background(session_id, q_min=…, q_max=…)        # high-Q
-pyirena_ctrl_sizes_get_background_image(session_id)    # visually confirm background
+fit_power_law_background(session_id, q_min=…, q_max=…)  # low-Q
+fit_flat_background(session_id, q_min=…, q_max=…)        # high-Q
+get_background_preview_image(session_id)    # visually confirm background
 
-pyirena_ctrl_set_fit_q_range(session_id, q_min=…, q_max=…)   # inversion window (SHARED tool)
-pyirena_ctrl_sizes_run_fit(session_id)                 → chi_squared, Vf, Rg, peak_r
-pyirena_ctrl_sizes_get_fit_image(session_id)           → inspect (I(Q) + P(r) panels)
-pyirena_ctrl_sizes_save_fit(session_id)                → write back to HDF5
+set_fit_q_range(session_id, q_min=…, q_max=…)   # inversion window (SHARED tool)
+run_sizes_fit(session_id)                 → chi_squared, Vf, Rg, peak_r
+get_sizes_fit_image(session_id)           → inspect (I(Q) + P(r) panels)
+save_sizes_fit(session_id)                → write back to HDF5
 ```
 
 ### Model lifecycle & configuration
 
 | Tool | Effect |
 |------|--------|
-| `pyirena_ctrl_sizes_select_model(session_id, method="maxent")` | create a Sizes model; `method` ∈ `maxent` (default), `regularization`, `tnnls`, `montecarlo`. Replaces any model and clears prior fit. |
-| `pyirena_ctrl_sizes_get_config(session_id)` | dump current grid, shape, method, error handling, background |
-| `pyirena_ctrl_sizes_set_size_grid(session_id, r_min, r_max, n_bins, log_spacing)` | radius grid [Å]. Heuristic: `r ≈ π/Q` over the inversion Q-range. |
-| `pyirena_ctrl_sizes_set_shape(session_id, shape, contrast, aspect_ratio)` | `shape` ∈ `sphere`/`spheroid`; `contrast` = (Δρ)² in 10²⁰ cm⁻⁴ (use 1.0 if unknown); `aspect_ratio` for spheroid only |
-| `pyirena_ctrl_sizes_set_method(session_id, method, …)` | switch method and/or tune it. Only params for the chosen method are applied: `maxent_sky_background`, `maxent_max_iter`; `regularization_evalue`, `regularization_min_ratio`; `tnnls_approach_param`, `tnnls_max_iter`; `montecarlo_n_repetitions`, `montecarlo_convergence`, `montecarlo_max_iter`. |
-| `pyirena_ctrl_sizes_set_error_handling(session_id, error_scale, fractional_error, fractional_error_value)` | either scale file σ (`error_scale`, 1.0 = unchanged) **or** ignore file σ and use σ = `|I|·fractional_error_value` (`fractional_error=true`, e.g. 0.03 = 3%) |
+| `select_sizes_model(session_id, method="maxent")` | create a Sizes model; `method` ∈ `maxent` (default), `regularization`, `tnnls`, `montecarlo`. Replaces any model and clears prior fit. |
+| `get_sizes_config(session_id)` | dump current grid, shape, method, error handling, background |
+| `set_size_grid(session_id, r_min, r_max, n_bins, log_spacing)` | radius grid [Å]. Heuristic: `r ≈ π/Q` over the inversion Q-range. |
+| `set_shape(session_id, shape, contrast, aspect_ratio)` | `shape` ∈ `sphere`/`spheroid`; `contrast` = (Δρ)² in 10²⁰ cm⁻⁴ (use 1.0 if unknown); `aspect_ratio` for spheroid only |
+| `set_method(session_id, method, …)` | switch method and/or tune it. Only params for the chosen method are applied: `maxent_sky_background`, `maxent_max_iter`; `regularization_evalue`, `regularization_min_ratio`; `tnnls_approach_param`, `tnnls_max_iter`; `montecarlo_n_repetitions`, `montecarlo_convergence`, `montecarlo_max_iter`. |
+| `set_error_handling(session_id, error_scale, fractional_error, fractional_error_value)` | either scale file σ (`error_scale`, 1.0 = unchanged) **or** ignore file σ and use σ = `|I|·fractional_error_value` (`fractional_error=true`, e.g. 0.03 = 3%) |
 
 **Choosing a method:** MaxEnt is the recommended default (smoothest
 distribution consistent with the data). Regularization is a good
@@ -690,10 +716,10 @@ directly or by fitting each over its own Q-window.
 
 | Tool | Effect |
 |------|--------|
-| `pyirena_ctrl_sizes_set_background(session_id, power_law_B, power_law_P, background)` | set terms directly (no fit). `power_law_B=0` → flat-only. |
-| `pyirena_ctrl_sizes_fit_power_law_background(session_id, q_min, q_max, fit_B=True, fit_P=True)` | fit `B·q^(-P)` over a window (typically the low-Q steep-slope region). Updates `power_law_B`/`P`. |
-| `pyirena_ctrl_sizes_fit_flat_background(session_id, q_min, q_max)` | fit the flat term by averaging `I − B·q^(-P)` over a window (typically the high-Q flat tail). Run *after* the power-law fit if both are present. |
-| `pyirena_ctrl_sizes_get_background_image(session_id, width=1024, height=768)` | inline PNG: data with the current complex background overlaid. Use to confirm before inverting. |
+| `set_background(session_id, power_law_B, power_law_P, background)` | set terms directly (no fit). `power_law_B=0` → flat-only. |
+| `fit_power_law_background(session_id, q_min, q_max, fit_B=True, fit_P=True)` | fit `B·q^(-P)` over a window (typically the low-Q steep-slope region). Updates `power_law_B`/`P`. |
+| `fit_flat_background(session_id, q_min, q_max)` | fit the flat term by averaging `I − B·q^(-P)` over a window (typically the high-Q flat tail). Run *after* the power-law fit if both are present. |
+| `get_background_preview_image(session_id, width=1024, height=768)` | inline PNG: data with the current complex background overlaid. Use to confirm before inverting. |
 
 These background windows are **independent** of the inversion Q-range
 (`set_fit_q_range`) — they use the full data Q. Use them on the regions
@@ -704,11 +730,11 @@ particle (Guinier/knee) region.
 
 | Tool | Returns |
 |------|---------|
-| `pyirena_ctrl_sizes_run_fit(session_id, random_seed=None)` | `success`, `chi_squared`, `volume_fraction`, `rg`, `peak_r`, `n_iterations`, `n_data` |
-| `pyirena_ctrl_sizes_get_distribution(session_id, max_points=500)` | `r_grid` [Å], `distribution` P(r) [vol-frac/Å] (decimated), `distribution_std` (or null) |
-| `pyirena_ctrl_sizes_get_results(session_id)` | full scalar results + configuration (`parameters` dict) |
-| `pyirena_ctrl_sizes_get_fit_image(session_id, width=1024, height=900)` | inline PNG: top = log-log data + model (+ background); bottom = size distribution P(r) vs r |
-| `pyirena_ctrl_sizes_save_fit(session_id, output_path=None)` | write distribution to NXcanSAS HDF5 (default: overwrites source; embeds setup for GUI "Load Setup from File") |
+| `run_sizes_fit(session_id, random_seed=None)` | `success`, `chi_squared`, `volume_fraction`, `rg`, `peak_r`, `n_iterations`, `n_data` |
+| `get_sizes_distribution(session_id, max_points=500)` | `r_grid` [Å], `distribution` P(r) [vol-frac/Å] (decimated), `distribution_std` (or null) |
+| `get_sizes_results(session_id)` | full scalar results + configuration (`parameters` dict) |
+| `get_sizes_fit_image(session_id, width=1024, height=900)` | inline PNG: top = log-log data + model (+ background); bottom = size distribution P(r) vs r |
+| `save_sizes_fit(session_id, output_path=None)` | write distribution to NXcanSAS HDF5 (default: overwrites source; embeds setup for GUI "Load Setup from File") |
 
 **Interpreting the result:**
 - `volume_fraction` is the integral ∫P(r)dr; its absolute scale depends on
@@ -718,13 +744,13 @@ particle (Guinier/knee) region.
   `r_max` (or `r_min`), the grid is too narrow — widen it and refit.
 - `rg` is the volume-weighted radius of gyration of the distribution.
 - The same reduced-χ² caveat as Unified Fit applies: reported σ are often
-  mis-scaled. Judge the fit primarily from `pyirena_ctrl_sizes_get_fit_image`
+  mis-scaled. Judge the fit primarily from `get_sizes_fit_image`
   (does the model track the data; is P(r) physically plausible and not
   piled at a grid edge).
 
 ### Suitability + auto-setup
 
-#### `pyirena_ctrl_sizes_suggest_setup(session_id)`
+#### `suggest_sizes_setup(session_id)`
 
 Inspects the loaded I(Q) and returns recommendations **without modifying
 the model**. Call this before configuring the fit.
@@ -746,7 +772,7 @@ recommending Unified Fit instead of forcing a size-distribution fit.
 
 ---
 
-## Control tools reference — Simple Fits (`pyirena_ctrl_simple_` prefix)
+## Control tools reference — Simple Fits (dispatcher category `"simple"`)
 
 One analytical model fitted over a restricted Q range.  Use it when the
 question is about a single feature — an Rg, a Porod slope, a correlation
@@ -758,13 +784,13 @@ before setting anything.
 
 ```
 pyirena_ctrl_open_dataset(file_path)                     # shared
-pyirena_ctrl_simple_list_models()                        # pick a model
-pyirena_ctrl_simple_select_model(session_id, "Guinier")
-pyirena_ctrl_set_fit_q_range(session_id, q_min, q_max)   # shared — required
-pyirena_ctrl_simple_set_parameter(session_id, "Rg", 150) # optional start point
-pyirena_ctrl_simple_run_fit(session_id)
-pyirena_ctrl_simple_get_linearization_image(session_id)  # sanity check
-pyirena_ctrl_simple_save_fit(session_id)
+list_simple_models()                        # pick a model
+select_simple_model(session_id, "Guinier")
+set_fit_q_range(session_id, q_min, q_max)   # shared — required
+set_simple_parameter(session_id, "Rg", 150) # optional start point
+run_simple_fit(session_id)
+get_simple_linearization_image(session_id)  # sanity check
+save_simple_fit(session_id)
 ```
 
 The Q range matters more here than anywhere else: Guinier is only valid for
@@ -775,26 +801,26 @@ then check `q_max·Rg` and narrow the range if it exceeds ~1.3.
 
 | Tool | Purpose |
 |------|---------|
-| `pyirena_ctrl_simple_list_models()` | every model with its parameter names, whether it linearizes, whether it supports the complex background, and whether it is a direct calculation (Invariant) |
-| `pyirena_ctrl_simple_select_model(session_id, model_name)` | create the model; **resets parameters and frees them all** |
-| `pyirena_ctrl_simple_get_config(session_id)` | model + all parameters + background setting |
-| `pyirena_ctrl_simple_get_parameters(session_id)` | name, value, bounds, fixed state |
-| `pyirena_ctrl_simple_set_parameter(session_id, name, value)` | starting value |
-| `pyirena_ctrl_simple_set_parameter_bounds(session_id, name, lo, hi)` | bounds; a value outside them is clamped in |
-| `pyirena_ctrl_simple_fix_parameter(session_id, name)` | hold fixed |
-| `pyirena_ctrl_simple_free_parameter(session_id, name)` | let it vary (default) |
-| `pyirena_ctrl_simple_reset_parameters(session_id)` | back to registry defaults |
-| `pyirena_ctrl_simple_set_background(session_id, enabled)` | complex background (adds `BG_B`, `BG_P`, `BG_flat`) |
+| `list_simple_models()` | every model with its parameter names, whether it linearizes, whether it supports the complex background, and whether it is a direct calculation (Invariant) |
+| `select_simple_model(session_id, model_name)` | create the model; **resets parameters and frees them all** |
+| `get_simple_config(session_id)` | model + all parameters + background setting |
+| `get_simple_parameters(session_id)` | name, value, bounds, fixed state |
+| `set_simple_parameter(session_id, name, value)` | starting value |
+| `set_simple_parameter_bounds(session_id, name, lo, hi)` | bounds; a value outside them is clamped in |
+| `fix_simple_parameter(session_id, name)` | hold fixed |
+| `free_simple_parameter(session_id, name)` | let it vary (default) |
+| `reset_simple_parameters(session_id)` | back to registry defaults |
+| `set_simple_background(session_id, enabled)` | complex background (adds `BG_B`, `BG_P`, `BG_flat`) |
 
 ### Fit, results, persistence
 
 | Tool | Returns |
 |------|---------|
-| `pyirena_ctrl_simple_run_fit(session_id, no_limits=False)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values |
-| `pyirena_ctrl_simple_get_results(session_id)` | the same summary for the last fit |
-| `pyirena_ctrl_simple_get_fit_image(session_id)` | PNG: log-log data + model, residuals below |
-| `pyirena_ctrl_simple_get_linearization_image(session_id)` | PNG of the linearized plot + slope, intercept, R² |
-| `pyirena_ctrl_simple_save_fit(session_id, output_path=None)` | writes `entry/simple_fit_results` |
+| `run_simple_fit(session_id, no_limits=False)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values |
+| `get_simple_results(session_id)` | the same summary for the last fit |
+| `get_simple_fit_image(session_id)` | PNG: log-log data + model, residuals below |
+| `get_simple_linearization_image(session_id)` | PNG of the linearized plot + slope, intercept, R² |
+| `save_simple_fit(session_id, output_path=None)` | writes `entry/simple_fit_results` |
 
 The linearized plot is drawn from the **current** parameters, so call it after
 `run_fit` — a straight line through the data is the classic check that the
@@ -807,7 +833,7 @@ Common error codes: `NO_SIMPLE_MODEL` (call `select_model` first), `BAD_PARAM`
 
 ---
 
-## Control tools reference — Modeling (`pyirena_ctrl_modeling_` prefix)
+## Control tools reference — Modeling (dispatcher category `"modeling"`)
 
 Modeling builds a curve from **several populations** at once, so this surface
 is mostly population management.  Reach for it when one analytical model or one
@@ -818,17 +844,17 @@ large-scale unified level, or particles *plus* a diffraction peak.
 
 ```
 pyirena_ctrl_open_dataset(file_path)                          # shared
-pyirena_ctrl_modeling_select_model(session_id)
-pyirena_ctrl_modeling_list_population_types()                 # what exists
-pyirena_ctrl_modeling_add_population(session_id, "size_dist", label="pores")
-pyirena_ctrl_modeling_set_population_option(session_id, 0, "form_factor", "sphere")
-pyirena_ctrl_modeling_get_population_parameters(session_id, 0)  # exact names
-pyirena_ctrl_modeling_set_population_parameter(session_id, 0, "dist.mean_size", 80)
-pyirena_ctrl_modeling_set_population_parameter_fit(session_id, 0, "dist.mean_size", true)
-pyirena_ctrl_modeling_set_q_range(session_id, 0.005, 0.35)
-pyirena_ctrl_modeling_run_fit(session_id)
-pyirena_ctrl_modeling_get_fit_image(session_id)
-pyirena_ctrl_modeling_save_fit(session_id)
+select_modeling_model(session_id)
+list_population_types()                 # what exists
+add_population(session_id, "size_dist", label="pores")
+set_population_option(session_id, 0, "form_factor", "sphere")
+get_population_parameters(session_id, 0)  # exact names
+set_population_parameter(session_id, 0, "dist.mean_size", 80)
+set_population_parameter_fit(session_id, 0, "dist.mean_size", true)
+set_modeling_q_range(session_id, 0.005, 0.35)
+run_modeling_fit(session_id)
+get_modeling_fit_image(session_id)
+save_modeling_fit(session_id)
 ```
 
 ### One flat parameter namespace
@@ -865,21 +891,21 @@ take over).
 
 | Tool | Purpose |
 |------|---------|
-| `..._select_model(session_id)` | start an empty configuration |
-| `..._list_population_types()` | types, options, and every distribution / form factor / structure factor with its parameters |
-| `..._add_population(session_id, pop_type, label)` | add one, returns its index |
-| `..._remove_population(session_id, index)` | remove (later indices shift down) |
-| `..._list_populations(session_id)` | index, type, label, enabled, free-parameter count |
-| `..._set_population_enabled(session_id, index, enabled)` | exclude without deleting |
-| `..._get_population_parameters(session_id, index)` | the active names, values, fit flags, bounds |
-| `..._set_population_parameter(...)` / `..._set_population_parameter_fit(...)` / `..._set_population_parameter_bounds(...)` | value / fitted / bounds |
-| `..._set_population_option(session_id, index, option, value)` | `dist_type`, `form_factor`, `structure_factor`, `peak_type`, `correlations`, `use_porod_transition`, `use_number_dist`, `n_bins`, `label` |
-| `..._set_background(session_id, value, fit)` | flat background |
-| `..._set_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
-| `..._run_fit(session_id, fit_method)` | `"local"` (default) or `"global"` |
-| `..._get_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
-| `..._get_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
-| `..._save_fit(session_id, output_path)` | writes `entry/modeling_results` |
+| `select_modeling_model(session_id)` | start an empty configuration |
+| `list_population_types()` | types, options, and every distribution / form factor / structure factor with its parameters |
+| `add_population(session_id, pop_type, label)` | add one, returns its index |
+| `remove_population(session_id, index)` | remove (later indices shift down) |
+| `list_populations(session_id)` | index, type, label, enabled, free-parameter count |
+| `set_population_enabled(session_id, index, enabled)` | exclude without deleting |
+| `get_population_parameters(session_id, index)` | the active names, values, fit flags, bounds |
+| `set_population_parameter(...)` / `set_population_parameter_fit(...)` / `set_population_parameter_bounds(...)` | value / fitted / bounds |
+| `set_population_option(session_id, index, option, value)` | `dist_type`, `form_factor`, `structure_factor`, `peak_type`, `correlations`, `use_porod_transition`, `use_number_dist`, `n_bins`, `label` |
+| `set_modeling_background(session_id, value, fit)` | flat background |
+| `set_modeling_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
+| `run_modeling_fit(session_id, fit_method)` | `"local"` (default) or `"global"` |
+| `get_modeling_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
+| `get_modeling_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
+| `save_modeling_fit(session_id, output_path)` | writes `entry/modeling_results` |
 
 ### Working advice
 
@@ -905,7 +931,7 @@ Common error codes: `NO_MODELING_MODEL`, `BAD_POPULATION` (index),
 
 ---
 
-## Control tools reference — WAXS Peak Fit (`pyirena_ctrl_waxs_` prefix)
+## Control tools reference — WAXS Peak Fit (dispatcher category `"waxs"`)
 
 A wide-angle pattern is a smooth background with peaks on it.  The questions
 are almost always peak **position** (phase, d-spacing), **width** (crystallite
@@ -917,13 +943,13 @@ directly.
 
 ```
 pyirena_ctrl_open_dataset(file_path)                     # shared
-pyirena_ctrl_waxs_select_model(session_id, "SNIP")       # adaptive background
-pyirena_ctrl_set_fit_q_range(session_id, q_min, q_max)   # shared, optional
-pyirena_ctrl_waxs_find_peaks(session_id)                 # data-driven start
-pyirena_ctrl_waxs_list_peaks(session_id)                 # check what it found
-pyirena_ctrl_waxs_run_fit(session_id)
-pyirena_ctrl_waxs_get_fit_image(session_id)
-pyirena_ctrl_waxs_save_fit(session_id)
+select_waxs_model(session_id, "SNIP")       # adaptive background
+set_fit_q_range(session_id, q_min, q_max)   # shared, optional
+find_waxs_peaks(session_id)                 # data-driven start
+list_waxs_peaks(session_id)                 # check what it found
+run_waxs_fit(session_id)
+get_waxs_fit_image(session_id)
+save_waxs_fit(session_id)
 ```
 
 `find_peaks` is the natural entry point: it detects peaks in the data and
@@ -946,21 +972,21 @@ is really a background artefact.
 
 | Tool | Purpose |
 |------|---------|
-| `..._list_options()` | peak shapes, background shapes (flagged adaptive), weight modes |
-| `..._select_model(session_id, bg_shape)` | create the model |
-| `..._get_config(session_id)` | background setup + peak list |
-| `..._set_background(session_id, bg_shape)` | switch background, keep peaks |
-| `..._set_background_parameter(...)` | value / fit / bounds |
-| `..._find_peaks(session_id, prominence_frac, …)` | detect and create peaks |
-| `..._add_peak(session_id, q0, shape, amplitude, fwhm)` | place one by hand; amplitude defaults to the measured intensity there |
-| `..._remove_peak(session_id, index)` / `..._list_peaks(session_id)` | manage the list |
-| `..._get_peak_parameters(session_id, index)` | one peak's values, bounds, fit flags, area |
-| `..._set_peak_shape(session_id, index, shape)` | Gauss / Lorentz / Pseudo-Voigt / LogNormal |
-| `..._set_peak_parameter(...)` / `..._set_peak_parameter_fit(...)` / `..._set_peak_parameter_bounds(...)` | `A`, `Q0`, `FWHM`, `eta` |
-| `..._run_fit(session_id, weight_mode)` | `standard` / `equal` / `relative` |
-| `..._get_results(session_id)` | quality, background, peaks with uncertainties and areas |
-| `..._get_fit_image(session_id)` | data, model, background **and each peak** |
-| `..._save_fit(session_id, output_path)` | writes `entry/waxs_peakfit_results` |
+| `list_waxs_options()` | peak shapes, background shapes (flagged adaptive), weight modes |
+| `select_waxs_model(session_id, bg_shape)` | create the model |
+| `get_waxs_config(session_id)` | background setup + peak list |
+| `set_waxs_background(session_id, bg_shape)` | switch background, keep peaks |
+| `set_waxs_background_parameter(...)` | value / fit / bounds |
+| `find_waxs_peaks(session_id, prominence_frac, …)` | detect and create peaks |
+| `add_waxs_peak(session_id, q0, shape, amplitude, fwhm)` | place one by hand; amplitude defaults to the measured intensity there |
+| `remove_waxs_peak(session_id, index)` / `list_waxs_peaks(session_id)` | manage the list |
+| `get_waxs_peak_parameters(session_id, index)` | one peak's values, bounds, fit flags, area |
+| `set_waxs_peak_shape(session_id, index, shape)` | Gauss / Lorentz / Pseudo-Voigt / LogNormal |
+| `set_waxs_peak_parameter(...)` / `set_waxs_peak_parameter_fit(...)` / `set_waxs_peak_parameter_bounds(...)` | `A`, `Q0`, `FWHM`, `eta` |
+| `run_waxs_fit(session_id, weight_mode)` | `standard` / `equal` / `relative` |
+| `get_waxs_results(session_id)` | quality, background, peaks with uncertainties and areas |
+| `get_waxs_fit_image(session_id)` | data, model, background **and each peak** |
+| `save_waxs_fit(session_id, output_path)` | writes `entry/waxs_peakfit_results` |
 
 ### Working advice
 
@@ -1026,7 +1052,7 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
 1. pyirena_ctrl_open_dataset("/data/scan_042.h5")
    → session_id = "a1b2c3d4"
 
-2. pyirena_ctrl_detect_features("a1b2c3d4")
+2. detect_features("a1b2c3d4")
    → segments=[{q_min, q_max, P, kind, intensity_mid, ...}, ...],
      guinier_knees=[{q_min, q_max, P_low_q, P_high_q, delta_P, ...}, ...],
      recommended_nlevels=2,
@@ -1037,38 +1063,38 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
    → Note: segments and windows are ordered HIGH-Q → LOW-Q (Level 1 first).
    → recommended_nlevels=2, so use nlevels=2 below.
 
-3. pyirena_ctrl_select_model("a1b2c3d4", nlevels=2)
-4. pyirena_ctrl_get_model_description("a1b2c3d4")
+3. select_model("a1b2c3d4", nlevels=2)
+4. get_model_description("a1b2c3d4")
    → read fitting tips
 
 5. # segments[0] = Level 1 (high Q, small structure)
    # segments[1] = Level 2 (low Q, large structure)
    # recommended_guinier_windows follow the same order.
-   local_L1 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.01, q_max=0.06)
+   local_L1 = fit_local_guinier("a1b2c3d4", q_min=0.01, q_max=0.06)
    → Rg=28, G=1e3
-   local_L2 = pyirena_ctrl_fit_local_guinier("a1b2c3d4", q_min=0.001, q_max=0.008)
+   local_L2 = fit_local_guinier("a1b2c3d4", q_min=0.001, q_max=0.008)
    → Rg=320, G=5e5
-   pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_1", 28)
-   pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_1", 1e3)
-   pyirena_ctrl_set_parameter_value("a1b2c3d4", "Rg_2", 320)
-   pyirena_ctrl_set_parameter_value("a1b2c3d4",  "G_2", 5e5)
+   set_parameter_value("a1b2c3d4", "Rg_1", 28)
+   set_parameter_value("a1b2c3d4",  "G_1", 1e3)
+   set_parameter_value("a1b2c3d4", "Rg_2", 320)
+   set_parameter_value("a1b2c3d4",  "G_2", 5e5)
 
-6. pyirena_ctrl_fix_all_except("a1b2c3d4", ["Rg_1","G_1","Rg_2","G_2","background"])
-7. pyirena_ctrl_run_fit("a1b2c3d4")
+6. fix_all_except("a1b2c3d4", ["Rg_1","G_1","Rg_2","G_2","background"])
+7. run_fit("a1b2c3d4")
    → reduced_chi_squared=3.8 (reasonable; Rg and G now near-optimal)
-8. pyirena_ctrl_free_parameter("a1b2c3d4", "P_1")
-   pyirena_ctrl_free_parameter("a1b2c3d4", "P_2")
-   pyirena_ctrl_run_fit("a1b2c3d4")
+8. free_parameter("a1b2c3d4", "P_1")
+   free_parameter("a1b2c3d4", "P_2")
+   run_fit("a1b2c3d4")
    → reduced_chi_squared=9.1, but quality.robust_scale_s=3.0
    → σ are ~3× underestimated; realistic_reduced_chi2_floor≈9 — this IS converged,
      not a bad fit. Don't keep tightening.
-9. pyirena_ctrl_get_fit_quality("a1b2c3d4")
+9. get_fit_quality("a1b2c3d4")
    → max_abs_frac_misfit=0.08 (8%), n_outliers_3s=0, longest_same_sign_run short,
      bands all similar → no real misfit; the high χ² is purely a σ-scale artefact.
-10. pyirena_ctrl_get_fit_image("a1b2c3d4")
+10. get_fit_image("a1b2c3d4")
     → confirm residuals visually (random scatter, just wide)
-11. pyirena_ctrl_save_fit("a1b2c3d4")
-12. pyirena_ctrl_export_fit_report("a1b2c3d4", format="markdown")
+11. save_fit("a1b2c3d4")
+12. export_fit_report("a1b2c3d4", format="markdown")
     → summarise for user
 ```
 
@@ -1077,7 +1103,7 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
 1. pyirena_ctrl_open_dataset("/data/spheres_042.h5")
    → session_id = "a1b2c3d4"
 
-2. pyirena_ctrl_sizes_suggest_setup("a1b2c3d4")
+2. suggest_sizes_setup("a1b2c3d4")
    → suitable=true,
      recommended={r_min=12, r_max=400, inversion_q_min=0.004,
                   inversion_q_max=0.2, power_law_q_min=0.001,
@@ -1086,23 +1112,23 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
      warnings=[]
    → suitable, so proceed. (If suitable=false, report warnings first.)
 
-3. pyirena_ctrl_sizes_select_model("a1b2c3d4", method="maxent")
-4. pyirena_ctrl_sizes_set_shape("a1b2c3d4", shape="sphere", contrast=1.0)
-5. pyirena_ctrl_sizes_set_size_grid("a1b2c3d4", r_min=12, r_max=400, n_bins=200)
-6. pyirena_ctrl_sizes_set_error_handling("a1b2c3d4", error_scale=1.0)
+3. select_sizes_model("a1b2c3d4", method="maxent")
+4. set_shape("a1b2c3d4", shape="sphere", contrast=1.0)
+5. set_size_grid("a1b2c3d4", r_min=12, r_max=400, n_bins=200)
+6. set_error_handling("a1b2c3d4", error_scale=1.0)
 
 7. # complex background, each over its own window from suggest_setup
-   pyirena_ctrl_sizes_fit_power_law_background("a1b2c3d4", q_min=0.001, q_max=0.003)
-   pyirena_ctrl_sizes_fit_flat_background("a1b2c3d4", q_min=0.25, q_max=1.0)
-   pyirena_ctrl_sizes_get_background_image("a1b2c3d4")   # confirm visually
+   fit_power_law_background("a1b2c3d4", q_min=0.001, q_max=0.003)
+   fit_flat_background("a1b2c3d4", q_min=0.25, q_max=1.0)
+   get_background_preview_image("a1b2c3d4")   # confirm visually
 
-8. pyirena_ctrl_set_fit_q_range("a1b2c3d4", q_min=0.004, q_max=0.2)  # shared tool
-9. pyirena_ctrl_sizes_run_fit("a1b2c3d4")
+8. set_fit_q_range("a1b2c3d4", q_min=0.004, q_max=0.2)  # shared tool
+9. run_sizes_fit("a1b2c3d4")
    → success=true, chi_squared=…, volume_fraction=…, rg=…, peak_r=48.7
    → peak_r is well inside [12, 400] → grid is fine.
-10. pyirena_ctrl_sizes_get_fit_image("a1b2c3d4")
+10. get_sizes_fit_image("a1b2c3d4")
     → confirm model tracks data and P(r) is a clean single peak
-11. pyirena_ctrl_sizes_save_fit("a1b2c3d4")
+11. save_sizes_fit("a1b2c3d4")
 ```
 
 ### "Why might Rg jump at scan 17?"
@@ -1135,7 +1161,7 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
   "this Rg means …") should be framed as "consistent with…" and tied to
   what the user has told you about their sample.
 - **Don't chase reduced χ² ≈ 1, and don't dismiss a fit for a large reduced χ².**
-  Reported σ are often mis-scaled. Call `pyirena_ctrl_get_fit_quality` (or read
+  Reported σ are often mis-scaled. Call `get_fit_quality` (or read
   the `quality` block from `run_fit`): if `robust_scale_s` ≈ 3 then σ are ~3× too
   small and reduced χ² ≈ 9 is the *realistic floor* — a fit sitting there with no
   outliers and no sign-structure is done. Conversely, a normalised residual of
@@ -1149,19 +1175,19 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
   more robust than releasing everything simultaneously.
 - **Don't mix read tools and control tools for the same file.** The
   read tools (`pyirena_read_unified_fit`) see what was previously saved
-  in the HDF5 file. The control tools (`pyirena_ctrl_*`) operate on the
-  in-memory session. Call `pyirena_ctrl_save_fit` first, then the read
+  in the HDF5 file. The control tools (dispatched via `pyirena_call`)
+  operate on the in-memory session. Call `save_fit` first, then the read
   tool, if you want to compare.
 
 ---
 
 ## When pyirena tools aren't enough
 
-- **Fitting models beyond Unified Fit and Size Distribution** (Modeling,
-  Simple Fits, WAXS) — the control API currently covers Unified Fit
-  (`pyirena_ctrl_*`) and Size Distribution (`pyirena_ctrl_sizes_*`). Use
-  the pyirena GUI tools (`pyirena-gui`, etc.) or the headless batch API
-  (`pyirena.batch.*`) for the other tools.
+- **SAXS Morph, Fractals, Data Merge, Data Manipulation, Scattering
+  Contrast** — these have no control-API/dispatcher tools yet (only
+  read-mode results above, where applicable). Use the pyirena GUI tools
+  (`pyirena-gui`, etc.) or the headless batch API (`pyirena.batch.*`) for
+  these.
 - **Instrument / beamline control** — use the user's instrument-control
   agent (e.g. EPICS / pyepics), not pyirena.
 - **Data reduction** (2D → 1D, sector integration, masking) — that's

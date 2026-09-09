@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `pyirena-mcp` collapsed ~90 `pyirena_ctrl_*` control tools (Sizes, Simple
+  Fits, Modeling, WAXS Peak Fit, and most of Unified Fit) into a fixed
+  4-tool dispatcher (`pyirena_list_categories`, `pyirena_list_tools`,
+  `pyirena_describe_tool`, `pyirena_call`), reusing the existing
+  `pyirena.api.control.schemas.TOOL_SCHEMA_BY_NAME` registry
+  (`pyirena/mcp/dispatch.py`). The server's registered tool count drops
+  from ~110 to ~26. This was needed because a large combined MCP tool
+  count from clients with several active servers can exceed provider-side
+  caps on the number of tools in a single request (observed via a gateway
+  proxy's 128-tool limit). Session-lifecycle tools (`pyirena_ctrl_
+  open_dataset`, `list_open_sessions`, `close_session`,
+  `get_session_summary`) are unchanged and still top-level. See
+  `docs/ai_tools_reference.md` for the new calling convention.
+
 ### Fixed
 
 - Declared `six` as a core runtime dependency. PyIrena's public HDF5 reader

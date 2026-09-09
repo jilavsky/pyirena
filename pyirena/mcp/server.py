@@ -73,51 +73,69 @@ mcp = FastMCP(
         "pyirena_read_<tool>() to retrieve results. Use pyirena_plot_iq() / "
         "pyirena_plot_parameter_trend() to visualize."
         "\n\n"
-        "CONTROL tools (pyirena_ctrl_ prefix): drive fitting interactively. "
+        "CONTROL tools: drive fitting interactively. Session lifecycle is "
+        "top-level: pyirena_ctrl_open_dataset() → session_id, "
+        "pyirena_ctrl_list_open_sessions(), pyirena_ctrl_close_session(), "
+        "pyirena_ctrl_get_session_summary(). Everything else — model "
+        "selection, parameters, fit execution, quality, persistence — goes "
+        "through a small dispatcher instead of one MCP tool per function: "
+        "pyirena_list_categories() to see what's available, "
+        "pyirena_list_tools(category) to list names in one, "
+        "pyirena_describe_tool(name) for a tool's full argument schema, and "
+        "pyirena_call(name, arguments) to run it. This keeps the tool count "
+        "small regardless of how many underlying functions exist. "
+        "\n\n"
         "Five models are available — Unified Fit, Size Distribution (Sizes), "
-        "Simple Fits, Modeling and WAXS Peak Fit. Prefer Simple Fits when the "
-        "question is "
-        "about one feature over a restricted Q range (an Rg, a Porod slope, "
-        "the invariant); Unified Fit for a whole multi-level curve; Sizes to "
-        "invert a dilute single population to a size histogram; Modeling when "
-        "the curve needs several components at once or a specific form factor "
-        "(core-shell, cylinder); WAXS Peak Fit for wide-angle patterns where "
-        "the questions are peak position, width and integrated area. "
+        "Simple Fits, Modeling and WAXS Peak Fit — matching the dispatcher "
+        "categories 'unified', 'sizes', 'simple', 'modeling', 'waxs'. Prefer "
+        "Simple Fits when the question is about one feature over a "
+        "restricted Q range (an Rg, a Porod slope, the invariant); Unified "
+        "Fit for a whole multi-level curve; Sizes to invert a dilute single "
+        "population to a size histogram; Modeling when the curve needs "
+        "several components at once or a specific form factor (core-shell, "
+        "cylinder); WAXS Peak Fit for wide-angle patterns where the "
+        "questions are peak position, width and integrated area. "
         "Unified Fit workflow: pyirena_ctrl_open_dataset() → session_id → "
-        "pyirena_ctrl_select_model() → pyirena_ctrl_fix_all_except() → "
-        "pyirena_ctrl_run_fit() → pyirena_ctrl_get_fit_image() → "
-        "pyirena_ctrl_save_fit(). "
-        "Sizes workflow (pyirena_ctrl_sizes_ prefix): pyirena_ctrl_open_dataset() → "
-        "pyirena_ctrl_sizes_suggest_setup() → pyirena_ctrl_sizes_select_model() → "
+        "pyirena_call('select_model', {...}) → "
+        "pyirena_call('fix_all_except', {...}) → "
+        "pyirena_call('run_fit', {...}) → pyirena_call('get_fit_image', {...}) → "
+        "pyirena_call('save_fit', {...}). "
+        "Sizes workflow (category 'sizes'): pyirena_ctrl_open_dataset() → "
+        "pyirena_call('suggest_sizes_setup', {...}) → "
+        "pyirena_call('select_sizes_model', {...}) → "
         "set_shape / set_size_grid / set_error_handling → "
         "fit_power_law_background + fit_flat_background → "
-        "pyirena_ctrl_set_fit_q_range() (inversion window) → "
-        "pyirena_ctrl_sizes_run_fit() → pyirena_ctrl_sizes_get_fit_image() → "
-        "pyirena_ctrl_sizes_save_fit(). "
-        "Simple Fits workflow (pyirena_ctrl_simple_ prefix): "
-        "pyirena_ctrl_open_dataset() → pyirena_ctrl_simple_list_models() → "
-        "pyirena_ctrl_simple_select_model() → pyirena_ctrl_set_fit_q_range() → "
-        "pyirena_ctrl_simple_run_fit() → "
-        "pyirena_ctrl_simple_get_linearization_image() (validity check) → "
-        "pyirena_ctrl_simple_save_fit(). "
-        "Modeling workflow (pyirena_ctrl_modeling_ prefix): "
-        "pyirena_ctrl_open_dataset() → pyirena_ctrl_modeling_select_model() → "
-        "pyirena_ctrl_modeling_list_population_types() → "
-        "pyirena_ctrl_modeling_add_population() → set_population_option / "
+        "pyirena_call('set_fit_q_range', {...}) (inversion window) → "
+        "pyirena_call('run_sizes_fit', {...}) → "
+        "pyirena_call('get_sizes_fit_image', {...}) → "
+        "pyirena_call('save_sizes_fit', {...}). "
+        "Simple Fits workflow (category 'simple'): pyirena_ctrl_open_dataset() → "
+        "pyirena_call('list_simple_models', {}) → "
+        "pyirena_call('select_simple_model', {...}) → "
+        "pyirena_call('set_fit_q_range', {...}) → "
+        "pyirena_call('run_simple_fit', {...}) → "
+        "pyirena_call('get_simple_linearization_image', {...}) (validity check) → "
+        "pyirena_call('save_simple_fit', {...}). "
+        "Modeling workflow (category 'modeling'): pyirena_ctrl_open_dataset() → "
+        "pyirena_call('select_modeling_model', {...}) → "
+        "pyirena_call('list_population_types', {}) → "
+        "pyirena_call('add_population', {...}) → set_population_option / "
         "set_population_parameter / set_population_parameter_fit → "
-        "pyirena_ctrl_modeling_set_q_range() → "
-        "pyirena_ctrl_modeling_run_fit() → "
-        "pyirena_ctrl_modeling_get_fit_image() → "
-        "pyirena_ctrl_modeling_save_fit(). Modeling parameters use dotted "
-        "names (dist.mean_size, ff.sld_core, sf.eta) — always list them with "
-        "get_population_parameters rather than guessing. "
-        "WAXS workflow (pyirena_ctrl_waxs_ prefix): pyirena_ctrl_open_dataset() → "
-        "pyirena_ctrl_waxs_select_model() → pyirena_ctrl_waxs_find_peaks() "
-        "(data-driven starting positions) → pyirena_ctrl_waxs_run_fit() → "
-        "pyirena_ctrl_waxs_get_results() (positions, widths, areas) → "
-        "pyirena_ctrl_waxs_save_fit(). "
-        "The session tools are shared between all five tools (Modeling has "
-        "its own Q range). "
+        "pyirena_call('set_modeling_q_range', {...}) → "
+        "pyirena_call('run_modeling_fit', {...}) → "
+        "pyirena_call('get_modeling_fit_image', {...}) → "
+        "pyirena_call('save_modeling_fit', {...}). Modeling parameters use "
+        "dotted names (dist.mean_size, ff.sld_core, sf.eta) — always list "
+        "them with get_population_parameters rather than guessing. "
+        "WAXS workflow (category 'waxs'): pyirena_ctrl_open_dataset() → "
+        "pyirena_call('select_waxs_model', {...}) → "
+        "pyirena_call('find_waxs_peaks', {...}) (data-driven starting positions) → "
+        "pyirena_call('run_waxs_fit', {...}) → "
+        "pyirena_call('get_waxs_results', {...}) (positions, widths, areas) → "
+        "pyirena_call('save_waxs_fit', {...}). "
+        "The session tools and Q-range tools (set_fit_q_range etc, category "
+        "'unified') are shared between all five tools (Modeling has its own "
+        "set_modeling_q_range). "
         "Sessions are in-memory for this server process."
     ),
 )
@@ -409,20 +427,22 @@ def pyirena_plot_parameter_trend(
 # Control API — AI-driven fitting (stateful, session-based)
 # ---------------------------------------------------------------------------
 #
-# These tools expose pyirena.api.control, which lets an AI agent drive the
-# Unified Fit model end-to-end: open data → select model → configure params
-# → run fit → evaluate → save.
+# These tools expose pyirena.api.control, which lets an AI agent drive any
+# of the five fitting tools end-to-end: open data → select model →
+# configure params → run fit → evaluate → save. Session lifecycle
+# (open_dataset / list_open_sessions / close_session / get_session_summary)
+# is always top-level below; everything else is reached through the
+# pyirena_call() dispatcher further down (see the comment above it).
 #
-# Workflow:
-#   1. pyirena_ctrl_open_dataset()       → returns session_id
-#   2. pyirena_ctrl_select_model()       → choose model + nlevels
-#   3. pyirena_ctrl_fix_all_except()     → staged fitting setup
-#   4. pyirena_ctrl_run_fit()            → run
-#   5. pyirena_ctrl_get_fit_image()      → inspect visually
-#   6. pyirena_ctrl_save_fit()           → persist to HDF5
+# Unified Fit workflow, for example:
+#   1. pyirena_ctrl_open_dataset()                              → session_id
+#   2. pyirena_call("select_model", {...})                      → choose model + nlevels
+#   3. pyirena_call("fix_all_except", {...})                    → staged fitting setup
+#   4. pyirena_call("run_fit", {...})                           → run
+#   5. pyirena_call("get_fit_image", {...})                     → inspect visually
+#   6. pyirena_call("save_fit", {...})                          → persist to HDF5
 #
 # Sessions live in-memory for the lifetime of this server process.
-# All tool names are prefixed pyirena_ctrl_ for global uniqueness.
 
 import base64 as _base64
 
@@ -448,14 +468,15 @@ def _ctrl_image_result(result: dict, label: str) -> list[Any]:
     return _image_content(label, _base64.b64decode(b64), result.get("image_path"))
 
 
-def _fit_image_label(result: dict, session_id: str) -> str:
-    """Label for the Unified Fit image, noting whether residuals are included."""
+def _dispatch_image_label(name: str, arguments: Optional[dict[str, Any]], result: dict) -> str:
+    """Label for a pyirena_call() image result, noting the tool, session and residuals."""
+    session_id = (arguments or {}).get("session_id", "?")
     suffix = (
         " — includes residuals subplot"
         if isinstance(result, dict) and result.get("has_residuals")
-        else " — pre-fit preview"
+        else ""
     )
-    return f"Fit image (session {session_id}){suffix}"
+    return f"{name} (session {session_id}){suffix}"
 
 
 # --- Session lifecycle ---
@@ -495,1207 +516,71 @@ def pyirena_ctrl_get_session_summary(session_id: str) -> dict:
     return _ctrl.get_session_summary(session_id)
 
 
-# --- Model selection ---
-
-@mcp.tool()
-def pyirena_ctrl_list_available_models() -> dict:
-    """List the fitting models available in this version of the control API."""
-    return _ctrl.list_available_models()
-
-
-@mcp.tool()
-def pyirena_ctrl_select_model(
-    session_id: str,
-    model_name: str = "unified_fit",
-    nlevels: int = 1,
-) -> dict:
-    """Select and initialise a fitting model.
-
-    For unified_fit, nlevels sets the number of structural levels (1–5).
-    Start with 1; add levels with pyirena_ctrl_add_unified_level() if residuals
-    show systematic structure after the initial fit.
-    Returns the full initial parameter table.
-    """
-    return _ctrl.select_model(session_id, model_name=model_name, nlevels=nlevels)
-
-
-@mcp.tool()
-def pyirena_ctrl_get_model_parameters(session_id: str) -> dict:
-    """Return the current parameter table.
-
-    Each entry has: name, value, fixed, lo, hi, units, description.
-    Level parameters are named <param>_<level>, e.g. Rg_1, G_2.
-    """
-    return _ctrl.get_model_parameters(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_get_model_description(session_id: str) -> dict:
-    """Return a text description of the model — physical meaning and fitting tips.
-
-    Read this before starting a fit to understand what each parameter controls.
-    """
-    return _ctrl.get_model_description(session_id)
-
-
-# --- Parameter control ---
-
-@mcp.tool()
-def pyirena_ctrl_set_parameter_value(
-    session_id: str, param_name: str, value: float
-) -> dict:
-    """Set the starting/current value of a named parameter (e.g. 'Rg_1', 'background').
-
-    Takes effect at the next pyirena_ctrl_run_fit() call.
-    """
-    return _ctrl.set_parameter_value(session_id, param_name, value)
-
-
-@mcp.tool()
-def pyirena_ctrl_set_parameter_bounds(
-    session_id: str, param_name: str, lo: float, hi: float
-) -> dict:
-    """Set lower and upper bounds for a parameter during fitting."""
-    return _ctrl.set_parameter_bounds(session_id, param_name, lo, hi)
-
-
-@mcp.tool()
-def pyirena_ctrl_fix_parameter(session_id: str, param_name: str) -> dict:
-    """Hold a parameter fixed at its current value during fitting."""
-    return _ctrl.fix_parameter(session_id, param_name)
-
-
-@mcp.tool()
-def pyirena_ctrl_free_parameter(session_id: str, param_name: str) -> dict:
-    """Allow a parameter to vary during fitting."""
-    return _ctrl.free_parameter(session_id, param_name)
-
-
-@mcp.tool()
-def pyirena_ctrl_fix_all_except(
-    session_id: str, free_list: list[str]
-) -> dict:
-    """Fix every parameter except those in free_list.
-
-    Core tool for staged fitting: fix everything, then free parameters
-    in groups.  Example: fix_all_except(['Rg_1', 'G_1', 'background']).
-    """
-    return _ctrl.fix_all_except(session_id, free_list)
-
-
-@mcp.tool()
-def pyirena_ctrl_reset_parameters_to_defaults(session_id: str) -> dict:
-    """Reset all parameters to factory defaults."""
-    return _ctrl.reset_parameters_to_defaults(session_id)
-
-
-# --- Unified Fit level management ---
-
-@mcp.tool()
-def pyirena_ctrl_add_unified_level(
-    session_id: str, position: int = -1
-) -> dict:
-    """Add a structural level to the Unified Fit model.
-
-    position=-1 appends; position=1 inserts before the first level.
-    Returns the updated parameter table with new level names.
-    """
-    return _ctrl.add_unified_level(session_id, position=position)
-
-
-@mcp.tool()
-def pyirena_ctrl_remove_unified_level(session_id: str, level: int) -> dict:
-    """Remove a structural level (1-based) from the Unified Fit model.
-
-    Levels are renumbered from 1 after removal.
-    """
-    return _ctrl.remove_unified_level(session_id, level)
-
-
-# --- Per-level boolean options (correlations, mass_fractal, link_B, link_RGCO) ---
-
-@mcp.tool()
-def pyirena_ctrl_get_level_options(
-    session_id: str, level: Optional[int] = None
-) -> dict:
-    """Return per-level boolean flag state.
-
-    These flags (correlations, mass_fractal, link_B, link_RGCO) switch entire
-    features of the intensity formula on or off and are SEPARATE from numeric
-    parameters.  Omit `level` to get the state of all levels.
-    """
-    return _ctrl.get_level_options(session_id, level)
-
-
-@mcp.tool()
-def pyirena_ctrl_set_level_option(
-    session_id: str, level: int, option: str, enabled: bool
-) -> dict:
-    """Toggle a per-level boolean flag.
-
-    CRITICAL: setting numeric parameters ETA and PACK has NO EFFECT unless
-    the level's `correlations` option is True — use this tool to enable it.
-
-    option must be one of:
-      - "correlations" — Born-Green liquid-like-ordering (uses ETA + PACK)
-      - "mass_fractal" — auto-compute B from G, Rg, P; manual B is ignored
-      - "link_B" — estimate B from G, Rg, P via the Porod invariant
-      - "link_RGCO" — link RgCO to previous level's Rg
-    """
-    return _ctrl.set_level_option(session_id, level, option, enabled)
-
-
-@mcp.tool()
-def pyirena_ctrl_check_level_feasibility(
-    session_id: str, level: Optional[int] = None
-) -> dict:
-    """Check whether each level's parameters are physically meaningful.
-
-    A level is "feasible" when its Guinier and power-law regions connect
-    smoothly at the Hammouda rollover Q point.  Use AFTER run_fit to catch
-    combinations that converged mathematically but are not physically
-    interpretable (e.g. B too small/large for the chosen P, or G inconsistent
-    with B and Rg).  Omit `level` to check every level.
-    """
-    return _ctrl.check_level_feasibility(session_id, level)
-
-
-# --- Q range ---
-
-@mcp.tool()
-def pyirena_ctrl_get_data_q_range(session_id: str) -> dict:
-    """Return the full Q range of the loaded dataset."""
-    return _ctrl.get_data_q_range(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_get_fit_q_range(session_id: str) -> dict:
-    """Return the Q range currently used for fitting."""
-    return _ctrl.get_fit_q_range(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_set_fit_q_range(
-    session_id: str,
-    q_min: Optional[float] = None,
-    q_max: Optional[float] = None,
-) -> dict:
-    """Restrict the Q range used for fitting.
-
-    Useful to exclude low-Q beam stop artefacts or high-Q noise.
-    Pass q_min and/or q_max; omit either to leave that end unchanged.
-    """
-    return _ctrl.set_fit_q_range(session_id, q_min=q_min, q_max=q_max)
-
-
-@mcp.tool()
-def pyirena_ctrl_reset_fit_q_range(session_id: str) -> dict:
-    """Restore the fit Q range to the full data Q range."""
-    return _ctrl.reset_fit_q_range(session_id)
-
-
-# --- Local one-term estimators (good for starting values) ---
-
-@mcp.tool()
-def pyirena_ctrl_fit_local_guinier(
-    session_id: str, q_min: float, q_max: float
-) -> dict:
-    """Fit Guinier I(q) = G·exp(-q²·Rg²/3) on a Q sub-range; return G and Rg.
-
-    Equivalent to the GUI's 'Fit Rg/G btwn cursors' button.  Useful for
-    estimating a level's starting Rg and G *before* running the full
-    multi-level fit.  Does NOT modify the model — call set_parameter_value()
-    afterwards if you want to apply the result.
-
-    Pick q_min/q_max to cover the Guinier knee of the level you are
-    characterising (where the log-log slope flattens).
-    """
-    return _ctrl.fit_local_guinier(session_id, q_min, q_max)
-
-
-@mcp.tool()
-def pyirena_ctrl_fit_local_power_law(
-    session_id: str, q_min: float, q_max: float
-) -> dict:
-    """Fit power law I(q) = B·q⁻ᴾ on a Q sub-range; return P and B.
-
-    Equivalent to the GUI's 'Fit P/B btwn cursors' button.  Useful for
-    estimating a level's starting P and B from the linear portion of the
-    log-log plot (typically just past the Guinier knee).  Does NOT modify
-    the model — call set_parameter_value() afterwards if you want to apply
-    the result.
-    """
-    return _ctrl.fit_local_power_law(session_id, q_min, q_max)
-
-
-# --- Feature detection (slope-profile analysis) ---
-
-@mcp.tool()
-def pyirena_ctrl_detect_features(
-    session_id: str,
-    q_min: Optional[float] = None,
-    q_max: Optional[float] = None,
-    q_max_clip: Optional[float] = 0.6,
-    config_overrides: Optional[dict] = None,
-) -> dict:
-    """Segment the loaded I(Q) curve into power-law slope segments.
-
-    Returns a full piecewise classification of the curve in log-log space.
-    Each segment has a locally-constant slope; adjacent segments with
-    substantially different slopes imply Guinier knees between them
-    (also returned).  Intended to help decide how many Unified Fit levels
-    are needed and where to place Q-windows for local Guinier / Porod fits.
-
-    Does NOT modify the model — purely diagnostic.
-
-    Q clipping: by default data above q_max_clip=0.6 Å⁻¹ is dropped
-    (the practical small-angle-approximation limit; amorphous diffraction
-    above this should not be classified as SAS structure).  Pass None
-    to disable.
-
-    Returns dict with:
-      segments — list of {q_min, q_max, P, P_std, kind, intensity_mid,
-        width_decades} where P is the positive Porod exponent (I ∝ Q^-P) and
-        kind is 'background' / 'guinier_plateau' / 'power_law'.
-      guinier_knees — list of {q_min, q_max, q_center, P_low_q, P_high_q,
-        delta_P} where P values are positive Porod exponents; P_low_q <
-        P_high_q (shallower at low Q = physical Guinier knee condition).
-      recommended_guinier_windows, recommended_nlevels, background_q_min,
-      n_segments_found, log_decades, n_points, q_min_analysed, q_max_analysed.
-    """
-    return _ctrl.detect_features(
-        session_id,
-        q_min=q_min,
-        q_max=q_max,
-        q_max_clip=q_max_clip,
-        config_overrides=config_overrides,
-    )
-
-
-# --- Fit execution ---
-
-@mcp.tool()
-def pyirena_ctrl_run_fit(
-    session_id: str,
-    max_iter: Optional[int] = None,
-    walk_limits: bool = True,
-) -> dict:
-    """Run the fitting algorithm.
-
-    Uses current parameter values as starting point and the current Q range.
-    Re-running after a partial fit continues from where it left off.
-    Returns chi_squared, reduced_chi_squared, iterations, updated parameter
-    values, pinned_parameters and warnings.
-    Good fit: reduced_chi_squared close to 1.0.
-    walk_limits=True (default, same as the GUI Fit button): when a fitted
-    parameter ends pinned at a limit, limits are recentred on the fitted value
-    and the fit rerun, so a distant optimum is reached in one call.  Pass
-    False to keep bounds set via set_parameter_bounds as hard constraints;
-    check pinned_parameters in the result to see which bound stopped the fit.
-    """
-    return _ctrl.run_fit(session_id, max_iter=max_iter, walk_limits=walk_limits)
-
-
-# --- Quality assessment ---
-
-@mcp.tool()
-def pyirena_ctrl_get_chi_squared(session_id: str) -> dict:
-    """Return χ² and reduced χ² from the last fit."""
-    return _ctrl.get_chi_squared(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_get_residuals(session_id: str) -> dict:
-    """Return residuals from the last fit (normalised, rescaled, and fractional).
-
-    'residuals' = normalised (I-M)/sigma; rms close to 1.0 means the fit matches
-    the data within error bars. Also returns 'rescaled_residual' (r/robust_scale_s)
-    and 'frac_misfit_percent' ((I-M)/I in %, sigma-independent), plus
-    summary.robust_scale_s. Systematic patterns in residuals suggest the model
-    needs adjustment. For the full diagnostic set use pyirena_ctrl_get_fit_quality.
-    """
-    return _ctrl.get_residuals(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_get_fit_quality(session_id: str, n_bands: int = 4) -> dict:
-    """Robust, sigma-scale-independent fit-quality diagnostics for the last fit.
-
-    Preferred over reduced chi-squared alone when reported uncertainties sigma may
-    be mis-scaled (common in SAXS), where chasing reduced chi-squared ~ 1 is
-    misleading. Key fields:
-      - robust_scale_s: how many times the actual scatter exceeds reported sigma
-        (~1 sigma honest; ~3 sigma ~3x too small, so realistic_reduced_chi2_floor ~9).
-      - max_abs_frac_misfit (+ q_at_max_frac_misfit): largest |(I-M)/I|, a
-        sigma-independent gross-misfit backstop (>~0.3 is a real local misfit).
-      - n_outliers_3s: points beyond 3*robust_scale_s.
-      - longest_same_sign_run / sign_autocorr_lag1: structure signalling a wrong
-        functional form, distinct from a pure sigma-scale problem.
-      - bands: the same metrics per Q-decade (uneven per-band chi2 is a misfit signal).
-
-    Returns facts only — interpret thresholds yourself.
-    """
-    return _ctrl.get_fit_quality(session_id, n_bands=n_bands)
-
-
-@_image_tool()
-def pyirena_ctrl_get_fit_image(
-    session_id: str,
-    width: int = 1024,
-    height: int = 768,
-) -> list[Any]:
-    """Capture the current fit as an inline PNG image.
-
-    Works before a fit (shows data + model at current parameter values)
-    and after a fit (adds a residuals subplot).
-    Examine the image to assess fit quality before deciding next steps.
-    """
-    result = _ctrl.get_fit_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, _fit_image_label(result, session_id))
-
-
-@_image_tool()
-def pyirena_ctrl_get_residuals_image(
-    session_id: str,
-    width: int = 1024,
-    height: int = 768,
-) -> list[Any]:
-    """Capture fit + residuals panel as an inline PNG. Requires a completed fit."""
-    result = _ctrl.get_residuals_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, _fit_image_label(result, session_id))
-
-
-# --- Persistence ---
-
-@mcp.tool()
-def pyirena_ctrl_save_fit(
-    session_id: str, output_path: Optional[str] = None
-) -> dict:
-    """Save the fitted result to NXcanSAS HDF5.
-
-    Defaults to overwriting the original file. Pass output_path to save
-    to a different location and preserve the original.
-    """
-    return _ctrl.save_fit(session_id, output_path=output_path)
-
-
-@mcp.tool()
-def pyirena_ctrl_export_fit_report(
-    session_id: str, format: str = "markdown"
-) -> dict:
-    """Export a human-readable fit report.
-
-    format='markdown' (default) for display; format='json' for machine use.
-    Returns the report text in the 'content' key.
-    """
-    return _ctrl.export_fit_report(session_id, format=format)
-
-
 # ---------------------------------------------------------------------------
-# Control API — Size Distribution (Sizes) fitting
+# Control API — dispatcher (everything except session lifecycle)
 # ---------------------------------------------------------------------------
 #
-# Sizes counterpart of the Unified Fit control tools above.  Reuses the shared
-# session lifecycle (pyirena_ctrl_open_dataset / list_open_sessions /
-# close_session / get_session_summary) and the Q-range tools
-# (pyirena_ctrl_get_data_q_range / get_fit_q_range / set_fit_q_range /
-# reset_fit_q_range) — set_fit_q_range defines the INVERSION Q-range.
+# ~90 pyirena.api.control functions across Unified Fit, Sizes, Simple Fits,
+# Modeling and WAXS Peak Fit share one JSON-schema registry
+# (pyirena.api.control.schemas.TOOL_SCHEMA_BY_NAME) but used to each get
+# their own MCP tool. Combined with whatever else is active in a client's
+# session, that could exceed a provider-side cap on the number of tools in
+# a single request (observed via the ANL Argo gateway proxy: 128 tools).
+# pyirena.mcp.dispatch collapses them into the four tools below.
+# Session-lifecycle tools stay top-level above since nearly every workflow
+# starts there.
 #
-# Workflow:
-#   1. pyirena_ctrl_open_dataset()                 → session_id
-#   2. pyirena_ctrl_sizes_suggest_setup()          → data-driven recommendations
-#   3. pyirena_ctrl_sizes_select_model()           → choose inversion method
-#   4. pyirena_ctrl_sizes_set_shape() / set_size_grid() / set_error_handling()
-#   5. pyirena_ctrl_sizes_fit_power_law_background() + fit_flat_background()
-#   6. pyirena_ctrl_set_fit_q_range()              → inversion window (shared tool)
-#   7. pyirena_ctrl_sizes_run_fit()                → run inversion
-#   8. pyirena_ctrl_sizes_get_fit_image()          → inspect visually
-#   9. pyirena_ctrl_sizes_save_fit()               → persist to HDF5
+# Discovery: pyirena_list_categories() -> pyirena_list_tools(category) ->
+# pyirena_describe_tool(name) -> pyirena_call(name, arguments).
+#
+# Categories, one per pyirena.api.control submodule: "unified" (model
+# selection, parameter control, level management, Q range, local
+# estimators, fit execution, quality, persistence for Unified Fit -- the Q
+# range and level tools here are shared by every model, not Unified-Fit-only),
+# "sizes", "simple", "modeling", "waxs". See pyirena/mcp/dispatch.py.
+
+from pyirena.mcp import dispatch as _dispatch
 
 
 @mcp.tool()
-def pyirena_ctrl_sizes_select_model(session_id: str, method: str = "maxent") -> dict:
-    """Create a Size Distribution model for the session.
+def pyirena_list_categories() -> dict:
+    """List the pyirena_call() tool categories, with a one-line description
+    and tool count each. Start here to discover what pyirena_call can do."""
+    return _dispatch.list_categories()
 
-    method: 'maxent' (recommended default), 'regularization', 'tnnls', or
-    'montecarlo'. Best for dilute samples with a single particle population.
-    Replaces any existing model and clears prior fit results.
+
+@mcp.tool()
+def pyirena_list_tools(category: str) -> dict:
+    """List the tool names and one-line summaries in a pyirena_call() category.
+
+    category is one of the names returned by pyirena_list_categories().
     """
-    return _ctrl.select_sizes_model(session_id, method=method)
+    return _dispatch.list_tools(category)
 
 
 @mcp.tool()
-def pyirena_ctrl_sizes_get_config(session_id: str) -> dict:
-    """Return the current Sizes configuration (grid, shape, method, error
-    handling, complex background)."""
-    return _ctrl.get_sizes_config(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_suggest_setup(session_id: str) -> dict:
-    """Inspect the data and recommend a Sizes setup, with suitability warnings.
-
-    Returns a 'suitable' flag, 'recommended' r-range / inversion Q-range /
-    background windows, and 'warnings' (e.g. no size scale, multiple
-    populations). Advisory only — apply values with the set_* / fit_* tools.
-    Call this before configuring the fit.
-    """
-    return _ctrl.suggest_sizes_setup(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_set_size_grid(
-    session_id: str,
-    r_min: Optional[float] = None,
-    r_max: Optional[float] = None,
-    n_bins: Optional[int] = None,
-    log_spacing: Optional[bool] = None,
-) -> dict:
-    """Set the radius grid [Å] for the inversion (r_min, r_max, n_bins,
-    log_spacing). Heuristic: r ≈ π/Q over the inversion Q-range."""
-    return _ctrl.set_size_grid(
-        session_id, r_min=r_min, r_max=r_max, n_bins=n_bins, log_spacing=log_spacing
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_set_shape(
-    session_id: str,
-    shape: Optional[str] = None,
-    contrast: Optional[float] = None,
-    aspect_ratio: Optional[float] = None,
-) -> dict:
-    """Set the form factor: shape ('sphere' or 'spheroid'), contrast (Δρ)² in
-    10²⁰ cm⁻⁴ (use 1.0 if unknown), and aspect_ratio (spheroid only)."""
-    return _ctrl.set_shape(
-        session_id, shape=shape, contrast=contrast, aspect_ratio=aspect_ratio
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_set_method(
-    session_id: str,
-    method: str,
-    maxent_sky_background: Optional[float] = None,
-    maxent_max_iter: Optional[int] = None,
-    regularization_evalue: Optional[float] = None,
-    regularization_min_ratio: Optional[float] = None,
-    tnnls_approach_param: Optional[float] = None,
-    tnnls_max_iter: Optional[int] = None,
-    montecarlo_n_repetitions: Optional[int] = None,
-    montecarlo_convergence: Optional[float] = None,
-    montecarlo_max_iter: Optional[int] = None,
-) -> dict:
-    """Choose the inversion method and (optionally) its tuning parameters.
-
-    Only parameters relevant to the chosen method are applied. MaxEnt is the
-    recommended default. Method params: maxent_* / regularization_* / tnnls_* /
-    montecarlo_*.
-    """
-    return _ctrl.set_method(
-        session_id, method,
-        maxent_sky_background=maxent_sky_background,
-        maxent_max_iter=maxent_max_iter,
-        regularization_evalue=regularization_evalue,
-        regularization_min_ratio=regularization_min_ratio,
-        tnnls_approach_param=tnnls_approach_param,
-        tnnls_max_iter=tnnls_max_iter,
-        montecarlo_n_repetitions=montecarlo_n_repetitions,
-        montecarlo_convergence=montecarlo_convergence,
-        montecarlo_max_iter=montecarlo_max_iter,
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_set_error_handling(
-    session_id: str,
-    error_scale: Optional[float] = None,
-    fractional_error: Optional[bool] = None,
-    fractional_error_value: Optional[float] = None,
-) -> dict:
-    """Configure uncertainty handling. Either scale file errors (error_scale,
-    1.0 = unchanged) or switch to fractional errors (fractional_error=True with
-    fractional_error_value, e.g. 0.03 = 3%, which ignores file σ)."""
-    return _ctrl.set_error_handling(
-        session_id,
-        error_scale=error_scale,
-        fractional_error=fractional_error,
-        fractional_error_value=fractional_error_value,
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_set_background(
-    session_id: str,
-    power_law_B: Optional[float] = None,
-    power_law_P: Optional[float] = None,
-    background: Optional[float] = None,
-) -> dict:
-    """Set complex-background terms directly (no fitting). Background subtracted
-    before inversion is power_law_B·q^(-power_law_P) + background. Set
-    power_law_B=0 for a flat background only."""
-    return _ctrl.set_background(
-        session_id, power_law_B=power_law_B, power_law_P=power_law_P,
-        background=background,
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_fit_power_law_background(
-    session_id: str,
-    q_min: float,
-    q_max: float,
-    fit_B: bool = True,
-    fit_P: bool = True,
-) -> dict:
-    """Fit the power-law background B·q^(-P) over [q_min, q_max] (typically the
-    low-Q steep-slope region). Updates power_law_B/P. fit_B/fit_P select which
-    vary (at least one True)."""
-    return _ctrl.fit_power_law_background(
-        session_id, q_min, q_max, fit_B=fit_B, fit_P=fit_P
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_fit_flat_background(
-    session_id: str, q_min: float, q_max: float
-) -> dict:
-    """Fit the flat background by averaging I − B·q^(-P) over [q_min, q_max]
-    (typically the high-Q flat region). Updates background. Run after
-    fit_power_law_background if both terms are present."""
-    return _ctrl.fit_flat_background(session_id, q_min, q_max)
+def pyirena_describe_tool(name: str) -> dict:
+    """Return the full JSON schema (parameters, types, description) for one
+    pyirena_call()-dispatched tool name."""
+    return _dispatch.describe_tool(name)
 
 
 @_image_tool()
-def pyirena_ctrl_sizes_get_background_image(
-    session_id: str, width: int = 1024, height: int = 768
-) -> list[Any]:
-    """Render the data with the current complex background overlaid (log-log).
-    Use to visually confirm the background before inverting."""
-    result = _ctrl.get_background_preview_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, f"Background preview (session {session_id})")
+def pyirena_call(name: str, arguments: Optional[dict[str, Any]] = None) -> Any:
+    """Call one of the Unified Fit / Sizes / Simple Fits / Modeling / WAXS
+    Peak Fit control tools by name (everything except session lifecycle).
 
-
-@mcp.tool()
-def pyirena_ctrl_sizes_run_fit(
-    session_id: str, random_seed: Optional[int] = None
-) -> dict:
-    """Run the size-distribution inversion. The inversion Q-range
-    (pyirena_ctrl_set_fit_q_range) and complex background are applied first.
-
-    Returns success, chi_squared, volume_fraction, rg, peak_r, n_iterations,
-    n_data.
+    name must be a tool name from pyirena_list_tools(category); see
+    pyirena_describe_tool(name) for its expected arguments. Session-lifecycle
+    tools (open_dataset, list_open_sessions, close_session,
+    get_session_summary) are NOT dispatched here -- call
+    pyirena_ctrl_open_dataset() etc directly. Some tools return an inline
+    PNG image instead of plain data; both cases are handled transparently.
     """
-    return _ctrl.run_sizes_fit(session_id, random_seed=random_seed)
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_get_distribution(
-    session_id: str, max_points: int = 500
-) -> dict:
-    """Return the fitted distribution arrays: r_grid [Å] and distribution P(r)
-    [vol-frac/Å] (decimated), plus distribution_std when available."""
-    return _ctrl.get_sizes_distribution(session_id, max_points=max_points)
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_get_results(session_id: str) -> dict:
-    """Return the full scalar results + configuration for the last Sizes fit
-    (chi_squared, volume_fraction, rg, peak_r, plus all setup parameters)."""
-    return _ctrl.get_sizes_results(session_id)
-
-
-@_image_tool()
-def pyirena_ctrl_sizes_get_fit_image(
-    session_id: str, width: int = 1024, height: int = 900
-) -> list[Any]:
-    """Render the Sizes fit as a two-panel PNG: (top) log-log data + model
-    (+ background), (bottom) the size distribution P(r) vs r."""
-    result = _ctrl.get_sizes_fit_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, f"Sizes fit image (session {session_id})")
-
-
-@mcp.tool()
-def pyirena_ctrl_sizes_save_fit(
-    session_id: str, output_path: Optional[str] = None
-) -> dict:
-    """Save the fitted size distribution to NXcanSAS HDF5.
-
-    Defaults to overwriting the original file. Pass output_path to save
-    elsewhere and preserve the original.
-    """
-    return _ctrl.save_sizes_fit(session_id, output_path=output_path)
-
-
-# ---------------------------------------------------------------------------
-# Control tools — Simple Fits
-# ---------------------------------------------------------------------------
-
-@mcp.tool()
-def pyirena_ctrl_simple_list_models() -> dict:
-    """List the Simple Fits analytical models with their parameters.
-
-    Guinier (+ Rod/Sheet), Porod, Power Law, Debye Polymer Chain, Sphere,
-    Spheroid, Debye-Bueche, Teubner-Strey, Benedetti-Ciccariello, Hermans,
-    Unified Born Green and the Invariant calculation. Each entry reports its
-    parameter names, whether it has a linearized form, and whether it supports
-    the complex background. Needs no session.
-    """
-    return _ctrl.list_simple_models()
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_select_model(
-    session_id: str, model_name: str = "Guinier"
-) -> dict:
-    """Create a Simple Fits model for the session.
-
-    Switching model resets parameters to that model's defaults, frees them all
-    and clears any previous fit. Call pyirena_ctrl_simple_list_models first.
-    """
-    return _ctrl.select_simple_model(session_id, model_name=model_name)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_get_config(session_id: str) -> dict:
-    """Return the Simple Fits configuration: model, every parameter with
-    value/bounds/fixed state, and the background setting."""
-    return _ctrl.get_simple_config(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_get_parameters(session_id: str) -> dict:
-    """List the selected model's parameters with value, bounds and fixed state."""
-    return _ctrl.get_simple_parameters(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_set_parameter(
-    session_id: str, name: str, value: float
-) -> dict:
-    """Set one Simple Fits parameter value (its starting point for the fit)."""
-    return _ctrl.set_simple_parameter(session_id, name, value)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_set_parameter_bounds(
-    session_id: str,
-    name: str,
-    lo: Optional[float] = None,
-    hi: Optional[float] = None,
-) -> dict:
-    """Set fitting bounds for one Simple Fits parameter.
-
-    Pass null for either side to leave it unbounded. A current value outside
-    the new bounds is clamped into range.
-    """
-    return _ctrl.set_simple_parameter_bounds(session_id, name, lo=lo, hi=hi)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_fix_parameter(session_id: str, name: str) -> dict:
-    """Hold one Simple Fits parameter fixed at its current value."""
-    return _ctrl.fix_simple_parameter(session_id, name)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_free_parameter(session_id: str, name: str) -> dict:
-    """Let one Simple Fits parameter vary during the fit (the default)."""
-    return _ctrl.free_simple_parameter(session_id, name)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_reset_parameters(session_id: str) -> dict:
-    """Reset every Simple Fits parameter to the model defaults and free them all."""
-    return _ctrl.reset_simple_parameters(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_set_background(
-    session_id: str, enabled: bool = True
-) -> dict:
-    """Enable or disable the complex background (power law + flat).
-
-    Enabling adds BG_B, BG_P and BG_flat to the parameter list. Models with
-    their own Background parameter (Porod, Power Law) do not support it.
-    """
-    return _ctrl.set_simple_background(session_id, enabled=enabled)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_run_fit(session_id: str, no_limits: bool = False) -> dict:
-    """Fit the selected Simple Fits model inside the current fit Q range.
-
-    Set the range first with pyirena_ctrl_set_fit_q_range. Returns chi-squared,
-    reduced chi-squared, dof, fitted parameters with 1-sigma uncertainties and
-    derived values. Calculation models (Invariant) are evaluated, not fitted.
-    """
-    return _ctrl.run_simple_fit(session_id, no_limits=no_limits)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_get_results(session_id: str) -> dict:
-    """Return the last Simple Fits result: parameters with uncertainties,
-    chi-squared, reduced chi-squared, dof and derived quantities."""
-    return _ctrl.get_simple_results(session_id)
-
-
-@_image_tool()
-def pyirena_ctrl_simple_get_fit_image(
-    session_id: str, width: int = 1024, height: int = 800
-) -> list[Any]:
-    """Render the Simple Fits result as a PNG: log-log data + model on top,
-    residuals below."""
-    result = _ctrl.get_simple_fit_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, f"Simple Fits image (session {session_id})")
-
-
-@_image_tool()
-def pyirena_ctrl_simple_get_linearization_image(
-    session_id: str, width: int = 900, height: int = 700
-) -> list[Any]:
-    """Render the linearized plot (Guinier plot, Porod plot, ...) with the
-    fitted line, slope, intercept and R-squared.
-
-    A straight line is the visual test that the model applies over the chosen
-    Q range. Models with no linearized form return an error.
-    """
-    result = _ctrl.get_simple_linearization_image(
-        session_id, width=width, height=height
-    )
-    label = (f"Linearization (session {session_id}): "
-             f"slope={result.get('slope')}, R^2={result.get('r_squared')}")
-    return _ctrl_image_result(result, label)
-
-
-@mcp.tool()
-def pyirena_ctrl_simple_save_fit(
-    session_id: str, output_path: Optional[str] = None
-) -> dict:
-    """Save the Simple Fits result to NXcanSAS HDF5 (entry/simple_fit_results).
-
-    Embeds the setup so the GUI panel can restore it. Defaults to overwriting
-    the original file; pass output_path to save elsewhere.
-    """
-    return _ctrl.save_simple_fit(session_id, output_path=output_path)
-
-
-# ---------------------------------------------------------------------------
-# Control tools — Modeling
-# ---------------------------------------------------------------------------
-
-@mcp.tool()
-def pyirena_ctrl_modeling_select_model(session_id: str) -> dict:
-    """Start a Modeling configuration (no populations yet).
-
-    Modeling builds a curve from several populations: size distributions with
-    a form factor, Beaucage unified levels, Guinier-Porod levels, diffraction
-    peaks, mass fractals, surface fractals. Q range defaults to the full data.
-    """
-    return _ctrl.select_modeling_model(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_get_config(session_id: str) -> dict:
-    """Return the Modeling settings (Q range, background, fit method, slit
-    smearing) and a summary of every population."""
-    return _ctrl.get_modeling_config(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_list_population_types() -> dict:
-    """Describe the six Modeling population types with their options, and — for
-    size_dist — every distribution, form factor and structure factor with the
-    parameters each brings. Needs no session; call before adding a population.
-    """
-    return _ctrl.list_population_types()
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_add_population(
-    session_id: str, pop_type: str = "size_dist", label: str = ""
-) -> dict:
-    """Add a population and return its index and parameters.
-
-    pop_type: size_dist, unified_level, guinier_porod, diffraction_peak,
-    mass_fractal or surface_fractal. Populations start from generic defaults —
-    set the parameters that matter for the sample before fitting.
-    """
-    return _ctrl.add_population(session_id, pop_type=pop_type, label=label)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_remove_population(session_id: str, index: int) -> dict:
-    """Remove the population at this index; later populations shift down."""
-    return _ctrl.remove_population(session_id, index)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_list_populations(session_id: str) -> dict:
-    """List every population with index, type, label, enabled state and number
-    of free parameters."""
-    return _ctrl.list_populations(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_population_enabled(
-    session_id: str, index: int, enabled: bool = True
-) -> dict:
-    """Include or exclude a population without deleting it.
-
-    The way to test what a population contributes: fit with it off, compare
-    chi-squared, turn it back on.
-    """
-    return _ctrl.set_population_enabled(session_id, index, enabled=enabled)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_get_population_parameters(
-    session_id: str, index: int
-) -> dict:
-    """List the parameters active for this population with value, fit flag and
-    bounds.
-
-    Nested parameters use a dotted prefix: 'dist.mean_size', 'ff.sld_core',
-    'sf.eta'. Only parameters the current distribution / form factor /
-    structure factor actually use are listed.
-    """
-    return _ctrl.get_population_parameters(session_id, index)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_population_parameter(
-    session_id: str, index: int, name: str, value: float
-) -> dict:
-    """Set one population parameter's value (dotted names from
-    pyirena_ctrl_modeling_get_population_parameters)."""
-    return _ctrl.set_population_parameter(session_id, index, name, value)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_population_parameter_fit(
-    session_id: str, index: int, name: str, fit: bool = True
-) -> dict:
-    """Choose whether one population parameter is fitted or held.
-
-    Modeling has many parameters and few constraints — fit a handful at a time.
-    """
-    return _ctrl.set_population_parameter_fit(session_id, index, name, fit=fit)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_population_parameter_bounds(
-    session_id: str,
-    index: int,
-    name: str,
-    lo: Optional[float] = None,
-    hi: Optional[float] = None,
-) -> dict:
-    """Set fitting bounds for one population parameter.
-
-    Passing null keeps that side unchanged (the global fit method needs finite
-    bounds). A value outside the new range is clamped in.
-    """
-    return _ctrl.set_population_parameter_bounds(
-        session_id, index, name, lo=lo, hi=hi
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_population_option(
-    session_id: str, index: int, option: str, value: str
-) -> dict:
-    """Set a non-numeric switch on a population.
-
-    option: dist_type, form_factor, structure_factor, peak_type, correlations,
-    use_porod_transition, use_number_dist, n_bins or label. Changing one
-    re-derives the active parameters — switching to a core-shell form factor
-    adds its SLD and shell-thickness parameters with sensible defaults.
-    """
-    return _ctrl.set_population_option(session_id, index, option, value)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_background(
-    session_id: str,
-    value: Optional[float] = None,
-    fit: Optional[bool] = None,
-) -> dict:
-    """Set the flat background level and/or whether it is fitted."""
-    return _ctrl.set_modeling_background(session_id, value=value, fit=fit)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_set_q_range(
-    session_id: str,
-    q_min: Optional[float] = None,
-    q_max: Optional[float] = None,
-) -> dict:
-    """Set the Q range the Modeling fit uses.
-
-    Modeling crops the data itself, so this — not pyirena_ctrl_set_fit_q_range —
-    is what limits a Modeling fit. Pass null to leave one end unchanged.
-    """
-    return _ctrl.set_modeling_q_range(session_id, q_min=q_min, q_max=q_max)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_run_fit(
-    session_id: str, fit_method: str = "local"
-) -> dict:
-    """Fit the enabled populations over the model's Q range.
-
-    fit_method 'local' (default) refines from the current values; 'global'
-    runs differential evolution first, for core-shell models whose chi-squared
-    surface has many minima (needs finite bounds on every fitted parameter).
-    """
-    return _ctrl.run_modeling_fit(session_id, fit_method=fit_method)
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_get_results(session_id: str) -> dict:
-    """Return the last Modeling fit: chi-squared, reduced chi-squared, dof,
-    background, and each population's parameters plus derived quantities
-    (volume fraction, mean radius, Rg, specific surface)."""
-    return _ctrl.get_modeling_results(session_id)
-
-
-@_image_tool()
-def pyirena_ctrl_modeling_get_fit_image(
-    session_id: str, width: int = 1024, height: int = 800
-) -> list[Any]:
-    """Render the Modeling fit as a PNG: log-log data, the total model, and
-    each population as a dashed curve, with residuals below.
-
-    The per-population curves show which population carries which part of the
-    curve, and whether one has collapsed to nothing.
-    """
-    result = _ctrl.get_modeling_fit_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, f"Modeling fit image (session {session_id})")
-
-
-@mcp.tool()
-def pyirena_ctrl_modeling_save_fit(
-    session_id: str, output_path: Optional[str] = None
-) -> dict:
-    """Save the Modeling fit to NXcanSAS HDF5 (entry/modeling_results).
-
-    Defaults to overwriting the original file; pass output_path to save
-    elsewhere and preserve the original.
-    """
-    return _ctrl.save_modeling_fit(session_id, output_path=output_path)
-
-
-# ---------------------------------------------------------------------------
-# Control tools — WAXS Peak Fit
-# ---------------------------------------------------------------------------
-
-@mcp.tool()
-def pyirena_ctrl_waxs_list_options() -> dict:
-    """List WAXS peak shapes, background shapes and weighting modes.
-
-    Adaptive backgrounds (SNIP, Rolling Quantile Spline, Rolling Ball) are
-    estimated from the data rather than fitted. Needs no session.
-    """
-    return _ctrl.list_waxs_options()
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_select_model(
-    session_id: str, bg_shape: str = "SNIP"
-) -> dict:
-    """Create a WAXS peak-fit model with no peaks yet.
-
-    bg_shape 'SNIP' (default) estimates a smooth background from the data and
-    suits most patterns; polynomial shapes are fitted alongside the peaks.
-    """
-    return _ctrl.select_waxs_model(session_id, bg_shape=bg_shape)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_get_config(session_id: str) -> dict:
-    """Return the WAXS background setup and the current peak list."""
-    return _ctrl.get_waxs_config(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_set_background(session_id: str, bg_shape: str) -> dict:
-    """Switch the background shape, keeping the peaks.
-
-    The usual way to test whether a stubborn residual is a background artefact.
-    """
-    return _ctrl.set_waxs_background(session_id, bg_shape)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_set_background_parameter(
-    session_id: str,
-    name: str,
-    value: Optional[float] = None,
-    fit: Optional[bool] = None,
-    lo: Optional[float] = None,
-    hi: Optional[float] = None,
-) -> dict:
-    """Set a background parameter's value, fit flag or bounds.
-
-    Adaptive backgrounds have a tuning value only — they are estimated, not
-    fitted, so fit flag and bounds are ignored with a note.
-    """
-    return _ctrl.set_waxs_background_parameter(
-        session_id, name, value=value, fit=fit, lo=lo, hi=hi
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_find_peaks(
-    session_id: str,
-    prominence_frac: float = 0.05,
-    min_fwhm: float = 0.001,
-    max_fwhm: float = 0.5,
-    min_distance: float = 0.005,
-    shape: str = "Gauss",
-    replace: bool = True,
-) -> dict:
-    """Detect peaks and add them with close starting values.
-
-    The data-driven way to start instead of guessing positions. Raise
-    prominence_frac for fewer, stronger peaks; lower it to pick up shoulders.
-    """
-    return _ctrl.find_waxs_peaks(
-        session_id,
-        prominence_frac=prominence_frac,
-        min_fwhm=min_fwhm,
-        max_fwhm=max_fwhm,
-        min_distance=min_distance,
-        shape=shape,
-        replace=replace,
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_add_peak(
-    session_id: str,
-    q0: float,
-    shape: str = "Gauss",
-    amplitude: Optional[float] = None,
-    fwhm: float = 0.01,
-) -> dict:
-    """Add one peak at position q0.
-
-    Omit amplitude to take it from the measured intensity there, which starts
-    far closer than a generic default.
-    """
-    return _ctrl.add_waxs_peak(session_id, q0, shape=shape,
-                               amplitude=amplitude, fwhm=fwhm)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_remove_peak(session_id: str, index: int) -> dict:
-    """Remove the peak at this index; later peaks shift down."""
-    return _ctrl.remove_waxs_peak(session_id, index)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_list_peaks(session_id: str) -> dict:
-    """List every peak with its shape, parameters and derived integrated area."""
-    return _ctrl.list_waxs_peaks(session_id)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_get_peak_parameters(session_id: str, index: int) -> dict:
-    """Return one peak's parameters, bounds, fit flags and area."""
-    return _ctrl.get_waxs_peak_parameters(session_id, index)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_set_peak_shape(
-    session_id: str, index: int, shape: str
-) -> dict:
-    """Change a peak's shape, keeping A, Q0 and FWHM.
-
-    Pseudo-Voigt adds the eta mixing parameter (0 = Gaussian, 1 = Lorentzian).
-    """
-    return _ctrl.set_waxs_peak_shape(session_id, index, shape)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_set_peak_parameter(
-    session_id: str, index: int, name: str, value: float
-) -> dict:
-    """Set one peak parameter's value (A, Q0, FWHM or eta)."""
-    return _ctrl.set_waxs_peak_parameter(session_id, index, name, value)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_set_peak_parameter_fit(
-    session_id: str, index: int, name: str, fit: bool = True
-) -> dict:
-    """Choose whether one peak parameter is fitted or held.
-
-    Holding Q0 at a known reflection position while fitting width and
-    amplitude is the usual way to fit an identified phase.
-    """
-    return _ctrl.set_waxs_peak_parameter_fit(session_id, index, name, fit=fit)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_set_peak_parameter_bounds(
-    session_id: str,
-    index: int,
-    name: str,
-    lo: Optional[float] = None,
-    hi: Optional[float] = None,
-) -> dict:
-    """Set bounds on one peak parameter; null leaves that side unbounded."""
-    return _ctrl.set_waxs_peak_parameter_bounds(
-        session_id, index, name, lo=lo, hi=hi
-    )
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_run_fit(
-    session_id: str, weight_mode: str = "standard"
-) -> dict:
-    """Fit background and peaks inside the current fit Q range.
-
-    weight_mode 'standard' uses 1/sigma^2; 'equal' stops a low-noise
-    background dominating; 'relative' emphasises peaks over the background.
-    Returns quality plus each peak's values, uncertainties and area.
-    """
-    return _ctrl.run_waxs_fit(session_id, weight_mode=weight_mode)
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_get_results(session_id: str) -> dict:
-    """Return the last WAXS fit: quality, background, and every peak with
-    position, width, amplitude, 1-sigma uncertainties and integrated area."""
-    return _ctrl.get_waxs_results(session_id)
-
-
-@_image_tool()
-def pyirena_ctrl_waxs_get_fit_image(
-    session_id: str, width: int = 1024, height: int = 800
-) -> list[Any]:
-    """Render the WAXS fit as a PNG: data, total model, background and each
-    peak drawn separately, with residuals below.
-
-    How you spot a peak that has drifted onto its neighbour or collapsed to
-    zero amplitude.
-    """
-    result = _ctrl.get_waxs_fit_image(session_id, width=width, height=height)
-    return _ctrl_image_result(result, f"WAXS peak fit image (session {session_id})")
-
-
-@mcp.tool()
-def pyirena_ctrl_waxs_save_fit(
-    session_id: str, output_path: Optional[str] = None
-) -> dict:
-    """Save the WAXS fit to NXcanSAS HDF5 (entry/waxs_peakfit_results).
-
-    Defaults to overwriting the original file; pass output_path to save
-    elsewhere and preserve the original.
-    """
-    return _ctrl.save_waxs_fit(session_id, output_path=output_path)
+    result = _dispatch.call_tool(name, arguments)
+    if isinstance(result, dict) and "image_base64" in result:
+        return _ctrl_image_result(result, _dispatch_image_label(name, arguments, result))
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -95,7 +95,12 @@ MCP / AI API
         params/derived loops; add explicit fields otherwise)
 [ ] 16. api/aggregate.py: parameter reachable by tabulate/trend tools
         (fallback probes params/<name> and derived/<name> — auto)
-[ ] 17. mcp/server.py: only needs changes for genuinely new tool functions
+[ ] 17. mcp/server.py: only needs changes for a genuinely new READ-ONLY
+        api function. A new pyirena.api.control function needs a schema
+        in api/control/schemas.py (TOOL_SCHEMA_BY_NAME) and an export
+        from api/control/__init__.py — pyirena/mcp/dispatch.py's registry
+        picks it up automatically, no new MCP tool needed (see the
+        "Control API — dispatcher" section of mcp/server.py)
 
 DATA SELECTOR (Data Browser)
 [ ] 18. Create Report (data_selector/report.py): new values in the Markdown

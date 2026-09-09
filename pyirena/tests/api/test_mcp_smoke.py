@@ -24,6 +24,12 @@ def test_mcp_module_imports_and_registers_tools():
         "pyirena_read_manipulation_provenance",
         "pyirena_tabulate_parameter", "pyirena_summarize_sample",
         "pyirena_plot_iq", "pyirena_plot_parameter_trend",
+        # Session lifecycle — always top-level, never behind the dispatcher.
+        "pyirena_ctrl_open_dataset", "pyirena_ctrl_list_open_sessions",
+        "pyirena_ctrl_close_session", "pyirena_ctrl_get_session_summary",
+        # Dispatcher — collapses ~90 pyirena_ctrl_* tools (see pyirena/mcp/dispatch.py).
+        "pyirena_list_categories", "pyirena_list_tools", "pyirena_describe_tool",
+        "pyirena_call",
     }
     # Try the documented public method first
     if hasattr(mcp, "list_tools"):
@@ -41,6 +47,14 @@ def test_mcp_module_imports_and_registers_tools():
             pytest.skip("Could not introspect FastMCP tool registry")
     missing = expected - names
     assert not missing, f"MCP server is missing tools: {missing}"
+    # Regression guard: the dispatcher exists precisely to keep this number
+    # small and stable regardless of how many pyirena.api.control functions
+    # exist (ANL Argo gateway proxy caps a single request at 128 tools).
+    assert len(names) < 40, (
+        f"MCP server registers {len(names)} tools — did a new tool get added "
+        "as a top-level pyirena_ctrl_* wrapper instead of through the "
+        "pyirena_call dispatcher (pyirena/mcp/dispatch.py)?"
+    )
 
 
 class _FastmcpBlocker:

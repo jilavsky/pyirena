@@ -203,4 +203,28 @@ A Python script using only `pyirena.api` can:
 6. Decide (programmatically) to free Rg and run again
 7. Save the final fit back to HDF5
 
+---
+
+## Related work — MCP tool-count scaling (2026-09)
+
+The category structure this doc designed (Categories A-F, now realized as
+the `pyirena_ctrl_waxs_*`/`sizes_*`/`simple_*`/`modeling_*` naming
+convention in `pyirena/mcp/server.py`) turned out to matter for a second
+reason beyond organization: pyIrena-mcp's ~110 tools, combined with
+whatever else is active in an AI client's session, can exceed a hard
+provider-side cap on the number of tools in a single request (observed via
+the ANL Argo gateway proxy, 128 tools, `array_above_max_length`). The
+proposed fix — collapsing most `pyirena_ctrl_*` tools behind a small,
+fixed dispatcher (`pyirena_list_categories`/`pyirena_list_tools`/
+`pyirena_describe_tool`/`pyirena_call`) reusing this package's own
+`pyirena.api.control.schemas.TOOL_SCHEMA_BY_NAME` registry — was written
+up from the client side in AIDA's
+[`planning/mcp_tool_scaling.md`](../../../Aida/planning/mcp_tool_scaling.md)
+(Tier 2), and is now **implemented** on pyIrena's side
+(`pyirena/mcp/dispatch.py`; ~110 tools down to ~26; see `CHANGELOG.md`
+Unreleased and `docs/ai_tools_reference.md`). Still open: the matching
+AIDA-side work (`ToolCallRow` display, `confirm_tools` gating against the
+dispatched `name` argument) tracked in `Aida/PLAN.md` §2.2, and AIDA's
+Tier 1 curation UI, which is independent of this change.
+
 If that script works end-to-end, Subproject 1 is done.

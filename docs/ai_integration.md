@@ -48,14 +48,18 @@ exposes two families of tools — see
 - **Read-only tools** (`pyirena_` prefix) — discovery, per-tool result
   reading, parameter aggregation across files, headless plotting
   (e.g. `pyirena_summarize_folder`, `pyirena_list_files`).
-- **Control tools** (`pyirena_ctrl_` prefix) — drive fitting
-  interactively and write results back to HDF5. **Every fitting tool** is
-  covered: **Unified Fit** (`pyirena_ctrl_*`), **Size Distribution**
-  (`pyirena_ctrl_sizes_*`), **Simple Fits** (`pyirena_ctrl_simple_*`),
-  **Modeling** (`pyirena_ctrl_modeling_*`) and **WAXS Peak Fit**
-  (`pyirena_ctrl_waxs_*`).
-  These are stateful (session-based) and, unlike
-  the read-only tools, can modify files via the `*_save_fit` tools.
+- **Control tools** — drive fitting interactively and write results back
+  to HDF5. **Every fitting tool** is covered: Unified Fit, Size
+  Distribution, Simple Fits, Modeling and WAXS Peak Fit. Session
+  lifecycle (`pyirena_ctrl_open_dataset` and friends) is its own MCP
+  tool; everything else — model selection, parameters, fit execution,
+  quality, persistence (`*_save_fit`) — is reached through a small fixed
+  dispatcher (`pyirena_list_categories` / `pyirena_list_tools` /
+  `pyirena_describe_tool` / `pyirena_call`) instead of one MCP tool per
+  function, so the server's registered tool count stays small (~26)
+  regardless of how many control functions exist. These tools are
+  stateful (session-based) and, unlike the read-only tools, can modify
+  files.
 
 ---
 
