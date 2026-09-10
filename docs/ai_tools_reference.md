@@ -16,6 +16,7 @@ questions about a user's analysis data.
 >   own MCP tools.
 > - Everything else that drives fitting — model selection, parameters,
 >   fit execution, quality, persistence, across all five fitting tools —
+>   plus the stateless **calculators** (scattering contrast and friends),
 >   is **not** its own MCP tool any more. It is reached through a fixed
 >   4-tool dispatcher: `pyirena_list_categories()`, `pyirena_list_tools
 >   (category)`, `pyirena_describe_tool(name)`, and `pyirena_call(name,
@@ -39,10 +40,11 @@ questions about a user's analysis data.
 
 ## What pyirena gives you
 
-pyirena works in two modes. **Read mode** retrieves existing fit results
+pyirena works in three modes. **Read mode** retrieves existing fit results
 stored in NXcanSAS HDF5 files. **Control mode** lets you actually run fits —
 configure models, set parameters, execute the fitting algorithm, evaluate
-results, and save back to HDF5.
+results, and save back to HDF5. **Calculators** answer experiment-planning
+questions from first principles, with no dataset and no session at all.
 
 ### Read-mode analysis tools (results stored in NXcanSAS files)
 
@@ -61,8 +63,21 @@ results, and save back to HDF5.
 - **Data Merge / Data Manipulation** — provenance for combined or
   transformed datasets.
 
+### Calculators (no dataset required)
+
+- **Scattering contrast** — X-ray and neutron contrast, and scattering
+  length densities, from chemical formulas and mass densities. Includes
+  anomalous (Chantler-corrected) contrast, absorption and transmission at
+  a given energy, and a contrast-vs-energy scan for anomalous SAXS
+  planning. Also element lookup and read-only access to the user's saved
+  compound library.
+
 Your job is to help the user understand what's in their data, and — when
-asked — to fit new datasets autonomously using the control tools.
+asked — to fit new datasets autonomously using the control tools. Reach
+for a calculator whenever a number can be computed from composition rather
+than measured — above all a scattering contrast, which several fitting
+models need as an input. **Do not derive a contrast by hand**; the values
+`calc_contrast` returns are already in the units the fitting tools expect.
 
 ### Control-mode fitting (all five tools)
 
@@ -143,6 +158,11 @@ exist — otherwise you'll get `{"found": false}` and waste a turn.
   put the file inside the configured root.
 
 ---
+
+Calculators are the exception to two of the conventions above: they take
+no file path, and they never return `found`. On bad input they return
+`{"error", "suggestion", "code"}` — read the suggestion and retry rather
+than giving up.
 
 ## Tool reference (grouped)
 
@@ -342,6 +362,83 @@ PNG and returns both items described above.
 
 Use for the very common request: "plot how Rg evolved across all my
 scans for sample X."
+
+---
+
+## Calculators reference — support calculations (dispatcher category `"calculators"`)
+
+These are **stateless**: no `session_id`, no `pyirena_ctrl_open_dataset()`,
+no file. Call them as `pyirena_call(name, arguments)` like any other
+dispatched tool. They need the `pyirena[contrast]` extra; if it is missing
+you get a `MISSING_DEPENDENCY` error telling the user what to install.
+
+### Why you should reach for these
+
+The single most common use is getting a **scattering contrast** to feed
+into a fit. Both Size Distribution (`set_shape(..., contrast=...)`) and
+Modeling (a population's `contrast` parameter) take (Δρ)² in
+**10²⁰ cm⁻⁴** — exactly what `calc_contrast` returns as `xray_contrast`.
+Compute it, then pass it straight through. Deriving it by hand from
+electron densities is error-prone and unnecessary.
+
+#### `calc_contrast(formula_1, density_1, formula_2, density_2, name_1="", name_2="", mode="atomic_ratio", isotopes_1=None, isotopes_2=None, energy_keV=None, thickness_mm=1.0, vol_frac_1=0.01)`
+
+X-ray and neutron contrast between two compounds. Densities in g/cm³.
+
+Returns `xray_contrast` and `neutron_contrast` (10²⁰ cm⁻⁴),
+`ratio_xray_neutron`, and the two materials' full properties under
+`compound_1` / `compound_2` (each with `xray_sld` and `neutron_sld` in
+10¹⁰ cm⁻², molar mass, electron density, molar volume).
+
+Leave one formula empty (`""`) or its density `0` for **vacuum** — that
+gives the contrast of the other material against vacuum, which is what you
+want for a dry powder or an aerogel.
+
+Pass `energy_keV` to add the anomalous, Chantler-corrected quantities:
+`xray_contrast_anom`, `mu_1` / `mu_2` (cm⁻¹) and `transmission_1` /
+`transmission_2` / `transmission_sample`. Do this near an absorption edge,
+where the free-electron approximation is simply wrong.
+
+`isotopes_1` / `isotopes_2` take `{element: mass_number_string}`, e.g.
+`{"H": "2"}` for deuteration — the standard neutron contrast-variation
+lever. It changes the neutron contrast, barely the X-ray one.
+
+**When to use:** any time the user names two materials and wants to know
+whether they will scatter against each other, and always before setting
+`contrast` on a Sizes or Modeling fit.
+
+#### `calc_compound(formula, density, mode="atomic_ratio", name="", isotopes=None, energy_keV=None, thickness_mm=1.0)`
+
+One material's scattering length densities and molar properties. Use when
+the question is about a single material rather than a pair. `energy_keV`
+adds the anomalous SLD, linear absorption and transmission.
+
+#### `calc_contrast_energy_scan(formula_1, density_1, formula_2, density_2, e_start_keV, e_end_keV, n_points=200, ..., max_points=None)`
+
+Anomalous contrast, absorption and transmission across an energy range —
+the anomalous-SAXS planning tool. Returns arrays (`energy`,
+`xray_contrast_anom`, `xray_sld_anom_1/2`, `mu_1/2`,
+`transmission_1/2/sample`) plus a `best` summary naming the energy of
+maximum |contrast|.
+
+**Always check `best.transmission_sample`.** Maximum contrast frequently
+sits at an energy where the sample is effectively opaque; the useful answer
+is the best compromise between contrast and transmission, not the peak.
+Cost is linear in `n_points` — scan wide at the default 200, then rescan a
+narrow range around the edge.
+
+#### `lookup_element(symbol)`
+
+Z, atomic mass (g/mol), neutron coherent scattering length `b_c` (fm), and
+the isotopes that have neutron data. Use it to check a symbol, or to find
+the isotope label for an `isotopes` override.
+
+#### `list_compound_library()` / `load_compound(name)`
+
+Read-only access to the compounds the user saved in the Scattering Contrast
+GUI panel. Check here before asking the user to re-type a formula and
+density they have already defined. Saving and deleting are deliberately
+not exposed. An empty library is normal.
 
 ---
 
@@ -1009,6 +1106,23 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
 
 ## Example interactions
 
+### "Can you calculate the X-ray contrast between TiO (density 4.95 g/cm³) and Ti2O3 (density 4.49 g/cm³)?"
+```
+1. pyirena_call("calc_contrast", {"formula_1": "TiO",   "density_1": 4.95,
+                                  "formula_2": "Ti2O3", "density_2": 4.49})
+   → {"xray_contrast": 11.63, "neutron_contrast": 0.76,
+      "compound_1": {"xray_sld": 39.46, ...},
+      "compound_2": {"xray_sld": 36.05, ...},
+      "units": {"xray_contrast": "10^20 cm^-4", ...}}
+2. Report: SLDs 39.46 and 36.05 (10^10 cm^-2), X-ray contrast
+   11.63 x 10^20 cm^-4.
+3. Offer the follow-up: this value can be used directly as the `contrast`
+   for a Sizes or Modeling fit on such a sample —
+   pyirena_call("set_shape", {"session_id": ..., "shape": "sphere",
+                              "contrast": 11.63}).
+```
+No session, no file, no first-principles derivation — one call.
+
 ### "What's in this folder?"
 ```
 1. pyirena_summarize_folder("/data/run42")
@@ -1157,6 +1271,12 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
   context budget. For most questions, the scalar summary is enough.
 - **Don't fabricate parameter values.** If `value` is `null`, say so.
   Do not interpolate or invent.
+- **Don't derive a scattering contrast by hand.** If the user gives you
+  compositions and densities, call `calc_contrast` — it already returns
+  (Δρ)² in the 10²⁰ cm⁻⁴ units the fitting tools want. Hand-derivation
+  invites both arithmetic and unit-convention errors.
+- **Don't open a session for a calculator.** The `calculators` category
+  is stateless; `pyirena_ctrl_open_dataset()` is neither needed nor used.
 - **Don't speculate beyond the data.** Physical interpretations (e.g.
   "this Rg means …") should be framed as "consistent with…" and tied to
   what the user has told you about their sample.

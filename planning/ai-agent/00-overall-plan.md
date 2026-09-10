@@ -37,7 +37,9 @@ helpers AI can invoke for the user's convenience.
 
 ### In scope — workflow / utility tools (AI invokes for user convenience)
 - **Scattering contrast calculator** — AI can compute contrast when a fit
-  requires it, rather than asking the user to leave the app
+  requires it, rather than asking the user to leave the app.
+  **DONE** — `pyirena.api.calculators`, exposed as the MCP dispatcher's
+  `calculators` category.
 - **Data merge** — useful for bio users; AI can prepare combined datasets
   before fitting
 - **Data manipulation** — useful for bio users; AI can clean / trim / scale

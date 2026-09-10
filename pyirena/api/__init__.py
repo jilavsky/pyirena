@@ -36,10 +36,22 @@ Aggregation
 
 Plotting
     plot_iq, plot_parameter_trend
+
+Calculators (stateless; no dataset, no file access)
+    calc_contrast, calc_compound, calc_contrast_energy_scan,
+    lookup_element, list_compound_library, load_compound
 """
 from __future__ import annotations
 
 from pyirena.api.aggregate import summarize_sample, tabulate_parameter
+from pyirena.api.calculators import (
+    calc_compound,
+    calc_contrast,
+    calc_contrast_energy_scan,
+    list_compound_library,
+    load_compound,
+    lookup_element,
+)
 from pyirena.api.data import read_metadata, read_reduced_data
 from pyirena.api.discovery import inspect_file, list_files, summarize_folder
 from pyirena.api.plotting import plot_iq, plot_parameter_trend
@@ -68,4 +80,7 @@ __all__ = [
     "tabulate_parameter", "summarize_sample",
     # plotting
     "plot_iq", "plot_parameter_trend",
+    # calculators
+    "calc_contrast", "calc_compound", "calc_contrast_energy_scan",
+    "lookup_element", "list_compound_library", "load_compound",
 ]

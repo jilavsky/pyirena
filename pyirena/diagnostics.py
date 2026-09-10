@@ -57,8 +57,8 @@ OPTIONAL_DEPENDENCIES: Dict[str, Tuple[str, str]] = {
     "PyQt6": ("gui", "Qt bindings (fallback)"),
     "pyqtgraph": ("gui", "interactive plots"),
     "matplotlib": ("plotting", "static/headless plots"),
-    "xraydb": ("gui", "X-ray scattering contrast"),
-    "periodictable": ("gui", "neutron scattering contrast"),
+    "xraydb": ("contrast", "X-ray scattering contrast (anomalous)"),
+    "periodictable": ("contrast", "scattering contrast (masses, neutron b_c)"),
     "Dans_Diffraction": ("gui", "diffraction line markers"),
     "pyvista": ("gui3d", "3D voxelgram viewer"),
     "pyvistaqt": ("gui3d", "3D viewer Qt embedding"),
@@ -110,8 +110,14 @@ _ERROR_HINTS: Sequence[Tuple[str, str]] = (
     ),
     (
         "dll load failed",
-        "Windows could not load the Qt DLLs. Install the Microsoft Visual C++ "
-        "Redistributable (x64), then: "
+        "Windows could not load the Qt DLLs. The usual cause is two Qt "
+        "bindings in one environment: pyqtgraph tries PyQt6 before PySide6, "
+        "so a half-installed PyQt6 breaks it even when PySide6 is fine. "
+        "pyIrena needs PySide6 only — remove the other one: "
+        "python -m pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip PyQt6-WebEngine "
+        "(and 'micromamba remove pyqt' if conda installed it). "
+        "If PySide6 itself is the one failing, install the Microsoft Visual "
+        "C++ Redistributable (x64) and then: "
         "python -m pip install --force-reinstall PySide6",
     ),
     (
@@ -200,9 +206,63 @@ def probe(name: str) -> DependencyStatus:
     )
 
 
+def probe_qt_binding(name: str) -> DependencyStatus:
+    """Probe a Qt binding by importing its ``QtCore`` extension module.
+
+    Importing the top-level package alone proves nothing: ``PyQt6/__init__.py``
+    is almost empty and imports cleanly even when none of the Qt DLLs can be
+    loaded, so a plain :func:`probe` reports a thoroughly broken PyQt6 as
+    ``ok``. ``QtCore`` is the compiled part, so importing it is the real test.
+
+    Args:
+        name: ``"PySide6"`` or ``"PyQt6"``.
+
+    Returns:
+        A :class:`DependencyStatus` for the binding as a whole.
+    """
+    spec = _find_spec(name)
+    if spec is None:
+        return DependencyStatus(name=name, status="missing")
+
+    origin = getattr(spec, "origin", None)
+    try:
+        module = importlib.import_module(name)
+        qtcore = importlib.import_module(f"{name}.QtCore")
+    except BaseException as exc:  # noqa: BLE001 - report anything, never crash
+        return DependencyStatus(name=name, status="broken", path=origin, error=exc)
+
+    # PySide6 exposes __version__; PyQt6 only carries it on QtCore.
+    version = getattr(module, "__version__", None) or getattr(
+        qtcore, "PYQT_VERSION_STR", None
+    )
+    return DependencyStatus(
+        name=name,
+        status="ok",
+        version=version,
+        path=getattr(module, "__file__", origin),
+    )
+
+
 def probe_qt() -> List[DependencyStatus]:
     """Probe both supported Qt bindings, PySide6 first."""
-    return [probe("PySide6"), probe("PyQt6")]
+    return [probe_qt_binding("PySide6"), probe_qt_binding("PyQt6")]
+
+
+def _pin_pyqtgraph_binding(qt: Sequence[DependencyStatus]) -> None:
+    """Point pyqtgraph at a binding that actually loads, before probing it.
+
+    pyqtgraph's own search order is PyQt6 first, and its first pass simply
+    takes whichever candidate is already in ``sys.modules`` — so probing the
+    bindings ahead of it would otherwise make it pick up a broken PyQt6 and
+    report a failure the running GUI never sees (``pyirena.gui._qt`` pins the
+    same variable). An explicit user setting is left alone.
+    """
+    if os.environ.get("PYQTGRAPH_QT_LIB"):
+        return
+    for status in qt:
+        if status.ok:
+            os.environ["PYQTGRAPH_QT_LIB"] = status.name
+            return
 
 
 def explain_import_error(exc: BaseException) -> Optional[str]:
@@ -476,8 +536,11 @@ def _report() -> List[str]:
     out.append("")
     out.append("Optional dependencies")
     out.append("-" * 60)
+    qt = probe_qt()
+    qt_by_name = {s.name: s for s in qt}
+    _pin_pyqtgraph_binding(qt)
     for name, (extra, purpose) in OPTIONAL_DEPENDENCIES.items():
-        status = probe(name)
+        status = qt_by_name.get(name) or probe(name)
         marker = "  " if status.ok else "! "
         out.append(f"{marker}{status.summary()}   [{extra}: {purpose}]")
         if status.status == "broken":
@@ -487,7 +550,6 @@ def _report() -> List[str]:
     out.append("Diagnosis")
     out.append("-" * 60)
 
-    qt = probe_qt()
     if any(s.ok for s in qt):
         binding = next(s for s in qt if s.ok)
         out.append(f"  OK: Qt bindings available ({binding.name} {binding.version}).")
@@ -495,6 +557,14 @@ def _report() -> List[str]:
         out.append("  PROBLEM: no usable Qt binding — the GUI cannot start.")
         out.append("")
         out.extend("  " + line for line in format_qt_import_failure(qt).splitlines())
+
+    if all(_find_spec(s.name) is not None for s in qt):
+        out.append(
+            "  WARNING: both PySide6 and PyQt6 are installed. pyIrena uses "
+            "PySide6; pyqtgraph prefers PyQt6 and will pick the broken one "
+            "unless PYQTGRAPH_QT_LIB says otherwise. Remove PyQt6: "
+            "python -m pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip"
+        )
 
     for status in problems:
         if status.status != "broken":

@@ -147,7 +147,9 @@ expected to be its own implementation + debugging project.
 
 **Supported tools (final list — see [00-overall-plan.md](00-overall-plan.md)):**
 analysis — Unified Fit, Modeling, Size distribution, Simple fits, WAXS;
-utilities — Scattering contrast calculator, Data merge, Data manipulation.
+utilities — Scattering contrast calculator (**done**: the `calculators`
+dispatcher category, `pyirena/api/calculators.py`), Data merge, Data
+manipulation.
 
 **Strategy:** ship **Unified Fit first as the test case** for all
 infrastructure (session model, tool granularity, error reporting, image

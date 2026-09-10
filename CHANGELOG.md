@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Scattering Contrast is now reachable from scripts and AI agents. A new
+  stateless `pyirena.api.calculators` group wraps
+  `pyirena/core/scattering_contrast.py`: `calc_contrast` (X-ray and neutron
+  contrast between two compounds from formulas + densities, optionally
+  anomalous at a given energy), `calc_compound` (one material's SLDs),
+  `calc_contrast_energy_scan` (contrast vs energy, for anomalous SAXS
+  planning), `lookup_element`, and read-only access to the saved compound
+  library (`list_compound_library`, `load_compound`). Previously the tool
+  stopped at the core/io/gui layers, so `pyirena-mcp` — a pure wrapper over
+  `pyirena.api` — could not see it and agents derived contrasts by hand.
+  `calc_contrast` returns (Δρ)² in 10²⁰ cm⁻⁴, the same units the Sizes and
+  Modeling `contrast` parameter expects, so results feed straight into a fit.
+- `pyirena-mcp` exposes these as a sixth dispatcher category,
+  `calculators`, alongside the five fitting categories. The dispatcher
+  (`pyirena/mcp/dispatch.py`) now serves several schema registries rather
+  than only `pyirena.api.control`, so the group adds **no** top-level MCP
+  tools — the registered count stays at 26, and future calculators are free.
+- New `contrast` extra (`periodictable`, `xraydb`), referenced from `gui`,
+  `mcp` and `all`. `pip install pyirena[mcp]` now gets working calculators
+  without pulling in Qt; previously these two packages were reachable only
+  through the `gui` extra. `pyirena-doctor` reports them against the new
+  extra.
+
+### Fixed
+
+- Windows: pyqtgraph could fail with `DLL load failed while importing QtCore`
+  in an environment that carries both PySide6 and PyQt6. pyqtgraph tries
+  PyQt6 *before* PySide6, so a half-installed PyQt6 broke it even though
+  PySide6 loaded fine. `pyirena/gui/_qt.py` now pins `PYQTGRAPH_QT_LIB` to
+  the binding pyIrena actually imported.
+- `pyirena-doctor` reported a broken PyQt6 as `ok (version unknown)` — it
+  only imported the (nearly empty) top-level package. It now imports
+  `<binding>.QtCore`, warns when both bindings are installed, and no longer
+  blames the Visual C++ redistributable for what is a mixed-bindings
+  collision.
+
 ### Changed
 
 - `pyirena-mcp` collapsed ~90 `pyirena_ctrl_*` control tools (Sizes, Simple

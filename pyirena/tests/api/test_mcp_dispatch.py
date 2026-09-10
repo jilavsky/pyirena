@@ -1,5 +1,6 @@
 """Tests for pyirena.mcp.dispatch — the fixed dispatcher over
-pyirena.api.control that keeps pyirena-mcp's tool count small (see
+pyirena.api.control and pyirena.api.calculators that keeps pyirena-mcp's
+tool count small (see
 pyirena/mcp/server.py's "Control API — dispatcher" section and
 planning/ai-agent/01-api-and-mcp-extensions.md's "Related work" section).
 
@@ -10,8 +11,13 @@ from __future__ import annotations
 
 import pytest
 
+from pyirena.api.calculator_schemas import CALCULATOR_SCHEMA_BY_NAME
 from pyirena.api.control.schemas import TOOL_SCHEMA_BY_NAME
 from pyirena.mcp import dispatch
+
+# Every category the dispatcher serves: the five fitting tools plus the
+# stateless calculators group (pyirena.api.calculators).
+ALL_CATEGORIES = ["unified", "sizes", "simple", "modeling", "waxs", "calculators"]
 
 
 def test_session_lifecycle_excluded_from_dispatcher():
@@ -20,20 +26,27 @@ def test_session_lifecycle_excluded_from_dispatcher():
 
 
 def test_registry_covers_every_non_session_schema():
-    expected = set(TOOL_SCHEMA_BY_NAME) - dispatch.SESSION_LIFECYCLE_NAMES
+    expected = (
+        set(TOOL_SCHEMA_BY_NAME) | set(CALCULATOR_SCHEMA_BY_NAME)
+    ) - dispatch.SESSION_LIFECYCLE_NAMES
     assert set(dispatch._REGISTRY) == expected
+
+
+def test_schema_registries_do_not_collide():
+    """Dispatcher tool names are a flat namespace across all schema sources."""
+    assert set(TOOL_SCHEMA_BY_NAME).isdisjoint(CALCULATOR_SCHEMA_BY_NAME)
 
 
 def test_list_categories_counts_match_registry():
     result = dispatch.list_categories()
     names = {c["name"] for c in result["categories"]}
-    assert names == {"unified", "sizes", "simple", "modeling", "waxs"}
+    assert names == set(ALL_CATEGORIES)
     assert sum(c["tool_count"] for c in result["categories"]) == len(dispatch._REGISTRY)
     for c in result["categories"]:
         assert c["tool_count"] > 0, f"category {c['name']} has no tools"
 
 
-@pytest.mark.parametrize("category", ["unified", "sizes", "simple", "modeling", "waxs"])
+@pytest.mark.parametrize("category", ALL_CATEGORIES)
 def test_list_tools_names_round_trip_through_describe_tool(category):
     listed = dispatch.list_tools(category)
     assert listed["category"] == category
@@ -49,7 +62,7 @@ def test_list_tools_names_round_trip_through_describe_tool(category):
 def test_list_tools_unknown_category_lists_valid_ones():
     result = dispatch.list_tools("bogus")
     assert result["code"] == "UNKNOWN_CATEGORY"
-    for name in ("unified", "sizes", "simple", "modeling", "waxs"):
+    for name in ALL_CATEGORIES:
         assert name in result["suggestion"]
 
 

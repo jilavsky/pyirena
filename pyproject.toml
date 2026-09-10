@@ -49,12 +49,19 @@ qtplot = [
     "PySide6>=6.4.0,!=6.7.*,!=6.10.*",
     "pyqtgraph>=0.13.0",
 ]
+contrast = [
+    # Scattering-contrast calculations (pyirena.core.scattering_contrast and
+    # the pyirena.api.calculators group that wraps it). Named as its own
+    # extra because it is needed by the GUI panel AND, since the calculators
+    # were exposed over MCP, by headless/agent installs that want no Qt.
+    "periodictable>=1.7",   # atomic masses, Z, neutron b_c
+    "xraydb>=4.5",          # Chantler f1 and mass attenuation
+]
 gui = [
     "matplotlib>=3.5.0",
     "PySide6>=6.4.0,!=6.7.*,!=6.10.*",
     "pyqtgraph>=0.13.0",
-    "xraydb>=4.5",
-    "periodictable>=1.7",
+    "pyirena[contrast]",
     "Dans-Diffraction>=3.0",
     # AI advisor (optional — buttons hidden if not installed)
     "anthropic>=0.40.0",
@@ -71,8 +78,10 @@ gui3d = [
 ]
 mcp = [
     # MCP server exposing pyirena.api to AI clients (Claude Desktop, Claude
-    # Code, custom agents). pyirena.api itself is dependency-free; this extra
-    # adds the protocol layer + headless plotting.
+    # Code, custom agents). This extra adds the protocol layer + headless
+    # plotting, plus [contrast] for the pyirena.api.calculators group (the
+    # scattering-contrast tools in the dispatcher's "calculators" category),
+    # so an agent box gets working calculators without installing Qt.
     #
     # Upper bound: mcp 2.0 removed ``mcp.server.fastmcp``, the FastMCP/Image
     # entry point pyirena/mcp/server.py is built on, so a fresh install with
@@ -81,6 +90,7 @@ mcp = [
     # pin keeps `pip install pyirena[mcp]` working. Revisit when migrating.
     "mcp>=1.0.0,<2.0",
     "matplotlib>=3.5.0",
+    "pyirena[contrast]",
 ]
 plotting = [
     # Headless plotting helpers in pyirena.plotting (plot_saxs, unified/Guinier/
@@ -96,6 +106,7 @@ dev = [
     "twine",
 ]
 all = [
+    "pyirena[contrast]",
     "pyirena[gui]",
     "pyirena[gui3d]",
     "pyirena[mcp]",

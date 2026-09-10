@@ -23,6 +23,7 @@ This tool is ported from the Igor Pro `IR1K_ScattContrast.ipf` module of the Ire
 9. [File-based export / import of compounds](#file-based-export--import-of-compounds)
 10. [Exporting results](#exporting-results)
 11. [Physics reference](#physics-reference)
+12. [Programmatic / AI access](#programmatic--ai-access)
 
 ---
 
@@ -32,6 +33,7 @@ This tool is ported from the Igor Pro `IR1K_ScattContrast.ipf` module of the Ire
 |--------|---------|
 | From the Data Selector | Click **Scattering Contrast (GUI)** in the *Support Tools* section |
 | CLI entry point | `pyirena-contrast` |
+| Python / AI agent | `pyirena.api.calc_contrast(...)` — see [Programmatic / AI access](#programmatic--ai-access) |
 
 No loaded dataset is required — the tool is always available.
 
@@ -362,3 +364,42 @@ T        = exp(−μ_linear × d_cm)               [dimensionless]
 ```
 
 `d_cm` = sample thickness in cm (convert from the *Sample thickness* field in mm).
+
+---
+
+## Programmatic / AI access
+
+The same calculations are available headlessly through `pyirena.api`, and
+over MCP through the dispatcher's `calculators` category — so an AI agent
+can compute a contrast without you opening this panel. The physics is
+identical; this panel and the api call the same
+`pyirena/core/scattering_contrast.py` functions.
+
+```python
+from pyirena import api
+
+api.calc_contrast("TiO", 4.95, "Ti2O3", 4.49)
+# -> {"xray_contrast": 11.63, "neutron_contrast": 0.76,
+#     "compound_1": {"xray_sld": 39.46, ...},
+#     "compound_2": {"xray_sld": 36.05, ...}, ...}
+
+api.calc_compound("SiO2", 2.2, energy_keV=12.0)   # one material, anomalous
+api.calc_contrast_energy_scan("TiO", 4.95, "Ti2O3", 4.49,
+                              e_start_keV=4.5, e_end_keV=5.5)
+api.lookup_element("Ti")
+```
+
+Compounds you save in the [compound library](#compound-library) are
+readable from there too, via `api.list_compound_library()` and
+`api.load_compound(name)`. Saving and deleting stay panel-only — the api
+surface is deliberately read-only so an agent cannot alter your library.
+
+The returned `xray_contrast` is (Δρ)² in 10²⁰ cm⁻⁴, which is exactly what
+the **Size Distribution** and **Modeling** tools want for their `contrast`
+parameter, so the value transfers directly into a fit.
+
+This group needs the `pyirena[contrast]` extra (`periodictable` +
+`xraydb`); it is included in both `pyirena[gui]` and `pyirena[mcp]`. See
+[ai_tools_reference.md](ai_tools_reference.md) for the agent-facing tool
+descriptions, and the [Physics reference](#physics-reference) above for the
+equations behind these numbers.

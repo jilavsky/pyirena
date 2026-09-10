@@ -85,9 +85,23 @@ mcp = FastMCP(
         "pyirena_call(name, arguments) to run it. This keeps the tool count "
         "small regardless of how many underlying functions exist. "
         "\n\n"
-        "Five models are available — Unified Fit, Size Distribution (Sizes), "
-        "Simple Fits, Modeling and WAXS Peak Fit — matching the dispatcher "
-        "categories 'unified', 'sizes', 'simple', 'modeling', 'waxs'. Prefer "
+        "CALCULATORS (dispatcher category 'calculators'): stateless support "
+        "calculations that need no dataset and no session — do NOT open one. "
+        "pyirena_call('calc_contrast', {...}) computes the X-ray and neutron "
+        "scattering contrast between two compounds from their chemical "
+        "formulas and mass densities; its 'xray_contrast' is in 10^20 cm^-4, "
+        "the same units the 'contrast' parameter of Sizes set_shape() and of "
+        "a Modeling population expects, so feed it straight in rather than "
+        "deriving a contrast by hand. Also here: 'calc_compound' (one "
+        "material's SLD), 'calc_contrast_energy_scan' (contrast vs energy, "
+        "for anomalous SAXS planning), 'lookup_element', and read-only access "
+        "to the user's saved compound library ('list_compound_library', "
+        "'load_compound'). "
+        "\n\n"
+        "Five fitting models are available — Unified Fit, Size Distribution "
+        "(Sizes), Simple Fits, Modeling and WAXS Peak Fit — matching the "
+        "dispatcher categories 'unified', 'sizes', 'simple', 'modeling', "
+        "'waxs' (the sixth category, 'calculators', is described above). Prefer "
         "Simple Fits when the question is about one feature over a "
         "restricted Q range (an Rg, a Porod slope, the invariant); Unified "
         "Fit for a whole multi-level curve; Sizes to invert a dilute single "
@@ -134,8 +148,8 @@ mcp = FastMCP(
         "pyirena_call('get_waxs_results', {...}) (positions, widths, areas) → "
         "pyirena_call('save_waxs_fit', {...}). "
         "The session tools and Q-range tools (set_fit_q_range etc, category "
-        "'unified') are shared between all five tools (Modeling has its own "
-        "set_modeling_q_range). "
+        "'unified') are shared between all five fitting tools (Modeling has "
+        "its own set_modeling_q_range). "
         "Sessions are in-memory for this server process."
     ),
 )
@@ -568,14 +582,16 @@ def pyirena_describe_tool(name: str) -> dict:
 @_image_tool()
 def pyirena_call(name: str, arguments: Optional[dict[str, Any]] = None) -> Any:
     """Call one of the Unified Fit / Sizes / Simple Fits / Modeling / WAXS
-    Peak Fit control tools by name (everything except session lifecycle).
+    Peak Fit control tools by name (everything except session lifecycle), or
+    one of the stateless 'calculators' tools.
 
     name must be a tool name from pyirena_list_tools(category); see
     pyirena_describe_tool(name) for its expected arguments. Session-lifecycle
     tools (open_dataset, list_open_sessions, close_session,
     get_session_summary) are NOT dispatched here -- call
-    pyirena_ctrl_open_dataset() etc directly. Some tools return an inline
-    PNG image instead of plain data; both cases are handled transparently.
+    pyirena_ctrl_open_dataset() etc directly. Calculators need no session at
+    all. Some tools return an inline PNG image instead of plain data; both
+    cases are handled transparently.
     """
     result = _dispatch.call_tool(name, arguments)
     if isinstance(result, dict) and "image_base64" in result:

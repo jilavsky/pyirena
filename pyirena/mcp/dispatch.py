@@ -16,6 +16,11 @@ Session-lifecycle functions (``open_dataset``, ``list_open_sessions``,
 ``close_session``, ``get_session_summary``) are excluded here and stay
 top-level MCP tools instead, since nearly every workflow starts there.
 
+The dispatcher is not control-only: ``_SOURCES`` below lists every schema
+registry it serves. ``pyirena.api.calculators`` joins as the stateless
+"calculators" category, so support calculators (scattering contrast today,
+more later) reach agents without adding a single top-level MCP tool.
+
 Design doc: AIDA's ``planning/mcp_tool_scaling.md`` (Tier 2) and pyIrena's
 ``planning/ai-agent/01-api-and-mcp-extensions.md`` ("Related work" section).
 
@@ -29,7 +34,9 @@ import difflib
 import inspect
 from typing import Any
 
+from pyirena.api import calculators as _calc
 from pyirena.api import control as _ctrl
+from pyirena.api.calculator_schemas import CALCULATOR_SCHEMA_BY_NAME
 from pyirena.api.control.schemas import TOOL_SCHEMA_BY_NAME
 
 SESSION_LIFECYCLE_NAMES = frozenset(
@@ -50,24 +57,48 @@ _CATEGORY_BLURBS = {
     "simple": "Simple Fits — one analytical model (Guinier, Porod, Sphere, ...) over a Q sub-range.",
     "modeling": "Modeling — multi-population forward model with specific form/structure factors.",
     "waxs": "WAXS Peak Fit — peak position, width and area for wide-angle patterns.",
+    "calculators": (
+        "Calculators — stateless support calculations that need no dataset "
+        "and open no session (scattering contrast, SLDs, element lookup)."
+    ),
 }
 
 
-def _category_for(name: str) -> str:
+def _control_category_for(name: str) -> str:
+    """Category of a control tool, from the api.control submodule owning it."""
     module_name = inspect.getmodule(getattr(_ctrl, name)).__name__.rsplit(".", 1)[-1]
     return _CATEGORY_BY_MODULE[module_name]
 
 
+# Every schema registry the dispatcher serves, as
+# (schema_by_name, owning_module, category_resolver). The owning module is
+# stored per entry rather than the callable itself: functions are looked up
+# by name at call time (see call_tool), same as every other pyirena_ctrl_*
+# wrapper in server.py, so monkeypatching <module>.<name> (as the test suite
+# does) is honoured.
+_SOURCES: tuple[tuple[dict[str, dict], Any, Any], ...] = (
+    (TOOL_SCHEMA_BY_NAME, _ctrl, _control_category_for),
+    (CALCULATOR_SCHEMA_BY_NAME, _calc, lambda _name: "calculators"),
+)
+
+
 def _registry() -> dict[str, dict[str, Any]]:
-    # Deliberately does NOT cache the callable itself: pyirena.api.control
-    # functions are looked up by name at call time (see call_tool), same as
-    # every other pyirena_ctrl_* wrapper in server.py, so monkeypatching
-    # pyirena.api.control.<name> (as the test suite does) is honoured.
-    return {
-        name: {"category": _category_for(name), "schema": schema}
-        for name, schema in TOOL_SCHEMA_BY_NAME.items()
-        if name not in SESSION_LIFECYCLE_NAMES
-    }
+    registry: dict[str, dict[str, Any]] = {}
+    for schemas, module, category_for in _SOURCES:
+        for name, schema in schemas.items():
+            if name in SESSION_LIFECYCLE_NAMES:
+                continue
+            if name in registry:
+                raise RuntimeError(
+                    f"Duplicate dispatcher tool name '{name}' across schema "
+                    f"registries; names must be unique."
+                )
+            registry[name] = {
+                "category": category_for(name),
+                "schema": schema,
+                "module": module,
+            }
+    return registry
 
 
 _REGISTRY = _registry()
@@ -141,7 +172,10 @@ def describe_tool(name: str) -> dict:
 
 
 def call_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
-    """Dispatch to the real ``pyirena.api.control`` function named *name*.
+    """Dispatch to the real api function named *name*.
+
+    Resolves against the module that owns the tool's schema — currently
+    ``pyirena.api.control`` or ``pyirena.api.calculators``.
 
     Returns whatever that function returns unchanged (a plain dict, or a
     dict shaped like an image result — ``pyirena/mcp/server.py`` is
@@ -151,7 +185,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
     if entry is None:
         return _unknown_tool_error(name)
     try:
-        return getattr(_ctrl, name)(**(arguments or {}))
+        return getattr(entry["module"], name)(**(arguments or {}))
     except TypeError as exc:
         return {
             "error": f"Bad arguments for '{name}': {exc}",

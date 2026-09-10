@@ -29,6 +29,14 @@ api.plot_iq(["scan_007.h5", "scan_008.h5"], output_path="/tmp/iq.png")
 api.plot_parameter_trend("/data/run42",
                           tool="unified_fit", parameter="Rg",
                           subgroup_index=1)
+
+# Calculators (stateless: no dataset, no file access)
+api.calc_contrast("TiO", 4.95, "Ti2O3", 4.49)   # -> xray_contrast 11.63
+api.calc_compound("SiO2", 2.2)                  # -> xray_sld 18.8
+api.calc_contrast_energy_scan("TiO", 4.95, "Ti2O3", 4.49,
+                              e_start_keV=4.5, e_end_keV=5.5)
+api.lookup_element("Ti")
+api.list_compound_library(); api.load_compound("Alumina")
 ```
 
 ## Environment overrides
@@ -61,3 +69,16 @@ require a `subgroup_index` argument (1-based).
 - Set `include_arrays=True` on result readers to keep arrays (still
   decimated to `max_points`). Set `include_full=True` on
   `read_reduced_data` for full-fidelity I(Q).
+- **Calculators are the exception to the two rules above.** They answer
+  experiment-planning questions from first principles rather than reading a
+  file, so they take no path, never return `found`, and are the only api
+  module outside the `PYIRENA_DATA_ROOT` sandbox (there is nothing to
+  sandbox — the sole file touched is the user's own compound library, read
+  only). They also *return* `{"error", "suggestion", "code"}` dicts instead
+  of raising, matching `pyirena.api.control`: they are reached through the
+  same MCP dispatcher, and their failure modes (a typo in a formula, an
+  unknown element, a missing optional dependency) are agent-recoverable.
+  They need the `pyirena[contrast]` extra.
+- `calc_contrast()` returns `xray_contrast` as (Δρ)² in 10²⁰ cm⁻⁴ — the same
+  units and convention as the `contrast` parameter of a Sizes `set_shape()`
+  or a Modeling population, so the result can be fed straight into a fit.

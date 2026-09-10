@@ -21,6 +21,8 @@ to reinstall it sends them in a circle.  Run ``pyirena-doctor`` for the full
 report.
 """
 
+import os
+
 try:
     from PySide6 import QtCore, QtGui, QtWidgets
     from PySide6.QtCore import Signal
@@ -42,6 +44,13 @@ except ImportError as _pyside_error:  # pragma: no cover - only without PySide6
             "pyIrena could not load a Qt binding.\n\n"
             + format_qt_import_failure()
         ) from _pyside_error
+
+# pyqtgraph chooses its own binding, trying PyQt6 *before* PySide6, and only
+# falls back when the earlier one is not already imported.  On a machine that
+# carries both (a stale PyQt6 next to PySide6 is a common Windows leftover)
+# that can land pyqtgraph on a different — often unloadable — binding than the
+# one pyIrena just imported.  Pin it to ours; an explicit user setting wins.
+os.environ.setdefault("PYQTGRAPH_QT_LIB", QT_BINDING)
 
 # --- QtWidgets ---------------------------------------------------------------
 QAbstractItemView = QtWidgets.QAbstractItemView

@@ -31,7 +31,8 @@ AI summarises in plain language.
 │   AnythingLLM /  │                            │   ├ discovery    │
 │   custom agent)  │                            │   ├ readers      │
 │                  │                            │   ├ aggregation  │
-└──────────────────┘                            │   └ plotting     │
+│                  │                            │   ├ plotting     │
+└──────────────────┘                            │   └ calculators  │
                                                  └────────┬─────────┘
                                                           │
                                                           ▼
@@ -42,7 +43,7 @@ AI summarises in plain language.
 ```
 
 The MCP server is a small process that the AI client spawns on demand. It
-exposes two families of tools — see
+exposes three families of tools — see
 [ai_tools_reference.md](ai_tools_reference.md):
 
 - **Read-only tools** (`pyirena_` prefix) — discovery, per-tool result
@@ -60,6 +61,14 @@ exposes two families of tools — see
   regardless of how many control functions exist. These tools are
   stateful (session-based) and, unlike the read-only tools, can modify
   files.
+- **Calculators** — stateless support calculations that need no dataset
+  and open no session: scattering contrast and scattering length
+  densities from chemical formulas and densities, anomalous contrast and
+  transmission at a given energy, contrast-vs-energy scans for anomalous
+  SAXS planning, element lookup, and read-only access to the user's saved
+  compound library. Reached through the same dispatcher, as category
+  `calculators`, so they add no registered MCP tools at all. They need
+  the `pyirena[contrast]` extra (included in `pyirena[mcp]`).
 
 ---
 
@@ -273,6 +282,11 @@ fetched on the fly.
 - Array size bounding: large arrays are decimated to
   `PYIRENA_MAX_ARRAY_POINTS` to prevent context-window blowup or
   denial-of-service via huge response payloads.
+- Calculators sit outside the `PYIRENA_DATA_ROOT` boundary because they
+  take no path: they compute from formulas and densities alone. The one
+  file they touch is the user's own compound library in their home
+  directory, and only for reading — saving and deleting are not exposed,
+  so an agent cannot mutate it.
 
 ---
 
@@ -290,6 +304,9 @@ api.tabulate_parameter("/data/run42", tool="unified_fit",
 api.plot_iq(["/data/run42/sample_A_scan_017.h5",
              "/data/run42/sample_A_scan_018.h5"],
             output_path="/tmp/iq.png")
+
+# Calculators need no data at all
+api.calc_contrast("TiO", 4.95, "Ti2O3", 4.49)["xray_contrast"]  # 11.63
 ```
 
 See [pyirena/api/README.md](../pyirena/api/README.md) for a complete
