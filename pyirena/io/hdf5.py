@@ -534,12 +534,39 @@ def _read_one_sasdata(f, data_path):
         Error_attributes = dict(dataset.attrs)
 
     # --- Q resolution (resolutions pointer, else 'Qdev') ---------------------
-    resolutions_key = _attr_first_str(Q_attributes.get('resolutions')) or 'Qdev'
+    # Q@resolutions lists every resolution contribution, and 'dQl' (the scalar
+    # slit length) is a legitimate entry -- for slit-smeared data with no
+    # per-point width it can be the ONLY entry.  It is not a per-point
+    # resolution, so it must never be picked up as dQ: doing so returns a 0-d
+    # scalar that every downstream consumer then indexes as an array.  The
+    # slit length is read separately into slit_length just below.
+    _res_tokens = [
+        t for t in _attr_all_str(Q_attributes.get('resolutions')) if t != 'dQl'
+    ]
+    resolutions_key = _res_tokens[0] if _res_tokens else 'Qdev'
     dq_path = f"{data_path}/{resolutions_key}"
     if dq_path in f:
         dataset = f[dq_path]
         dQ = dataset[()]
         dQ_attributes = dict(dataset.attrs)
+
+    # Guard against files already written with a malformed per-point
+    # resolution (a 0-d 'Qdev' holding a slit length, produced by older
+    # pyirena versions before this was fixed).  Such a file reads back as a
+    # scalar even with the token filter above, so validate the shape.
+    if dQ is not None:
+        _dq_arr = np.asarray(dQ)
+        if _dq_arr.ndim != 1 or _dq_arr.size != np.asarray(Q).size:
+            logging.warning(
+                "Ignoring malformed per-point resolution '%s' in %s "
+                "(shape %s, expected 1-D of length %d).",
+                resolutions_key,
+                os.path.basename(getattr(f, 'filename', '') or data_path),
+                _dq_arr.shape,
+                int(np.asarray(Q).size),
+            )
+            dQ = None
+            dQ_attributes = {}
 
     # --- Slit-smearing metadata (NXcanSAS slit-length resolution) ------------
     # Slit-smeared data declare Q@resolutions="dQw,dQl": the per-point width

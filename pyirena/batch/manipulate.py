@@ -11,8 +11,6 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional
 
-import numpy as np
-
 from pyirena.logging_setup import ensure_console_output as _ensure_console
 
 if TYPE_CHECKING:
@@ -217,14 +215,7 @@ def average_data(
             continue
         q, I = d['Q'], d['Intensity']
         dI = d.get('Error', I * 0.05)
-        # A slit-smeared file returns dQ as the scalar slit length, not a
-        # per-point array; DataManipulation.average indexes it and would
-        # raise. The slit length is carried separately and re-written on
-        # save, so drop a non-conforming dQ here.
         dQ = d.get('dQ')
-        if dQ is not None:
-            _dq = np.asarray(dQ, dtype=float)
-            dQ = _dq if _dq.ndim == 1 and _dq.size == np.asarray(q).size else None
         datasets.append((q, I, dI, dQ))
         loaded_files.append(fp)
         loaded_data.append(d)

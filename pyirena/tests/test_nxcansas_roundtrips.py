@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 import pytest
 
-from pyirena.io.hdf5 import find_matching_groups
+from pyirena.io.hdf5 import find_matching_groups, readGenericNXcanSAS
 from pyirena.io.nxcansas_unified import (
     create_nxcansas_file,
     load_unified_fit_results,
@@ -370,3 +370,99 @@ class TestSaveMergedData:
         )
         with h5py.File(out, "r") as f:
             assert "entry/unified_fit_results" not in f
+
+
+class TestResolutionMetadata:
+    """dQl (scalar slit length) must never be read back as a per-point dQ.
+
+    NXcanSAS lets slit-smeared data declare ``Q@resolutions='dQl'`` with no
+    per-point width at all. Reading that scalar into ``dQ`` made every
+    consumer that indexes dQ raise, and made ``scale`` write the slit length
+    back out as a 0-d ``Qdev`` — corrupting the file's resolution metadata.
+    """
+
+    @staticmethod
+    def _make(path, dq=None):
+        q = np.logspace(-3, -0.5, 50)
+        intensity = 1000 * np.exp(-((q * 60) ** 2) / 3) + 0.5
+        create_nxcansas_file(path, q, intensity, intensity * 0.02, dq=dq, sample_name="s")
+        return q
+
+    def test_dql_only_file_reads_dq_as_none(self, tmp_path):
+        from pyirena.io._nxcansas_common import append_dql
+
+        fp = tmp_path / "a.h5"
+        self._make(fp)
+        append_dql(fp, 0.018)
+        data = readGenericNXcanSAS(str(tmp_path), "a.h5")
+        assert data["dQ"] is None                      # not the 0.018 scalar
+        assert data["slit_length"] == pytest.approx(0.018)
+        assert data["is_slit_smeared"] is True
+
+    def test_per_point_resolution_still_read_when_present(self, tmp_path):
+        from pyirena.io._nxcansas_common import append_dql
+
+        fp = tmp_path / "b.h5"
+        q = self._make(fp, dq=np.logspace(-3, -0.5, 50) * 0.01)
+        append_dql(fp, 0.018)
+        data = readGenericNXcanSAS(str(tmp_path), "b.h5")
+        assert data["dQ"] is not None
+        assert np.asarray(data["dQ"]).shape == q.shape
+        assert data["slit_length"] == pytest.approx(0.018)
+
+    def test_writer_ignores_a_scalar_dq(self, tmp_path):
+        """A slit length passed as dq must not become a 0-d Qdev."""
+        fp = tmp_path / "c.h5"
+        q = np.logspace(-3, -0.5, 50)
+        intensity = np.ones_like(q)
+        create_nxcansas_file(fp, q, intensity, intensity * 0.02, dq=0.018, sample_name="c")
+        with h5py.File(fp, "r") as f:
+            grp = _sasdata(f)
+            assert "Qdev" not in grp
+            assert "resolutions" not in dict(grp["Q"].attrs)
+
+    def test_writer_ignores_a_wrong_length_dq(self, tmp_path):
+        fp = tmp_path / "d.h5"
+        q = np.logspace(-3, -0.5, 50)
+        intensity = np.ones_like(q)
+        create_nxcansas_file(
+            fp, q, intensity, intensity * 0.02, dq=np.arange(7.0), sample_name="d"
+        )
+        with h5py.File(fp, "r") as f:
+            assert "Qdev" not in _sasdata(f)
+
+    def test_legacy_file_with_scalar_qdev_is_tolerated(self, tmp_path):
+        """Files already written with the 0-d Qdev must still read cleanly."""
+        fp = tmp_path / "legacy.h5"
+        self._make(fp)
+        with h5py.File(fp, "a") as f:
+            grp = _sasdata(f)
+            grp.create_dataset("Qdev", data=0.018)
+            grp["Q"].attrs["resolutions"] = "Qdev"
+        data = readGenericNXcanSAS(str(tmp_path), "legacy.h5")
+        assert data["dQ"] is None
+
+    def test_core_operations_survive_a_scalar_dq(self):
+        """Defence in depth: core must tolerate a scalar from any source."""
+        from pyirena.core.data_manipulation import (
+            DataManipulation,
+            ScaleConfig,
+            TrimConfig,
+        )
+
+        q = np.logspace(-3, -0.5, 50)
+        intensity = np.ones_like(q)
+        scalar_dq = np.float64(0.018)
+
+        trimmed = DataManipulation.trim(
+            q, intensity, intensity * 0.02, scalar_dq, TrimConfig(0.01, 0.1)
+        )
+        assert trimmed.dQ is None
+        scaled = DataManipulation.scale(
+            q, intensity, intensity * 0.02, scalar_dq, ScaleConfig(scale_I=2.0)
+        )
+        assert scaled.dQ is None
+        averaged = DataManipulation.average(
+            [(q, intensity, intensity * 0.02, scalar_dq)] * 2
+        )
+        assert averaged.dQ is None

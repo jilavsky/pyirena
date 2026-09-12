@@ -15,6 +15,8 @@ from typing import List, Optional, Tuple
 import numpy as np
 from scipy.optimize import minimize
 
+from pyirena.core.data_manipulation import _conforming_dq
+
 log = logging.getLogger(__name__)
 
 
@@ -408,6 +410,11 @@ class DataMerge:
         I_out = np.concatenate([I1_adj[mask1], I2_adj[mask2]])
         dI_out = np.concatenate([dI1_adj[mask1], dI2_adj[mask2]])
 
+        # A slit-smeared source can hand us a scalar where a per-point
+        # resolution is expected; indexing that raises. See
+        # pyirena.core.data_manipulation._conforming_dq.
+        dQ1 = _conforming_dq(dQ1, q1)
+        dQ2 = _conforming_dq(dQ2, q2)
         if dQ1 is not None or dQ2 is not None:
             dQ1_eff = dQ1 if dQ1 is not None else np.zeros(len(q1))
             dQ2_eff = dQ2 if dQ2 is not None else np.zeros(len(q2))

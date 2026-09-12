@@ -152,16 +152,6 @@ def _load(path: str) -> tuple[Optional[dict], Optional[dict]]:
     data["Error"] = (
         np.asarray(error, dtype=float) if error is not None else intensity * 0.05
     )
-
-    # For a slit-smeared file, readGenericNXcanSAS returns dQ as the scalar
-    # slit length rather than a per-point array, and the core operations
-    # index it (dQ[mask]) — which raises on a 0-d value. The slit length is
-    # carried separately in slit_length / is_slit_smeared and re-written by
-    # the saver, so drop a non-conforming dQ rather than propagating it.
-    dq = data.get("dQ")
-    if dq is not None:
-        dq_arr = np.asarray(dq, dtype=float)
-        data["dQ"] = dq_arr if dq_arr.ndim == 1 and dq_arr.size == q.size else None
     data["_source_path"] = file_p
     data.setdefault("is_nxcansas", True)
     data.setdefault("slit_length", 0.0)

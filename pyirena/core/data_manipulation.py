@@ -72,6 +72,27 @@ class ManipResult:
 # Engine
 # ======================================================================
 
+def _conforming_dq(dQ, q) -> Optional[np.ndarray]:
+    """Return *dQ* only if it is a usable per-point resolution for *q*.
+
+    ``dQ`` must be a 1-D array parallel to ``q``. Anything else — most often
+    a 0-d scalar — is treated as absent rather than indexed.
+
+    The scalar case is real: NXcanSAS lets slit-smeared data declare
+    ``Q@resolutions='dQl'`` with no per-point width at all, and older pyirena
+    versions additionally wrote the slit length into a 0-d ``Qdev``. A slit
+    length is not a per-point resolution; it travels separately as
+    ``slit_length`` / ``is_slit_smeared`` and is re-written by the saver, so
+    dropping it here loses nothing.
+    """
+    if dQ is None:
+        return None
+    arr = np.asarray(dQ)
+    if arr.ndim != 1 or arr.size != np.asarray(q).size:
+        return None
+    return arr
+
+
 class DataManipulation:
     """Core data manipulation engine — no GUI dependencies.
 
@@ -126,6 +147,7 @@ class DataManipulation:
 
         Uncertainty is scaled by *scale_uncertainty* (or *scale_I* if not set).
         """
+        dQ = _conforming_dq(dQ, q)
         s = config.scale_I
         s_unc = config.scale_uncertainty if config.scale_uncertainty is not None else s
         I_out = s * I - config.background
@@ -156,6 +178,7 @@ class DataManipulation:
         config: TrimConfig,
     ) -> ManipResult:
         """Keep only points where ``q_min <= Q <= q_max``."""
+        dQ = _conforming_dq(dQ, q)
         mask = (q >= config.q_min) & (q <= config.q_max)
         return ManipResult(
             q=q[mask].copy(),
@@ -186,6 +209,7 @@ class DataManipulation:
         ``'linear'``: ``np.linspace(q_min, q_max, n_points)``
         ``'reference'``: use ``config.reference_q`` directly
         """
+        dQ = _conforming_dq(dQ, q)
         if config.mode == 'reference':
             if config.reference_q is None:
                 raise ValueError("reference_q must be provided for mode='reference'")
@@ -255,6 +279,7 @@ class DataManipulation:
         n = len(datasets)
         if n == 1:
             q, I, dI, dQ = datasets[0]
+            dQ = _conforming_dq(dQ, q)
             return ManipResult(
                 q=q.copy(), I=I.copy(), dI=dI.copy(),
                 dQ=dQ.copy() if dQ is not None else None,
@@ -295,7 +320,7 @@ class DataManipulation:
         dI_avg = np.maximum(dI_prop, dI_spread)
 
         # dQ from reference dataset
-        dQ_ref = datasets[reference_index][3]
+        dQ_ref = _conforming_dq(datasets[reference_index][3], q_ref)
         dQ_out = dQ_ref[valid_all].copy() if dQ_ref is not None else None
 
         return ManipResult(
@@ -363,6 +388,7 @@ class DataManipulation:
         q_out = q_sample[valid].copy()
         I_out = I_sample[valid] - scale * I_buf_interp[valid]
         dI_out = np.sqrt(dI_sample[valid] ** 2 + (scale * dI_buf_interp[valid]) ** 2)
+        dQ_sample = _conforming_dq(dQ_sample, q_sample)
         dQ_out = dQ_sample[valid].copy() if dQ_sample is not None else None
 
         return ManipResult(
@@ -439,6 +465,7 @@ class DataManipulation:
             rel_d = np.where(I_d[nonzero] != 0, dI_d[nonzero] / np.abs(I_d[nonzero]), 0.0)
         dI_out[nonzero] = np.abs(I_out[nonzero]) * np.sqrt(rel_n ** 2 + rel_d ** 2)
 
+        dQ_num = _conforming_dq(dQ_num, q_num)
         dQ_out = dQ_num[valid].copy() if dQ_num is not None else None
 
         return ManipResult(

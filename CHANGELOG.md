@@ -56,12 +56,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Averaging slit-smeared data raised `IndexError: invalid index to scalar
-  variable`. `readGenericNXcanSAS` returns `dQ` as the scalar slit length
-  (not a per-point array) for a slit-smeared file, and
-  `DataManipulation.average` indexes it. `pyirena.batch.average_data` and
-  the new api layer now drop a non-conforming `dQ`; the slit length is
-  carried separately and re-written on save.
+- **Slit-smeared data with no per-point Q resolution was read incorrectly,
+  crashing or corrupting every manipulation.** NXcanSAS lets such data
+  declare `Q@resolutions='dQl'` — the scalar slit length as the only
+  resolution contribution — and `readGenericNXcanSAS` took the first
+  `resolutions` token as the per-point resolution dataset, so `dQ` came
+  back as a 0-d scalar. Every consumer that indexes `dQ` then raised
+  `IndexError: invalid index to scalar variable` (trim, rebin, average,
+  subtract, divide — in the GUI panels as well as batch), while `scale`
+  quietly copied the scalar through and the saver wrote the slit length out
+  as a 0-d `Qdev`, corrupting the file's resolution metadata in a way that
+  read back as a scalar again next time. The file was standards-correct;
+  the reader was not. Fixed at three levels: `readGenericNXcanSAS` never
+  selects `dQl` as the per-point resolution and validates the shape of
+  whatever it does select; `DataManipulation` and `DataMerge` treat a `dQ`
+  that is not parallel to `Q` as absent; and `create_nxcansas_file` ignores
+  a non-conforming `dq` with a warning instead of writing a malformed
+  `Qdev`. Files already carrying a 0-d `Qdev` now read cleanly, and shed it
+  the next time any pyirena operation rewrites them. No resolution
+  information is lost — for slit-smeared data the resolution is the slit
+  length, carried separately as `slit_length` / `dQl`.
 - `pyirena.batch.average_data` did not pass `slit_length` to the saver, so
   averaging a slit-smeared series silently produced a pinhole file with no
   `dQl` — corrupting any later desmearing or smeared fit. `manipulate_data`

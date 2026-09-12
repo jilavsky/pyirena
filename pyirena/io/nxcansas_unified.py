@@ -51,6 +51,22 @@ def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
     timestamp = datetime.now().isoformat()
     metadata = metadata or {}
 
+    # 'Qdev' is a PER-POINT resolution parallel to Q. Writing anything else
+    # there — most often a scalar slit length that a caller picked up from a
+    # slit-smeared file — silently corrupts the resolution metadata, and the
+    # bad value then reads back as a scalar forever. Drop it instead; a slit
+    # length belongs in 'dQl' and is written separately by append_dql().
+    if dq is not None:
+        _dq = np.asarray(dq)
+        if _dq.ndim != 1 or _dq.size != np.asarray(q).size:
+            log.warning(
+                "Ignoring non-conforming dq for %s: expected a 1-D array of "
+                "length %d, got shape %s. If this is a slit length, pass it "
+                "through append_dql()/slit_length instead of dq.",
+                filepath.name, int(np.asarray(q).size), _dq.shape,
+            )
+            dq = None
+
     with h5py.File(filepath, "w") as f:
         # Root attributes
         f.attrs['default'] = 'entry'

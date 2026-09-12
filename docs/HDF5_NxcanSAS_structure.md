@@ -21,11 +21,23 @@ The following datasets contain the reduced scattering data:
 
 | Dataset | Description | Units | Attributes to Note |
 |---------|-------------|--------|---------------------|
-| `Q`     | Scattering vector | $1/\text{\AA}$ | `@long_name`: "Q (A^-1)", `@resolutions`: "Qdev" |
+| `Q`     | Scattering vector | $1/\text{\AA}$ | `@long_name`: "Q (A^-1)", `@resolutions`: see below |
+| `Qdev` / `dQw` | Per-point $Q$ resolution (one value per $Q$ point) | $1/\text{\AA}$ | Optional |
+| `dQl`   | Slit length (half-height) — a **single scalar**, not per-point | $1/\text{\AA}$ | Present ⇒ the curve is slit smeared |
 | `I`     | Reduced Intensity | $1/\text{cm}$ | `@long_name`: "Intensity", `@uncertainties`: "Idev" |
 | `Idev`  | Uncertainties ($dI$) | $1/\text{cm}$ or $\text{cm}^2/\text{cm}^3$ | `@long_name`: "Uncertainties" |
 
 **Note on $dI$:** If the `Idev` dataset is missing from the `sasdata` group, it means uncertainties were not recorded or are unavailable for that specific dataset.
+
+**Note on `Q@resolutions`:** this attribute lists *every* resolution
+contribution, comma separated — `"Qdev"`, `"dQw,dQl"`, or just `"dQl"`.
+Only the per-point entries (`Qdev` / `dQw`) are arrays parallel to `Q`;
+`dQl` is a single scalar describing the slit geometry. **Never read the
+first token blindly** — slit-smeared data with no per-point width
+legitimately declares `resolutions="dQl"` alone, and treating that scalar
+as a per-point resolution corrupts everything downstream. pyIrena reads the
+first non-`dQl` token into `dQ` (validating that it is parallel to `Q`) and
+`dQl` separately into `slit_length` / `is_slit_smeared`.
 
 ## 2. Handling USAXS (SMR vs. Desmeared)
 For USAXS files, two variants of the sample group may exist:
