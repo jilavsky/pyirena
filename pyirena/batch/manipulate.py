@@ -11,6 +11,8 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional
 
+import numpy as np
+
 from pyirena.logging_setup import ensure_console_output as _ensure_console
 
 if TYPE_CHECKING:
@@ -215,7 +217,14 @@ def average_data(
             continue
         q, I = d['Q'], d['Intensity']
         dI = d.get('Error', I * 0.05)
+        # A slit-smeared file returns dQ as the scalar slit length, not a
+        # per-point array; DataManipulation.average indexes it and would
+        # raise. The slit length is carried separately and re-written on
+        # save, so drop a non-conforming dQ here.
         dQ = d.get('dQ')
+        if dQ is not None:
+            _dq = np.asarray(dQ, dtype=float)
+            dQ = _dq if _dq.ndim == 1 and _dq.size == np.asarray(q).size else None
         datasets.append((q, I, dI, dQ))
         loaded_files.append(fp)
         loaded_data.append(d)
@@ -265,6 +274,10 @@ def average_data(
             q=result.q, I=result.I, dI=result.dI, dQ=result.dQ,
             operation=result.operation,
             provenance=result.metadata,
+            # Without this the averaged file loses its dQl, so a
+            # slit-smeared series silently comes back as pinhole and any
+            # later desmearing or smeared fitting is wrong.
+            slit_length=float(loaded_data[0].get('slit_length', 0.0) or 0.0),
         )
     except Exception:
         log.error(f"[pyirena.batch.average_data] Save error:\n{traceback.format_exc()}")

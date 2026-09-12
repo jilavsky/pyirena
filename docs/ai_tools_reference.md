@@ -16,7 +16,8 @@ questions about a user's analysis data.
 >   own MCP tools.
 > - Everything else that drives fitting — model selection, parameters,
 >   fit execution, quality, persistence, across all five fitting tools —
->   plus the stateless **calculators** (scattering contrast and friends),
+>   plus the stateless **calculators** (scattering contrast and friends)
+>   and the **data operations** (average, subtract, merge, ...),
 >   is **not** its own MCP tool any more. It is reached through a fixed
 >   4-tool dispatcher: `pyirena_list_categories()`, `pyirena_list_tools
 >   (category)`, `pyirena_describe_tool(name)`, and `pyirena_call(name,
@@ -40,11 +41,13 @@ questions about a user's analysis data.
 
 ## What pyirena gives you
 
-pyirena works in three modes. **Read mode** retrieves existing fit results
+pyirena works in four modes. **Read mode** retrieves existing fit results
 stored in NXcanSAS HDF5 files. **Control mode** lets you actually run fits —
 configure models, set parameters, execute the fitting algorithm, evaluate
 results, and save back to HDF5. **Calculators** answer experiment-planning
 questions from first principles, with no dataset and no session at all.
+**Data operations** transform datasets — averaging frames, subtracting a
+baseline, merging USAXS with SAXS — and write the result as a new file.
 
 ### Read-mode analysis tools (results stored in NXcanSAS files)
 
@@ -71,6 +74,13 @@ questions from first principles, with no dataset and no session at all.
   a given energy, and a contrast-vs-energy scan for anomalous SAXS
   planning. Also element lookup and read-only access to the user's saved
   compound library.
+
+### Data operations (creates new data files)
+
+- **Average** frames, optionally screening out radiation-damaged ones.
+- **Subtract** a buffer, solvent or baseline; **divide** by a reference.
+- **Merge** two datasets that overlap in Q (USAXS + SAXS) into one curve.
+- **Scale**, **trim** and **rebin** a dataset.
 
 Your job is to help the user understand what's in their data, and — when
 asked — to fit new datasets autonomously using the control tools. Reach
@@ -159,8 +169,8 @@ exist — otherwise you'll get `{"found": false}` and waste a turn.
 
 ---
 
-Calculators are the exception to two of the conventions above: they take
-no file path, and they never return `found`. On bad input they return
+Calculators and data operations are the exception to two of the conventions
+above: calculators take no file path, and neither group returns `found`. On bad input they return
 `{"error", "suggestion", "code"}` — read the suggestion and retry rather
 than giving up.
 
@@ -362,6 +372,121 @@ PNG and returns both items described above.
 
 Use for the very common request: "plot how Rg evolved across all my
 scans for sample X."
+
+---
+
+## Data operations reference — transforming data (dispatcher category `"data"`)
+
+These are the **only** pyirena tools that create data files. No session and
+no `session_id` — call them as `pyirena_call(name, arguments)` like any
+other dispatched tool.
+
+### Where the output goes
+
+| Input | Operation | Output |
+|---|---|---|
+| `/data/run42/s1.h5` | average | `/data/run42_manip/s1_avg.h5` |
+| `/data/run42/s1.h5` | subtract | `/data/run42_manip/s1_sub.h5` |
+| `/data/run42/s1.h5` | divide | `/data/run42_manip/s1_div.h5` |
+| `/data/run42/s1.h5` | scale | `/data/run42_manip/s1_scaled.h5` |
+| `/data/run42/s1.h5` | trim | `/data/run42_manip/s1_trimmed.h5` |
+| `/data/run42/s1.h5` | rebin | `/data/run42_manip/s1_rebinned.h5` |
+| `/data/usaxs/s1.h5` | merge | `/data/usaxs_merged/s1_merged.h5` |
+
+A **sibling** of the source folder, not a subfolder — the same place the
+GUI and `pyirena.batch` write, so the user finds results where they expect.
+Repeating an operation overwrites its own previous output; different
+operations use different suffixes and never collide. Pass `output_folder`
+to override, which you must do if you get `PATH_NOT_ALLOWED` (that happens
+when `PYIRENA_DATA_ROOT` is the data folder itself, putting the sibling
+outside the sandbox).
+
+### Always check the point accounting
+
+Every operation returns `n_points_in`, `n_points_result`,
+`n_points_written` and `n_dropped_nonpositive`, plus a `warnings` list.
+Points legitimately disappear for two reasons: log-log interpolation does
+not extrapolate (so operating against a narrower-Q dataset truncates the
+result), and the saver strips non-positive intensities before writing.
+
+**A subtraction that drops many points is over-subtracted.** Report that to
+the user and offer a smaller `buffer_scale` rather than presenting the
+result as clean.
+
+#### `average_data(files, output_folder=None, similarity_check=False, similarity_p_min=0.01, similarity_method="cormap", similarity_reference="first", similarity_normalize_scale=True)`
+
+Average two or more datasets onto the first one's Q grid. Uncertainties are
+the larger of the propagated error and the point-to-point scatter.
+
+Set `similarity_check=true` for a time series where radiation damage is
+possible: a cormap test compares the frames and drops outliers, returning
+them in `rejected`. Worth doing by default on a repeated-exposure series of
+a biological or beam-sensitive sample.
+
+All frames must share the same slit-smearing status.
+
+#### `subtract_data(sample_file, buffer_file, buffer_scale=1.0, auto_scale=False, auto_q_min=None, auto_q_max=None, output_folder=None)`
+
+`I_sample - buffer_scale * I_buffer`, with the buffer interpolated onto the
+sample's Q grid. The everyday "remove the solvent / the empty cell / the
+baseline condition" operation.
+
+`auto_scale` fits `buffer_scale` from the integral ratio over a Q window —
+it needs **both** `auto_q_min` and `auto_q_max`, and you get an error if you
+supply only one. Use a window where the sample and buffer should coincide,
+typically the high-Q tail.
+
+#### `divide_data(numerator_file, denominator_file, denominator_scale=1.0, denominator_background=0.0, output_folder=None)`
+
+`I_num / (denominator_scale * I_den - denominator_background)`. Points
+where the denominator is zero come back non-finite; they are counted in
+`n_nonfinite` and stripped on save.
+
+#### `scale_data(file, scale_I=1.0, background=0.0, scale_uncertainty=None, output_folder=None)`
+
+`scale_I * I - background` — background subtracted **after** scaling. Use
+to put a dataset on absolute scale, or to remove a known flat background.
+
+#### `trim_data(file, q_min=0.0, q_max=None, output_folder=None)`
+
+Keep only `q_min <= Q <= q_max` (1/Å, inclusive). Use to drop a noisy
+high-Q tail or a beamstop-contaminated low-Q region before fitting.
+
+#### `rebin_data(file, mode="log", n_points=200, q_min=None, q_max=None, reference_file=None, output_folder=None)`
+
+Resample onto a new Q grid. `mode="log"` is the usual choice for SAS;
+`mode="reference"` reuses another file's grid (pass `reference_file`).
+Because interpolation does not extrapolate, the result can be shorter than
+`n_points`.
+
+#### `merge_datasets(file1, file2, q_overlap_min=None, q_overlap_max=None, fit_scale=True, scale_dataset=2, fixed_scale_value=1.0, fit_qshift=False, fixed_qshift_value=0.0, qshift_dataset=0, split_at_left_cursor=False, output_folder=None)`
+
+Join two datasets that overlap in Q. **`file1` must be the lower-Q dataset**
+(usually USAXS) — it is the absolute-intensity reference and keeps its
+scale; `file2` (usually SAXS) is rescaled onto it. Getting the order wrong
+returns `SWAPPED_INPUTS` naming the correct order.
+
+Omit both overlap bounds to auto-detect (intersect the two Q ranges, trim
+10% off each side). Returns the fitted `scale`, `background`,
+`chi_squared` and `n_overlap_points`.
+
+**A background is always fitted and subtracted from file1** — there is no
+way to force it to zero. Check the returned `background` is small compared
+with the intensities before trusting the merge.
+
+Keep `scale_dataset=2` (the default) unless you specifically need file1
+rescaled: it has a closed-form solution, while `scale_dataset=1` falls back
+to slower iterative fitting.
+
+Mixing slit-smeared USAXS with pinhole SAXS is normal and allowed; anything
+worth knowing comes back in `slit_warning`.
+
+#### `match_merge_files(folder1, folder2)`
+
+Read-only. Pairs files across two folders on (text before the first
+underscore, last integer in the name), so `sampleA_usaxs_007.h5` pairs with
+`sampleA_saxs_007.h5`. Call it before looping `merge_datasets` over a run,
+and check `unmatched_1` / `unmatched_2` for files with no partner.
 
 ---
 
@@ -1106,6 +1231,34 @@ Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
 
 ## Example interactions
 
+### "Average these frames for me."
+```
+1. pyirena_list_files("/data/run42", sample_filter="catalyst_A")
+   → pick the frames the user means; confirm if ambiguous.
+2. pyirena_call("average_data", {
+     "files": [".../f001.h5", ".../f002.h5", ".../f003.h5"],
+     "similarity_check": true})            # screen for radiation damage
+   → {"output_path": "/data/run42_manip/f001_avg.h5",
+      "n_datasets": 3, "rejected": [],
+      "n_points_in": 900, "n_points_written": 300,
+      "n_dropped_nonpositive": 0}
+3. Report where the file went and how many frames went in. If "rejected"
+   is non-empty, name the dropped frames and their p-values — that is a
+   radiation-damage finding the user needs to hear.
+```
+
+### "Subtract the buffer from my sample."
+```
+1. pyirena_call("subtract_data", {
+     "sample_file": ".../sample.h5", "buffer_file": ".../buffer.h5"})
+   → {"output_path": "/data/run42_manip/sample_sub.h5",
+      "n_dropped_nonpositive": 31,
+      "warnings": ["31 point(s) had intensity <= 0 ..."]}
+2. 31 stripped points means over-subtraction — do NOT present this as a
+   clean result. Say so and retry with a smaller buffer_scale, or use
+   auto_scale with a high-Q window where the two should coincide.
+```
+
 ### "Can you calculate the X-ray contrast between TiO (density 4.95 g/cm³) and Ti2O3 (density 4.49 g/cm³)?"
 ```
 1. pyirena_call("calc_contrast", {"formula_1": "TiO",   "density_1": 4.95,
@@ -1277,6 +1430,19 @@ No session, no file, no first-principles derivation — one call.
   invites both arithmetic and unit-convention errors.
 - **Don't open a session for a calculator.** The `calculators` category
   is stateless; `pyirena_ctrl_open_dataset()` is neither needed nor used.
+- **Don't do arithmetic on returned arrays.** If the user wants data
+  averaged, subtracted, merged, scaled, trimmed or rebinned, call the
+  `data` category — it writes a proper NXcanSAS file with provenance that
+  the fitting tools can then read. Pulling arrays out with
+  `pyirena_read_reduced_data` and combining them yourself produces
+  decimated numbers, no file, and no provenance.
+- **Don't present an over-subtracted result as clean.** Check
+  `n_dropped_nonpositive` on every data operation and tell the user when
+  points were stripped.
+- **Don't confuse the provenance readers with the operations.**
+  `pyirena_read_manipulation_provenance` reports what was *already* done to
+  a file; it returns `{"found": false}` on a raw dataset. To actually
+  transform data, use the `data` category.
 - **Don't speculate beyond the data.** Physical interpretations (e.g.
   "this Rg means …") should be framed as "consistent with…" and tied to
   what the user has told you about their sample.

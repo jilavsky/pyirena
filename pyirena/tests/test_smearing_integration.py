@@ -261,3 +261,36 @@ def test_modeling_saves_ideal_curve(tmp_path):
     assert back["model_I_ideal"] is not None
     assert abs(back["slit_length"] - 0.018) < 1e-9
     assert back["data_is_slit_smeared"] is True
+
+
+# --------------------------------------------------------------------------- #
+# F2b — averaging must not lose the slit length
+# --------------------------------------------------------------------------- #
+def test_average_preserves_slit_length(tmp_path):
+    """batch.average_data used to omit slit_length, silently dropping dQl.
+
+    A slit-smeared series that comes back as pinhole breaks every later
+    desmearing or smeared fit, with nothing to warn the user.
+    """
+    from pyirena.batch.manipulate import average_data
+    from pyirena.io.hdf5 import readGenericNXcanSAS
+    from pyirena.io.nxcansas_unified import create_nxcansas_file
+
+    slit = 0.018
+    q = np.logspace(-3, -0.5, 120)
+    src = tmp_path / "smeared"
+    src.mkdir()
+    for i in (1, 2):
+        intensity = 1000 * np.exp(-((q * 60) ** 2) / 3) + 0.5
+        fp = src / f"f{i}.h5"
+        create_nxcansas_file(fp, q, intensity, intensity * 0.02, sample_name=f"f{i}")
+        # mark as slit smeared the same way the rest of the io layer does
+        from pyirena.io._nxcansas_common import append_dql
+        append_dql(fp, slit)
+
+    result = average_data([str(src / "f1.h5"), str(src / "f2.h5")], verbose=False)
+    assert result is not None
+    out = result["output_file"]
+    back = readGenericNXcanSAS(str(out.parent), out.name)
+    assert back.get("is_slit_smeared") is True
+    assert abs(float(back.get("slit_length", 0.0)) - slit) < 1e-9

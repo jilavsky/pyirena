@@ -41,9 +41,12 @@ helpers AI can invoke for the user's convenience.
   **DONE** — `pyirena.api.calculators`, exposed as the MCP dispatcher's
   `calculators` category.
 - **Data merge** — useful for bio users; AI can prepare combined datasets
-  before fitting
+  before fitting.
+  **DONE** — `merge_datasets` / `match_merge_files` in the `data` category.
 - **Data manipulation** — useful for bio users; AI can clean / trim / scale
-  data before fitting
+  data before fitting.
+  **DONE** — `average_data` / `subtract_data` / `divide_data` /
+  `scale_data` / `trim_data` / `rebin_data` in the `data` category.
 
 ### Out of scope
 - **saxsMorph** — not an analysis technique

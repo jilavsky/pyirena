@@ -28,6 +28,7 @@ The tool is available three ways:
    - [Divide (structure factor)](#divide-structure-factor)
 4. [Output files](#output-files)
 5. [Python API reference](#python-api-reference)
+6. [AI agent / MCP access](#ai-agent--mcp-access)
 6. [Interpolation and uncertainty propagation](#interpolation-and-uncertainty-propagation)
 
 ---
@@ -358,3 +359,36 @@ The **relative uncertainty** (dI/I) is interpolated linearly in log10(Q)
 space, then multiplied by the interpolated intensity.  This preserves the
 signal-to-noise character of counting-statistics data, where relative
 uncertainty varies smoothly with Q.
+
+---
+
+## AI agent / MCP access
+
+Every operation on this panel is also available headlessly through
+`pyirena.api`, and over MCP as the dispatcher's `data` category — so an AI
+agent can average or subtract without the GUI. Same core engine, same
+output naming as described under [Output files](#output-files).
+
+```python
+from pyirena import api
+
+api.average_data(["f001.h5", "f002.h5", "f003.h5"], similarity_check=True)
+api.subtract_data("sample.h5", "buffer.h5", buffer_scale=0.98)
+api.divide_data("sample.h5", "reference.h5")
+api.scale_data("sample.h5", scale_I=2.0, background=0.1)
+api.trim_data("sample.h5", q_min=0.01, q_max=0.3)
+api.rebin_data("sample.h5", mode="log", n_points=200)
+```
+
+Unlike `pyirena.batch`, these return a dict describing what happened rather
+than `None` on failure, including `n_points_in` / `n_points_written` /
+`n_dropped_nonpositive` so a caller can see when points were stripped (an
+over-subtraction, most often). Errors come back as
+`{"error", "suggestion", "code"}`.
+
+The api layer also adds two guards the panel relies on the user for: it
+refuses to average datasets with mismatched slit smearing, and it rejects
+`auto_scale` without both Q bounds instead of silently ignoring it.
+
+See [ai_tools_reference.md](ai_tools_reference.md) for the agent-facing
+tool descriptions.

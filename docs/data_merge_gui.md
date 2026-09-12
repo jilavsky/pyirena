@@ -458,3 +458,33 @@ backgrounds when data chi-squared is otherwise equal.
 The initial scale is estimated as the median-intensity ratio of the two
 datasets in the overlap region (`median(I1) / median(I2)` for `scale_dataset=2`).
 Background always starts at 0.
+
+---
+
+## AI agent / MCP access
+
+Merging is available headlessly through `pyirena.api` and over MCP as the
+dispatcher's `data` category, using the same engine and the same output
+naming as the panel.
+
+```python
+from pyirena import api
+
+# pair two folders, then merge each pair
+pairs = api.match_merge_files("/data/usaxs", "/data/saxs")["pairs"]
+for pair in pairs:
+    api.merge_datasets(pair["file1"], pair["file2"])
+```
+
+`file1` must be the lower-Q dataset; passing them the other way round
+returns a `SWAPPED_INPUTS` error naming the correct order rather than
+silently rescaling the wrong curve. Omitting `q_overlap_min` /
+`q_overlap_max` auto-detects the overlap the same way batch mode does.
+
+The returned dict carries the fitted `scale`, `background`,
+`chi_squared`, `n_overlap_points` and any `slit_warning`. As in the panel,
+a background is always fitted — see [Optimisation
+details](#optimisation-details).
+
+See [ai_tools_reference.md](ai_tools_reference.md) for the agent-facing
+tool descriptions.

@@ -18,8 +18,10 @@ top-level MCP tools instead, since nearly every workflow starts there.
 
 The dispatcher is not control-only: ``_SOURCES`` below lists every schema
 registry it serves. ``pyirena.api.calculators`` joins as the stateless
-"calculators" category, so support calculators (scattering contrast today,
-more later) reach agents without adding a single top-level MCP tool.
+"calculators" category and ``pyirena.api.data_ops`` as the "data" category,
+so support calculators and data operations (scattering contrast, averaging,
+subtraction, merging) reach agents without adding a single top-level MCP
+tool.
 
 Design doc: AIDA's ``planning/mcp_tool_scaling.md`` (Tier 2) and pyIrena's
 ``planning/ai-agent/01-api-and-mcp-extensions.md`` ("Related work" section).
@@ -36,8 +38,10 @@ from typing import Any
 
 from pyirena.api import calculators as _calc
 from pyirena.api import control as _ctrl
+from pyirena.api import data_ops as _data_ops
 from pyirena.api.calculator_schemas import CALCULATOR_SCHEMA_BY_NAME
 from pyirena.api.control.schemas import TOOL_SCHEMA_BY_NAME
+from pyirena.api.data_op_schemas import DATA_OP_SCHEMA_BY_NAME
 
 SESSION_LIFECYCLE_NAMES = frozenset(
     {"open_dataset", "list_open_sessions", "close_session", "get_session_summary"}
@@ -61,6 +65,10 @@ _CATEGORY_BLURBS = {
         "Calculators — stateless support calculations that need no dataset "
         "and open no session (scattering contrast, SLDs, element lookup)."
     ),
+    "data": (
+        "Data operations — average, subtract, divide, scale, trim, rebin and "
+        "merge datasets. The only tools that WRITE new data files."
+    ),
 }
 
 
@@ -79,6 +87,7 @@ def _control_category_for(name: str) -> str:
 _SOURCES: tuple[tuple[dict[str, dict], Any, Any], ...] = (
     (TOOL_SCHEMA_BY_NAME, _ctrl, _control_category_for),
     (CALCULATOR_SCHEMA_BY_NAME, _calc, lambda _name: "calculators"),
+    (DATA_OP_SCHEMA_BY_NAME, _data_ops, lambda _name: "data"),
 )
 
 
@@ -175,7 +184,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
     """Dispatch to the real api function named *name*.
 
     Resolves against the module that owns the tool's schema — currently
-    ``pyirena.api.control`` or ``pyirena.api.calculators``.
+    ``pyirena.api.control``, ``pyirena.api.calculators`` or
+    ``pyirena.api.data_ops``.
 
     Returns whatever that function returns unchanged (a plain dict, or a
     dict shaped like an image result — ``pyirena/mcp/server.py`` is

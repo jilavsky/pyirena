@@ -1,5 +1,6 @@
 """Tests for pyirena.mcp.dispatch — the fixed dispatcher over
-pyirena.api.control and pyirena.api.calculators that keeps pyirena-mcp's
+pyirena.api.control, pyirena.api.calculators and pyirena.api.data_ops
+that keeps pyirena-mcp's
 tool count small (see
 pyirena/mcp/server.py's "Control API — dispatcher" section and
 planning/ai-agent/01-api-and-mcp-extensions.md's "Related work" section).
@@ -13,11 +14,15 @@ import pytest
 
 from pyirena.api.calculator_schemas import CALCULATOR_SCHEMA_BY_NAME
 from pyirena.api.control.schemas import TOOL_SCHEMA_BY_NAME
+from pyirena.api.data_op_schemas import DATA_OP_SCHEMA_BY_NAME
 from pyirena.mcp import dispatch
 
-# Every category the dispatcher serves: the five fitting tools plus the
-# stateless calculators group (pyirena.api.calculators).
-ALL_CATEGORIES = ["unified", "sizes", "simple", "modeling", "waxs", "calculators"]
+# Every category the dispatcher serves: the five fitting tools, the
+# stateless calculators (pyirena.api.calculators) and the data operations
+# (pyirena.api.data_ops).
+ALL_CATEGORIES = [
+    "unified", "sizes", "simple", "modeling", "waxs", "calculators", "data",
+]
 
 
 def test_session_lifecycle_excluded_from_dispatcher():
@@ -27,7 +32,9 @@ def test_session_lifecycle_excluded_from_dispatcher():
 
 def test_registry_covers_every_non_session_schema():
     expected = (
-        set(TOOL_SCHEMA_BY_NAME) | set(CALCULATOR_SCHEMA_BY_NAME)
+        set(TOOL_SCHEMA_BY_NAME)
+        | set(CALCULATOR_SCHEMA_BY_NAME)
+        | set(DATA_OP_SCHEMA_BY_NAME)
     ) - dispatch.SESSION_LIFECYCLE_NAMES
     assert set(dispatch._REGISTRY) == expected
 
@@ -35,6 +42,8 @@ def test_registry_covers_every_non_session_schema():
 def test_schema_registries_do_not_collide():
     """Dispatcher tool names are a flat namespace across all schema sources."""
     assert set(TOOL_SCHEMA_BY_NAME).isdisjoint(CALCULATOR_SCHEMA_BY_NAME)
+    assert set(TOOL_SCHEMA_BY_NAME).isdisjoint(DATA_OP_SCHEMA_BY_NAME)
+    assert set(CALCULATOR_SCHEMA_BY_NAME).isdisjoint(DATA_OP_SCHEMA_BY_NAME)
 
 
 def test_list_categories_counts_match_registry():

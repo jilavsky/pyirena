@@ -32,7 +32,8 @@ AI summarises in plain language.
 │   custom agent)  │                            │   ├ readers      │
 │                  │                            │   ├ aggregation  │
 │                  │                            │   ├ plotting     │
-└──────────────────┘                            │   └ calculators  │
+│                  │                            │   ├ calculators  │
+└──────────────────┘                            │   └ data ops     │
                                                  └────────┬─────────┘
                                                           │
                                                           ▼
@@ -43,7 +44,7 @@ AI summarises in plain language.
 ```
 
 The MCP server is a small process that the AI client spawns on demand. It
-exposes three families of tools — see
+exposes four families of tools — see
 [ai_tools_reference.md](ai_tools_reference.md):
 
 - **Read-only tools** (`pyirena_` prefix) — discovery, per-tool result
@@ -69,6 +70,12 @@ exposes three families of tools — see
   compound library. Reached through the same dispatcher, as category
   `calculators`, so they add no registered MCP tools at all. They need
   the `pyirena[contrast]` extra (included in `pyirena[mcp]`).
+- **Data operations** — average, subtract, divide, scale, trim, rebin and
+  merge datasets. Reached through the dispatcher as category `data`, so
+  again no extra registered tools. **These create new data files**: output
+  goes to a sibling of the source folder (`/data/run42` →
+  `/data/run42_manip`, or `_merged`) with a per-operation filename suffix,
+  matching what the GUI and `pyirena.batch` already do.
 
 ---
 
@@ -271,8 +278,12 @@ fetched on the fly.
 
 ## Security model
 
-- Read-only: the v0.7 API has no write functions. The AI cannot modify or
-  delete files.
+- **Not read-only.** Two groups write: the control tools save fit results
+  into NXcanSAS files (in place by default), and the `data` operations
+  create new data files next to the source. Nothing deletes or overwrites
+  an input dataset — a data operation always writes to a new name — but a
+  repeated operation does overwrite its own previous output, and saving a
+  fit without an explicit `output_path` updates the source file in place.
 - File-access boundary: `PYIRENA_DATA_ROOT` is enforced on every public
   call. Without it set, any absolute path is accepted — use this only on
   a fully trusted client (e.g. local CLI), never when exposing the server
@@ -287,6 +298,12 @@ fetched on the fly.
   file they touch is the user's own compound library in their home
   directory, and only for reading — saving and deleting are not exposed,
   so an agent cannot mutate it.
+- Data operations honour `PYIRENA_DATA_ROOT` on both the inputs and the
+  derived output folder. Note the default output folder is a *sibling* of
+  the source folder, so setting the root to the data folder itself makes
+  the default illegal; the tool then returns `PATH_NOT_ALLOWED` and the
+  agent must pass an explicit in-root `output_folder`. Set the root one
+  level above your data to avoid this.
 
 ---
 
@@ -307,6 +324,11 @@ api.plot_iq(["/data/run42/sample_A_scan_017.h5",
 
 # Calculators need no data at all
 api.calc_contrast("TiO", 4.95, "Ti2O3", 4.49)["xray_contrast"]  # 11.63
+
+# Data operations write a new file and return where it went
+api.average_data(["/data/run42/f001.h5", "/data/run42/f002.h5"])
+api.subtract_data("/data/run42/sample.h5", "/data/run42/buffer.h5")
+api.merge_datasets("/data/usaxs/s_001.h5", "/data/saxs/s_001.h5")
 ```
 
 See [pyirena/api/README.md](../pyirena/api/README.md) for a complete

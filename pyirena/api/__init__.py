@@ -40,6 +40,10 @@ Plotting
 Calculators (stateless; no dataset, no file access)
     calc_contrast, calc_compound, calc_contrast_energy_scan,
     lookup_element, list_compound_library, load_compound
+
+Data operations (the only group that WRITES data files)
+    average_data, subtract_data, divide_data, scale_data, trim_data,
+    rebin_data, merge_datasets, match_merge_files
 """
 from __future__ import annotations
 
@@ -53,6 +57,16 @@ from pyirena.api.calculators import (
     lookup_element,
 )
 from pyirena.api.data import read_metadata, read_reduced_data
+from pyirena.api.data_ops import (
+    average_data,
+    divide_data,
+    match_merge_files,
+    merge_datasets,
+    rebin_data,
+    scale_data,
+    subtract_data,
+    trim_data,
+)
 from pyirena.api.discovery import inspect_file, list_files, summarize_folder
 from pyirena.api.plotting import plot_iq, plot_parameter_trend
 from pyirena.api.results import (
@@ -83,4 +97,7 @@ __all__ = [
     # calculators
     "calc_contrast", "calc_compound", "calc_contrast_energy_scan",
     "lookup_element", "list_compound_library", "load_compound",
+    # data operations (write files)
+    "average_data", "subtract_data", "divide_data", "scale_data",
+    "trim_data", "rebin_data", "merge_datasets", "match_merge_files",
 ]

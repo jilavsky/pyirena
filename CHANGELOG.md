@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Data Manipulation and Data Merge are now reachable from scripts and AI
+  agents. A new `pyirena.api.data_ops` group adds `average_data`,
+  `subtract_data`, `divide_data`, `scale_data`, `trim_data`, `rebin_data`,
+  `merge_datasets` and the read-only `match_merge_files` pairing helper,
+  exposed over MCP as the dispatcher's `data` category (again no new
+  top-level MCP tools — the count stays at 26). Previously an agent asked
+  to average or subtract data had no tool for it: only the two read-only
+  provenance readers existed, and those return `{"found": false}` on a raw
+  file, so the agent would retry and then sweep the whole tool list.
+  Output naming is unchanged from the GUI and batch layers — a sibling
+  `_manip` / `_merged` folder plus the per-operation filename suffix
+  (`_avg`, `_sub`, `_div`, `_scaled`, `_trimmed`, `_rebinned`, `_merged`).
+  These wrap `core` + `io` directly rather than `pyirena.batch`, which
+  attaches a stdout log handler that would corrupt MCP's stdio transport
+  and returns a bare `None` on every failure. The api layer adds guards
+  core does not have: mismatched slit smearing is refused for averaging
+  (not only for subtract/divide), an empty trim window is an error rather
+  than a silent zero-length result, `auto_scale` without both Q bounds is
+  rejected instead of silently ignored, swapped merge inputs are caught,
+  and every call reports `n_points_in` / `n_points_written` /
+  `n_dropped_nonpositive` so an over-subtraction is visible.
+
 - Scattering Contrast is now reachable from scripts and AI agents. A new
   stateless `pyirena.api.calculators` group wraps
   `pyirena/core/scattering_contrast.py`: `calc_contrast` (X-ray and neutron
@@ -34,6 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Averaging slit-smeared data raised `IndexError: invalid index to scalar
+  variable`. `readGenericNXcanSAS` returns `dQ` as the scalar slit length
+  (not a per-point array) for a slit-smeared file, and
+  `DataManipulation.average` indexes it. `pyirena.batch.average_data` and
+  the new api layer now drop a non-conforming `dQ`; the slit length is
+  carried separately and re-written on save.
+- `pyirena.batch.average_data` did not pass `slit_length` to the saver, so
+  averaging a slit-smeared series silently produced a pinhole file with no
+  `dQl` — corrupting any later desmearing or smeared fit. `manipulate_data`
+  already did this correctly.
 - Windows: pyqtgraph could fail with `DLL load failed while importing QtCore`
   in an environment that carries both PySide6 and PyQt6. pyqtgraph tries
   PyQt6 *before* PySide6, so a half-installed PyQt6 broke it even though
