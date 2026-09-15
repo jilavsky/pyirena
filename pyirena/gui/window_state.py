@@ -421,7 +421,18 @@ def _run_after_first_layout(widget, func) -> None:
 
 
 def _restore_splitters(entry: dict, splitters, key: str) -> None:
-    """Restore pane sizes, ignoring entries whose pane count has changed."""
+    """Restore pane sizes, ignoring entries whose pane count has changed.
+
+    The saved pixel sizes are rescaled to the splitter's *current* total width
+    before being applied. Calling ``QSplitter.setSizes()`` with values that sum
+    to far less than the splitter's actual width (e.g. sizes saved from a much
+    narrower window, or a handful of near-zero values from a corrupted entry)
+    triggers a Qt quirk where the first pane is blown up to a large fraction of
+    the total instead of being scaled proportionally — that is what made the
+    control panel come up ~65% of the window width when a saved state was
+    stale or corrupted. Rescaling first keeps the intended pane ratio and
+    avoids handing Qt a sum wildly different from the space it actually has.
+    """
     if not splitters:
         return
     saved = entry.get("splitters") or {}
@@ -433,7 +444,12 @@ def _restore_splitters(entry: dict, splitters, key: str) -> None:
             if len(sizes) != splitter.count() or sum(sizes) <= 0:
                 # The panel gained or lost a pane since this was saved.
                 continue
-            splitter.setSizes([int(v) for v in sizes])
+            sizes = [int(v) for v in sizes]
+            current_total = sum(splitter.sizes())
+            if current_total > 0:
+                scale = current_total / sum(sizes)
+                sizes = [max(1, round(v * scale)) for v in sizes]
+            splitter.setSizes(sizes)
         except Exception:
             log.debug("could not restore splitter '%s' of '%s'", name, key,
                       exc_info=True)

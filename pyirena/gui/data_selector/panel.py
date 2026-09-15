@@ -351,6 +351,8 @@ class DataSelectorPanel(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.itemDoubleClicked.connect(self.plot_selected_files)
         self.file_list.itemSelectionChanged.connect(self.update_plot_button_state)
+        self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.file_list.customContextMenuRequested.connect(self._show_file_list_context_menu)
         left_layout.addWidget(self.file_list)
 
         # Configure + Manage Config — small buttons below the file list
@@ -1143,6 +1145,39 @@ class DataSelectorPanel(QWidget):
 
         # Re-apply whatever text filter is active
         self.filter_files(self.filter_input.text())
+
+    def _show_file_list_context_menu(self, pos):
+        """Right-click menu on the file list: reveal the file in the OS file browser."""
+        item = self.file_list.itemAt(pos)
+        if item is None:
+            return
+        if sys.platform == 'darwin':
+            label = "Show file in Finder..."
+        elif sys.platform == 'win32':
+            label = "Show file in Explorer..."
+        else:
+            label = "Show file in file manager..."
+        menu = QMenu(self)
+        action = QAction(label, self)
+        action.triggered.connect(
+            lambda: self._reveal_file_in_system_browser(
+                os.path.join(self.current_folder, item.text())
+            )
+        )
+        menu.addAction(action)
+        menu.exec(self.file_list.mapToGlobal(pos))
+
+    def _reveal_file_in_system_browser(self, file_path):
+        """Open the OS file browser with `file_path` selected, best-effort."""
+        try:
+            if sys.platform == 'darwin':
+                subprocess.run(['open', '-R', file_path], check=False)
+            elif sys.platform == 'win32':
+                subprocess.run(['explorer', f'/select,{file_path}'], check=False)
+            else:
+                subprocess.run(['xdg-open', str(Path(file_path).parent)], check=False)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
     def update_plot_button_state(self):
         """Enable or disable buttons based on file selection."""

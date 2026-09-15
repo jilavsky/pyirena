@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a `QSplitter.setSizes()` quirk that could make the Modeling and
+  Unified Fit control panel balloon to a large, unusable fraction of the
+  window width when the saved pane-width state was stale or corrupted
+  (values much smaller than the window's actual width). Saved splitter sizes
+  are now rescaled to the panel's current width before being applied.
+
+### Changed
+
+- Unified Fit: the "Fit" button is now noticeably larger than "Fix limits?"
+  so the primary action is easier to hit; "Fix limits?" is slightly shorter.
+- Data Selector: right-clicking a file in the file list now offers "Show
+  file in Finder/Explorer..." to reveal it in the OS file browser.
 
 ## [1.1.1] - 2026-09-12
 

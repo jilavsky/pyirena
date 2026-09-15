@@ -2281,14 +2281,15 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         fit_buttons.addStretch()
 
         self.fit_button = QPushButton("Fit")
-        self.fit_button.setMinimumHeight(28)
-        self.fit_button.setMaximumWidth(120)
+        self.fit_button.setMinimumHeight(40)
+        self.fit_button.setMinimumWidth(140)
+        self.fit_button.setMaximumWidth(160)
         self.fit_button.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
                 color: white;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 15px;
             }
             QPushButton:hover {
                 background-color: #1e8449;
@@ -2302,7 +2303,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         fit_buttons.addWidget(self.fit_button)
 
         self.fix_limits_button = QPushButton("Fix limits?")
-        self.fix_limits_button.setMinimumHeight(28)
+        self.fix_limits_button.setFixedHeight(24)
         self.fix_limits_button.setMaximumWidth(120)
         self.fix_limits_button.setStyleSheet("""
             QPushButton {
