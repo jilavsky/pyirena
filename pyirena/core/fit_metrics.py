@@ -32,9 +32,8 @@ This function returns **facts only** -- no "good/bad" verdict, no thresholds, no
 strategy, the GUI advisor, the user). Different workflows interpret the same
 numbers differently.
 
-See ``planning/ai-agent/04-fit-quality-metrics.md`` for the full rationale and
-``planning/ai-agent/05-fit-quality-metrics-implementation-plan.md`` for the
-implementation plan.
+See ``docs/fit_quality_metrics.md`` for the full rationale, the
+interpretation decision tree and worked scenarios.
 """
 
 from __future__ import annotations

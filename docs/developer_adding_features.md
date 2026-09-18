@@ -18,10 +18,11 @@ reference diff for the full wiring of a new Simple Fits entry.
 1. [Architecture in one paragraph](#architecture-in-one-paragraph)
 2. [Decision: what kind of feature is it?](#decision-what-kind-of-feature-is-it)
 3. [The master checklist](#the-master-checklist)
-4. [Wiring points in detail](#wiring-points-in-detail)
-5. [Case study: the Invariant](#case-study-the-invariant)
-6. [Conventions](#conventions)
-7. [Testing requirements](#testing-requirements)
+4. [Adding a whole new tool](#adding-a-whole-new-tool)
+5. [Wiring points in detail](#wiring-points-in-detail)
+6. [Case study: the Invariant](#case-study-the-invariant)
+7. [Conventions](#conventions)
+8. [Testing requirements](#testing-requirements)
 
 ---
 
@@ -55,7 +56,7 @@ widget, it will not survive scripting, batch, or setup restore.
 | **Calculation method** (no least-squares, e.g. Invariant) | Medium — registry + `calculation: True` flag + routing | [Case study](#case-study-the-invariant) |
 | **New option/control on an existing tool** | Small–medium — model attr + state + JSON + HDF5 attr | [4.2](#42-gui-panel) |
 | **New form/structure factor** | See `developer_adding_form_factors.md` / `developer_adding_structure_factors.md` | — |
-| **Entirely new tool** | Large — every row of the checklist, new files throughout | all |
+| **Entirely new tool** | Large — ~45 files, a dozen of them registries | [Adding a whole new tool](#adding-a-whole-new-tool) |
 
 ## The master checklist
 
@@ -133,6 +134,115 @@ DOCS & TESTS
         round-trip; HDF5 save/load round-trip; batch-config path
 [ ] 31. Run the full test suite, not just the new file
 ```
+
+## Adding a whole new tool
+
+Everything above assumes the tool's files already exist and tells you what to
+wire.  This section is the other half: **which files to create, and which
+hand-maintained registries to add a key to.**
+
+Adding a tool touches around 45 files.  Roughly a dozen of those are a *key in
+a registry* — a dict or list somewhere that enumerates the tools — and those
+are the ones that get missed, because nothing fails: the tool works perfectly
+in its own panel while silently vanishing from Igor export, the batch pipeline,
+setup restore or the agent surface.
+
+### Start with the test, not the checklist
+
+`pyirena/tests/test_tool_registration.py` holds the canonical tool table: one
+row per tool, one column per surface, either the key that registers it there or
+a written reason why it is deliberately absent.
+
+**Add your row first.**  Then run
+
+```bash
+pytest pyirena/tests/test_tool_registration.py
+```
+
+and work the failures.  That converts the list below from something you have to
+remember into something the build tells you.  A gap you decided on is one line
+in `ABSENT_REASON`; a gap you forgot is a red test.  (When this test was
+written it immediately found two live gaps, so this is not a theoretical
+benefit.)
+
+### The registries
+
+Each row is a hand-maintained enumeration.  "If you miss it" is the symptom the
+user reports six months later.
+
+| # | Registry | File | If you miss it |
+|---|---|---|---|
+| 1 | `TOOL_REGISTRY` | `io/schema.py` | Generic consumers (HDF5 viewer scalar browser, merge tool, Igor export) cannot see the results. **This is the source of truth for "what is a tool"** — everything else is checked against it. |
+| 2 | `PYIRENA_RESULT_GROUPS` | `io/_nxcansas_common.py` | *Derived from (1)* — nothing to do. Stale results leak into files seeded from a source file. |
+| 3 | `TOOL_CROSS_REF` | `io/igor_names.py` | Curves have no Igor wave name, so Igor-experiment export skips the tool. |
+| 4 | `TOOL_GROUP_PATH` + `TOOL_LABEL` | `gui/setup_loader.py` | "Load Setup from File…" cannot restore the panel. |
+| 5 | `_TOOL_REGISTRY` | `batch/pipeline.py` | `fit_pyirena` **silently skips** your config section. |
+| 6 | defaults block | `state/state_manager.py` | Panel settings do not survive a restart. |
+| 7 | `_build_report` kwarg + section | `core/reporting.py` | Results never appear in the Markdown report, the Data Selector report, or `export_fit_report`. |
+| 8 | `read_<tool>()` + result dataclass | `api/results.py`, `api/schemas.py` | Invisible to scripting, MCP and the AI advisor. |
+| 9 | control module + `TOOL_SCHEMA_BY_NAME` | `api/control/<tool>.py`, `api/control/schemas.py`, `api/control/__init__.py` | Agents can read the tool's results but cannot drive it. Only needed if the tool is agent-drivable. |
+| 10 | `_CATEGORY_BY_MODULE` + `_CATEGORY_BLURBS` | `mcp/dispatch.py` | The control functions exist but no MCP client can reach them. The dispatcher picks up individual *functions* automatically — the **category** is what you register. |
+| 11 | detection + `_collect_<tool>` | `gui/hdf5viewer/pyirena_readers.py` | Results invisible to the Data Explorer. |
+| 12 | collect-item lists | `gui/hdf5viewer/plot_controls.py` | **Hardcoded** — no trend plots (parameter vs file/temperature/time). |
+| 13 | wave names + writer | `io/igor_names.py`, `io/h5xp_extractor.py` | Igor export writes nothing for the tool. |
+| 14 | checkbox, launcher, window, worker, results window, config dialog | `gui/data_selector/` | The tool cannot be opened from the Data Browser — the app's main entry point. This is the single biggest wiring job; grep `waxs_peakfit` in `data_selector/panel.py` for the full set of touch points. |
+| 15 | window registration | `gui/window_state.py` call site + `reset_window_if_shift()` at launch | Window position is not remembered; `test_window_state.py` fails. |
+
+**The keys are not the same everywhere, and cannot be made so.**
+`size_distribution` in the HDF5 schema is `sizes` to the batch pipeline and
+setup loader, `simple_fit` to the Data Explorer, and `simple` to the MCP
+dispatcher.  These are baked into saved files and config sections, so the
+registration table carries the alias per surface rather than pretending there
+is one spelling.  Pick your tool's keys once and write all of them into the
+test table.
+
+### The files to create
+
+Bottom-up — `core` first, because every other layer depends on the shape of
+`to_dict()`.
+
+```
+pyirena/core/<tool>.py              math + model object with to_dict/from_dict
+pyirena/io/nxcansas_<tool>.py       save/load entry/<tool>_results
+pyirena/batch/<tool>.py             headless fit_<tool>(data, config)
+pyirena/gui/<tool>_panel.py         thin Qt panel + graph window
+pyirena/api/control/<tool>.py       agent control surface (if agent-drivable)
+docs/<tool>_gui.md                  user documentation + scripting example
+pyirena/tests/test_<tool>.py        math vs analytic ground truth
+```
+
+Then the registry keys above, then the master checklist for everything else.
+
+### Order of work
+
+1. **core** — math, model object, `to_dict`/`from_dict`. Test against analytic
+   ground truth before anything else exists. Add the round-trip to
+   `tests/test_core_serialization.py`.
+2. **io** — the HDF5 group, then registry (1) and (3). Add a round-trip to
+   `tests/test_nxcansas_roundtrips.py`.
+3. **batch** — `fit_<tool>` from a config dict, then registry (5). The core's
+   `from_dict` should make this nearly free.
+4. **gui** — the panel, obeying the whole standard UX contract above, then
+   registries (4), (6), (14), (15).
+5. **api** — reader, then (7) and (8). Control surface and (9)/(10) only if the
+   tool is something an agent should drive; decide on merit, not for
+   completeness.
+6. **Data Explorer** — (11), (12), (13).
+7. **docs** — `docs/<tool>_gui.md`, a row in `AGENTS.md` §3, a line in
+   `docs/module_map.md`, a `CHANGELOG.md` entry.
+
+At each step the registration test tells you what is still unwired.
+
+### Decide what the tool is *not*
+
+Not every tool needs every surface, and a deliberate gap is cheaper than a
+half-built one.  The existing decisions, all recorded in `ABSENT_REASON`:
+Fractals and SAXS Morph are visualization rather than analysis, so they have no
+agent control surface and Fractals has no batch path; Data Merge and Data
+Manipulation produce *data files* consumed by a later pipeline stage, so they
+run from their own config rather than the shared analysis setup.  Write your
+reason into the table when you make the call — that is what stops it being
+re-litigated.
 
 ## Serialising a tool's state
 

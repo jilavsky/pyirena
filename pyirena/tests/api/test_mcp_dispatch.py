@@ -1,9 +1,8 @@
 """Tests for pyirena.mcp.dispatch — the fixed dispatcher over
 pyirena.api.control, pyirena.api.calculators and pyirena.api.data_ops
 that keeps pyirena-mcp's
-tool count small (see
-pyirena/mcp/server.py's "Control API — dispatcher" section and
-planning/ai-agent/01-api-and-mcp-extensions.md's "Related work" section).
+tool count small (see pyirena/mcp/server.py's "Control API — dispatcher"
+section).
 
 Deliberately imports only pyirena.mcp.dispatch, not pyirena.mcp.server, so
 these run without the optional ``mcp`` package installed.

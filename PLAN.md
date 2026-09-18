@@ -1,140 +1,93 @@
-# pyirena — Code Quality Improvement Plan
+# pyIrena — Code Quality Plan
 
-Living record of code-review findings and their disposition. Fixed items are
-documented in `CHANGELOG.md` and removed from the active plan below.
+Living record of what is still open and, more importantly, **what was
+deliberately decided against**. Completed work is not repeated here — it is in
+[CHANGELOG.md](CHANGELOG.md) (current series) and
+[docs/CHANGELOG_archive.md](docs/CHANGELOG_archive.md) (1.0.1 and earlier),
+with the reasoning for cross-cutting choices in
+[docs/developer_adding_features.md](docs/developer_adding_features.md).
 
-## History — `cleanup/code-quality` (landed pre-1.1.0)
+A decision to *not* do something is the part that gets re-litigated every few
+months, so it is the part worth keeping.
 
-- Lint & packaging: removed ~130 unused imports, bare `except:`, shadow re-imports;
-  added `[tool.ruff]` config; rewrote `requirements.txt`.
-- IO dedup: 4 copy-pasted NXcanSAS write helpers → `io/_nxcansas_common.py`.
-- CI re-enabled: Python 3.9/3.11/3.13 matrix + ruff lint job + headless GUI job.
-- Unified Fit math: `core.unified.compute_invariant_sv()` shared by GUI and batch.
-- Monolith splits: `batch.py` → `pyirena/batch/`; `gui/data_selector.py` →
-  `pyirena/gui/data_selector/`.
-- Logging system: `logging_setup.py`, rotating logs, prints → loggers.
-- Qt shim: `gui/_qt.py`; ~30 GUI modules no longer repeat the PySide6/PyQt6 block.
-- Test suite: ~180 new tests; single-source version via `importlib.metadata`.
+---
 
-## Resolved in 1.1.0b2 (independent review, 2026-07-23)
+## Open — no bugs, no user impact
 
-The 2026-07-23 review of `feature/slit-smearing` @ `756dc1f` raised P0–P3
-findings. All valid ones were fixed in **1.1.0b2** — see `CHANGELOG.md` for
-details. Summary of disposition:
+**Large-file comfort refactors.** Revisit if these keep growing or become hard
+to navigate; none of them is causing a problem today.
 
-- **P0 — Enforce `PYIRENA_DATA_ROOT` on the control/MCP write surface** — Fixed.
-  `open_dataset` / `save_fit` / `save_sizes_fit` now resolve reads and writes
-  through `resolve_safe*`; tests added; stale `_paths.py` note corrected.
-- **P1 — NumPy floor vs `numpy.trapezoid`** — Fixed. Raised floor to NumPy ≥ 2.0
-  in `pyproject.toml` and the conda recipe (matches the code).
-- **P1 — Slit-smearing control-API parity** — Fixed. `use_slit_smeared` added to
-  the `open_dataset` schema; both save adapters now write `slit_length`, the
-  ideal (`*_ideal`) curve, and (Sizes) `data_is_slit_smeared`. Tests added.
-- **P1 — Green, bounded CI** — Fixed. 12 ruff findings cleared; `pytest-timeout`
-  added (300 s watchdog); the long-hanging modeling-export test fixed (it
-  blocked on an unmocked modal `QMessageBox`).
-- **P1 — `output_path` produces a complete data file** — Fixed. New output paths
-  are seeded from the source via `copy_and_strip_results`; original preserved.
-- **P2 — Validate the public smearing input contract** — Fixed. Central
-  validation in `core/smearing.py` (only when slit length > 0). Tests added.
-- **P2 — Packaging / conda / optional-deps** — Fixed. `plotting` extra added;
-  matplotlib import made lazy; beta classifier; SPDX license; conda recipe
-  aligned (+ `igor2`, documented `sha256`); tests excluded from the wheel/sdist.
-- **P2 — MCP / schema contract tests** — Fixed (proportionate). Full 68-tool MCP
-  surface + all 51 control schemas checked for structure and schema↔signature
-  parity. (See "Deferred" for the exhaustive default-value variant.)
-- **P2 — Release-workflow guardrails** — Fixed (core). `publish.yml` now verifies
-  the release tag equals the `pyproject.toml` version. (See "Deferred" for the
-  heavier test-gating / artifact-reuse variant.)
-- **P3 — Docs / distribution housekeeping** — Fixed. `docs/distribution.md`
-  updated to the single-source-version reality; `scratch_sizes_diagnosis/`
-  untracked; wheel no longer ships tests.
+- `gui/data_selector/panel.py` (~2,800 lines) — split by mixin/topic
+- `gui/unified_fit.py` (~4,300 lines) — split along panel/widget lines
+- `gui/modeling_panel.py` (~3,800 lines)
+- `gui/sizes_panel.py` (~3,000 lines)
 
-## Resolved in 1.1.0b7 — feature parity review (issue #13)
+**Batch path for Data Manipulation.** Wanted, but the tool needs revising
+first. Filed as its own GitHub issue.
 
-An agent review on 2026-08-08 found the same behaviour implemented several
-times over across panels, and features present in one tool but missing from its
-neighbours.  The review file itself has been removed now that the work has
-landed; what follows is the disposition, because the *decisions* outlive the
-findings.  Implementation detail is in `CHANGELOG.md` under 1.1.0b7.
+**MCP 2.x migration.** `mcp` is pinned `<2`. Migrating is its own project;
+nothing needs it yet, and it should be decided before anything new is built on
+top of the dispatcher.
 
-**Unified (duplication removed)**
+---
 
-- **U1** table clipboard/sort/CSV → `gui/table_utils.py` (7 tables).
-- **U2** graph export → `gui/plot_export.py` (8 implementations → 1).
-- **U3** filename sort keys → `core/file_sorting.py` (4 copies → 1).
-- **U4** file browsers — *scoped down deliberately*, see below.
-- **U5** panel state methods → one naming convention, contract-tested.
-- **U6** `to_dict`/`from_dict` for Unified Fit, Modeling and WAXS Peak Fit,
-  with the callers migrated onto them.
-- **U7** Qt imports → the single `gui/_qt.py` shim; three shims and 22 local
-  fallback blocks removed, three of them carrying a stale PyQt5 branch.
-- **U9** agent control surfaces for Simple Fits, Modeling and WAXS Peak Fit —
-  all five fitting tools now have one.
-- **U10** `_pyirena_config` embedding for SAXS Morph; the per-tool policy is
-  documented in `docs/HDF5_NxcanSAS_structure.md`.
+## Decided against — deliberate, not forgotten
 
-**Added (features a tool lacked)**
+### A shared `FileBrowserWidget`
 
-- **A1/A2/A10** copy, numeric sort and CSV on the tables that had none.
-- **A3/A4/A8** whole-window image export, curve CSV, remembered export folder.
-- **A5** Markdown fit reports on all five fitting tools, plus Ctrl/⌘-click to
-  save the graph alongside and embed it.
-- **A6** drag-and-drop file opening on every browser and fit panel.
-- **A9** window geometry, position and control-panel width remembered, with a
-  screen-layout bailout and a per-tool Shift-click reset.
+The four browsers now share all the *logic* — filtering, sorting, the
+file-type table, folder listing, drag-and-drop. What is still duplicated is
+widget assembly with no logic in it, and the four differ in ways a common
+widget would have to be configured around anyway: the Data Explorer is a tree
+with lazy sub-folder expansion, Data Merge shows two linked instances, Data
+Manipulation adds a context menu, and the Data Selector alone offers text files
+and the convert-on-load path. **Duplicated assembly with no logic in it does
+not drift; duplicated logic does.** Recorded in
+`docs/developer_adding_features.md`.
 
-**Cancelled — deliberate, not forgotten**
+### A shared batch config loader
 
-- **A7 batch for Fractals** — Fractals is a visualization tool, not an analysis
-  technique; it does not need a batch path.
-- **U8 shared batch config loader** — Data Merge and Data Manipulation each run
-  from their own JSON at a specific point in a reduction pipeline; unifying the
-  loader would break the instrument pipeline.
-- **Batch for Data Manipulation** — wanted, but needs the whole tool revised
-  first.  Filed as its own GitHub issue.
+Data Merge and Data Manipulation each run from their **own** JSON at a specific
+point in an instrument reduction pipeline — they produce new *data files* that
+a later stage consumes, so their config lives in a different folder and a
+different pipeline step from the analysis config. Unifying the loader would
+break those pipelines.
 
-**Considered and not done**
+### A batch path for Fractals
 
-- **A shared `FileBrowserWidget` (U4 as written).**  After U1–U3 and A6 the
-  browsers share all the *logic* — filtering, sorting, the file-type table,
-  folder listing, drag-and-drop.  What remains duplicated is widget assembly
-  with no logic in it, and the four differ in ways a common widget would have
-  to be configured around anyway (the Data Explorer is a tree with lazy
-  sub-folder expansion, Data Merge shows two linked instances, Data
-  Manipulation adds a context menu, the Data Selector alone offers text files).
-  Reasoning is recorded in `docs/developer_adding_features.md`; the small
-  extractions that were worth doing landed instead.
-- **MCP 2.x migration.**  `mcp<2` is pinned for now; migrating is its own
-  project and nothing needs it yet.
+Fractals is a visualization tool, not an analysis technique. It has no batch
+use case and no JSON config by design.
 
-## Reviewed — deferred / not worth fixing now
+### Exhaustive schema default-value parity tests
 
-These were part of the review's recommendations but are disproportionate for a
-single-maintainer scientific package at this stage. They are recorded here (not
-in the active plan) so the decision is explicit. Revisit if the motivating
-problem recurs.
+The parity test already enforces `properties ⊆ parameters`,
+`required == mandatory parameters`, and that every parameter is exposed.
+Asserting each JSON `default` equals the Python default is brittle — several
+defaults are descriptive (e.g. "scipy default") — for little extra safety.
 
-- **Dedicated lowest-supported-dependency CI job.** The NumPy floor now matches
-  the code (≥ 2.0), so there is no 1.x/2.x split left to guard. A lowest-pins
-  resolver job would add CI cost for little benefit unless lower floors return.
-- **Exhaustive schema default-value parity.** The parity test already enforces
-  `properties ⊆ parameters`, `required == mandatory parameters`, and that every
-  parameter is exposed. Asserting each JSON `default` equals the Python default
-  is brittle (several defaults are descriptive, e.g. "scipy default") for little
-  extra safety.
-- **Full install smoke matrix (core / plotting / gui / mcp / all).** CI already
-  runs a core `test` job and a `[gui]` `test-gui` job. A 5-way extras × OS
-  install matrix is more machinery than this project needs today.
-- **Heavier release pipeline** (gate publish on a re-run of the Tests workflow;
-  reuse exact previously-validated artifacts). The cheap, high-value
-  tag==version guard is in place; full workflow-gating/attestation is deferred.
+### A dedicated lowest-supported-dependency CI job
 
-## Future / optional — large-file comfort refactors
+The NumPy floor matches the code (≥ 2.0), so there is no 1.x/2.x split left to
+guard. A lowest-pins resolver job would add CI cost for no benefit unless lower
+floors return.
 
-No bugs, no user impact. Revisit if the files keep growing or become hard to
-navigate.
+### A full install smoke matrix (core / plotting / gui / mcp / all)
 
-- `gui/data_selector/panel.py` (~2,800 lines) — split by mixin/topic.
-- `gui/unified_fit.py` (~4,300 lines) — split along panel/widget lines.
-- `gui/modeling_panel.py` (~3,800 lines) and `gui/sizes_panel.py` (~3,000 lines).
+CI already runs a core `test` job and a `[gui]` `test-gui` job. A 5-way
+extras × OS install matrix is more machinery than a single-maintainer
+scientific package needs.
+
+### A heavier release pipeline
+
+The cheap, high-value guard is in place: `publish.yml` verifies the release tag
+equals the `pyproject.toml` version. Gating publish on a re-run of the Tests
+workflow, and reusing exact previously-validated artifacts, are deferred.
+
+---
+
+## How this file is used
+
+Add an entry when a review or a design discussion produces a decision that will
+not be obvious from the code six months later. Remove an "Open" entry when it
+ships — the CHANGELOG records what happened; this file records what is left and
+what we chose not to do.

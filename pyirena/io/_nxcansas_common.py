@@ -21,17 +21,14 @@ import h5py
 import numpy as np
 
 from pyirena.io.hdf5 import find_matching_groups
+from pyirena.io.schema import TOOL_REGISTRY
 
-# Known pyirena result group paths to strip when copying the source file
-PYIRENA_RESULT_GROUPS = [
-    'entry/unified_fit_results',
-    'entry/sizes_results',
-    'entry/simple_fit_results',
-    'entry/waxs_peakfit_results',
-    'entry/data_merge_results',
-    'entry/modeling_results',
-    'entry/data_manipulation_results',
-]
+# Every pyirena result group, stripped when a tool seeds a new output file from
+# a source file.  Derived from TOOL_REGISTRY rather than listed by hand: a
+# hand-maintained copy silently fell two tools behind (SAXS Morph and Fractals
+# results were being carried into derived data files), which is what
+# pyirena/tests/test_tool_registration.py now guards.
+PYIRENA_RESULT_GROUPS = [schema['group'] for schema in TOOL_REGISTRY.values()]
 
 
 def strip_nonpositive_intensities(

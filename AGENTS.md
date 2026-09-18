@@ -1,0 +1,273 @@
+# AGENTS.md
+
+Orientation file for AI agents working in this repository. Read this first; it
+tells you *where* things are and *what rules apply*, not what every function
+does. For details, follow the pointers into `docs/`. `CLAUDE.md` is a pointer
+to this file, so there is one map rather than one per agent.
+
+Two companions, both kept deliberately shallow so they survive ordinary
+development:
+
+- **`docs/module_map.md`** — one line per module. Use it when you know *what*
+  you are looking for but not *where* it lives.
+- **`docs/developer_adding_features.md`** — the master checklist for changing
+  or adding anything, including a whole new tool.
+
+Last update date: 18-09-2026 ; version: 1.1.1
+
+pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
+package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,
+specified, debugged and validated by Jan Ilavsky. Scientific correctness
+outranks everything else in this codebase.
+
+---
+
+## 1. Commands
+
+```bash
+pip install -e ".[all]"      # dev install (gui + gui3d + mcp + plotting + dev)
+pytest                       # full suite (testpaths = pyirena/tests)
+pytest pyirena/tests/api     # api/mcp layer only
+ruff check pyirena/          # lint (line-length 100, config in pyproject.toml)
+pyirena-gui                  # launch the main GUI
+pyirena-mcp                  # run the MCP server (stdio)
+
+python validationData/generate_validation_data.py   # rebuild the synthetic
+                                                    # validation data + manifest
+python validationData/run_validation_report.py      # fit it all, write
+                                                    # VALIDATION_RESULTS.md/.csv
+```
+
+Console entry points are declared in `pyproject.toml` under
+`[project.scripts]` — that is the authoritative list, don't duplicate it here.
+
+Test data lives in `testData/`. Synthetic data with *exactly known* parameters,
+used to validate the analysis maths and to compare pyIrena with Igor Irena,
+lives in `validationData/` — see `docs/validation.md`. Tests must not require a
+display; Qt-dependent tests mock dialogs (see `pyirena/tests/api/conftest.py`).
+
+---
+
+## 2. Architecture — the layer stack
+
+**This is the most important section. Every analysis tool in pyIrena is built
+from the same seven layers.** Learn the stack once and you can find anything.
+
+| Layer | Path | Responsibility | May import |
+|---|---|---|---|
+| **core** | `pyirena/core/<tool>.py` | All math + a serialisable model object | numpy, scipy only |
+| **io** | `pyirena/io/nxcansas_<tool>.py` | Save/load results into NXcanSAS HDF5 at `entry/<tool>_results`, embedding GUI state as `_pyirena_config` | h5py, core |
+| **gui** | `pyirena/gui/<tool>_panel.py` | Thin Qt shell over the core object; full control state round-trips through `StateManager` | Qt (via `gui/_qt.py`), core, io |
+| **batch** | `pyirena/batch/<tool>.py` | Headless execution of the same core from a dict or JSON config section | core, io |
+| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions (all five fitting tools) | core, io |
+| **mcp** | `pyirena/mcp/server.py` | Protocol wrapper exposing `pyirena.api` to MCP clients | api |
+| **plotting** | `pyirena/plotting/` | Headless matplotlib rendering | core, matplotlib |
+
+**The golden rule:** all state lives in the core model object and flows
+`dict → JSON → HDF5` unchanged. A control that exists only as a Qt widget will
+not survive scripting, batch runs, or setup restore — that is a bug, not a
+limitation.
+
+The layer stack is the *target* architecture and older tools do not all reach
+it yet. Core serialisation is `to_dict`/`from_dict` and now exists for Unified
+Fit, Sizes, Modeling, Simple Fits and WAXS Peak Fit (plus `from_panel_params`
+in `core/unified.py` and `population_from_dict` in `core/modeling.py`, which
+own the translation from the panel's historical key names); SAXS Morph,
+Contrast, Merge, Manipulation and Fractals still serialise in their io/gui
+layers. `pyirena/tests/test_core_serialization.py` holds the round-trip and
+old-file tests. Panel state methods, by contrast, are now uniform
+(`save_state`/`load_state` public, `_collect_state`/`_apply_state` private) and
+enforced by `pyirena/tests/test_gui_state_contract.py`. Follow
+`docs/developer_adding_features.md` for anything new. HDF5 group names are
+mostly `entry/<tool>_results` but not mechanically derived — Simple Fits writes
+`entry/simple_fit_results`. Check `pyirena/io/nxcansas_<tool>.py` rather than
+assuming.
+
+Two cross-cutting consumers read the saved HDF5 groups rather than the core
+objects:
+
+- `pyirena/gui/data_selector/` — graphing, reports, CSV tabulation
+- `pyirena/gui/hdf5viewer/` — trend plots, Igor-experiment export
+  (via `io/h5xp_extractor.py` + `io/igor_names.py`)
+
+Support modules that are not tools: `pyirena/state/` (StateManager, setup
+save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
+`fit_metrics.py`, `smearing.py`, `feature_detect.py`, `similarity.py`,
+`reporting.py` (the one Markdown report builder, shared by gui/api/batch),
+`fmt_utils.py`, `file_sorting.py` (filename sort keys for every file browser),
+`file_types.py` (data-file type table + folder listing).
+
+### Layering invariants — do not break these
+
+1. `core/`, `io/`, `api/`, `batch/` **never import Qt.** Verify with
+   `grep -rl "PySide6\|PyQt" pyirena/core pyirena/api pyirena/io pyirena/batch`
+   — it must return nothing. `core/`, `io/` and `batch/` are also
+   matplotlib-free; `api/plotting.py` and `api/control/` are the only
+   non-GUI modules allowed to use matplotlib, and they import it lazily inside
+   functions and force the `Agg` backend.
+2. All Qt imports go through `pyirena/gui/_qt.py` — never `from PySide6 import
+   ...` directly, not even inside a function. It normalises the PySide6/PyQt6
+   fallback. Missing a class? Add it to `_qt.py` and its `__all__`.
+   `pyirena/tests/test_gui_qt_contract.py` fails the build on a direct binding
+   import anywhere in the package (tests included) and on a second `_qt.py`.
+3. `pyirena.api` returns JSON-serialisable dicts only. No numpy scalars, no
+   model objects, no file handles.
+4. `from_dict()` must supply defaults for every field so that files written by
+   older versions still load. Backwards compatibility of saved data is not
+   optional.
+5. Optional dependencies (GUI, 3D, MCP, plotting) must degrade gracefully —
+   importing `pyirena` with no extras installed must work. See
+   `pyirena/tests/test_optional_dep_modules.py`.
+
+---
+
+## 3. Tool map
+
+Each analysis tool occupies one row. **When a tool is added, add a row — do not
+restructure this section.** A blank cell means that surface does not exist yet
+for that tool; that is often a legitimate gap worth fixing rather than a
+deliberate choice.
+
+| Tool | core | io | gui | batch | docs |
+|---|---|---|---|---|---|
+| Unified Fit | `unified.py` | `nxcansas_unified.py` | `unified_fit.py` | `unified.py` | `unified_fit_gui.md`, `unified_fit_features.md` |
+| Size Distribution | `sizes.py` | `nxcansas_sizes.py` | `sizes_panel.py` | `sizes.py` | `sizes_methods.md` |
+| Modeling | `modeling.py` | `nxcansas_modeling.py` | `modeling_panel.py` | `modeling.py` | `modeling_gui.md` |
+| Simple Fits | `simple_fits.py` | `nxcansas_simple_fits.py` | `simple_fits_panel.py` | `simple.py` | `simple_fits_gui.md` |
+| Fractals | `fractals.py` | `nxcansas_fractals.py` | `fractals_panel.py` | — | `fractals_gui.md` |
+| SAXS Morph | `saxs_morph.py` | `nxcansas_saxs_morph.py` | `saxs_morph_panel.py` | `saxs_morph.py` | `saxs_morph_gui.md`, `saxs_morph_method_comparison.md` |
+| WAXS Peak Fit | `waxs_peakfit.py` | `nxcansas_waxs_peakfit.py` | `waxs_peakfit_panel.py` | `waxs.py` | `waxs_peakfit_gui.md` |
+| Data Merge | `data_merge.py` | `nxcansas_data_merge.py` | `data_merge_panel.py` | `merge.py` | `data_merge_gui.md` |
+| Data Manipulation | `data_manipulation.py` | `nxcansas_data_manipulation.py` | `data_manipulation_panel.py` | `manipulate.py` | `data_manipulation_gui.md` |
+| Scattering Contrast | `scattering_contrast.py` | `contrast_io.py` | `contrast_panel.py` | — | `scattering_contrast_gui.md` |
+| Slit Smearing | `smearing.py` | — | `slit_smearing_ui.py` | — | `slit_smearing.md` |
+| Feature Identifier | `feature_detect.py` | — | `feature_identifier.py` | — | `feature_identifier.md` |
+| Fit Quality Metrics | `fit_metrics.py` | `nxcansas_fit_quality.py` | `quality_display.py` | — | `fit_quality_metrics.md` |
+
+Paths are relative to `pyirena/core/`, `pyirena/io/`, `pyirena/gui/`,
+`pyirena/batch/` and `docs/` respectively. Note that batch module names are
+occasionally shortened (`simple.py`, `waxs.py`, `merge.py`).
+
+---
+
+## 4. Where to look
+
+Start here rather than grepping. `docs/` has ~36 files; these are the ones that
+change how you should work.
+
+| If you are… | Read |
+|---|---|
+| Looking for the module that does X | `docs/module_map.md` (one line per module) |
+| Adding *any* feature — start here, always | `docs/developer_adding_features.md` (master checklist of every integration surface) |
+| Adding a **whole new tool** | `docs/developer_adding_features.md` § "Adding a whole new tool" + `pyirena/tests/test_tool_registration.py` (add your row, then make it green) |
+| Adding a form factor | `docs/developer_adding_form_factors.md` |
+| Adding a structure factor | `docs/developer_adding_structure_factors.md` |
+| Touching HDF5 read/write | `docs/HDF5_NxcanSAS_structure.md` |
+| Working on the api/MCP layer | `pyirena/api/README.md`, `docs/ai_tools_reference.md`, `docs/ai_integration.md` |
+| Writing or fixing tests | `docs/testing.md` |
+| Validating the maths, or comparing results with Igor Irena | `docs/validation.md`, `validationData/README.md` |
+| Working on batch/scripting | `docs/batch_api.md` |
+| Importing Igor `.pxp` files | `docs/igor_pxp_import.md` |
+| Loading or cleaning input data | `docs/data_import_and_cleaning.md` |
+| Packaging or release work | `docs/distribution.md`, `.github/workflows/publish.yml` |
+| Debugging a user's install/startup failure | `pyirena/diagnostics.py` (`pyirena-doctor`), `docs/installation.md` |
+| Understanding a specific GUI panel | `docs/<tool>_gui.md` (see tool map above) |
+| Working on the HDF5 Data Explorer | `docs/hdf5_viewer_gui.md` |
+| Reading scattering data through the stable io API | `docs/scattering_io_api.md` |
+| Looking for design intent on unfinished work | `planning/ai-agent/` (one open subproject) and `PLAN.md` (open items + decisions against) |
+
+`docs/GUI_README.md`, `docs/gui_quickstart.md`, `docs/QUICK_START.md` and
+`docs/usage_guide.md` are user-facing; consult them to keep terminology
+consistent with what users see.
+
+---
+
+## 5. Conventions
+
+**Scientific.** Q is in Å⁻¹ throughout unless a function's docstring says
+otherwise. Intensity is cm⁻¹ (absolute) where calibration exists. Single-letter
+names `I`, `l`, `Q`, `R` are idiomatic here and ruff's `E741` is disabled for
+that reason — keep using the physics notation rather than renaming to
+`intensity_array`. Preserve the Irena/Igor terminology users already know; when
+an algorithm comes from Irena, say so in the docstring and keep the same
+parameter names where practical.
+
+**Code.** Line length 100. Google-style docstrings on public functions. Ruff
+selects `E`, `F`, `W`, `I` with `E501`, `E741`, `E701`, `E702`, `E402`
+intentionally disabled (see the comments in `pyproject.toml` — read them before
+"fixing" a lint suppression). `UP` and `B` are house standard but not enabled
+here yet; enabling them is a separate reviewable pass, not a drive-by. Type
+hints where they help; `py.typed` is shipped. **Python 3.10 is the floor**
+(`requires-python = ">=3.10"`, tested on 3.10/3.11/3.13), so `match` and PEP 604
+`X | None` are fine — but existing modules use `Optional[X]`, so follow the
+convention in the file you are editing rather than converting it.
+
+**GUI.** One panel per tool, one file per panel. Panels are thin — if you are
+writing a loop with numpy in a `*_panel.py`, it belongs in `core/`. Every panel
+exposes the public pair `save_state()` / `load_state()`, with `_collect_state()`
+/ `_apply_state(dict)` as the private halves; embedded components driven by a
+parent expose `collect_state()` / `apply_state()` instead.
+Shared UX behaviour comes from shared modules, never a local reimplementation:
+filter boxes use `gui/file_filter.py`, file-list sorting uses
+`core/file_sorting.py`, tables use `gui/table_utils.py`
+(`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`), plot export
+uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
+`parent_widget`), and text reports come from `core/reporting.py` via
+`gui/report_buttons.py`. The full list is the "standard UX contract" in
+`docs/developer_adding_features.md`; `pyirena/tests/test_gui_table_contract.py`
+and `test_gui_plot_contract.py` enforce it.
+
+**Testing.** New math needs a test in `pyirena/tests/`. New HDF5 fields need a
+round-trip test in `test_nxcansas_roundtrips.py`. New api surface needs a test
+in `pyirena/tests/api/`. Tests must be headless and finish well inside the
+300 s per-test timeout.
+
+**Versioning.** `pyproject.toml` version is authoritative and the publish
+workflow refuses to release if the git tag disagrees. Update `CHANGELOG.md` for
+user-visible changes.
+
+---
+
+## 6. Working style in this repo
+
+- Prefer editing the existing tool that already does 80% of the job over adding
+  a parallel implementation. Duplication across the seven layers is expensive.
+- When a change spans layers, work bottom-up: core → io → batch → gui → api.
+  The core model object's `to_dict()` shape is the contract everything else
+  depends on.
+- Do not add dependencies without asking. The dependency set is deliberately
+  small and split across extras.
+- `temp/`, `testData/`, `validationData/`, `scripts/` and `planning/` are
+  excluded from ruff and are not part of the shipped package. `scripts/` holds
+  diagnostic one-offs, not supported tooling. `validationData/` is generated —
+  edit `_spec.py` and re-run the generator rather than editing a data file or
+  its `README.md` by hand.
+- Ask before large refactors. The codebase is validated against Igor Irena
+  results; a "cleaner" rewrite that shifts a numerical result is a regression.
+
+---
+
+## 7. Maintaining this file
+
+This file is a map, not documentation. It is deliberately written at a level of
+abstraction that survives ordinary development — most commits should require no
+change here.
+
+**Update it when, and only when:**
+
+- a new analysis tool is added → add one row to §3 (and a row in
+  `pyirena/tests/test_tool_registration.py`, which is what actually enforces
+  the wiring)
+- a new top-level package appears under `pyirena/` → add one row to §2
+- a layering invariant in §2 changes → fix the invariant list
+- a command in §1 changes (test runner, lint tool, entry points)
+- a new `docs/developer_*.md` guide is written → add one row to §4
+
+**Do not add here:** function signatures, parameter lists, model formulas,
+per-release notes, or anything already written in `docs/`. Those rot within
+weeks and belong in the code or in `docs/`. A new *module* goes in
+`docs/module_map.md`, not here.
+
+If §3 or §4 has drifted, regenerate just that table by listing the directories
+rather than rewriting the whole file; `docs/module_map.md` carries the command
+that regenerates its own tables.

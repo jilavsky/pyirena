@@ -1,3 +1,13 @@
+"""Unified Fit GUI panel for pyIrena.
+
+The largest panel in the package: ``UnifiedFitPanel`` (controls, level
+management, fitting) plus ``UnifiedFitGraphWindow`` (I(Q) plot, cursors,
+residuals).  Thin over :mod:`pyirena.core.unified`; state round-trips
+through ``StateManager`` and the HDF5-embedded ``_pyirena_config``.
+
+See ``docs/unified_fit_gui.md``.
+"""
+
 import logging
 
 log = logging.getLogger(__name__)

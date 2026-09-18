@@ -23,8 +23,7 @@ so support calculators and data operations (scattering contrast, averaging,
 subtraction, merging) reach agents without adding a single top-level MCP
 tool.
 
-Design doc: AIDA's ``planning/mcp_tool_scaling.md`` (Tier 2) and pyIrena's
-``planning/ai-agent/01-api-and-mcp-extensions.md`` ("Related work" section).
+Design doc: AIDA's ``planning/mcp_tool_scaling.md`` (Tier 2).
 
 This module has no dependency on the ``mcp`` package on purpose, so it can
 be imported and tested without it installed. ``pyirena/mcp/server.py`` is

@@ -1,9 +1,9 @@
 """
 Unit tests for robust fit-quality diagnostics (pyirena.core.fit_metrics).
 
-Covers the scenarios from the spec (planning/ai-agent/04-fit-quality-metrics.md
-section 5): well-calibrated sigma, under-estimated sigma, localized misfit,
-systematic misfit, missing sigma, the dof guard, and the I->0 fractional guard.
+Covers the scenarios from docs/fit_quality_metrics.md: well-calibrated sigma,
+under-estimated sigma, localized misfit, systematic misfit, missing sigma, the
+dof guard, and the I->0 fractional guard.
 """
 
 import numpy as np

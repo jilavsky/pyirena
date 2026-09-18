@@ -2,8 +2,8 @@
 
 **Status:** Draft
 **Last updated:** 2026-06-09
-**Depends on:** [01 API & MCP extensions](01-api-and-mcp-extensions.md) — needs the full control surface
-**Related:** [03 In-GUI AI advisor](03-ai-advisor-in-gui.md) — shares LLM provider layer
+**Depends on:** the API & MCP control surface — **shipped**, `pyirena/api/control/`
+**Related:** the in-GUI AI advisor — **shipped**, `pyirena/gui/ai_advisor.py`; share its LLM provider layer
 
 ---
 
@@ -16,10 +16,10 @@ of SAXS/USAXS data. The main product of this initiative.
 Distinct from pyirena itself: pyirena is a focused scientific library; this
 package is the AI-driven workflow consumer.
 
-The set of pyirena tools this app drives is defined in
-[00-overall-plan.md — Scope of pyirena tools supported](00-overall-plan.md#scope-of-pyirena-tools-supported).
-Unified Fit is the test case; the app inherits whatever support
-[01](01-api-and-mcp-extensions.md) ships.
+The set of pyirena tools this app drives is whatever `pyirena/api/control/`
+exposes — today: Unified Fit, Size Distribution, Simple Fits, Modeling and
+WAXS Peak Fit, plus the contrast, merge and manipulation utilities. See
+[README.md](README.md) for what shipped and what is still open.
 
 > **Note:** detailed decisions for this subproject (GUI framework, package
 > name, audit format, etc.) will be revisited once subprojects 1 and 3 are
@@ -170,7 +170,7 @@ Validates: GUI framework choice, UX patterns.
 
 ## Cross-cutting requirements
 
-(Repeating items from `00-overall-plan.md` that apply specifically here.)
+(Repeating items from [README.md](README.md) that apply specifically here.)
 
 - **Audit trail**: every fit produces a JSON sidecar listing each tool call,
   arguments, results, χ² evolution. Stored next to the HDF5.

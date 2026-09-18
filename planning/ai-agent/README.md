@@ -1,83 +1,103 @@
 # AI Agent Initiative — Planning Folder
 
-This folder captures the planning work for adding **AI-driven fitting** to the
-pyirena ecosystem. It is an internal planning artifact (not user-facing
-documentation), intended to be edited iteratively as decisions are refined
-and tracked.
+Internal planning artifact for AI-driven fitting in the pyIrena ecosystem —
+not user-facing documentation.
 
-## Context
+**Status: one subproject left.** The initiative was originally three
+subprojects sharing one foundation. Two of them shipped; their plans have been
+deleted (git history has them) because a shipped plan is worse than no plan —
+it describes intent that the code has since overtaken. What survives here is
+the part that has *not* been built, plus the decisions and open questions that
+outlive the plans.
 
-Today, pyirena exposes its analysis *results* to AI clients through an MCP
-server (read-only "output" tools). AI can read fit results, summarize
-folders, tabulate parameters, plot data. This works well.
+| Subproject | Status |
+|---|---|
+| **1 — API & MCP control surface** | **Shipped** (1.1.0b5–b7). `pyirena/api/control/` covers all five fitting tools, exposed through `pyirena/mcp/dispatch.py`. |
+| **2 — Standalone AI app** | **Not started.** The one open piece — see [02-standalone-ai-app.md](02-standalone-ai-app.md). |
+| **3 — In-GUI AI advisor** | **Shipped.** `pyirena/gui/ai_advisor.py`. |
+| Fit-quality metrics (a dependency of all three) | **Shipped.** `core/fit_metrics.py`, `gui/quality_display.py`, `io/nxcansas_fit_quality.py`; documented in [docs/fit_quality_metrics.md](../../docs/fit_quality_metrics.md). |
 
-The next ambition is much larger: **let an AI agent actually run the fits**,
-not just read their output. The AI would configure models, set parameter
-starting values and bounds, run fits, evaluate quality, iterate. This
-requires giving the AI *control* tools (in addition to the existing
-*observation* tools) and building infrastructure around the agentic loop.
+## What shipped
 
-After discussion, the initiative is split into three subprojects that share
-a common foundation (the API/MCP extensions) but ship independently:
+- **Control surface** for Unified Fit, Size Distribution, Simple Fits,
+  Modeling and WAXS Peak Fit under `pyirena/api/control/`: open a dataset,
+  configure a model, set/fix/free parameters, run the fit, read residuals and
+  quality metrics, save to NXcanSAS.
+- **Utility tools** the agent can invoke for the user's convenience:
+  scattering contrast (`pyirena.api.calculators`), data merge
+  (`merge_datasets` / `match_merge_files`) and data manipulation
+  (`average_data` / `subtract_data` / `divide_data` / `scale_data` /
+  `trim_data` / `rebin_data`).
+- **Robust fit-quality metrics** — σ-scale-independent diagnostics, so an agent
+  can tell a mis-scaled uncertainty from a genuine misfit.
+- **In-GUI advisor** — screenshot + parameters → LLM → plain-language advice.
+- **Setup state embedded in result files** (`_pyirena_config`), so an agent run
+  can be reopened and continued interactively in the GUI.
 
-## Subprojects
+## What is open
 
-| # | Plan | Summary | Status |
-|---|------|---------|--------|
-| 0 | [Overall plan](00-overall-plan.md) | Strategic vision, sequencing, cross-cutting concerns | Partly delivered — see status note below |
-| 1 | [API & MCP extensions](01-api-and-mcp-extensions.md) | Extend `pyirena/api/` with control tools (set/fix/free parameters, run fits, get residuals). Foundation for everything else. | **Shipped** (1.1.0b5–b7) — `pyirena/api/control/` covers all five fitting tools |
-| 2 | [Standalone AI app](02-standalone-ai-app.md) | New separate package (`pyirena-ai` or similar) that imports pyirena and uses an LLM to autonomously fit datasets and folders. | **Not started** — the open subproject |
-| 3 | [In-GUI AI advisor](03-ai-advisor-in-gui.md) | Small additional panel in the existing pyirena GUI: grab current fit screenshot + parameters, send to LLM, display advice. Low-effort, high-value. | **Shipped** — `pyirena/gui/ai_advisor.py` |
-| 1a | [Phase 1 detailed plan: Unified Fit control](phase-1-unified-fit-control.md) | Concrete implementation plan for Subproject 1 with Unified Fit as the test case. Tool catalog, milestones, investigations. | **Shipped** — then extended to Sizes, Simple Fits, Modeling and WAXS |
+- **Subproject 2, the standalone agent app**, is untouched — the piece that
+  would actually close the loop, and the one whose design assumptions are
+  oldest. Treat [02-standalone-ai-app.md](02-standalone-ai-app.md) as a
+  starting point to argue with, not a spec.
+- **Whether the control surface is *sufficient*** for autonomous fitting has
+  never been tested end to end by an agent working unattended. The tools exist;
+  the agentic loop around them does not.
+- **`mcp` is pinned to `<2`.** Migrating to 2.x is its own project and should
+  be decided before anything new is built on top.
+- **The remaining tools** (SAXS Morph, Fractals, Contrast, Merge, Manipulation)
+  have no *control* surface. Decide per tool on merit rather than for
+  completeness — SAXS Morph and Fractals are visualization, not analysis
+  techniques, and were ruled out of scope at the start.
 
-## Status as of 1.1.0b7 (2026-08-10)
+## Decisions that still stand
 
-This folder is **kept** because the initiative is not finished, but much of it
-has landed and the plans have not been rewritten to match.  Read them as the
-original intent, not as the current state.
+| Decision | Rationale |
+|---|---|
+| The standalone AI app is a **separate package**, not a pyIrena subpackage | Keeps pyIrena's dependency footprint clean; independent release cadence; AI users opt into LLM SDKs and config complexity |
+| MCP exposure is **post-hoc and cheap** once API tools exist | Don't let MCP design constrain the API design — this held up in practice |
+| Control tools live at the **api layer**, not in the GUI | Same surface serves the advisor, the standalone app, scripting and MCP |
 
-**Landed**
+Still open: GUI framework for the standalone app (leaning Gradio), package
+name, first LLM provider, and where the audit trail lives (JSON sidecar /
+SQLite / NXcanSAS extension).
 
-- The control surface (subproject 1) exists for all five fitting tools —
-  Unified Fit, Size Distribution, Simple Fits, Modeling and WAXS Peak Fit —
-  under `pyirena/api/control/`, exposed as ~119 MCP tools.
-- Fit-quality metrics (plans 04/05) shipped: `core/fit_metrics.py`,
-  `gui/quality_display.py`, `io/nxcansas_fit_quality.py`.
-- The in-GUI advisor (subproject 3) shipped as `gui/ai_advisor.py`.
-- Setup state is embedded in result files (`_pyirena_config`) so an agent run
-  can be reopened and continued in the GUI — six tools, see
-  `docs/HDF5_NxcanSAS_structure.md`.
+## Cross-cutting requirements — apply to anything built here
 
-**Open — worth a fresh look before more work**
+- **Multi-LLM from day one.** Even with Anthropic as the launch target, design
+  behind a thin provider abstraction; labs will require OpenAI, Azure or local
+  models.
+- **Audit trail.** Every AI-driven fit produces a transcript — prompts, tool
+  calls, arguments, intermediate results. A scientist must be able to answer
+  "how did you get this fit?"
+- **Cost transparency.** Token usage and approximate cost per session.
+- **Custom instructions per user/lab** as a first-class config feature, in
+  version-controlled files, not hard-coded system prompts.
+- **API keys** in the OS keyring, env vars as fallback, never plaintext config.
+- **Human-in-the-loop checkpoints** — the agent pauses for confirmation on
+  destructive or ambiguous actions. Not optional for trust.
 
-- **Subproject 2, the standalone agent app**, is untouched.  It is the piece
-  that would actually close the loop, and it is also the piece whose design
-  assumptions are oldest.
-- Whether the control surface is *sufficient* for autonomous fitting has not
-  been tested end to end by an agent working unattended; the tools exist, the
-  agentic loop around them does not.
-- `mcp` is pinned to `<2`.  Migrating to 2.x is its own project and should be
-  decided before building anything new on top.
-- The remaining tools (SAXS Morph, Fractals, Contrast, Merge, Manipulation)
-  have no control surface, and it is not obvious that they should — decide per
-  tool rather than for completeness.
+## Explicitly out of scope
 
-## Reading order
+Replacing the manual fitting GUI with an AI-first interface; AI-driven data
+*reduction* (upstream of pyIrena); real-time beamline control; training custom
+models on SAXS data; cloud-hosted SaaS.
 
-If you're new to this, read `00-overall-plan.md` first — it explains how the
-three subprojects fit together and which one to tackle first. Then dive into
-the individual plans.
+## Open risks
 
-## Status conventions
-
-- **Draft** — initial brain dump, may have gaps and open questions
-- **Reviewed** — discussed and refined, no major changes pending
-- **Approved** — ready to begin implementation
-- **In progress** — implementation under way, link to branch/PR
-- **Done** — shipped; the plan can be moved to `planning/archive/`
+- **API granularity** — too coarse and the agent cannot fit well; too fine and
+  the schema explosion overwhelms its context. Needs iteration against real
+  fits.
+- **Model drift** — prompts that work today need revisiting as models change.
+  Keep them in version-controlled files.
+- **Distribution complexity** — a second installable package doubles the
+  support surface. Mitigate with clear "you only need this if…" messaging.
+- **User trust** — "autonomous fitting" is a scary phrase for scientists. Audit
+  trails and checkpoints are the answer.
 
 ## Related project docs
 
-- [docs/ai_integration.md](../../docs/ai_integration.md) — current MCP server (read-only)
-- [docs/ai_tools_reference.md](../../docs/ai_tools_reference.md) — existing MCP tool catalog
-- [pyirena/api/README.md](../../pyirena/api/README.md) — API layer that MCP wraps
+- [docs/ai_integration.md](../../docs/ai_integration.md) — the MCP server
+- [docs/ai_tools_reference.md](../../docs/ai_tools_reference.md) — MCP tool catalog
+- [pyirena/api/README.md](../../pyirena/api/README.md) — the API layer MCP wraps
+- [docs/fit_quality_metrics.md](../../docs/fit_quality_metrics.md) — the metrics an agent judges fits by

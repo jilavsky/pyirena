@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_config
 from pyirena.batch.modeling import fit_modeling
+from pyirena.batch.saxs_morph import fit_saxs_morph
 from pyirena.batch.simple import fit_simple_from_config
 from pyirena.batch.sizes import fit_sizes
 from pyirena.batch.unified import fit_unified
@@ -50,6 +51,8 @@ def fit_pyirena(
         Runs :func:`fit_waxs` (alias for :func:`fit_waxs_peaks_from_config`).
     ``modeling``
         Runs :func:`fit_modeling`.
+    ``saxs_morph``
+        Runs :func:`fit_saxs_morph`.
 
     Unknown sections in the config file are silently skipped.
 
@@ -117,6 +120,9 @@ def fit_pyirena(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
         'modeling': lambda: fit_modeling(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
+        'saxs_morph': lambda: fit_saxs_morph(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
     }

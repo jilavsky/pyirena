@@ -150,6 +150,37 @@ def test_every_relocation_lands_somewhere_visible():
 
 # ── Storage ──────────────────────────────────────────────────────────────
 
+#: The screen layout every live-window test is placed on.  Large enough for
+#: every rectangle used below, origin at (0, 0), one screen.
+TEST_SCREEN = (0, 0, 1920, 1080)
+
+
+@pytest.fixture(autouse=True)
+def fixed_screens(monkeypatch):
+    """Pin the screen layout for the whole module.
+
+    The live-window tests below go through the real ``restore_window_state``,
+    which asks :func:`screen_rects` where the monitors are and refuses to place
+    a window it cannot see — returning None, so the window keeps its own
+    default.  Left unpinned, that makes them depend on the machine they run on:
+    a second monitor at negative coordinates slides the restored rectangle, and
+    a ``screen_rects()`` that momentarily comes back empty (macOS under load,
+    display sleep, fast user switching) makes every restore a no-op.  The
+    symptom is a window asserted at (70, 55) arriving at (0, 0), intermittently
+    and only on a developer machine — which is exactly what happened before
+    this fixture existed.
+
+    The placement policy itself is pure and is tested above with explicit
+    screen rectangles, so pinning here costs no coverage: these tests are about
+    the Qt glue, not about what monitors are plugged in.  A test that wants a
+    different layout just monkeypatches ``screen_rects`` again — its own patch
+    is applied after this one and wins.
+    """
+    from pyirena.gui import window_state as ws
+
+    monkeypatch.setattr(ws, "screen_rects", lambda: [TEST_SCREEN])
+
+
 @pytest.fixture
 def isolated_store(tmp_path, monkeypatch):
     """Point the geometry file at a temp dir — never touch the real one."""
