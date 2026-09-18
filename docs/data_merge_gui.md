@@ -70,7 +70,11 @@ Three parameters may be free or fixed:
 |-----------|-------------|-------------|
 | Scale | **Fit** checkbox next to Scale | Type value in the box when Fit is unchecked |
 | Q shift (additive) | **Fit** checkbox next to Q shift | Type value in the box when Fit is unchecked |
-| Background | Always optimised | — |
+| Background | **Fit** checkbox next to BG (DS1); checked by default | Type value in the box when Fit is unchecked |
+
+At least one of **Scale** / **Background** must stay checked — a Q shift
+alone has nothing to optimize against; the panel warns and refuses to run
+otherwise.
 
 ---
 
@@ -111,7 +115,8 @@ datasets overlap.  The current Q min / Q max values are shown in the
 | **Fit** (Scale) | Optimise scale; uncheck to fix it at the typed value |
 | **Q shift: None / DS1 / DS2** | Which dataset an additive Q shift is applied to |
 | **Fit** (Q shift) | Optimise Q shift; uncheck to fix it at the typed value |
-| **BG (DS1)** | Constant background (always optimised, result shown read-only) |
+| **BG (DS1)** | Constant background subtracted from DS1 |
+| **Fit** (BG) | Optimise background (default: on); uncheck to fix it at the typed value |
 | **Split at left cursor** | Hard split mode (see [Concepts](#concepts)) |
 | **Method** | Interpolation method (currently log-log linear interpolation) |
 
@@ -142,6 +147,15 @@ Dataset **Filter** fields are applied first — matching only considers files
 that pass their respective filter.  Changing a filter while Match mode is
 active re-runs the matching automatically.
 Then click **Batch Run** to process all pairs sequentially.
+
+If the two datasets glue an instrument code onto the sample name instead of
+keeping the base name identical — e.g. `SmySample_0001.dat` (SAXS) vs.
+`WmySample_0001.dat` (WAXS) — use the per-dataset **Strip** field to remove
+that instrument code before matching. It takes a regex, applied once to the
+start of each filename, e.g. `^S` for DS1 and `^W` for DS2; both then key on
+`mySample_0001` and pair correctly. Leave both **Strip** fields blank for the
+default behavior. Like **Filter**, changing **Strip** while Match mode is
+active re-runs the matching automatically.
 
 Alternatively, select specific files in both lists using Ctrl+click or
 Shift+click.  The batch run then uses the selected pairs in list order
@@ -174,6 +188,8 @@ It is written by **Save JSON Config…** and read by **Load JSON Config…**,
   "fit_qshift": false,
   "fixed_qshift_value": 0.0,
   "qshift_dataset": 0,
+  "fit_background": true,
+  "fixed_background_value": 0.0,
   "split_at_left_cursor": false
 }
 ```
@@ -190,7 +206,12 @@ It is written by **Save JSON Config…** and read by **Load JSON Config…**,
 | `fit_qshift` | bool | `false` | Optimise additive Q shift |
 | `fixed_qshift_value` | float | `0.0` | Q shift (Å⁻¹) used when `fit_qshift` is `false` |
 | `qshift_dataset` | int | `0` | Dataset to shift: `0` = none, `1` = DS1, `2` = DS2 |
+| `fit_background` | bool | `true` | Optimise constant background subtracted from DS1 |
+| `fixed_background_value` | float | `0.0` | Background (cm⁻¹) used when `fit_background` is `false` |
 | `split_at_left_cursor` | bool | `false` | Hard split at left cursor |
+
+At least one of `fit_scale` / `fit_background` must be `true` — a Q shift
+alone has nothing to optimize against.
 
 If `q_overlap_min` / `q_overlap_max` are absent, `merge_data()` auto-detects
 the overlap as the central 80 % of the Q intersection.
@@ -441,9 +462,12 @@ region.  DS1 is log-log-linearly interpolated onto DS2's Q grid.
 
 | Slot | Free when | Bound |
 |------|----------|-------|
-| Background (BG) | Always | ±max(I1 in overlap) |
+| Background (BG) | `fit_background=True` (default) | ±max(I1 in overlap) |
 | Scale | `fit_scale=True` | [0.01, 100] |
 | Q shift | `fit_qshift=True` and `qshift_dataset≠0` | [−0.1, 0.1] Å⁻¹ |
+
+At least one of `fit_scale` / `fit_background` must be True — otherwise
+there is nothing to optimize against.
 
 ### Degeneracy handling
 
@@ -457,7 +481,7 @@ backgrounds when data chi-squared is otherwise equal.
 
 The initial scale is estimated as the median-intensity ratio of the two
 datasets in the overlap region (`median(I1) / median(I2)` for `scale_dataset=2`).
-Background always starts at 0.
+Background starts at 0 when fitted, or at the fixed value when not.
 
 ---
 
@@ -483,7 +507,9 @@ silently rescaling the wrong curve. Omitting `q_overlap_min` /
 
 The returned dict carries the fitted `scale`, `background`,
 `chi_squared`, `n_overlap_points` and any `slit_warning`. As in the panel,
-a background is always fitted — see [Optimisation
+a background is fitted by default (`fit_background=True`) — pass
+`fit_background=False` for data with no background assumption; at least one
+of `fit_scale` / `fit_background` must stay True — see [Optimisation
 details](#optimisation-details).
 
 See [ai_tools_reference.md](ai_tools_reference.md) for the agent-facing

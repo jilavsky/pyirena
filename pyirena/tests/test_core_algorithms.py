@@ -153,6 +153,29 @@ class TestDataMerge:
         I2 = curve(q2) * true_scale
         return q1, I1, 0.01 * I1, q2, I2, 0.01 * I2, true_scale
 
+    def test_match_files_default_prefix_and_number(self):
+        from pyirena.core.data_merge import DataMerge
+        files1 = ["sampleA_usaxs_007.h5", "sampleA_usaxs_099.h5"]
+        files2 = ["sampleA_saxs_007.h5", "sampleB_saxs_007.h5"]
+        pairs = DataMerge().match_files(files1, files2)
+        assert pairs == [("sampleA_usaxs_007.h5", "sampleA_saxs_007.h5")]
+
+    def test_match_files_strip_handles_instrument_prefix_letter(self):
+        from pyirena.core.data_merge import DataMerge
+        files1 = ["SmySample_0001.dat", "SmySample_0002.dat"]
+        files2 = ["WmySample_0001.dat", "WotherSample_0002.dat"]
+        pairs = DataMerge().match_files(files1, files2, strip1="^S", strip2="^W")
+        assert pairs == [("SmySample_0001.dat", "WmySample_0001.dat")]
+        # Without stripping, the prefixes differ and nothing matches.
+        assert DataMerge().match_files(files1, files2) == []
+
+    def test_match_files_invalid_strip_pattern_falls_back(self, caplog):
+        from pyirena.core.data_merge import DataMerge
+        files1 = ["sampleA_usaxs_007.h5"]
+        files2 = ["sampleA_saxs_007.h5"]
+        pairs = DataMerge().match_files(files1, files2, strip1="[unclosed")
+        assert pairs == [("sampleA_usaxs_007.h5", "sampleA_saxs_007.h5")]
+
     def test_optimize_recovers_scale(self):
         from pyirena.core.data_merge import DataMerge, MergeConfig
         q1, I1, dI1, q2, I2, dI2, true_scale = self._two_overlapping()
@@ -178,6 +201,58 @@ class TestDataMerge:
         # No scale jump: compare merged intensity against the true curve
         truth = 1000.0 * np.exp(-qm**2 * 100.0**2 / 3.0) + 1e-3 * qm**-4
         np.testing.assert_allclose(Im, truth, rtol=0.05)
+
+    def _two_overlapping_with_bg(self, true_bg=0.0):
+        """Like _two_overlapping, but DS1 carries an added constant background."""
+        def curve(q):
+            return 1000.0 * np.exp(-q**2 * 100.0**2 / 3.0) + 1e-3 * q**-4
+        q1 = np.logspace(-3, -1.3, 150)
+        q2 = np.logspace(-1.7, -0.3, 150)
+        I1 = curve(q1) + true_bg
+        true_scale = 2.5
+        I2 = curve(q2) * true_scale
+        return q1, I1, 0.01 * I1, q2, I2, 0.01 * I2, true_scale
+
+    def test_fit_background_false_fixes_at_zero_by_default_analytical_path(self):
+        from pyirena.core.data_merge import DataMerge, MergeConfig
+        q1, I1, dI1, q2, I2, dI2, true_scale = self._two_overlapping_with_bg(true_bg=50.0)
+        cfg = MergeConfig(q_overlap_min=0.02, q_overlap_max=0.05,
+                          fit_scale=True, scale_dataset=2, fit_background=False)
+        result = DataMerge().optimize(q1, I1, dI1, q2, I2, dI2, cfg)
+        assert result.background == 0.0
+
+    def test_fit_background_false_honors_fixed_value_analytical_path(self):
+        from pyirena.core.data_merge import DataMerge, MergeConfig
+        true_bg = 5.0
+        q1, I1, dI1, q2, I2, dI2, true_scale = self._two_overlapping_with_bg(true_bg=true_bg)
+        cfg = MergeConfig(q_overlap_min=0.02, q_overlap_max=0.05,
+                          fit_scale=True, scale_dataset=2,
+                          fit_background=False, fixed_background_value=true_bg)
+        result = DataMerge().optimize(q1, I1, dI1, q2, I2, dI2, cfg)
+        assert result.background == true_bg
+        assert result.scale == pytest.approx(1.0 / true_scale, rel=0.02)
+
+    def test_fit_background_false_generic_nelder_mead_path(self):
+        from pyirena.core.data_merge import DataMerge, MergeConfig
+        true_bg = 5.0
+        q1, I1, dI1, q2, I2, dI2, true_scale = self._two_overlapping_with_bg(true_bg=true_bg)
+        # scale_dataset=1 forces the generic 3-parameter Nelder-Mead path
+        # (the analytical WLS path only handles scale_dataset=2). Background
+        # is always tied to the first positional dataset (I1) regardless.
+        cfg = MergeConfig(q_overlap_min=0.02, q_overlap_max=0.05,
+                          fit_scale=True, scale_dataset=1,
+                          fit_background=False, fixed_background_value=true_bg)
+        result = DataMerge().optimize(q1, I1, dI1, q2, I2, dI2, cfg)
+        assert result.background == true_bg
+
+    def test_optimize_requires_scale_or_background(self):
+        from pyirena.core.data_merge import DataMerge, MergeConfig
+        q1, I1, dI1, q2, I2, dI2, true_scale = self._two_overlapping()
+        cfg = MergeConfig(q_overlap_min=0.02, q_overlap_max=0.05,
+                          fit_scale=False, fit_background=False)
+        result = DataMerge().optimize(q1, I1, dI1, q2, I2, dI2, cfg)
+        assert result.success is False
+        assert "Nothing to optimise" in result.message
 
 
 # ---------------------------------------------------------------------------

@@ -95,6 +95,21 @@ _BTN_GREY   = ("QPushButton { background: #7f8c8d; color: white; font-weight: bo
                "QPushButton:hover { background: #95a5a6; }")
 _RDONLY_STYLE = "background: #ecf0f1; color: #2c3e50; border: 1px solid #bdc3c7;"
 
+# "Strip" field for Match files mode — normalizes an instrument code glued
+# onto the sample name (e.g. an S/W prefix) before the prefix+number match
+# key is computed. Only affects matching, not the displayed file list.
+STRIP_PLACEHOLDER = "Strip… (regex removed from start, e.g. ^S)"
+STRIP_TOOLTIP = (
+    "Regex removed once from the start of each filename (before the '.ext') "
+    "before Match files computes its pairing key.\n"
+    "Use this when the two datasets prefix an instrument code onto an "
+    "otherwise identical sample name, e.g.:\n"
+    "  Dataset 1: SmySample_0001.dat   ->  Strip: ^S\n"
+    "  Dataset 2: WmySample_0001.dat   ->  Strip: ^W\n"
+    "Both then key on 'mySample_0001' and pair correctly.\n"
+    "Leave blank for the default behavior (prefix before '_' + last number)."
+)
+
 
 # ===========================================================================
 # _DatasetSelectorWidget — reusable single-dataset file browser
@@ -195,6 +210,18 @@ class _DatasetSelectorWidget(QWidget):
         filt_row.addWidget(self.filter_edit, stretch=1)
         layout.addLayout(filt_row)
 
+        # Strip — used only by "Match files" mode, to normalize an
+        # instrument code glued onto the sample name (e.g. S/W prefixes)
+        # before the prefix+number match key is computed.
+        strip_row = QHBoxLayout()
+        strip_row.addWidget(QLabel("Strip:"))
+        self.strip_edit = QLineEdit()
+        self.strip_edit.setPlaceholderText(STRIP_PLACEHOLDER)
+        self.strip_edit.setToolTip(STRIP_TOOLTIP)
+        self.strip_edit.textChanged.connect(self._notify_filter_changed)
+        strip_row.addWidget(self.strip_edit, stretch=1)
+        layout.addLayout(strip_row)
+
         # File list — ExtendedSelection allows Ctrl/Shift multi-select.
         # Selected pairs (first DS1 with first DS2, etc.) are used for batch run.
         self.file_list = QListWidget()
@@ -294,6 +321,10 @@ class _DatasetSelectorWidget(QWidget):
         """Return the file list after the text filter has been applied."""
         return filter_names(self._all_files, self.filter_edit.text())
 
+    def get_strip_pattern(self) -> str:
+        """Return the regex to strip from the stem before match-key extraction."""
+        return self.strip_edit.text()
+
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
@@ -337,6 +368,12 @@ class _DatasetSelectorWidget(QWidget):
         self.file_list.clear()
         for f in filter_names(self._all_files, self.filter_edit.text()):
             self.file_list.addItem(f)
+        if self.filter_changed_callback is not None:
+            self.filter_changed_callback()
+
+    def _notify_filter_changed(self) -> None:
+        """A "Strip" edit changed — re-run matching, but the displayed
+        (unmatched) file list is untouched, unlike an actual filter change."""
         if self.filter_changed_callback is not None:
             self.filter_changed_callback()
 
@@ -841,11 +878,22 @@ class DataMergePanel(QWidget):
 
         # ── Background ────────────────────────────────────────────────────
         row1.addWidget(QLabel("BG (DS1):"))
+        self._fit_bg_chk = QCheckBox("Fit")
+        self._fit_bg_chk.setChecked(True)
+        self._fit_bg_chk.setToolTip("Fit background during optimisation")
+        self._fit_bg_chk.toggled.connect(self._on_fit_bg_toggled)
+        row1.addWidget(self._fit_bg_chk)
+
         self._bg_result = QLineEdit("0.000000")
         self._bg_result.setReadOnly(True)
         self._bg_result.setFixedWidth(80)
         self._bg_result.setStyleSheet(_RDONLY_STYLE)
-        self._bg_result.setToolTip("Optimised constant background subtracted from DS1")
+        self._bg_result.setToolTip(
+            "Optimised constant background subtracted from DS1 "
+            "(read-only when Fit is checked).\n"
+            "Uncheck Fit to enter a fixed background value manually (e.g. 0 "
+            "when no background is expected)."
+        )
         row1.addWidget(self._bg_result)
 
         row1.addStretch()
@@ -1126,6 +1174,24 @@ class DataMergePanel(QWidget):
         self._qshift_result.setReadOnly(checked)
         self._qshift_result.setStyleSheet(_RDONLY_STYLE if checked else "")
 
+    def _on_fit_bg_toggled(self, checked: bool) -> None:
+        """When 'Fit background' is unchecked, let the user type a fixed value."""
+        self._bg_result.setReadOnly(checked)
+        self._bg_result.setStyleSheet(_RDONLY_STYLE if checked else "")
+
+    def _check_has_fit_target(self) -> bool:
+        """At least one of Fit-scale / Fit-background must be enabled —
+        otherwise there is nothing for the optimizer to fit (Q-shift alone
+        is not a target)."""
+        if not self._fit_scale_chk.isChecked() and not self._fit_bg_chk.isChecked():
+            QMessageBox.warning(
+                self, "Nothing to Optimize",
+                "Enable 'Fit' for Scale and/or Background — Q shift alone "
+                "has nothing to fit against."
+            )
+            return False
+        return True
+
     def _on_mode_changed(self, _idx: int) -> None:
         saxs = self._mode_combo.currentIndex() == 0
         self._graph.set_mode(saxs)
@@ -1153,6 +1219,8 @@ class DataMergePanel(QWidget):
     def _optimize_merge(self) -> None:
         if self._data1 is None or self._data2 is None:
             QMessageBox.warning(self, "Missing Data", "Load both DS1 and DS2 first.")
+            return
+        if not self._check_has_fit_target():
             return
 
         q_min, q_max = self._graph.get_overlap_range()
@@ -1196,6 +1264,10 @@ class DataMergePanel(QWidget):
             fixed_qshift = float(self._qshift_result.text())
         except ValueError:
             fixed_qshift = 0.0
+        try:
+            fixed_bg = float(self._bg_result.text())
+        except ValueError:
+            fixed_bg = 0.0
         config = MergeConfig(
             q_overlap_min=q_min,
             q_overlap_max=q_max,
@@ -1205,6 +1277,8 @@ class DataMergePanel(QWidget):
             fit_qshift=self._fit_qshift_chk.isChecked(),
             fixed_qshift_value=fixed_qshift,
             qshift_dataset=qshift_map[self._qshift_combo.currentText()],
+            fit_background=self._fit_bg_chk.isChecked(),
+            fixed_background_value=fixed_bg,
             method=self._method_combo.currentData() or 'interpolation',
             split_at_left_cursor=self._split_chk.isChecked(),
             slit_length_ds1=float(self._data1.get('slit_length', 0.0) or 0.0),
@@ -1311,6 +1385,8 @@ class DataMergePanel(QWidget):
         if not self._out_folder:
             QMessageBox.warning(self, "No Output Folder", "Select an output folder first.")
             return
+        if not self._check_has_fit_target():
+            return
 
         from pyirena.io.nxcansas_data_merge import save_merged_data
 
@@ -1333,6 +1409,10 @@ class DataMergePanel(QWidget):
             fixed_qshift = float(self._qshift_result.text())
         except ValueError:
             fixed_qshift = 0.0
+        try:
+            fixed_bg = float(self._bg_result.text())
+        except ValueError:
+            fixed_bg = 0.0
 
         import numpy as _np
 
@@ -1399,6 +1479,8 @@ class DataMergePanel(QWidget):
                     fit_qshift=self._fit_qshift_chk.isChecked(),
                     fixed_qshift_value=fixed_qshift,
                     qshift_dataset=qshift_map[self._qshift_combo.currentText()],
+                    fit_background=self._fit_bg_chk.isChecked(),
+                    fixed_background_value=fixed_bg,
                     method=self._method_combo.currentData() or 'interpolation',
                     split_at_left_cursor=self._split_chk.isChecked(),
                     slit_length_ds1=float(d1.get('slit_length', 0.0) or 0.0),
@@ -1415,6 +1497,7 @@ class DataMergePanel(QWidget):
                     'q_overlap_min': config.q_overlap_min, 'q_overlap_max': config.q_overlap_max,
                     'scale_dataset': config.scale_dataset, 'fit_scale': config.fit_scale,
                     'qshift_dataset': config.qshift_dataset, 'fit_qshift': config.fit_qshift,
+                    'fit_background': config.fit_background,
                     'split_at_left_cursor': config.split_at_left_cursor,
                     'slit_length_ds1': config.slit_length_ds1,
                     'slit_length_ds2': config.slit_length_ds2,
@@ -1465,7 +1548,9 @@ class DataMergePanel(QWidget):
     def _apply_match_filter(self) -> None:
         files1 = self._ds1.get_filtered_files()
         files2 = self._ds2.get_filtered_files()
-        pairs = self._engine.match_files(files1, files2)
+        pairs = self._engine.match_files(
+            files1, files2, self._ds1.get_strip_pattern(), self._ds2.get_strip_pattern()
+        )
         matched1 = [p[0] for p in pairs]
         matched2 = [p[1] for p in pairs]
         self._ds1.set_displayed_files(matched1)
@@ -1480,7 +1565,9 @@ class DataMergePanel(QWidget):
             return []
         files1 = self._ds1.get_filtered_files()
         files2 = self._ds2.get_filtered_files()
-        return self._engine.match_files(files1, files2)
+        return self._engine.match_files(
+            files1, files2, self._ds1.get_strip_pattern(), self._ds2.get_strip_pattern()
+        )
 
     # ================================================================== #
     #  JSON config save/load                                              #
@@ -1554,6 +1641,7 @@ class DataMergePanel(QWidget):
         qshift_ds = int(s.get('qshift_dataset', 0))
         self._qshift_combo.setCurrentIndex(qshift_ds)
         self._fit_qshift_chk.setChecked(bool(s.get('fit_qshift', False)))
+        self._fit_bg_chk.setChecked(bool(s.get('fit_background', True)))
         self._split_chk.setChecked(bool(s.get('split_at_left_cursor', False)))
 
         mode = s.get('plot_mode', 'saxs')
@@ -1563,6 +1651,8 @@ class DataMergePanel(QWidget):
 
         self._ds1.filter_edit.setText(s.get('filter1', ''))
         self._ds2.filter_edit.setText(s.get('filter2', ''))
+        self._ds1.strip_edit.setText(s.get('strip1', ''))
+        self._ds2.strip_edit.setText(s.get('strip2', ''))
 
     def save_state(self) -> None:
         q_min, q_max = self._graph.get_overlap_range()
@@ -1573,6 +1663,8 @@ class DataMergePanel(QWidget):
             'file_type2': self._ds2.get_file_type(),
             'filter1': self._ds1.filter_edit.text(),
             'filter2': self._ds2.filter_edit.text(),
+            'strip1': self._ds1.strip_edit.text(),
+            'strip2': self._ds2.strip_edit.text(),
             'sort_index1': self._ds1.get_sort_index(),
             'sort_index2': self._ds2.get_sort_index(),
             'output_folder': self._out_folder,
@@ -1582,6 +1674,7 @@ class DataMergePanel(QWidget):
             'scale_dataset': self._scale_ds_combo.currentIndex() + 1,
             'qshift_dataset': self._qshift_combo.currentIndex(),
             'fit_qshift': self._fit_qshift_chk.isChecked(),
+            'fit_background': self._fit_bg_chk.isChecked(),
             'split_at_left_cursor': self._split_chk.isChecked(),
             'plot_mode': 'saxs' if self._mode_combo.currentIndex() == 0 else 'waxs',
             'match_files': self._match_chk.isChecked(),
@@ -1776,6 +1869,7 @@ class DataMergePanel(QWidget):
             'q_overlap_min': c.q_overlap_min, 'q_overlap_max': c.q_overlap_max,
             'scale_dataset': c.scale_dataset, 'fit_scale': c.fit_scale,
             'qshift_dataset': c.qshift_dataset, 'fit_qshift': c.fit_qshift,
+            'fit_background': c.fit_background,
             'split_at_left_cursor': c.split_at_left_cursor,
             'slit_length_ds1': c.slit_length_ds1,
             'slit_length_ds2': c.slit_length_ds2,
@@ -1794,6 +1888,7 @@ class DataMergePanel(QWidget):
             "scale_dataset": self._scale_ds_combo.currentIndex() + 1,
             "fit_qshift": self._fit_qshift_chk.isChecked(),
             "qshift_dataset": qshift_map[self._qshift_combo.currentText()],
+            "fit_background": self._fit_bg_chk.isChecked(),
             "split_at_left_cursor": self._split_chk.isChecked(),
         }
 
@@ -1805,6 +1900,7 @@ class DataMergePanel(QWidget):
         self._fit_qshift_chk.setChecked(bool(cfg.get('fit_qshift', False)))
         qds = int(cfg.get('qshift_dataset', 0))
         self._qshift_combo.setCurrentText(qds_map.get(qds, "None"))
+        self._fit_bg_chk.setChecked(bool(cfg.get('fit_background', True)))
         self._split_chk.setChecked(bool(cfg.get('split_at_left_cursor', False)))
 
         q_min = cfg.get('q_overlap_min')

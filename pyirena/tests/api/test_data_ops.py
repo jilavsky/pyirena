@@ -198,6 +198,49 @@ def test_merge_recovers_a_known_scale(tmp_path):
     _assert_json_safe(result)
 
 
+def test_merge_datasets_fit_background_false_fixes_background(tmp_path):
+    lo, hi = tmp_path / "usaxs", tmp_path / "saxs"
+    lo.mkdir(); hi.mkdir()
+
+    def curve(q):
+        return 1000 * np.exp(-((q * 300) ** 2) / 3) + 2e-3 * q**-3.2 + 0.05
+
+    q1 = np.logspace(-4, -1.4, 200)
+    q2 = np.logspace(-2.2, -0.5, 200)
+    create_nxcansas_file(lo / "s_usaxs_001.h5", q1, curve(q1), curve(q1) * 0.02, sample_name="u")
+    i2 = curve(q2) * 1.15
+    create_nxcansas_file(hi / "s_saxs_001.h5", q2, i2, i2 * 0.02, sample_name="s")
+
+    result = merge_datasets(
+        str(lo / "s_usaxs_001.h5"), str(hi / "s_saxs_001.h5"),
+        fit_background=False, fixed_background_value=1.5,
+    )
+    assert "error" not in result, result
+    assert result["background"] == pytest.approx(1.5)
+    assert result["parameters"]["fit_background"] is False
+    assert "note" not in result
+    _assert_json_safe(result)
+
+
+def test_merge_datasets_requires_scale_or_background(tmp_path):
+    lo, hi = tmp_path / "usaxs", tmp_path / "saxs"
+    lo.mkdir(); hi.mkdir()
+
+    def curve(q):
+        return 1000 * np.exp(-((q * 300) ** 2) / 3) + 2e-3 * q**-3.2 + 0.05
+
+    q1 = np.logspace(-4, -1.4, 200)
+    q2 = np.logspace(-2.2, -0.5, 200)
+    create_nxcansas_file(lo / "s_usaxs_001.h5", q1, curve(q1), curve(q1) * 0.02, sample_name="u")
+    create_nxcansas_file(hi / "s_saxs_001.h5", q2, curve(q2), curve(q2) * 0.02, sample_name="s")
+
+    result = merge_datasets(
+        str(lo / "s_usaxs_001.h5"), str(hi / "s_saxs_001.h5"),
+        fit_scale=False, fit_background=False,
+    )
+    assert result["code"] == "BAD_ARGUMENTS"
+
+
 def test_match_merge_files_pairs_by_index(tmp_path):
     lo, hi = tmp_path / "usaxs", tmp_path / "saxs"
     for i in (1, 2):
@@ -211,6 +254,21 @@ def test_match_merge_files_pairs_by_index(tmp_path):
     assert Path(result["pairs"][0]["file1"]).name.startswith("sample_usaxs")
     assert Path(result["pairs"][0]["file2"]).name.startswith("sample_saxs")
     _assert_json_safe(result)
+
+
+def test_match_merge_files_strip_handles_instrument_prefix_letter(tmp_path):
+    lo, hi = tmp_path / "saxs", tmp_path / "waxs"
+    _make(lo, "SmySample_0001.dat")
+    _make(hi, "WmySample_0001.dat")
+
+    result = match_merge_files(str(lo), str(hi), strip1="^S", strip2="^W")
+    assert result["n_pairs"] == 1
+    assert Path(result["pairs"][0]["file1"]).name == "SmySample_0001.dat"
+    assert Path(result["pairs"][0]["file2"]).name == "WmySample_0001.dat"
+    _assert_json_safe(result)
+
+    # Without stripping, the differing instrument-letter prefix means no pairs.
+    assert match_merge_files(str(lo), str(hi))["n_pairs"] == 0
 
 
 # ---------------------------------------------------------------------------

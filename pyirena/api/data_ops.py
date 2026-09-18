@@ -872,6 +872,8 @@ def merge_datasets(
     fit_qshift: bool = False,
     fixed_qshift_value: float = 0.0,
     qshift_dataset: int = 0,
+    fit_background: bool = True,
+    fixed_background_value: float = 0.0,
     split_at_left_cursor: bool = False,
     output_folder: Optional[str] = None,
 ) -> dict:
@@ -879,12 +881,11 @@ def merge_datasets(
 
     ``file1`` is the lower-Q dataset and the absolute-intensity reference
     (typically USAXS); ``file2`` is the higher-Q dataset brought onto it
-    (typically SAXS). A scale, and optionally a Q shift, are fitted in the
-    overlap region.
+    (typically SAXS). A scale, and optionally a Q shift and/or a constant
+    background, are fitted in the overlap region.
 
-    A background is **always** fitted and subtracted from file1 — there is
-    no way to force it to zero. The fitted value is returned as
-    ``background``; check it is small compared with your intensities.
+    At least one of ``fit_scale`` / ``fit_background`` must be True — a
+    Q-shift alone has nothing to optimize against.
 
     Mixing slit-smeared USAXS with pinhole SAXS is normal and allowed; any
     concern is returned in ``slit_warning`` rather than refused.
@@ -910,6 +911,13 @@ def merge_datasets(
         Q shift in 1/Å used when ``fit_qshift`` is False.
     qshift_dataset : int
         0 (none), 1, or 2 — which dataset the Q shift applies to.
+    fit_background : bool
+        Fit a constant background subtracted from file1. Default True
+        (historical behavior: background was always fitted). Set False for
+        data with no background assumption.
+    fixed_background_value : float
+        Background subtracted from file1 when ``fit_background`` is False.
+        Default 0.0 (no background subtracted).
     split_at_left_cursor : bool
         True: hard split at q_overlap_min, no duplicate Q values. False
         (default): keep both datasets' points across the overlap.
@@ -987,6 +995,13 @@ def merge_datasets(
             suggestion="2 (rescale the higher-Q dataset) is the usual choice.",
             code="BAD_ARGUMENTS",
         )
+    if not fit_scale and not fit_background:
+        return _error(
+            "Nothing to optimize: fit_scale and fit_background are both False.",
+            suggestion="Set fit_scale=True and/or fit_background=True — a "
+                       "Q-shift alone has no target to fit against.",
+            code="BAD_ARGUMENTS",
+        )
 
     sl1 = float(data1.get("slit_length", 0.0) or 0.0)
     sl2 = float(data2.get("slit_length", 0.0) or 0.0)
@@ -999,6 +1014,8 @@ def merge_datasets(
         fit_qshift=bool(fit_qshift),
         fixed_qshift_value=float(fixed_qshift_value),
         qshift_dataset=qshift_dataset_i,
+        fit_background=bool(fit_background),
+        fixed_background_value=float(fixed_background_value),
         split_at_left_cursor=bool(split_at_left_cursor),
         slit_length_ds1=sl1,
         slit_length_ds2=sl2,
@@ -1120,18 +1137,21 @@ def merge_datasets(
         "scale_dataset": scale_dataset_i,
         "fit_qshift": bool(fit_qshift),
         "qshift_dataset": qshift_dataset_i,
+        "fit_background": bool(fit_background),
         "split_at_left_cursor": bool(split_at_left_cursor),
     }
-    out["note"] = (
-        "A background is always fitted and subtracted from file1; it cannot "
-        "be forced to zero. Check 'background' is small relative to your "
-        "intensities."
-    )
+    if fit_background:
+        out["note"] = (
+            "A background was fitted and subtracted from file1. Check "
+            "'background' is small relative to your intensities."
+        )
     out.update(_diagnostics(int(q1.size + q2.size), q_m, i_m, out_path))
     return out
 
 
-def match_merge_files(folder1: str, folder2: str) -> dict:
+def match_merge_files(
+    folder1: str, folder2: str, strip1: str = "", strip2: str = ""
+) -> dict:
     """Pair up files from two folders for batch merging. Reads only.
 
     Matches on a key of (text before the first underscore, last integer in
@@ -1139,10 +1159,20 @@ def match_merge_files(folder1: str, folder2: str) -> dict:
     ``sampleA_saxs_007.h5``. Files with no partner are reported separately
     rather than silently dropped.
 
+    Some facilities glue an instrument code onto the sample name instead of
+    keeping the base name identical, e.g. ``SmySample_0001.dat`` (folder1)
+    vs. ``WmySample_0001.dat`` (folder2). Pass a regex in ``strip1``/
+    ``strip2`` to remove that instrument-specific part before matching —
+    here ``strip1="^S"``, ``strip2="^W"``.
+
     Parameters
     ----------
     folder1, folder2 : str
         Folders holding the lower-Q and higher-Q datasets.
+    strip1, strip2 : str, optional
+        Regex removed once from the start of each folder's filename stems
+        before matching (see above). Empty string (default) matches on the
+        unmodified stem.
 
     Returns
     -------
@@ -1171,7 +1201,7 @@ def match_merge_files(folder1: str, folder2: str) -> dict:
         return sort_names(names)
 
     names1, names2 = _listing(dir1), _listing(dir2)
-    pairs = DataMerge().match_files(names1, names2)
+    pairs = DataMerge().match_files(names1, names2, strip1, strip2)
 
     matched1 = {a for a, _ in pairs}
     matched2 = {b for _, b in pairs}

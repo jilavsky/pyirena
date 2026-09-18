@@ -48,6 +48,15 @@ class MergeConfig:
         apply a known Q offset without running optimization.  Default 0.0.
     qshift_dataset : int
         0 = no shift, 1 = shift DS1, 2 = shift DS2.
+    fit_background : bool
+        Whether to optimize a constant background subtracted from DS1.
+        Default True (matches the historical behavior, where background was
+        always fit unconditionally). Some instruments/data do not carry a
+        background assumption; set False to skip it.
+    fixed_background_value : float
+        Background applied when *fit_background* is False.  Default 0.0 (no
+        background subtracted).  At least one of *fit_scale* / *fit_background*
+        must be True — optimize() has nothing to fit against otherwise.
     method : str
         Key into DataMerge.METHODS.  Currently only 'interpolation'.
     split_at_left_cursor : bool
@@ -65,6 +74,8 @@ class MergeConfig:
     fit_qshift: bool = False
     fixed_qshift_value: float = 0.0
     qshift_dataset: int = 0
+    fit_background: bool = True
+    fixed_background_value: float = 0.0
     method: str = 'interpolation'
     split_at_left_cursor: bool = False
     # Slit-smearing provenance of the two inputs (1/Å; 0 = pinhole).  The
@@ -87,7 +98,8 @@ class MergeResult:
     q_shift : float
         Optimal additive Q shift in Å⁻¹ (0.0 if fit_qshift is False).
     background : float
-        Optimal constant background subtracted from DS1 before comparison.
+        Optimal constant background subtracted from DS1 before comparison
+        (fixed_background_value if fit_background is False).
     success : bool
         Whether the optimizer converged.
     chi_squared : float
@@ -182,6 +194,12 @@ class DataMerge:
         MergeResult
             Populated with the optimizer output.
         """
+        if not config.fit_scale and not config.fit_background:
+            return MergeResult(success=False, message=(
+                "Nothing to optimise: enable fit_scale and/or fit_background "
+                "(Q-shift alone has no target to fit against)."
+            ))
+
         # --- initial guess for scale ---
         mask1_init = (
             (q1 >= config.q_overlap_min) & (q1 <= config.q_overlap_max)
@@ -222,9 +240,11 @@ class DataMerge:
         else:
             scale_init = config.fixed_scale_value
 
-        # Background always starts at 0 — the BG regularisation in
+        # Background starts at 0 when fitted — the BG regularisation in
         # _objective_wrapper keeps it small and avoids the scale–BG valley.
-        bg_init = 0.0
+        # When not fitted, start (and stay, in the Nelder-Mead path) at the
+        # fixed value.
+        bg_init = 0.0 if config.fit_background else config.fixed_background_value
 
         # --- build free-parameter vector and bounds ---
         # Always 3 slots: [background, scale, q_shift]
@@ -255,7 +275,7 @@ class DataMerge:
         ]
 
         # Freeze slots that are not fitted
-        fixed_bg = not True            # background is always fit
+        fixed_bg = not config.fit_background
         fixed_scale = not config.fit_scale
         fixed_qshift = not config.fit_qshift
 
@@ -431,6 +451,8 @@ class DataMerge:
         self,
         filenames1: List[str],
         filenames2: List[str],
+        strip1: str = "",
+        strip2: str = "",
     ) -> List[Tuple[str, str]]:
         """Match files by (prefix-before-first-underscore, last-integer-in-stem).
 
@@ -438,17 +460,35 @@ class DataMerge:
         Unmatched files are silently skipped.  If multiple files in one folder
         share the same key, a warning is printed and the first is used.
 
+        Some facilities glue an instrument code onto the sample name instead
+        of keeping the base name identical across sets, e.g.
+        ``SmySample_0001.dat`` (SAXS) vs. ``WmySample_0001.dat`` (WAXS). For
+        that case, pass a regex in ``strip1``/``strip2`` that removes the
+        instrument-specific part before the key is computed — here
+        ``strip1="^S"``, ``strip2="^W"`` turns both stems into
+        ``mySample_0001`` so they pair.
+
         Parameters
         ----------
         filenames1, filenames2 : list of str
             Base filenames (not full paths) from each folder.
+        strip1, strip2 : str, optional
+            Regex applied once (``re.sub(pattern, '', stem, count=1)``) to
+            each dataset's filename stem before the prefix/number key is
+            extracted. Empty string (default) leaves the stem unchanged. An
+            invalid regex is logged and ignored rather than raised.
 
         Returns
         -------
         list of (name1, name2) tuples sorted by the common key.
         """
-        def _extract_key(fname: str) -> Optional[Tuple[str, str]]:
+        def _extract_key(fname: str, strip_pattern: str) -> Optional[Tuple[str, str]]:
             stem = Path(fname).stem
+            if strip_pattern:
+                try:
+                    stem = re.sub(strip_pattern, '', stem, count=1)
+                except re.error:
+                    log.warning("Invalid strip pattern %r; ignoring.", strip_pattern)
             prefix = stem.split('_')[0]
             numbers = re.findall(r'\d+', stem)
             if not numbers:
@@ -457,7 +497,7 @@ class DataMerge:
 
         dict1: dict[Tuple[str, str], str] = {}
         for f in filenames1:
-            k = _extract_key(f)
+            k = _extract_key(f, strip1)
             if k is None:
                 continue
             if k in dict1:
@@ -468,7 +508,7 @@ class DataMerge:
 
         dict2: dict[Tuple[str, str], str] = {}
         for f in filenames2:
-            k = _extract_key(f)
+            k = _extract_key(f, strip2)
             if k is None:
                 continue
             if k in dict2:
@@ -627,7 +667,7 @@ class DataMerge:
             I1_ov, I2_interp, sigma = ov
             n = int(len(I1_ov))
 
-            if config.fit_scale:
+            if config.fit_scale and config.fit_background:
                 bg, scale, chi2 = self._wls_bg_scale2(
                     I1_ov, I2_interp, sigma, bounds_bg, bounds_scale
                 )
@@ -643,7 +683,23 @@ class DataMerge:
                     ))
                     residuals = (I1_ov - bg - I2_interp * scale) / sigma
                     chi2 = float(np.sum(residuals ** 2))
-            else:
+            elif config.fit_scale and not config.fit_background:
+                # Background fixed — solve for scale only: weighted least
+                # squares of (I1_ov - bg) against I2_interp, zero intercept.
+                bg = config.fixed_background_value
+                w   = 1.0 / sigma ** 2
+                Sxx = float(np.sum(w * I2_interp ** 2))
+                Sxy = float(np.sum(w * I2_interp * (I1_ov - bg)))
+                ref = Sxx if Sxx > 0 else 1.0
+                if abs(Sxx) < 1e-10 * ref:
+                    # Degenerate: DS2 nearly constant — fall back to the
+                    # median-ratio initial guess.
+                    scale = scale_init
+                else:
+                    scale = float(np.clip(Sxy / Sxx, bounds_scale[0], bounds_scale[1]))
+                residuals = (I1_ov - bg - I2_interp * scale) / sigma
+                chi2 = float(np.sum(residuals ** 2))
+            elif not config.fit_scale and config.fit_background:
                 # Scale fixed — solve for BG only (1-variable linear)
                 scale = config.fixed_scale_value
                 w   = 1.0 / sigma ** 2
@@ -652,6 +708,13 @@ class DataMerge:
                     np.sum(w * (I1_ov - I2_interp * scale)) / Sw if Sw > 0 else 0.0,
                     bounds_bg[0], bounds_bg[1],
                 ))
+                residuals = (I1_ov - bg - I2_interp * scale) / sigma
+                chi2 = float(np.sum(residuals ** 2))
+            else:
+                # Both fixed — nothing to solve (optimize() already guards
+                # against this combination; kept for defensive completeness).
+                bg = config.fixed_background_value
+                scale = config.fixed_scale_value
                 residuals = (I1_ov - bg - I2_interp * scale) / sigma
                 chi2 = float(np.sum(residuals ** 2))
 

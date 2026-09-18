@@ -78,7 +78,7 @@ def save_merged_data(
         Merged Q-resolution array, or None.
     merge_result_dict : dict
         Keys: scale, q_shift, background, chi_squared, q_overlap_min,
-        q_overlap_max, scale_dataset, fit_scale, fit_qshift,
+        q_overlap_max, scale_dataset, fit_scale, fit_qshift, fit_background,
         split_at_left_cursor.  Values are scalars or booleans.
     ds2_path : Path or None
         Full path to DS2 input file (for provenance only).

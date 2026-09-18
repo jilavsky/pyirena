@@ -833,9 +833,11 @@ for the full config file reference.
    optimisation options (scale, Q shift, split mode, etc.).
    If no config is given, the overlap is auto-detected as the central 80 % of
    the Q intersection and all default options are used.
-3. **Optimises** — Nelder-Mead minimisation of weighted χ² in the overlap
-   region to find the best scale factor, constant background, and optional
-   Q shift.
+3. **Optimises** — Nelder-Mead minimisation (or a closed-form WLS solve for
+   the default `scale_dataset=2`) of weighted χ² in the overlap region to
+   find the best scale factor and/or constant background (each independently
+   optional via `fit_scale`/`fit_background` — at least one must stay
+   enabled), and optional Q shift.
 4. **Merges** — assembles the combined Q/I/dI/dQ arrays, trimming DS1 at the
    right cursor and DS2 at the left cursor (or splitting hard at the left
    cursor when `split_at_left_cursor=True`).

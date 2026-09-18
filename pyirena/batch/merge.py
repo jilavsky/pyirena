@@ -47,9 +47,13 @@ def merge_data(
     config_file : str or Path or None
         JSON file with merge parameters.  Expected keys (all optional):
         ``q_overlap_min``, ``q_overlap_max``, ``scale_dataset`` (1 or 2),
-        ``fit_scale`` (bool), ``qshift_dataset`` (0/1/2), ``fit_qshift``
-        (bool), ``split_at_left_cursor`` (bool).  Missing keys fall back to
-        defaults (scale DS2, no Q-shift, include overlap in output).
+        ``fit_scale`` (bool), ``fixed_scale_value`` (float),
+        ``qshift_dataset`` (0/1/2), ``fit_qshift`` (bool),
+        ``fixed_qshift_value`` (float), ``fit_background`` (bool),
+        ``fixed_background_value`` (float), ``split_at_left_cursor`` (bool).
+        Missing keys fall back to defaults (scale DS2, no Q-shift, background
+        always fitted, include overlap in output). At least one of
+        ``fit_scale`` / ``fit_background`` must stay True.
     save_to_nexus : bool
         If True, write merged data to a NXcanSAS file.
     output_folder : str or Path or None
@@ -145,10 +149,17 @@ def merge_data(
         fit_qshift=bool(cfg_dict.get('fit_qshift', False)),
         fixed_qshift_value=float(cfg_dict.get('fixed_qshift_value', 0.0)),
         qshift_dataset=int(cfg_dict.get('qshift_dataset', 0)),
+        fit_background=bool(cfg_dict.get('fit_background', True)),
+        fixed_background_value=float(cfg_dict.get('fixed_background_value', 0.0)),
         split_at_left_cursor=bool(cfg_dict.get('split_at_left_cursor', False)),
         slit_length_ds1=sl1,
         slit_length_ds2=sl2,
     )
+    if not config.fit_scale and not config.fit_background:
+        log.error(f"[merge_data] Nothing to optimise for '{file1.name}' + "
+                  f"'{file2.name}': fit_scale and fit_background are both "
+                  "False — skipping.")
+        return None
 
     # ── Optimise ──────────────────────────────────────────────────────────────
     engine = DataMerge()
@@ -197,6 +208,7 @@ def merge_data(
             'fit_scale': config.fit_scale,
             'qshift_dataset': config.qshift_dataset,
             'fit_qshift': config.fit_qshift,
+            'fit_background': config.fit_background,
             'split_at_left_cursor': config.split_at_left_cursor,
             'slit_length_ds1': config.slit_length_ds1,
             'slit_length_ds2': config.slit_length_ds2,

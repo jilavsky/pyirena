@@ -341,11 +341,12 @@ DATA_OP_TOOL_SCHEMAS: list[dict] = [
             "<file1 stem>_merged.h5. file1 must be the LOWER-Q dataset "
             "(typically USAXS) and is the absolute-intensity reference; file2 "
             "is the higher-Q dataset (typically SAXS) brought onto it. A "
-            "scale factor is fitted in the overlap region. Note a background "
-            "is ALWAYS fitted and subtracted from file1 and cannot be forced "
-            "to zero — check the returned 'background' is small relative to "
-            "your intensities. Mixing slit-smeared USAXS with pinhole SAXS is "
-            "normal and allowed. " + _OVERWRITE_NOTE
+            "scale factor, and optionally a Q shift and/or a constant "
+            "background subtracted from file1, are fitted in the overlap "
+            "region. At least one of fit_scale / fit_background must be "
+            "true — a Q-shift alone has nothing to optimize against. Mixing "
+            "slit-smeared USAXS with pinhole SAXS is normal and allowed. "
+            + _OVERWRITE_NOTE
         ),
         "input_schema": {
             "type": "object",
@@ -417,6 +418,25 @@ DATA_OP_TOOL_SCHEMAS: list[dict] = [
                     "description": "Which dataset the Q shift applies to; 0 means none.",
                     "default": 0,
                 },
+                "fit_background": {
+                    "type": "boolean",
+                    "description": (
+                        "Fit a constant background subtracted from file1. "
+                        "Default true (historical behavior: background was "
+                        "always fitted). Set false for data with no "
+                        "background assumption — at least one of fit_scale / "
+                        "fit_background must stay true."
+                    ),
+                    "default": True,
+                },
+                "fixed_background_value": {
+                    "type": "number",
+                    "description": (
+                        "Background subtracted from file1 when fit_background "
+                        "is false."
+                    ),
+                    "default": 0.0,
+                },
                 "split_at_left_cursor": {
                     "type": "boolean",
                     "description": (
@@ -440,7 +460,10 @@ DATA_OP_TOOL_SCHEMAS: list[dict] = [
             "plus the last integer in the filename, so sampleA_usaxs_007.h5 "
             "pairs with sampleA_saxs_007.h5. Call this before looping "
             "merge_datasets over a run, and check 'unmatched_1' / "
-            "'unmatched_2' for files with no partner."
+            "'unmatched_2' for files with no partner. If the two datasets "
+            "glue an instrument code onto the sample name instead (e.g. "
+            "SmySample_0001.dat vs. WmySample_0001.dat), pass strip1/strip2 "
+            "regexes (e.g. '^S' / '^W') to remove it before matching."
         ),
         "input_schema": {
             "type": "object",
@@ -452,6 +475,20 @@ DATA_OP_TOOL_SCHEMAS: list[dict] = [
                 "folder2": {
                     "type": "string",
                     "description": "Folder of higher-Q datasets (usually SAXS).",
+                },
+                "strip1": {
+                    "type": "string",
+                    "description": (
+                        "Regex removed once from the start of each folder1 "
+                        "filename stem before matching. Default: no stripping."
+                    ),
+                },
+                "strip2": {
+                    "type": "string",
+                    "description": (
+                        "Regex removed once from the start of each folder2 "
+                        "filename stem before matching. Default: no stripping."
+                    ),
                 },
             },
             "required": ["folder1", "folder2"],
