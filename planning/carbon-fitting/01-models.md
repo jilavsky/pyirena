@@ -5,19 +5,36 @@ eq. (N)" refers to Saurel et al. 2019; "Annex 3 eq. (A3.N)" refers to the
 Supplementary Information (`mmc2`); "Corrigendum eq." refers to the 2020
 erratum.
 
-## 0. Unit convention warning — read this before coding anything
+## 0. Unit convention — DECIDED: Ångström everywhere
 
 **The paper works in nm.** Q is in nm⁻¹, all lengths (R, Σ, ξ, d, r, w_P, w_C)
 are in nm, and SLD/contrast are in 10¹⁰ cm⁻² / 10²⁰ cm⁻⁴ (their own SI
-tables). **pyIrena's convention (AGENTS.md §5) is Q in Å⁻¹.** Every formula
-below must be transcribed with that in mind: 1 nm⁻¹ = 0.1 Å⁻¹, and any length
-parameter entered in nm is ×10 in Å. This is not a detail to fix later — get
-it wrong and every default parameter value looks two orders of magnitude off
-in the GUI. Recommend: implement the core math in Å (pyIrena-native), and
-only convert at the GUI boundary if we decide to show users nm for
-readability (SAXS practitioners in this sub-field mostly think in nm⁻¹ for
-carbons, since real-space features are sub-nm to few-nm — this is worth a
-product decision, see [03-open-questions.md](03-open-questions.md)).
+tables).
+
+**pyIrena uses Å and Å⁻¹, and so does this tool — in the core math, in the
+HDF5 file, in the JSON config and on the panel. nm appears nowhere.** Decided
+2026-09-21 (Jan): same units for Q, sizes and contrast as the rest of
+pyIrena; no nm/Å display split, no unit toggle. Every formula transcribed
+from the paper below therefore needs 1 nm⁻¹ = 0.1 Å⁻¹ and 1 nm = 10 Å applied
+to the paper's own tabulated values when comparing against them.
+
+Units in force throughout:
+
+| Quantity | Unit |
+|---|---|
+| Q | Å⁻¹ |
+| lengths (r, R, Σ, ξ, d, w_P, w_C, R_rough) | Å |
+| intensity | cm⁻¹ (absolute) |
+| SLD | 10¹⁰ cm⁻² |
+| contrast (Δρ)² | 10²⁰ cm⁻⁴ |
+| specific surface area S | cm²/cm³ ≡ cm⁻¹ (reported *also* as m²/g) |
+| ⟨δz²⟩ | Å² |
+| density | g/cm³ |
+
+Note on surface area: the paper's `S_macro`/`S_rough`/`S_mp` are per **gram**
+(cm²/g) because their intensity is per gram. pyIrena's intensity is per
+**volume** (cm⁻¹), so the fitted S values are cm²/cm³ and the m²/g number
+comparable with BET is a derived quantity, `S[cm⁻¹] / ρ_sample[g/cm³] × 1e-4`.
 
 ## 1. Overall model — three additive components
 
@@ -45,7 +62,7 @@ Main text eq. (3) (§3.2 "Particles morphological model"):
 ```
 I_Porod(Q) = 2π(ΔSLD)² [ S_macro·Q⁻⁴  +  S_rough · f_rough(Q, R_rough) ]
 
-f_rough(Q, R) = (2/9)·R⁴ / [ 1 + (1/3)(QR)² + (2/9)(QR)⁴ ]
+f_rough(Q, R) = (2/9)·R⁴ / [ 1 + (1/5)(QR)² + (2/9)(QR)⁴ ]
 ```
 
 - `S_macro` — macroscopic specific surface area of the powder grains
@@ -57,17 +74,14 @@ f_rough(Q, R) = (2/9)·R⁴ / [ 1 + (1/3)(QR)² + (2/9)(QR)⁴ ]
 - `ΔSLD` — contrast between the powder grain and vacuum (`SLD_sample`,
   computed from structural density — see §5).
 
-`f_rough` is built from the empirical "algebraic globule" form factor
-(Annex 3 eq. A3.8/A3.9, Beaucage-style Guinier–Porod unification) — it is 1
-in the Q→0 limit is **not** quite right here: check the paper's own
-simplification, eq. (4): at Q ≫ 1/R_rough, `f_rough → Q⁻⁴`, so the whole
-bracket → `(S_macro+S_rough)·Q⁻⁴`, matching a simple Porod law at high Q.
-**This is the one equation in the whole set that should be re-verified
-against a clean re-read of the source PDF at higher zoom before coding** —
-see [03-open-questions.md](03-open-questions.md) item 5; the algebra above is
-consistent with the paper's stated asymptotic behaviour (checked
-analytically) but the OCR of the exact bracket power was ambiguous on first
-pass.
+`f_rough` is the empirical "algebraic globule" envelope (Annex 3 eq.
+A3.8/A3.9). **Coefficients verified against Jan's copy of the source PDF
+(2026-09-21): the middle term is (1/5)(QR)², not (1/3)(QR)².** The earlier
+planning pass mis-read it from a low-resolution page render; the value in the
+box above is the paper's. Limits: `f_rough(0, R) = (2/9)R⁴`, and at
+Q ≫ 1/R the leading term is `(2/9)R⁴ / [(2/9)(QR)⁴] = Q⁻⁴`, so the whole
+bracket → `(S_macro + S_rough)·Q⁻⁴`, which is the paper's own eq. (4). Both
+limits are asserted in `pyirena/tests/test_carbon_fit.py`.
 
 **Generalization Jan asked for:** "low-Q power law slope + flat background"
 implies the exponent on the macro term need not be fixed at −4 (real

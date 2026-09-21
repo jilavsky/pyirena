@@ -630,7 +630,7 @@ def _hdr_waxs(wp: dict) -> list:
         shape = _ascii_safe(peak.get("shape", "Gauss"))
         pstd = peaks_std[i - 1] if i - 1 < len(peaks_std) else {}
         params_strs = []
-        for pn in ("Q0", "A", "FWHM", "eta"):
+        for pn in ("Q0", "A", "FWHM", "FWHM_L", "eta"):
             if pn in peak:
                 pd = peak[pn]
                 val = pd.get("value") if isinstance(pd, dict) else pd

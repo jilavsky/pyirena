@@ -279,6 +279,8 @@ TOOL_REGISTRY: dict[str, dict] = {
             _per_subgroup("peak_Q0",   "peak_{n}/params/Q0",   "1/angstrom", "Peak Q₀ (Å⁻¹)",  "peak_"),
             _per_subgroup("peak_A",    "peak_{n}/params/A",    "arb",        "Peak amplitude",  "peak_"),
             _per_subgroup("peak_FWHM", "peak_{n}/params/FWHM", "1/angstrom", "Peak FWHM (Å⁻¹)", "peak_"),
+            _per_subgroup("peak_FWHM_L", "peak_{n}/params/FWHM_L", "1/angstrom",
+                          "Peak Lorentzian FWHM (Å⁻¹)", "peak_"),
             _per_subgroup("peak_eta",  "peak_{n}/params/eta",  "",           "Peak η (Voigt)",  "peak_"),
             # Derived: integral under the peak profile, ∫I_peak(q)dq.
             # NaN for HDF5 files written before this dataset was added.

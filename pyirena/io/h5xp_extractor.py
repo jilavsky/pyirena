@@ -406,7 +406,7 @@ def _waxs_recompute_peak_area(pk_grp, with_std: bool):
             shape = shape.decode("utf-8", errors="ignore")
         params: dict = {}
         if "params" in pk_grp:
-            for pn in ("A", "Q0", "FWHM", "eta"):
+            for pn in ("A", "Q0", "FWHM", "FWHM_L", "eta"):
                 if pn in pk_grp["params"]:
                     params[pn] = float(pk_grp["params"][pn][()])
         params_std: dict = {}
@@ -451,7 +451,7 @@ def _extract_waxs_peakfit(grp: h5py.Group, h5xp: h5py.File,
             pk_params["peak_n"] = n
             # Peak fit parameters
             if "params" in pk:
-                for pname in ("Q0", "A", "FWHM", "eta"):
+                for pname in ("Q0", "A", "FWHM", "FWHM_L", "eta"):
                     v = _scalar(pk["params"], pname)
                     if not np.isnan(v):
                         pk_params[pname] = v

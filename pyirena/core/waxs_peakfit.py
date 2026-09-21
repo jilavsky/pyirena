@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 # Constants
 # ===========================================================================
 
-PEAK_SHAPES  = ("Gauss", "Lorentz", "Pseudo-Voigt", "LogNormal")
+PEAK_SHAPES  = ("Gauss", "Lorentz", "Pseudo-Voigt", "Voigt", "LogNormal")
 BG_SHAPES    = (
     "Constant", "Linear", "Cubic", "5th Polynomial",
     "SNIP", "Rolling Quantile Spline", "Rolling Ball",
@@ -95,6 +95,12 @@ _PEAK_PARAM_NAMES: Dict[str, List[str]] = {
     "Gauss":        ["A", "Q0", "FWHM"],
     "Lorentz":      ["A", "Q0", "FWHM"],
     "Pseudo-Voigt": ["A", "Q0", "FWHM", "eta"],
+    # True Voigt (Lorentz ⊗ Gauss).  "FWHM" is the **Gaussian** component so
+    # that every generic consumer of a peak's width (io/schema.py, Igor export,
+    # ASCII export, reporting, the Data Selector tabulation) keeps working
+    # unchanged; the Lorentzian component is the extra "FWHM_L" parameter, and
+    # the observed total width is the derived ``voigt_fwhm()``.
+    "Voigt":        ["A", "Q0", "FWHM", "FWHM_L"],
     "LogNormal":    ["A", "Q0", "FWHM"],
 }
 
@@ -103,6 +109,7 @@ _PARAM_DEFAULTS: Dict[str, Dict] = {
     "A":    {"value": 1.0,  "lo": 0.0,   "hi": None},
     "Q0":   {"value": 0.1,  "lo": 0.0,   "hi": None},
     "FWHM": {"value": 0.01, "lo": 1e-6,  "hi": None},
+    "FWHM_L": {"value": 0.01, "lo": 0.0,  "hi": None},
     "eta":  {"value": 0.5,  "lo": 0.0,   "hi": 1.0},
     "bg0":  {"value": 0.0,  "lo": None,  "hi": None},
     "bg1":  {"value": 0.0,  "lo": None,  "hi": None},
@@ -137,6 +144,57 @@ def pseudo_voigt_peak(q: np.ndarray, A: float, Q0: float, FWHM: float,
     """Pseudo-Voigt: linear mix η·Lorentz + (1−η)·Gauss, η ∈ [0, 1]."""
     eta = float(np.clip(eta, 0.0, 1.0))
     return eta * lorentz_peak(q, A, Q0, FWHM) + (1.0 - eta) * gauss_peak(q, A, Q0, FWHM)
+
+
+def voigt_peak(q: np.ndarray, A: float, Q0: float, FWHM: float,
+               FWHM_L: float) -> np.ndarray:
+    """True Voigt peak — Gaussian ⊗ Lorentzian, height A at Q0.
+
+    Unlike :func:`pseudo_voigt_peak`, which mixes the two shapes linearly,
+    this is the actual convolution, evaluated in closed form through the
+    Faddeeva function (``scipy.special.voigt_profile``).  It is the physically
+    correct profile when two broadening mechanisms act together — for
+    turbostratic carbon, finite crystallite size (Gaussian) and layer
+    curvature / distortions of the second kind (Lorentzian), which is why the
+    Carbon model tool needs it (Saurel et al. 2019, Annex 3 §A3.6).
+
+    Args:
+        q:      Scattering vector [Å⁻¹].
+        A:      Peak height at Q0 (same convention as the other shapes).
+        Q0:     Peak centre [Å⁻¹].
+        FWHM:   Gaussian component FWHM [Å⁻¹].
+        FWHM_L: Lorentzian component FWHM [Å⁻¹].
+
+    Returns:
+        Intensity array, peak height exactly A.
+
+    Notes:
+        With FWHM_L = 0 this reduces to :func:`gauss_peak`; with FWHM → 0 it
+        reduces to :func:`lorentz_peak`.  Both limits are tested.
+    """
+    from scipy.special import voigt_profile
+
+    q = np.asarray(q, dtype=float)
+    sigma = max(float(FWHM), 0.0) / (2.0 * np.sqrt(2.0 * _LN2))
+    gamma = max(float(FWHM_L), 0.0) / 2.0
+    if sigma <= 0.0 and gamma <= 0.0:
+        return np.zeros_like(q)
+    peak = float(voigt_profile(0.0, sigma, gamma))
+    if not np.isfinite(peak) or peak <= 0.0:
+        return np.zeros_like(q)
+    return A * voigt_profile(q - Q0, sigma, gamma) / peak
+
+
+def voigt_fwhm(FWHM: float, FWHM_L: float) -> float:
+    """Observed total FWHM of a Voigt profile from its two components.
+
+    Olivero & Longbothum (1977) approximation, accurate to ~0.02 % over the
+    whole Gauss→Lorentz range::
+
+        f_V ≈ 0.5346·f_L + sqrt(0.2166·f_L² + f_G²)
+    """
+    fG, fL = max(float(FWHM), 0.0), max(float(FWHM_L), 0.0)
+    return float(0.5346 * fL + np.sqrt(0.2166 * fL * fL + fG * fG))
 
 
 def lognormal_peak(q: np.ndarray, A: float, Q0: float, FWHM: float) -> np.ndarray:
@@ -180,6 +238,8 @@ def eval_peak(q: np.ndarray, shape: str, params: Dict) -> np.ndarray:
         return lorentz_peak(q, A, Q0, FWHM)
     elif shape == "Pseudo-Voigt":
         return pseudo_voigt_peak(q, A, Q0, FWHM, float(params.get("eta", 0.5)))
+    elif shape == "Voigt":
+        return voigt_peak(q, A, Q0, FWHM, float(params.get("FWHM_L", 0.0)))
     elif shape == "LogNormal":
         return lognormal_peak(q, A, Q0, FWHM)
     raise ValueError(f"Unknown peak shape: {shape!r}")
@@ -303,6 +363,14 @@ def peak_area(shape: str, params: Dict) -> float:
         eta = float(np.clip(_v("eta", 0.5), 0.0, 1.0))
         K   = eta * _LORENTZ_AREA_K + (1.0 - eta) * _GAUSS_AREA_K
         return A * FWHM * K
+    if shape == "Voigt":
+        # voigt_profile is unit-area, so a height-A profile has area
+        # A / voigt_profile(0, sigma, gamma).
+        from scipy.special import voigt_profile
+        sigma = FWHM / (2.0 * np.sqrt(2.0 * _LN2))
+        gamma = max(_v("FWHM_L", 0.0), 0.0) / 2.0
+        peak  = float(voigt_profile(0.0, sigma, gamma))
+        return A / peak if peak > 0 else float("nan")
     if shape == "LogNormal":
         if not np.isfinite(Q0) or Q0 <= 0:
             return float("nan")
@@ -371,6 +439,31 @@ def peak_area_std(shape: str, params: Dict, params_std: Dict) -> float:
         dK_deta = _LORENTZ_AREA_K - _GAUSS_AREA_K
         var = (FWHM * K * sA) ** 2 + (A * K * sFWHM) ** 2 \
             + (A * FWHM * dK_deta * sEta) ** 2
+        return float(np.sqrt(var))
+    if shape == "Voigt":
+        # area = A / V(0; sigma, gamma).  Propagate A and both widths by
+        # central differences on the two width parameters — the closed-form
+        # derivative of the Faddeeva function buys nothing here.
+        fL   = max(_v("FWHM_L", 0.0), 0.0)
+        sfL  = _s("FWHM_L")
+        base = peak_area("Voigt", {"A": A, "Q0": Q0, "FWHM": FWHM, "FWHM_L": fL})
+        if not np.isfinite(base):
+            return float("nan")
+        # area ∝ A exactly, so ∂area/∂A = area/A.
+        var = (base / A * sA) ** 2 if A != 0 else 0.0
+        for nm, val, sv in (("FWHM", FWHM, sFWHM), ("FWHM_L", fL, sfL)):
+            if sv <= 0:
+                continue
+            h = max(1e-4 * max(abs(val), 1e-6), 1e-12)
+            lo_val = max(val - h, 0.0)
+            span = (val + h) - lo_val
+            pr = {"A": A, "Q0": Q0, "FWHM": FWHM, "FWHM_L": fL}
+            pr[nm] = val + h
+            up = peak_area("Voigt", pr)
+            pr[nm] = lo_val
+            dn = peak_area("Voigt", pr)
+            if np.isfinite(up) and np.isfinite(dn) and span > 0:
+                var += ((up - dn) / span * sv) ** 2
         return float(np.sqrt(var))
     if shape == "LogNormal":
         sQ0 = _s("Q0")
@@ -603,6 +696,9 @@ def default_peak_params(shape: str, Q0: float = 0.1, A: float = 1.0,
     }
     if shape == "Pseudo-Voigt":
         params["eta"] = {"value": 0.5, "fit": True, "lo": 0.0, "hi": 1.0}
+    if shape == "Voigt":
+        params["FWHM_L"] = {"value": max(FWHM, 1e-6), "fit": True,
+                            "lo": 0.0, "hi": None}
     return params
 
 

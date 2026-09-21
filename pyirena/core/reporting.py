@@ -518,13 +518,13 @@ def _build_report(file_path: str,
                 "| Parameter | Value | Uncertainty (1σ) |",
                 "|-----------|-------|------------------|",
             ]
-            for pname in ('A', 'Q0', 'FWHM', 'eta'):
+            for pname in ('A', 'Q0', 'FWHM', 'FWHM_L', 'eta'):
                 if pname not in pk:
                     continue
                 val = pk[pname]
                 val_v = val.get('value') if isinstance(val, dict) else val
                 std_v = pstd.get(pname)
-                unit = ' Å⁻¹' if pname in ('Q0', 'FWHM') else ''
+                unit = ' Å⁻¹' if pname in ('Q0', 'FWHM', 'FWHM_L') else ''
                 std_str = f"± {_wp_fmt(std_v, '.3g')}" if std_v is not None else "—"
                 L.append(f"| {pname}{unit} | {_wp_fmt(val_v, '.6g')} | {std_str} |")
             # Derived: integral under the peak (area)

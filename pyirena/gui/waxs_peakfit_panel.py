@@ -111,12 +111,15 @@ _BTN_REMOVE  = "QPushButton { background:#e74c3c;color:white; } QPushButton:disa
 _BTN_FIXLIM  = "QPushButton { background:#8e44ad;color:white; } QPushButton:disabled{background:#bdc3c7;}"
 
 # Sensible hi-limit defaults for peak parameters (when user hasn't set them)
-_PEAK_PARAM_HI_DEFAULTS = {"A": 1e9, "Q0": 100.0, "FWHM": 10.0, "eta": 1.0}
-_PEAK_PARAM_LO_DEFAULTS = {"A": 0.0,  "Q0": 0.0,   "FWHM": 1e-6, "eta": 0.0}
+_PEAK_PARAM_HI_DEFAULTS = {"A": 1e9, "Q0": 100.0, "FWHM": 10.0, "FWHM_L": 10.0,
+                           "eta": 1.0}
+_PEAK_PARAM_LO_DEFAULTS = {"A": 0.0,  "Q0": 0.0,   "FWHM": 1e-6, "FWHM_L": 0.0,
+                           "eta": 0.0}
 
 # Wheel-spin min/max for peak param value fields (prevents negative)
-_PEAK_PARAM_VAL_MIN = {"A": 0.0, "Q0": 0.0, "FWHM": 0.0, "eta": 0.0}
-_PEAK_PARAM_VAL_MAX = {"A": np.inf, "Q0": np.inf, "FWHM": np.inf, "eta": 1.0}
+_PEAK_PARAM_VAL_MIN = {"A": 0.0, "Q0": 0.0, "FWHM": 0.0, "FWHM_L": 0.0, "eta": 0.0}
+_PEAK_PARAM_VAL_MAX = {"A": np.inf, "Q0": np.inf, "FWHM": np.inf,
+                       "FWHM_L": np.inf, "eta": 1.0}
 
 
 def _connect_limit_check(val_fld, lo_fld, hi_fld):
@@ -321,7 +324,7 @@ class PeakRowWidget(QWidget):
             name_lbl = _label(pname)
             # Q0 and FWHM: fixed 0.001 Å⁻¹ step (absolute, Shift×10).
             # A and eta: 1% relative step.
-            _fixed = 0.001 if pname in ("Q0", "FWHM") else None
+            _fixed = 0.001 if pname in ("Q0", "FWHM", "FWHM_L") else None
             _frac  = 0.01  if _fixed is None else 0.01
             val_fld  = _ValidatedField(
                 val,
