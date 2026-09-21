@@ -277,6 +277,7 @@ class PlotControlsPanel(QWidget):
             "WAXS Peak Fit",
             "Simple Fits",
             "Modeling",
+            "Carbon model",
             "Custom HDF5 path",
         ])
         self._collect_type.currentIndexChanged.connect(self._update_collect_ui)
@@ -880,6 +881,7 @@ class PlotControlsPanel(QWidget):
             "WAXS Peak Fit":      "waxs",
             "Simple Fits":        "simple_fit",
             "Modeling":           "modeling",
+            "Carbon model":       "carbon_fit",
             "Custom HDF5 path":   "custom",
         }
         type_key = type_map.get(type_text, "custom")
@@ -896,6 +898,8 @@ class PlotControlsPanel(QWidget):
             spec = {"type": "simple_fit", "item": "param", "param_name": item_text}
         elif type_key == "modeling":
             spec = {"type": "modeling", "item": item_key, "population": idx}
+        elif type_key == "carbon_fit":
+            spec = {"type": "carbon_fit", "item": "param", "param_name": item_key}
         else:
             spec = {"type": "custom", "path": ""}
 
@@ -1064,6 +1068,55 @@ class PlotControlsPanel(QWidget):
                 # Invariant (calculation model) inputs and results
                 "Invariant", "VolumeFraction", "QmaxUsed", "Contrast",
             ])
+            self._collect_index.setEnabled(False)
+
+        elif type_text == "Carbon model":
+            # Fitted parameters and derived quantities share one list: for a
+            # trend plot both are just "a number per file", and the reader
+            # looks in params/ first, then derived/.  Fit parameters carry
+            # their dotted key as userData; derived ones are flat.
+            for disp, key in [
+                ("chi2",                          "chi2"),
+                ("reduced chi2",                  "reduced_chi2"),
+                # Derived — the materials-science layer, usually what is trended
+                ("SSA, particle (m²/g)",          "S_part_m2_g"),
+                ("SSA, micropore (m²/g)",         "S_mp_m2_g"),
+                ("porosity φ",                    "porosity"),
+                ("pore radius r (Å)",             "mp_radius"),
+                ("pore width w_P (Å)",            "w_pore"),
+                ("wall width w_C (Å)",            "w_carbon"),
+                ("correlation length ξ (Å)",      "ts_xi"),
+                ("repeat distance d (Å)",         "ts_d"),
+                ("amphiphilicity f_a",            "ts_fa"),
+                ("d002 (Å)",                      "d002"),
+                ("d100 (Å)",                      "d100"),
+                ("stack height L_c (Å)",          "L_c"),
+                ("layers per stack",              "N_layers"),
+                ("layer extent L_a (Å)",          "L_a"),
+                ("ρ_struc (g/cm³)",               "rho_struc"),
+                ("ρ_sample (g/cm³)",              "rho_sample"),
+                ("⟨δz²⟩ (Å²)",                    "delta_z2"),
+                # Fitted parameters, by their dotted key
+                ("S_macro (fit)",                 "background.S_macro"),
+                ("S_rough (fit)",                 "background.S_rough"),
+                ("R_rough (fit)",                 "background.R_rough"),
+                ("flat background (fit)",         "background.flat_background"),
+                ("φ (fit)",                       "saxs.phi"),
+                ("pore radius (fit)",             "saxs.pore_radius"),
+                ("fractal D (fit)",               "saxs.fractal_D"),
+                ("fractal Σ (fit)",               "saxs.fractal_sigma"),
+                ("Teubner-Strey I₀ (fit)",        "saxs.ts_I0"),
+                ("Teubner-Strey C₁ (fit)",        "saxs.ts_C1"),
+                ("Teubner-Strey C₂ (fit)",        "saxs.ts_C2"),
+                ("(002) Q₀ (fit)",                "peak.002.Q0"),
+                ("(002) Gaussian FWHM (fit)",     "peak.002.FWHM_G"),
+                ("(002) Lorentzian FWHM (fit)",   "peak.002.FWHM_L"),
+                ("(002) amplitude (fit)",         "peak.002.K"),
+                ("(100) Q₀ (fit)",                "peak.100.Q0"),
+                ("(100) Gaussian FWHM (fit)",     "peak.100.FWHM_G"),
+                ("(100) amplitude (fit)",         "peak.100.K"),
+            ]:
+                self._collect_item.addItem(disp, key)
             self._collect_index.setEnabled(False)
 
         elif type_text == "Modeling":

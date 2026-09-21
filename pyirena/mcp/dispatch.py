@@ -52,6 +52,7 @@ _CATEGORY_BY_MODULE = {
     "simple_fits": "simple",
     "modeling": "modeling",
     "waxs_peakfit": "waxs",
+    "carbon_fit": "carbon",
 }
 
 _CATEGORY_BLURBS = {
@@ -60,6 +61,11 @@ _CATEGORY_BLURBS = {
     "simple": "Simple Fits — one analytical model (Guinier, Porod, Sphere, ...) over a Q sub-range.",
     "modeling": "Modeling — multi-population forward model with specific form/structure factors.",
     "waxs": "WAXS Peak Fit — peak position, width and area for wide-angle patterns.",
+    "carbon": (
+        "Carbon model — disordered carbons fitted across the whole SAXS+WAXS "
+        "range at once: grain surface, micropores and turbostratic stacking, "
+        "with density, contrast and pore/wall widths derived from the fit."
+    ),
     "calculators": (
         "Calculators — stateless support calculations that need no dataset "
         "and open no session (scattering contrast, SLDs, element lookup)."

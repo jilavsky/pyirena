@@ -413,6 +413,45 @@ class WAXSPeakFitResult(_BaseToolResult):
 
 
 @dataclass
+class CarbonFitResult(_BaseToolResult):
+    """Carbon model results as read back from ``entry/carbon_fit_results``.
+
+    ``params`` and ``derived`` are flat ``{name: value}`` maps rather than
+    typed fields: which parameters exist depends on the selected SAXS-region
+    model and on the peak list, so enumerating them here would go stale the
+    first time a mode gained a parameter.  Parameter names are the model's own
+    dotted keys (``saxs.pore_radius``, ``peak.002.Q0``); derived names are
+    flat (``S_part_m2_g``, ``L_c``, ``peak_002_d``).
+    """
+    tool: str = "carbon_fit"
+    fit_quality: Optional[dict] = None
+    success: Optional[bool] = None
+    message: Optional[str] = None
+    formula: Optional[str] = None
+    saxs_mode: Optional[str] = None
+    waxs_envelope: Optional[str] = None
+    n_peaks: Optional[int] = None
+    chi_squared: Optional[float] = None
+    reduced_chi_squared: Optional[float] = None
+    n_points: Optional[int] = None
+    n_params: Optional[int] = None
+    q_min: Optional[float] = None
+    q_max: Optional[float] = None
+    timestamp: Optional[str] = None
+    params: dict = field(default_factory=dict)
+    params_std: dict = field(default_factory=dict)
+    derived: dict = field(default_factory=dict)
+    Q: Optional[list] = None
+    I_model: Optional[list] = None
+    I_porod: Optional[list] = None
+    I_mp: Optional[list] = None
+    I_waxs: Optional[list] = None
+    residuals: Optional[list] = None
+    intensity_data: Optional[list] = None
+    intensity_error: Optional[list] = None
+
+
+@dataclass
 class FractalAggregateEntry:
     group_path: str
     name: str

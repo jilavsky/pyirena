@@ -1794,6 +1794,377 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["session_id"],
         },
     },
+    # -----------------------------------------------------------------------
+    # Carbon model — full-range SAXS+WAXS of disordered carbons
+    #
+    # Parameters are addressed by the model's own dotted key rather than by one
+    # setter per control: the model has four sections, a variable peak list and
+    # three optional links, so a setter each would be forty tools.  Which keys
+    # exist depends on the model's shape, so list_carbon_parameters is the
+    # discovery step after every configure_carbon_model call.
+    # -----------------------------------------------------------------------
+    {
+        "name": "list_carbon_options",
+        "description": (
+            "List the choices that define a Carbon model's shape: the two "
+            "SAXS-region models (pores+fractal, Teubner-Strey), the two WAXS "
+            "envelopes (flat layers, crumpled layers), and what each switch "
+            "and geometry link does. Needs no session."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "select_carbon_model",
+        "description": (
+            "Create a Carbon model on this session, with the usual carbon "
+            "defaults: grain Porod background, dilute micropores, and (002) "
+            "and (100) diffraction peaks at their graphite positions. Fits "
+            "the whole measured range — grain surface, micropores and "
+            "turbostratic stacking — as one model."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "formula": {
+                    "type": "string",
+                    "default": "C",
+                    "description": "Chemical formula of the solid, e.g. C or C0.95N0.05.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_carbon_config",
+        "description": (
+            "Return the Carbon model's current shape, its diffraction peaks "
+            "with d-spacings, and the resolved material chain (structural and "
+            "sample density, both SLDs, both contrasts)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "configure_carbon_model",
+        "description": (
+            "Set which terms the Carbon model contains and which are linked. "
+            "Every argument is optional. Changing the shape changes which "
+            "parameter keys are active, so follow this with "
+            "list_carbon_parameters rather than assuming."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "saxs_mode": {
+                    "type": "string",
+                    "enum": ["fractal", "teubner_strey"],
+                    "description": (
+                        "Micropore model. 'fractal' = dilute pores of radius r, "
+                        "optionally aggregated; 'teubner_strey' = two-phase, for "
+                        "samples showing a broad correlation peak. Alternatives, "
+                        "never summed."
+                    ),
+                },
+                "waxs_envelope": {
+                    "type": "string",
+                    "enum": ["none", "crumpled"],
+                    "description": (
+                        "'crumpled' wraps the diffraction peaks in the "
+                        "curved-layer envelope (eq. 16-17), for sp2 carbons "
+                        "broadened by curvature rather than crystallite size."
+                    ),
+                },
+                "background_enabled": {"type": "boolean"},
+                "saxs_enabled": {"type": "boolean"},
+                "waxs_enabled": {"type": "boolean"},
+                "use_roughness": {
+                    "type": "boolean",
+                    "description": "Add the nanoscale surface-roughness Porod term.",
+                },
+                "use_fractal": {
+                    "type": "boolean",
+                    "description": "Aggregate the pores (fractal mode only).",
+                },
+                "use_orientation_factor": {
+                    "type": "boolean",
+                    "description": (
+                        "Apply the 1/Q^2 powder average to the diffraction "
+                        "term. Leave on: a fit without it looks fine and "
+                        "reports a wrong amplitude."
+                    ),
+                },
+                "link_R_to_pore": {"type": "boolean"},
+                "link_D_to_saxs": {"type": "boolean"},
+                "link_sigma_to_saxs": {
+                    "type": "boolean",
+                    "description": (
+                        "The three links tie the crumpled-layer geometry to the "
+                        "SAXS region's, for a sample where both signals come "
+                        "from the same crumpling. A linked parameter leaves the "
+                        "fit vector."
+                    ),
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "list_carbon_parameters",
+        "description": (
+            "List every parameter of the Carbon model with its dotted key, "
+            "value, bounds and Fit? flag. Keys look like background.S_macro, "
+            "saxs.pore_radius, waxs.delta_z2, peak.002.Q0. Call this after "
+            "any configure_carbon_model change — which keys exist depends on "
+            "the model's shape."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "active_only": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": (
+                        "False also lists the parameters the current shape "
+                        "does not use, to see what a mode switch would expose."
+                    ),
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "set_carbon_parameter",
+        "description": "Set one Carbon model parameter's value, by its dotted key.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "key": {
+                    "type": "string",
+                    "description": "e.g. 'saxs.pore_radius' or 'peak.002.Q0'.",
+                },
+                "value": {"type": "number"},
+            },
+            "required": ["session_id", "key", "value"],
+        },
+    },
+    {
+        "name": "set_carbon_parameter_fit",
+        "description": "Refine or hold one Carbon model parameter during the fit.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "key": {"type": "string"},
+                "fit": {"type": "boolean"},
+            },
+            "required": ["session_id", "key", "fit"],
+        },
+    },
+    {
+        "name": "set_carbon_parameter_bounds",
+        "description": (
+            "Set one Carbon model parameter's fitting bounds. Omitted sides "
+            "are left unchanged."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "key": {"type": "string"},
+                "lo": {"type": ["number", "null"]},
+                "hi": {"type": ["number", "null"]},
+            },
+            "required": ["session_id", "key"],
+        },
+    },
+    {
+        "name": "list_carbon_peaks",
+        "description": (
+            "List the Carbon model's diffraction peaks with label, position, "
+            "d-spacing, amplitude and both Voigt widths. The (002) and (100) "
+            "labels are the ones the density calculation reads."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "add_carbon_peak",
+        "description": (
+            "Add a reflection to the Carbon model. The Gaussian width is "
+            "crystallite-size broadening, the Lorentzian width is layer "
+            "curvature; they are separate because they mean different things."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "label": {
+                    "type": "string",
+                    "description": "Miller index, e.g. '004'. Must be unique.",
+                },
+                "Q0": {"type": "number", "description": "Peak centre in 1/Angstrom."},
+                "K": {"type": "number", "default": 1.0},
+                "FWHM_G": {"type": "number", "default": 0.3},
+                "FWHM_L": {"type": "number", "default": 0.15},
+            },
+            "required": ["session_id", "label", "Q0"],
+        },
+    },
+    {
+        "name": "remove_carbon_peak",
+        "description": "Remove a Carbon model diffraction peak by its index.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "index": {"type": "integer"},
+            },
+            "required": ["session_id", "index"],
+        },
+    },
+    {
+        "name": "set_carbon_material",
+        "description": (
+            "Set the Carbon model's composition -> density -> contrast chain, "
+            "or override a stage of it. Normally every stage is computed: the "
+            "fitted (002) and (100) positions give the structural density, the "
+            "SAXS porosity gives the sample density, and each density gives an "
+            "SLD and a contrast. Override when the data cannot supply a stage "
+            "- no usable (100) peak, or the Teubner-Strey branch, whose "
+            "porosity is derived from the contrast it would otherwise feed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "formula": {"type": "string"},
+                "rho_struc_mode": {
+                    "type": "string",
+                    "enum": ["from_peaks", "manual"],
+                },
+                "rho_struc": {
+                    "type": "number",
+                    "description": "Structural density in g/cm^3, manual mode.",
+                },
+                "porosity_mode": {"type": "string", "enum": ["auto", "manual"]},
+                "porosity": {"type": "number"},
+                "contrast_mode": {"type": "string", "enum": ["auto", "manual"]},
+                "contrast_porod": {
+                    "type": "number",
+                    "description": "Grain-vs-vacuum contrast in 1e20 cm^-4.",
+                },
+                "contrast_micropore": {
+                    "type": "number",
+                    "description": "Pore-vs-matrix contrast in 1e20 cm^-4.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "run_carbon_fit",
+        "description": (
+            "Refine every ticked Carbon model parameter across the whole Q "
+            "range at once. There is no per-region fit: the contrast that "
+            "scales the background and the micropore term is computed from the "
+            "fitted peak positions and the porosity, so fitting the regions in "
+            "sequence converges somewhere else."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "weighting": {
+                    "type": "string",
+                    "enum": ["auto", "sigma", "relative", "log"],
+                    "default": "auto",
+                    "description": (
+                        "'auto' uses the measured uncertainties when usable, "
+                        "relative weighting otherwise. Relative is usually "
+                        "right here: the fit spans five decades in Q, and "
+                        "absolute weighting lets the low-Q region set every "
+                        "parameter."
+                    ),
+                },
+                "n_mc_runs": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "Monte-Carlo passes for the uncertainty estimate. More "
+                        "honest than the covariance estimate here, because "
+                        "contrast correlates the regions."
+                    ),
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_carbon_results",
+        "description": (
+            "Return the last Carbon model fit. The derived block is the answer "
+            "to most carbon questions - BET-comparable specific surface areas, "
+            "pore and wall widths, stack height L_c, layer count, layer extent "
+            "L_a, lattice spacings and densities - rather than the fit "
+            "coefficients that produced them."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "get_carbon_fit_image",
+        "description": (
+            "Render the Carbon model fit as a PNG: data, total model, and the "
+            "grain Porod, micropore and diffraction components drawn "
+            "separately, with residuals below. Seeing which component owns "
+            "which decade is how you spot the failure this model has - the "
+            "background creeping up under the micropore region, or a peak "
+            "absorbing the high-Q background."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "width": {"type": "integer", "default": 1100},
+                "height": {"type": "integer", "default": 850},
+                "dpi": {"type": "integer", "default": 120},
+            },
+            "required": ["session_id"],
+        },
+    },
+    {
+        "name": "save_carbon_fit",
+        "description": (
+            "Save the Carbon model fit to NXcanSAS HDF5 under "
+            "entry/carbon_fit_results, with the model settings embedded so the "
+            "file reopens in the GUI panel unchanged. Defaults to overwriting "
+            "the original."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "output_path": {
+                    "type": ["string", "null"],
+                    "description": "Output file path. Defaults to the input file.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
 ]
 
 # Convenience: look up a schema by name

@@ -182,6 +182,28 @@ from pyirena.api.control.waxs_peakfit import (
     get_waxs_fit_image,
     save_waxs_fit,
 )
+from pyirena.api.control.carbon_fit import (
+    # Carbon model — shape of the model
+    list_carbon_options,
+    select_carbon_model,
+    get_carbon_config,
+    configure_carbon_model,
+    # Carbon model — parameters, addressed by dotted key
+    list_carbon_parameters,
+    set_carbon_parameter,
+    set_carbon_parameter_fit,
+    set_carbon_parameter_bounds,
+    # Carbon model — diffraction peaks and the material chain
+    list_carbon_peaks,
+    add_carbon_peak,
+    remove_carbon_peak,
+    set_carbon_material,
+    # Carbon model — fit, results, persistence
+    run_carbon_fit,
+    get_carbon_results,
+    get_carbon_fit_image,
+    save_carbon_fit,
+)
 
 __all__ = [
     "__version__",
@@ -245,4 +267,13 @@ __all__ = [
     "set_waxs_peak_parameter", "set_waxs_peak_parameter_fit",
     "set_waxs_peak_parameter_bounds",
     "run_waxs_fit", "get_waxs_results", "get_waxs_fit_image", "save_waxs_fit",
+    # Carbon model
+    "list_carbon_options", "select_carbon_model", "get_carbon_config",
+    "configure_carbon_model",
+    "list_carbon_parameters", "set_carbon_parameter",
+    "set_carbon_parameter_fit", "set_carbon_parameter_bounds",
+    "list_carbon_peaks", "add_carbon_peak", "remove_carbon_peak",
+    "set_carbon_material",
+    "run_carbon_fit", "get_carbon_results", "get_carbon_fit_image",
+    "save_carbon_fit",
 ]

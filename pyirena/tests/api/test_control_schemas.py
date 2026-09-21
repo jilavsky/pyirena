@@ -38,7 +38,7 @@ def test_schema_names_unique_and_indexed():
     assert len(names) == len(set(names)), "duplicate schema names in TOOL_SCHEMAS"
     assert set(TOOL_SCHEMA_BY_NAME) == set(names)
     # Lock the count so an accidentally-dropped schema is caught.
-    assert len(names) == 102, f"expected 102 control schemas, found {len(names)}"
+    assert len(names) == 118, f"expected 118 control schemas, found {len(names)}"
 
 
 @pytest.mark.parametrize("schema", TOOL_SCHEMAS, ids=lambda s: s["name"])

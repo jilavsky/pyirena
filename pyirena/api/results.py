@@ -19,6 +19,7 @@ import numpy as np
 
 from pyirena.api._paths import resolve_safe_file
 from pyirena.api.schemas import (
+    CarbonFitResult,
     FractalAggregateEntry,
     FractalsResult,
     ManipulationProvenance,
@@ -438,6 +439,69 @@ def read_waxs_peakfit(path: str, include_arrays: bool = False,
 
     for k in ("Q", "I_fit", "I_bg", "residuals", "intensity_data", "intensity_error"):
         setattr(result, k, _arr(raw, k, max_points, include_arrays))
+    result.fit_quality = raw.get("fit_quality")
+    return result.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Carbon model
+# ---------------------------------------------------------------------------
+
+def read_carbon_fit(path: str, include_arrays: bool = False,
+                    max_points: Optional[int] = None) -> dict:
+    """Read Carbon model results — full-range SAXS+WAXS fit of a carbon.
+
+    Args:
+        path: NXcanSAS HDF5 file.
+        include_arrays: Return the curves as well as the scalars.  Off by
+            default because the arrays are the whole measured range.
+        max_points: Decimate returned arrays to at most this many points.
+
+    Returns:
+        A JSON-serialisable dict.  ``found`` is False and everything else is
+        empty when the file carries no Carbon model results.  ``params`` uses
+        the model's dotted keys and ``derived`` the flat ones — the ~20
+        materials-science quantities (BET-comparable surface areas, pore and
+        wall widths, stack height, d-spacings) are all in ``derived``, which
+        is usually what a caller wants rather than the fit coefficients.
+    """
+    file_p = resolve_safe_file(path)
+    result = CarbonFitResult(path=str(file_p))
+    from pyirena.io.nxcansas_carbon_fit import load_carbon_fit_results
+    try:
+        raw = _silent_call(load_carbon_fit_results, file_p)
+    except (KeyError, OSError):
+        return result.to_dict()
+    if raw is None:
+        return result.to_dict()
+
+    result.found = True
+    for key, cast in (("success", bool), ("message", str), ("formula", str),
+                      ("saxs_mode", str), ("waxs_envelope", str),
+                      ("timestamp", str), ("n_peaks", int), ("n_points", int),
+                      ("n_params", int), ("chi_squared", float),
+                      ("reduced_chi_squared", float), ("q_min", float),
+                      ("q_max", float)):
+        value = raw.get(key)
+        if value is None:
+            continue
+        try:
+            setattr(result, key, cast(value))
+        except (TypeError, ValueError):
+            pass
+
+    for key in ("params", "params_std", "derived"):
+        out = {}
+        for name, value in (raw.get(key) or {}).items():
+            try:
+                out[str(name)] = float(value)
+            except (TypeError, ValueError):
+                continue
+        setattr(result, key, out)
+
+    for key in ("Q", "I_model", "I_porod", "I_mp", "I_waxs", "residuals",
+                "intensity_data", "intensity_error"):
+        setattr(result, key, _arr(raw, key, max_points, include_arrays))
     result.fit_quality = raw.get("fit_quality")
     return result.to_dict()
 

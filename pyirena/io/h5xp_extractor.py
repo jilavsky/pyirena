@@ -514,6 +514,49 @@ def _extract_simple_fits(grp: h5py.Group, h5xp: h5py.File,
     return True
 
 
+def _extract_carbon_fit(grp: h5py.Group, h5xp: h5py.File,
+                        folder: str, category: str) -> bool:
+    """Write the total Carbon model curve plus its three components.
+
+    All four share one wave note carrying every fitted parameter *and* every
+    derived quantity — in Igor the wave note is where a user reads the numbers
+    off a curve, and for this tool the numbers that matter (surface areas,
+    pore widths, stack height) are derived rather than fitted.  Igor wave names
+    cannot contain a dot, so the model's dotted parameter keys become
+    underscores, exactly as they are stored in HDF5.
+    """
+    q = _array(grp, "Q")
+    I_model = _array(grp, "I_model")
+    if q is None or I_model is None:
+        return False
+
+    params: dict[str, Any] = {
+        "saxs_mode":           _safe_str(grp.attrs.get("saxs_mode", b"")),
+        "waxs_envelope":       _safe_str(grp.attrs.get("waxs_envelope", b"")),
+        "formula":             _safe_str(grp.attrs.get("formula", b"")),
+        "chi_squared":         _scalar(grp, "chi_squared"),
+        "reduced_chi_squared": _scalar(grp, "reduced_chi_squared"),
+    }
+    for sub in ("params", "derived"):
+        if sub not in grp:
+            continue
+        for name, ds in grp[sub].items():
+            if isinstance(ds, h5py.Dataset) and ds.shape == ():
+                params[str(name)] = float(ds[()])
+
+    wrote_any = False
+    for dataset, igor_name in (("I_model", "CarbonModelI"),
+                               ("I_porod", "CarbonPorodI"),
+                               ("I_mp", "CarbonMicroporeI"),
+                               ("I_waxs", "CarbonWAXSI")):
+        y = _array(grp, dataset)
+        if y is None:
+            continue
+        write_result_wave(h5xp, folder, igor_name, q, y, params, category)
+        wrote_any = True
+    return wrote_any
+
+
 def _extract_modeling(grp: h5py.Group, h5xp: h5py.File,
                        folder: str, category: str) -> bool:
     """Write ModelingIntensity and per-population distribution waves."""
@@ -634,6 +677,7 @@ _TOOL_EXTRACTORS = {
     "size_distribution": _extract_size_distribution,
     "waxs_peakfit":     _extract_waxs_peakfit,
     "simple_fits":      _extract_simple_fits,
+    "carbon_fit":       _extract_carbon_fit,
     "modeling":         _extract_modeling,
     "saxs_morph":       _extract_saxs_morph,
     "fractals":         _extract_fractals,

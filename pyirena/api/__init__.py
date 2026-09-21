@@ -28,7 +28,7 @@ Discovery
 Reading
     read_reduced_data, read_metadata,
     read_simple_fit, read_unified_fit, read_size_distribution,
-    read_modeling, read_saxs_morph, read_waxs_peakfit,
+    read_modeling, read_saxs_morph, read_waxs_peakfit, read_carbon_fit,
     read_fractals, read_merge_provenance, read_manipulation_provenance
 
 Aggregation
@@ -70,6 +70,7 @@ from pyirena.api.data_ops import (
 from pyirena.api.discovery import inspect_file, list_files, summarize_folder
 from pyirena.api.plotting import plot_iq, plot_parameter_trend
 from pyirena.api.results import (
+    read_carbon_fit,
     read_fractals,
     read_manipulation_provenance,
     read_merge_provenance,
@@ -89,6 +90,7 @@ __all__ = [
     # per-tool results
     "read_simple_fit", "read_unified_fit", "read_size_distribution",
     "read_modeling", "read_saxs_morph", "read_waxs_peakfit",
+    "read_carbon_fit",
     "read_fractals", "read_merge_provenance", "read_manipulation_provenance",
     # aggregation
     "tabulate_parameter", "summarize_sample",

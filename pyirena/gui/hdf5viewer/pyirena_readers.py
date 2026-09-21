@@ -76,7 +76,8 @@ def detect_available_data(filepath: str | Path) -> list[str]:
     """
     Return a list of data-type keys available in *filepath*.
 
-    Keys ∈ {"nxcansas", "unified_fit", "sizes", "waxs", "simple_fit", "modeling"}.
+    Keys ∈ {"nxcansas", "unified_fit", "sizes", "waxs", "simple_fit",
+    "modeling", "carbon_fit"}.
     """
     available = []
     try:
@@ -93,6 +94,8 @@ def detect_available_data(filepath: str | Path) -> list[str]:
                 available.append("simple_fit")
             if "entry/modeling_results" in f:
                 available.append("modeling")
+            if "entry/carbon_fit_results" in f:
+                available.append("carbon_fit")
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     return available
@@ -271,6 +274,36 @@ def read_simple_fit(filepath: str | Path) -> dict | None:
         return None
 
 
+# ── Carbon model ───────────────────────────────────────────────────────────
+
+def read_carbon_fit(filepath: str | Path) -> dict | None:
+    """Read Carbon model results.
+
+    Returns a dict with ``Q``, the total model and its three components,
+    ``params``, ``derived``, ``chi2`` and ``label`` — or None when the file
+    carries no Carbon model results.
+    """
+    try:
+        from pyirena.io.nxcansas_carbon_fit import load_carbon_fit_results
+        res = load_carbon_fit_results(Path(filepath))
+        if not res:
+            return None
+        return {
+            "Q":       np.asarray(res.get("Q", []), float),
+            "I_model": np.asarray(res.get("I_model", []), float),
+            "I_porod": np.asarray(res.get("I_porod", []), float),
+            "I_mp":    np.asarray(res.get("I_mp", []), float),
+            "I_waxs":  np.asarray(res.get("I_waxs", []), float),
+            "params":  res.get("params", {}),
+            "derived": res.get("derived", {}),
+            "chi2":    res.get("chi_squared"),
+            "saxs_mode": res.get("saxs_mode", ""),
+            "label":   Path(filepath).stem,
+        }
+    except Exception:
+        return None
+
+
 # ── Modeling ───────────────────────────────────────────────────────────────
 
 def read_modeling(filepath: str | Path) -> dict | None:
@@ -411,6 +444,9 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
         {"type": "waxs",       "item": "chi2"}
         {"type": "simple_fit", "item": "param", "param_name": "Rg"}
         {"type": "simple_fit", "item": "chi2"}
+        {"type": "carbon_fit", "item": "param", "param_name": "saxs.pore_radius"}
+        {"type": "carbon_fit", "item": "param", "param_name": "S_part_m2_g"}
+        {"type": "carbon_fit", "item": "chi2"}
         {"type": "custom",     "path": "/entry/unified_fit_results/level_1"}
                                                   # reads @Rg attr or dataset
     """
@@ -432,6 +468,9 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
 
         if data_type == "modeling":
             return _collect_modeling(filepath, item, spec.get("population", 1))
+
+        if data_type == "carbon_fit":
+            return _collect_carbon_fit(filepath, item, spec.get("param_name", ""))
 
         if data_type == "custom":
             return read_metadata_value(filepath, spec.get("path", ""))
@@ -571,6 +610,49 @@ def _waxs_recompute_area(pk_grp, with_std: bool):
         if with_std:
             return float(peak_area_std(shape, params, params_std))
         return float(peak_area(shape, params))
+    except Exception:
+        return None
+
+
+def _collect_carbon_fit(filepath, item: str, param_name: str) -> float | tuple | None:
+    """One trendable scalar from a Carbon model result group.
+
+    Fitted parameters and derived quantities share one namespace here, because
+    that is how a user thinks about them: ``saxs.pore_radius`` is a fit
+    parameter and ``S_part_m2_g`` a derived one, but both are "a number per
+    file" for a trend plot.  Parameter names are looked up in ``params/`` with
+    the dots replaced by underscores, which is how they are stored, and then
+    in ``derived/``.
+    """
+    try:
+        with h5py.File(str(filepath), "r") as f:
+            grp = f["entry/carbon_fit_results"]
+            if item == "chi2" or param_name == "chi2":
+                return _read_scalar_value(grp, "chi_squared")
+            if item == "reduced_chi2" or param_name == "reduced_chi2":
+                return _read_scalar_value(grp, "reduced_chi_squared")
+            if not param_name:
+                return None
+
+            if param_name.endswith("_err"):
+                base = param_name[:-4].replace(".", "_")
+                if "params_std" in grp and base in grp["params_std"]:
+                    value = float(grp["params_std"][base][()])
+                    return value if np.isfinite(value) else None
+                return None
+
+            flat = param_name.replace(".", "_")
+            if "params" in grp and flat in grp["params"]:
+                value = float(grp["params"][flat][()])
+                if "params_std" in grp and flat in grp["params_std"]:
+                    std = float(grp["params_std"][flat][()])
+                    if np.isfinite(std):
+                        return (value, std)
+                return value if np.isfinite(value) else None
+            if "derived" in grp and param_name in grp["derived"]:
+                value = float(grp["derived"][param_name][()])
+                return value if np.isfinite(value) else None
+            return None
     except Exception:
         return None
 

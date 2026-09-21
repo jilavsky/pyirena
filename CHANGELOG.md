@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Carbon model** — a new analysis tool that fits the whole measured range of
+  a disordered carbonaceous material (USAXS → SAXS → WAXS, often five decades
+  in Q) as one model: grain Porod scattering with optional surface roughness,
+  micropore scattering, and turbostratic diffraction peaks. Following
+  Saurel et al., *Energy Storage Materials* **21** (2019) 162–173 and its 2020
+  corrigendum.
+
+  All three contributions are refined together, because the contrast that
+  scales them is computed from the fitted WAXS peak positions and the porosity
+  — fitting the regions in sequence converges somewhere else.
+
+  Beyond the formulas, the tool wires the materials-science layer: a chemical
+  formula and the fitted lattice spacings give the structural density, the
+  porosity gives the sample density, and each density gives an SLD and a
+  contrast — yielding about twenty derived quantities (BET-comparable specific
+  surface areas, pore and wall widths, stack height, layers per stack,
+  d-spacings) rather than just fit coefficients.
+
+  Micropores are described either as dilute pores with optional fractal
+  aggregation or by the Teubner-Strey two-phase model (a mode toggle, never
+  summed); diffraction peaks can optionally carry the crumpled-layer envelope
+  of eq. (16)–(17), whose geometry can be linked to the SAXS region's.
+
+  Wired into every surface: GUI panel, Data Browser launcher and results
+  graph, `entry/carbon_fit_results` in NXcanSAS, `fit_carbon` batch path,
+  `pyirena.api.read_carbon_fit`, the `carbon` MCP control category (16 tools),
+  HDF5 Data Explorer trend plots, Igor export, and
+  `docs/carbon_fit_gui.md`.
+- **True Voigt peak shape in WAXS Peak Fit.** The real Lorentzian⊗Gaussian
+  convolution via the Faddeeva function, not the existing linear pseudo-Voigt
+  mix. Added for the Carbon model, where crystallite size (Gaussian) and layer
+  curvature (Lorentzian) broaden independently, but available to WAXS Peak Fit
+  too: choose `Voigt` and the Lorentzian component appears as `FWHM_L`
+  alongside the Gaussian `FWHM`. Wired through the panel, the HDF5 schema,
+  reporting and both export paths.
+
 - **Tool-registration contract test** (`pyirena/tests/test_tool_registration.py`).
   Adding an analysis tool means touching ~45 files, about a dozen of which are a
   key in a hand-maintained registry — and missing one fails silently. The test
@@ -23,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`set_cursor_q_range()` did not place the cursors where it was asked to.**
+  On the path where the cursors do not exist yet it created them with
+  `make_cursors()`, which insets them by 10 % of the log span, and then
+  returned without moving them — so a restored Q range came back 10 % narrow
+  at both ends. Harmless for a single-region fit; for the Carbon model, 10 % of
+  five decades is half a decade, and the top half-decade holds the (100)
+  reflection whose position the contrast calculation reads.
 - **`fit_pyirena` silently skipped `saxs_morph` config sections.**
   `batch.saxs_morph.fit_saxs_morph()` existed with the right signature but was
   never registered in the pipeline's tool registry, so a `saxs_morph` block in

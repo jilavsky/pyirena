@@ -13,7 +13,7 @@ development:
 - **`docs/developer_adding_features.md`** — the master checklist for changing
   or adding anything, including a whole new tool.
 
-Last update date: 18-09-2026 ; version: 1.1.1
+Last update date: 21-09-2026 ; version: 1.1.1
 
 pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
 package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,
@@ -59,7 +59,7 @@ from the same seven layers.** Learn the stack once and you can find anything.
 | **io** | `pyirena/io/nxcansas_<tool>.py` | Save/load results into NXcanSAS HDF5 at `entry/<tool>_results`, embedding GUI state as `_pyirena_config` | h5py, core |
 | **gui** | `pyirena/gui/<tool>_panel.py` | Thin Qt shell over the core object; full control state round-trips through `StateManager` | Qt (via `gui/_qt.py`), core, io |
 | **batch** | `pyirena/batch/<tool>.py` | Headless execution of the same core from a dict or JSON config section | core, io |
-| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions (all five fitting tools) | core, io |
+| **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions (all six fitting tools) | core, io |
 | **mcp** | `pyirena/mcp/server.py` | Protocol wrapper exposing `pyirena.api` to MCP clients | api |
 | **plotting** | `pyirena/plotting/` | Headless matplotlib rendering | core, matplotlib |
 
@@ -70,7 +70,8 @@ limitation.
 
 The layer stack is the *target* architecture and older tools do not all reach
 it yet. Core serialisation is `to_dict`/`from_dict` and now exists for Unified
-Fit, Sizes, Modeling, Simple Fits and WAXS Peak Fit (plus `from_panel_params`
+Fit, Sizes, Modeling, Simple Fits, WAXS Peak Fit and the Carbon model
+(plus `from_panel_params`
 in `core/unified.py` and `population_from_dict` in `core/modeling.py`, which
 own the translation from the panel's historical key names); SAXS Morph,
 Contrast, Merge, Manipulation and Fractals still serialise in their io/gui
@@ -137,6 +138,7 @@ deliberate choice.
 | Fractals | `fractals.py` | `nxcansas_fractals.py` | `fractals_panel.py` | — | `fractals_gui.md` |
 | SAXS Morph | `saxs_morph.py` | `nxcansas_saxs_morph.py` | `saxs_morph_panel.py` | `saxs_morph.py` | `saxs_morph_gui.md`, `saxs_morph_method_comparison.md` |
 | WAXS Peak Fit | `waxs_peakfit.py` | `nxcansas_waxs_peakfit.py` | `waxs_peakfit_panel.py` | `waxs.py` | `waxs_peakfit_gui.md` |
+| Carbon model | `carbon_fit.py` | `nxcansas_carbon_fit.py` | `carbon_fit_panel.py` | `carbon_fit.py` | `carbon_fit_gui.md` |
 | Data Merge | `data_merge.py` | `nxcansas_data_merge.py` | `data_merge_panel.py` | `merge.py` | `data_merge_gui.md` |
 | Data Manipulation | `data_manipulation.py` | `nxcansas_data_manipulation.py` | `data_manipulation_panel.py` | `manipulate.py` | `data_manipulation_gui.md` |
 | Scattering Contrast | `scattering_contrast.py` | `contrast_io.py` | `contrast_panel.py` | — | `scattering_contrast_gui.md` |

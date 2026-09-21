@@ -52,6 +52,8 @@ shared ones** — those are what gets reimplemented by accident.
 | `modeling.py` | 2698 | Modeling tool engine — multi-population forward model |
 | `simple_fits.py` | 1706 | Simple Fits model library (`MODEL_REGISTRY`) |
 | `waxs_peakfit.py` | 1418 | WAXS profiles, backgrounds, peak finder, fit engine |
+| `carbon_fit.py` | 1391 | Carbon model — full-range SAXS+WAXS of disordered carbons |
+| `carbon_density.py` | 194 | Carbon spacings → density → SLD → contrast convenience layer |
 | `fractals.py` | 1097 | Mass-fractal aggregate generator and analyzer |
 | `saxs_morph.py` | 1401 | 3-D two-phase voxelgram model via Gaussian random fields |
 | `scattering_contrast.py` | 681 | Scattering-contrast calculator engine |
@@ -84,6 +86,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `nxcansas_modeling.py` | 404 | Modeling results |
 | `nxcansas_simple_fits.py` | 361 | Simple Fits results (group is `entry/simple_fit_results`) |
 | `nxcansas_waxs_peakfit.py` | 397 | WAXS peak-fit results |
+| `nxcansas_carbon_fit.py` | 352 | Carbon model results |
 | `nxcansas_saxs_morph.py` | 367 | SAXS Morph results |
 | `nxcansas_fractals.py` | 237 | Fractal aggregate results |
 | `nxcansas_data_merge.py` | 188 | Data Merge provenance |
@@ -113,6 +116,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `simple.py` | 321 | `fit_simple`, `fit_simple_from_config` |
 | `modeling.py` | 229 | `fit_modeling` |
 | `waxs.py` | 295 | `fit_waxs_peaks` |
+| `carbon_fit.py` | 186 | `fit_carbon`, `fit_carbon_model` |
 | `saxs_morph.py` | 194 | `fit_saxs_morph` |
 | `merge.py` | 245 | `merge_data` |
 | `manipulate.py` | 288 | `manipulate_data`, `average_data` |
@@ -141,6 +145,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `modeling.py` | 1096 | Agent-drivable Modeling |
 | `sizes.py` | 893 | Agent-drivable Size Distribution |
 | `waxs_peakfit.py` | 898 | Agent-drivable WAXS Peak Fit |
+| `carbon_fit.py` | 713 | Agent-drivable Carbon model |
 | `simple_fits.py` | 710 | Agent-drivable Simple Fits |
 | `schemas.py` | 1800 | **`TOOL_SCHEMA_BY_NAME`** — JSON schema per control function |
 | `session.py` | 88 | In-memory session registry |
@@ -171,6 +176,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `sizes_panel.py` | 3195 |
 | `modeling_panel.py` | 3895 |
 | `waxs_peakfit_panel.py` | 2706 |
+| `carbon_fit_panel.py` | 2025 |
 | `simple_fits_panel.py` | 2352 |
 | `data_manipulation_panel.py` | 2370 |
 | `data_merge_panel.py` | 1999 |

@@ -204,6 +204,18 @@ def save_carbon_fit_results(
                                       dtype="float64")
             sd.attrs["param_key"] = key
 
+        quality = getattr(result, "quality", None) or {}
+        if quality:
+            q_grp = grp.create_group("fit_quality")
+            for key, value in quality.items():
+                # Only the scalars: fit_quality_metrics also returns per-point
+                # arrays and the per-band table, which belong to the live fit
+                # rather than to the saved summary.
+                if isinstance(value, (bool, int, float)) and not isinstance(value, bool):
+                    q_grp.create_dataset(key, data=float(value), dtype="float64")
+                elif isinstance(value, bool):
+                    q_grp.attrs[key] = bool(value)
+
         d_grp = grp.create_group("derived")
         for key, value in (result.derived or {}).items():
             ds = d_grp.create_dataset(key, data=float(value), dtype="float64")
@@ -265,6 +277,18 @@ def load_carbon_fit_results(filepath: Path) -> Dict:
                     log.debug("carbon_fit: %s unreadable", name, exc_info=True)
             return float(attrs.get(name, default))
 
+        def _quality(group):
+            """The saved fit-quality scalars, or None when none were stored."""
+            if "fit_quality" not in group:
+                return None
+            out = dict(group["fit_quality"].attrs)
+            for name, ds in group["fit_quality"].items():
+                try:
+                    out[str(name)] = float(ds[()])
+                except Exception:
+                    continue
+            return out or None
+
         def _scalars(sub, dotted: bool):
             out: Dict[str, float] = {}
             if sub not in grp:
@@ -304,6 +328,7 @@ def load_carbon_fit_results(filepath: Path) -> Dict:
             "params": _scalars("params", dotted=True),
             "params_std": _scalars("params_std", dotted=True),
             "derived": _scalars("derived", dotted=False),
+            "fit_quality": _quality(grp),
         }
 
 
