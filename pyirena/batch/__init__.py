@@ -9,6 +9,12 @@ Single file, one tool:
     if result:
         print(result['parameters']['chi_squared'])
 
+Carbon model (full-range SAXS+WAXS of disordered carbons):
+    from pyirena.batch import fit_carbon
+    result = fit_carbon("carbon.h5", "pyirena_config.json")
+    if result['success']:
+        print(result['derived']['S_part_m2_g'], "m2/g")
+
 WAXS peak fitting (linear/linear, diffraction peaks):
     from pyirena.batch import fit_waxs
     result = fit_waxs("waxs_data.h5", "pyirena_config.json")
@@ -26,6 +32,11 @@ Batch over many files:
 
 # Re-exports preserve the original `from pyirena.batch import X` API.
 from pyirena.batch._common import _load_config, _load_data
+from pyirena.batch.carbon_fit import (
+    fit_carbon,
+    fit_carbon_from_config,
+    fit_carbon_model,
+)
 from pyirena.batch.convert import igor_to_nexus, pxp_to_nexus
 from pyirena.batch.manipulate import average_data, manipulate_data
 from pyirena.batch.merge import merge_data
@@ -46,6 +57,9 @@ from pyirena.batch.waxs import fit_waxs, fit_waxs_peaks, fit_waxs_peaks_from_con
 
 __all__ = [
     "fit_unified",
+    "fit_carbon",
+    "fit_carbon_from_config",
+    "fit_carbon_model",
     "fit_sizes",
     "fit_pyirena",
     "fit_simple",

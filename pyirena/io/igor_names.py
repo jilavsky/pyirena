@@ -155,6 +155,23 @@ TOOL_CROSS_REF: dict[str, dict] = {
         ],
     },
 
+    # ── Carbon model ──────────────────────────────────────────────────────
+    # No Igor Irena counterpart, so the wave names are descriptive and follow
+    # the "Carbon<Component>I" convention rather than an existing Igor list.
+    "carbon_fit": {
+        "igor_tool": "Carbon model",
+        "waves": [
+            _wave("CarbonModelI", "Q", "I_model",
+                  note="Total Carbon model I(Q)"),
+            _wave("CarbonPorodI", "Q", "I_porod",
+                  note="Grain Porod component (incl. flat background)"),
+            _wave("CarbonMicroporeI", "Q", "I_mp",
+                  note="Micropore (SAXS-region) component"),
+            _wave("CarbonWAXSI", "Q", "I_waxs",
+                  note="Turbostratic diffraction component"),
+        ],
+    },
+
     # ── Modeling (parametric forward) ─────────────────────────────────────
     "modeling": {
         "igor_tool": "Modeling",

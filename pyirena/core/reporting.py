@@ -61,7 +61,8 @@ def _build_report(file_path: str,
                   simple_fit_results: Optional[dict] = None,
                   waxs_peakfit_results: Optional[dict] = None,
                   modeling_results: Optional[dict] = None,
-                  saxs_morph_results: Optional[dict] = None) -> str:
+                  saxs_morph_results: Optional[dict] = None,
+                  carbon_fit_results: Optional[dict] = None) -> str:
     """
     Build a Markdown report string.
 
@@ -75,6 +76,8 @@ def _build_report(file_path: str,
                             Pass None to omit the size distribution section.
         simple_fit_results: Dict from load_simple_fit_results().
                             Pass None to omit the simple fits section.
+        carbon_fit_results: Dict from load_carbon_fit_results().
+                            Pass None to omit the Carbon model section.
 
     Returns:
         Multi-line Markdown string ready to be written to a .md file.
@@ -118,6 +121,10 @@ def _build_report(file_path: str,
     if modeling_results is not None:
         L += [
             f"| **Modeling timestamp** | {modeling_results.get('timestamp', 'unknown')} |",
+        ]
+    if carbon_fit_results is not None:
+        L += [
+            f"| **Carbon model timestamp** | {carbon_fit_results.get('timestamp', 'unknown')} |",
         ]
     L.append("")
 
@@ -471,6 +478,10 @@ def _build_report(file_path: str,
                 L.append(f"| {name} | {_sf_fmt(val, '.6g')} |")
             L.append("")
 
+    # ── Carbon model ──────────────────────────────────────────────────────────
+    if carbon_fit_results is not None:
+        L += _carbon_fit_report_rows(carbon_fit_results)
+
     # ── WAXS Peak Fit ─────────────────────────────────────────────────────────
     if waxs_peakfit_results is not None:
         wp = waxs_peakfit_results
@@ -733,6 +744,148 @@ def _build_report(file_path: str,
     return "\n".join(L)
 
 
+#: Carbon model report layout: (heading, [(derived key, label, format)]).
+#: Grouped the way the panel's tabs are, because that is the order the user
+#: built the model in — and the derived numbers, not the fit coefficients, are
+#: what a carbon paper actually quotes.
+_CARBON_REPORT_GROUPS = (
+    ("Material", (
+        ("d002", "Interlayer spacing d₀₀₂", "Å"),
+        ("d100", "In-plane spacing d₁₀₀", "Å"),
+        ("rho_struc", "Structural density ρ_struc", "g/cm³"),
+        ("porosity", "Micropore volume fraction φ", ""),
+        ("rho_sample", "Sample density ρ_sample", "g/cm³"),
+        ("sld_struc", "SLD (carbon matrix)", "10¹⁰ cm⁻²"),
+        ("sld_sample", "SLD (grain)", "10¹⁰ cm⁻²"),
+        ("contrast_porod", "Contrast, grain vs. vacuum", "10²⁰ cm⁻⁴"),
+        ("contrast_micropore", "Contrast, pore vs. matrix", "10²⁰ cm⁻⁴"),
+    )),
+    ("Grain morphology (complex background)", (
+        ("S_macro_m2_g", "Macroscopic surface area", "m²/g"),
+        ("S_rough_m2_g", "Roughness surface area", "m²/g"),
+        ("S_part_m2_g", "Total particle surface area (BET-comparable)", "m²/g"),
+    )),
+    ("Micropores (SAXS region)", (
+        ("mp_phi", "Pore volume fraction φ", ""),
+        ("mp_radius", "Pore radius r", "Å"),
+        ("S_mp_m2_g", "Micropore surface area", "m²/g"),
+        ("ts_xi", "Correlation length ξ", "Å"),
+        ("ts_d", "Repeat distance d", "Å"),
+        ("ts_fa", "Amphiphilicity f_a", ""),
+        ("w_pore", "Average pore width w_P", "Å"),
+        ("w_carbon", "Average wall width w_C", "Å"),
+        ("ts_r_spheroid", "Pore radius (spheroid limit, f_a ≈ 0.4 only)", "Å"),
+    )),
+    ("Turbostratic stacking (WAXS region)", (
+        ("L_c", "Stack height L_c", "Å"),
+        ("N_layers", "Layers per stack", ""),
+        ("L_a", "Layer extent L_a", "Å"),
+        ("delta_z2", "Stacking disorder ⟨δz²⟩", "Å²"),
+        ("crumple_D", "Crumpling fractal dimension D", ""),
+        ("crumple_sigma", "Crumpling cutoff Σ", "Å"),
+        ("crumple_R", "Layer transition radius R", "Å"),
+    )),
+)
+
+
+def _carbon_fit_report_rows(cf: dict) -> list:
+    """Markdown lines for the Carbon model section of a report.
+
+    Split out rather than inlined because the section is long: a fit summary, a
+    fitted-parameter table with uncertainties, and four derived-quantity tables
+    grouped by tab.  Entries whose value is NaN — the branch of the SAXS-region
+    selector that is not in use, or a derived quantity the current mode does
+    not define — are skipped, so the report shows what was actually fitted.
+    """
+    from pyirena.core.fmt_utils import eng_fmt as _ef
+
+    def _fmt(v, sig=4):
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return 'N/A'
+        if not np.isfinite(fv):
+            return 'N/A'
+        return _ef(fv, sig=sig)
+
+    derived = cf.get('derived') or {}
+    params = cf.get('params') or {}
+    stds = cf.get('params_std') or {}
+
+    mode_label = {'fractal': 'Pores + fractal aggregation',
+                  'teubner_strey': 'Teubner-Strey (two-phase)'}
+    env_label = {'none': 'Flat layers (peaks only)',
+                 'crumpled': 'Crumpled / curved layers'}
+    saxs_mode = str(cf.get('saxs_mode', 'fractal'))
+    envelope = str(cf.get('waxs_envelope', 'none'))
+
+    L = [
+        "## Carbon model",
+        "",
+        "| Parameter | Value |",
+        "|-----------|-------|",
+        f"| Chemical formula | {cf.get('formula', 'C')} |",
+        f"| SAXS-region model | {mode_label.get(saxs_mode, saxs_mode)} |",
+        f"| WAXS-region envelope | {env_label.get(envelope, envelope)} |",
+        f"| Diffraction peaks | {cf.get('n_peaks', 0)} |",
+        f"| Chi-squared (χ²) | {_fmt(cf.get('chi_squared'))} |",
+        f"| Reduced chi² | {_fmt(cf.get('reduced_chi_squared'))} |",
+        f"| Points fitted | {cf.get('n_points', 0)} |",
+        f"| Free parameters | {cf.get('n_params', 0)} |",
+        f"| Q range (fit) | {_fmt(cf.get('q_min'))} – {_fmt(cf.get('q_max'))} Å⁻¹ |",
+    ]
+    L += _quality_report_rows(cf.get('fit_quality'))
+    L.append("")
+
+    if params:
+        L += [
+            "### Fitted parameters",
+            "",
+            "| Parameter | Value | Uncertainty (1σ) |",
+            "|-----------|-------|------------------|",
+        ]
+        for key in sorted(params):
+            std = stds.get(key)
+            std_str = (f"± {_fmt(std, 3)}"
+                       if std is not None and np.isfinite(float(std)) else "—")
+            L.append(f"| {key} | {_fmt(params[key], 6)} | {std_str} |")
+        L.append("")
+
+    for heading, rows in _CARBON_REPORT_GROUPS:
+        present = [(k, lab, unit) for k, lab, unit in rows
+                   if k in derived and np.isfinite(float(derived[k]))]
+        if not present:
+            continue
+        L += [
+            f"### {heading}",
+            "",
+            "| Quantity | Value | Units |",
+            "|----------|-------|-------|",
+        ]
+        for key, label, unit in present:
+            L.append(f"| {label} | {_fmt(derived[key], 6)} | {unit} |")
+        L.append("")
+
+    per_peak = sorted({k[5:].rsplit('_', 1)[0] for k in derived
+                       if k.startswith('peak_')})
+    if per_peak:
+        L += [
+            "### Diffraction peaks",
+            "",
+            "| Peak | Q₀ (Å⁻¹) | d (Å) | FWHM (Å⁻¹) | Coherence length (Å) |",
+            "|------|----------|-------|------------|----------------------|",
+        ]
+        for label in per_peak:
+            L.append(
+                f"| {label} | {_fmt(derived.get(f'peak_{label}_Q0'))} "
+                f"| {_fmt(derived.get(f'peak_{label}_d'))} "
+                f"| {_fmt(derived.get(f'peak_{label}_FWHM'))} "
+                f"| {_fmt(derived.get(f'peak_{label}_L'))} |")
+        L.append("")
+
+    return L
+
+
 def build_report(file_path: str, **sections) -> str:
     """Build a Markdown report — the public name for :func:`_build_report`.
 
@@ -745,7 +898,8 @@ def build_report(file_path: str, **sections) -> str:
             shown.  Pass the sample name when there is no file yet.
         **sections: Any of ``data_info``, ``fit_results`` (Unified Fit),
             ``sizes_results``, ``simple_fit_results``, ``waxs_peakfit_results``,
-            ``modeling_results``, ``saxs_morph_results`` — each a dict in the
+            ``modeling_results``, ``saxs_morph_results``, ``carbon_fit_results``
+            — each a dict in the
             shape ``pyirena.io.load_<tool>_results()`` returns.
 
     Returns:

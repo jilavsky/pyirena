@@ -291,6 +291,67 @@ TOOL_REGISTRY: dict[str, dict] = {
         # {n} in path templates must be formatted with f"{n:02d}".
     },
 
+    # ── Carbon model (full-range SAXS+WAXS of disordered carbons) ─────────
+    "carbon_fit": {
+        "group":          "entry/carbon_fit_results",
+        "analysis_type":  "",          # not written by this tool
+        "label":          "Carbon model",
+        "nx_class":       "NXprocess",
+        "strips_on_merge": True,
+        "plots": [
+            _plot("Q", "intensity_data", "1/angstrom", "1/cm",
+                  "Q (Å⁻¹)", "I (cm⁻¹)", "Data",        plot_type="iq"),
+            _plot("Q", "I_model",        "1/angstrom", "1/cm",
+                  "Q (Å⁻¹)", "I (cm⁻¹)", "Total fit",   plot_type="iq"),
+            _plot("Q", "I_porod",        "1/angstrom", "1/cm",
+                  "Q (Å⁻¹)", "I (cm⁻¹)", "Grain Porod", plot_type="iq"),
+            _plot("Q", "I_mp",           "1/angstrom", "1/cm",
+                  "Q (Å⁻¹)", "I (cm⁻¹)", "Micropores",  plot_type="iq"),
+            _plot("Q", "I_waxs",         "1/angstrom", "1/cm",
+                  "Q (Å⁻¹)", "I (cm⁻¹)", "Diffraction", plot_type="iq"),
+            _plot("Q", "residuals",      "1/angstrom", "",
+                  "Q (Å⁻¹)", "Residuals", "Residuals",  plot_type="residuals"),
+        ],
+        # params/* names are the model's dotted keys with dots replaced by
+        # underscores, and which ones exist depends on the selected SAXS mode
+        # and the peak list; consumers should enumerate params/ and derived/
+        # from the file.  The entries below are the ones that are always there
+        # or are the headline numbers users trend across a series.
+        "scalars": [
+            _scalar("chi_squared",         "chi_squared",         "", "χ²"),
+            _scalar("reduced_chi_squared", "reduced_chi_squared", "", "Reduced χ²"),
+            _scalar("param_S_macro",  "params/background_S_macro", "cm^2/cm^3",
+                    "Grain surface area S_macro"),
+            _scalar("param_phi",      "params/saxs_phi",       "", "Pore volume fraction φ"),
+            _scalar("param_pore_r",   "params/saxs_pore_radius", "angstrom",
+                    "Pore radius r"),
+            _scalar("derived_S_part_m2_g", "derived/S_part_m2_g", "m^2/g",
+                    "Grain specific surface area"),
+            _scalar("derived_S_mp_m2_g",   "derived/S_mp_m2_g",   "m^2/g",
+                    "Micropore specific surface area"),
+            _scalar("derived_rho_struc",   "derived/rho_struc",   "g/cm^3",
+                    "Structural density"),
+            _scalar("derived_rho_sample",  "derived/rho_sample",  "g/cm^3",
+                    "Sample density"),
+            _scalar("derived_porosity",    "derived/porosity",    "", "Porosity φ"),
+            _scalar("derived_d002",        "derived/d002",        "angstrom",
+                    "Interlayer spacing d002"),
+            _scalar("derived_d100",        "derived/d100",        "angstrom",
+                    "In-plane spacing d100"),
+            _scalar("derived_L_c",         "derived/L_c",         "angstrom",
+                    "Stack height L_c"),
+            _scalar("derived_L_a",         "derived/L_a",         "angstrom",
+                    "Layer extent L_a"),
+            _scalar("derived_N_layers",    "derived/N_layers",    "",
+                    "Layers per stack"),
+            _scalar("derived_w_pore",      "derived/w_pore",      "angstrom",
+                    "Average pore width (Teubner-Strey)"),
+            _scalar("derived_w_carbon",    "derived/w_carbon",    "angstrom",
+                    "Average wall width (Teubner-Strey)"),
+        ],
+        "sub_groups": None,
+    },
+
     # ── Modeling (parametric forward) ─────────────────────────────────────
     "modeling": {
         "group":          "entry/modeling_results",

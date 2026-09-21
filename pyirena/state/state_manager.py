@@ -271,6 +271,20 @@ class StateManager:
                 "n_steps":       50,      # grid steps for per-peak scan
             },
         },
+        # Carbon model.  The whole physics model lives under "model" as the
+        # core object's own to_dict(), so a new model field needs no change
+        # here; only genuinely panel-level settings are listed alongside it.
+        "carbon_fit": {
+            "schema_version": 1,
+            "model": {},              # CarbonFitModel.to_dict(); {} = defaults
+            "q_min": None,
+            "q_max": None,
+            "auto_update": True,      # redraw the model as controls change
+            "show_components": True,  # overlay Porod / micropore / WAXS curves
+            "waxs_zoom_visible": False,
+            "active_tab": 0,
+            "last_folder": "",
+        },
         "diffraction_lines": {
             # schema_version 2: per-CIF d_scale (lattice/d-spacing strain ratio); old states default to 1.0
             "schema_version": 2,

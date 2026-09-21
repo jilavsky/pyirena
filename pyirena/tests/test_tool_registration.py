@@ -84,6 +84,12 @@ TOOLS: dict[str, dict[str, str | None]] = {
         "api": "read_waxs_peakfit", "control": "waxs_peakfit", "dispatch": "waxs",
         "viewer": "waxs",
     },
+    "carbon_fit": {
+        "igor": "carbon_fit", "setup": "carbon_fit", "batch": "carbon_fit",
+        "state": "carbon_fit", "report": "carbon_fit_results",
+        "api": "read_carbon_fit", "control": "carbon_fit", "dispatch": "carbon",
+        "viewer": "carbon_fit",
+    },
     "saxs_morph": {
         "igor": "saxs_morph", "setup": "saxs_morph", "batch": "saxs_morph",
         "state": "saxs_morph", "report": "saxs_morph_results", "api": "read_saxs_morph",
@@ -350,6 +356,7 @@ def test_every_tool_has_a_gui_panel_and_docs():
         "simple_fits":       ("simple_fits_panel.py", "simple_fits_gui.md"),
         "modeling":          ("modeling_panel.py", "modeling_gui.md"),
         "waxs_peakfit":      ("waxs_peakfit_panel.py", "waxs_peakfit_gui.md"),
+        "carbon_fit":        ("carbon_fit_panel.py", "carbon_fit_gui.md"),
         "saxs_morph":        ("saxs_morph_panel.py", "saxs_morph_gui.md"),
         "fractals":          ("fractals_panel.py", "fractals_gui.md"),
         "data_merge":        ("data_merge_panel.py", "data_merge_gui.md"),

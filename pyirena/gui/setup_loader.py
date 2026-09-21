@@ -34,6 +34,7 @@ TOOL_GROUP_PATH = {
     "modeling":     "entry/modeling_results",
     "simple_fits":  "entry/simple_fit_results",
     "waxs_peakfit": "entry/waxs_peakfit_results",
+    "carbon_fit":   "entry/carbon_fit_results",
     "saxs_morph":   "entry/saxs_morph_results",
 }
 
@@ -44,6 +45,7 @@ TOOL_LABEL = {
     "modeling":     "Modeling",
     "simple_fits":  "Simple Fits",
     "waxs_peakfit": "WAXS Peak Fit",
+    "carbon_fit":   "Carbon model",
     "saxs_morph":   "SAXS Morph",
 }
 

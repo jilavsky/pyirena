@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 from pyirena.batch._common import _load_config
+from pyirena.batch.carbon_fit import fit_carbon
 from pyirena.batch.modeling import fit_modeling
 from pyirena.batch.saxs_morph import fit_saxs_morph
 from pyirena.batch.simple import fit_simple_from_config
@@ -120,6 +121,9 @@ def fit_pyirena(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
         'modeling': lambda: fit_modeling(
+            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+        ),
+        'carbon_fit': lambda: fit_carbon(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
         'saxs_morph': lambda: fit_saxs_morph(

@@ -466,3 +466,172 @@ class TestResolutionMetadata:
             [(q, intensity, intensity * 0.02, scalar_dq)] * 2
         )
         assert averaged.dQ is None
+
+
+# ---------------------------------------------------------------------------
+# Carbon model
+# ---------------------------------------------------------------------------
+
+class TestCarbonFitRoundTrip:
+    """entry/carbon_fit_results — arrays, params, derived, and the setup."""
+
+    @pytest.fixture
+    def fitted(self):
+        from pyirena.core.carbon_fit import CarbonFitModel
+
+        model = CarbonFitModel()
+        model.background.use_roughness = True
+        model.saxs.use_fractal = True
+        model.waxs.envelope = 'crumpled'
+        model.waxs.link_D_to_saxs = True
+        model.q_min, model.q_max = 1e-3, 4.0
+        q = np.logspace(-3, 0.6, 300)
+        return model, model.fit(q, model.evaluate(q))
+
+    def test_arrays_and_scalars_round_trip(self, nx_file, fitted):
+        from pyirena.io.nxcansas_carbon_fit import (
+            load_carbon_fit_results,
+            save_carbon_fit_results,
+        )
+
+        model, result = fitted
+        save_carbon_fit_results(nx_file, result, model)
+        back = load_carbon_fit_results(nx_file)
+
+        np.testing.assert_allclose(back["Q"], result.q)
+        np.testing.assert_allclose(back["I_model"], result.I_model)
+        np.testing.assert_allclose(back["I_porod"], result.I_porod)
+        np.testing.assert_allclose(back["I_mp"], result.I_mp)
+        np.testing.assert_allclose(back["I_waxs"], result.I_waxs)
+        # The three components must still add up after the round trip.
+        np.testing.assert_allclose(
+            back["I_porod"] + back["I_mp"] + back["I_waxs"], back["I_model"])
+        assert back["chi_squared"] == pytest.approx(result.chi_squared)
+        assert back["n_points"] == result.n_points
+        assert back["saxs_mode"] == "fractal"
+        assert back["waxs_envelope"] == "crumpled"
+        assert back["formula"] == "C"
+
+    def test_parameter_keys_come_back_dotted(self, nx_file, fitted):
+        """Stored flat on disk, handed back in the model's own spelling."""
+        from pyirena.io.nxcansas_carbon_fit import (
+            load_carbon_fit_results,
+            save_carbon_fit_results,
+        )
+
+        model, result = fitted
+        save_carbon_fit_results(nx_file, result, model)
+
+        with h5py.File(nx_file, "r") as f:
+            names = set(f["entry/carbon_fit_results/params"].keys())
+        assert "background_S_macro" in names
+        assert "peak_002_Q0" in names
+        assert not any("." in n for n in names)
+
+        back = load_carbon_fit_results(nx_file)
+        assert back["params"].keys() == result.params.keys()
+        for key, value in result.params.items():
+            assert back["params"][key] == pytest.approx(value)
+
+    def test_derived_quantities_survive(self, nx_file, fitted):
+        from pyirena.io.nxcansas_carbon_fit import (
+            load_carbon_fit_results,
+            save_carbon_fit_results,
+        )
+
+        model, result = fitted
+        save_carbon_fit_results(nx_file, result, model)
+        back = load_carbon_fit_results(nx_file)
+        for key in ("S_part_m2_g", "S_mp_m2_g", "rho_struc", "L_c", "N_layers",
+                    "d002", "d100", "peak_002_d"):
+            assert back["derived"][key] == pytest.approx(result.derived[key],
+                                                         nan_ok=True)
+
+        with h5py.File(nx_file, "r") as f:
+            assert f["entry/carbon_fit_results/derived/S_part_m2_g"].attrs[
+                "units"] == "m^2/g"
+            assert f["entry/carbon_fit_results/derived/d002"].attrs[
+                "units"] == "angstrom"
+
+    def test_embedded_setup_rebuilds_the_model(self, nx_file, fitted):
+        """The file alone is enough to reopen and refit — no config needed."""
+        from pyirena.io.nxcansas_carbon_fit import (
+            load_carbon_fit_model,
+            save_carbon_fit_results,
+        )
+
+        model, result = fitted
+        save_carbon_fit_results(nx_file, result, model)
+        restored = load_carbon_fit_model(nx_file)
+        assert restored is not None
+        assert restored.to_dict() == model.to_dict()
+
+    def test_refitting_replaces_rather_than_merges(self, nx_file, fitted):
+        """A second save must not leave a peak from the first one behind."""
+        from pyirena.io.nxcansas_carbon_fit import (
+            load_carbon_fit_results,
+            save_carbon_fit_results,
+        )
+
+        model, result = fitted
+        save_carbon_fit_results(nx_file, result, model)
+        model.peaks = [p for p in model.peaks if p.label != '100']
+        q = np.logspace(-3, 0.6, 300)
+        save_carbon_fit_results(nx_file, model.fit(q, model.evaluate(q)), model)
+
+        back = load_carbon_fit_results(nx_file)
+        assert not any("peak.100" in k for k in back["params"])
+        assert back["n_peaks"] == 1
+
+    def test_group_is_stripped_when_data_is_derived(self, nx_file, fitted):
+        """Results must not leak into a file seeded from this one."""
+        from pyirena.io._nxcansas_common import PYIRENA_RESULT_GROUPS
+
+        assert "entry/carbon_fit_results" in PYIRENA_RESULT_GROUPS
+
+    def test_batch_path_fits_and_saves(self, nx_file, tmp_path, fitted):
+        """The headless path writes the same group the GUI does."""
+        import json
+
+        from pyirena.batch.carbon_fit import fit_carbon_from_config
+        from pyirena.io.nxcansas_carbon_fit import load_carbon_fit_results
+
+        model, _ = fitted
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({
+            "_pyirena_config": {"tool": "carbon_fit"},
+            "carbon_fit": model.to_dict(),
+        }))
+
+        res = fit_carbon_from_config(nx_file, cfg, save_to_nexus=True)
+        assert res["success"], res["message"]
+        back = load_carbon_fit_results(nx_file)
+        assert back["params"] == pytest.approx(res["params"])
+
+    def test_batch_reports_a_missing_section_instead_of_raising(self, nx_file, tmp_path):
+        import json
+
+        from pyirena.batch.carbon_fit import fit_carbon_from_config
+
+        cfg = tmp_path / "empty.json"
+        cfg.write_text(json.dumps({"_pyirena_config": {"tool": "x"}}))
+        res = fit_carbon_from_config(nx_file, cfg)
+        assert res["success"] is False
+        assert "carbon_fit" in res["message"]
+
+    def test_report_section_renders(self, nx_file, fitted):
+        from pyirena.core.reporting import build_report
+        from pyirena.io.nxcansas_carbon_fit import (
+            load_carbon_fit_results,
+            save_carbon_fit_results,
+        )
+
+        model, result = fitted
+        save_carbon_fit_results(nx_file, result, model)
+        md = build_report(str(nx_file),
+                          carbon_fit_results=load_carbon_fit_results(nx_file))
+        assert "## Carbon model" in md
+        assert "Total particle surface area (BET-comparable)" in md
+        assert "Stack height L_c" in md
+        # Teubner-Strey rows must be absent in fractal mode.
+        assert "Amphiphilicity" not in md
