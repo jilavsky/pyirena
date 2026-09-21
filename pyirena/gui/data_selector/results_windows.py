@@ -944,6 +944,134 @@ class WAXSPeakFitResultsWindow(QWidget):
         self.show()
 
 
+class CarbonFitResultsWindow(QWidget):
+    """Stored Carbon model results from a set of HDF5 files.
+
+    Two log-log panels with linked x-axes: the total fit over the data on top,
+    residuals below.  The three component curves are drawn dashed under the
+    total for a single file and suppressed when several files are overlaid,
+    because fifteen dashed curves are not a plot.  Files with no
+    ``carbon_fit_results`` group are skipped silently.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("pyIrena - Carbon Model Results")
+        self.setGeometry(155, 155, 950, 720)
+        self._itx_technique = 'CarbonModel'
+
+        self.gl = pg.GraphicsLayoutWidget()
+        self.gl.setBackground('w')
+
+        self.ax_main = self.gl.addPlot(row=0, col=0)
+        self.ax_main.setLogMode(True, True)
+        self.ax_main.setLabel('left', 'Intensity  (cm⁻¹)')
+        self.ax_main.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.ax_main.setTitle('Carbon Model Results', size='13pt')
+        self.ax_main.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_main.addLegend(offset=(-10, 10), labelTextSize='10pt', labelTextColor='k')
+        _style_plot(self.ax_main)
+
+        self.ax_resid = self.gl.addPlot(row=1, col=0)
+        self.ax_resid.setLogMode(True, False)
+        self.ax_resid.setLabel('bottom', 'Q  (Å⁻¹)')
+        self.ax_resid.setLabel('left', "Residuals r' (rescaled)")
+        self.ax_resid.showGrid(x=True, y=True, alpha=0.3)
+        self.ax_resid.setXLink(self.ax_main)
+        _style_plot(self.ax_resid)
+
+        self.gl.ci.layout.setRowStretchFactor(0, 3)
+        self.gl.ci.layout.setRowStretchFactor(1, 1)
+        _add_jpeg_export(self, self.ax_main, self.ax_resid)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.gl)
+        self.setLayout(layout)
+
+    def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
+        """Load and plot stored Carbon model results from the given files."""
+        from pyirena.io.nxcansas_carbon_fit import load_carbon_fit_results
+
+        self.ax_main.clear()
+        self.ax_resid.clear()
+        for ax in (self.ax_main, self.ax_resid):
+            if ax.legend is not None:
+                ax.legend.clear()
+        self.ax_resid.addLine(y=0, pen=pg.mkPen('k', width=1))
+
+        found_any = False
+        colors = _gen_colors(len(file_paths))
+        legend_idx = _legend_indices(len(file_paths), max_legend_items)
+        single = len(file_paths) == 1
+
+        for idx, file_path in enumerate(file_paths):
+            _, ext = os.path.splitext(file_path)
+            if ext.lower() not in ('.h5', '.hdf5', '.hdf'):
+                continue
+            try:
+                results = load_carbon_fit_results(Path(file_path))
+            except Exception:
+                continue
+
+            Q = results.get('Q')
+            I_model = results.get('I_model')
+            if Q is None or I_model is None:
+                continue
+
+            color = colors[idx]
+            label = os.path.basename(file_path)
+            in_legend = idx in legend_idx
+
+            I_data = results.get('intensity_data')
+            if I_data is not None:
+                mask = np.isfinite(Q) & np.isfinite(I_data) & (Q > 0) & (I_data > 0)
+                self.ax_main.plot(
+                    Q[mask], I_data[mask], pen=None, symbol='o', symbolSize=3,
+                    symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color),
+                    name=label if in_legend else None)
+
+            mask_f = np.isfinite(Q) & np.isfinite(I_model) & (Q > 0) & (I_model > 0)
+            self.ax_main.plot(
+                Q[mask_f], I_model[mask_f],
+                pen=pg.mkPen(pg.mkColor(color).darker(175), width=2),
+                name=(f"{label} fit") if in_legend else None)
+
+            if single:
+                for key, comp_label in (('I_porod', 'Grain Porod'),
+                                        ('I_mp', 'Micropores'),
+                                        ('I_waxs', 'Diffraction')):
+                    curve = results.get(key)
+                    if curve is None:
+                        continue
+                    m = np.isfinite(Q) & np.isfinite(curve) & (Q > 0) & (curve > 0)
+                    if m.sum() < 2:
+                        continue
+                    self.ax_main.plot(
+                        Q[m], curve[m],
+                        pen=pg.mkPen(pg.mkColor(color).lighter(130), width=1,
+                                     style=Qt.PenStyle.DashLine),
+                        name=comp_label)
+
+            residuals = results.get('residuals')
+            if residuals is not None:
+                residuals_r = _rescaled_view(residuals)
+                mask_r = np.isfinite(Q) & np.isfinite(residuals_r) & (Q > 0)
+                self.ax_resid.plot(
+                    Q[mask_r], residuals_r[mask_r], pen=None, symbol='o',
+                    symbolSize=3, symbolPen=pg.mkPen(color, width=1),
+                    symbolBrush=pg.mkBrush(color))
+
+            found_any = True
+
+        if not found_any:
+            self.ax_main.setTitle(
+                'No Carbon model results found in selected files',
+                size='12pt', color='#7f8c8d')
+
+        self.show()
+
+
 class TabulateResultsWindow(QWidget):
     """
     Separate window that shows fit results for selected files in a spreadsheet-like

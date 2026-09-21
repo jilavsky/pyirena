@@ -61,6 +61,7 @@ from pyirena.gui.data_selector.igor_import import _IgorImportDialog
 from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices
 from pyirena.gui.data_selector.report import _build_report
 from pyirena.gui.data_selector.results_windows import (
+    CarbonFitResultsWindow,
     GraphWindow,
     SimpleFitResultsWindow,
     SizeDistResultsWindow,
@@ -114,6 +115,8 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_results_window = None # Graph of stored simple fit results
         self.waxs_peakfit_window = None        # WAXS Peak Fit panel
         self.waxs_peakfit_results_window = None  # Graph of stored WAXS peak-fit results
+        self.carbon_fit_window = None          # Carbon model panel
+        self.carbon_fit_results_window = None  # Graph of stored Carbon model results
         self.hdf5_viewer_window = None         # Data Explorer window
         self.data_merge_window = None          # Data Merge panel
         self.data_manip_window = None          # Data Manipulation panel
@@ -468,6 +471,15 @@ class DataSelectorPanel(QWidget):
         )
         cb_row2.addWidget(self.waxs_peakfit_checkbox)
 
+        self.carbon_fit_checkbox = QCheckBox("Carbon model")
+        self.carbon_fit_checkbox.setChecked(False)
+        self.carbon_fit_checkbox.setToolTip(
+            "Plot stored Carbon model results (data + total fit + the three\n"
+            "components + residuals).\n"
+            "Only HDF5 files with stored Carbon model results are used."
+        )
+        cb_row2.addWidget(self.carbon_fit_checkbox)
+
         self.modeling_checkbox = QCheckBox("Modeling")
         self.modeling_checkbox.setChecked(False)
         self.modeling_checkbox.setToolTip(
@@ -756,6 +768,39 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_script_button.clicked.connect(self.run_waxs_peakfit_script)
         self.waxs_peakfit_script_button.setEnabled(False)
 
+        _cf_gui_style = (
+            "QPushButton { background:#34495e; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#2c3e50; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        _cf_script_style = (
+            "QPushButton { background:#2c3e50; color:white; font-size:12px; "
+            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
+            "QPushButton:hover { background:#212f3d; }"
+            "QPushButton:disabled { background:#bdc3c7; }"
+        )
+        self.carbon_fit_button = QPushButton("Carbon model (GUI)")
+        self.carbon_fit_button.setMinimumHeight(23)
+        self.carbon_fit_button.setStyleSheet(_cf_gui_style)
+        self.carbon_fit_button.setToolTip(
+            "Open the Carbon model panel for the first selected file.\n"
+            "Fits the whole SAXS+WAXS range of a disordered carbon at once."
+        )
+        self.carbon_fit_button.clicked.connect(self.launch_carbon_fit)
+        self.carbon_fit_button.setEnabled(False)
+
+        self.carbon_fit_script_button = QPushButton("Carbon model (script)")
+        self.carbon_fit_script_button.setMinimumHeight(23)
+        self.carbon_fit_script_button.setStyleSheet(_cf_script_style)
+        self.carbon_fit_script_button.setToolTip(
+            "Batch-fit all selected files with the Carbon model using\n"
+            "pyirena_config.json.  Results are saved into each file's\n"
+            "NXcanSAS record."
+        )
+        self.carbon_fit_script_button.clicked.connect(self.run_carbon_fit_script)
+        self.carbon_fit_script_button.setEnabled(False)
+
         _sm_gui_style = (
             "QPushButton { background:#8e44ad; color:white; font-size:12px; "
             "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
@@ -797,8 +842,10 @@ class DataSelectorPanel(QWidget):
         analysis_grid.addWidget(self.simple_fits_script_button,  3, 1)
         analysis_grid.addWidget(self.waxs_peakfit_button,        4, 0)
         analysis_grid.addWidget(self.waxs_peakfit_script_button, 4, 1)
-        analysis_grid.addWidget(self.saxs_morph_button,          5, 0)
-        analysis_grid.addWidget(self.saxs_morph_script_button,   5, 1)
+        analysis_grid.addWidget(self.carbon_fit_button,          5, 0)
+        analysis_grid.addWidget(self.carbon_fit_script_button,   5, 1)
+        analysis_grid.addWidget(self.saxs_morph_button,          6, 0)
+        analysis_grid.addWidget(self.saxs_morph_script_button,   6, 1)
         right_layout.addWidget(grp_analysis)
 
         # ── GROUP 3: Data Processing & Reference ──────────────────────────────
@@ -971,6 +1018,13 @@ class DataSelectorPanel(QWidget):
         waxs_peakfit_action.setStatusTip("Open WAXS Peak Fit panel")
         waxs_peakfit_action.triggered.connect(self.launch_waxs_peakfit)
         models_menu.addAction(waxs_peakfit_action)
+
+        carbon_fit_action = QAction("&Carbon model", self)
+        carbon_fit_action.setStatusTip(
+            "Open the Carbon model panel (full-range SAXS+WAXS of "
+            "disordered carbons)")
+        carbon_fit_action.triggered.connect(self.launch_carbon_fit)
+        models_menu.addAction(carbon_fit_action)
 
         # SAXS Morph action (3D voxelgram)
         saxs_morph_action = QAction("S&AXS Morph (3D)", self)
@@ -1196,6 +1250,8 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_script_button.setEnabled(has_selection)
         self.waxs_peakfit_button.setEnabled(has_selection)
         self.waxs_peakfit_script_button.setEnabled(has_selection)
+        self.carbon_fit_button.setEnabled(has_selection)
+        self.carbon_fit_script_button.setEnabled(has_selection)
         self.saxs_morph_button.setEnabled(has_selection)
         self.saxs_morph_script_button.setEnabled(has_selection)
 
@@ -1284,6 +1340,11 @@ class DataSelectorPanel(QWidget):
                 )
 
         # ── WAXS Peak Fit results ──────────────────────────────────────────
+        if self.carbon_fit_checkbox.isChecked():
+            if self.carbon_fit_results_window is None:
+                self.carbon_fit_results_window = CarbonFitResultsWindow()
+            self.carbon_fit_results_window.plot_results(file_paths)
+
         if self.waxs_peakfit_checkbox.isChecked():
             if self.waxs_peakfit_results_window is None:
                 self.waxs_peakfit_results_window = WAXSPeakFitResultsWindow()
@@ -2357,6 +2418,49 @@ class DataSelectorPanel(QWidget):
         """Batch-fit all selected files with WAXS Peak Fit."""
         self._run_batch_fit('waxs_peakfit')
 
+    def launch_carbon_fit(self):
+        """Open the Carbon model panel with the first selected file."""
+        from pyirena.gui.carbon_fit_panel import CarbonFitPanel
+
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(
+                self, "No Selection",
+                "Please select a file to open in the Carbon model.",
+            )
+            return
+
+        file_path = os.path.join(self.current_folder, selected_items[0].text())
+        res = self._load_data_for_tool(file_path)
+        if res is None:
+            return
+        data, hdf5_path, display_name = res
+
+        try:
+            if self.carbon_fit_window is None:
+                self.carbon_fit_window = CarbonFitPanel()
+
+            self.carbon_fit_window.set_data(
+                data['Q'], data['Intensity'], data.get('Error'),
+                label=display_name, filepath=hdf5_path,
+            )
+            # Shift-click on the tool button = forget this window's remembered
+            # position and open it centred at its default size (Irena's gesture).
+            reset_window_if_shift(self.carbon_fit_window)
+            self.carbon_fit_window.show()
+            self.carbon_fit_window.raise_()
+            self.carbon_fit_window.activateWindow()
+            self.status_label.setText(f"Opened Carbon model for {display_name}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error",
+                                 f"Error loading data for the Carbon model:\n{e}")
+            self.status_label.setText(f"Error: {e}")
+
+    def run_carbon_fit_script(self):
+        """Batch-fit all selected files with the Carbon model."""
+        self._run_batch_fit('carbon_fit')
+
     def launch_saxs_morph(self):
         """Open the SAXS Morph (3D voxelgram) panel with the first selected file."""
         from pyirena.gui.saxs_morph_panel import SaxsMorphPanel
@@ -2849,7 +2953,8 @@ class DataSelectorPanel(QWidget):
         ]
         _tool_display = {'unified': "Unified Fit", 'modeling': "Modeling",
                          'sizes': "Size Distribution",
-                         'simple_fits': "Simple Fits", 'waxs_peakfit': "WAXS Peak Fit"}
+                         'simple_fits': "Simple Fits", 'waxs_peakfit': "WAXS Peak Fit",
+                         'carbon_fit': "Carbon model"}
         tool_name = _tool_display.get(tool, tool)
         self._set_batch_status(
             f"⏳  Starting {tool_name} batch on {len(file_paths)} file(s)…", 'working'

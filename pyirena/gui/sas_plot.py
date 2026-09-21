@@ -1064,7 +1064,9 @@ def set_cursor_q_range(
     """Position cursors at *q_min* and *q_max* (linear units).
 
     If *cursor_a* or *cursor_b* are ``None``, they are created via
-    :func:`make_cursors` first.  The cursors (existing or new) are returned.
+    :func:`make_cursors` first and then moved onto the requested values —
+    ``make_cursors`` alone would leave them 10 % inside the range.  The
+    cursors (existing or new) are returned.
 
     Parameters
     ----------
@@ -1081,9 +1083,13 @@ def set_cursor_q_range(
     if q_min is not None and q_max is not None and q_min > 0 and q_max > 0:
         if cursor_a is None or cursor_b is None:
             cursor_a, cursor_b = make_cursors(plot, q_min, q_max)
-        else:
-            cursor_a.setPos(np.log10(q_min))
-            cursor_b.setPos(np.log10(q_max))
+        # Set the positions even on the create path: ``make_cursors`` places
+        # its two lines 10 % inside the range it is given, which is the right
+        # default for a *new* pair but not what this function promises.  On a
+        # five-decade Carbon model plot that inset is half a decade at each
+        # end, enough to drop the (100) reflection out of the fit range.
+        cursor_a.setPos(np.log10(q_min))
+        cursor_b.setPos(np.log10(q_max))
     return cursor_a, cursor_b
 
 

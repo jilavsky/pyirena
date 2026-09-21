@@ -7,6 +7,7 @@ Split from the original monolithic data_selector.py (no behavior change).
 import os
 
 from pyirena.batch import (
+    fit_carbon_from_config,
     fit_modeling,
     fit_saxs_morph,
     fit_simple_from_config,
@@ -48,6 +49,8 @@ class BatchWorker(QThread):
             fit_fn = fit_simple_from_config
         elif self.tool == 'waxs_peakfit':
             fit_fn = fit_waxs_peaks_from_config
+        elif self.tool == 'carbon_fit':
+            fit_fn = fit_carbon_from_config
         elif self.tool == 'saxs_morph':
             fit_fn = fit_saxs_morph
         else:
