@@ -642,3 +642,39 @@ def test_result_components_add_up_and_are_json_safe():
     res = m.fit(q, m.evaluate(q))
     assert res.I_model == pytest.approx(res.I_porod + res.I_mp + res.I_waxs)
     json.dumps(res.to_dict())          # must not raise
+
+
+def test_coherence_length_is_blanked_when_the_gaussian_collapses():
+    """A collapsed Gaussian component must not be reported as a huge crystallite.
+
+    The two Voigt widths are strongly correlated for a weak or poorly resolved
+    peak, and a fit will happily push the whole profile into the Lorentzian.
+    The total width stays right, but 2π·K/FWHM_G then claims a coherence length
+    of tens of thousands of Å for layers that are nanometres across — so the
+    derived layer reports nothing rather than that.
+    """
+    from pyirena.core.carbon_fit import _coherence_length
+
+    # Well-resolved size broadening: a real number.
+    assert _coherence_length(0.25, 0.10) == pytest.approx(
+        2 * np.pi * 0.9 / 0.25, rel=1e-9)
+    # Gaussian collapsed into the Lorentzian: no size information left.
+    assert np.isnan(_coherence_length(4.3e-4, 0.29))
+    assert np.isnan(_coherence_length(0.0, 0.3))
+
+    m = CarbonFitModel()
+    m.peaks[1].FWHM_G, m.peaks[1].FWHM_L = 4.3e-4, 0.29
+    derived = m.compute_derived()
+    assert np.isnan(derived['L_a'])
+    assert np.isnan(derived['peak_100_L'])
+    # …while the peak's total width is still reported, because it is measured.
+    assert derived['peak_100_FWHM'] == pytest.approx(voigt_fwhm(4.3e-4, 0.29))
+
+
+def test_a_collapsed_002_gaussian_also_blanks_the_layer_count():
+    """N_layers is L_c/d002 — it cannot survive L_c being unknown."""
+    m = CarbonFitModel()
+    m.peaks[0].FWHM_G, m.peaks[0].FWHM_L = 1e-4, 0.4
+    derived = m.compute_derived()
+    assert np.isnan(derived['L_c'])
+    assert np.isnan(derived['N_layers'])

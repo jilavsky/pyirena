@@ -308,6 +308,17 @@ shown as N/A, so the table reflects what was actually fitted.
 Lorentzian part is curvature, not finite size. `L_a` uses Warren's K = 1.84 for
 a two-dimensional hk band.
 
+> **A blank coherence length means the fit could not determine it.** The two
+> Voigt widths are strongly correlated for a weak or poorly resolved peak, and
+> the optimiser will happily collapse the Gaussian to nearly zero while the
+> Lorentzian absorbs the whole profile. The total width stays right, but the
+> size no longer is — `2π·K/FWHM_G` would then claim a crystallite tens of
+> thousands of Å across. When the Gaussian component falls below a tenth of the
+> observed width, the coherence length, `L_c`, `L_a` and the layer count are
+> reported as blank instead. If you need those numbers, constrain the peak:
+> tighten the bounds on `FWHM_L`, or hold it fixed at a value from a
+> better-resolved sample.
+
 ---
 
 ## Fitting

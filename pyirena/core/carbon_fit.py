@@ -276,6 +276,34 @@ def discoid_form_factor(q: np.ndarray, R: float) -> np.ndarray:
     return np.where(np.isfinite(out), out, 0.0)
 
 
+def _coherence_length(fwhm_g: float, fwhm_l: float,
+                      shape_factor: float = 0.9) -> float:
+    """Scherrer size [Å] from a Voigt peak's Gaussian component.
+
+    Only the Gaussian part is finite-size broadening; the Lorentzian part is
+    layer curvature, so the size must not be read off the observed width.
+
+    Returns ``nan`` when the Gaussian component is less than a tenth of the
+    observed width.  The two Voigt components are strongly correlated for a
+    weak or poorly resolved peak, and the optimiser will happily collapse the
+    Gaussian to zero while the Lorentzian absorbs the whole profile — the
+    total width stays right, but ``2π·K/FWHM_G`` then reports a coherence
+    length of tens of thousands of Å for a carbon whose layers are nanometres
+    across.  A blank is the honest answer: the size is simply not determined
+    by that peak.
+
+    Args:
+        fwhm_g: Gaussian component FWHM [Å⁻¹].
+        fwhm_l: Lorentzian component FWHM [Å⁻¹].
+        shape_factor: Scherrer K — 0.9 for a stack height L_c, 1.84 (Warren)
+            for the two-dimensional hk band that gives the layer extent L_a.
+    """
+    total = voigt_fwhm(fwhm_g, fwhm_l)
+    if not (total > 0) or fwhm_g <= 0 or fwhm_g < 0.1 * total:
+        return float('nan')
+    return _cd.scherrer_size(fwhm_g, shape_factor)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Model sections
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1075,24 +1103,23 @@ class CarbonFitModel:
             out[f'{tag}_Q0'] = float(pk.Q0)
             out[f'{tag}_d'] = float(d)
             out[f'{tag}_FWHM'] = float(fw)
-            # Coherence length from the size-broadening (Gaussian) component
-            # only; the Lorentzian part is curvature, not finite size.
-            out[f'{tag}_L'] = _cd.scherrer_size(pk.FWHM_G)
+            out[f'{tag}_L'] = _coherence_length(pk.FWHM_G, pk.FWHM_L)
             out[f'{tag}_height'] = float(
                 pk.K * np.exp(-(pk.Q0 ** 2) * w.delta_z2 / 3.0)
                 / (pk.Q0 ** 2 if w.use_orientation_factor else 1.0))
 
         pk002 = self.peak_by_label(self.material.d002_label)
         if pk002 is not None:
-            Lc = _cd.scherrer_size(pk002.FWHM_G)
+            Lc = _coherence_length(pk002.FWHM_G, pk002.FWHM_L)
             d002 = _cd.d_spacing(pk002.Q0)
             out['L_c'] = float(Lc)
             out['N_layers'] = float(Lc / d002) if (d002 and d002 > 0) else nan
         else:
             out['L_c'] = out['N_layers'] = nan
         pk100 = self.peak_by_label(self.material.d100_label)
-        out['L_a'] = (_cd.scherrer_size(pk100.FWHM_G, shape_factor=1.84)
-                      if pk100 is not None else nan)
+        out['L_a'] = (_coherence_length(pk100.FWHM_G, pk100.FWHM_L,
+                                        shape_factor=1.84)
+                       if pk100 is not None else nan)
 
         return {k: float(v) for k, v in out.items()}
 
