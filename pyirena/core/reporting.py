@@ -837,6 +837,14 @@ def _carbon_fit_report_rows(cf: dict) -> list:
     L += _quality_report_rows(cf.get('fit_quality'))
     L.append("")
 
+    warnings_list = cf.get('warnings') or []
+    if warnings_list:
+        L.append("**Warnings**")
+        L.append("")
+        for warning in warnings_list:
+            L.append(f"- {warning}")
+        L.append("")
+
     if params:
         L += [
             "### Fitted parameters",

@@ -20,6 +20,7 @@ See ``docs/carbon_fit_gui.md`` for the user-facing documentation.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 import numpy as np
@@ -398,9 +399,9 @@ class _ParamRow:
 
         self.value_edit = ScrubbableLineEdit(_fmt_value(getattr(owner, attr)))
         self.value_edit.setMaximumWidth(95)
-        self.value_edit.setToolTip(
-            (tooltip + '\n\n' if tooltip else '')
-            + 'Scroll over the field to nudge the value.')
+        self._base_tooltip = ((tooltip + '\n\n' if tooltip else '')
+                              + 'Scroll over the field to nudge the value.')
+        self.value_edit.setToolTip(self._base_tooltip)
         self.value_edit.editingFinished.connect(self._changed)
 
         lo, hi = getattr(owner, f'{attr}_limits', (-np.inf, np.inf))
@@ -466,6 +467,24 @@ class _ParamRow:
             value = float('nan')
         self.std_label.setText('—' if not np.isfinite(value)
                                else f'± {_fmt_value(value, 3)}')
+
+    def mark_pinned(self, pinned: bool, side: str = '') -> None:
+        """Flag a value that is sitting on its own bound.
+
+        The number in the field is then dictated by the limit rather than by
+        the data, and it is the one case where a parameter can look fitted and
+        be meaningless, so it gets a visible mark rather than only a line in
+        the summary.
+        """
+        if pinned:
+            self.value_edit.setStyleSheet(
+                'background-color: #fdebd0; color: #7e5109;')
+            self.value_edit.setToolTip(
+                f'Pinned at its {side} limit — this value is set by the bound, '
+                f'not by the data. Widen the bound or untick Fit?.')
+        else:
+            self.value_edit.setStyleSheet('')
+            self.value_edit.setToolTip(self._base_tooltip)
 
     def set_enabled(self, enabled: bool) -> None:
         """Grey the row out without removing it, so the layout does not jump."""
@@ -540,6 +559,7 @@ class CarbonFitPanel(QWidget):
         self._peak_rows: list = []                 # one dict per peak widget block
         self._updating = False                     # guard against feedback loops
         self._stop_requested = False
+        self._last_progress = 0.0
 
         self.init_ui()
         self.load_state()
@@ -1506,10 +1526,18 @@ class CarbonFitPanel(QWidget):
         that a worker thread would cost more in complexity than it saves, so
         the event loop is pumped here instead — the same approach WAXS Peak
         Fit takes.
+
+        Throttled on the clock rather than on the evaluation count.  A
+        badly-conditioned model can run tens of thousands of evaluations, and
+        a repaint every tenth one made the fit several times slower than the
+        arithmetic it was reporting on.  Ten updates a second is as much as
+        anyone can read.
         """
-        if iteration % 10:
+        now = time.monotonic()
+        if now - self._last_progress < 0.1:
             return
-        self._set_status(f'Fitting… iteration {iteration}, χ² = {chi2:.6g}')
+        self._last_progress = now
+        self._set_status(f'Fitting… {iteration} evaluations, χ² = {chi2:.6g}')
         pg.QtWidgets.QApplication.processEvents()
         if self._stop_requested:
             raise CarbonFitAborted('stopped by the user')
@@ -1528,6 +1556,7 @@ class CarbonFitPanel(QWidget):
         self.model.n_mc_runs = int(n_mc_runs)
 
         self._stop_requested = False
+        self._last_progress = 0.0
         self.stop_btn.setEnabled(True)
         self.fit_btn.setEnabled(False)
         self.mc_btn.setEnabled(False)
@@ -1559,11 +1588,20 @@ class CarbonFitPanel(QWidget):
         for key, row in self._rows.items():
             if key in result.errors:
                 row.show_uncertainty(result.errors[key])
+        pinned = dict(self.model.pinned_fitted_parameters())
+        for key, row in self._rows.items():
+            row.mark_pinned(key in pinned, pinned.get(key, ''))
 
         verdict = 'converged' if result.success else 'did not converge'
-        self._set_status(
-            f'Fit {verdict}: reduced χ² = {result.reduced_chi_squared:.5g} '
-            f'over {result.n_points} points, {result.n_params} free parameters.')
+        status = (f'Fit {verdict}: reduced χ² = {result.reduced_chi_squared:.5g} '
+                  f'over {result.n_points} points, {result.n_params} free '
+                  f'parameters.')
+        if result.warnings:
+            # A pinned parameter looks exactly like one that is not wired up —
+            # it uses the whole evaluation budget and never moves — so it has
+            # to be said on the status line, not left in the Results tab.
+            status += '  ⚠ ' + result.warnings[0].split(' — ')[0]
+        self._set_status(status)
         self._update_fit_summary()
 
     # ── Readouts ────────────────────────────────────────────────────────────
@@ -1749,7 +1787,10 @@ class CarbonFitPanel(QWidget):
         if verdict:
             bits.append(str(verdict))
         bits.append(result.message)
-        self.fit_summary.setText(' · '.join(str(b) for b in bits if b))
+        text = ' · '.join(str(b) for b in bits if b)
+        for warning in result.warnings:
+            text += f'\n⚠ {warning}'
+        self.fit_summary.setText(text)
 
     # ── Persistence ─────────────────────────────────────────────────────────
 
@@ -1983,6 +2024,7 @@ class CarbonFitPanel(QWidget):
             'params_std': result.errors,
             'derived': result.derived,
             'fit_quality': result.quality,
+            'warnings': list(result.warnings),
         }
 
 

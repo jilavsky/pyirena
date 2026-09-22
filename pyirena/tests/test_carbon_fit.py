@@ -678,3 +678,112 @@ def test_a_collapsed_002_gaussian_also_blanks_the_layer_count():
     derived = m.compute_derived()
     assert np.isnan(derived['L_c'])
     assert np.isnan(derived['N_layers'])
+
+
+# ── Fractal dimension: the parameter that looked unwired ────────────────────
+
+
+def test_fractal_D_is_actually_in_the_fit_vector():
+    """The wiring itself, pinned — this is what a 'dead' parameter looks like."""
+    m = CarbonFitModel()
+    m.saxs.use_fractal = True
+    ref = next(r for r in m.fitted_refs() if r.key == 'saxs.fractal_D')
+    assert ref.owner is m.saxs
+    assert ref.fit is True
+
+
+def test_fractal_D_changes_the_model_enough_to_be_fittable():
+    m = CarbonFitModel()
+    m.saxs.use_fractal = True
+    q = np.logspace(-3, 0.65, 300)
+    m.saxs.fractal_D = 2.5
+    base = m.evaluate(q)
+    m.saxs.fractal_D = 2.7
+    assert np.max(np.abs(m.evaluate(q) - base) / np.maximum(base, 1e-30)) > 0.1
+
+
+def test_the_structure_factor_is_flat_outside_its_clip_range():
+    """Why the fit bounds have to stay inside it: no gradient out there.
+
+    ``teixeira_structure_factor`` clamps D because Γ(D−1) diverges at D → 1 and
+    the formula degenerates at D → 3.  Beyond the clamp the function does not
+    change with D at all, so a finite-difference gradient is exactly zero and
+    the optimiser cannot move the parameter — which is indistinguishable from
+    the parameter not being wired up.
+    """
+    from pyirena.core.carbon_fit import _FRACTAL_D_CLIP
+
+    q = np.logspace(-3, 0, 100)
+    above = _FRACTAL_D_CLIP[1] + 1e-4
+    assert teixeira_structure_factor(q, above, 180.0, 6.0) == pytest.approx(
+        teixeira_structure_factor(q, above + 0.01, 180.0, 6.0))
+
+
+def test_fit_bounds_are_narrowed_into_the_differentiable_range():
+    """A user typing the physical range (1, 3) must not get a dead parameter."""
+    from pyirena.core.carbon_fit import FRACTAL_D_FIT_RANGE
+
+    truth = CarbonFitModel()
+    truth.saxs.use_fractal = True
+    truth.saxs.fractal_D, truth.saxs.fractal_sigma = 2.45, 180.0
+    truth.saxs.pore_radius = 6.0
+    q = np.logspace(-3.3, 0.68, 600)
+    I = truth.evaluate(q)
+
+    m = CarbonFitModel()
+    m.saxs.use_fractal = True
+    m.saxs.fractal_sigma, m.saxs.pore_radius = 120.0, 6.0
+    m.saxs.fractal_D = 2.9995                     # inside the old dead zone
+    m.saxs.fractal_D_limits = (1.0, 3.0)          # the natural thing to type
+
+    res = m.fit(q, I)
+    assert m.saxs.fractal_D == pytest.approx(2.45, rel=1e-4)
+    assert any('bounds narrowed' in w for w in res.warnings)
+    assert any(str(FRACTAL_D_FIT_RANGE[1]) in w for w in res.warnings)
+
+
+def test_safe_bounds_leaves_ordinary_parameters_alone():
+    m = CarbonFitModel()
+    ref = next(r for r in m.fitted_refs() if r.key == 'background.S_macro')
+    (lo, hi), narrowed = m.safe_bounds(ref)
+    assert (lo, hi) == ref.limits
+    assert narrowed is False
+
+
+def test_a_pinned_parameter_is_reported_rather_than_left_to_be_spotted():
+    """Fractal ticked for data with no aggregation: D runs to its bound.
+
+    It uses the whole evaluation budget and never moves, which looks exactly
+    like a parameter that is not wired up — so the fit has to say so.
+    """
+    flat = CarbonFitModel()
+    flat.saxs.use_fractal = False
+    q = np.logspace(-3.3, 0.68, 600)
+    I = flat.evaluate(q)
+
+    m = CarbonFitModel()
+    m.saxs.use_fractal = True
+    res = m.fit(q, I, 0.01 * np.abs(I))
+
+    pinned = dict(m.pinned_fitted_parameters())
+    assert pinned.get('saxs.fractal_D') == 'lower'
+    assert any('pinned at a fit limit' in w and 'saxs.fractal_D' in w
+               for w in res.warnings)
+
+
+def test_a_zero_floor_is_reported_separately_from_an_arbitrary_bound():
+    """Different findings, different advice — 'widen the bound' is wrong for zero."""
+    m = CarbonFitModel()
+    q = np.logspace(-3, 0.65, 400)
+    res = m.fit(q, m.evaluate(q))
+    zero_warnings = [w for w in res.warnings if 'refined to zero' in w]
+    assert zero_warnings, res.warnings
+    assert 'background.flat_background' in zero_warnings[0]
+    assert not any('Widen the bound' in w for w in zero_warnings)
+
+
+def test_warnings_survive_to_dict():
+    m = CarbonFitModel()
+    q = np.logspace(-3, 0.65, 300)
+    res = m.fit(q, m.evaluate(q))
+    assert res.to_dict()['warnings'] == res.warnings

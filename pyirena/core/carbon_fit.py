@@ -86,6 +86,7 @@ __all__ = [
     'CARBON_SAXS_MODES', 'CARBON_WAXS_ENVELOPES', 'CarbonFitAborted',
     'CarbonBackground', 'CarbonSaxsRegion', 'CarbonWaxsPeak',
     'CarbonWaxsRegion', 'CarbonMaterial', 'CarbonFitModel', 'CarbonFitResult',
+    'FRACTAL_D_FIT_RANGE',
     'porod_roughness_factor', 'teixeira_structure_factor',
     'globule_form_factor', 'discoid_form_factor', 'default_carbon_peaks',
 ]
@@ -107,6 +108,28 @@ __all__ = [
 # convention the Modeling G-matrix uses.
 _POROD_UNIT = 1.0e-12
 _VOL_UNIT = 1.0e-4
+
+#: Where the Teixeira structure factor is actually differentiable in D.
+#: Γ(D−1) diverges as D → 1 and the sin((D−1)·arctan) term degenerates as
+#: D → 3, so :func:`teixeira_structure_factor` clamps D into this interval.
+#: Outside it the function is *flat*, which makes the finite-difference
+#: gradient exactly zero — a fitted D parked there is indistinguishable from
+#: one that was never wired up: it burns the whole evaluation budget and never
+#: moves.  Fit bounds are therefore clamped strictly inside it (see
+#: :data:`_FRACTAL_D_FIT_RANGE`), so the dead zone is unreachable.
+_FRACTAL_D_CLIP = (1.001, 2.999)
+
+#: The widest fit bounds allowed for a fractal dimension.  Inside
+#: :data:`_FRACTAL_D_CLIP` by enough that a finite-difference step taken
+#: *outward* from the bound still lands on live function.
+_FRACTAL_D_FIT_RANGE = (1.01, 2.99)
+#: Public alias — the panel and the control API show this to the user.
+FRACTAL_D_FIT_RANGE = _FRACTAL_D_FIT_RANGE
+
+#: Attribute name → the widest fit bounds that keep the model differentiable.
+#: Consulted when the fit vector is built, so a bound typed by hand (or by an
+#: agent) cannot put a parameter somewhere its gradient is identically zero.
+_SAFE_BOUNDS = {'fractal_D': _FRACTAL_D_FIT_RANGE}
 
 #: Selectable micropore (SAXS-region) models.  A registry rather than an
 #: if-chain so adding a model is one entry here plus one evaluator branch —
@@ -187,7 +210,7 @@ def teixeira_structure_factor(
         S(Q), same shape as ``q``.
     """
     q = np.asarray(q, dtype=float)
-    D = float(np.clip(D, 1.001, 2.999))
+    D = float(np.clip(D, *_FRACTAL_D_CLIP))
     S = max(float(sigma), 1e-10)
     R = max(float(R), 1e-10)
 
@@ -385,7 +408,7 @@ class CarbonSaxsRegion(_SerialisableDataclass):
     use_fractal: bool = False              # False → dilute pores, S(Q) ≡ 1
     fractal_D: float = 2.5
     fit_fractal_D: bool = True
-    fractal_D_limits: tuple = (1.01, 2.99)
+    fractal_D_limits: tuple = _FRACTAL_D_FIT_RANGE
     fractal_sigma: float = 100.0           # Σ [Å]
     fit_fractal_sigma: bool = True
     fractal_sigma_limits: tuple = (5.0, 1.0e5)
@@ -479,7 +502,7 @@ class CarbonWaxsRegion(_SerialisableDataclass):
     R_layer_limits: tuple = (1.0, 1.0e4)
     fractal_D: float = 2.5
     fit_fractal_D: bool = True
-    fractal_D_limits: tuple = (1.01, 2.99)
+    fractal_D_limits: tuple = _FRACTAL_D_FIT_RANGE
     fractal_sigma: float = 100.0           # Å
     fit_fractal_sigma: bool = True
     fractal_sigma_limits: tuple = (5.0, 1.0e5)
@@ -605,6 +628,7 @@ class CarbonFitResult:
     n_iterations: int = 0
     timestamp: str = ''
     quality: Dict[str, object] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
 
     q: Optional[np.ndarray] = None
     I_data: Optional[np.ndarray] = None
@@ -629,6 +653,7 @@ class CarbonFitResult:
             'n_params': int(self.n_params),
             'n_iterations': int(self.n_iterations),
             'timestamp': str(self.timestamp),
+            'warnings': [str(w) for w in self.warnings],
         }
 
 
@@ -980,6 +1005,54 @@ class CarbonFitModel:
                         f'({pk.label}) {label}', unit))
         return refs
 
+    @staticmethod
+    def safe_bounds(ref: '_ParamRef') -> Tuple[Tuple[float, float], bool]:
+        """A parameter's fit bounds, narrowed to where the model has a gradient.
+
+        Returns ``((lo, hi), narrowed)``.  Only the fractal dimensions are
+        constrained today — see :data:`_SAFE_BOUNDS` — but the hook is general,
+        because "the user widened a bound past where the maths is defined" is
+        not a mistake specific to D.
+        """
+        lo, hi = ref.limits
+        safe = _SAFE_BOUNDS.get(ref.attr)
+        if safe is None:
+            return (lo, hi), False
+        new_lo, new_hi = max(lo, safe[0]), min(hi, safe[1])
+        return (new_lo, new_hi), (new_lo != lo or new_hi != hi)
+
+    def pinned_fitted_parameters(self, rel_tol: float = 1e-6) -> List[tuple]:
+        """Fitted parameters currently sitting on one of their own bounds.
+
+        A parameter pinned at a limit has its value dictated by the bound, not
+        by the data, and the optimiser cannot satisfy its gradient test while
+        it is there — so the fit runs to the evaluation budget and the
+        parameter never moves.  That combination ("it uses every iteration and
+        nothing changes") is indistinguishable from a parameter that is not
+        wired up at all, which is why it has to be reported rather than left
+        for the user to spot by comparing a value against a bound.
+
+        The usual causes are a fractal dimension for data with no aggregation
+        (D runs to its lower limit while Σ runs to its upper one), or a bound
+        that is simply too narrow for the sample.
+
+        Args:
+            rel_tol: How close to a bound counts as on it, relative to the
+                bound's own magnitude.
+
+        Returns:
+            list of ``(key, 'lower'|'upper')`` for each pinned parameter.
+        """
+        out = []
+        for ref in self.fitted_refs():
+            (lo, hi), _ = self.safe_bounds(ref)
+            value = ref.value
+            if np.isfinite(lo) and abs(value - lo) <= rel_tol * max(abs(lo), 1.0):
+                out.append((ref.key, 'lower'))
+            elif np.isfinite(hi) and abs(value - hi) <= rel_tol * max(abs(hi), 1.0):
+                out.append((ref.key, 'upper'))
+        return out
+
     def fitted_refs(self) -> List[_ParamRef]:
         """Active parameters whose Fit? box is ticked — the fit vector."""
         return [r for r in self.parameter_refs(active_only=True) if r.fit]
@@ -1272,8 +1345,15 @@ class CarbonFitModel:
 
         sigma = self._sigma(If, ef)
         x_start = np.array([r.value for r in refs], dtype=float)
-        lo = np.array([r.limits[0] for r in refs], dtype=float)
-        hi = np.array([r.limits[1] for r in refs], dtype=float)
+        bounds, narrowed = [], []
+        for ref in refs:
+            (blo, bhi), was_narrowed = self.safe_bounds(ref)
+            bounds.append((blo, bhi))
+            if was_narrowed:
+                narrowed.append(ref.key)
+        lo = np.array([b[0] for b in bounds], dtype=float)
+        hi = np.array([b[1] for b in bounds], dtype=float)
+        x_start = np.clip(x_start, lo, hi)
         # A start value sitting exactly on a bound stops TRF dead, so the
         # optimiser is handed a nudged copy — but an abort restores the values
         # the user actually typed, not the nudged ones.
@@ -1298,8 +1378,21 @@ class CarbonFitModel:
         try:
             sol = least_squares(
                 residuals, x0, bounds=(lo, hi), method='trf',
+                # The parameters span five orders of magnitude — a specific
+                # surface area is ~1e4 cm²/cm³ while a fractal dimension is
+                # ~2.5 — so an unscaled trust region is sized by the largest
+                # of them and the small ones barely move.  Scaling by the
+                # Jacobian is scipy's remedy for exactly this, and here it
+                # cuts a far-from-solution fit from ~3000 evaluations to
+                # ~560 and recovers a fractal dimension that the unscaled
+                # fit missed by 5 %.
+                x_scale='jac',
                 max_nfev=int(self.max_iterations) * max(len(refs), 1),
-                xtol=1e-10, ftol=1e-10, gtol=1e-10)
+                # 1e-10 is precision no SAS measurement carries, and on a
+                # degenerate model (a fractal fitted to data with no
+                # aggregation) chasing it doubles the run for an answer that
+                # agrees to four significant figures.
+                xtol=1e-8, ftol=1e-8, gtol=1e-8)
         except Exception as exc:                # CarbonFitAborted, or a genuine
             for ref, v in zip(refs, x_start):   # numerical failure inside scipy
                 ref.value = v
@@ -1314,10 +1407,46 @@ class CarbonFitModel:
             mc = self._monte_carlo(qf, If, sigma, refs, sol.x)
             errors.update(mc)
 
-        res = self._result(qf, If, ef, success=bool(sol.success),
-                           message=str(sol.message), errors=errors,
-                           n_iterations=int(state['n']))
-        return res
+        warn: List[str] = []
+        if narrowed:
+            warn.append(
+                'fit bounds narrowed for ' + ', '.join(narrowed)
+                + f' to {_FRACTAL_D_FIT_RANGE[0]}–{_FRACTAL_D_FIT_RANGE[1]}: '
+                  'outside that range the fractal structure factor is clamped '
+                  'and flat, so the parameter would have had exactly zero '
+                  'gradient and could not have been fitted at all.')
+        # A parameter resting on a zero floor and one stuck on an arbitrary
+        # bound are different findings and need different advice — lumping
+        # them together produces a warning on almost every fit, which is how
+        # a warning stops being read.
+        at_zero, at_limit = [], []
+        for key, side in self.pinned_fitted_parameters():
+            ref = next((r for r in self.fitted_refs() if r.key == key), None)
+            bound = self.safe_bounds(ref)[0][0 if side == 'lower' else 1] if ref else None
+            (at_zero if (side == 'lower' and bound == 0.0) else at_limit).append(key)
+        if at_limit:
+            warn.append(
+                'parameter(s) pinned at a fit limit: ' + ', '.join(at_limit)
+                + ' — the value is set by the bound, not by the data. Widen '
+                  'the bound, or untick the parameter: a pinned parameter '
+                  'also stops the fit converging, so it runs to the '
+                  'evaluation budget without moving.')
+        if at_zero:
+            warn.append(
+                'parameter(s) refined to zero: ' + ', '.join(at_zero)
+                + ' — the fit wants these terms to vanish. That is a result, '
+                  'not an error, but the model is simpler than the one you '
+                  'set up and their uncertainties are meaningless.')
+        if sol.status == 0:
+            warn.append(
+                f'the fit stopped at its evaluation budget '
+                f'({int(self.max_iterations)} × {len(refs)} free parameters) '
+                f'rather than converging. Raise max_iterations, or reduce the '
+                f'number of free parameters.')
+
+        return self._result(qf, If, ef, success=bool(sol.success),
+                            message=str(sol.message), errors=errors,
+                            n_iterations=int(state['n']), warnings_list=warn)
 
     def _parameter_errors(self, sol, refs: List[_ParamRef],
                           n_points: int) -> Dict[str, float]:
@@ -1385,7 +1514,8 @@ class CarbonFitModel:
 
     def _result(self, q, I, error, *, success: bool, message: str,
                 errors: Optional[Dict[str, float]] = None,
-                n_iterations: int = 0) -> CarbonFitResult:
+                n_iterations: int = 0,
+                warnings_list: Optional[List[str]] = None) -> CarbonFitResult:
         """Assemble a :class:`CarbonFitResult` from the model's current state."""
         mat = self.resolve_material()
         comps = self.evaluate_components(q, mat)
@@ -1410,6 +1540,7 @@ class CarbonFitModel:
             chi_squared=chi2,
             reduced_chi_squared=chi2 / max(q.size - n_par, 1),
             n_points=int(q.size), n_params=n_par, n_iterations=n_iterations,
+            warnings=list(warnings_list or []),
             timestamp=datetime.now().isoformat(timespec='seconds'),
             quality=quality,
             q=q, I_data=I, I_error=error, I_model=model,

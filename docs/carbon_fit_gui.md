@@ -333,6 +333,33 @@ a two-dimensional hk band.
 Monte-Carlo uncertainties are more honest than the covariance estimate here,
 because the parameters are always correlated — contrast couples the regions.
 
+### When a parameter will not move
+
+If a parameter uses the whole evaluation budget and never changes, the panel
+now says why rather than leaving you to compare its value against its bound.
+Two distinct findings, with different remedies:
+
+- **"pinned at a fit limit"** — the value came from the bound, not the data.
+  The field is highlighted amber. A pinned parameter also stops the fit
+  converging, so it burns the whole budget while standing still. Either widen
+  the bound or untick it. The usual cause is asking for something the data does
+  not contain: tick *Pores aggregate into a mass fractal* for a sample with no
+  aggregation and the fractal dimension runs to its lower limit while the
+  cutoff Σ runs the other way, because the pair is degenerate when there is no
+  fractal power law between 1/Σ and 1/r to pin them down.
+- **"refined to zero"** — the fit wants that term to vanish. A result, not an
+  error, but the model is then simpler than the one you set up and that
+  parameter's uncertainty is meaningless.
+
+The **fractal dimension** has one extra safeguard. The Teixeira structure
+factor is only defined for 1 < D < 3 — Γ(D−1) diverges at one end and the
+formula degenerates at the other — so the code clamps D, and *outside the
+clamp the function is flat*. A D parked there has exactly zero gradient and
+cannot be fitted at all, which looks identical to a parameter that was never
+wired up. Fit bounds for D are therefore narrowed to 1.01–2.99 automatically,
+and the fit says so when it has done it. Widening the bound to the physical
+(1, 3) will not help and is silently corrected.
+
 A practical order of work:
 
 1. Load the data and press **Graph model**. The default parameters will be

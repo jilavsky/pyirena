@@ -59,6 +59,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Carbon model: a fitted fractal dimension could be silently unfittable.**
+  `teixeira_structure_factor` clamps D into (1.001, 2.999) because Γ(D−1)
+  diverges at one end and the formula degenerates at the other — and outside
+  the clamp the function is *flat*, so the finite-difference gradient is
+  exactly zero. A D parked there burns the whole evaluation budget without
+  moving, which is indistinguishable from a parameter that was never wired up.
+  Widening the bounds to the physical (1, 3), which is the natural thing to
+  type, put D in exactly that dead zone. Fit bounds are now narrowed into the
+  differentiable range automatically and the fit reports that it did so.
+- **Carbon model: the fit did not scale its parameters.** They span five orders
+  of magnitude (a specific surface area ~1e4 cm²/cm³ beside a fractal dimension
+  ~2.5), so an unscaled trust region is sized by the largest and the small ones
+  barely move. With `x_scale='jac'` a far-from-solution fit drops from ~3000
+  evaluations to ~560, and a case with a large Σ/r ratio now recovers the
+  fractal dimension it previously missed by 5 % (χ² better by 14×).
+- **Carbon model: a parameter pinned at a bound is now reported.** It is the
+  one failure that looks like success — the fit runs, a value is reported, and
+  it came from the limit. The panel highlights the field, the status line and
+  the report say so, and the agent API returns `pinned_parameters`. A parameter
+  resting on a zero floor is reported separately, because "widen the bound" is
+  the wrong advice for it.
+- **Carbon model: the fit progress callback was repainting too often.** It
+  pumped the Qt event loop every tenth residual evaluation; on a
+  badly-conditioned model that is thousands of repaints and made the fit
+  several times slower than the arithmetic it was reporting on. Now throttled
+  to ten updates a second. Fit tolerances also relaxed from 1e-10 to 1e-8 —
+  precision no SAS measurement carries, and worth roughly 2× on a degenerate
+  model for results that agree to four significant figures.
 - **`set_cursor_q_range()` did not place the cursors where it was asked to.**
   On the path where the cursors do not exist yet it created them with
   `make_cursors()`, which insets them by 10 % of the log span, and then

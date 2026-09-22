@@ -600,6 +600,13 @@ def get_carbon_results(session_id: str) -> dict:
         "waxs_envelope": s.model.waxs.envelope,
         "parameters": params,
         "derived": {k: _finite(v) for k, v in (result.derived or {}).items()},
+        # A pinned parameter is the one failure that looks like success: the
+        # fit "ran", the value is reported, and it came from the bound.
+        "warnings": list(result.warnings),
+        "pinned_parameters": [
+            {"key": key, "bound": side}
+            for key, side in s.model.pinned_fitted_parameters()
+        ],
         # Scalars only: fit_quality_metrics also returns per-point
         # arrays, and this layer must stay JSON-serialisable.
         "fit_quality": _quality_scalars(result.quality),
