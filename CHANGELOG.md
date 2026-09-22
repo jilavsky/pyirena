@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pyirena.api.read_carbon_fit`, the `carbon` MCP control category (16 tools),
   HDF5 Data Explorer trend plots, Igor export, and
   `docs/carbon_fit_gui.md`.
+- **Carbon model: "Revert back".** One level of undo, snapshotted at the start
+  of every fit, matching the button Unified Fit has. A full-range model with
+  fifteen-plus free parameters will sometimes run to a wrong solution, and
+  rebuilding the starting point by hand is the expensive part. Restores the
+  whole model — values, bounds, Fit? flags and the peak list — but not the Q
+  range, which belongs to the user's cursors rather than to the fit.
 - **True Voigt peak shape in WAXS Peak Fit.** The real Lorentzian⊗Gaussian
   convolution via the Faddeeva function, not the existing linear pseudo-Voigt
   mix. Added for the Carbon model, where crystallite size (Gaussian) and layer
@@ -80,6 +86,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the report say so, and the agent API returns `pinned_parameters`. A parameter
   resting on a zero floor is reported separately, because "widen the bound" is
   the wrong advice for it.
+- **Carbon model: peak parameters scrubbed far too fast.** The shared
+  wheel-scrub step is 10 % of the value's leading decade, which moves a peak
+  centre at Q₀ ≈ 1.9 Å⁻¹ by 0.1 Å⁻¹ per notch — about a third of a carbon
+  peak's width, so it jumps straight past the target. Peak positions and both
+  Voigt widths now scrub ten times finer (0.01 Å⁻¹ and 0.001 Å⁻¹ per notch).
+  The amplitude keeps the coarse step, being the one peak parameter you want to
+  move in large relative jumps.
 - **Carbon model: the fit progress callback was repainting too often.** It
   pumped the Qt event loop every tenth residual evaluation; on a
   badly-conditioned model that is thousands of repaints and made the fit

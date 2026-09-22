@@ -278,3 +278,121 @@ def test_graphing_needs_no_data(panel):
     """The panel must draw its model before any file is loaded."""
     panel._graph_model(quiet=False)
     assert panel.graph_window._fit_item is not None
+
+
+# ── Revert back ─────────────────────────────────────────────────────────────
+
+def test_revert_is_disabled_until_there_is_something_to_revert_to(panel):
+    assert panel.revert_btn.isEnabled() is False
+
+
+def test_revert_restores_the_pre_fit_parameters(loaded):
+    loaded.model.saxs.phi = 0.42
+    loaded.model.saxs.pore_radius = 12.0
+    loaded.model.peaks[0].Q0 = 1.62
+    loaded._refresh_all()
+    start = dict(loaded.model.parameter_values())
+
+    loaded._run_fit(0)
+    assert loaded.revert_btn.isEnabled()
+    assert loaded.model.parameter_values() != start   # the fit moved things
+
+    loaded._on_revert()
+    assert loaded.model.parameter_values() == start
+    # …and the widgets, not just the model.
+    assert float(loaded._rows['saxs.phi'].value_edit.text()) == pytest.approx(0.42)
+
+
+def test_revert_restores_bounds_and_fit_flags_too(loaded):
+    """The snapshot is the whole model, not just the values the fitter moved."""
+    loaded.model.saxs.phi_limits = (0.02, 0.44)
+    loaded.model.saxs.fit_globule_k = True
+    loaded._refresh_all()
+
+    loaded._run_fit(0)
+    loaded.model.saxs.phi_limits = (0.0, 1.0)
+    loaded.model.saxs.fit_globule_k = False
+
+    loaded._on_revert()
+    assert loaded.model.saxs.phi_limits == (0.02, 0.44)
+    assert loaded.model.saxs.fit_globule_k is True
+
+
+def test_revert_keeps_the_q_range(loaded):
+    """The cursors are the user's, not the fit's — reverting them is a surprise."""
+    loaded.graph_window.set_cursor_range(0.01, 1.0)
+    loaded._run_fit(0)
+    loaded._on_revert()
+    assert loaded.model.q_min == pytest.approx(0.01)
+    assert loaded.model.q_max == pytest.approx(1.0)
+
+
+def test_revert_clears_the_stale_fit_display(loaded):
+    loaded._run_fit(0)
+    assert loaded._rows['saxs.phi'].std_label.text() != '—'
+    loaded._on_revert()
+    assert loaded._rows['saxs.phi'].std_label.text() == '—'
+    assert loaded.fit_result is None
+    assert 'Not fitted yet' in loaded.fit_summary.text()
+
+
+def test_revert_twice_is_harmless(loaded):
+    """It is an undo of the last fit, not a stack."""
+    start = dict(loaded.model.parameter_values())
+    loaded._run_fit(0)
+    loaded._on_revert()
+    loaded._on_revert()
+    assert loaded.model.parameter_values() == start
+
+
+def test_revert_survives_a_peak_being_added_by_the_fit_cycle(loaded):
+    """The peak list is part of the snapshot, so the rows must be rebuilt."""
+    loaded._run_fit(0)
+    loaded._on_add_peak()
+    n_after_add = len(loaded.model.peaks)
+    loaded._on_revert()
+    assert len(loaded.model.peaks) == n_after_add - 1
+    assert len(loaded._peak_rows) == len(loaded.model.peaks)
+
+
+def test_loading_a_setup_drops_the_backup(loaded):
+    """A snapshot of a model that is no longer loaded would graft onto the new one."""
+    loaded._run_fit(0)
+    assert loaded.revert_btn.isEnabled()
+    loaded._apply_state({})
+    assert loaded.revert_btn.isEnabled() is False
+    assert loaded._param_backup is None
+
+
+# ── Wheel step on peak parameters ───────────────────────────────────────────
+
+def _wheel(edit, notches=1):
+    from pyirena.gui._qt import Qt, QtCore, QtGui
+
+    event = QtGui.QWheelEvent(
+        QtCore.QPointF(5, 5), QtCore.QPointF(5, 5), QtCore.QPoint(0, 0),
+        QtCore.QPoint(0, 120 * notches), Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    edit.wheelEvent(event)
+
+
+@pytest.mark.parametrize("key, expected_step", [
+    ("peak.002.Q0", 0.01),        # 0.1 Å⁻¹ was a third of a peak width per notch
+    ("peak.002.FWHM_G", 0.001),
+    ("peak.002.FWHM_L", 0.001),
+    ("peak.002.K", 0.1),          # amplitude keeps the coarse step
+])
+def test_peak_parameters_scrub_at_a_usable_rate(panel, key, expected_step):
+    row = panel._rows[key]
+    before = float(row.value_edit.text())
+    _wheel(row.value_edit)
+    after = float(row.value_edit.text())
+    assert abs(after - before) == pytest.approx(expected_step, rel=0.05)
+    assert after > before
+
+
+def test_scrubbing_a_peak_position_writes_through_to_the_model(panel):
+    row = panel._rows['peak.002.Q0']
+    before = panel.model.peaks[0].Q0
+    _wheel(row.value_edit)
+    assert panel.model.peaks[0].Q0 > before

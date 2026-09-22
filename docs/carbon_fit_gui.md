@@ -93,7 +93,7 @@ Every fittable quantity, in every tab, is one row:
 |---|---|
 | **Fit?** | Refine this parameter |
 | Parameter | Name and units |
-| Value | Editable; **scroll over the field** to nudge it |
+| Value | Editable; **scroll over the field** to nudge it. Peak positions and widths scrub ten times finer than everything else — 0.01 Å⁻¹ a notch on Q₀ rather than 0.1, which would jump a third of a peak width at a time. Peak amplitude keeps the coarse step. |
 | lo / hi | Fitting bounds |
 | ± std | 1-σ uncertainty after a fit |
 
@@ -329,9 +329,19 @@ a two-dimensional hk band.
 | **Fit all** | Refine every ticked parameter across the whole Q range at once |
 | **Stop** | Abort; the parameters go back to where the fit started |
 | **Calc. Uncertainty (MC)** | Re-fit noise-perturbed copies of the data |
+| **Revert back** | Put every parameter back to where the last fit started |
 
 Monte-Carlo uncertainties are more honest than the covariance estimate here,
 because the parameters are always correlated — contrast couples the regions.
+
+**Revert back** is one level of undo, taken automatically at the start of every
+fit. A full-range model with fifteen or more free parameters will sometimes run
+off to a wrong solution, and rebuilding a starting point by hand is the
+expensive part — so revert restores the whole model as it was: values, bounds,
+Fit? flags and the peak list. The Q range is *not* restored, because the
+cursors are yours rather than the fit's. Pressing it twice is harmless. Loading
+a setup or a JSON config drops the snapshot, since it no longer belongs to the
+model on screen.
 
 ### When a parameter will not move
 

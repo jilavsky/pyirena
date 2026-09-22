@@ -91,6 +91,15 @@ log = logging.getLogger(__name__)
 
 _DOC_URL = "https://github.com/jilavsky/pyirena/blob/main/docs/carbon_fit_gui.md"
 
+#: Wheel step per notch, as a fraction of the value's leading decade.
+#: 0.1 (the ScrubbableLineEdit default) moves a peak centre at Q₀ ≈ 1.9 Å⁻¹ by
+#: 0.1 Å⁻¹ a notch — a third of a typical carbon peak's width, so the peak
+#: jumps straight past where you are trying to put it.  Peak positions and
+#: widths therefore scrub ten times finer; the amplitude keeps the coarse step,
+#: because that is the one peak parameter you genuinely want to move in large
+#: relative jumps.
+_PEAK_STEP_FACTORS = {'Q0': 0.01, 'FWHM_G': 0.01, 'FWHM_L': 0.01, 'K': 0.1}
+
 #: Component curve colours.  Chosen to match the source paper's own figures
 #: (Saurel et al. 2019, Figs. 5–7) so a user holding the paper recognises the
 #: plot: total fit red, grain Porod blue, micropores orange, diffraction green.
@@ -381,7 +390,7 @@ class _ParamRow:
     """
 
     def __init__(self, owner, attr: str, label: str, unit: str = '',
-                 on_change=None, tooltip: str = ''):
+                 on_change=None, tooltip: str = '', step_factor: float = 0.1):
         self.owner = owner
         self.attr = attr
         self.on_change = on_change
@@ -397,7 +406,8 @@ class _ParamRow:
         if tooltip:
             self.label.setToolTip(tooltip)
 
-        self.value_edit = ScrubbableLineEdit(_fmt_value(getattr(owner, attr)))
+        self.value_edit = ScrubbableLineEdit(_fmt_value(getattr(owner, attr)),
+                                            step_factor=step_factor)
         self.value_edit.setMaximumWidth(95)
         self._base_tooltip = ((tooltip + '\n\n' if tooltip else '')
                               + 'Scroll over the field to nudge the value.')
@@ -560,6 +570,7 @@ class CarbonFitPanel(QWidget):
         self._updating = False                     # guard against feedback loops
         self._stop_requested = False
         self._last_progress = 0.0
+        self._param_backup: dict | None = None     # model state before the last fit
 
         self.init_ui()
         self.load_state()
@@ -1172,6 +1183,17 @@ class CarbonFitPanel(QWidget):
                 self.graph_window, 'graphics_layout', None),
         ))
 
+        self.revert_btn = QPushButton('Revert back')
+        self.revert_btn.setMinimumHeight(26)
+        self.revert_btn.setStyleSheet(accent_button_css('#e67e22', '#f39c12'))
+        self.revert_btn.setToolTip(
+            'Restore every parameter to the value it had before the last fit.\n'
+            'Use it when a fit ran off to a wrong solution — it saves rebuilding\n'
+            'the starting point by hand.')
+        self.revert_btn.setEnabled(False)
+        self.revert_btn.clicked.connect(self._on_revert)
+        col.addWidget(self.revert_btn)
+
         self.reset_btn = QPushButton('Reset to defaults')
         self.reset_btn.setMinimumHeight(26)
         self.reset_btn.setStyleSheet(accent_button_css('#e67e22', '#f39c12'))
@@ -1262,7 +1284,8 @@ class CarbonFitPanel(QWidget):
         ]
         for offset, (attr, unit, tooltip) in enumerate(specs):
             row = _ParamRow(peak, attr, attr, unit,
-                            on_change=self._on_param_changed, tooltip=tooltip)
+                            on_change=self._on_param_changed, tooltip=tooltip,
+                            step_factor=_PEAK_STEP_FACTORS.get(attr, 0.1))
             row.add_to(grid, 1 + offset)
             self._rows[f'peak.{peak.label}.{attr}'] = row
         v.addLayout(grid)
@@ -1554,6 +1577,11 @@ class CarbonFitPanel(QWidget):
             return
         self._sync_q_range_into_model()
         self.model.n_mc_runs = int(n_mc_runs)
+        # One level of undo, as Unified Fit has. The whole model serialises, so
+        # the snapshot is complete — sections, peak list, bounds and Fit? flags
+        # — rather than only the values the fitter happened to touch.
+        self._param_backup = self.model.to_dict()
+        self.revert_btn.setEnabled(True)
 
         self._stop_requested = False
         self._last_progress = 0.0
@@ -1822,6 +1850,12 @@ class CarbonFitPanel(QWidget):
         """Apply a state dict to the model and the widgets."""
         state = state or {}
         self.model = CarbonFitModel.from_dict(state.get('model') or {})
+        # A snapshot of a model that is no longer loaded is worse than none:
+        # Revert would silently graft the old model's parameters onto the new
+        # one. Loading a setup or a JSON config therefore drops it.
+        self._param_backup = None
+        if hasattr(self, 'revert_btn'):
+            self.revert_btn.setEnabled(False)
         if state.get('q_min') is not None:
             self.model.q_min = float(state['q_min'])
         if state.get('q_max') is not None:
@@ -1984,6 +2018,42 @@ class CarbonFitPanel(QWidget):
         self._apply_state(section)
         self._set_status(f'Parameters loaded from {Path(path).name}')
 
+    def _on_revert(self) -> None:
+        """Put the parameters back to where the last fit started from.
+
+        Restores the model wholesale from the pre-fit snapshot, then redraws.
+        The Q range is *not* restored: the cursors are the user's, not the
+        fit's, and moving them back would be a surprise. The backup is kept, so
+        pressing Revert twice is harmless — it is an undo of the fit, not a
+        stack.
+        """
+        if self._param_backup is None:
+            QMessageBox.information(
+                self, 'Carbon model',
+                'Nothing to revert to — run a fit first.')
+            return
+
+        snapshot = dict(self._param_backup)
+        snapshot['q_min'] = self.model.q_min
+        snapshot['q_max'] = self.model.q_max
+        self.model = CarbonFitModel.from_dict(snapshot)
+        self.fit_result = None
+
+        self._updating = True
+        try:
+            self._rebuild_peak_widgets()
+            self._rebind_rows()
+        finally:
+            self._updating = False
+        self._refresh_all()
+        for row in self._rows.values():
+            row.mark_pinned(False)
+            row.show_uncertainty(float('nan'))
+        self.graph_window.plot_residuals(np.array([]), np.array([]))
+        self._update_fit_summary()
+        self._graph_model(quiet=True)
+        self._set_status('Reverted to the parameters the last fit started from.')
+
     def _on_reset(self) -> None:
         if QMessageBox.question(
                 self, 'Carbon model',
@@ -1991,6 +2061,8 @@ class CarbonFitPanel(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
         self.fit_result = None
+        self._param_backup = None
+        self.revert_btn.setEnabled(False)
         self._apply_state({})
         self._set_status('Model reset to defaults.')
 
