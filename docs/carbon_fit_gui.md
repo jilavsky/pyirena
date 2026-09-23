@@ -77,7 +77,11 @@ the grain Porod term creeping up under the micropore region.
 
 **WAXS zoom** adds the linear panel. A diffraction peak's *shape* is what the
 two Voigt widths are fitted to, and that shape is unreadable on a log-log plot
-spanning five decades.
+spanning five decades. The panel opens framed on Q ≥ 1 Å⁻¹ out to the highest
+measured Q, with its **Y axis scaled to what is inside that window** — ranging
+it over the whole curve instead would put the peaks flat on the baseline, since
+the low-Q end sits orders of magnitude higher. The **⟲** button beside the
+checkbox puts that framing back after you have panned or zoomed.
 
 **Auto-update** redraws the model whenever a control changes. Turn it off for
 very large datasets.

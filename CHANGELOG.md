@@ -86,6 +86,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the report say so, and the agent API returns `pinned_parameters`. A parameter
   resting on a zero floor is reported separately, because "widen the bound" is
   the wrong advice for it.
+- **Carbon model: the WAXS zoom panel went blank after a fit.** The cached
+  curves shared one Q array between the measured data (full range) and the
+  model (the fit range only), so a fit over a restricted range paired a
+  284-point model with a 400-point data array; the redraw raised part-way
+  through, leaving an empty panel — and the exception escaped the fit itself.
+  Data and model are now cached on separate grids and the redraw can no longer
+  propagate.
+- **Carbon model: the WAXS zoom panel was almost unusable to frame.** It took
+  its Q window from the peak *starting guesses* (graphite positions, before a
+  fit possibly nowhere near the sample) and left Y to autoscale over the whole
+  curve, whose low-Q end is orders of magnitude above the diffraction peaks —
+  so the peaks sat flat on the baseline and the only way to see them was typing
+  limits into the axis dialog. It now opens on Q ≥ 1 Å⁻¹ out to the highest
+  measured Q with the Y axis scaled to that window, re-frames after a fit, and
+  has a ⟲ button to restore the view by hand.
+- **Carbon model: the filename field read "(no file selected)" when the panel
+  was opened from the Data Browser.** `set_data` did not call the loader row's
+  `set_filename`, so the field only ever tracked this panel's own Open… button.
+- **Cursors were fiddly to grab.** pyqtgraph derives an `InfiniteLine`'s hit
+  area from its pen width, giving pyIrena's 2-pixel cursors a band about four
+  pixels wide — accurate, and hard to hit, especially where two cursors sit
+  close together on a log axis. `_SafeInfiniteLine` now widens the bounding
+  rectangle (which is what Qt hit-tests against) to an 18-pixel band without
+  drawing a thicker line. Applies to every tool that uses the shared cursors.
 - **Carbon model: peak parameters scrubbed far too fast.** The shared
   wheel-scrub step is 10 % of the value's leading decade, which moves a peak
   centre at Q₀ ≈ 1.9 Å⁻¹ by 0.1 Å⁻¹ per notch — about a third of a carbon

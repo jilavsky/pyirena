@@ -311,7 +311,33 @@ class _SafeInfiniteLine(pg.InfiniteLine):
     already-invalid pointer and segfaults.  Wrapping those overrides in
     ``try/except`` ensures that no exception can reach the C++→Python
     boundary.
+
+    It also widens the cursor's grab zone.  pyqtgraph derives the clickable
+    area from the pen width — ``(_maxMarkerSize + pen.width()/2 + 1)`` pixels
+    either side, which for pyIrena's 2-pixel cursors is a band about four
+    pixels wide in total.  That is accurate but fiddly to hit, especially on a
+    log axis where the two cursors can sit close together.  Widening the
+    bounding rectangle widens the hit test without drawing a thicker line,
+    because :class:`~pyqtgraph.InfiniteLine` does not override ``shape()`` and
+    Qt therefore hit-tests against the bounding rectangle.
     """
+
+    #: Extra grab margin either side of the line, in pixels.  Cursors are added
+    #: with ``ignoreBounds=True`` so a wider rectangle cannot affect autoscaling.
+    GRAB_MARGIN_PX = 7.0
+
+    def boundingRect(self):
+        rect = super().boundingRect()
+        try:
+            _, ortho = self.pixelVectors(direction=pg.Point(1, 0))
+            if ortho is None:
+                return rect
+            margin = self.GRAB_MARGIN_PX * ortho.y()
+            # Local y is across the line for any angle, which is how pyqtgraph
+            # builds the rectangle in the first place.
+            return rect.adjusted(0, -margin, 0, margin).normalized()
+        except Exception:
+            return rect
 
     def mouseMoveEvent(self, ev):
         try:

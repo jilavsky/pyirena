@@ -143,7 +143,12 @@ class CarbonFitGraphWindow(QWidget):
         self._cursor_b = None
         self._zoom_items: list = []
         self._zoom_visible = False
-        self._last = {}            # cached curves, for redrawing the zoom panel
+        # Cached curves for the zoom panel.  Data and model are kept on
+        # *separate* grids: after a fit the model is evaluated only inside the
+        # fit range, so a single shared 'q' silently pairs a 284-point model
+        # with a 400-point data array and the redraw dies half-way through.
+        self._last = {'q_data': None, 'I_data': None,
+                      'q_model': None, 'total': None, 'waxs': None}
         self.init_ui()
 
     def init_ui(self):
@@ -224,40 +229,76 @@ class CarbonFitGraphWindow(QWidget):
             ci.layout.setRowStretchFactor(2, 0)
 
     def set_zoom_range(self, q_lo: float, q_hi: float):
-        """Set the WAXS panel's Q window (linear units)."""
-        if q_hi > q_lo > 0:
-            self.zoom_plot.setXRange(float(q_lo), float(q_hi), padding=0.02)
-            self._redraw_zoom()
+        """Frame the WAXS panel on [q_lo, q_hi] and scale Y to what is in it.
+
+        The Y autoscale is the part that matters.  pyqtgraph would otherwise
+        range over every curve it holds, and the low-Q end of a carbon pattern
+        is ten or more decades above the diffraction peaks — on a linear axis
+        that leaves the peaks as a flat line on the baseline, and the only way
+        back is typing limits into the axis dialog.
+        """
+        if not (q_hi > q_lo > 0):
+            return
+        self.zoom_plot.setXRange(float(q_lo), float(q_hi), padding=0.02)
+        self._redraw_zoom()
+        self.autoscale_zoom_y(q_lo, q_hi)
+
+    def autoscale_zoom_y(self, q_lo: float, q_hi: float) -> None:
+        """Scale the zoom panel's Y axis to the data inside [q_lo, q_hi]."""
+        lo, hi = None, None
+        for x_key, y_key in (('q_data', 'I_data'), ('q_model', 'total')):
+            x, y = self._last.get(x_key), self._last.get(y_key)
+            if x is None or y is None or len(x) != len(y):
+                continue
+            window = (x >= q_lo) & (x <= q_hi) & np.isfinite(y)
+            if not np.any(window):
+                continue
+            values = np.asarray(y)[window]
+            lo = float(values.min()) if lo is None else min(lo, float(values.min()))
+            hi = float(values.max()) if hi is None else max(hi, float(values.max()))
+        if lo is None or not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            self.zoom_plot.enableAutoRange(axis='y')
+            return
+        pad = 0.08 * (hi - lo)
+        self.zoom_plot.setYRange(lo - pad, hi + pad, padding=0.0)
 
     def _redraw_zoom(self):
-        """Repaint the linear WAXS panel from the cached curves."""
+        """Repaint the linear WAXS panel from the cached curves.
+
+        Wrapped so a redraw can never take the panel down: this runs from a
+        fit-completion path, and an exception here previously escaped all the
+        way out of the fit and left the panel half-updated.
+        """
         for item in self._zoom_items:
             try:
                 self.zoom_plot.removeItem(item)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
         self._zoom_items = []
-        if not self._zoom_visible or not self._last:
+        if not self._zoom_visible:
             return
+        try:
+            self._draw_zoom_curves()
+        except Exception:
+            log.warning("carbon_fit: WAXS zoom redraw failed", exc_info=True)
 
-        q = self._last.get('q')
-        if q is None:
-            return
-        data = self._last.get('I_data')
-        if data is not None:
-            self._zoom_items.append(self.zoom_plot.plot(
-                q, data, pen=None, symbol='o', symbolSize=4,
-                symbolPen=None, symbolBrush=(60, 60, 60), name='Data'))
-        total = self._last.get('total')
-        if total is not None:
-            self._zoom_items.append(self.zoom_plot.plot(
-                q, total, pen=pg.mkPen((200, 30, 30), width=2), name='Total fit'))
-        waxs = self._last.get('waxs')
-        if waxs is not None:
-            self._zoom_items.append(self.zoom_plot.plot(
-                q, waxs, pen=pg.mkPen(_COMPONENT_PENS['waxs'], width=1,
-                                      style=Qt.PenStyle.DashLine),
-                name=_COMPONENT_LABELS['waxs']))
+    def _draw_zoom_curves(self):
+        """Draw data and model into the zoom panel, each on its own grid."""
+        pairs = (
+            (self._last.get('q_data'), self._last.get('I_data'), 'Data',
+             dict(pen=None, symbol='o', symbolSize=4, symbolPen=None,
+                  symbolBrush=(60, 60, 60))),
+            (self._last.get('q_model'), self._last.get('total'), 'Total fit',
+             dict(pen=pg.mkPen((200, 30, 30), width=2))),
+            (self._last.get('q_model'), self._last.get('waxs'),
+             _COMPONENT_LABELS['waxs'],
+             dict(pen=pg.mkPen(_COMPONENT_PENS['waxs'], width=1,
+                               style=Qt.PenStyle.DashLine))),
+        )
+        for x, y, name, style in pairs:
+            if x is None or y is None or len(x) != len(y) or len(x) < 2:
+                continue
+            self._zoom_items.append(self.zoom_plot.plot(x, y, name=name, **style))
 
     # ── Main plotting ───────────────────────────────────────────────────────
 
@@ -274,7 +315,7 @@ class CarbonFitGraphWindow(QWidget):
 
         self._data_item, self._error_item = plot_iq_data(
             self.main_plot, q, I, dI, label=label)
-        self._last['q'] = np.asarray(q, dtype=float)
+        self._last['q_data'] = np.asarray(q, dtype=float)
         self._last['I_data'] = np.asarray(I, dtype=float)
 
         if self._cursor_a is None:
@@ -306,7 +347,7 @@ class CarbonFitGraphWindow(QWidget):
         q = np.asarray(q, dtype=float)
         total = np.asarray(components['total'], dtype=float)
         self._fit_item = plot_iq_model(self.main_plot, q, total, label='Total fit')
-        self._last['q'] = q
+        self._last['q_model'] = q
         self._last['total'] = total
         self._last['waxs'] = np.asarray(components['waxs'], dtype=float)
 
@@ -1069,9 +1110,19 @@ class CarbonFitPanel(QWidget):
 
         self.zoom_check = _check('WAXS zoom', False, self._on_display_option_changed)
         self.zoom_check.setToolTip(
-            'Add a linear-Q panel below the residuals. The full range is five '
-            'decades wide, which crushes the diffraction peaks.')
+            'Add a linear-Q panel below the residuals, framed on Q ≥ 1 Å⁻¹ '
+            'with its own Y scale. The full range is five decades wide, which '
+            'crushes the diffraction peaks.')
         opt_row.addWidget(self.zoom_check)
+
+        self.zoom_rescale_btn = QPushButton('⟲')
+        self.zoom_rescale_btn.setFixedWidth(26)
+        self.zoom_rescale_btn.setToolTip(
+            'Rescale the WAXS panel back to Q ≥ 1 Å⁻¹ with the Y axis fitted '
+            'to the data in that window.')
+        self.zoom_rescale_btn.setVisible(False)
+        self.zoom_rescale_btn.clicked.connect(self._on_rescale_zoom)
+        opt_row.addWidget(self.zoom_rescale_btn)
 
         self.auto_update_check = _check('Auto-update', True, None)
         self.auto_update_check.setToolTip(
@@ -1322,10 +1373,21 @@ class CarbonFitPanel(QWidget):
 
     def _on_display_option_changed(self) -> None:
         self.graph_window.set_zoom_visible(self.zoom_check.isChecked())
+        self.zoom_rescale_btn.setVisible(self.zoom_check.isChecked())
         if self.zoom_check.isChecked():
             self._set_zoom_to_peaks()
         if not self._updating:
             self._graph_model(quiet=True)
+
+    def _on_rescale_zoom(self) -> None:
+        """Put the WAXS panel back to its default framing.
+
+        Panning and zooming a linear panel whose Y range spans the whole
+        pattern is easy to get lost in, so there is one click back to a
+        sensible view rather than only the axis dialog.
+        """
+        self._set_zoom_to_peaks()
+        self._set_status('WAXS panel rescaled to the diffraction region.')
 
     def _pull_structure_widgets(self) -> None:
         """Copy the non-parameter controls into the model."""
@@ -1454,6 +1516,9 @@ class CarbonFitPanel(QWidget):
         self.data = {'Q': q, 'Intensity': I, 'Error': dI,
                      'label': label, 'filepath': filepath}
         self.fit_result = None
+        # Data can arrive from this panel's own Open… button or straight from
+        # the Data Browser; the field has to name the file either way.
+        self.data_loader.set_filename(label)
 
         self.graph_window.plot_data(q, I, dI, label=label)
         self.q_range_fields.refresh()
@@ -1488,16 +1553,35 @@ class CarbonFitPanel(QWidget):
         if label is not None:
             label.setText(str(text))
 
+    #: Where the WAXS region is taken to start, in Å⁻¹.  A carbon's (002) sits
+    #: near 1.8 Å⁻¹ and nothing below ~1 Å⁻¹ is diffraction, so this is the
+    #: natural left edge — and it is the *data* that sets it, not the peak
+    #: starting guesses, which on a fresh panel are only graphite positions.
+    WAXS_ZOOM_Q_MIN = 1.0
+
     def _set_zoom_to_peaks(self):
-        """Point the linear WAXS panel at the enabled peaks."""
-        centres = [p.Q0 for p in self.model.peaks if p.enabled and p.Q0 > 0]
-        if not centres:
-            return
-        widths = [max(p.FWHM_G, p.FWHM_L, 0.05)
-                  for p in self.model.peaks if p.enabled]
-        lo = max(min(centres) - 4.0 * max(widths), 1e-3)
-        hi = max(centres) + 4.0 * max(widths)
-        self.graph_window.set_zoom_range(lo, hi)
+        """Frame the WAXS panel on the diffraction end of the measured range.
+
+        Q = 1 Å⁻¹ to the highest measured Q, with the Y axis scaled to what is
+        actually in that window.  Framing it on the peak *guesses* instead was
+        the wrong reference: before the first fit those are graphite positions
+        that may be nowhere near the sample's, and the window would then miss
+        the data entirely.
+        """
+        q_hi = None
+        if self.data is not None:
+            q = self.data.get('Q')
+            if q is not None and len(q):
+                q_hi = float(np.nanmax(q))
+        if q_hi is None:
+            centres = [pk.Q0 for pk in self.model.peaks if pk.enabled and pk.Q0 > 0]
+            q_hi = (max(centres) * 1.3) if centres else 5.0
+
+        q_lo = self.WAXS_ZOOM_Q_MIN
+        if q_hi <= q_lo:
+            # Data stops before the usual WAXS start — show its top decade.
+            q_lo = max(q_hi / 10.0, 1e-4)
+        self.graph_window.set_zoom_range(q_lo, q_hi)
 
     # ── Model evaluation and fitting ────────────────────────────────────────
 
@@ -1613,6 +1697,8 @@ class CarbonFitPanel(QWidget):
         self.graph_window.plot_model(
             result.q, self.model.evaluate_components(result.q),
             show_components=self.show_components_check.isChecked())
+        if self.zoom_check.isChecked():
+            self._set_zoom_to_peaks()
         for key, row in self._rows.items():
             if key in result.errors:
                 row.show_uncertainty(result.errors[key])

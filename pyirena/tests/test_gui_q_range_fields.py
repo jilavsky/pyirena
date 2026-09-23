@@ -177,3 +177,34 @@ def test_every_fit_panel_exposes_editable_q_range(qapp, module, cls_name,
     cursor_lo, cursor_hi = w._get_range()
     assert cursor_lo == pytest.approx(0.01)
     assert cursor_hi == pytest.approx(0.1)
+
+
+# ── Cursor grab zone ────────────────────────────────────────────────────────
+
+def test_cursors_are_wide_enough_to_grab(qapp):
+    """pyqtgraph derives the hit area from the pen: ~4 px total for a 2-px pen.
+
+    That is accurate and fiddly, especially where two cursors sit close
+    together on a log axis, so ``_SafeInfiniteLine`` widens the bounding
+    rectangle — which is what Qt hit-tests against, since ``InfiniteLine``
+    does not override ``shape()``.
+    """
+    import pyqtgraph as pg
+
+    from pyirena.gui.sas_plot import make_cursors, make_sas_plot
+
+    layout = pg.GraphicsLayoutWidget()
+    layout.resize(800, 500)
+    plot = make_sas_plot(layout, 0, 0)
+    plot.plot(np.logspace(-3, 0, 50), np.logspace(-3, 0, 50) ** -2)
+    layout.show()
+    qapp.processEvents()
+
+    cursor_a, _ = make_cursors(plot, 1e-3, 1.0)
+    qapp.processEvents()
+
+    _, ortho = cursor_a.pixelVectors(direction=pg.Point(1, 0))
+    band_px = cursor_a.boundingRect().height() / ortho.y()
+    assert band_px >= 2 * cursor_a.GRAB_MARGIN_PX
+    assert band_px > 10.0          # comfortably grabbable; pyqtgraph gives ~4
+    layout.close()

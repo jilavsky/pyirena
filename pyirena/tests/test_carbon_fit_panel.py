@@ -396,3 +396,112 @@ def test_scrubbing_a_peak_position_writes_through_to_the_model(panel):
     before = panel.model.peaks[0].Q0
     _wheel(row.value_edit)
     assert panel.model.peaks[0].Q0 > before
+
+
+# ── WAXS zoom panel ─────────────────────────────────────────────────────────
+
+def test_zoom_frames_the_diffraction_end_of_the_data(loaded):
+    """Q = 1 Å⁻¹ to the highest measured Q — set by the data, not by the peaks.
+
+    Before the first fit the peak positions are only graphite guesses, so
+    framing the window on them could miss the sample's data entirely.
+    """
+    loaded.zoom_check.setChecked(True)
+    loaded._on_display_option_changed()
+    lo, hi = loaded.graph_window.zoom_plot.viewRange()[0]
+    q_max = float(np.nanmax(loaded.data['Q']))
+    assert lo == pytest.approx(loaded.WAXS_ZOOM_Q_MIN, rel=0.1)
+    assert hi == pytest.approx(q_max, rel=0.1)
+
+
+def test_zoom_y_axis_ignores_the_low_q_decades(loaded):
+    """A linear Y axis ranged over the whole pattern leaves the peaks flat.
+
+    The low-Q end of a carbon curve is orders of magnitude above the
+    diffraction peaks, so the Y range has to come from the window, not the
+    curve.
+    """
+    loaded.zoom_check.setChecked(True)
+    loaded._on_display_option_changed()
+    y_lo, y_hi = loaded.graph_window.zoom_plot.viewRange()[1]
+
+    q, I = loaded.data['Q'], loaded.data['Intensity']
+    in_window = q >= loaded.WAXS_ZOOM_Q_MIN
+    assert y_hi == pytest.approx(I[in_window].max(), rel=0.25)
+    # …and nowhere near the full-curve maximum, which is what it used to be.
+    assert y_hi < I.max() / 1000.0
+
+
+def test_zoom_survives_a_fit_on_a_restricted_q_range(loaded):
+    """The model lives on the fit range, the data on the full range.
+
+    Sharing one cached ``q`` between them paired a 284-point model with a
+    400-point data array; the redraw raised part-way through and the panel
+    came back empty (and the exception escaped the fit).
+    """
+    loaded.zoom_check.setChecked(True)
+    loaded._on_display_option_changed()
+    assert len(loaded.graph_window._zoom_items) == 3
+
+    loaded.graph_window.set_cursor_range(0.01, 4.0)
+    loaded._run_fit(0)
+
+    assert loaded.fit_result is not None            # the fit finished
+    assert len(loaded.graph_window._zoom_items) == 3  # …and the panel is not empty
+    cached = loaded.graph_window._last
+    assert len(cached['q_model']) < len(cached['q_data'])
+
+
+def test_zoom_redraw_cannot_take_the_panel_down(loaded):
+    """It runs from the fit-completion path, so it must never raise."""
+    loaded.zoom_check.setChecked(True)
+    loaded._on_display_option_changed()
+    # Mismatched lengths are what used to raise; now they are skipped.
+    loaded.graph_window._last['total'] = np.array([1.0, 2.0])
+    loaded.graph_window._redraw_zoom()
+    assert len(loaded.graph_window._zoom_items) >= 1
+
+
+def test_rescale_button_appears_only_with_the_zoom(loaded):
+    assert not loaded.zoom_rescale_btn.isVisibleTo(loaded)
+    loaded.zoom_check.setChecked(True)
+    loaded._on_display_option_changed()
+    assert loaded.zoom_rescale_btn.isVisibleTo(loaded)
+
+
+def test_rescale_restores_the_default_framing(loaded):
+    loaded.zoom_check.setChecked(True)
+    loaded._on_display_option_changed()
+    loaded.graph_window.zoom_plot.setXRange(3.0, 3.1)
+    loaded.graph_window.zoom_plot.setYRange(-500.0, 500.0)
+    loaded._on_rescale_zoom()
+    lo, hi = loaded.graph_window.zoom_plot.viewRange()[0]
+    assert lo == pytest.approx(loaded.WAXS_ZOOM_Q_MIN, rel=0.1)
+    assert hi > 3.5
+
+
+def test_zoom_copes_with_data_that_stops_before_the_waxs_region(qapp):
+    """A SAXS-only file must still produce a sane window, not an inverted one."""
+    from pyirena.gui.carbon_fit_panel import CarbonFitPanel
+
+    p = CarbonFitPanel()
+    try:
+        q = np.logspace(-3, -0.5, 200)          # stops at Q = 0.32 Å⁻¹
+        p.set_data(q, p.model.evaluate(q), None, label='saxs only')
+        p.zoom_check.setChecked(True)
+        p._on_display_option_changed()
+        lo, hi = p.graph_window.zoom_plot.viewRange()[0]
+        assert 0 < lo < hi
+        assert hi == pytest.approx(float(q.max()), rel=0.15)
+    finally:
+        p.deleteLater()
+
+
+# ── Loaded-file display ─────────────────────────────────────────────────────
+
+def test_the_filename_field_names_the_file_however_it_arrived(panel):
+    """Opening from the Data Browser bypasses this panel's own Open… button."""
+    q = np.logspace(-3, 0.65, 200)
+    panel.set_data(q, panel.model.evaluate(q), None,
+                   label='hard_carbon_001.h5', filepath='/tmp/hard_carbon_001.h5')
+    assert panel.data_loader._edit.text() == 'hard_carbon_001.h5'
