@@ -39,11 +39,23 @@ the token table::
 
 Every helper emits **both** ``background-color`` and ``color`` — that pairing
 is the actual bug fix, and the rule to follow in new code.
+
+One exception, learned the hard way: never put ``background-color`` on a
+``QCheckBox`` or ``QRadioButton`` selector.  Qt copies a QSS background into
+the :class:`QPalette` it hands the base style — ``Window`` *and* ``Base`` —
+and Fusion builds the indicator's outline out of ``palette.window()`` and its
+interior out of ``palette.base()``.  ``background-color: transparent`` on those
+two selectors therefore made Fusion paint the box in a transparent pen, and
+every "Fit?" check box in the Unified Fit panel became an empty gap.  Style
+``::indicator`` instead; :func:`_base_stylesheet` does, and
+``pyirena/tests/test_gui_theme_contract.py`` renders a check box to keep it
+that way.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from pyirena.gui._qt import QColor, QPalette
 
@@ -64,6 +76,11 @@ TEXT_MUTED     = '#5a6570'   # secondary text, hints, units
 TEXT_DISABLED  = '#9aa3ab'
 BORDER         = '#b8c0c6'
 BORDER_LIGHT   = '#d6dbdf'
+# Outline for controls whose whole meaning is the outline — the box of a
+# check box, the ring of a radio button.  BORDER is a 1.6:1 hairline there,
+# which survives a 2x Retina pixel grid and vanishes on a 125%-scaled
+# Windows or Linux display; this one clears 4.5:1 against every surface.
+BORDER_STRONG  = '#6d767c'
 
 # Raised "chip" surfaces — small helper buttons, read-only readouts
 CHIP_BG        = '#e6eaed'
@@ -113,7 +130,8 @@ __all__ = [
     'readonly_field_css', 'readout_label_css', 'status_css', 'muted_css',
     'CHIP_BUTTON_CSS', 'READONLY_FIELD_CSS',
     'WINDOW_BG', 'BASE_BG', 'TEXT', 'TEXT_MUTED', 'TEXT_DISABLED',
-    'BORDER', 'BORDER_LIGHT', 'CHIP_BG', 'CHIP_BG_HOVER', 'CHIP_TEXT',
+    'BORDER', 'BORDER_LIGHT', 'BORDER_STRONG',
+    'CHIP_BG', 'CHIP_BG_HOVER', 'CHIP_TEXT',
     'READONLY_BG', 'READONLY_TEXT',
     'OK_BG', 'OK_TEXT', 'WARN_BG', 'WARN_TEXT', 'ERR_BG', 'ERR_TEXT',
     'INFO_BG', 'INFO_TEXT',
@@ -247,6 +265,36 @@ def muted_css(font_size: str = '10px', *, italic: bool = False) -> str:
 # Application-level theme
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Indicator glyphs
+# ---------------------------------------------------------------------------
+# A check box drawn by a stylesheet has to supply its own tick: once a QSS rule
+# makes ``::indicator`` drawable, Qt renders the rule and never calls the base
+# style that would otherwise paint the mark.  The two SVGs are shipped in
+# ``pyirena/gui/assets`` (see ``package-data`` in pyproject.toml); Qt rasterises
+# them at device resolution, so they stay crisp on a Retina or 150%-scaled
+# display.
+
+_ASSET_DIR = Path(__file__).resolve().parent / 'assets'
+
+
+def _glyph(name: str) -> str:
+    """``image: url(...)`` for a shipped indicator glyph.
+
+    Returns an empty declaration when the file is missing — an install that
+    dropped the assets then shows a plain accent-filled box, which still reads
+    as "checked", rather than raising.
+
+    Args:
+        name: File name inside ``pyirena/gui/assets``.
+    """
+    path = _ASSET_DIR / name
+    if not path.is_file():
+        return ''
+    # QSS wants a filesystem path with forward slashes, on Windows too.
+    return f'image: url("{path.as_posix()}");'
+
+
 _APPLIED = False
 
 
@@ -280,7 +328,7 @@ def _palette() -> QPalette:
     p.setColor(role.Midlight,        QColor(BORDER_LIGHT))
     p.setColor(role.Mid,             QColor(BORDER))
     p.setColor(role.Dark,            QColor('#8d979e'))
-    p.setColor(role.Shadow,          QColor('#6d767c'))
+    p.setColor(role.Shadow,          QColor(BORDER_STRONG))
 
     for r in (role.WindowText, role.Text, role.ButtonText,
               role.HighlightedText, role.PlaceholderText):
@@ -304,6 +352,8 @@ def _base_stylesheet() -> str:
     check boxes, tabs and headers.  Each rule names foreground *and*
     background so the result cannot depend on the desktop's scheme.
     """
+    tick = _glyph('checkbox-tick.svg')
+    dot = _glyph('radio-dot.svg')
     return f"""
     QWidget {{ color: {TEXT}; }}
     QMainWindow, QDialog, QScrollArea, QTabWidget::pane, QStackedWidget {{
@@ -373,17 +423,69 @@ def _base_stylesheet() -> str:
     QPushButton:pressed, QToolButton:pressed {{
         background-color: {BORDER_LIGHT}; color: {CHIP_TEXT};
     }}
+    /* A checkable button (the graph window's X/Y log toggles) otherwise looks
+       identical whether it is on or off: the rule above wins over Fusion's
+       sunken look, and nothing named the checked state. */
+    QPushButton:checked, QToolButton:checked {{
+        background-color: {HIGHLIGHT_BG}; color: {HIGHLIGHT_TEXT};
+        border-color: {HIGHLIGHT_BG};
+    }}
     QPushButton:disabled, QToolButton:disabled {{
         background-color: {WINDOW_BG}; color: {TEXT_DISABLED};
         border-color: {BORDER_LIGHT};
     }}
 
     /* --- selection controls -------------------------------------------- */
-    QCheckBox, QRadioButton, QGroupBox, QLabel {{
-        background-color: transparent; color: {TEXT};
+    /* Do NOT add `background-color: transparent` to QCheckBox or
+       QRadioButton.  Qt copies a QSS background into the *palette* it hands
+       the base style (QRenderRule::configurePalette writes it to both Window
+       and Base), and Fusion derives the indicator's outline from
+       palette.window() and its interior from palette.base() — so a
+       transparent background made Fusion paint the box in a fully
+       transparent pen.  Every "Fit?" check box in the Unified Fit panel was
+       an empty gap with, at most, a floating tick.  Neither widget paints a
+       background of its own, so leaving it unset is also what we want. */
+    /* `padding` restores the height Fusion's own metrics gave these: a
+       styled ::indicator makes Qt size the widget from the rule, which
+       would otherwise shrink every check box row by 5 px. */
+    QCheckBox, QRadioButton {{
+        color: {TEXT}; spacing: 6px; padding: 2px 0;
     }}
+    QGroupBox, QLabel {{ background-color: transparent; color: {TEXT}; }}
     QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled {{
         color: {TEXT_DISABLED};
+    }}
+
+    /* The indicator is pinned here rather than left to Fusion, which derives
+       it from palette.window().darker(140) — #bdbdbd against WINDOW_BG, a
+       1.6:1 hairline that a 125% or 150% display scale rounds away to
+       nothing.  A drawable ::indicator rule means Qt stops calling the base
+       style, so the tick and the dot have to come from our own glyphs. */
+    QCheckBox::indicator, QRadioButton::indicator, QGroupBox::indicator {{
+        width: 12px; height: 12px;
+        background-color: {BASE_BG};
+        border: 1px solid {BORDER_STRONG};
+    }}
+    QCheckBox::indicator, QGroupBox::indicator {{ border-radius: 3px; }}
+    QRadioButton::indicator {{ border-radius: 7px; }}
+    QCheckBox::indicator:hover, QRadioButton::indicator:hover,
+    QGroupBox::indicator:hover {{ border-color: {HIGHLIGHT_BG}; }}
+    QCheckBox::indicator:checked, QGroupBox::indicator:checked {{
+        background-color: {ACCENT_BLUE}; border-color: {ACCENT_BLUE_D};
+        {tick}
+    }}
+    QRadioButton::indicator:checked {{
+        background-color: {ACCENT_BLUE}; border-color: {ACCENT_BLUE_D};
+        {dot}
+    }}
+    QCheckBox::indicator:disabled, QRadioButton::indicator:disabled,
+    QGroupBox::indicator:disabled {{
+        background-color: {WINDOW_BG}; border-color: {BORDER};
+    }}
+    QCheckBox::indicator:checked:disabled,
+    QRadioButton::indicator:checked:disabled,
+    QGroupBox::indicator:checked:disabled {{
+        background-color: {TEXT_DISABLED}; border-color: {TEXT_DISABLED};
     }}
     QGroupBox {{
         border: 1px solid {BORDER_LIGHT}; border-radius: 4px;

@@ -141,7 +141,9 @@ include = ["pyirena*"]
 exclude = ["pyirena.tests*"]
 
 [tool.setuptools.package-data]
-pyirena = ["py.typed"]
+# The indicator glyphs are loaded by pyirena/gui/theme.py through a
+# filesystem path, so they have to land next to the module in the wheel.
+pyirena = ["py.typed", "gui/assets/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["pyirena/tests"]

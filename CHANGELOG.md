@@ -65,6 +65,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Check boxes were invisible on Windows and Linux.** Every "Fit?" check box
+  in Unified Fit, and every other check box and radio button in the GUI, drew
+  no box at all — at best a tick floating in empty space. The shipped theme set
+  `background-color: transparent` on `QCheckBox`/`QRadioButton`, which looks
+  harmless, but Qt copies a stylesheet background into the `QPalette` it hands
+  the base style (both `Window` and `Base`), and Fusion derives the indicator's
+  outline from `palette.window()` and its interior from `palette.base()`. Both
+  became fully transparent, so the box was painted in a transparent pen. macOS
+  happened to still show something; Windows and Linux showed nothing.
+
+  The indicator is now drawn explicitly by the theme — a 12 px box with a
+  4.5:1 outline (new `BORDER_STRONG` token), filled with the accent blue and a
+  white tick (or dot, for radio buttons) when checked. Fusion's own outline was
+  `palette.window().darker(140)`, a 1.6:1 hairline that a 125% or 150% display
+  scale rounds away even when it *is* painted, so this also fixes the faintness
+  the outline had wherever it did survive. The two glyphs ship as SVG in
+  `pyirena/gui/assets/` and are rasterised at device resolution, so they stay
+  crisp on Retina and on fractionally scaled displays.
+
+  Also: a checkable `QPushButton`/`QToolButton` (the graph window's X/Y log
+  toggles) now shows its checked state, which the theme's button rules had
+  overridden into looking identical to unchecked.
+
 - **Carbon model: a fitted fractal dimension could be silently unfittable.**
   `teixeira_structure_factor` clamps D into (1.001, 2.999) because Γ(D−1)
   diverges at one end and the formula degenerates at the other — and outside

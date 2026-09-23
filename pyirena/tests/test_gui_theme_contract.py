@@ -41,6 +41,10 @@ _BACKGROUND = re.compile(r"(?<![-\w])background(?:-color)?\s*:")
 _TEXT_COLOUR = re.compile(r"(?<![-\w])color\s*:")
 #: A QSS rule block: ``SELECTOR { declarations }``.
 _RULE = re.compile(r"([^{}]*)\{([^{}]*)\}")
+#: A ``/* ... */`` comment.  Stripped before rules are split, or a comment
+#: sitting above a rule is swallowed into that rule's selector — which once
+#: let a ``::indicator`` mentioned in prose exempt the rule below it.
+_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 #: Selectors that paint a surface which never renders text — a scrollbar
 #: groove, a splitter grip, a progress-bar chunk.  There is no text colour to
@@ -68,6 +72,7 @@ KNOWN_BARE_BACKGROUNDS: set[str] = {
 def _qss_rules(css: str):
     """Yield ``(selector, declarations)`` for *css*, treating a bare
     declaration list as one rule with an empty selector."""
+    css = _COMMENT.sub(" ", css)
     blocks = _RULE.findall(css)
     return blocks or [("", css)]
 
@@ -188,3 +193,102 @@ def test_no_inline_background_without_text_colour():
         "light on a dark desktop — the control disappears.  Use a helper from "
         "pyirena.gui.theme, or name `color:` alongside the background."
     )
+
+
+# ---------------------------------------------------------------------------
+# The indicator actually reaches the screen
+# ---------------------------------------------------------------------------
+# A source-text check cannot see this one.  ``QCheckBox { background-color:
+# transparent }`` looked harmless and passed every rule above, but Qt copies a
+# QSS background into the palette it hands the base style, and Fusion derives
+# the indicator's outline from ``palette.window()`` — so the box around every
+# "Fit?" check was painted in a fully transparent pen and simply was not there.
+# These tests render a check box and look at the pixels.
+
+#: WCAG minimum contrast for a user-interface component against its surround.
+_MIN_COMPONENT_CONTRAST = 3.0
+
+
+def _relative_luminance(hex_colour: str) -> float:
+    """WCAG relative luminance of ``#rrggbb``."""
+    channels = []
+    for i in (1, 3, 5):
+        c = int(hex_colour[i:i + 2], 16) / 255.0
+        channels.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    r, g, b = channels
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast(a: str, b: str) -> float:
+    """WCAG contrast ratio between two ``#rrggbb`` colours."""
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    lo, hi = sorted((la, lb))
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _render_check_box(checked: bool):
+    """Return the set of ``#rrggbb`` colours a themed check box paints."""
+    pytest.importorskip("PySide6", reason="Qt binding required to render")
+    from pyirena.gui import theme
+    from pyirena.gui._qt import QApplication, QCheckBox, QColor
+
+    app = QApplication.instance() or QApplication([])
+    theme.apply_theme(app)
+    box = QCheckBox("")
+    box.setChecked(checked)
+    box.resize(box.sizeHint())
+    image = box.grab().toImage()
+    return {
+        QColor(image.pixel(x, y)).name()
+        for y in range(image.height())
+        for x in range(image.width())
+    }
+
+
+def test_theme_never_makes_selection_controls_transparent():
+    """``background-color`` on QCheckBox/QRadioButton erases the indicator.
+
+    Qt writes a QSS background into ``QPalette::Window`` and ``::Base`` for the
+    base style, and Fusion builds the indicator's outline and interior out of
+    exactly those two roles.  Style ``::indicator`` instead.
+    """
+    pytest.importorskip("PySide6", reason="Qt binding required to build the theme")
+    from pyirena.gui import theme
+
+    for sel, decl in _qss_rules(theme._base_stylesheet()):
+        if "::" in sel:  # ::indicator is styled on purpose
+            continue
+        if re.search(r"\bQ(CheckBox|RadioButton)\b", sel):
+            assert not _BACKGROUND.search(decl), (
+                f"`{sel.strip()}` sets a background; that reaches Fusion as a "
+                "palette override and the check indicator disappears."
+            )
+
+
+def test_check_box_indicator_is_visible():
+    """An unchecked box is drawn, with an outline the user can see."""
+    from pyirena.gui import theme
+
+    painted = _render_check_box(checked=False)
+    assert theme.BASE_BG in painted, (
+        "the check box interior was never painted — the indicator is missing, "
+        "not merely faint"
+    )
+    best = max(_contrast(c, theme.WINDOW_BG) for c in painted)
+    assert best >= _MIN_COMPONENT_CONTRAST, (
+        f"the strongest colour in an unchecked check box reaches only "
+        f"{best:.2f}:1 against the panel background; a hairline like that "
+        f"rounds away on a fractionally scaled Windows or Linux display"
+    )
+
+
+def test_checked_box_is_distinguishable_from_unchecked():
+    """Checked and unchecked must differ by more than a thin glyph."""
+    from pyirena.gui import theme
+
+    off = _render_check_box(checked=False)
+    on = _render_check_box(checked=True)
+    assert theme.ACCENT_BLUE in on and theme.ACCENT_BLUE not in off, (
+        "the checked state is not filled with the accent colour"
+    )
+    assert _contrast(theme.ACCENT_BLUE, theme.BASE_BG) >= _MIN_COMPONENT_CONTRAST
