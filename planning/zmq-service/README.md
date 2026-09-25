@@ -653,10 +653,15 @@ a plausible number, not an error.
 
 Also worth fixing while here: `export_results` currently emits the core
 dialect for Unified Fit, and `docs/zmq_service.md` said that was replayable
-through batch. It is not, and the doc has been corrected. Once `analyze`
-accepts both, the honest fix is for the Unified exporter to emit the panel
-dialect too (or both, under separate keys), so that export → analyze is a
-closed loop for all six tools.
+through batch. It is not, and the doc has been corrected.
+
+**Why Unified Fit is the odd one out, and what to do about it across the whole
+package, is now its own document: `planning/config-dialects/`.** It is not a
+ZMQ problem — the service only exposed it — and it should not be fixed on this
+branch. Two things there affect Phase 3 directly: the `{tool, model,
+fit_q_range, data}` setup envelope is what `analyze` should take, and the
+Size Distribution's `to_dict()` currently drops slit smearing, which would
+make a replayed Sizes fit wrong rather than merely incomplete.
 
 ### What Phase 3 needs as test cases
 
