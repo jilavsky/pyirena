@@ -140,13 +140,11 @@ Sizes: **S** ≈ one focused session, **M** ≈ two to three, **L** ≈ more.
 | Port / bind interface | **9865** | Default `tcp://0.0.0.0:9865`; firewall it to the orchestrator host. |
 | Longest acceptable call / client timeout | **60 s**; "your fitting should be fast, then timeout" | No async jobs (Phase 4 deferred). Server-side budget of 55 s, always replies. |
 | Typical data size | **~2000 points** per curve | JSON text is fine; no binary framing needed. |
-| Tool error at envelope level or inside `result`? | Not answered | Keep v1 proposal: `ok: false` with an `error` object. Cheap to change before first deployment; confirm when the orchestrator side is written. |
+| Tool error at envelope level or inside `result`? | **`ok: false`** (confirmed 25-09-2026) | Implemented. One place to look for a failure, whether it was the transport or the fit. |
 | Python / OS / service management | **Red Hat; any Python** | Target 3.12–3.13, ship a `systemd` unit example. No Windows-service work for the server. |
 | Longer-term intent | "Support reasonable variation of options for the server" | Phase 2.6: a real options surface, discoverable via `ping`/`server_info`, plus per-call overrides. |
 
-Remaining to confirm with the owner *during* implementation, not blocking:
-error placement (row 6 above) and whether the orchestrator wants
-`analyze` (Phase 3) as its primary entry point.
+Everything in Phase 0 is now answered.
 
 ### Phase 1 — Transport-neutral groundwork inside `pyirena.api` (M) — **DONE**
 
@@ -482,9 +480,10 @@ analyze(data: {q, intensity, error, ...}, tool: str, config: dict,
         include_arrays: bool = False) -> dict   # the export_results() payload
 ```
 
-`config` is the same JSON the GUI's *Export Parameters* writes and
-`pyirena.batch` reads, so a scientist can set up a fit in the GUI once and the
-agent can replay it on every new measurement. Implemented in `api` on top of
+`config` is meant to be the JSON a scientist already has — what the GUI's
+*Export Parameters* writes and `pyirena.batch` reads — so a fit can be set up
+once in the GUI and replayed on every new measurement. **That assumption is
+only two-thirds true today; §12 has the survey.** Implemented in `api` on top of
 Phase 1 (open from data → build model from config → fit → export → close),
 **not** by calling `pyirena.batch` (stdout logging, `None` on failure, file
 I/O). Reuse batch's config-to-model helpers (`batch/unified.py:_state_to_model`
@@ -582,9 +581,9 @@ is an extension, not a rewrite.
 5. ~~Uncertainties in `export_results`~~ — settled differently than planned:
    five tools compute them during the fit for free and they always travel;
    Unified Fit has none to report. No flag, no extra cost. (Phase 1.6.)
-6. Tool-level errors: `ok: false` (current plan) or `ok: true` with an error
-   inside `result`? Owner did not say; confirm before the orchestrator side
-   is written.
+6. ~~Tool-level errors: `ok: false` or `ok: true` with an error inside
+   `result`?~~ — **settled 25-09-2026: `ok: false`.** Already what the service
+   does; no change needed.
 7. Does anything else in the project (other services) already solve
    logging/service management on the RHEL box, so pyIrena should match it?
 8. Is 9865 reachable from the orchestrator through the beamline firewall, and
@@ -601,20 +600,74 @@ Ordered by what blocks a first real run.
    is open between them, and check that a 2000-point request and its reply
    survive the real network path. This is the only Phase 2 exit criterion not
    yet met.
-2. **Confirm the error convention (open question 6).** Tool errors currently
-   arrive as `ok: false` with a code. If the orchestrator would rather have
-   `ok: true` with an error inside `result`, the change is one function —
-   `_reply_for_result` in `pyirena/zmq/protocol.py` — and it is much cheaper
-   now than after the orchestrator side is written.
-3. **Decide about `analyze` (Phase 3).** With a synchronous contract, a
+2. **Decide about `analyze` (Phase 3).** With a synchronous contract, a
    one-call "fit this curve with this saved config" avoids five round trips
    and cannot leak a session. Worth doing before the agent-side workflow is
-   written around the fine-grained tools.
-4. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
+   written around the fine-grained tools — §12 is what it needs first.
+3. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
    a service account, the conda/venv the service runs from, and the firewall
    rule. Confirm whether the project already has a convention for these that
    pyIrena should match (open question 7).
-5. **Watch Modeling.** It is the one tool whose fit can plausibly reach the
+4. **Watch Modeling.** It is the one tool whose fit can plausibly reach the
    55 s budget once it has several populations. If real use hits `TIMEOUT`
    regularly, that is the signal for Phase 4, not a reason to raise the
    budget past the client's own timeout.
+
+---
+
+## 12. Phase 3 groundwork: the config dialects (surveyed 25-09-2026)
+
+Phase 3 rests on "hand `analyze` the config the GUI exported". Before writing
+it, here is what the six tools actually speak. Measured, not assumed:
+`model.to_dict()` compared against what `pyirena/batch/<tool>.py` reads and,
+for Modeling, against a real exported file
+(`testData/Core-shell-tests/pyirena_config.json`).
+
+| Tool | Core `to_dict()` vs GUI/batch config | Verdict |
+|---|---|---|
+| **Modeling** | Population keys **identical**; `to_dict` adds five top-level keys the GUI omits (`slit_length`, `use_slit_smearing`, `background_limits`, `de_workers`, `mc_workers`) | One dialect ✔ |
+| **Carbon model** | `batch/carbon_fit.py` calls `CarbonFitModel.from_dict()` on the config directly | One dialect ✔ |
+| **Simple Fits** | Every key `batch/simple.py` reads is in `to_dict()` | One dialect ✔ |
+| **WAXS Peak Fit** | `to_dict()` has everything except `q_min` / `q_max` | Near ✔ — the gap is session state, see below |
+| **Size Distribution** | `to_dict()` lacks 12 of the 32 keys batch reads: `cursor_q_min/max`, `background_q_min/max`, `power_law_q_min/max`, `fit_power_law_B/P`, `load_slit_smeared`, `use_slit_smearing`, `slit_length`, `aspect_ratio` | Gap — mostly session state |
+| **Unified Fit** | **Structurally different.** Core is flat (`G: 1000.0`, `RgCO`, `correlations`, `link_B`); the GUI and batch write nested per-parameter dicts (`G: {value, fit, low_limit, high_limit}`) with the panel's historical names (`RgCutoff`, `correlated`, `estimate_B`). `batch/unified.py:_state_to_model` raises `AttributeError` on a core dict | **Two dialects** ✘ |
+
+Two things fall out of this, and both change what Phase 3 should be:
+
+**1. `analyze` must accept both dialects.** Only Unified Fit actually has two,
+but it is also the most-used tool, and the panel dialect is the one a
+scientist's exported file is written in. Detect by shape — a parameter that is
+a dict rather than a number means the panel dialect — and route through the
+existing `UnifiedLevel.from_panel_params`, which already owns that
+translation. Do **not** write a second translator.
+
+**2. A config is not only model state.** The Sizes and WAXS "gaps" above are
+not missing model fields; they are *session* settings — the fit Q range, slit
+smearing, the sub-ranges used to fit the background. `model.to_dict()` rightly
+excludes them, and `export_results` reports them separately under
+`fit_q_range` and `data`. So `analyze`'s payload is
+**`{data, tool, config, fit_q_range?, slit?}`**, not just `config`, or a
+replayed Sizes fit will silently use the full Q range instead of the one the
+scientist chose. This is the failure mode worth a test of its own: it produces
+a plausible number, not an error.
+
+Also worth fixing while here: `export_results` currently emits the core
+dialect for Unified Fit, and `docs/zmq_service.md` said that was replayable
+through batch. It is not, and the doc has been corrected. Once `analyze`
+accepts both, the honest fix is for the Unified exporter to emit the panel
+dialect too (or both, under separate keys), so that export → analyze is a
+closed loop for all six tools.
+
+### What Phase 3 needs as test cases
+
+| Test | Needs | Who |
+|---|---|---|
+| **Round trip** — `export_results` config → `analyze` → same parameters, for all six tools | Nothing; synthetic curves as in `test_export_results.py` | — |
+| **Replay a real GUI config** — the actual contract | A `pyirena_config.json` exported from the GUI **per tool**, with its data file. Only one exists today (`testData/Core-shell-tests/`, Modeling only) | **Jan** |
+| **Fit range is honoured** — a config with a restricted Q range must not fit the full curve | Covered by the above; assert the fitted point count | — |
+| **Scientific correctness** — `analyze` reproduces known parameters | `validationData/` already has synthetic data with exactly known values plus `ground_truth.json` and `run_validation_report.py` | — |
+
+The one that cannot be synthesised is the second: the panel dialect is
+historical and per-tool, and a config I write from the spec in
+`docs/batch_api.md` would test my reading of the spec rather than what the GUI
+actually writes. One export per tool, from a fit that already works, is enough.

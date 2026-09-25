@@ -246,9 +246,15 @@ counts come back** in `summary.cleaning`, so nothing is dropped silently:
  "config": {"...": "the model's to_dict() — replay this fit on the next scan"}}
 ```
 
-`config` is the same shape `pyirena.batch` and the GUI's *Load Setup from
-File…* read, so a fit set up once can be re-applied to every later
-measurement.
+`config` is the model's own `to_dict()` — what you need to rebuild the model
+and fit again. For Modeling, the Carbon model and Simple Fits it is already
+the shape `pyirena.batch` and the GUI's *Export Parameters* use, so a fit can
+be replayed as-is. **Unified Fit is the exception**: the GUI and batch write a
+second, older vocabulary there (`RgCutoff` for `RgCO`, and each parameter as
+`{"value": …, "fit": …}` rather than a bare number), so the two are not
+interchangeable yet. Note also that `config` is *model* state only — the
+fitted Q range and slit settings live on the session and are reported
+separately under `fit_q_range` and `data`.
 
 Set `include_arrays: true` for the curves — `q`, `intensity`, `error`,
 `intensity_model`, `residuals`, plus per-population curves (Modeling) or the
