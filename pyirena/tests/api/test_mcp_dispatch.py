@@ -17,11 +17,12 @@ from pyirena.api.data_op_schemas import DATA_OP_SCHEMA_BY_NAME
 from pyirena.mcp import dispatch
 
 # Every category the dispatcher serves: the six fitting tools, the
-# stateless calculators (pyirena.api.calculators) and the data operations
+# cross-tool results export (pyirena.api.control.export), the stateless
+# calculators (pyirena.api.calculators) and the data operations
 # (pyirena.api.data_ops).
 ALL_CATEGORIES = [
     "unified", "sizes", "simple", "modeling", "waxs", "carbon",
-    "calculators", "data",
+    "results", "calculators", "data",
 ]
 
 

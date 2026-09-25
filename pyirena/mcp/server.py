@@ -529,6 +529,30 @@ def pyirena_ctrl_open_dataset(file_path: str, use_slit_smeared: bool = False) ->
 
 
 @mcp.tool()
+def pyirena_ctrl_open_dataset_from_data(
+    q: list[float],
+    intensity: list[float],
+    error: Optional[list[float]] = None,
+    dq: Optional[list[float]] = None,
+    label: str = "",
+    is_slit_smeared: bool = False,
+    slit_length: float = 0.0,
+    error_fraction: float = 0.05,
+) -> dict:
+    """Create a fitting session from arrays instead of a file.
+
+    Use when you hold the data rather than a path pyIrena can read. Cleaning
+    (Q<=0, I<=0, bad uncertainties) matches text-file import and is reported
+    in summary.cleaning. save_* on such a session needs an output_path.
+    """
+    return _ctrl.open_dataset_from_data(
+        q=q, intensity=intensity, error=error, dq=dq, label=label,
+        is_slit_smeared=is_slit_smeared, slit_length=slit_length,
+        error_fraction=error_fraction,
+    )
+
+
+@mcp.tool()
 def pyirena_ctrl_list_open_sessions() -> dict:
     """List all currently open fitting sessions (session_id, file, model, fit status)."""
     return _ctrl.list_open_sessions()
@@ -603,7 +627,7 @@ def pyirena_call(name: str, arguments: Optional[dict[str, Any]] = None) -> Any:
 
     name must be a tool name from pyirena_list_tools(category); see
     pyirena_describe_tool(name) for its expected arguments. Session-lifecycle
-    tools (open_dataset, list_open_sessions, close_session,
+    tools (open_dataset, open_dataset_from_data, list_open_sessions, close_session,
     get_session_summary) are NOT dispatched here -- call
     pyirena_ctrl_open_dataset() etc directly. Calculators need no session at
     all. Some tools return an inline PNG image instead of plain data; both

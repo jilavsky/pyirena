@@ -16,11 +16,18 @@ import numpy as np
 @dataclass
 class Session:
     session_id: str
-    file_path: str
+    # None for a session created from arrays (open_dataset_from_data): there
+    # is no file behind it, so save_* needs an explicit output_path and the
+    # summaries report the file as null rather than inventing a name.
+    file_path: Optional[str]
     q: np.ndarray
     intensity: np.ndarray
     error: Optional[np.ndarray]
     label: str = ""
+
+    # Q resolution, when the caller supplied it. Stored for provenance and
+    # for future resolution smearing; no fitting tool reads it yet.
+    dq: Optional[np.ndarray] = None
 
     # Model state
     model_name: Optional[str] = None
@@ -35,21 +42,24 @@ class Session:
     is_slit_smeared: bool = False
     slit_length: float = 0.0
 
-    # Last fit output
-    last_fit_result: Optional[dict] = None
+    # Last fit output. A plain dict for most tools, but Modeling and the
+    # Carbon model store their own result dataclass here, so anything
+    # reading it must handle both.
+    last_fit_result: Optional[Any] = None
 
 
 _SESSIONS: Dict[str, Session] = {}
 
 
 def create_session(
-    file_path: str,
+    file_path: Optional[str],
     q: np.ndarray,
     intensity: np.ndarray,
     error: Optional[np.ndarray] = None,
     label: str = "",
     is_slit_smeared: bool = False,
     slit_length: float = 0.0,
+    dq: Optional[np.ndarray] = None,
 ) -> Session:
     sid = str(uuid.uuid4())[:8]
     session = Session(
@@ -59,6 +69,7 @@ def create_session(
         intensity=np.asarray(intensity, dtype=float),
         error=np.asarray(error, dtype=float) if error is not None else None,
         label=label,
+        dq=np.asarray(dq, dtype=float) if dq is not None else None,
         is_slit_smeared=is_slit_smeared,
         slit_length=slit_length,
     )

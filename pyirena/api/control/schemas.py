@@ -43,6 +43,73 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "open_dataset_from_data",
+        "description": (
+            "Create a fitting session from arrays you already have, with no "
+            "file involved. Use this instead of open_dataset when the data "
+            "is in the request rather than on the machine running pyIrena "
+            "(a remote service, a notebook, a reduction pipeline). Returns a "
+            "session_id that works with every other tool. Points with Q<=0 or "
+            "I<=0 are removed and non-positive uncertainties repaired, the "
+            "same cleaning a text file gets; the counts come back in "
+            "summary.cleaning. Sessions made this way have no source file, so "
+            "save_* needs an explicit output_path."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "q": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "description": "Q values in 1/Angstrom. Need not be sorted.",
+                },
+                "intensity": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "description": "Intensity, 1/cm on an absolute scale.",
+                },
+                "error": {
+                    "type": ["array", "null"],
+                    "items": {"type": "number"},
+                    "description": (
+                        "Intensity uncertainty, one per point. Omit for an "
+                        "unweighted fit; uncertainties are repaired when "
+                        "supplied but never invented when absent."
+                    ),
+                },
+                "dq": {
+                    "type": ["array", "null"],
+                    "items": {"type": "number"},
+                    "description": "Q resolution. Stored for provenance; not yet used in fitting.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Name for the curve, used in plots and reports.",
+                    "default": "",
+                },
+                "is_slit_smeared": {
+                    "type": "boolean",
+                    "description": (
+                        "Mark the data as slit-smeared; slit_length is then "
+                        "applied to the model when one is created."
+                    ),
+                    "default": False,
+                },
+                "slit_length": {
+                    "type": "number",
+                    "description": "Slit length in 1/Angstrom, when is_slit_smeared is true.",
+                    "default": 0.0,
+                },
+                "error_fraction": {
+                    "type": "number",
+                    "description": "Fraction of I used to repair non-positive uncertainties.",
+                    "default": 0.05,
+                },
+            },
+            "required": ["q", "intensity"],
+        },
+    },
+    {
         "name": "list_open_sessions",
         "description": "List all currently open fitting sessions.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -683,6 +750,45 @@ TOOL_SCHEMAS: list[dict] = [
     # -----------------------------------------------------------------------
     # Size Distribution (Sizes) — model lifecycle
     # -----------------------------------------------------------------------
+    {
+        "name": "export_results",
+        "description": (
+            "Export a finished fit as one JSON document, whichever of the six "
+            "fitting tools produced it. This is the machine-readable "
+            "counterpart to save_*: nothing is written to disk and no path is "
+            "involved, so it works when the caller is on another machine. "
+            "Returns the tool name, the data's identity, a normalised quality "
+            "block (chi-squared, reduced chi-squared, dof, fit-quality "
+            "metrics), the tool's own results including per-parameter "
+            "uncertainties where the fit computes them, and the model config "
+            "(to_dict) needed to replay the same fit on another measurement. "
+            "Set include_arrays to also get the data, model, residuals and "
+            "per-component curves."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "include_arrays": {
+                    "type": "boolean",
+                    "description": (
+                        "Also return the curves on the fitted Q grid. Off by "
+                        "default: the arrays dominate the size of the reply."
+                    ),
+                    "default": False,
+                },
+                "max_points": {
+                    "type": ["integer", "null"],
+                    "description": (
+                        "Cap on each returned array; longer ones are decimated "
+                        "by a constant stride and flagged. null means no cap."
+                    ),
+                    "default": 2000,
+                },
+            },
+            "required": ["session_id"],
+        },
+    },
     {
         "name": "select_sizes_model",
         "description": (

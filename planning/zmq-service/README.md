@@ -7,7 +7,7 @@ plan.
 
 Written: 24-09-2026, against pyIrena 1.1.1.
 Phase 0 answered by the project owner: 24-09-2026.
-**Status: not started; implementation begins 25-09-2026.**
+**Status: Phase 1 shipped 25-09-2026 on `feature/zmq-service`. Phase 2 next.**
 
 ---
 
@@ -146,7 +146,7 @@ Remaining to confirm with the owner *during* implementation, not blocking:
 error placement (row 6 above) and whether the orchestrator wants
 `analyze` (Phase 3) as its primary entry point.
 
-### Phase 1 — Transport-neutral groundwork inside `pyirena.api` (M)
+### Phase 1 — Transport-neutral groundwork inside `pyirena.api` (M) — **DONE**
 
 No `pyzmq` anywhere in this phase. Everything here is useful to scripting and
 MCP too, and can ship on its own.
@@ -208,17 +208,57 @@ for the agent to learn. Content:
 drives each fitting tool through open → select model → fit → export on
 `testData` and asserts `json.dumps(result, allow_nan=False)` succeeds.
 
-**1.6 Timing reality check (new, small but do it first).** Before Phase 2,
-measure each of the six tools on a 2000-point curve on the target hardware:
-open → select model → fit → export. Record the numbers in this file. If any
-default path exceeds ~30 s, either it gets a cheaper default (fewer MC
-samples, looser convergence) or Phase 4 comes back onto the table. This is
-the assumption the whole synchronous design rests on, so it should be
-measured, not assumed.
+**1.6 Timing reality check — measured 25-09-2026.** Each tool driven from
+arrays on a 2000-point curve, default configuration, one population/level,
+open → select → fit → export (macOS, M-series; the RHEL workstation should be
+in the same range or better):
 
-**Phase 1 exit criteria:** existing test suite green; MCP unchanged for users;
-a pure-Python script can fit any of the six tools from arrays and get a JSON
-report without touching the disk; timings recorded.
+| Tool | Fit | `export_results` | JSON size | with `include_arrays` |
+|---|---|---|---|---|
+| Simple Fits | 0.00 s | 0.0 ms | 1.1 KB | 205 KB |
+| WAXS Peak Fit | 0.01 s | 0.1 ms | 2.1 KB | 235 KB |
+| Unified Fit | 0.12 s | 0.4 ms | 4.7 KB | 211 KB |
+| Carbon model | 0.46 s | 0.2 ms | 7.2 KB | 324 KB |
+| Size Distribution | 5.6 s | 0.2 ms | 10.4 KB | 213 KB |
+| Modeling | 6.3 s | 0.1 ms | 2.5 KB | 207 KB |
+
+The synchronous design holds with two orders of magnitude to spare, and the
+export itself is free. **The number to watch is Modeling**: 6.3 s is one
+population with default settings, and it is the tool that scales worst —
+several populations, differential evolution and Monte-Carlo uncertainties
+multiply it, and the workers stop paying off past ~8–10 cores. A Modeling fit
+is the one realistic way to hit the 55 s budget, so §2.7's `TIMEOUT` reply is
+not theoretical.
+
+Serialisation is not a concern: a full report without arrays is 1–10 KB, and
+even with every curve attached it is ~200–320 KB, well inside the 16 MB cap.
+
+**Phase 1 exit criteria — all met:**
+
+- `pyirena/api/dispatch.py` with `pyirena/mcp/dispatch.py` as a shim; MCP
+  unchanged for users (its tool count went 26 → 27, the one new lifecycle tool).
+- `open_dataset_from_data`, `export_results` and the `json_only` /
+  `json_images` profiles exist and are schema-registered, so they reach MCP
+  clients too.
+- `Session.file_path` is optional; the six `save_*` blocks are now one shared
+  `api/control/_save.py`, which refuses an in-memory session with
+  `NO_SOURCE_FILE` and, given an `output_path`, writes a complete NXcanSAS
+  file from the session's own arrays.
+- Full suite green (1702 passed). New: `test_open_from_data.py`,
+  `test_export_results.py`, `test_dispatch_profiles.py`.
+
+Two things found along the way, both fixed:
+
+- `get_session_summary` assumed `last_fit_result` was a dict and raised
+  `AttributeError` on any Modeling or Carbon session — those two store a
+  result dataclass. It is a lifecycle op, so the ZMQ service would have hit
+  it immediately.
+- Unified Fit has no uncertainty estimation at all
+  (`get_parameter_uncertainties` returns a placeholder). The other five
+  compute a `std` per parameter during the fit at no extra cost. So there is
+  no `with_uncertainty` flag to add: uncertainties travel whenever they
+  exist, and Unified reports `uncertainties_available: false` rather than
+  fabricating zeros. Open question 5 is settled by that.
 
 ### Phase 2 — `pyirena/zmq/` v1: synchronous REQ/REP (M)
 
@@ -511,8 +551,9 @@ is an extension, not a rewrite.
 3. ~~`export_results` generic vs one per tool~~ — generic, confirmed here.
 4. ~~Should `analyze` be the primary documented path?~~ — yes; session tools
    are the fallback for hard fits.
-5. ~~Uncertainties in `export_results`~~ — opt-in only (`with_uncertainty`),
-   because of the 60 s budget.
+5. ~~Uncertainties in `export_results`~~ — settled differently than planned:
+   five tools compute them during the fit for free and they always travel;
+   Unified Fit has none to report. No flag, no extra cost. (Phase 1.6.)
 6. Tool-level errors: `ok: false` (current plan) or `ok: true` with an error
    inside `result`? Owner did not say; confirm before the orchestrator side
    is written.

@@ -38,7 +38,7 @@ def test_schema_names_unique_and_indexed():
     assert len(names) == len(set(names)), "duplicate schema names in TOOL_SCHEMAS"
     assert set(TOOL_SCHEMA_BY_NAME) == set(names)
     # Lock the count so an accidentally-dropped schema is caught.
-    assert len(names) == 118, f"expected 118 control schemas, found {len(names)}"
+    assert len(names) == 120, f"expected 120 control schemas, found {len(names)}"
 
 
 @pytest.mark.parametrize("schema", TOOL_SCHEMAS, ids=lambda s: s["name"])
@@ -128,9 +128,9 @@ def test_mcp_registers_all_tools_structurally():
     # update this test (mirrors the 102-schema lock above). A regression that
     # re-adds a per-function pyirena_ctrl_* wrapper instead of dispatching
     # through pyirena_call should fail here first.
-    assert len(names) == 26, f"expected 26 registered MCP tools, found {len(names)}"
+    assert len(names) == 27, f"expected 27 registered MCP tools, found {len(names)}"
     assert len(dispatcher_tools) == 4, f"expected 4 dispatcher tools, found {len(dispatcher_tools)}"
-    assert len(session_tools) == 4, f"expected 4 session-lifecycle tools, found {len(session_tools)}"
+    assert len(session_tools) == 5, f"expected 5 session-lifecycle tools, found {len(session_tools)}"
     assert len(read_tools) == 18, f"expected 18 read tools, found {len(read_tools)}"
 
     for t in tools:

@@ -30,10 +30,10 @@ import numpy as np
 
 from pyirena.api._paths import (
     PathSecurityError,
-    resolve_safe,
     resolve_safe_file,
 )
 from pyirena.api.control._images import render_png
+from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import (
     bad_param,
     make_error,
@@ -333,6 +333,215 @@ def open_dataset(file_path: str, use_slit_smeared: bool = False) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Session lifecycle — creating a session from arrays (no file)
+# ---------------------------------------------------------------------------
+#
+# A remote transport (pyirena/zmq/) has no shared filesystem with its caller,
+# so the data arrives inside the request. Sessions created this way have
+# file_path None; every reader of Session.file_path must cope with that, and
+# the save_* tools refuse with NO_SOURCE_FILE unless given an output_path.
+
+# A JSON array costs roughly 20 bytes per point, so 100k points is a ~6 MB
+# request — already far beyond any real SAS curve (a USAXS+SAXS+WAXS merge is
+# a few thousand points). The guard is against a malformed or runaway caller,
+# not against legitimate data; raise PYIRENA_MAX_INPUT_POINTS if you have more.
+_DEFAULT_MAX_INPUT_POINTS = 100_000
+
+# Below this, every model in the package is under-determined and the fit
+# metrics are meaningless.
+_MIN_INPUT_POINTS = 5
+
+
+def _max_input_points() -> int:
+    raw = os.environ.get("PYIRENA_MAX_INPUT_POINTS", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_INPUT_POINTS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_INPUT_POINTS
+    return value if value > 0 else _DEFAULT_MAX_INPUT_POINTS
+
+
+def open_dataset_from_data(
+    q: list,
+    intensity: list,
+    error: Optional[list] = None,
+    dq: Optional[list] = None,
+    label: str = "",
+    is_slit_smeared: bool = False,
+    slit_length: float = 0.0,
+    error_fraction: float = 0.05,
+) -> dict:
+    """Create a fitting session from in-memory arrays, with no file involved.
+
+    The array-fed twin of :func:`open_dataset`, for callers that have the data
+    but not a path the server can read — a remote service, a notebook holding
+    arrays, a reduction pipeline that has not written a file yet. The returned
+    ``session_id`` works with every other control tool exactly as one from
+    ``open_dataset`` does, except that ``save_*`` needs an explicit
+    ``output_path`` (there is no source file to write back into).
+
+    The data is cleaned with the same rules text-file import uses
+    (``pyirena.io.text_import.clean_sas_arrays``), so a curve behaves the same
+    whether it arrived as a file or as arrays: points with Q ≤ 0 or I ≤ 0 (and
+    any non-finite value) are removed, and non-positive uncertainties are
+    replaced by ``error_fraction × I``. The counts are reported back in
+    ``summary["cleaning"]`` rather than applied silently — see
+    ``docs/data_import_and_cleaning.md`` for why each rule exists.
+
+    Parameters
+    ----------
+    q : list of float
+        Q values in Å⁻¹. Need not be sorted; the session is sorted ascending.
+    intensity : list of float
+        Intensity, cm⁻¹ where the data is on an absolute scale.
+    error : list of float, optional
+        Intensity uncertainty. Omit it to fit unweighted, exactly as for a
+        file with no uncertainty column — uncertainties are *not* synthesized
+        when the argument is absent, only repaired when it is present.
+    dq : list of float, optional
+        Q resolution. Stored on the session for provenance; no fitting tool
+        reads it yet.
+    label : str
+        Human-readable name for the curve, used in plots and reports.
+    is_slit_smeared : bool
+        Mark the data as slit-smeared; ``slit_length`` (Å⁻¹) is then applied
+        to the model when one is created for this session.
+    error_fraction : float
+        Fraction of I used to repair non-positive uncertainties (default 0.05).
+
+    Returns
+    -------
+    dict
+        ``{session_id, summary}`` — the same shape as :func:`open_dataset`,
+        with ``summary["file"] = None`` and an extra ``summary["cleaning"]``
+        report. On failure, an error dict with one of the codes
+        ``SHAPE_MISMATCH``, ``EMPTY_DATA``, ``TOO_FEW_POINTS``,
+        ``TOO_MANY_POINTS``, ``BAD_VALUES`` or ``NO_VALID_POINTS``.
+    """
+    from pyirena.io.text_import import clean_sas_arrays
+
+    def _as_array(values, name):
+        try:
+            arr = np.asarray(values, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"'{name}' is not an array of numbers: {exc}") from None
+        if arr.ndim != 1:
+            raise ValueError(f"'{name}' must be a flat list, got {arr.ndim} dimensions.")
+        return arr
+
+    try:
+        q_arr = _as_array(q, "q")
+        I_arr = _as_array(intensity, "intensity")
+        err_arr = _as_array(error, "error") if error is not None else None
+        dq_arr = _as_array(dq, "dq") if dq is not None else None
+    except ValueError as exc:
+        return make_error(
+            str(exc),
+            suggestion="Pass plain lists of numbers, one value per data point.",
+            code="BAD_VALUES",
+        )
+
+    if len(q_arr) == 0 or len(I_arr) == 0:
+        return make_error(
+            "Empty q or intensity array.",
+            suggestion="Send at least "
+                       f"{_MIN_INPUT_POINTS} points of real data.",
+            code="EMPTY_DATA",
+        )
+
+    for name, arr in (("intensity", I_arr), ("error", err_arr), ("dq", dq_arr)):
+        if arr is not None and len(arr) != len(q_arr):
+            return make_error(
+                f"'{name}' has {len(arr)} values but 'q' has {len(q_arr)}.",
+                suggestion="All arrays must have one value per data point.",
+                code="SHAPE_MISMATCH",
+            )
+
+    if len(q_arr) < _MIN_INPUT_POINTS:
+        return make_error(
+            f"Only {len(q_arr)} data points; at least {_MIN_INPUT_POINTS} are needed.",
+            suggestion="Send the full measured curve.",
+            code="TOO_FEW_POINTS",
+        )
+
+    max_points = _max_input_points()
+    if len(q_arr) > max_points:
+        return make_error(
+            f"{len(q_arr)} data points exceeds the limit of {max_points}.",
+            suggestion="Rebin the curve, or raise PYIRENA_MAX_INPUT_POINTS on the server.",
+            code="TOO_MANY_POINTS",
+        )
+
+    # Sort ascending in Q. Unsorted input is common (concatenated USAXS + SAXS
+    # + WAXS ranges) and silently breaks anything that assumes monotonic Q.
+    was_sorted = bool(np.all(np.diff(q_arr) > 0))
+    if not was_sorted:
+        order = np.argsort(q_arr, kind="stable")
+        q_arr = q_arr[order]
+        I_arr = I_arr[order]
+        err_arr = err_arr[order] if err_arr is not None else None
+        dq_arr = dq_arr[order] if dq_arr is not None else None
+
+    q_c, I_c, e_c, dq_c, report = clean_sas_arrays(
+        q_arr, I_arr, err_arr, dq_arr, error_fraction=error_fraction
+    )
+
+    if len(q_c) < _MIN_INPUT_POINTS:
+        return make_error(
+            f"Only {len(q_c)} of {len(q_arr)} points survived cleaning "
+            f"(removed {report['n_q_removed']} with Q<=0 and "
+            f"{report['n_i_removed']} with I<=0).",
+            suggestion="Check the Q and intensity units and sign conventions.",
+            code="NO_VALID_POINTS",
+        )
+
+    # Uncertainties are repaired, never invented: a caller who sent no error
+    # array gets an unweighted session, the same as a file with no error
+    # column, rather than a silent 5%-of-I weighting they did not ask for.
+    session_error = e_c if err_arr is not None else None
+
+    session = create_session(
+        file_path=None,
+        q=q_c,
+        intensity=I_c,
+        error=session_error,
+        label=str(label or ""),
+        is_slit_smeared=bool(is_slit_smeared),
+        slit_length=float(slit_length or 0.0),
+        dq=dq_c,
+    )
+
+    return {
+        "session_id": session.session_id,
+        "summary": {
+            "file":          None,
+            "label":         session.label,
+            "n_points":      int(len(q_c)),
+            "q_min":         float(np.min(q_c)),
+            "q_max":         float(np.max(q_c)),
+            "intensity_min": float(np.min(I_c)),
+            "intensity_max": float(np.max(I_c)),
+            "has_errors":    session_error is not None,
+            "is_slit_smeared":        bool(is_slit_smeared),
+            "slit_length":            float(slit_length or 0.0),
+            "has_slit_smeared_entry": False,
+            "sorted_by_q":   not was_sorted,
+            "cleaning": {
+                "n_input":         int(report["n_original"]),
+                "n_kept":          int(report["n_kept"]),
+                "n_removed_q":     int(report["n_q_removed"]),
+                "n_removed_i":     int(report["n_i_removed"]),
+                "n_repaired_error": (
+                    int(report["n_e_synthesized"]) if err_arr is not None else 0
+                ),
+            },
+        },
+    }
+
+
 def list_open_sessions() -> dict:
     """Return a summary of all open sessions."""
     sessions = all_sessions()
@@ -358,6 +567,21 @@ def close_session(session_id: str) -> dict:
     return {"ok": True, "session_id": session_id}
 
 
+def _reduced_chi_squared(last_fit_result) -> Optional[float]:
+    """Reduced chi-squared from a fit result, dict or dataclass, or None."""
+    if last_fit_result is None:
+        return None
+    if isinstance(last_fit_result, dict):
+        value = last_fit_result.get("reduced_chi_squared")
+    else:
+        value = getattr(last_fit_result, "reduced_chi_squared", None)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
 def get_session_summary(session_id: str) -> dict:
     """Return a summary of the current session state."""
     s = get_session(session_id)
@@ -365,9 +589,10 @@ def get_session_summary(session_id: str) -> dict:
         return no_session(session_id)
 
     valid = np.isfinite(s.q) & np.isfinite(s.intensity)
-    chi = None
-    if s.last_fit_result:
-        chi = s.last_fit_result.get("reduced_chi_squared")
+    # last_fit_result is a plain dict for most tools but a result dataclass
+    # for Modeling and the Carbon model, so read it both ways rather than
+    # assuming .get() exists.
+    chi = _reduced_chi_squared(s.last_fit_result)
 
     return {
         "session_id":    session_id,
@@ -1858,31 +2083,9 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
 
     model = s.model
 
-    # Confine the write target to PYIRENA_DATA_ROOT (when set) for both an
-    # explicit output_path and the default in-place save.
-    try:
-        src = resolve_safe(s.file_path, must_exist=False)
-        target = resolve_safe(output_path, must_exist=False) if output_path else src
-    except PathSecurityError as exc:
-        return make_error(
-            str(exc),
-            suggestion="Save to a path inside PYIRENA_DATA_ROOT.",
-            code="PATH_NOT_ALLOWED",
-        )
-
-    # Saving to a *new* location must yield a complete, re-openable NXcanSAS
-    # file — not a results-only stub. Seed it from the source (reduced data +
-    # metadata, stale results stripped); the original is never modified.
-    if target != src and not target.exists():
-        from pyirena.io._nxcansas_common import copy_and_strip_results
-        try:
-            copy_and_strip_results(src, target)
-        except Exception as exc:
-            return make_error(
-                f"Could not create output file '{target}' from source: {exc}",
-                suggestion="Check the source file exists and the target is writable.",
-                code="SAVE_ERROR",
-            )
+    target, save_error = resolve_save_target(s, output_path)
+    if save_error is not None:
+        return save_error
 
     # Convert UnifiedLevel objects to the dict format expected by nxcansas_unified
     levels_dicts = [

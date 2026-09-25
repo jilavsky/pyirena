@@ -46,8 +46,8 @@ from typing import Optional
 
 import numpy as np
 
-from pyirena.api._paths import PathSecurityError, resolve_safe
 from pyirena.api.control._images import render_png
+from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
 from pyirena.api.control.session import fit_mask, get_session
 
@@ -657,28 +657,9 @@ def save_simple_fit(session_id: str, output_path: Optional[str] = None) -> dict:
 
     from pyirena.io.nxcansas_simple_fits import save_simple_fit_results  # noqa: PLC0415
 
-    try:
-        src = resolve_safe(s.file_path, must_exist=False)
-        target = resolve_safe(output_path, must_exist=False) if output_path else src
-    except PathSecurityError as exc:
-        return make_error(
-            str(exc),
-            suggestion="Save to a path inside PYIRENA_DATA_ROOT.",
-            code="PATH_NOT_ALLOWED",
-        )
-
-    # Saving to a *new* location must yield a complete, re-openable NXcanSAS
-    # file — not a results-only stub.
-    if target != src and not target.exists():
-        from pyirena.io._nxcansas_common import copy_and_strip_results  # noqa: PLC0415
-        try:
-            copy_and_strip_results(src, target)
-        except Exception as exc:
-            return make_error(
-                f"Could not create output file '{target}' from source: {exc}",
-                suggestion="Check the source file exists and the target is writable.",
-                code="SAVE_ERROR",
-            )
+    target, save_error = resolve_save_target(s, output_path)
+    if save_error is not None:
+        return save_error
 
     mask = fit_mask(s)
     I_data = s.intensity[mask]

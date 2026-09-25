@@ -41,6 +41,7 @@ from pyirena import __version__  # re-exported for audit-trail stamping
 from pyirena.api.control.unified_fit import (
     # A — session lifecycle
     open_dataset,
+    open_dataset_from_data,
     list_open_sessions,
     close_session,
     get_session_summary,
@@ -84,6 +85,11 @@ from pyirena.api.control.unified_fit import (
     # F — persistence
     save_fit,
     export_fit_report,
+)
+
+from pyirena.api.control.export import (
+    # Results — one JSON report for any of the six fitting tools
+    export_results,
 )
 
 from pyirena.api.control.sizes import (
@@ -208,7 +214,8 @@ from pyirena.api.control.carbon_fit import (
 __all__ = [
     "__version__",
     # A
-    "open_dataset", "list_open_sessions", "close_session", "get_session_summary",
+    "open_dataset", "open_dataset_from_data",
+    "list_open_sessions", "close_session", "get_session_summary",
     # B
     "list_available_models", "select_model", "get_model_parameters", "get_model_description",
     # C
@@ -231,6 +238,8 @@ __all__ = [
     "get_parameter_uncertainties",
     # F
     "save_fit", "export_fit_report",
+    # Results (all tools)
+    "export_results",
     # Sizes
     "select_sizes_model", "get_sizes_config",
     "set_size_grid", "set_shape",
