@@ -7,7 +7,9 @@ plan.
 
 Written: 24-09-2026, against pyIrena 1.1.1.
 Phase 0 answered by the project owner: 24-09-2026.
-**Status: Phase 1 shipped 25-09-2026 on `feature/zmq-service`. Phase 2 next.**
+**Status: Phases 1 and 2 shipped 25-09-2026 on `feature/zmq-service`.**
+The service runs, is documented in `docs/zmq_service.md`, and has 82
+tests of its own. What is left before it is deployed is in §11.
 
 ---
 
@@ -260,7 +262,7 @@ Two things found along the way, both fixed:
   exist, and Unified reports `uncertainties_available: false` rather than
   fabricating zeros. Open question 5 is settled by that.
 
-### Phase 2 — `pyirena/zmq/` v1: synchronous REQ/REP (M)
+### Phase 2 — `pyirena/zmq/` v1: synchronous REQ/REP (M) — **DONE**
 
 **2.1 Packaging.**
 
@@ -438,11 +440,37 @@ session it was fitting is marked `stale` and reported as such by
 The next request on a stale session gets a clear error telling the agent to
 re-run or close it. Simple, honest, and it never leaves the client guessing.
 
-**Phase 2 exit criteria:** from the orchestrator machine, the reference client
-opens a dataset from arrays, fits it with each of the six tools, exports JSON
-results and closes the session; the server survives malformed input, bare
-strings, oversize messages, unknown tools, a killed client, and a fit that
-overruns the budget.
+**Phase 2 exit criteria — met except the cross-machine run (§11).** Covered
+by `pyirena/tests/zmq/` (82 tests; only the 9 round-trip ones need a socket):
+`test_protocol.py` drives every op and every malformed input without pyzmq;
+`test_options.py` pins the three layers and the narrowing rule;
+`test_deadline.py` proves a slow call returns `TIMEOUT` promptly and marks its
+session stale, plus session eviction; `test_server_roundtrip.py` runs a real
+REP server on a random port and drives a whole fit **twice** — once with the
+shipped client, once with a bare `send_string`/`recv_string` REQ socket, which
+is the client the orchestrator actually has; `test_layering.py` proves the
+protocol imports and answers with pyzmq blocked.
+
+Departures from the sketch above, all deliberate:
+
+- **`profile` is derived, not stored.** It follows from `allow_files` and
+  `allow_images`, because a third field that could contradict them is a bug
+  waiting to happen. Three profiles: `json_only` (default), `json_images`,
+  `all`.
+- **The dispatcher's refusal code is `NOT_AVAILABLE_IN_PROFILE`**, which is
+  transport-neutral; the ZMQ layer renames it to `NOT_AVAILABLE_OVER_ZMQ` on
+  the way out, so the caller sees the promised code and `pyirena.api` stays
+  free of ZMQ vocabulary.
+- **Stale sessions are tracked in the transport**, not in `Session`. Being
+  abandoned by a deadline is a property of this transport, not of the session,
+  and keeping it here left `pyirena.api` untouched.
+- **`--log-file` adds a handler** rather than replacing the standard one:
+  logs always go to `~/.pyirena/logs/zmq.log` like every other entry point,
+  and `--log-file` is a second destination for deployments that collect
+  elsewhere.
+- **`open_dataset` over ZMQ ignores a `file_path` argument** instead of
+  erroring on it. Over this transport the op can only mean "here is the data",
+  and silently having a path honoured would be the dangerous reading.
 
 ### Phase 3 — One-shot "recipe" call (S–M, now recommended, not optional)
 
@@ -561,3 +589,32 @@ is an extension, not a rewrite.
    logging/service management on the RHEL box, so pyIrena should match it?
 8. Is 9865 reachable from the orchestrator through the beamline firewall, and
    who owns that rule?
+
+---
+
+## 11. What is left before this is deployed
+
+Ordered by what blocks a first real run.
+
+1. **The cross-machine run.** Everything so far is loopback. Start the service
+   on the workstation, call it from the orchestrator host, confirm port 9865
+   is open between them, and check that a 2000-point request and its reply
+   survive the real network path. This is the only Phase 2 exit criterion not
+   yet met.
+2. **Confirm the error convention (open question 6).** Tool errors currently
+   arrive as `ok: false` with a code. If the orchestrator would rather have
+   `ok: true` with an error inside `result`, the change is one function —
+   `_reply_for_result` in `pyirena/zmq/protocol.py` — and it is much cheaper
+   now than after the orchestrator side is written.
+3. **Decide about `analyze` (Phase 3).** With a synchronous contract, a
+   one-call "fit this curve with this saved config" avoids five round trips
+   and cannot leak a session. Worth doing before the agent-side workflow is
+   written around the fine-grained tools.
+4. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
+   a service account, the conda/venv the service runs from, and the firewall
+   rule. Confirm whether the project already has a convention for these that
+   pyIrena should match (open question 7).
+5. **Watch Modeling.** It is the one tool whose fit can plausibly reach the
+   55 s budget once it has several populations. If real use hits `TIMEOUT`
+   regularly, that is the signal for Phase 4, not a reason to raise the
+   budget past the client's own timeout.

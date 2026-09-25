@@ -31,6 +31,7 @@ pytest pyirena/tests/api     # api/mcp layer only
 ruff check pyirena/          # lint (line-length 100, config in pyproject.toml)
 pyirena-gui                  # launch the main GUI
 pyirena-mcp                  # run the MCP server (stdio)
+pyirena-zmq                  # run the ZMQ service (JSON over REQ/REP, port 9865)
 
 python validationData/generate_validation_data.py   # rebuild the synthetic
                                                     # validation data + manifest
@@ -61,6 +62,7 @@ from the same seven layers.** Learn the stack once and you can find anything.
 | **batch** | `pyirena/batch/<tool>.py` | Headless execution of the same core from a dict or JSON config section | core, io |
 | **api** | `pyirena/api/` | Stable, JSON-serialisable facade for AI/scripting; read access plus `api/control/` for interactive fitting sessions (all six fitting tools) | core, io |
 | **mcp** | `pyirena/mcp/server.py` | Protocol wrapper exposing `pyirena.api` to MCP clients | api |
+| **zmq** | `pyirena/zmq/` | ZMQ service exposing `pyirena.api` to a remote orchestrator as JSON request/reply | api, pyzmq (lazy) |
 | **plotting** | `pyirena/plotting/` | Headless matplotlib rendering | core, matplotlib |
 
 **The golden rule:** all state lives in the core model object and flows
@@ -100,9 +102,9 @@ save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
 
 ### Layering invariants — do not break these
 
-1. `core/`, `io/`, `api/`, `batch/` **never import Qt.** Verify with
-   `grep -rl "PySide6\|PyQt" pyirena/core pyirena/api pyirena/io pyirena/batch`
-   — it must return nothing. `core/`, `io/` and `batch/` are also
+1. `core/`, `io/`, `api/`, `batch/`, `zmq/` **never import Qt.** Verify with
+   `grep -rl "PySide6\|PyQt" pyirena/core pyirena/api pyirena/io pyirena/batch pyirena/zmq`
+   — it must return nothing. `core/`, `io/`, `batch/` and `zmq/` are also
    matplotlib-free; `api/plotting.py` and `api/control/` are the only
    non-GUI modules allowed to use matplotlib, and they import it lazily inside
    functions and force the `Agg` backend.
@@ -166,6 +168,7 @@ change how you should work.
 | Adding a structure factor | `docs/developer_adding_structure_factors.md` |
 | Touching HDF5 read/write | `docs/HDF5_NxcanSAS_structure.md` |
 | Working on the api/MCP layer | `pyirena/api/README.md`, `docs/ai_tools_reference.md`, `docs/ai_integration.md` |
+| Working on the ZMQ service (remote, JSON-only callers) | `docs/zmq_service.md`, `planning/zmq-service/` |
 | Writing or fixing tests | `docs/testing.md` |
 | Validating the maths, or comparing results with Igor Irena | `docs/validation.md`, `validationData/README.md` |
 | Working on batch/scripting | `docs/batch_api.md` |

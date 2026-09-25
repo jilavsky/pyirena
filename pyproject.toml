@@ -92,6 +92,17 @@ mcp = [
     "matplotlib>=3.5.0",
     "pyirena[contrast]",
 ]
+zmq = [
+    # ZMQ service exposing pyirena.api to a remote orchestrator as JSON in /
+    # JSON out (planning/zmq-service/). The caller shares no filesystem with
+    # the server, so this extra needs no Qt and no matplotlib: the service
+    # runs in the "json_only" dispatcher profile, where every tool that would
+    # hand back a server-side path or a rendered PNG is hidden. [contrast] is
+    # here for the same reason as in [mcp] — the calculators category is
+    # useful to an agent and pulls in no GUI.
+    "pyzmq>=25",
+    "pyirena[contrast]",
+]
 plotting = [
     # Headless plotting helpers in pyirena.plotting (plot_saxs, unified/Guinier/
     # Porod overlays). Matplotlib only — no GUI toolkit required.
@@ -110,6 +121,7 @@ all = [
     "pyirena[gui]",
     "pyirena[gui3d]",
     "pyirena[mcp]",
+    "pyirena[zmq]",
     "pyirena[plotting]",
     "pyirena[dev]",
 ]
@@ -130,6 +142,7 @@ pyirena-datamanip = "pyirena.gui.data_manipulation_panel:main"
 pyirena-contrast = "pyirena.gui.contrast_panel:main"
 pyirena-saxsmorph = "pyirena.gui.saxs_morph_panel:main"
 pyirena-mcp = "pyirena.mcp.server:main"
+pyirena-zmq = "pyirena.zmq.server:main"
 pyirena-doctor = "pyirena.diagnostics:main"
 
 [tool.setuptools.packages.find]

@@ -136,19 +136,23 @@ shared ones** — those are what gets reimplemented by accident.
 | `plotting.py` | 225 | Headless matplotlib (Agg) rendering |
 | `schemas.py` | 517 | Result schemas |
 | `_paths.py` | 88 | `PYIRENA_DATA_ROOT` sandboxing for every read and write |
+| `dispatch.py` | 361 | **The tool dispatcher** — 4 ops over every schema registry, with per-transport profiles (moved here from `mcp/`) |
+| `_json.py` | 100 | Strict-JSON coercion: numpy out, NaN/Inf to null, for anything crossing a wire |
 
 **Write / control side** (`api/control/` — interactive fitting sessions)
 
 | Module | Lines | Purpose |
 |---|---:|---|
-| `unified_fit.py` | 2057 | Agent-drivable Unified Fit |
-| `modeling.py` | 1096 | Agent-drivable Modeling |
-| `sizes.py` | 893 | Agent-drivable Size Distribution |
-| `waxs_peakfit.py` | 898 | Agent-drivable WAXS Peak Fit |
-| `carbon_fit.py` | 713 | Agent-drivable Carbon model |
-| `simple_fits.py` | 710 | Agent-drivable Simple Fits |
-| `schemas.py` | 1800 | **`TOOL_SCHEMA_BY_NAME`** — JSON schema per control function |
-| `session.py` | 88 | In-memory session registry |
+| `unified_fit.py` | 2260 | Agent-drivable Unified Fit; also `open_dataset` / `open_dataset_from_data` and the rest of the session lifecycle |
+| `modeling.py` | 1079 | Agent-drivable Modeling |
+| `sizes.py` | 871 | Agent-drivable Size Distribution |
+| `waxs_peakfit.py` | 881 | Agent-drivable WAXS Peak Fit |
+| `carbon_fit.py` | 704 | Agent-drivable Carbon model |
+| `simple_fits.py` | 691 | Agent-drivable Simple Fits |
+| `export.py` | 429 | **`export_results`** — one JSON report for all six tools |
+| `schemas.py` | 2277 | **`TOOL_SCHEMA_BY_NAME`** — JSON schema per control function |
+| `session.py` | 95 | In-memory session registry (`file_path` may be None) |
+| `_save.py` | 93 | Where `save_*` writes, and what happens with no source file |
 | `errors.py` | 45 | Structured error helpers |
 | `_images.py` | 61 | Shared PNG rendering |
 
@@ -163,8 +167,20 @@ shared ones** — those are what gets reimplemented by accident.
 
 | Module | Lines | Purpose |
 |---|---:|---|
-| `server.py` | 631 | MCP stdio server; the only place that builds MCP content blocks |
-| `dispatch.py` | 203 | Collapses ~90 control functions into 4 dispatcher tools (provider tool cap) |
+| `server.py` | 655 | MCP stdio server; the only place that builds MCP content blocks |
+| `dispatch.py` | 43 | Re-export shim; the dispatcher itself is `api/dispatch.py` |
+
+## zmq/ — the remote, JSON-only transport
+
+Serves `pyirena.api` to a caller that shares no filesystem with this machine.
+Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
+
+| Module | Lines | Purpose |
+|---|---:|---|
+| `protocol.py` | 473 | The whole service minus the socket: envelope, routing, strict JSON |
+| `options.py` | 328 | Options from config file / CLI / per-call, and what may be narrowed |
+| `server.py` | 313 | REP loop, the request deadline, session eviction |
+| `client.py` | 173 | Reference client, including the REQ-socket rebuild after a timeout |
 
 ## gui/ — one panel per tool, plus the shared UX contract
 

@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ZMQ service** (`pyirena-zmq`, optional `[zmq]` extra) — serves pyIrena's
+  fitting tools to a caller on another machine as JSON in / JSON out over a
+  plain REQ/REP socket, port 9865 by default. Built for an experiment
+  orchestrator that drives instrument and analysis services and **shares no
+  filesystem** with the analysis workstation, so the data travels inside the
+  request and the results inside the reply. One UTF-8 JSON document per
+  message, no multipart, so `send_string` / `recv_string` is a complete
+  client. See `docs/zmq_service.md`.
+
+  The service is synchronous, and it never goes quiet: each request gets a
+  55-second budget, and work that overruns returns a `TIMEOUT` reply rather
+  than leaving the caller's REQ socket to die. The session it abandoned is
+  marked stale, because a half-fitted model must not be read as a result.
+
+  Server options are a designed surface rather than a pile of flags: a config
+  file, CLI flags and per-request overrides, in that order of precedence,
+  with a rule that a request may narrow what the operator allowed and never
+  widen it. `server_info` reports the effective values so a caller discovers
+  what a deployment permits instead of guessing.
+
+  `pyirena/zmq/client.py` is a reference client that handles the ZMQ detail
+  that catches everyone: a REQ socket that has timed out is unusable and must
+  be rebuilt, not reused.
+
+- **`open_dataset_from_data()`** — create a fitting session from q/I/dI arrays
+  with no file involved, for callers that hold the data rather than a path the
+  server can read. Cleaning reuses the text-import rules, so a curve behaves
+  the same whichever way it arrived, and the counts are reported in
+  `summary.cleaning` rather than applied silently. Available over MCP too.
+
+- **`export_results()`** — one JSON report for all six fitting tools:
+  identity, a quality block normalised across tools that spell chi-squared
+  differently, the tool's own results, and the model's `to_dict()` config, so
+  a fit set up once can be replayed on the next measurement. Optionally the
+  data, model, residuals and per-component curves. The machine-readable
+  counterpart to `save_*`, and available over MCP as well.
+
+- **Dispatcher profiles.** Every tool now carries `touches_files` /
+  `returns_image` flags, and a transport can ask for only what it can honestly
+  serve. A JSON-only transport never sees a tool that would hand it a path on
+  the server's disk. MCP is unaffected and keeps the full set.
+
 - **Carbon model** — a new analysis tool that fits the whole measured range of
   a disordered carbonaceous material (USAXS → SAXS → WAXS, often five decades
   in Q) as one model: grain Porod scattering with optional surface roughness,
@@ -63,7 +105,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`AGENTS.md`** — the repository orientation file, previously `CLAUDE.md`,
   under the name every coding agent looks for. `CLAUDE.md` now points to it.
 
+### Changed
+
+- The tool dispatcher moved from `pyirena/mcp/dispatch.py` to
+  `pyirena/api/dispatch.py` now that two transports use it. The old path is a
+  re-export shim, so existing imports keep working.
+
+- `Session.file_path` is now optional, and the six near-identical save-target
+  blocks in the `save_*` tools became one `api/control/_save.py`. Saving a
+  session that came from arrays needs an explicit `output_path` (otherwise
+  `NO_SOURCE_FILE`), and writes a complete, re-openable NXcanSAS file built
+  from the session's own arrays.
+
+
+- Unified Fit: the "Fit" button is now noticeably larger than "Fix limits?"
+  so the primary action is easier to hit; "Fix limits?" is slightly shorter.
+- Data Selector: right-clicking a file in the file list now offers "Show
+  file in Finder/Explorer..." to reveal it in the OS file browser.
+
 ### Fixed
+
+- `get_session_summary()` raised `AttributeError` on any Modeling or Carbon
+  model session. It assumed `last_fit_result` was a dict; those two tools
+  store a result dataclass.
 
 - **Check boxes were invisible on Windows and Linux.** Every "Fit?" check box
   in Unified Fit, and every other check box and radio button in the GUI, drew
@@ -179,13 +243,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window width when the saved pane-width state was stale or corrupted
   (values much smaller than the window's actual width). Saved splitter sizes
   are now rescaled to the panel's current width before being applied.
-
-### Changed
-
-- Unified Fit: the "Fit" button is now noticeably larger than "Fix limits?"
-  so the primary action is easier to hit; "Fix limits?" is slightly shorter.
-- Data Selector: right-clicking a file in the file list now offers "Show
-  file in Finder/Explorer..." to reveal it in the OS file browser.
 
 ## [1.1.1] - 2026-09-12
 
