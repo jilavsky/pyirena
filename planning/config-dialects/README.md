@@ -168,9 +168,11 @@ session, **M** ≈ two to three.
 
 ### Step 1 — Fix the two serialisation bugs (S, do this first and separately)
 
-1. **Simple Fits crash (Problem C).** Assign `use_analytic_jacobian` in
-   `SimpleFitModel.from_dict()` and add it to `to_dict()`. This one is
-   urgent: a documented scripting entry point raises `AttributeError` today.
+1. ~~**Simple Fits crash (Problem C).**~~ **Done 26-09-2026** (on
+   `feature/zmq-service`, since it blocked Phase 3 testing):
+   `use_analytic_jacobian` is serialised and restored, and
+   `test_core_serialization.py` now rebuilds a model from its dict and runs a
+   real fit rather than only comparing dicts.
 2. **Sizes slit loss (Problem A).** Add `use_slit_smearing` and `slit_length`
    to `SizesDistribution.to_dict()` and read them in `from_dict()`. Additive,
    so old files still load.
@@ -190,7 +192,9 @@ Two tests, in the spirit of `test_tool_registration.py` and
 2. For every fitting tool, `from_dict(to_dict())` produces an object that can
    actually **run a fit** — not merely one that compares equal. Problem C
    would have been caught the day it was introduced by nothing more than
-   that.
+   that. Done for Simple Fits; the other five still need it, and the general
+   form (no field `__init__` sets may be missing after a round trip) should
+   be a loop over all six rather than one test per tool.
 
 Together these turn "someone happened to run a fixture" into "the build
 notices".

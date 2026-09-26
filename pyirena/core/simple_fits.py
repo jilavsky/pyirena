@@ -1676,6 +1676,11 @@ class SimpleFitModel:
             'bg_prefit': dict(self.bg_prefit) if self.bg_prefit else {},
             'use_slit_smearing': self.use_slit_smearing,
             'slit_length': self.slit_length,
+            # A performance switch, not a scientific setting — but it is read
+            # unconditionally by fit(), so a model rebuilt without it cannot
+            # fit at all. Serialise it rather than rely on from_dict
+            # remembering to default it.
+            'use_analytic_jacobian': self.use_analytic_jacobian,
         }
 
     @classmethod
@@ -1694,6 +1699,11 @@ class SimpleFitModel:
         obj.bg_prefit = dict(d.get('bg_prefit') or {})
         obj.use_slit_smearing = bool(d.get('use_slit_smearing', False))
         obj.slit_length = float(d.get('slit_length', 0.0) or 0.0)
+        # Default True to match __init__: this class is rebuilt with
+        # cls.__new__, so every field __init__ sets has to be set here too or
+        # the object is missing it entirely. Omitting this one made fit()
+        # raise AttributeError on any model loaded from a config file.
+        obj.use_analytic_jacobian = bool(d.get('use_analytic_jacobian', True))
         # Fill in any missing params/limits from registry defaults
         entry = MODEL_REGISTRY[obj.model]
         for name, default, lo, hi in entry['params']:

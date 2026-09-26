@@ -516,3 +516,55 @@ def test_the_documented_policy_lists_every_tool():
                  "WAXS Peak Fit", "SAXS Morph", "Fractals", "Data Merge",
                  "Data Manipulation"):
         assert tool in text, f"{tool} is missing from the _pyirena_config table"
+
+
+# ---------------------------------------------------------------------------
+# A rebuilt model must be able to fit, not merely compare equal
+# ---------------------------------------------------------------------------
+#
+# Round-trip tests that only compare dicts miss the failure that actually
+# bites. `SimpleFitModel.from_dict()` builds its object with `cls.__new__` and
+# assigns fields by hand, so a field added to `__init__` later — and left out
+# of both `to_dict()` and `from_dict()` — is simply absent from the rebuilt
+# object. `use_analytic_jacobian` was exactly that: `fit()` reads it
+# unconditionally, so every model loaded from a config file raised
+# AttributeError, and `pyirena.batch.fit_simple_from_config()` failed for
+# every model. The suite did not notice, because the only tests on that path
+# use `Invariant`, which returns before reaching the Jacobian branch.
+#
+# So: rebuild from a dict, then run a real fit. See planning/config-dialects/.
+
+def _tiny_saxs():
+    q = np.logspace(-2.5, 0, 120)
+    I = 100.0 * np.exp(-(q**2) * 40.0**2 / 3) + 1e-5 * q**-4.0 + 0.05
+    return q, I, 0.02 * I
+
+
+@pytest.mark.parametrize("model_name", ["Guinier", "Porod", "Sphere"])
+def test_a_simple_fit_model_rebuilt_from_a_dict_can_actually_fit(model_name):
+    from pyirena.core.simple_fits import SimpleFitModel
+
+    original = SimpleFitModel()
+    original.set_model(model_name)
+    rebuilt = SimpleFitModel.from_dict(original.to_dict())
+
+    # The specific regression: a field __init__ sets must survive __new__.
+    assert hasattr(rebuilt, "use_analytic_jacobian")
+
+    q, I, dI = _tiny_saxs()
+    result = rebuilt.fit(q, I, dI)          # must not raise AttributeError
+    assert result["success"]
+    assert np.isfinite(result["chi2"])
+
+
+def test_every_field_init_sets_survives_a_simple_fit_round_trip():
+    """The general form of the bug, not just the one field that hit it."""
+    from pyirena.core.simple_fits import SimpleFitModel
+
+    fresh = SimpleFitModel()
+    rebuilt = SimpleFitModel.from_dict(fresh.to_dict())
+    missing = sorted(set(vars(fresh)) - set(vars(rebuilt)))
+    assert not missing, (
+        "SimpleFitModel.from_dict() bypasses __init__, so these fields are "
+        f"absent from the rebuilt object: {missing}"
+    )

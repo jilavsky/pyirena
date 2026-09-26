@@ -125,6 +125,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pyirena.batch.fit_simple_from_config()` failed for every real model.**
+  `SimpleFitModel.from_dict()` rebuilds its object with `cls.__new__` and
+  assigns fields by hand, so `use_analytic_jacobian` — set in `__init__`,
+  absent from `to_dict()` — was missing entirely from any model loaded from a
+  config file, and `fit()` raised `AttributeError` on it. The field is now
+  serialised and restored. The regression went unnoticed because the only
+  tests on that path use the `Invariant` model, which returns before reaching
+  the Jacobian branch; the new tests rebuild a model from its dict and then
+  run a real fit.
+
 - `get_session_summary()` raised `AttributeError` on any Modeling or Carbon
   model session. It assumed `last_fit_result` was a dict; those two tools
   store a result dataclass.
