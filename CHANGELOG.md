@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that catches everyone: a REQ socket that has timed out is unusable and must
   be rebuilt, not reused.
 
+- **`docs/zmq_service_testing.md`** — a tickable deployment and test
+  procedure for the ZMQ service, and `scripts/zmq_smoke_test.py`, a
+  standalone client-side checker that needs only pyzmq (no pyIrena, numpy or
+  h5py) so it runs on a bare orchestrator machine.
+
 - **`analyze()`** — fit a curve with a saved pyIrena configuration in one
   call. The coarse counterpart to the session tools, for the common case
   where the fit is already known: a scientist set it up in the GUI, exported

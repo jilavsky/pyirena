@@ -595,11 +595,11 @@ is an extension, not a rewrite.
 
 Ordered by what blocks a first real run.
 
-1. **The cross-machine run.** Everything so far is loopback. Start the service
-   on the workstation, call it from the orchestrator host, confirm port 9865
-   is open between them, and check that a 2000-point request and its reply
-   survive the real network path. This is the only Phase 2 exit criterion not
-   yet met.
+1. **The cross-machine run.** Everything so far is loopback. This is the
+   only Phase 2 exit criterion not yet met, and it now has a written
+   procedure: `docs/zmq_service_testing.md`, Part 4, driven by
+   `scripts/zmq_smoke_test.py` (pyzmq only, so it runs on a bare
+   orchestrator box).
 2. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
    a service account, the conda/venv the service runs from, and the firewall
    rule. Confirm whether the project already has a convention for these that

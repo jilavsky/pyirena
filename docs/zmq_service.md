@@ -10,6 +10,10 @@ If your caller is on the same machine and can read the same files, you
 probably want [the MCP server](ai_integration.md) instead. Same tools, same
 schemas; MCP can also open and save files.
 
+**Deploying or testing it for the first time?** Work through
+[zmq_service_testing.md](zmq_service_testing.md) — the same material as a
+tickable procedure, with a smoke-test script that needs only pyzmq.
+
 ---
 
 ## Install and run
@@ -128,6 +132,7 @@ reply is strict JSON: no `NaN`, no `Infinity`, so `JSON.parse` and Go's
 | `UNKNOWN_OP` | No such `op` |
 | `MESSAGE_TOO_LARGE` | Over `max_message_mb` |
 | `BAD_OPTION` | An unknown per-call option, or one trying to widen server policy |
+| `BAD_ARGUMENTS` | The op or tool was called without an argument it needs |
 | `NOT_AVAILABLE_OVER_ZMQ` | The tool needs a shared filesystem or returns an image |
 | `SESSION_STALE` | A previous call on this session hit the time budget |
 | `TIMEOUT` | This call exceeded the server's budget (see below) |

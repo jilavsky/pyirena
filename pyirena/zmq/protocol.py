@@ -424,8 +424,17 @@ def _dispatch_op(envelope: dict, options: ServerOptions) -> Any:
         }
 
     call_args = _apply_option_defaults(tool, args, options)
-    result = dispatch.call_tool(tool, call_args, options.profile)
+    return dispatch.call_tool(tool, call_args, options.profile)
 
+
+def _rename_profile_refusal(result: Any) -> Any:
+    """Speak this transport's vocabulary for a profile refusal.
+
+    The dispatcher is transport-neutral and says NOT_AVAILABLE_IN_PROFILE.
+    Over the wire that is NOT_AVAILABLE_OVER_ZMQ, which is what the docs
+    promise. Renamed here rather than per-op so that `call` and
+    `describe_tool` cannot end up disagreeing about the same refusal.
+    """
     if isinstance(result, dict) and result.get("code") == "NOT_AVAILABLE_IN_PROFILE":
         result = dict(result)
         result["code"] = "NOT_AVAILABLE_OVER_ZMQ"
@@ -446,7 +455,7 @@ def handle_parsed(envelope: dict, options: Optional[ServerOptions] = None) -> di
 
     started = time.perf_counter()
     try:
-        result = _dispatch_op(envelope, effective)
+        result = _rename_profile_refusal(_dispatch_op(envelope, effective))
     except Exception as exc:
         # The api layer returns errors rather than raising, so reaching here
         # is a bug. The traceback goes to the log; the caller gets the message

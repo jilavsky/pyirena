@@ -363,3 +363,10 @@ def test_a_bad_config_is_refused_without_opening_a_session():
                            "config": {"nonsense": {}}}})
     assert reply["error"]["code"] == "BAD_CONFIG"
     assert send({"op": "list_sessions"})["result"]["count"] == 0
+
+
+def test_a_profile_refusal_has_one_name_whatever_op_asked():
+    """`call` and `describe_tool` must not disagree about the same refusal."""
+    for request in ({"op": "call", "tool": "save_fit", "args": {"session_id": "x"}},
+                    {"op": "describe_tool", "args": {"name": "save_fit"}}):
+        assert send(request)["error"]["code"] == "NOT_AVAILABLE_OVER_ZMQ", request["op"]

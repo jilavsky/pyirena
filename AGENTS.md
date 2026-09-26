@@ -169,6 +169,7 @@ change how you should work.
 | Touching HDF5 read/write | `docs/HDF5_NxcanSAS_structure.md` |
 | Working on the api/MCP layer | `pyirena/api/README.md`, `docs/ai_tools_reference.md`, `docs/ai_integration.md` |
 | Working on the ZMQ service (remote, JSON-only callers) | `docs/zmq_service.md`, `planning/zmq-service/` |
+| Deploying or testing the ZMQ service | `docs/zmq_service_testing.md` (checklist) + `scripts/zmq_smoke_test.py` (pyzmq only, runs anywhere) |
 | Writing or fixing tests | `docs/testing.md` |
 | Validating the maths, or comparing results with Igor Irena | `docs/validation.md`, `validationData/README.md` |
 | Working on batch/scripting | `docs/batch_api.md` |
