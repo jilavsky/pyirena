@@ -173,6 +173,60 @@ raise TimeoutError(...)
 
 ---
 
+## One call: `analyze`
+
+Most of the time the fit is already known — a scientist set it up in the GUI,
+exported the parameters, and every new measurement should be fitted the same
+way. That is one request, not six:
+
+```json
+{"op": "call", "tool": "analyze",
+ "args": {"data": {"q": [...], "intensity": [...], "error": [...]},
+          "config": { ...the exported pyirena_config.json... }}}
+```
+
+```python
+results = pyirena.call("analyze", data={"q": q, "intensity": I, "error": e},
+                       config=json.load(open("modeling.json")))
+```
+
+It opens its own session, applies the configuration, fits, returns the same
+payload `export_results` does (plus an `analyze` block), and closes the
+session in a `finally` — so a client that dies mid-call cannot leak one.
+
+**The tool is inferred** from the config, because a GUI export holds exactly
+one tool section. Pass `tool` only to override it.
+
+**The whole configuration is applied, not just the model.** A config carries
+the fitted Q range, the slit settings, which parameters are held fixed, and
+per-tool preparatory steps — the Size Distribution's power-law and flat
+background pre-fits, the WAXS peak Q0 presearch. Those change the answer, so
+skipping them would return a plausible wrong number rather than an error.
+Anything adjusted is reported:
+
+```json
+"analyze": {"tool": "sizes", "config_applied": true,
+            "fit_q_min": 0.00493, "fit_q_max": 0.0736,
+            "fixed_parameters": [], "n_points_input": 516,
+            "cleaning": {"n_input": 516, "n_kept": 516, "...": "..."},
+            "notes": ["Power-law pre-fit: B = 0.0004554, P = 3.183",
+                      "Background pre-fit: 0.4996 cm⁻¹"]}
+```
+
+Read `notes` — it is where a Q range that missed the curve, or a pre-fit that
+failed, is reported rather than swallowed.
+
+`analyze` and `pyirena.batch` share their config-to-model translation
+(`pyirena/core/tool_config.py`), so a fit replayed over the wire and the same
+fit run from the command line produce identical numbers. The test suite
+asserts that on real exported configs for all six tools.
+
+### When not to use it
+
+Use the session tools when the fit is *not* already known — when an agent
+needs to look at the data, try a model, free a parameter and refit. `analyze`
+is one shot: it cannot iterate.
+
 ## A session, end to end
 
 ```python
@@ -325,14 +379,18 @@ path you cannot open.
 ## For an agent driving the service
 
 1. `server_info` — what this deployment allows.
-2. `list_categories` → `list_tools(category)` → `describe_tool(name)`. The
-   schemas are Anthropic tool-use shaped; pass them to the model as tools and
-   wrap each call it makes in `{"op": "call", "tool": ..., "args": ...}`.
-3. `open_dataset` with the arrays → `session_id`.
-4. `select_model` → set parameters / fix what should not float → `set_fit_q_range`.
-5. `run_fit` → `get_fit_quality`.
-6. `export_results` → keep the JSON.
-7. `close_session`. **Always** — sessions are evicted eventually, but a
+2. **If a saved configuration exists for this kind of measurement, call
+   `analyze` and stop here.** It is one request, it applies the whole
+   configuration, and it cannot leak a session.
+3. Otherwise: `list_categories` → `list_tools(category)` →
+   `describe_tool(name)`. The schemas are Anthropic tool-use shaped; pass
+   them to the model as tools and wrap each call it makes in
+   `{"op": "call", "tool": ..., "args": ...}`.
+4. `open_dataset` with the arrays → `session_id`.
+5. `select_model` → set parameters / fix what should not float → `set_fit_q_range`.
+6. `run_fit` → `get_fit_quality`.
+7. `export_results` → keep the JSON.
+8. `close_session`. **Always** — sessions are evicted eventually, but a
    forgotten one holds memory until then.
 
 One session per curve. Two callers can use the service at once, but requests
@@ -343,7 +401,9 @@ are served one at a time, so a long fit delays everyone — including `ping`.
 ## Limits in this version
 
 * **Synchronous only.** No job queue; a call either finishes in the budget or
-  returns `TIMEOUT`.
+  returns `TIMEOUT`. In practice a fit takes well under a second to a few
+  seconds; the one setting that reliably outruns the budget is Monte-Carlo
+  uncertainties, which is why they are never run unless asked for.
 * **One request at a time.** Fits are CPU-bound and the session registry is
   not thread-safe, so the service serialises deliberately.
 * **JSON arrays only.** No binary framing — it would break the one-frame

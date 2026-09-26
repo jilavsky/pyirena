@@ -270,38 +270,21 @@ def fit_simple_from_config(
               f"'{config_file.name}'")
         return {'success': False, 'message': "No 'simple_fits' section in config file"}
 
-    # Work on a shallow copy so we don't mutate the caller's config dict
-    sf_cfg = dict(sf_cfg)
-
-    # Extract optional Q range from config (stored by the GUI panel)
-    q_min = sf_cfg.pop('q_min', None)
-    q_max = sf_cfg.pop('q_max', None)
-
-    # The GUI state uses 'param_limits'; SimpleFitModel.from_dict() expects 'limits'
-    if 'param_limits' in sf_cfg and 'limits' not in sf_cfg:
-        sf_cfg['limits'] = sf_cfg.pop('param_limits')
-    else:
-        sf_cfg.pop('param_limits', None)
-
-    # The GUI stores per-parameter "Fit?" state as param_fixed = {name: True if
-    # held fixed}.  SimpleFitModel.fit() expects fixed_params = {name: value},
-    # so build that from the params dict.  Without this the batch path would
-    # refit every parameter, ignoring the user's fixed-parameter choices.
-    param_fixed = sf_cfg.pop('param_fixed', {}) or {}
-    params = sf_cfg.get('params', {}) or {}
-    fixed_params = {
-        name: params[name]
-        for name, is_fixed in param_fixed.items()
-        if is_fixed and name in params
-    }
-
-    # Remove state-only keys that have no meaning for from_dict()
-    for _k in ('schema_version', 'no_limits'):
-        sf_cfg.pop(_k, None)
+    # Shared with api.control.analyze via core/tool_config.py: the GUI's
+    # param_limits/param_fixed spelling and the Q range are translated in one
+    # place, so a replay over the ZMQ service honours the same fixed
+    # parameters this path does.
+    from pyirena.core.tool_config import simple_model_from_config
+    q_min = sf_cfg.get('q_min')
+    q_max = sf_cfg.get('q_max')
+    # Pass the built model rather than the dict: fit_simple() would otherwise
+    # re-run from_dict() on a section still spelling 'param_limits', losing
+    # the user's bounds.
+    model, fixed_params = simple_model_from_config(sf_cfg)
 
     result = fit_simple(
         data_file=data_file,
-        config=sf_cfg,
+        config=model,
         with_uncertainty=with_uncertainty,
         n_mc_runs=n_mc_runs,
         q_min=q_min,

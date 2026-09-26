@@ -127,7 +127,6 @@ def fit_sizes(
     ...     print(f"Peak radius = {peak_r:.1f} Å")
     """
     _ensure_console()
-    from pyirena.core.sizes import SizesDistribution
 
     data_file = Path(data_file)
     config_file = Path(config_file)
@@ -160,42 +159,21 @@ def fit_sizes(
         return None
 
     # --- Build SizesDistribution from config ---
+    # Shared with api.control.analyze via core/tool_config.py, so a config
+    # replayed over the ZMQ service builds the identical model.
     try:
-        s = SizesDistribution()
-        s.r_min              = float(sizes_state.get('r_min', 10.0))
-        s.r_max              = float(sizes_state.get('r_max', 1000.0))
-        s.n_bins             = int(sizes_state.get('n_bins', 200))
-        s.log_spacing        = bool(sizes_state.get('log_spacing', True))
-        s.shape              = str(sizes_state.get('shape', 'sphere'))
-        s.contrast           = float(sizes_state.get('contrast', 1.0))
-        ar = sizes_state.get('aspect_ratio', 1.0)
-        if s.shape == 'spheroid':
-            s.shape_params = {'aspect_ratio': float(ar)}
-        s.background         = float(sizes_state.get('background', 0.0))
-        s.error_scale        = float(sizes_state.get('error_scale', 1.0))
-        s.fractional_error   = bool(sizes_state.get('fractional_error', False))
-        s.fractional_error_value = float(sizes_state.get('fractional_error_value', 0.03))
-        s.power_law_B        = float(sizes_state.get('power_law_B', 0.0))
-        s.power_law_P        = float(sizes_state.get('power_law_P', 4.0))
-        s.method             = str(sizes_state.get('method', 'regularization'))
-        s.maxent_sky_background  = float(sizes_state.get('maxent_sky_background', 1e-6))
-        s.maxent_stability       = float(sizes_state.get('maxent_stability', 0.01))
-        s.maxent_max_iter        = int(sizes_state.get('maxent_max_iter', 300))
-        s.regularization_evalue  = float(sizes_state.get('regularization_evalue', 1.0))
-        s.regularization_min_ratio = float(sizes_state.get('regularization_min_ratio', 1e-4))
-        s.tnnls_approach_param   = float(sizes_state.get('tnnls_approach_param', 0.95))
-        s.tnnls_max_iter         = int(sizes_state.get('tnnls_max_iter', 300))
-        s.montecarlo_n_repetitions = 1  # main fit always uses a single MC run, matching GUI
-        # Slit smearing: enable when the loaded data are slit smeared or the
-        # config asks for it; slit length is file-derived unless overridden.
-        cfg_sl = sizes_state.get('slit_length')
-        sl = float(cfg_sl) if cfg_sl else float(data.get('slit_length', 0.0) or 0.0)
-        if (bool(data.get('is_slit_smeared')) or bool(sizes_state.get('use_slit_smearing'))) and sl > 0:
-            s.use_slit_smearing = True
-            s.slit_length = sl
-            log.info(f"[pyirena.batch] Sizes slit smearing enabled (SL={sl:.4g} 1/A).")
+        from pyirena.core.tool_config import sizes_model_from_config
+        s = sizes_model_from_config(
+            sizes_state,
+            data_is_slit_smeared=bool(data.get('is_slit_smeared')),
+            data_slit_length=float(data.get('slit_length', 0.0) or 0.0),
+        )
+        if s.use_slit_smearing:
+            log.info(f"[pyirena.batch] Sizes slit smearing enabled "
+                     f"(SL={s.slit_length:.4g} 1/A).")
     except Exception:
-        log.error(f"[pyirena.batch] Error building Sizes model from config:\n{traceback.format_exc()}")
+        log.error(f"[pyirena.batch] Error building Sizes model from config:\n"
+                  f"{traceback.format_exc()}")
         return None
 
     # --- Apply Q range from saved cursor positions ---

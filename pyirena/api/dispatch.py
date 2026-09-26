@@ -76,6 +76,7 @@ _CATEGORY_BY_MODULE = {
     "waxs_peakfit": "waxs",
     "carbon_fit": "carbon",
     "export": "results",
+    "analyze": "results",
 }
 
 _CATEGORY_BLURBS = {
@@ -90,9 +91,10 @@ _CATEGORY_BLURBS = {
         "with density, contrast and pore/wall widths derived from the fit."
     ),
     "results": (
-        "Results — export a finished fit as one JSON document, whichever "
-        "of the six fitting tools produced it: parameters, quality, "
-        "derived quantities and the model config needed to replay it."
+        "Results — fit a curve with a saved configuration in one call "
+        "(analyze), and export a finished fit as one JSON document "
+        "whichever tool produced it (export_results): parameters, "
+        "quality, derived quantities and the config needed to replay it."
     ),
     "calculators": (
         "Calculators — stateless support calculations that need no dataset "

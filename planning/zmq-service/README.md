@@ -7,7 +7,7 @@ plan.
 
 Written: 24-09-2026, against pyIrena 1.1.1.
 Phase 0 answered by the project owner: 24-09-2026.
-**Status: Phases 1 and 2 shipped 25-09-2026 on `feature/zmq-service`.**
+**Status: Phases 1, 2 and 3 shipped on `feature/zmq-service` (25–26-09-2026).**
 The service runs, is documented in `docs/zmq_service.md`, and has 82
 tests of its own. What is left before it is deployed is in §11.
 
@@ -470,7 +470,7 @@ Departures from the sketch above, all deliberate:
   erroring on it. Over this transport the op can only mean "here is the data",
   and silently having a path honoured would be the dangerous reading.
 
-### Phase 3 — One-shot "recipe" call (S–M, now recommended, not optional)
+### Phase 3 — One-shot "recipe" call — **DONE 26-09-2026**
 
 With a synchronous 60 s contract, every extra round trip costs latency and
 another chance to strand a session. A single coarse tool for the common case:
@@ -600,15 +600,11 @@ Ordered by what blocks a first real run.
    is open between them, and check that a 2000-point request and its reply
    survive the real network path. This is the only Phase 2 exit criterion not
    yet met.
-2. **Decide about `analyze` (Phase 3).** With a synchronous contract, a
-   one-call "fit this curve with this saved config" avoids five round trips
-   and cannot leak a session. Worth doing before the agent-side workflow is
-   written around the fine-grained tools — §12 is what it needs first.
-3. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
+2. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
    a service account, the conda/venv the service runs from, and the firewall
    rule. Confirm whether the project already has a convention for these that
    pyIrena should match (open question 7).
-4. **Watch Modeling.** It is the one tool whose fit can plausibly reach the
+3. **Watch Modeling.** It is the one tool whose fit can plausibly reach the
    55 s budget once it has several populations. If real use hits `TIMEOUT`
    regularly, that is the signal for Phase 4, not a reason to raise the
    budget past the client's own timeout.
@@ -676,3 +672,41 @@ The one that cannot be synthesised is the second: the panel dialect is
 historical and per-tool, and a config I write from the spec in
 `docs/batch_api.md` would test my reading of the spec rather than what the GUI
 actually writes. One export per tool, from a fit that already works, is enough.
+
+
+---
+
+## 13. Phase 3 as built (26-09-2026)
+
+`analyze(data, config, tool=None, include_arrays=False, max_points=2000)` in
+`pyirena/api/control/analyze.py`, dispatched in the new `results` category, so
+it reaches MCP and the ZMQ service without a bespoke op.
+
+What §12 predicted held up, and the shape it settled into:
+
+- **`core/tool_config.py` is the shared translation.** `build_setup(config)`
+  returns a `ToolSetup` — the model *plus* the fit Q range, the held
+  parameters and the slit settings, because those are in a config and not in
+  `model.to_dict()`. `pyirena.batch` was pointed at the same code rather than
+  keeping its inline copies, so there is one implementation, not two.
+- **The tool is inferred** from the single section a GUI export contains.
+- **Pre-fit steps are part of the config.** Two tools do preparatory work the
+  config asks for, and both were missed on the first attempt — the numbers
+  came out close enough to look right: Sizes (power-law and flat background
+  over their own Q windows) and WAXS (peak Q0 presearch). They also disagree
+  about which data they should see, and both are right: the Sizes windows are
+  chosen independently of the fit cursors, so they read the full curve, while
+  the WAXS presearch re-centres the peaks about to be fitted, so it reads only
+  the fitted range. Getting that backwards changed the WAXS reduced chi-squared
+  in the fifth decimal — visible only because the test compares against
+  `pyirena.batch` at `rel=1e-9`.
+
+**Validated against Jan's `testData/Scripting/`** — one GUI-exported config
+plus its data file per tool. `test_analyze.py` fits each through `analyze`
+and through `pyirena.batch` and requires the same number to nine digits. That
+test is the guard against the two paths drifting.
+
+Timings on the real Modeling fixture (516 points, 10 populations, 2 enabled):
+local 2.8 s, differential evolution 2.8 s — comfortable. **Monte-Carlo
+uncertainties are the exception**: at the config's own `n_mc_runs=50` the
+same fit is ~176 s, three times the budget. They stay off unless asked for.

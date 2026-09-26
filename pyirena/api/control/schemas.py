@@ -751,6 +751,53 @@ TOOL_SCHEMAS: list[dict] = [
     # Size Distribution (Sizes) — model lifecycle
     # -----------------------------------------------------------------------
     {
+        "name": "analyze",
+        "description": (
+            "Fit one curve with a saved pyIrena configuration, in a single "
+            "call. Use this when the fit is already known — a scientist set "
+            "it up in the GUI and exported the parameters — and every new "
+            "measurement should be fitted the same way. Opens its own "
+            "session, applies the config (including its Q range and held "
+            "parameters, which are part of the configuration and change the "
+            "answer), runs the fit, returns the export_results payload, and "
+            "closes the session, so nothing is left behind. The tool is "
+            "inferred from the config when it holds one tool section. For "
+            "exploring a fit step by step, use open_dataset_from_data and "
+            "the per-tool tools instead."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "description": (
+                        "The curve: {q, intensity, error?, dq?, label?, "
+                        "is_slit_smeared?, slit_length?}. Q in 1/Angstrom."
+                    ),
+                },
+                "config": {
+                    "type": "object",
+                    "description": (
+                        "A pyIrena config file as written by the GUI's Export "
+                        "Parameters, or one tool's section with 'tool' given."
+                    ),
+                },
+                "tool": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Which tool to run. Inferred from the config when it "
+                        "holds exactly one tool section."
+                    ),
+                    "enum": ["unified_fit", "sizes", "simple_fits", "modeling",
+                             "waxs_peakfit", "carbon_fit", None],
+                },
+                "include_arrays": {"type": "boolean", "default": False},
+                "max_points": {"type": ["integer", "null"], "default": 2000},
+            },
+            "required": ["data", "config"],
+        },
+    },
+    {
         "name": "export_results",
         "description": (
             "Export a finished fit as one JSON document, whichever of the six "

@@ -87,6 +87,11 @@ from pyirena.api.control.unified_fit import (
     export_fit_report,
 )
 
+from pyirena.api.control.analyze import (
+    # One-shot: fit a curve with a saved config, no session to manage
+    analyze,
+)
+
 from pyirena.api.control.export import (
     # Results — one JSON report for any of the six fitting tools
     export_results,
@@ -240,6 +245,7 @@ __all__ = [
     "save_fit", "export_fit_report",
     # Results (all tools)
     "export_results",
+    "analyze",
     # Sizes
     "select_sizes_model", "get_sizes_config",
     "set_size_grid", "set_shape",

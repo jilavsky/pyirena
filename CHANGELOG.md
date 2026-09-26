@@ -33,6 +33,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that catches everyone: a REQ socket that has timed out is unusable and must
   be rebuilt, not reused.
 
+- **`analyze()`** — fit a curve with a saved pyIrena configuration in one
+  call. The coarse counterpart to the session tools, for the common case
+  where the fit is already known: a scientist set it up in the GUI, exported
+  the parameters, and every new measurement should be fitted the same way.
+  One request instead of six, and it opens and closes its own session so it
+  cannot leak one. The tool is inferred from the config, which holds exactly
+  one tool section as the GUI writes it. Available over MCP and the ZMQ
+  service alike.
+
+  It applies the *whole* configuration, not just the model: the fitted Q
+  range, the held parameters, and the per-tool preparatory steps (the Size
+  Distribution's power-law and flat-background pre-fits, the WAXS peak Q0
+  presearch). Those change the result, so omitting them would return a
+  plausible wrong number rather than an error. Anything adjusted — a Q range
+  clipped to the curve, a pre-fit that failed — is reported back in the
+  reply rather than swallowed.
+
+- **`pyirena/core/tool_config.py`** — one implementation of "config section →
+  configured model", now shared by `pyirena.batch` and `analyze` instead of
+  living inline in each `batch/<tool>.py`. The test suite fits all six tools
+  through both paths on real exported configs and requires identical numbers,
+  so the two cannot drift the way the batch and GUI paths did before.
+
 - **`open_dataset_from_data()`** — create a fitting session from q/I/dI arrays
   with no file involved, for callers that hold the data rather than a path the
   server can read. Cleaning reuses the text-import rules, so a curve behaves

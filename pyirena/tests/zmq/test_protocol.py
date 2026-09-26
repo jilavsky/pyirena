@@ -152,7 +152,7 @@ def test_list_and_describe_round_trip():
     assert {"unified", "results"} <= {c["name"] for c in categories}
 
     tools = send({"op": "list_tools", "args": {"category": "results"}})["result"]["tools"]
-    assert [t["name"] for t in tools] == ["export_results"]
+    assert [t["name"] for t in tools] == ["analyze", "export_results"]
 
     schema = send({"op": "describe_tool", "args": {"name": "export_results"}})["result"]
     assert schema["name"] == "export_results"
@@ -315,3 +315,51 @@ def test_a_full_workflow_never_produces_an_unserialisable_reply(session):
         reply = send(step)
         assert reply["ok"], (step["tool"], reply.get("error"))
     assert reply["result"]["tool"] == "unified_fit"
+
+
+# ---------------------------------------------------------------------------
+# analyze — the one-call path the orchestrator will mostly use
+# ---------------------------------------------------------------------------
+
+def test_analyze_fits_a_curve_from_a_config_in_one_request():
+    """One round trip: data in, fitted results out, no session to manage."""
+    q, I, e = _curve(300)
+    config = {
+        "_pyirena_config": {"tool": "unified_fit"},
+        "unified_fit": {
+            "num_levels": 1,
+            "background": {"value": 0.01, "fit": True},
+            "levels": [{
+                "G":  {"value": 900.0, "fit": True,  "low_limit": 1.0, "high_limit": 1e6},
+                "Rg": {"value": 140.0, "fit": True,  "low_limit": 10.0, "high_limit": 1e4},
+                "B":  {"value": 1e-6,  "fit": True,  "low_limit": 0.0, "high_limit": 1.0},
+                "P":  {"value": 4.0,   "fit": False, "low_limit": 0.0, "high_limit": 6.0},
+            }],
+        },
+    }
+    reply = send({"op": "call", "tool": "analyze",
+                  "args": {"data": {"q": q, "intensity": I, "error": e},
+                           "config": config}})
+    assert reply["ok"], reply.get("error")
+    result = reply["result"]
+    assert result["tool"] == "unified_fit"
+    assert result["analyze"]["config_applied"] is True
+    assert result["quality"]["reduced_chi_squared"] is not None
+
+    # The point of analyze: it owns its session and leaves nothing behind.
+    assert send({"op": "list_sessions"})["result"]["count"] == 0
+
+
+def test_analyze_is_reachable_in_the_json_only_profile():
+    """It takes no path and returns no image, so a remote caller may use it."""
+    tools = send({"op": "list_tools", "args": {"category": "results"}})["result"]["tools"]
+    assert "analyze" in [t["name"] for t in tools]
+
+
+def test_a_bad_config_is_refused_without_opening_a_session():
+    q, I, _ = _curve(50)
+    reply = send({"op": "call", "tool": "analyze",
+                  "args": {"data": {"q": q, "intensity": I},
+                           "config": {"nonsense": {}}}})
+    assert reply["error"]["code"] == "BAD_CONFIG"
+    assert send({"op": "list_sessions"})["result"]["count"] == 0
