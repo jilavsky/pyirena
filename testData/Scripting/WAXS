@@ -1,0 +1,195 @@
+{
+  "_pyirena_config": {
+    "file_type": "pyIrena Configuration File",
+    "version": "1.1.1",
+    "created": "2026-09-25T19:25:27",
+    "modified": "2026-09-25T19:25:27",
+    "written_by": "pyIrena 1.1.1"
+  },
+  "waxs_peakfit": {
+    "q_min": 2.5481581337934798,
+    "q_max": 3.014276777606387,
+    "bg_shape": "Rolling Ball",
+    "bg_params": {
+      "radius": {
+        "value": 0.1
+      }
+    },
+    "peaks": [
+      {
+        "shape": "Pseudo-Voigt",
+        "A": {
+          "value": 14.0712,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.664,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.00766688,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        },
+        "eta": {
+          "value": 0.357652,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1.0
+        }
+      },
+      {
+        "shape": "Pseudo-Voigt",
+        "A": {
+          "value": 7.5183,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.67856,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.00672936,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        },
+        "eta": {
+          "value": 0.159211,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1.0
+        }
+      },
+      {
+        "shape": "Gauss",
+        "A": {
+          "value": 0.191295,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.6066,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.0151397,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        }
+      },
+      {
+        "shape": "Gauss",
+        "A": {
+          "value": 0.365413,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.81829,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.0206705,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        }
+      },
+      {
+        "shape": "Gauss",
+        "A": {
+          "value": 0.33732,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.871,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.0203293,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        }
+      },
+      {
+        "shape": "Gauss",
+        "A": {
+          "value": 0.17487,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.94222,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.0183322,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        }
+      },
+      {
+        "shape": "Gauss",
+        "A": {
+          "value": 0.108199,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 1000000000.0
+        },
+        "Q0": {
+          "value": 2.70362,
+          "fit": true,
+          "lo": 0.0,
+          "hi": 100.0
+        },
+        "FWHM": {
+          "value": 0.0127406,
+          "fit": true,
+          "lo": 1e-06,
+          "hi": 10.0
+        }
+      }
+    ],
+    "no_limits": false,
+    "weight_mode": "equal",
+    "peak_find": {
+      "prominence": 0.07,
+      "min_fwhm": 0.001,
+      "max_fwhm": 0.5,
+      "min_distance": 0.005,
+      "sg_window_frac": 0.15
+    },
+    "presearch": {
+      "cross_corr": true,
+      "per_peak_scan": true,
+      "search_window": 0.036,
+      "n_steps": 50
+    }
+  }
+}

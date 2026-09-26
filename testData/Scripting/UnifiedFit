@@ -1,0 +1,243 @@
+{
+  "_pyirena_config": {
+    "file_type": "pyIrena Configuration File",
+    "version": "1.1.1",
+    "created": "2026-09-25T19:22:01",
+    "modified": "2026-09-25T19:22:01",
+    "written_by": "pyIrena 1.1.1"
+  },
+  "unified_fit": {
+    "num_levels": 2,
+    "levels": [
+      {
+        "level": 1,
+        "G": {
+          "value": 31300.0,
+          "fit": true,
+          "low_limit": 6260.0,
+          "high_limit": 156000.0
+        },
+        "Rg": {
+          "value": 286.0,
+          "fit": true,
+          "low_limit": 57.2,
+          "high_limit": 1430.0
+        },
+        "B": {
+          "value": 0.000113,
+          "fit": true,
+          "low_limit": 2.26e-05,
+          "high_limit": 0.000565
+        },
+        "P": {
+          "value": 4.1,
+          "fit": true,
+          "low_limit": 2.05,
+          "high_limit": 5.0
+        },
+        "ETA": {
+          "value": 146000.0,
+          "fit": true,
+          "low_limit": 29200.0,
+          "high_limit": 730000.0
+        },
+        "PACK": {
+          "value": 0.314,
+          "fit": true,
+          "low_limit": 0.0628,
+          "high_limit": 1.57
+        },
+        "RgCutoff": 0.0,
+        "correlated": false,
+        "estimate_B": false,
+        "link_rgco": false
+      },
+      {
+        "level": 2,
+        "G": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 356000.0,
+          "high_limit": 8900000.0
+        },
+        "Rg": {
+          "value": 10000000000.0,
+          "fit": false,
+          "low_limit": 2000000000.0,
+          "high_limit": 50000000000.0
+        },
+        "B": {
+          "value": 6.96e-05,
+          "fit": true,
+          "low_limit": 1.39e-05,
+          "high_limit": 0.000348
+        },
+        "P": {
+          "value": 3.43,
+          "fit": true,
+          "low_limit": 1.72,
+          "high_limit": 5.0
+        },
+        "ETA": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.0,
+          "high_limit": 1.0
+        },
+        "PACK": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.0,
+          "high_limit": 1.0
+        },
+        "RgCutoff": 0.0,
+        "correlated": false,
+        "estimate_B": false,
+        "link_rgco": false
+      },
+      {
+        "level": 3,
+        "G": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 5240.0,
+          "high_limit": 131000.0
+        },
+        "Rg": {
+          "value": 10000000000.0,
+          "fit": false,
+          "low_limit": 2000000000.0,
+          "high_limit": 50000000000.0
+        },
+        "B": {
+          "value": 9.81e-08,
+          "fit": true,
+          "low_limit": 1.96e-08,
+          "high_limit": 4.9e-07
+        },
+        "P": {
+          "value": 3.98,
+          "fit": false,
+          "low_limit": 1.99,
+          "high_limit": 5.0
+        },
+        "ETA": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 604.0,
+          "high_limit": 10000.0
+        },
+        "PACK": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.386,
+          "high_limit": 9.65
+        },
+        "RgCutoff": 0.0,
+        "correlated": false,
+        "estimate_B": false,
+        "link_rgco": false
+      },
+      {
+        "level": 4,
+        "G": {
+          "value": 100.0,
+          "fit": false,
+          "low_limit": 20.0,
+          "high_limit": 500.0
+        },
+        "Rg": {
+          "value": 100.0,
+          "fit": false,
+          "low_limit": 2000000000.0,
+          "high_limit": 10000.0
+        },
+        "B": {
+          "value": 0.01,
+          "fit": false,
+          "low_limit": 3.48e-12,
+          "high_limit": 8.7e-11
+        },
+        "P": {
+          "value": 4.0,
+          "fit": false,
+          "low_limit": 2.5,
+          "high_limit": 5.0
+        },
+        "ETA": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.0,
+          "high_limit": 1.0
+        },
+        "PACK": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.0,
+          "high_limit": 1.0
+        },
+        "RgCutoff": 0.0,
+        "correlated": false,
+        "estimate_B": false,
+        "link_rgco": false
+      },
+      {
+        "level": 5,
+        "G": {
+          "value": 100.0,
+          "fit": false,
+          "low_limit": 20.0,
+          "high_limit": 500.0
+        },
+        "Rg": {
+          "value": 100.0,
+          "fit": false,
+          "low_limit": 20.0,
+          "high_limit": 500.0
+        },
+        "B": {
+          "value": 0.01,
+          "fit": false,
+          "low_limit": 0.002,
+          "high_limit": 0.05
+        },
+        "P": {
+          "value": 4.0,
+          "fit": false,
+          "low_limit": 2.0,
+          "high_limit": 5.0
+        },
+        "ETA": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.0,
+          "high_limit": 1.0
+        },
+        "PACK": {
+          "value": 0.0,
+          "fit": false,
+          "low_limit": 0.0,
+          "high_limit": 1.0
+        },
+        "RgCutoff": 0.0,
+        "correlated": false,
+        "estimate_B": false,
+        "link_rgco": false
+      }
+    ],
+    "background": {
+      "value": 0.606,
+      "fit": true
+    },
+    "cursor_left": 0.0001443616715864446,
+    "cursor_right": 0.29920701623837215,
+    "update_auto": true,
+    "display_local": false,
+    "no_limits": false,
+    "skip_fit_check": false,
+    "store_local": false,
+    "schema_version": 2,
+    "use_slit_smearing": false,
+    "slit_length": 0.0
+  }
+}

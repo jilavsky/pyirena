@@ -1,0 +1,27 @@
+{
+  "_pyirena_config": {
+    "file_type": "pyIrena Configuration File",
+    "version": "1.1.1",
+    "created": "2026-09-25T19:32:33",
+    "modified": "2026-09-25T19:32:33",
+    "written_by": "pyIrena 1.1.1"
+  },
+  "saxs_morph": {
+    "voxel_size_render": 128,
+    "box_size_A": 1000.0,
+    "rng_seed": null,
+    "smooth_sigma": 1.0,
+    "input_mode": "contrast",
+    "volume_fraction": 0.5,
+    "contrast": 287.0,
+    "power_law_B": 0.0,
+    "power_law_P": 4.0,
+    "background": 0.0,
+    "power_law_q_min": 0.0,
+    "power_law_q_max": 0.01498,
+    "background_q_min": 0.001556,
+    "background_q_max": 0.002509,
+    "q_min": 0.025427285754069908,
+    "q_max": 0.31150168205209894
+  }
+}

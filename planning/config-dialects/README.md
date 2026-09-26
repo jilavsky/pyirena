@@ -33,9 +33,10 @@ output (fit results and data arrays correctly excluded):
 | WAXS Peak Fit | `use_analytic_jacobian` |
 | **Size Distribution** | **`use_slit_smearing`, `slit_length`**, plus `use_analytic_jacobian` |
 
-`use_analytic_jacobian` is a performance switch and does not change the
-answer; leaving it out is defensible, but it should be deliberate and written
-down rather than incidental.
+`use_analytic_jacobian` looks like a harmless performance switch. In Simple
+Fits it is not — see Problem C. That is the argument for the contract test in
+Step 2: "probably harmless to omit" is not a judgement worth making tool by
+tool, by hand.
 
 **The Sizes entry is a bug, and it is a scientific one.** Demonstrated:
 
@@ -49,6 +50,35 @@ A slit-smeared size-distribution setup, saved and reloaded, silently comes
 back as a pinhole fit. It does not error; it returns a different, plausible
 answer. Unified Fit round-trips both fields correctly, which is what makes
 this an inconsistency rather than a design choice.
+
+### Problem C — `SimpleFitModel.from_dict()` produces an object that cannot fit
+
+Found 26-09-2026 by running the new `testData/Scripting/` fixtures. Not a
+dialect problem; the same root cause.
+
+```python
+>>> m = SimpleFitModel.from_dict({"model": "Guinier", "params": {}})
+>>> m.fit(q, I, dI)
+AttributeError: 'SimpleFitModel' object has no attribute 'use_analytic_jacobian'
+```
+
+`from_dict()` builds the object with `cls.__new__(cls)` and assigns fields one
+by one, bypassing `__init__`. `use_analytic_jacobian` is set in `__init__`,
+absent from `to_dict()`, and never assigned in `from_dict()` — so every model
+rebuilt from a dict is missing it, and `fit()` reads it unconditionally.
+
+**`pyirena.batch.fit_simple_from_config()` therefore fails for every real
+model.** It is the documented scripting entry point for Simple Fits.
+
+The test suite misses it because the only tests driving that path
+(`test_invariant.py`) use the `Invariant` model, which returns before reaching
+the Jacobian branch.
+
+Fix: assign it in `from_dict()` with a `True` default, and add it to
+`to_dict()`. Two lines. The interesting part is not the fix but that
+`cls.__new__` + hand-assignment is a pattern that silently drops any field
+added later — worth checking the other tools use the constructor instead
+(they do; Simple Fits is the only one that loses an attribute outright).
 
 ### Problem B — Unified Fit has two vocabularies
 
@@ -136,24 +166,34 @@ Three rules, in priority order.
 Four steps, each shippable alone and in this order. Sizes are **S** ≈ one
 session, **M** ≈ two to three.
 
-### Step 1 — Fix the Sizes slit bug (S, do this first and separately)
+### Step 1 — Fix the two serialisation bugs (S, do this first and separately)
 
-Add `use_slit_smearing` and `slit_length` to `SizesDistribution.to_dict()` and
-read them in `from_dict()` with safe defaults. Additive, so old files still
-load. Add the round-trip case to `test_core_serialization.py`.
+1. **Simple Fits crash (Problem C).** Assign `use_analytic_jacobian` in
+   `SimpleFitModel.from_dict()` and add it to `to_dict()`. This one is
+   urgent: a documented scripting entry point raises `AttributeError` today.
+2. **Sizes slit loss (Problem A).** Add `use_slit_smearing` and `slit_length`
+   to `SizesDistribution.to_dict()` and read them in `from_dict()`. Additive,
+   so old files still load.
 
-Independent of everything below and worth doing on its own branch this week —
-it silently changes results today.
+Both need a round-trip case in `test_core_serialization.py`, and both are
+independent of everything below. Worth their own small branch — one is a
+crash, the other silently changes results.
 
 ### Step 2 — A completeness contract (S)
 
-One test, in the spirit of `test_tool_registration.py` and
-`test_gui_state_contract.py`: for every fitting tool, every scalar/bool model
-attribute is either present in `to_dict()` or named in an explicit
-`_NOT_SERIALISED` allowlist on the class, with a comment saying why. That is
-what turns "someone noticed Sizes" into "the build notices".
+Two tests, in the spirit of `test_tool_registration.py` and
+`test_gui_state_contract.py`:
 
-`use_analytic_jacobian` goes on the allowlist with its reason.
+1. For every fitting tool, every scalar/bool model attribute is either present
+   in `to_dict()` or named in an explicit `_NOT_SERIALISED` allowlist on the
+   class, with a comment saying why.
+2. For every fitting tool, `from_dict(to_dict())` produces an object that can
+   actually **run a fit** — not merely one that compares equal. Problem C
+   would have been caught the day it was introduced by nothing more than
+   that.
+
+Together these turn "someone happened to run a fixture" into "the build
+notices".
 
 ### Step 3 — The setup envelope (M)
 

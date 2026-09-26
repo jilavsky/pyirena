@@ -668,7 +668,7 @@ make a replayed Sizes fit wrong rather than merely incomplete.
 | Test | Needs | Who |
 |---|---|---|
 | **Round trip** — `export_results` config → `analyze` → same parameters, for all six tools | Nothing; synthetic curves as in `test_export_results.py` | — |
-| **Replay a real GUI config** — the actual contract | A `pyirena_config.json` exported from the GUI **per tool**, with its data file. Only one exists today (`testData/Core-shell-tests/`, Modeling only) | **Jan** |
+| **Replay a real GUI config** — the actual contract | ✅ **Received 25-09-2026: `testData/Scripting/`**, one exported config plus data per tool, all six covered | done |
 | **Fit range is honoured** — a config with a restricted Q range must not fit the full curve | Covered by the above; assert the fitted point count | — |
 | **Scientific correctness** — `analyze` reproduces known parameters | `validationData/` already has synthetic data with exactly known values plus `ground_truth.json` and `run_validation_report.py` | — |
 

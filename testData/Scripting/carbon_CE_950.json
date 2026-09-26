@@ -1,0 +1,244 @@
+{
+  "_pyirena_config": {
+    "tool": "carbon_fit",
+    "saved_at": "2026-09-25T19:12:40.676044"
+  },
+  "carbon_fit": {
+    "schema_version": 1,
+    "model": {
+      "schema_version": 1,
+      "background": {
+        "enabled": true,
+        "S_macro": 3669.77,
+        "fit_S_macro": true,
+        "S_macro_limits": [
+          0.0,
+          100000000000000.0
+        ],
+        "porod_exponent": 4.0,
+        "fit_porod_exponent": false,
+        "porod_exponent_limits": [
+          2.0,
+          4.5
+        ],
+        "use_roughness": false,
+        "S_rough": 10000.0,
+        "fit_S_rough": true,
+        "S_rough_limits": [
+          0.0,
+          100000000000000.0
+        ],
+        "R_rough": 50.0,
+        "fit_R_rough": true,
+        "R_rough_limits": [
+          1.0,
+          100000.0
+        ],
+        "flat_background": 0.00756502,
+        "fit_flat_background": true,
+        "flat_background_limits": [
+          0.0,
+          1000000.0
+        ]
+      },
+      "saxs": {
+        "enabled": true,
+        "mode": "fractal",
+        "phi": 0.0172128,
+        "fit_phi": true,
+        "phi_limits": [
+          1e-06,
+          0.95
+        ],
+        "pore_radius": 8.29401,
+        "fit_pore_radius": true,
+        "pore_radius_limits": [
+          1.0,
+          10000.0
+        ],
+        "globule_k": 6.29566,
+        "fit_globule_k": true,
+        "globule_k_limits": [
+          0.1,
+          20.0
+        ],
+        "use_fractal": false,
+        "fractal_D": 2.5,
+        "fit_fractal_D": true,
+        "fractal_D_limits": [
+          1.01,
+          2.99
+        ],
+        "fractal_sigma": 100.0,
+        "fit_fractal_sigma": true,
+        "fractal_sigma_limits": [
+          5.0,
+          100000.0
+        ],
+        "ts_I0": 1.0,
+        "fit_ts_I0": true,
+        "ts_I0_limits": [
+          1e-30,
+          10000000000.0
+        ],
+        "ts_C1": -30.0,
+        "fit_ts_C1": true,
+        "ts_C1_limits": [
+          -100000000.0,
+          100000000.0
+        ],
+        "ts_C2": 5000.0,
+        "fit_ts_C2": true,
+        "ts_C2_limits": [
+          1e-30,
+          100000000000000.0
+        ]
+      },
+      "waxs": {
+        "enabled": true,
+        "delta_z2": 0.0,
+        "fit_delta_z2": false,
+        "delta_z2_limits": [
+          0.0,
+          10.0
+        ],
+        "use_orientation_factor": true,
+        "envelope": "none",
+        "R_layer": 20.0,
+        "fit_R_layer": true,
+        "R_layer_limits": [
+          1.0,
+          10000.0
+        ],
+        "fractal_D": 2.5,
+        "fit_fractal_D": true,
+        "fractal_D_limits": [
+          1.01,
+          2.99
+        ],
+        "fractal_sigma": 100.0,
+        "fit_fractal_sigma": true,
+        "fractal_sigma_limits": [
+          5.0,
+          100000.0
+        ],
+        "link_D_to_saxs": false,
+        "link_sigma_to_saxs": false,
+        "link_R_to_pore": false
+      },
+      "peaks": [
+        {
+          "enabled": true,
+          "label": "002",
+          "Q0": 1.69709,
+          "fit_Q0": true,
+          "Q0_limits": [
+            0.05,
+            25.0
+          ],
+          "K": 0.136228,
+          "fit_K": true,
+          "K_limits": [
+            0.0,
+            1000000000000.0
+          ],
+          "FWHM_G": 0.511865,
+          "fit_FWHM_G": true,
+          "FWHM_G_limits": [
+            0.0001,
+            10.0
+          ],
+          "FWHM_L": 0.388474,
+          "fit_FWHM_L": true,
+          "FWHM_L_limits": [
+            0.0,
+            10.0
+          ]
+        },
+        {
+          "enabled": true,
+          "label": "100",
+          "Q0": 3.0571,
+          "fit_Q0": true,
+          "Q0_limits": [
+            0.05,
+            25.0
+          ],
+          "K": 0.146161,
+          "fit_K": true,
+          "K_limits": [
+            0.0,
+            1000000000000.0
+          ],
+          "FWHM_G": 0.322083,
+          "fit_FWHM_G": true,
+          "FWHM_G_limits": [
+            0.0001,
+            10.0
+          ],
+          "FWHM_L": 2.1995e-09,
+          "fit_FWHM_L": true,
+          "FWHM_L_limits": [
+            0.0,
+            10.0
+          ]
+        },
+        {
+          "enabled": true,
+          "label": "004",
+          "Q0": 3.46039,
+          "fit_Q0": true,
+          "Q0_limits": [
+            0.05,
+            25.0
+          ],
+          "K": 0.0618298,
+          "fit_K": true,
+          "K_limits": [
+            0.0,
+            1000000000000.0
+          ],
+          "FWHM_G": 0.65597,
+          "fit_FWHM_G": true,
+          "FWHM_G_limits": [
+            0.0001,
+            10.0
+          ],
+          "FWHM_L": 2.3271e-05,
+          "fit_FWHM_L": true,
+          "FWHM_L_limits": [
+            0.0,
+            10.0
+          ]
+        }
+      ],
+      "material": {
+        "formula": "C",
+        "rho_struc_mode": "from_peaks",
+        "rho_struc_manual": 2.0,
+        "d002_label": "002",
+        "d100_label": "100",
+        "rho_graphite": 2.26,
+        "d002_graphite": 3.354,
+        "d100_graphite": 2.1315,
+        "porosity_mode": "auto",
+        "porosity_manual": 0.0,
+        "contrast_mode": "auto",
+        "contrast_porod_manual": 287.0,
+        "contrast_micropore_manual": 287.0
+      },
+      "q_min": 0.000239982,
+      "q_max": 5.084825715641635,
+      "weighting": "auto",
+      "max_iterations": 400,
+      "n_mc_runs": 0
+    },
+    "q_min": 0.000239982,
+    "q_max": 5.084825715641635,
+    "auto_update": true,
+    "show_components": true,
+    "waxs_zoom_visible": true,
+    "active_tab": 1,
+    "last_folder": "/Users/ilavsky/Desktop/ExampleData"
+  }
+}

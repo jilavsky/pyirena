@@ -1,0 +1,51 @@
+{
+  "_pyirena_config": {
+    "file_type": "pyIrena Configuration File",
+    "version": "1.1.1",
+    "created": "2026-09-25T19:18:12",
+    "modified": "2026-09-25T19:18:12",
+    "written_by": "pyIrena 1.1.1"
+  },
+  "simple_fits": {
+    "schema_version": 1,
+    "model": "Porod",
+    "q_min": 0.01603027499743178,
+    "q_max": 0.25048936844755426,
+    "use_complex_bg": false,
+    "no_limits": false,
+    "params": {
+      "Kp": 1.23322e-05,
+      "Background": 0.130378
+    },
+    "param_limits": {
+      "Kp": [
+        1e-30,
+        null
+      ],
+      "Background": [
+        null,
+        null
+      ]
+    },
+    "param_fixed": {
+      "Kp": false,
+      "Background": false
+    },
+    "n_mc_runs": 10,
+    "invariant_porod_tail": true,
+    "bg_prefit": {
+      "flat": {
+        "use": true,
+        "q_min": 0.2570028684503404,
+        "q_max": 0.5121185280856186
+      },
+      "enabled": false,
+      "power_law": {
+        "use": true,
+        "q_min": 0.3339856961423483,
+        "q_max": 0.4924275384807049,
+        "fit_P": true
+      }
+    }
+  }
+}

@@ -1,0 +1,541 @@
+{
+  "_pyirena_config": {
+    "file_type": "pyIrena Configuration File",
+    "version": "1.1.1",
+    "created": "2026-09-25T19:17:27",
+    "modified": "2026-09-25T19:17:27",
+    "written_by": "pyIrena 1.1.1"
+  },
+  "modeling": {
+    "background": 0.5388,
+    "fit_background": false,
+    "no_limits": false,
+    "fit_method": "local",
+    "de_workers": 8,
+    "n_mc_runs": 50,
+    "mc_workers": 15,
+    "q_min": 9.408751388566159e-05,
+    "q_max": 0.30002706366226345,
+    "populations": [
+      {
+        "pop_type": "size_dist",
+        "enabled": true,
+        "dist_type": "gauss",
+        "dist_params": {
+          "mean_size": 132.8,
+          "width": 102.9
+        },
+        "dist_params_fit": {
+          "mean_size": true,
+          "width": true
+        },
+        "dist_params_limits": {
+          "mean_size": [
+            28.16,
+            704.0
+          ],
+          "width": [
+            6.918,
+            173.0
+          ]
+        },
+        "form_factor": "spheroid",
+        "ff_params": {
+          "aspect_ratio": 1.0
+        },
+        "ff_params_fit": {
+          "aspect_ratio": false
+        },
+        "ff_params_limits": {
+          "aspect_ratio": [
+            0.2,
+            5.0
+          ]
+        },
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 200.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          40.0,
+          1000.0
+        ],
+        "scale": 0.04952,
+        "fit_scale": true,
+        "scale_limits": [
+          0.009904,
+          0.2476
+        ],
+        "use_number_dist": false,
+        "n_bins": 199,
+        "label": ""
+      },
+      {
+        "pop_type": "unified_level",
+        "enabled": true,
+        "G": 0.0,
+        "fit_G": false,
+        "G_limits": [
+          0.2,
+          5.0
+        ],
+        "Rg": 10000000000.0,
+        "fit_Rg": false,
+        "Rg_limits": [
+          2.0,
+          50.0
+        ],
+        "B": 7.45e-06,
+        "fit_B": true,
+        "B_limits": [
+          2.98e-07,
+          7.45e-06
+        ],
+        "P": 3.707,
+        "fit_P": true,
+        "P_limits": [
+          0.8,
+          6.0
+        ],
+        "RgCO": 0.0,
+        "fit_RgCO": false,
+        "RgCO_limits": [
+          0.0,
+          1000000.0
+        ],
+        "correlations": false,
+        "ETA": 10.0,
+        "fit_ETA": false,
+        "ETA_limits": [
+          2.0,
+          50.0
+        ],
+        "PACK": 0.0,
+        "fit_PACK": false,
+        "PACK_limits": [
+          0.0,
+          16.0
+        ],
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      },
+      {
+        "pop_type": "size_dist",
+        "enabled": false,
+        "dist_type": "lognormal",
+        "dist_params": {
+          "min_size": 10.0,
+          "mean_size": 100.0,
+          "sdeviation": 0.3
+        },
+        "dist_params_fit": {
+          "min_size": false,
+          "mean_size": true,
+          "sdeviation": true
+        },
+        "dist_params_limits": {
+          "min_size": [
+            2.0,
+            50.0
+          ],
+          "mean_size": [
+            20.0,
+            500.0
+          ],
+          "sdeviation": [
+            0.06,
+            1.5
+          ]
+        },
+        "form_factor": "sphere",
+        "ff_params": {},
+        "ff_params_fit": {},
+        "ff_params_limits": {},
+        "structure_factor": "none",
+        "sf_params": {},
+        "sf_params_fit": {},
+        "sf_params_limits": {},
+        "contrast": 1.0,
+        "fit_contrast": false,
+        "contrast_limits": [
+          0.2,
+          5.0
+        ],
+        "scale": 0.001,
+        "fit_scale": true,
+        "scale_limits": [
+          0.0002,
+          0.005
+        ],
+        "use_number_dist": false,
+        "n_bins": 200,
+        "label": ""
+      }
+    ]
+  }
+}
