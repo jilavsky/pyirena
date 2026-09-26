@@ -35,6 +35,7 @@ def fit_simple(
     fixed_params: Optional[Dict] = None,
     verbose: bool = True,
     setup_state: Optional[Dict] = None,
+    save_to_nexus: bool = True,
 ) -> Optional[Dict]:
     """
     Fit a single analytical model to one SAS file and save the result.
@@ -201,8 +202,11 @@ def fit_simple(
                       f"successful runs).")
 
     # ── Save to HDF5 (only for NXcanSAS files) ───────────────────────────────
+    # save_to_nexus=False must actually mean it: this writes into the file it
+    # was handed, so a caller that asked not to — a test, a read-only sweep
+    # over someone's data — must not find their file modified afterwards.
     ext = data_file.suffix.lower()
-    if ext in ('.h5', '.hdf5', '.hdf', '.nx'):
+    if save_to_nexus and ext in ('.h5', '.hdf5', '.hdf', '.nx'):
         try:
             save_simple_fit_results(
                 filepath=data_file,
@@ -292,6 +296,7 @@ def fit_simple_from_config(
         fixed_params=fixed_params if fixed_params else None,
         verbose=True,
         setup_state=config.get('simple_fits'),
+        save_to_nexus=save_to_nexus,
     )
 
     if result is None:

@@ -261,3 +261,44 @@ def test_a_genuinely_narrower_range_is_still_reported():
     config["modeling"]["q_max"] = 1e3           # far above
     notes = ctrl.analyze(data, config)["analyze"]["notes"]
     assert any("clipped" in n for n in notes), notes
+
+
+# ---------------------------------------------------------------------------
+# The fixtures are read-only inputs
+# ---------------------------------------------------------------------------
+
+def test_save_to_nexus_false_leaves_the_data_file_alone():
+    """It was advertised and ignored, so fits wrote into the input file.
+
+    ``fit_simple_from_config`` took ``save_to_nexus`` and never passed it on,
+    and ``fit_simple`` had no such parameter at all and always wrote. Running
+    these fixtures during development silently rewrote the
+    ``simple_fit_results`` group of a checked-in data file.
+    """
+    import hashlib
+
+    import pyirena.batch as batch
+
+    data_file = SCRIPTING / FIXTURES["simple_fits"][0]
+    before = hashlib.sha256(data_file.read_bytes()).hexdigest()
+
+    result = batch.fit_simple_from_config(
+        str(data_file), str(SCRIPTING / FIXTURES["simple_fits"][1]),
+        save_to_nexus=False,
+    )
+    assert result and result["success"]
+    assert hashlib.sha256(data_file.read_bytes()).hexdigest() == before, (
+        f"{data_file.name} was modified despite save_to_nexus=False"
+    )
+
+
+@pytest.mark.parametrize("tool", sorted(FIXTURES))
+def test_analyze_never_touches_a_file(tool):
+    """analyze works from arrays, so it has no file to write to at all."""
+    import hashlib
+
+    data_file = SCRIPTING / FIXTURES[tool][0]
+    before = hashlib.sha256(data_file.read_bytes()).hexdigest()
+    data, config = _load(tool)
+    assert "error" not in ctrl.analyze(data, config)
+    assert hashlib.sha256(data_file.read_bytes()).hexdigest() == before

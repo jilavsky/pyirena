@@ -80,6 +80,19 @@ Fix: assign it in `from_dict()` with a `True` default, and add it to
 added later — worth checking the other tools use the constructor instead
 (they do; Simple Fits is the only one that loses an attribute outright).
 
+### Problem D — `save_to_nexus=False` did not mean it (fixed 26-09-2026)
+
+`fit_simple_from_config()` accepted `save_to_nexus` and never passed it to
+`fit_simple()`, which had no such parameter and always wrote results into any
+HDF5 file it was given. Fitting a config over a data file "read only" rewrote
+its `simple_fit_results` group.
+
+Found because it rewrote a checked-in fixture during this work. Listed here
+not because it is a dialect problem — it is not — but because it is the third
+bug in the same small area found in two days, all of the same shape: a
+parameter or field that exists in one place and is quietly dropped in
+another. Step 2's contract tests are the cheap defence.
+
 ### Problem B — Unified Fit has two vocabularies
 
 Everyone else has one.

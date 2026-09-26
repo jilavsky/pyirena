@@ -148,6 +148,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`save_to_nexus=False` was ignored by `fit_simple_from_config()`**, which
+  wrote fit results into the input file regardless. The parameter was in the
+  signature and the docstring but never passed on, and `fit_simple()` had no
+  such parameter at all — it always wrote when handed an HDF5 file. Both now
+  honour it. Anything that ran a Simple Fits config over someone's data
+  while asking not to modify it was modifying it.
+
 - **`pyirena.batch.fit_simple_from_config()` failed for every real model.**
   `SimpleFitModel.from_dict()` rebuilds its object with `cls.__new__` and
   assigns fields by hand, so `use_analytic_jacobian` — set in `__init__`,
