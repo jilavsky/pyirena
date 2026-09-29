@@ -595,11 +595,26 @@ is an extension, not a rewrite.
 
 Ordered by what blocks a first real run.
 
-1. **The cross-machine run.** Everything so far is loopback. This is the
-   only Phase 2 exit criterion not yet met, and it now has a written
-   procedure: `docs/zmq_service_testing.md`, Part 4, driven by
-   `scripts/zmq_smoke_test.py` (pyzmq only, so it runs on a bare
-   orchestrator box).
+1. ~~**The cross-machine run.**~~ **Done 29-09-2026** — the last Phase 2 exit
+   criterion is met. The service is up on `usaxscontrol:9865` and was driven
+   across the network from a laptop: all seven config/data pairs in
+   `testData/Scripting/` replayed through `analyze`, every χ² agreeing with
+   the same call run locally to within float last-digit noise (worst
+   parameter disagreement anywhere 3.8e-5, a WAXS FWHM), and the failure
+   modes — `TIMEOUT`, `NO_SESSION`, `NOT_AVAILABLE_OVER_ZMQ`, `BAD_OPTION`,
+   `TOO_MANY_POINTS` and five malformed-input codes — all confirmed on the
+   wire. Results are recorded in `docs/zmq_service_testing.md`. Three things
+   came out of it worth carrying forward:
+   - The server is **~3× slower per fit than a laptop** (13.4 s vs 4.8 s for
+     `ModelingSF_SaD`), so the 55 s budget has less headroom than local
+     timings suggest.
+   - Transport is free at these sizes: 0.6 ms for a small request, ~10 ms of
+     overhead on 165 KB.
+   - **An abandoned request still runs to completion**, and because the
+     service is deliberately serial, the next caller waits it out — measured
+     at 12.3 s. A client that times out and retries at once queues behind
+     itself. Now stated in `docs/zmq_service.md`; the orchestrator team needs
+     to back off between retries.
 2. **Deployment mechanics.** A systemd unit (drafted in `docs/zmq_service.md`),
    a service account, the conda/venv the service runs from, and the firewall
    rule. Confirm whether the project already has a convention for these that
@@ -612,6 +627,29 @@ Ordered by what blocks a first real run.
 ---
 
 ## 12. Phase 3 groundwork: the config dialects (surveyed 25-09-2026)
+
+> **Superseded in part, 29-09-2026.** This survey was re-run for the whole
+> package and is now `planning/config-dialects/README.md`. Two rows of the
+> table below did not survive re-measurement — read that document, not this
+> section, before acting on it:
+>
+> - **Modeling is not "one dialect ✔".** It has a second, HDF5-only dialect:
+>   `_collect_state()` nests the non-size-distribution population types under
+>   `uf`/`peak`/`gp`/`mf`/`sf2`, and `population_from_dict()` reads them flat,
+>   so those populations replay at their defaults. The verification below is
+>   sound for the channel it looked at —
+>   `testData/Core-shell-tests/pyirena_config.json` is an *Export Parameters*
+>   sidecar, which does serialise a `unified_level` population flat and
+>   correctly. Modeling's *other* writer, `_collect_state()`, was never
+>   compared against it.
+> - **Unified Fit's core dialect is now half-read, not rejected.**
+>   `tool_config.flatten_level_config` accepts a bare number, so
+>   `export_results` → `analyze` no longer raises — it silently drops every
+>   per-parameter fit flag and every bound instead.
+>
+> The rest of the section, including "a config is not only model state" and
+> the test-case table, stands.
+
 
 Phase 3 rests on "hand `analyze` the config the GUI exported". Before writing
 it, here is what the six tools actually speak. Measured, not assumed:

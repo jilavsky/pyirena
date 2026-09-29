@@ -410,7 +410,11 @@ are served one at a time, so a long fit delays everyone — including `ping`.
   seconds; the one setting that reliably outruns the budget is Monte-Carlo
   uncertainties, which is why they are never run unless asked for.
 * **One request at a time.** Fits are CPU-bound and the session registry is
-  not thread-safe, so the service serialises deliberately.
+  not thread-safe, so the service serialises deliberately. Two consequences
+  worth knowing, both measured: a client that gives up mid-fit does not stop
+  the fit, so the *next* caller waits out the rest of it; and a client that
+  times out and immediately retries puts the retry behind the original, where
+  it can time out in turn. If the orchestrator retries, have it back off.
 * **JSON arrays only.** No binary framing — it would break the one-frame
   string contract. A 2000-point curve is ~100 KB of JSON, comfortably inside
   the 16 MB cap.

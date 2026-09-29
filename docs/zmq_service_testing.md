@@ -122,20 +122,20 @@ Prove it works before exposing it to the network.
 
 ## Part 4 — Reach it from the client
 
-- [ ] **4.1** On the client, install pyzmq. **Nothing else is needed** — the
+- [X] **4.1** On the client, install pyzmq. **Nothing else is needed** — the
       smoke test deliberately has no pyIrena, numpy or h5py dependency.
       ```bash
       pip install pyzmq
       ```
 
-- [ ] **4.2** Copy the test script over:
+- [X] **4.2** Copy the test script over:
       ```bash
       scp user@server:/path/to/pyirena/scripts/zmq_smoke_test.py .
       ```
 
 - [X] **4.3** Run it across the network:
       ```bash
-      python zmq_smoke_test.py tcp://SERVER:9865
+      python zmq_smoke_test.py tcp://usaxscontrol:9865
       ```
       → `17 passed, 0 failed`.
       NOTE: 16 passes, 0 failed. 
@@ -144,10 +144,15 @@ Prove it works before exposing it to the network.
       machines has not. If something is going to be wrong, it is most likely
       here.
 
-- [ ] **4.4** Note the timings from step 4 of the output. Compare with the
+- [X] **4.4** Note the timings from step 4 of the output. Compare with the
       loopback run: the difference is your network overhead for a ~30 KB
       request. Expect milliseconds; if it is seconds, investigate before
       building on it.
+
+      Measured 29-09-2026, laptop → `usaxscontrol`: **0.6 ms** median for a
+      tiny request (`server_info` ×10), and **9.7 ms** median of
+      *wall minus the server's own `elapsed_s`* for a 165 KB request (×5).
+      Transport is not a factor at these sizes.
 
 ---
 
@@ -172,7 +177,7 @@ the plumbing works.
 
 - [X] **5.2** Replay a real exported config through `analyze`:
       ```bash
-      python zmq_smoke_test.py tcp://SERVER:9865 \
+      python zmq_smoke_test.py tcp://usaxscontrol:9865 \
              --config modeling.json --data curve.json
       ```
       → section 5 of the output reports the tool, χ², the fitted Q range and
@@ -184,28 +189,84 @@ the plumbing works.
 
       GUI χ² 2455138  service χ² 2325500 = close enough
 
-- [ ] **5.4** Repeat 5.2–5.3 for each tool you will use. Configs and data are
-      in `testData/Scripting/`:
+      **Worth one more look, though.** Checked 29-09-2026: a Modeling fit
+      through `analyze` is *bit-deterministic* — four runs of
+      `modeling.json` + `Modeling_PP15.h5` gave
+      `297.608163707637` every time, and the server gave the same. So a 5 %
+      gap is not run-to-run scatter; something genuinely differed between
+      the two fits. The likely candidate is visible in the reply's
+      `quality.message` for that config:
 
-      | Tool | config | data |
-      |---|---|---|
-      | Modeling | `modeling.json` | `Modeling_PP15.h5`, `ModelingSF_SaD.h5` |
-      | Unified Fit | `UnifiedFit` | `UnifiedFit_PP15.h5` |
-      | Size Distribution | `SizeDis.json` | `SizeDis_PP15.h5` |
-      | Simple Fits | `SimpleFits_Porod.json` | `SimpleFits_Porod.h5` |
-      | WAXS Peak Fit | `WAXS` | `WAXS_Al_7075.hdf` |
-      | Carbon model | `carbon_CE_1400.json` | `Carbon_CE_1400.h5` |
+      > population 2 B = 7.45e-06 is pinned at its upper fit limit (7.45e-06)
 
-- [ ] **5.5** Read the `notes` in the reply. A clipped Q range or a failed
+      A parameter sitting on its limit is exactly where two runs with
+      slightly different limits, Q range or error scaling land in different
+      places. Compare `quality.message`, `analyze.fit_q_min/fit_q_max` and
+      the fit limits in the config against what the GUI had, and the 5 %
+      should explain itself. (Your numbers are ~2.4 M absolute χ², whereas
+      `modeling.json` + `Modeling_PP15.h5` gives 151 780 — so you fitted a
+      different config or curve, and I could not reproduce your pair here.)
+
+- [X] **5.4** Repeat 5.2 for each tool you will use, and 5.3 (the GUI
+      comparison) for the ones whose numbers you care about. Configs and data
+      are in `testData/Scripting/`.
+
+      Run 29-09-2026 against the live service on `usaxscontrol:9865`, each
+      config replayed through `analyze` over the wire and the identical call
+      also run locally, so the two numbers are directly comparable:
+
+      | Tool | config | data | χ² over the wire | vs local |
+      |---|---|---|---|---|
+      | Modeling | `modeling.json` | `Modeling_PP15.h5` | 297.6081637076363 | 2e-15 |
+      | Modeling | `modeling.json` | `ModelingSF_SaD.h5` | 58284.20959373278 | **identical** |
+      | Unified Fit | `UnifiedFit` | `UnifiedFit_PP15.h5` | 23.393567477100092 | 1e-15 |
+      | Size Distribution | `SizeDis.json` | `SizeDis_PP15.h5` | 208.8052021373908 | 2e-8 |
+      | Simple Fits | `SimpleFits_Porod.json` | `SimpleFits_Porod.h5` | 7.7786373968865545 | 3e-16 |
+      | WAXS Peak Fit | `WAXS` | `WAXS_Al_7075.hdf` | 0.022413849290221697 | 5e-15 |
+      | Carbon model | `carbon_CE_1400.json` | `Carbon_CE_1400.h5` | 42.951768104669846 | 1e-13 |
+
+      The last column is the worst relative difference in χ²; every tool also
+      had its whole parameter block compared (87 numbers for Carbon, 25 for
+      Sizes), worst disagreement anywhere **3.8e-5**, in a WAXS peak FWHM.
+      These are floating-point last-digit differences between two machines,
+      not disagreements — nothing here needs chasing.
+
+      **saxsMorph is not one of the tools `analyze` knows** (`BAD_CONFIG`,
+      naming the six it does). The config in `testData/Scripting/saxsMorph.json`
+      is therefore untestable this way. It was listed as optional; if it is
+      ever needed over the service, that is a feature, not a bug fix.
+
+      The server is roughly **3× slower per fit than a laptop** —
+      `ModelingSF_SaD` took 13.4 s there against 4.8 s here. Budget
+      accordingly: the 55 s ceiling has less headroom than a local timing
+      suggests.
+
+- [X] **5.5** Read the `notes` in the reply. A clipped Q range or a failed
       pre-fit is reported there rather than thrown away, and a note you did
       not expect is worth chasing.
+
+      All notes from the 5.4 run, and all of them expected:
+      - `ModelingSF_SaD` — *"The config's Q range was clipped to this curve:
+        [0.0001385, 0.3]."* The config was exported against a wider curve.
+      - `SizeDis_PP15` — *"Power-law pre-fit: B = 0.0004554, P = 3.183"* and
+        *"Background pre-fit: 0.4996 cm⁻¹"*. The background matches the
+        `background: 0.499628` in the config, which is the check that the
+        pre-fit ran on the right Q window.
+      - `WAXS_Al_7075` — *"Per-peak Q0 scan done (window=±0.036 1/A,
+        50 steps)."*
+      - Modeling/PP15, Unified Fit, Simple Fits, Carbon — no notes.
 
 - [ ] **5.6** Time your **slowest realistic** fit and compare it with the
       55 s budget. Modeling with several populations is the one to watch.
       Monte-Carlo uncertainties are off by default for exactly this reason —
       at `n_mc_runs=50` a Modeling fit takes minutes, not seconds.
 
-      slowest observed ________ s
+      Slowest over the wire in the 5.4 run: **13.4 s** (Modeling,
+      `ModelingSF_SaD`), against the 55 s budget. That config carries
+      `n_mc_runs=50`; uncertainties were not requested, and if they are, the
+      same fit runs for minutes and will hit `TIMEOUT`.
+
+      slowest observed with *your* data ________ s
 
 ---
 
@@ -229,17 +290,57 @@ Five minutes here saves an argument during beamtime about whose fault it is.
       → `TIMEOUT`. The server answering instead of going quiet is the whole
       point of the design — if you ever see silence, report it.
 
-- [ ] **6.2** **Kill the client mid-request** (Ctrl+C during a fit), then run
+- [X] **6.2** **Kill the client mid-request** (Ctrl+C during a fit), then run
       the smoke test again. The service must still be healthy.
+
+      Done 29-09-2026: a client was closed 1.0 s into a ~13 s Modeling fit.
+      The service stayed healthy and the next fit returned a bit-identical
+      χ². **But the next request waited 12.3 s** — abandoning a client does
+      not stop the fit, it only stops anyone hearing the answer, and the
+      service handles one request at a time. So a client that times out and
+      retries immediately puts the retry behind the original fit, where it
+      can time out in turn. Tell the orchestrator team to back off between
+      retries rather than hammer.
 
 - [ ] **6.3** **Restart the server** while the client holds a session id. The
       next call returns `NO_SESSION` — sessions do not survive a restart, by
       design. Make sure the orchestrator team knows.
 
-- [ ] **6.4** **A file tool is refused.** Already covered by the smoke test
+      The restart itself still needs doing on `usaxscontrol` — but the
+      symptom was confirmed 29-09-2026 by presenting an id the server never
+      issued: `get_session_summary`, `call run_fit` and `close_session` all
+      return `NO_SESSION` with *"No session found with id '…'."* A full
+      session round trip over the wire (`open_dataset` with arrays →
+      `list_sessions` → `get_session_summary` → `close_session` → gone) also
+      works, and a session with no model attached refuses to fit with
+      `NO_MODEL` rather than inventing one.
+
+- [X] **6.4** **A file tool is refused.** Already covered by the smoke test
       (`NOT_AVAILABLE_OVER_ZMQ`), but confirm the team understands *why*:
       the service shares no filesystem with them, so a tool that returns a
       path would be lying.
+
+      Confirmed 29-09-2026 on the live service, in both directions: the 15
+      file- and image-returning tools are refused by `call` *and* by
+      `describe_tool` with the same code, and they are absent from
+      `list_tools` — so an agent enumerating the service never learns they
+      exist. Message: *"Tool 'save_fit' reads or writes a file on the
+      server's filesystem and is not available in profile 'json_only'."*
+
+- [X] **6.5** **Bad input of every shape**, all answered rather than dropped:
+      `BAD_JSON` (a bare string), `BAD_ENVELOPE` (no `op`), `UNKNOWN_OP`,
+      `UNKNOWN_TOOL`, `SHAPE_MISMATCH` (q and I different lengths),
+      `EMPTY_DATA`, `BAD_VALUES` (a string in the intensities),
+      `TOO_MANY_POINTS` (200 000 against the 100 000 cap, refused in 0.2 s
+      without attempting the fit).
+
+- [X] **6.6** **Per-call options narrow but never widen.** Asking for a 600 s
+      budget is refused — *"the server's budget is 55 s; a call may shorten
+      its own deadline but not extend it"* — while asking for 5 s is granted.
+      `allow_images: true` is refused on a `json_only` server; `max_points:
+      50` is granted. An unrecognised key is `BAD_OPTION` rather than being
+      silently ignored, which is what you want when a typo would otherwise
+      look like it worked.
 
 ---
 
