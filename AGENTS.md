@@ -180,7 +180,8 @@ change how you should work.
 | Understanding a specific GUI panel | `docs/<tool>_gui.md` (see tool map above) |
 | Working on the HDF5 Data Explorer | `docs/hdf5_viewer_gui.md` |
 | Reading scattering data through the stable io API | `docs/scattering_io_api.md` |
-| Looking for design intent on unfinished work | `planning/` (`ai-agent/`, `zmq-service/`, `config-dialects/`) and `PLAN.md` (open items + decisions against) |
+| Looking for design intent on unfinished work | `planning/` (`ai-agent/`, `zmq-service/`, `config-dialects/`, `unfinished/`) and `PLAN.md` (open items + decisions against) |
+| Asking "is this feature actually finished?" | `planning/unfinished/README.md` — work started and left half-built, where the tree and the docs disagree |
 
 `docs/GUI_README.md`, `docs/gui_quickstart.md`, `docs/QUICK_START.md` and
 `docs/usage_guide.md` are user-facing; consult them to keep terminology
