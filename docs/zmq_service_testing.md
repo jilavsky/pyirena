@@ -15,12 +15,12 @@ are on the server, Part 4 onwards needs both.
 
 ## Part 1 — Install on the server
 
-- [ ] **1.1** Pick the Python. Anything ≥ 3.10; 3.12 or 3.13 preferred.
+- [X] **1.1** Pick the Python. Anything ≥ 3.10; 3.12 or 3.13 preferred.
       ```bash
       python3 --version
       ```
 
-- [ ] **1.2** Make an environment of its own, so the service cannot be broken
+- [X] **1.2** Make an environment of its own, so the service cannot be broken
       by an unrelated `pip install`.
       ```bash
       python3 -m venv ~/pyirena-zmq-env
@@ -28,7 +28,7 @@ are on the server, Part 4 onwards needs both.
       ```
       (or `conda create -n pyirena-zmq python=3.13 && conda activate pyirena-zmq`)
 
-- [ ] **1.3** Install pyIrena with the `zmq` extra. From a checkout of this
+- [X] **1.3** Install pyIrena with the `zmq` extra. From a checkout of this
       branch:
       ```bash
       cd /path/to/pyirena
@@ -36,17 +36,17 @@ are on the server, Part 4 onwards needs both.
       ```
       No Qt and no matplotlib are needed — the service runs headless.
 
-- [ ] **1.4** Check the entry point exists.
+- [X] **1.4** Check the entry point exists.
       ```bash
       pyirena-zmq --help
       ```
       → the usage block, listing `--port`, `--request-budget-s`, and the rest.
 
-- [ ] **1.5** Note the versions for your record:
+- [X] **1.5** Note the versions for your record:
       ```bash
       python -c "import pyirena, zmq, sys; print('pyirena', pyirena.__version__, '| pyzmq', zmq.__version__, '| python', sys.version.split()[0])"
       ```
-      pyirena ________  pyzmq ________  python ________
+      pyirena 1.1.1  pyzmq 27.2.0  python 3.13.15
 
 ---
 
@@ -54,32 +54,33 @@ are on the server, Part 4 onwards needs both.
 
 Prove it works before exposing it to the network.
 
-- [ ] **2.1** Start it bound to loopback only, logging to the terminal:
+- [X] **2.1** Start it bound to loopback only, logging to the terminal:
       ```bash
       pyirena-zmq --bind tcp://127.0.0.1:9865 --log-stderr
       ```
       → `pyirena-zmq listening on tcp://127.0.0.1:9865 (profile=json_only,
       budget=55s, max_message=16MB)`
 
-- [ ] **2.2** In a **second terminal on the server**, run the smoke test:
+- [X] **2.2** In a **second terminal on the server**, run the smoke test:
       ```bash
       source ~/pyirena-zmq-env/bin/activate
       python /path/to/pyirena/scripts/zmq_smoke_test.py tcp://127.0.0.1:9865
       ```
       → `19 passed, 0 failed` (17 without `--config`).
+      NOTE: reports only 16 passed, 0 failed. Some seemed to be skipped... 
 
       The fit in step 4 is a plumbing check, not a scientific one — it runs a
       default one-level Unified Fit on a synthetic curve, so ignore the χ².
       Part 5 is where the numbers matter.
 
-- [ ] **2.3** Watch the first terminal. One log line per request:
+- [X] **2.3** Watch the first terminal. One log line per request:
       `id=… op=call tool=run_fit session=… ok 0.061s`
 
-- [ ] **2.4** Stop it with Ctrl+C.
+- [X] **2.4** Stop it with Ctrl+C.
       → `pyirena-zmq stopped after N request(s)`, and the prompt returns
       promptly. If Ctrl+C hangs, say so — that is a bug, not your machine.
 
-- [ ] **2.5** Check the log file was written:
+- [X] **2.5** Check the log file was written:
       ```bash
       ls -l ~/.pyirena/logs/zmq.log && tail -5 ~/.pyirena/logs/zmq.log
       ```
@@ -88,13 +89,13 @@ Prove it works before exposing it to the network.
 
 ## Part 3 — Expose it to the network
 
-- [ ] **3.1** Find the server's address, and the client's:
+- [X] **3.1** Find the server's address, and the client's:
       ```bash
       hostname -f ; ip -4 addr show | grep inet
       ```
-      server ____________________  client ____________________
+      server usaxscontrol.xray.aps.anl.gov  client ANLUF4C4VKRQ09
 
-- [ ] **3.2** Start it on all interfaces (the default):
+- [X] **3.2** Start it on all interfaces (the default):
       ```bash
       pyirena-zmq --port 9865 --log-stderr
       ```
@@ -132,12 +133,12 @@ Prove it works before exposing it to the network.
       scp user@server:/path/to/pyirena/scripts/zmq_smoke_test.py .
       ```
 
-- [ ] **4.3** Run it across the network:
+- [X] **4.3** Run it across the network:
       ```bash
       python zmq_smoke_test.py tcp://SERVER:9865
       ```
       → `17 passed, 0 failed`.
-
+      NOTE: 16 passes, 0 failed. 
       **This is the step that has never been tested.** Everything up to here
       has been exercised on loopback in CI; a real network path between two
       machines has not. If something is going to be wrong, it is most likely
@@ -169,7 +170,7 @@ the plumbing works.
                  "label": "PP15"}, open("curve.json", "w"))
       ```
 
-- [ ] **5.2** Replay a real exported config through `analyze`:
+- [X] **5.2** Replay a real exported config through `analyze`:
       ```bash
       python zmq_smoke_test.py tcp://SERVER:9865 \
              --config modeling.json --data curve.json
@@ -177,11 +178,11 @@ the plumbing works.
       → section 5 of the output reports the tool, χ², the fitted Q range and
       any notes.
 
-- [ ] **5.3** **Compare the numbers against the GUI.** Open the same file and
+- [X] **5.3** **Compare the numbers against the GUI.** Open the same file and
       config in the pyIrena GUI, fit, and check χ² and the parameters match.
       This is the check that matters; everything else is transport.
 
-      GUI χ² ____________  service χ² ____________
+      GUI χ² 2455138  service χ² 2325500 = close enough
 
 - [ ] **5.4** Repeat 5.2–5.3 for each tool you will use. Configs and data are
       in `testData/Scripting/`:
@@ -212,12 +213,12 @@ the plumbing works.
 
 Five minutes here saves an argument during beamtime about whose fault it is.
 
-- [ ] **6.1** **Client timeout.** Ask for an impossible deadline and confirm
+- [X] **6.1** **Client timeout.** Ask for an impossible deadline and confirm
       you get a `TIMEOUT` *reply* rather than silence:
       ```bash
       python - <<'EOF'
       import json, zmq
-      s = zmq.Context.instance().socket(zmq.REQ); s.connect("tcp://SERVER:9865")
+      s = zmq.Context.instance().socket(zmq.REQ); s.connect("tcp://usaxscontrol:9865")
       s.send_string(json.dumps({"op": "call", "tool": "analyze",
                                 "args": {"data": json.load(open("curve.json")),
                                          "config": json.load(open("modeling.json"))},
