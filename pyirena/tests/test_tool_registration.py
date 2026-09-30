@@ -211,8 +211,10 @@ def test_schema_group_names_match_the_io_module():
     io_dir = REPO / "pyirena" / "io"
     for tool, schema in TOOL_REGISTRY.items():
         group = schema["group"]
-        hits = [p.name for p in io_dir.glob("nxcansas_*.py") if group in p.read_text()]
-        hits += [p.name for p in io_dir.glob("*_io.py") if group in p.read_text()]
+        hits = [p.name for p in io_dir.glob("nxcansas_*.py")
+                if group in p.read_text(encoding="utf-8")]
+        hits += [p.name for p in io_dir.glob("*_io.py")
+                 if group in p.read_text(encoding="utf-8")]
         assert hits, f"{tool}: no io module mentions {group!r}"
 
 
