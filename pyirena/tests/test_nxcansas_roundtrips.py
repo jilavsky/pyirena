@@ -601,7 +601,7 @@ class TestCarbonFitRoundTrip:
         cfg.write_text(json.dumps({
             "_pyirena_config": {"tool": "carbon_fit"},
             "carbon_fit": model.to_dict(),
-        }))
+        }), encoding="utf-8")
 
         res = fit_carbon_from_config(nx_file, cfg, save_to_nexus=True)
         assert res["success"], res["message"]
@@ -614,7 +614,7 @@ class TestCarbonFitRoundTrip:
         from pyirena.batch.carbon_fit import fit_carbon_from_config
 
         cfg = tmp_path / "empty.json"
-        cfg.write_text(json.dumps({"_pyirena_config": {"tool": "x"}}))
+        cfg.write_text(json.dumps({"_pyirena_config": {"tool": "x"}}), encoding="utf-8")
         res = fit_carbon_from_config(nx_file, cfg)
         assert res["success"] is False
         assert "carbon_fit" in res["message"]

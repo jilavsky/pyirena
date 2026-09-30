@@ -13,7 +13,7 @@ from pyirena.api._paths import (
 
 def test_resolve_safe_absolute(tmp_path):
     f = tmp_path / "x.txt"
-    f.write_text("hi")
+    f.write_text("hi", encoding="utf-8")
     out = resolve_safe(str(f))
     assert out == f.resolve()
 
@@ -35,7 +35,7 @@ def test_resolve_safe_file_rejects_dir(tmp_path):
 
 def test_resolve_safe_folder_rejects_file(tmp_path):
     f = tmp_path / "x.txt"
-    f.write_text("hi")
+    f.write_text("hi", encoding="utf-8")
     with pytest.raises(NotADirectoryError):
         resolve_safe_folder(str(f))
 
@@ -44,12 +44,12 @@ def test_data_root_enforced(tmp_path, monkeypatch):
     inside = tmp_path / "inside"
     inside.mkdir()
     target = inside / "ok.txt"
-    target.write_text("hi")
+    target.write_text("hi", encoding="utf-8")
 
     outside = tmp_path / "outside"
     outside.mkdir()
     forbidden = outside / "no.txt"
-    forbidden.write_text("nope")
+    forbidden.write_text("nope", encoding="utf-8")
 
     monkeypatch.setenv("PYIRENA_DATA_ROOT", str(inside))
 
@@ -65,7 +65,7 @@ def test_data_root_enforced(tmp_path, monkeypatch):
 def test_data_root_relative_resolution(tmp_path, monkeypatch):
     inside = tmp_path / "inside"
     inside.mkdir()
-    (inside / "f.txt").write_text("hi")
+    (inside / "f.txt").write_text("hi", encoding="utf-8")
     monkeypatch.setenv("PYIRENA_DATA_ROOT", str(inside))
 
     # Relative path resolves against PYIRENA_DATA_ROOT

@@ -2074,7 +2074,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         config: dict = {}
         if file_path.exists():
             try:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
             except Exception:
                 config = {}
@@ -2111,7 +2111,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         config['simple_fits'] = self.state_manager.get('simple_fits')
 
         try:
-            with open(file_path, 'w') as f:
+            with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
         except Exception as exc:
             QMessageBox.warning(self, 'Export failed', f'Could not write file:\n{exc}')
@@ -2132,7 +2132,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         file_path = Path(file_path)
 
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
         except Exception as exc:
             QMessageBox.warning(self, 'Import failed', f'Could not read file:\n{exc}')

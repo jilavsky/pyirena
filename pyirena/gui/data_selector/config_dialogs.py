@@ -48,7 +48,7 @@ class ConfigManagerDialog(QDialog):
 
         import json
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path, 'r', encoding='utf-8') as f:
                 self._config = json.load(f)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Cannot read config file:\n{e}")
@@ -152,7 +152,7 @@ class ConfigManagerDialog(QDialog):
                 datetime.datetime.now().isoformat(timespec='seconds')
             )
         try:
-            with open(self.config_path, 'w') as f:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self._config, f, indent=2)
             QMessageBox.information(
                 self, "Saved",

@@ -55,7 +55,7 @@ def _load(tool: str):
     }
     if raw.get("Error") is not None:
         payload["error"] = np.asarray(raw["Error"], dtype=float).tolist()
-    return payload, json.loads((SCRIPTING / config_file).read_text())
+    return payload, json.loads((SCRIPTING / config_file).read_text(encoding="utf-8"))
 
 
 def _chi(report: dict) -> float:

@@ -101,7 +101,7 @@ def test_a_bad_combination_is_reported_not_raised():
 def test_json_config_file(tmp_path):
     path = tmp_path / "zmq.json"
     path.write_text(json.dumps({"max_sessions": 2, "allow_images": True,
-                                "request_budget_s": 30}))
+                                "request_budget_s": 30}), encoding="utf-8")
     values, err = load_config_file(path)
     assert err is None and values["max_sessions"] == 2
 
@@ -112,7 +112,7 @@ def test_json_config_file(tmp_path):
 
 def test_cli_overrides_the_config_file(tmp_path):
     path = tmp_path / "zmq.json"
-    path.write_text(json.dumps({"max_sessions": 2, "request_budget_s": 30}))
+    path.write_text(json.dumps({"max_sessions": 2, "request_budget_s": 30}), encoding="utf-8")
     o, _ = options_from_args(["--config", str(path), "--max-sessions", "9"])
     assert o.max_sessions == 9
     assert o.request_budget_s == 30          # untouched by the CLI
@@ -120,7 +120,7 @@ def test_cli_overrides_the_config_file(tmp_path):
 
 def test_config_from_the_environment(tmp_path, monkeypatch):
     path = tmp_path / "zmq.json"
-    path.write_text(json.dumps({"max_message_mb": 3}))
+    path.write_text(json.dumps({"max_message_mb": 3}), encoding="utf-8")
     monkeypatch.setenv("PYIRENA_ZMQ_CONFIG", str(path))
     o, err = options_from_args([])
     assert err is None and o.max_message_mb == 3
@@ -128,7 +128,7 @@ def test_config_from_the_environment(tmp_path, monkeypatch):
 
 def test_an_unknown_key_in_the_config_is_an_error(tmp_path):
     path = tmp_path / "zmq.json"
-    path.write_text(json.dumps({"max_sesions": 2}))     # typo
+    path.write_text(json.dumps({"max_sesions": 2}), encoding="utf-8")     # typo
     _, err = load_config_file(path)
     assert err and "max_sesions" in err and "max_sessions" in err
 
@@ -138,7 +138,7 @@ def test_a_missing_or_broken_config_file_says_which(tmp_path):
     assert "not found" in err
 
     broken = tmp_path / "broken.json"
-    broken.write_text("{not json")
+    broken.write_text("{not json", encoding="utf-8")
     _, err = load_config_file(broken)
     assert "parse" in err
 

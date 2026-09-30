@@ -25,7 +25,7 @@ def _load_config(config_file: Union[str, Path]) -> Optional[Dict]:
     """Load and validate a pyIrena JSON config file.  Returns None on failure."""
     config_file = Path(config_file)
     try:
-        with open(config_file, 'r') as f:
+        with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
     except Exception as e:
         log.error(f"[pyirena.batch] Cannot read config file '{config_file}': {e}")

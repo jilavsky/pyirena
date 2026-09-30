@@ -1776,7 +1776,7 @@ class SaxsMorphPanel(QWidget):
         config: dict = {}
         if path_p.exists():
             try:
-                with open(path_p, 'r') as f:
+                with open(path_p, 'r', encoding='utf-8') as f:
                     config = json.load(f)
             except Exception:
                 config = {}
@@ -1825,7 +1825,7 @@ class SaxsMorphPanel(QWidget):
         config['saxs_morph'] = sm_state
 
         try:
-            with open(path_p, 'w') as f:
+            with open(path_p, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
             QMessageBox.warning(self, 'Export failed', f'Could not write file:\n{e}')

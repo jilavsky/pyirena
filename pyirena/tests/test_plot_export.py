@@ -418,7 +418,7 @@ def test_last_export_folder_beats_the_panel_data_folder(tmp_path, monkeypatch):
 
 def test_export_folder_accepts_a_file_and_returns_its_directory(tmp_path):
     a_file = tmp_path / "data.h5"
-    a_file.write_text("")
+    a_file.write_text("", encoding="utf-8")
     assert pe.export_folder(a_file) == str(tmp_path)
 
 

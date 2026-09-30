@@ -15,7 +15,7 @@ ROWS = [
 
 
 def _write(path, text):
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
 
 class TestReadTextFile:

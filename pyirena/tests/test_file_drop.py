@@ -30,7 +30,7 @@ def _make(tmp_path, *names):
     for name in names:
         p = tmp_path / name
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("")
+        p.write_text("", encoding="utf-8")
         out.append(str(p))
     return out
 

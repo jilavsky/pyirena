@@ -214,7 +214,7 @@ def test_geometry_lives_outside_the_shared_state_file(isolated_store):
 def test_a_corrupt_geometry_file_reads_as_empty(isolated_store):
     from pyirena.gui import window_state as ws
 
-    isolated_store.write_text("{not json at all")
+    isolated_store.write_text("{not json at all", encoding="utf-8")
     assert ws._load_all() == {}
 
 

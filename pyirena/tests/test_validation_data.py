@@ -55,7 +55,7 @@ def models():
 @pytest.fixture(scope="module")
 def manifest():
     return {m["name"]: m
-            for m in json.loads((VALIDATION_DIR / "ground_truth.json").read_text())}
+            for m in json.loads((VALIDATION_DIR / "ground_truth.json").read_text(encoding="utf-8"))}
 
 
 def _truth(meta, name):

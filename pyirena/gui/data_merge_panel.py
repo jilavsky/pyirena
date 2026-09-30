@@ -1583,7 +1583,7 @@ class DataMergePanel(QWidget):
             return
         cfg = self._current_config_dict()
         try:
-            with open(path, 'w') as fh:
+            with open(path, 'w', encoding='utf-8') as fh:
                 json.dump(cfg, fh, indent=2)
             self._status.setText(f"Config saved → {os.path.basename(path)}")
         except Exception as exc:
@@ -1598,7 +1598,7 @@ class DataMergePanel(QWidget):
         if not path:
             return
         try:
-            with open(path) as fh:
+            with open(path, encoding='utf-8') as fh:
                 cfg = json.load(fh)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))

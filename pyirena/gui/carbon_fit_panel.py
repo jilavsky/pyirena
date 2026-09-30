@@ -2084,7 +2084,7 @@ class CarbonFitPanel(QWidget):
         config = {}
         if Path(path).exists():
             try:
-                config = json.loads(Path(path).read_text())
+                config = json.loads(Path(path).read_text(encoding="utf-8"))
             except Exception:
                 log.debug('carbon_fit: existing config unreadable', exc_info=True)
                 config = {}
@@ -2096,7 +2096,7 @@ class CarbonFitPanel(QWidget):
         # config file.
         config['carbon_fit'] = without_view_state(self._collect_state())
         try:
-            Path(path).write_text(json.dumps(config, indent=2))
+            Path(path).write_text(json.dumps(config, indent=2), encoding="utf-8")
         except Exception as exc:
             QMessageBox.critical(self, 'Carbon model', f'Could not write:\n{exc}')
             return
@@ -2112,7 +2112,7 @@ class CarbonFitPanel(QWidget):
         if not path:
             return
         try:
-            config = json.loads(Path(path).read_text())
+            config = json.loads(Path(path).read_text(encoding="utf-8"))
         except Exception as exc:
             QMessageBox.critical(self, 'Carbon model', f'Could not read:\n{exc}')
             return

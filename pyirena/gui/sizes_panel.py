@@ -2895,7 +2895,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         config = {}
         if file_path.exists():
             try:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
             except Exception:
                 config = {}
@@ -2937,7 +2937,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         config['sizes'] = self.state_manager.get('sizes')
 
         try:
-            with open(file_path, 'w') as f:
+            with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
             QMessageBox.warning(self, "Export Failed", f"Could not write file:\n{e}")
@@ -2966,7 +2966,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         file_path = Path(file_path)
 
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
         except Exception as e:
             QMessageBox.warning(self, "Import Failed", f"Could not read file:\n{e}")

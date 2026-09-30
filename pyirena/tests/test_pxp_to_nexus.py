@@ -205,7 +205,7 @@ def test_unique_path_appends_suffix(tmp_path):
     from pyirena.io.pxp_to_nexus import _unique_path
 
     base = tmp_path / "thing.h5"
-    base.write_text("x")
+    base.write_text("x", encoding="utf-8")
     next_path = _unique_path(base)
     assert next_path.name == "thing_2.h5"
 
@@ -465,7 +465,7 @@ def test_extract_igor_experiment_rejects_unknown_extension(tmp_path):
     from pyirena.io.pxp_to_nexus import extract_igor_experiment
 
     junk = tmp_path / "not_an_igor_file.csv"
-    junk.write_text("not igor\n")
+    junk.write_text("not igor\n", encoding="utf-8")
     with pytest.raises(ValueError, match="unsupported Igor experiment format"):
         extract_igor_experiment(junk)
 

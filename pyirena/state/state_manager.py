@@ -594,7 +594,7 @@ class StateManager:
             return False
 
         try:
-            with open(self.state_file, 'r') as f:
+            with open(self.state_file, 'r', encoding='utf-8') as f:
                 loaded_state = json.load(f)
 
             # Capture schema versions BEFORE merging so we can detect old files.
@@ -629,7 +629,7 @@ class StateManager:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
             # Write with pretty formatting
-            with open(self.state_file, 'w') as f:
+            with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(self.state, f, indent=2)
 
             log.debug(f"Saved state to: {self.state_file}")
@@ -714,7 +714,7 @@ class StateManager:
         try:
             tool_state = self.state.get(tool, {})
 
-            with open(export_path, 'w') as f:
+            with open(export_path, 'w', encoding='utf-8') as f:
                 json.dump(tool_state, f, indent=2)
 
             log.info(f"Exported {tool} state to: {export_path}")
@@ -736,7 +736,7 @@ class StateManager:
             True if successful, False otherwise
         """
         try:
-            with open(import_path, 'r') as f:
+            with open(import_path, 'r', encoding='utf-8') as f:
                 tool_state = json.load(f)
 
             self.state[tool] = tool_state

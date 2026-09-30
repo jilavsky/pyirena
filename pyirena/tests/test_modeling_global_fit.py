@@ -248,7 +248,7 @@ class TestStateMigration:
             }
         }
         f = tmp_path / 'state.json'
-        f.write_text(json.dumps(old))
+        f.write_text(json.dumps(old), encoding="utf-8")
 
         sm = StateManager(state_file=f)
         assert sm.load() is True
@@ -302,11 +302,11 @@ class TestExportJsonCarriesFitMethod:
         )
         panel.export_json()
 
-        data = json.loads(out.read_text())
+        data = json.loads(out.read_text(encoding="utf-8"))
         assert data['modeling']['fit_method'] == 'global'
 
         # Under no-limits the export must record the effective (local) method.
         panel.no_limits_cb.setChecked(True)
         panel.export_json()
-        data2 = json.loads(out.read_text())
+        data2 = json.loads(out.read_text(encoding="utf-8"))
         assert data2['modeling']['fit_method'] == 'local'

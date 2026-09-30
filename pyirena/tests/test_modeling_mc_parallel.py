@@ -273,7 +273,7 @@ class TestStateMigration:
             }
         }
         f = tmp_path / 'state.json'
-        f.write_text(json.dumps(old))
+        f.write_text(json.dumps(old), encoding="utf-8")
 
         sm = StateManager(state_file=f)
         assert sm.load() is True

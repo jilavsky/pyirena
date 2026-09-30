@@ -110,7 +110,7 @@ def merge_data(
                 log.error(f"[merge_data] Config file not found: {config_file}")
         else:
             try:
-                with open(config_file) as fh:
+                with open(config_file, encoding='utf-8') as fh:
                     cfg_dict = json.load(fh)
             except Exception as exc:
                 if verbose:

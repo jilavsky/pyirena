@@ -415,7 +415,7 @@ def test_every_config_pyirena_has_written_still_replays(filename):
     path = SCRIPTING / filename
     if not path.exists():
         pytest.skip(f"{filename} not present")
-    setup = build_setup(json.loads(path.read_text()))
+    setup = build_setup(json.loads(path.read_text(encoding="utf-8")))
     assert setup.tool == SIDECAR_FIXTURES[filename]
     assert setup.model is not None
 
@@ -498,7 +498,8 @@ def test_the_config_examples_in_the_docs_still_build():
     if not doc.exists():
         pytest.skip("docs/batch_api.md not present")
 
-    blocks = re.findall(r"```json\n(.*?)```", doc.read_text(), re.DOTALL)
+    blocks = re.findall(r"```json\n(.*?)```",
+                        doc.read_text(encoding="utf-8"), re.DOTALL)
     assert len(blocks) >= 2, "the config-format section lost its examples"
 
     setup = build_setup(json.loads(blocks[0]))

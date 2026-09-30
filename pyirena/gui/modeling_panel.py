@@ -3622,7 +3622,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         existing: dict = {}
         if config_path.exists():
             try:
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8') as f:
                     existing = _json.load(f)
             except Exception:
                 existing = {}
@@ -3669,7 +3669,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             'populations':    [_pop_to_dict(p) for p in mc.populations],
         }
         try:
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding='utf-8') as f:
                 _json.dump(existing, f, indent=2)
             self.graph.set_status(f'Parameters exported to {config_path.name}', 'success')
         except Exception as e:
@@ -3717,7 +3717,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         if not path:
             return
         try:
-            with open(path, 'r') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
         except Exception as exc:
             QMessageBox.warning(self, 'Import failed', f'Could not read file:\n{exc}')

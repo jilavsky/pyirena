@@ -138,7 +138,7 @@ def _write_text_file(path: Path, rows=None):
             (0.05, 30.0,  1.5),
             (0.10, 10.0,  0.5),
         ]
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write("# Q I dI\n")
         for q, i, e in rows:
             f.write(f"{q}  {i}  {e}\n")
@@ -315,7 +315,7 @@ class TestEnsureNxcanSASSibling:
             (0.05, 30.0,  1.5),
             (0.10, 10.0,  0.5),
         ]
-        with open(csv, 'w') as f:
+        with open(csv, 'w', encoding='utf-8') as f:
             for q, i, e in rows:
                 f.write(f"{q},{i},{e}\n")
         h5 = ensure_nxcansas_sibling(csv)
