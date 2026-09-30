@@ -104,57 +104,141 @@ button (or by hand).  The structure is designed to grow as new tools are added:
 each tool occupies its own top-level key alongside the required `_pyirena_config`
 header.
 
+### Two dialects: one current, one accepted forever
+
+A tool's settings blob has been written in two vocabularies, and **both are
+read**:
+
+* **Core (current).** What `model.to_dict()` produces. Each parameter is a
+  bare number beside its own `fit_<name>` flag and `<name>_limits` pair. This
+  is what every tool writes from pyIrena 1.2 on, and the only dialect written.
+* **Panel (legacy, read-only).** Unified Fit's older shape, in which each
+  parameter is a `{"value", "fit", "low_limit", "high_limit"}` block and four
+  fields carry different names (`RgCutoff` for `RgCO`, `correlated` for
+  `correlations`, `estimate_B` for `link_B`, `link_rgco` for `link_RGCO`).
+
+**Nothing you already have stops working.** Every config file, every
+`state.json` and every saved `.h5` in the panel dialect still loads, in the
+GUI and in `pyirena.batch` alike; it is simply rewritten in the core dialect
+when next saved. The reader tells the two apart by shape — a parameter that is
+an object rather than a number is the panel dialect — and setups written from
+1.2 on also state `schema_version` so a reader need not guess.
+
+Field *names* are deliberately the ones in the maths and in Irena: `RgCO`,
+`correlations`, `link_B`. They were not renamed to the panel's names, which
+are the historical accident.
+
+### Four envelopes, one reader
+
+pyIrena writes a tool's settings inside four different wrappers.
+`pyirena.core.tool_config.build_setup()` accepts all of them, so a setup can
+be replayed from wherever you happen to be holding it:
+
+| Wrapper | Written by |
+|---|---|
+| `{"_pyirena_config": …, "<tool>": {…}}` | **Export Parameters** — the JSON sidecar this page documents |
+| `{"_pyirena_config": …, "state": {…}}` | the `_pyirena_config` attribute on every results group in a saved `.h5` |
+| `{"ok": …, "tool": …, "config": {…}, "fit_q_range": …, "data": …}` | every `export_results()` reply over MCP and the ZMQ service |
+| `{"tool": …, "model": {…}}` | the minimal form, for a caller assembling one by hand |
+
+A bare tool section works too, when you name the tool. So this round trip
+holds:
+
+```python
+from pyirena.api.control import analyze, export_results
+
+report = export_results(session_id)          # fit it once
+again  = analyze(new_data, report)           # replay it on the next measurement
+```
+
+### Where the fitted Q range lives
+
+The Q range a fit was restricted to is **not** part of `to_dict()` for four of
+the six tools, and is for the other two. One rule resolves it: the envelope's
+`fit_q_range` wins when it has one, and the tool's own section key is the
+fallback. Those keys differ per tool for historical reasons, and are read but
+never renamed:
+
+| Tool | Key in the tool's section |
+|---|---|
+| Unified Fit | `cursor_left` / `cursor_right` |
+| Size Distribution | `cursor_q_min` / `cursor_q_max` |
+| Simple Fits, WAXS Peak Fit, SAXS Morph | `q_min` / `q_max` |
+| Modeling, Carbon model | `q_min` / `q_max`, *inside* `to_dict()` |
+| Fractals | `q_range`, a nested `{q_min, q_max, n_points}` object |
+
+### How a parameter's fit flag and bounds are spelled
+
+Five encodings of the same idea, all read. Only the first is written:
+
+| Encoding | Used by |
+|---|---|
+| `X: 1000.0`, `fit_X: true`, `X_limits: [lo, hi]` | **the core dialect** — Unified, Carbon, Modeling's Unified-level populations |
+| `X: {value, fit, low_limit, high_limit}` | the Unified panel dialect, and Modeling's `uf`/`peak`/`gp` blocks |
+| `X: {value, fit, lo, hi}` | WAXS peaks and background |
+| `params: {}`, `limits: {}`, `param_fixed: {}` | Simple Fits |
+| `dist_params: {}`, `dist_params_fit: {}`, `dist_params_limits: {}` | Modeling size-distribution populations |
+
+⚠️ **Simple Fits inverts the sense of the flag as well as the name.**
+`param_fixed[name] = true` means the parameter is **held**, where every other
+tool's `fit_X = true` means it is **free**. A config that gets this backwards
+refits everything you pinned, and returns a plausible number rather than an
+error.
+
 ### Annotated example
 
 ```json
 {
   "_pyirena_config": {
     "file_type": "pyIrena Configuration File",
-    "version": "0.1.0",
+    "version": "1.2.0",
     "created": "2026-02-17T10:30:00",
     "modified": "2026-02-17T14:22:05",
-    "written_by": "pyIrena 0.1.0"
+    "written_by": "pyIrena 1.2.0"
   },
 
   "unified_fit": {
+    "schema_version": 3,
     "num_levels": 2,
     "cursor_left": 0.003,
     "cursor_right": 0.45,
     "no_limits": false,
-    "update_auto": false,
-    "display_local": false,
 
-    "background": {
-      "value": 1e-6,
-      "fit": false
-    },
+    "background": 1e-6,
+    "fit_background": false,
+    "background_limits": [0.0, 1e10],
+
+    "use_slit_smearing": false,
+    "slit_length": 0.0,
 
     "levels": [
       {
-        "level": 1,
-        "G":    { "value": 1e10, "fit": true,  "low_limit": 1e8,  "high_limit": 1e12 },
-        "Rg":   { "value": 100,  "fit": true,  "low_limit": 10,   "high_limit": 1000 },
-        "B":    { "value": 1e6,  "fit": true,  "low_limit": 1e4,  "high_limit": 1e8  },
-        "P":    { "value": 4.0,  "fit": false, "low_limit": 0,    "high_limit": 6    },
-        "ETA":  { "value": 0,    "fit": false, "low_limit": 0.1,  "high_limit": 1e6  },
-        "PACK": { "value": 0,    "fit": false, "low_limit": 0,    "high_limit": 16   },
-        "RgCutoff": 0.0,
-        "correlated": false,
-        "estimate_B": false,
-        "link_rgco": false
+        "G": 1e10, "fit_G": true,  "G_limits":  [1e8, 1e12],
+        "Rg": 100, "fit_Rg": true, "Rg_limits": [10, 1000],
+        "B": 1e6,  "fit_B": true,  "B_limits":  [1e4, 1e8],
+        "P": 4.0,  "fit_P": false, "P_limits":  [0, 6],
+        "ETA": 0,  "fit_ETA": false,  "ETA_limits":  [0.1, 1e6],
+        "PACK": 0, "fit_PACK": false, "PACK_limits": [0, 16],
+        "RgCO": 0.0, "fit_RgCO": false, "RgCO_limits": [0.0, 1e6],
+        "K": 1.0,
+        "correlations": false,
+        "mass_fractal": false,
+        "link_B": false,
+        "link_RGCO": false
       },
       {
-        "level": 2,
-        "G":    { "value": 1e8,  "fit": true,  "low_limit": 1e6,  "high_limit": 1e10 },
-        "Rg":   { "value": 10,   "fit": true,  "low_limit": 1,    "high_limit": 100  },
-        "B":    { "value": 1e4,  "fit": true,  "low_limit": 1e2,  "high_limit": 1e6  },
-        "P":    { "value": 3.5,  "fit": false, "low_limit": 0,    "high_limit": 6    },
-        "ETA":  { "value": 0,    "fit": false, "low_limit": 0.1,  "high_limit": 1e6  },
-        "PACK": { "value": 0,    "fit": false, "low_limit": 0,    "high_limit": 16   },
-        "RgCutoff": 100.0,
-        "correlated": false,
-        "estimate_B": false,
-        "link_rgco": true
+        "G": 1e8,  "fit_G": true,  "G_limits":  [1e6, 1e10],
+        "Rg": 10,  "fit_Rg": true, "Rg_limits": [1, 100],
+        "B": 1e4,  "fit_B": true,  "B_limits":  [1e2, 1e6],
+        "P": 3.5,  "fit_P": false, "P_limits":  [0, 6],
+        "ETA": 0,  "fit_ETA": false,  "ETA_limits":  [0.1, 1e6],
+        "PACK": 0, "fit_PACK": false, "PACK_limits": [0, 16],
+        "RgCO": 100.0, "fit_RgCO": false, "RgCO_limits": [0.0, 1e6],
+        "K": 1.0,
+        "correlations": false,
+        "mass_fractal": false,
+        "link_B": false,
+        "link_RGCO": true
       }
     ]
   }
@@ -170,17 +254,30 @@ header.
 | `written_by` | str | `"pyIrena <version>"` — version that last wrote to this file |
 | `created` | str | ISO-8601 timestamp of file creation |
 | `modified` | str | ISO-8601 timestamp of last write |
+| `tool` | str | Which tool the section is for; present on the embedded-setup envelope |
+| `_note` | str | One line saying what the blob is and how to replay it, for whoever finds it in HDFView |
+
+**View-only keys are not written.** A remembered folder (`last_folder`), a tab
+index, a zoom toggle — these describe the exporting machine's GUI, not the
+fit, and *Export Parameters* strips them
+(`tool_config.VIEW_ONLY_CONFIG_KEYS`). They are kept in the state file, where
+a user's view preferences belong. `last_folder` in particular used to carry an
+absolute path from the author's disk into every shared config.
 
 ### `unified_fit` fields
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `schema_version` | int | 3 = the core dialect. Absent or 1–2 = the panel dialect |
 | `num_levels` | int | Number of active structural levels (1–5) |
 | `cursor_left` | float | Lower Q bound used for fitting (Å⁻¹) |
 | `cursor_right` | float | Upper Q bound used for fitting (Å⁻¹) |
 | `no_limits` | bool | If true, ignore user limits and use wide defaults |
-| `background.value` | float | Flat background value (cm⁻¹) |
-| `background.fit` | bool | Whether to fit the background |
+| `background` | float | Flat background value (cm⁻¹) |
+| `fit_background` | bool | Whether to fit the background |
+| `background_limits` | [float, float] | Bounds for the background |
+| `use_slit_smearing` | bool | Smear the model before comparison with slit-smeared data |
+| `slit_length` | float | Slit length (Å⁻¹); file-derived unless overridden |
 | `levels` | list | One entry per level (see below) |
 
 ### Per-level fields
@@ -189,26 +286,52 @@ Each entry in `levels` describes one structural level.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `level` | int | Level number (1-based, informational only) |
-| `G.value` | float | Guinier prefactor (cm⁻¹) |
-| `G.fit` | bool | Fit G? |
-| `G.low_limit` | float | Lower bound for G during fitting |
-| `G.high_limit` | float | Upper bound for G during fitting |
-| `Rg.value` | float | Radius of gyration (Å) |
-| `Rg.fit` | bool | Fit Rg? |
-| `Rg.low_limit` / `Rg.high_limit` | float | Bounds for Rg |
-| `B.value` | float | Porod/power-law prefactor |
-| `B.fit` | bool | Fit B? |
-| `P.value` | float | Power-law slope |
-| `P.fit` | bool | Fit P? |
-| `ETA.value` | float | Correlation distance (Å) — used when `correlated=true` |
-| `ETA.fit` | bool | Fit ETA? |
-| `PACK.value` | float | Packing factor — used when `correlated=true` |
-| `PACK.fit` | bool | Fit PACK? |
-| `RgCutoff` | float | Cutoff radius linking to smaller level (Å); always 0 for level 1 |
-| `correlated` | bool | Enable Born-Green correlation function for this level |
-| `link_rgco` | bool | Automatically link RgCutoff to Rg of the level below |
-| `estimate_B` | bool | Estimate B from mass fractal assumption |
+| `G` | float | Guinier prefactor (cm⁻¹) |
+| `fit_G` | bool | Fit G? |
+| `G_limits` | [float, float] | Bounds for G during fitting |
+| `Rg` | float | Radius of gyration (Å) |
+| `fit_Rg` / `Rg_limits` | bool / pair | Fit flag and bounds for Rg |
+| `B` | float | Porod/power-law prefactor |
+| `fit_B` / `B_limits` | bool / pair | Fit flag and bounds for B |
+| `P` | float | Power-law slope |
+| `fit_P` / `P_limits` | bool / pair | Fit flag and bounds for P |
+| `ETA` | float | Correlation distance (Å) — used when `correlations=true` |
+| `fit_ETA` / `ETA_limits` | bool / pair | Fit flag and bounds for ETA |
+| `PACK` | float | Packing factor — used when `correlations=true` |
+| `fit_PACK` / `PACK_limits` | bool / pair | Fit flag and bounds for PACK |
+| `RgCO` | float | Cutoff radius linking to the smaller level (Å); always 0 for level 1 |
+| `fit_RgCO` / `RgCO_limits` | bool / pair | Fit flag and bounds for the cutoff |
+| `K` | float | Beaucage correction factor (1.0 when P > 3, else 1.06); derived from P |
+| `correlations` | bool | Enable the Born-Green correlation function for this level |
+| `mass_fractal` | bool | Mass-fractal mode: derive B from G, Rg and P accordingly |
+| `link_B` | bool | Estimate B from G, Rg and P (Hammouda) rather than fitting it |
+| `link_RGCO` | bool | Link this level's cutoff to the Rg of the level below |
+
+<details>
+<summary>The legacy panel spelling of the same level (still read)</summary>
+
+```json
+{
+  "level": 1,
+  "G":    { "value": 1e10, "fit": true,  "low_limit": 1e8, "high_limit": 1e12 },
+  "Rg":   { "value": 100,  "fit": true,  "low_limit": 10,  "high_limit": 1000 },
+  "B":    { "value": 1e6,  "fit": true,  "low_limit": 1e4, "high_limit": 1e8  },
+  "P":    { "value": 4.0,  "fit": false, "low_limit": 0,   "high_limit": 6    },
+  "ETA":  { "value": 0,    "fit": false, "low_limit": 0.1, "high_limit": 1e6  },
+  "PACK": { "value": 0,    "fit": false, "low_limit": 0,   "high_limit": 16   },
+  "RgCutoff": 0.0,
+  "correlated": false,
+  "estimate_B": false,
+  "link_rgco": false
+}
+```
+
+`RgCutoff` → `RgCO`, `correlated` → `correlations`, `estimate_B` → `link_B`,
+`link_rgco` → `link_RGCO`. The panel vocabulary has no room for `K`,
+`mass_fractal`, or `RgCO`'s own flag and bounds, which is one reason it is no
+longer written.
+
+</details>
 
 ---
 

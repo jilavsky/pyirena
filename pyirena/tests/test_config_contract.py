@@ -480,3 +480,38 @@ def test_a_saved_modeling_setup_keeps_every_population_it_described():
                 )
                 checked += 1
     assert checked, "the fixture no longer contains a nested population block"
+
+
+# ── 5. The documentation describes a config that actually works ──────────
+
+def test_the_config_examples_in_the_docs_still_build():
+    """``docs/batch_api.md`` shows a config; it has to be one.
+
+    A worked example is the first thing someone copies, and the only part of
+    the documentation that can be checked mechanically. Both dialects appear
+    there — the current one in the annotated example, the legacy one in the
+    collapsed block beside it — and both must still read.
+    """
+    import re
+
+    doc = Path(__file__).resolve().parents[2] / "docs" / "batch_api.md"
+    if not doc.exists():
+        pytest.skip("docs/batch_api.md not present")
+
+    blocks = re.findall(r"```json\n(.*?)```", doc.read_text(), re.DOTALL)
+    assert len(blocks) >= 2, "the config-format section lost its examples"
+
+    setup = build_setup(json.loads(blocks[0]))
+    assert setup.tool == "unified_fit"
+    assert setup.model.num_levels == 2
+    assert (setup.fit_q_min, setup.fit_q_max) == (0.003, 0.45)
+    # The documented flags and bounds have to arrive, not just the values.
+    second = setup.model.levels[1]
+    assert second.Rg_limits == (1.0, 100.0)
+    assert second.link_RGCO is True
+    assert second.fit_P is False
+
+    legacy_level = json.loads(blocks[1])
+    legacy = build_setup({"unified_fit": {"num_levels": 1, "levels": [legacy_level]}})
+    assert legacy.model.levels[0].G_limits == (1e8, 1e12)
+    assert legacy.model.levels[0].fit_P is False

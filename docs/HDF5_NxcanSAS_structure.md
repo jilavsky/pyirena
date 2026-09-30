@@ -104,3 +104,42 @@ but is not itself written out as a number, embed the setup. If the tool is a
 step in a pipeline whose inputs are a config file, write provenance instead.
 Whichever you choose, add a row here — the asymmetry above looked like an
 oversight until it was written down.
+
+### 5.1 The embedded setup is meant to be read by hand
+
+Users open result files in HDFView, in Igor and with `h5dump`, and read
+`_pyirena_config` as text. That is a constraint on its design, not an
+accident of it:
+
+* **One JSON string attribute on the results group.** Not a binary blob, not
+  a sub-group per control. Anything that needs a tool to decode is not
+  readable at the beamline.
+* **The key names are the ones in the GUI and in the maths.** `Rg`, `G`, `P`,
+  `RgCO`, `phi` — a scientist reading the attribute should recognise the
+  Irena names. This is why the core field names were kept rather than renamed
+  to the panel's `RgCutoff` / `correlated` / `estimate_B`.
+* **It says what it is.** The header carries a `_note` — *"pyIrena tool
+  setup. Replay it with pyirena.batch, or with
+  pyirena.api.control.analyze(data, config)."* — alongside `tool`,
+  `saved_by`, `saved_at` and `schema_version`, so whoever finds the attribute
+  does not have to guess what to do with it.
+
+The envelope is `{"_pyirena_config": {header}, "state": {the tool's
+settings}}`, and `pyirena.core.tool_config.build_setup()` reads it directly —
+the same reader that takes an *Export Parameters* sidecar and an
+`export_results()` reply. So the setup inside a result file can be replayed
+without unwrapping it by hand:
+
+```python
+import h5py, json
+from pyirena.core.tool_config import build_setup
+
+with h5py.File("sample.h5") as f:
+    envelope = json.loads(f["entry/unified_fit_results"].attrs["_pyirena_config"])
+setup = build_setup(envelope)     # -> model, fitted Q range, slit settings
+```
+
+Settings are written in the **core** dialect (`model.to_dict()`); the older
+panel dialect, in every file written before 1.2, is still read. See
+`docs/batch_api.md` § *Configuration file format* for both, and
+`planning/config-dialects/` for why there were two.

@@ -16,9 +16,31 @@ three ways, and all three are in §2:
 - the **`export_results` → `analyze` round trip is lossy today**, for Unified
   Fit and for Sizes, in the ZMQ service as shipped.
 
-**Status: not started.** Independent of the ZMQ work; do not put it on that
-branch. Step 0 (§5) is new and is a *bug fix*, not cleanup — it should go to
-main before or with the beta.
+**Status: done, 30-09-2026**, on `feature/config-dialects` — all five steps,
+against issues #23-#27. Two decisions the plan left open were taken: Step 3
+was done in full rather than deferred, and Fractals was given the core
+`to_dict()`/`from_dict()` pair rather than left on the legacy reader (§6).
+
+Three things came out differently from the plan, each noted at the point it
+applies below:
+
+- **Step 0 fix 1** was not the four-line patch to `flatten_level_config`'s
+  bare-number branch that §5 describes. Routing a core-shaped level through
+  the panel translator loses `K`, `mass_fractal` and `RgCO`'s flag and bounds
+  by construction, because the panel vocabulary has no room for them. Levels
+  are instead dispatched by shape — `unified_level_from_config` — which is
+  Step 3.2 arriving early, and is what Step 3.2 then reused.
+- **Modeling's `_collect_state` still writes the type blocks** (§5 Step 3.3
+  said to stop). They are how switching a population's type in the GUI keeps
+  the settings of the type switched away from; removing them to satisfy a
+  consistency rule would delete a working feature. It now writes the active
+  type's fields flat *as well*, which is what the headless readers and a
+  human reading the attribute in HDFView actually need.
+- **Sizes has no fit flags or bounds to invert**, so Step 2.3's round trip is
+  vacuous for it; its two Step 0 losses are pinned by Step 2.1 (the slit
+  fields were in `vars()` and not in `to_dict()`) and by the value round trip
+  instead. Noted in the test's tool table so the gap is not mistaken for
+  coverage.
 
 ---
 

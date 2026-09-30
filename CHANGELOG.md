@@ -7,7 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Config serialisation: one vocabulary, not four
+
+A tool's settings have been written in two vocabularies inside four different
+wrappers, and only one wrapper could be read back. The consequence was not
+errors — it was replayed fits that kept every number and lost the decisions
+about them. See `planning/config-dialects/` for the full inventory.
+
+**Nothing you already have stops working.** Every config file, every
+`state.json` and every saved `.h5` still loads; they are simply rewritten in
+the current dialect when next saved.
+
+### Fixed
+
+- **A Unified Fit config exported from the GUI replayed with every fit flag
+  and bound lost.** This is the documented ZMQ and `analyze()` workflow — set
+  the fit up once, replay it on each new measurement — and it silently freed
+  the parameters the scientist had pinned and dropped the bounds that kept
+  the fit physical. The values were all correct, so the result looked
+  plausible. The reader handled a bare number as a value and skipped the
+  `fit_Rg` and `Rg_limits` keys sitting beside it.
+
+- **Modeling replayed every non-size-distribution population at its dataclass
+  defaults**, from any saved `.h5` — five of the six population types. The
+  panel nests those types' settings under `uf`/`peak`/`gp`/`mf`/`sf2` so that
+  switching a population's type in the GUI does not lose the settings of the
+  type you switched away from; nothing headless knew to look there. In
+  `testData/Scripting/Modeling_PP15.h5` the affected population is a pure
+  power law (G = 0, Rg = 1e10, B = 7.45e-6, P = 3.707) and came back as
+  G = 1, Rg = 10, P = 4 — a different curve entirely.
+
+  ⚠️ **This changes results for existing Modeling setups, correctly.** If you
+  have been replaying a saved Modeling setup with a Unified-level,
+  diffraction-peak, Guinier-Porod, mass-fractal or surface-fractal
+  population, you were getting default parameters and will now get yours.
+  Pipeline output will move.
+
+- **Size Distribution replayed a spheroid as a sphere.** The aspect ratio was
+  read from the panel's flat key and only fell back to `shape_params` when
+  the shape was *not* a spheroid — the one case where it matters.
+
+- **Size Distribution lost the slit settings on a round trip.** A slit-smeared
+  setup, saved and reloaded, came back as a pinhole fit: a different,
+  plausible answer. `use_slit_smearing` and `slit_length` are now in
+  `to_dict()` and in the panel state.
+
+- **The config's own `unc_n_runs` was read by nothing** on the replay path, so
+  `pyirena.batch.fit_sizes` ignored the uncertainty-run count the user set in
+  the GUI. An explicit `n_mc_runs` argument still wins.
+
+- **`build_setup()` rejected two of the four envelopes pyIrena writes** — and
+  they were the two a remote caller actually holds: the `_pyirena_config`
+  attribute inside a result file, and an `export_results()` reply. Both
+  failed with `Config has no '<tool>' section`. A fourth branch, for
+  `{"tool": …, "model": …}`, was unreachable and, when reached, built an
+  all-defaults model without saying so. All four are now read, and the
+  `export_results() → analyze()` round trip works.
+
+### Changed
+
+- **The panel dialect is now read-only.** Unified Fit's older shape — each
+  parameter a `{"value", "fit", "low_limit", "high_limit"}` block, with
+  `RgCutoff`/`correlated`/`estimate_B` for `RgCO`/`correlations`/`link_B` —
+  is still read everywhere and no longer written anywhere. What is written is
+  `model.to_dict()`, the same shape the other five tools already used, which
+  also carries `K`, `mass_fractal` and `RgCO`'s own flag and bounds that the
+  panel vocabulary had no room for. Setups now state `schema_version` (3 for
+  Unified Fit) so a reader is told the dialect instead of inferring it.
+
+- **The embedded setup in an HDF5 file says what it is.** A `_note` in the
+  header — *"pyIrena tool setup. Replay it with pyirena.batch, or with
+  pyirena.api.control.analyze(data, config)."* — for whoever opens the
+  attribute in HDFView, Igor or `h5dump` and has to guess otherwise.
+
+- **Modeling writes the active population's fields flat as well**, in the
+  current dialect, while keeping the per-type blocks the GUI needs for type
+  switching. A reader that knows nothing of the blocks now sees the
+  population the file actually describes.
+
+- ***Export Parameters* no longer writes view-only keys.** `last_folder` in
+  particular was an absolute path from whichever machine exported the file,
+  travelling into every shared config and result file. These stay in the
+  state file, where a user's view preferences belong.
+
+- **Fractals' `GrowthConfig` and `OptimizerConfig` serialise themselves**
+  rather than having the panel enumerate the same fields a second time.
+
+### Added
+
+- **`pyirena/tests/test_config_contract.py`** — a completeness contract over
+  all six tools rather than one test per tool. Every scalar setting is either
+  in `to_dict()` or named in the class's `_NOT_SERIALISED` allowlist with a
+  reason; a model rebuilt from its own dict has to run a fit, not merely
+  compare equal; and a model with **every fit flag inverted and every bound
+  narrowed** has to survive `to_dict() → build_setup() → to_dict()` in all
+  four envelopes. That last one is the test every bug above fails and a
+  values-only comparison passes. It covers all five encodings of "a parameter
+  with a fit flag and bounds", including Simple Fits' `param_fixed`, whose
+  boolean means the opposite of everyone else's. The real exported configs
+  and result files in `testData/Scripting/` are replayed too.
+
+- **`pyirena/tests/test_unified_state_dialects.py`** — a live panel driven
+  through both dialects: a pre-1.2 state file restores every control, comes
+  back out in the current dialect, and the agent API's embedded setup is a
+  shape the GUI can open.
+
+- `docs/batch_api.md` gains the two dialects, the four envelopes, the rule for
+  where a fitted Q range lives, and the mapping tables for the four spellings
+  of that Q range and the five encodings of a fit flag. The worked examples
+  in it are now checked by the test suite. `docs/HDF5_NxcanSAS_structure.md`
+  § 5.1 records why the embedded setup stays hand-readable.
 
 ## [1.2.0b1] - 2026-09-29
 
