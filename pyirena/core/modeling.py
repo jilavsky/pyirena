@@ -690,8 +690,34 @@ POPULATION_CLASSES = {
 }
 
 
+#: Where the *panel* dialect keeps each population type's own fields.
+#:
+#: ``ModelingPanel`` serialises a population with every type's settings side by
+#: side — size-distribution fields flat, the other five nested under a short
+#: key — so that switching a population's type in the GUI does not throw away
+#: the settings of the type switched away from.  A good reason, and invisible
+#: for as long as only the panel read it back.  Anything headless that replays
+#: a Modeling setup out of an HDF5 file or a state file reads *this* shape, and
+#: read flat it yields a population at its dataclass defaults: the fit runs and
+#: returns a plausible wrong number.  See ``planning/config-dialects/`` §2.2.
+POPULATION_PANEL_BLOCKS = {
+    'unified_level':    'uf',
+    'diffraction_peak': 'peak',
+    'guinier_porod':    'gp',
+    'mass_fractal':     'mf',
+    'surface_fractal':  'sf2',
+}
+
+
 def population_from_dict(d: dict):
     """Rebuild the right population class from a saved dict.
+
+    Accepts both dialects.  The core dialect writes one population's fields
+    flat; the panel dialect nests all but the size-distribution ones (see
+    :data:`POPULATION_PANEL_BLOCKS`), and the matching block is merged over the
+    flat keys before the dataclass reads them.  The block wins, because it is
+    the one the panel was editing; ``pop_type``, ``enabled`` and ``label`` are
+    only ever written flat and so survive either way.
 
     An unrecognised ``pop_type`` — a file from a newer pyIrena — falls back to
     a size distribution rather than raising, so the rest of the fit still
@@ -704,6 +730,13 @@ def population_from_dict(d: dict):
         log.warning("unknown population type %r; loading it as a size distribution",
                     pop_type)
         cls = SizeDistPopulation
+
+    block_key = POPULATION_PANEL_BLOCKS.get(pop_type)
+    block = d.get(block_key) if block_key else None
+    if isinstance(block, dict):
+        merged = {k: v for k, v in d.items() if k not in POPULATION_PANEL_BLOCKS.values()}
+        merged.update(block)
+        d = merged
     return cls.from_dict(d)
 
 

@@ -70,7 +70,7 @@ def fit_sizes(
     config_file: Union[str, Path],
     save_to_nexus: bool = True,
     with_uncertainty: bool = False,
-    n_mc_runs: int = 10,
+    n_mc_runs: Optional[int] = None,
 ) -> Optional[Dict]:
     """Fit a Size Distribution model to a data file using a pyIrena config file.
 
@@ -92,7 +92,8 @@ def fit_sizes(
         method each perturbed fit uses a single internal MC run.  Default False.
     n_mc_runs : int, optional
         Number of Monte Carlo perturbation runs when *with_uncertainty* is True.
-        Default 10.
+        Default None, which takes the config's own ``unc_n_runs`` (the GUI's
+        uncertainty-run spin box), falling back to 10 when it states none.
 
     Returns
     -------
@@ -236,6 +237,15 @@ def fit_sizes(
 
     # --- MC uncertainty analysis (optional) ---
     distribution_std = None
+    # The config's own 'unc_n_runs' is the number the user set in the GUI;
+    # it was read by nothing on this path until now. An explicit argument
+    # still wins, so existing callers are unaffected.
+    if n_mc_runs is None:
+        try:
+            n_mc_runs = max(1, int(sizes_state.get('unc_n_runs', 10)))
+        except (TypeError, ValueError):
+            n_mc_runs = 10
+
     if with_uncertainty and fit_result.get('success', False):
         log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
         try:

@@ -39,6 +39,11 @@ TOOL_SECTIONS: Tuple[str, ...] = (
 )
 
 
+#: The header key every pyIrena config wrapper carries. Named here so the
+#: reader and ``io/setup_config.py``'s writer cannot drift apart.
+PYIRENA_CONFIG_HEADER = "_pyirena_config"
+
+
 class ConfigError(ValueError):
     """A config that cannot be turned into a model, with a readable reason."""
 
@@ -59,6 +64,11 @@ class ToolSetup:
 
     #: True when the config asks for the file's slit-smeared dataset.
     load_slit_smeared: bool = False
+
+    #: Size Distribution only: the config's uncertainty-run count
+    #: (``unc_n_runs``), or None when it does not state one. It is a GUI
+    #: control the user sets and the replay path used to ignore outright.
+    mc_n_runs: Optional[int] = None
 
     #: Notes worth showing the caller (a clamped value, an ignored key).
     warnings: list = field(default_factory=list)
@@ -88,11 +98,55 @@ def detect_tool(config: Dict) -> Optional[str]:
     return None
 
 
-def section_for(config: Dict, tool: Optional[str] = None) -> Tuple[str, Dict]:
-    """Return ``(tool, section)`` from a config file or a bare section.
+@dataclass
+class _Envelope:
+    """What a wrapper carries besides the tool's own settings section.
 
-    Accepts a whole config file, a bare tool section with *tool* given, or the
-    ``{"tool": …, "model": …}`` envelope.
+    Only the fields a wrapper states; ``None`` means "this envelope says
+    nothing about it", which is different from "it says zero".
+    """
+
+    fit_q_min: Optional[float] = None
+    fit_q_max: Optional[float] = None
+    is_slit_smeared: Optional[bool] = None
+    slit_length: Optional[float] = None
+
+
+def _q_range_of(block: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Read a ``{"q_min": …, "q_max": …}`` block, tolerating None and junk."""
+    if not isinstance(block, dict):
+        return None, None
+
+    def _num(key):
+        value = block.get(key)
+        try:
+            return None if value is None else float(value)
+        except (TypeError, ValueError):
+            return None
+
+    return _num("q_min"), _num("q_max")
+
+
+def unwrap_config(config: Dict, tool: Optional[str] = None
+                  ) -> Tuple[str, Dict, _Envelope]:
+    """Return ``(tool, section, envelope)`` for any wrapper pyIrena writes.
+
+    pyIrena writes a tool's settings inside four different wrappers, and for
+    a long time read only the first of them — so the two a remote caller
+    actually holds, the one inside a result file and the one the service just
+    handed back, were the two that could not be fed back in:
+
+    ``{"_pyirena_config": …, "<tool>": {…}}``
+        The *Export Parameters* JSON sidecar.
+    ``{"_pyirena_config": …, "state": {…}}``
+        The ``_pyirena_config`` attribute on every HDF5 results group.
+    ``{"ok": …, "tool": …, "config": {…}, "fit_q_range": …, "data": …}``
+        Every ``export_results()`` reply, over MCP and the ZMQ service.
+    ``{"tool": …, "model": {…}}``
+        The minimal envelope, for a caller assembling one by hand.
+
+    A bare tool section with *tool* given is accepted too. The settings are
+    the same object in all five cases; only the wrapper differs.
     """
     if not isinstance(config, dict):
         raise ConfigError(f"config must be an object, got {type(config).__name__}.")
@@ -110,15 +164,56 @@ def section_for(config: Dict, tool: Optional[str] = None) -> Tuple[str, Dict]:
             f"Unknown tool '{tool}'. One of: {', '.join(TOOL_SECTIONS)}."
         )
 
+    env = _Envelope()
+
+    # 1. The sidecar: the section is named after the tool.
     section = config.get(tool)
     if isinstance(section, dict):
-        return tool, section
-    # A bare section was passed (no wrapper), or the envelope form.
-    if isinstance(config.get("model"), dict) and detected is None:
-        return tool, config
-    if detected is None:
-        return tool, config
+        return tool, section, env
+
+    # 2. The HDF5 attribute: {_pyirena_config, state}. Only a wrapper has a
+    #    '_pyirena_config' header, so this cannot collide with a bare section.
+    state = config.get("state")
+    if isinstance(state, dict) and isinstance(config.get(PYIRENA_CONFIG_HEADER), dict):
+        return tool, state, env
+
+    # 3. An export_results() reply. Its 'config' is the model's to_dict(), and
+    #    it states the fitted Q range and the curve's slit settings separately
+    #    — which is the whole reason the reply is worth feeding back in.
+    reply = config.get("config")
+    if isinstance(reply, dict) and config.get("tool") in TOOL_SECTIONS:
+        env.fit_q_min, env.fit_q_max = _q_range_of(config.get("fit_q_range"))
+        data = config.get("data")
+        if isinstance(data, dict):
+            if data.get("is_slit_smeared") is not None:
+                env.is_slit_smeared = bool(data["is_slit_smeared"])
+            try:
+                if data.get("slit_length") is not None:
+                    env.slit_length = float(data["slit_length"])
+            except (TypeError, ValueError):
+                pass
+        return tool, reply, env
+
+    # 4. The minimal {tool, model} envelope. Guarded on an explicit 'tool'
+    #    key: the Carbon section nests its own 'model', and reading that as
+    #    this envelope would drop the Q range beside it.
+    model = config.get("model")
+    if isinstance(model, dict) and config.get("tool") in TOOL_SECTIONS:
+        env.fit_q_min, env.fit_q_max = _q_range_of(config.get("fit_q_range"))
+        return tool, model, env
+
+    # 5. A bare section, passed with the tool named.
+    if detected is None or detected == tool:
+        return tool, config, env
+
     raise ConfigError(f"Config has no '{tool}' section.")
+
+
+def section_for(config: Dict, tool: Optional[str] = None) -> Tuple[str, Dict]:
+    """``(tool, section)`` from any wrapper — :func:`unwrap_config` without
+    the envelope's own fields. Kept for callers that only want the section."""
+    tool, section, _ = unwrap_config(config, tool)
+    return tool, section
 
 
 # ---------------------------------------------------------------------------
@@ -133,12 +228,46 @@ _LIMIT_DEFAULTS = {
 }
 
 
+#: Keys that only the panel dialect ever writes.  A level carrying one of
+#: these is panel-shaped even when its parameters happen to be bare numbers.
+_PANEL_ONLY_LEVEL_KEYS = (
+    "RgCutoff", "correlated", "estimate_B", "link_rgco", "level",
+    "G_low", "Rg_low", "B_low", "P_low", "ETA_low", "PACK_low",
+    "G_high", "Rg_high", "B_high", "P_high", "ETA_high", "PACK_high",
+)
+
+
+def is_panel_level(ls: Dict) -> bool:
+    """True when one level dict speaks the *panel* dialect, not the core one.
+
+    The two are told apart by shape, which is reliable because they disagree
+    about a parameter's type: the panel writes ``{"value": …, "fit": …}`` and
+    the core writes a bare number beside ``fit_Rg`` and ``Rg_limits``.  A
+    hand-written level with bare numbers and none of the panel's own key
+    names reads as core, which is the dialect it is closest to and the one
+    that carries flags and bounds.
+    """
+    if not isinstance(ls, dict):
+        return False
+    if any(isinstance(ls.get(name), dict) for name in _LIMIT_DEFAULTS):
+        return True
+    return any(key in ls for key in _PANEL_ONLY_LEVEL_KEYS)
+
+
 def flatten_level_config(ls: Dict) -> Dict:
     """Turn one level of the JSON config into the panel's flat key names.
 
-    Accepts both spellings a config file may use for a parameter: the nested
+    Accepts every spelling a config file may use for a parameter: the nested
     ``{'value': …, 'fit': …, 'low_limit': …, 'high_limit': …}`` form written by
-    the GUI, and a bare number for hand-written configs.
+    the GUI, and a bare number — which, in the core dialect, is accompanied by
+    its own ``fit_<name>`` flag and ``<name>_limits`` pair.  Reading a bare
+    number and *skipping* those two is what silently freed parameters the
+    scientist had pinned; see ``planning/config-dialects/`` §2.1.
+
+    Levels that are wholly core-shaped go through :meth:`UnifiedLevel.from_dict`
+    instead (see :func:`unified_level_from_config`), which also carries ``K``,
+    ``mass_fractal`` and the ``RgCO`` flag and bounds that the panel vocabulary
+    has no room for.  This function still has to handle the mixed case.
     """
     flat: Dict = {
         "RgCutoff":   float(ls.get("RgCutoff", ls.get("RgCO", 0.0)) or 0.0),
@@ -148,19 +277,58 @@ def flatten_level_config(ls: Dict) -> Dict:
     }
     for name, (lo_default, hi_default) in _LIMIT_DEFAULTS.items():
         entry = ls.get(name, {})
-        if not isinstance(entry, dict):
+        if isinstance(entry, dict):
+            flat[name] = float(entry.get("value", 0.0))
+            fit = entry.get("fit", False)
+            lo = entry.get("low_limit", lo_default)
+            hi = entry.get("high_limit", hi_default)
+        else:
+            # Core dialect: the value is bare and its flag and bounds sit
+            # beside it under their own names.
             flat[name] = float(entry)
-            continue
-        flat[name] = float(entry.get("value", 0.0))
-        flat[f"fit_{name}"] = bool(entry.get("fit", False))
-        flat[f"{name}_low"] = float(entry.get("low_limit", lo_default))
-        flat[f"{name}_high"] = float(entry.get("high_limit", hi_default))
+            fit = ls.get(f"fit_{name}")
+            pair = ls.get(f"{name}_limits")
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                lo, hi = pair
+            else:
+                lo, hi = ls.get(f"{name}_low", lo_default), ls.get(f"{name}_high", hi_default)
+            if fit is None:
+                # Neither dialect stated a flag: leave the model's default
+                # alone rather than inventing False.
+                flat[f"{name}_low"] = float(lo)
+                flat[f"{name}_high"] = float(hi)
+                continue
+        flat[f"fit_{name}"] = bool(fit)
+        flat[f"{name}_low"] = float(lo)
+        flat[f"{name}_high"] = float(hi)
     return flat
+
+
+def unified_level_from_config(ls: Dict, *, with_limits: bool = True):
+    """Build one :class:`UnifiedLevel` from a config level in either dialect.
+
+    One translator, chosen by shape — the alternative is every reader
+    hand-rolling its own detection, which is how the core dialect ended up
+    half-read in the first place.
+    """
+    from pyirena.core.unified import UnifiedLevel
+
+    if is_panel_level(ls):
+        return UnifiedLevel.from_panel_params(
+            flatten_level_config(ls), with_limits=with_limits)
+
+    level = UnifiedLevel.from_dict(ls)
+    if not with_limits:
+        # "No limits" mode wants the wide defaults, whatever the file says.
+        default = UnifiedLevel()
+        for name in UnifiedLevel._LIMIT_FIELDS:
+            setattr(level, name, getattr(default, name))
+    return level
 
 
 def unified_model_from_config(state: Dict):
     """Convert the ``unified_fit`` config section into a configured model."""
-    from pyirena.core.unified import UnifiedFitModel, UnifiedLevel
+    from pyirena.core.unified import UnifiedFitModel
 
     num_levels = state.get("num_levels", 1)
     no_limits = state.get("no_limits", False)
@@ -172,18 +340,30 @@ def unified_model_from_config(state: Dict):
     if isinstance(bg, dict):
         model.background = float(bg.get("value", 0.0))
         model.fit_background = bool(bg.get("fit", False))
+        lo, hi = bg.get("low_limit"), bg.get("high_limit")
+        if lo is not None and hi is not None and not no_limits:
+            model.background_limits = (float(lo), float(hi))
     else:
         model.background = float(bg or 0.0)
-        model.fit_background = bool(state.get("fit_background", False))
+        if state.get("fit_background") is not None:
+            model.fit_background = bool(state["fit_background"])
+        limits = state.get("background_limits")
+        if isinstance(limits, (list, tuple)) and len(limits) == 2 and not no_limits:
+            model.background_limits = (float(limits[0]), float(limits[1]))
+
+    # Slit smearing is model state in the core dialect; the panel keeps it
+    # beside the model, so the caller supplies it (see build_setup).
+    if state.get("use_slit_smearing") is not None:
+        model.use_slit_smearing = bool(state["use_slit_smearing"])
+    if state.get("slit_length") is not None:
+        model.slit_length = float(state["slit_length"])
 
     for i, ls in enumerate(state.get("levels", [])[:num_levels]):
-        # The config file stores each parameter as a small dict; the core model
-        # speaks the panel's flat key names. Flatten here, then let
-        # UnifiedLevel.from_panel_params own the field mapping — it is the same
-        # translation the GUI does, and keeping two copies is how the batch path
-        # and the GUI drifted apart before.
-        model.levels[i] = UnifiedLevel.from_panel_params(
-            flatten_level_config(ls), with_limits=not no_limits)
+        # Either dialect; unified_level_from_config picks the reader by shape
+        # and both of them are the same translators the GUI uses. Keeping a
+        # second copy here is how the batch path and the GUI drifted apart
+        # before.
+        model.levels[i] = unified_level_from_config(ls, with_limits=not no_limits)
 
     return model
 
@@ -204,11 +384,22 @@ def sizes_model_from_config(state: Dict, *, data_is_slit_smeared: bool = False,
     s.log_spacing        = bool(state.get("log_spacing", True))
     s.shape              = str(state.get("shape", "sphere"))
     s.contrast           = float(state.get("contrast", 1.0))
-    ar = state.get("aspect_ratio", 1.0)
+    # Two dialects spell the same thing: the panel writes a flat
+    # 'aspect_ratio', the core writes it inside 'shape_params'. Reading only
+    # the flat key replayed a core-dialect spheroid config as a sphere — the
+    # one shape where the aspect ratio matters. shape_params is splatted as
+    # keyword arguments into the shape's G-matrix builder, so 'aspect_ratio'
+    # is carried for the spheroid alone; the panel writes it whatever the
+    # shape, and a sphere builder has no such argument.
+    shape_params = dict(state["shape_params"]) if isinstance(
+        state.get("shape_params"), dict) else {}
     if s.shape == "spheroid":
-        s.shape_params = {"aspect_ratio": float(ar)}
-    elif isinstance(state.get("shape_params"), dict):
-        s.shape_params = dict(state["shape_params"])
+        ar = state.get("aspect_ratio", shape_params.get("aspect_ratio", 1.0))
+        shape_params["aspect_ratio"] = float(ar)
+    else:
+        shape_params.pop("aspect_ratio", None)
+    if shape_params:
+        s.shape_params = shape_params
     s.background         = float(state.get("background", 0.0))
     s.error_scale        = float(state.get("error_scale", 1.0))
     s.fractional_error   = bool(state.get("fractional_error", False))
@@ -319,8 +510,16 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
     ConfigError
         With a message naming what was wrong and what was expected.
     """
-    tool, section = section_for(config, tool)
+    tool, section, envelope = unwrap_config(config, tool)
     setup = ToolSetup(tool=tool, model=None)
+
+    # An envelope that states the curve's slit settings speaks for the data
+    # the caller did not hand over separately (an export_results reply is
+    # the case that matters: the data are not in the request).
+    if envelope.is_slit_smeared is not None and not data_is_slit_smeared:
+        data_is_slit_smeared = envelope.is_slit_smeared
+    if envelope.slit_length is not None and not data_slit_length:
+        data_slit_length = envelope.slit_length
 
     try:
         if tool == "unified_fit":
@@ -354,7 +553,21 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
     except Exception as exc:
         raise ConfigError(f"Could not build a {tool} model from this config: {exc}") from exc
 
+    # The envelope's own fit_q_range wins over whatever the section spells
+    # it: four tools keep the Q range beside the model and two keep it
+    # inside to_dict(), so the envelope is the single place a reader looks.
+    # See planning/config-dialects/ §4 rule 4.
+    if envelope.fit_q_min is not None:
+        setup.fit_q_min = envelope.fit_q_min
+    if envelope.fit_q_max is not None:
+        setup.fit_q_max = envelope.fit_q_max
+
     setup.load_slit_smeared = bool(section.get("load_slit_smeared", False))
+    if section.get("unc_n_runs") is not None:
+        try:
+            setup.mc_n_runs = max(1, int(section["unc_n_runs"]))
+        except (TypeError, ValueError):
+            pass
     setup.fit_q_min = float(setup.fit_q_min) if setup.fit_q_min is not None else None
     setup.fit_q_max = float(setup.fit_q_max) if setup.fit_q_max is not None else None
     return setup

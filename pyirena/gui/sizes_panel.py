@@ -2733,6 +2733,11 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             'fractional_error_value': s.fractional_error_value,
             'power_law_B': s.power_law_B,
             'power_law_P': s.power_law_P,
+            # Slit smearing changes the fitted sizes, so a saved setup that
+            # omits it comes back as a pinhole fit — a different answer, with
+            # nothing to show it changed.
+            'use_slit_smearing': bool(s.use_slit_smearing),
+            'slit_length': float(s.slit_length or 0.0),
             # Whether to fit B / P when "Fit P/B" or "Fit All" runs.  Persisted
             # so the GUI remembers the user's choice and scripts can drive a
             # background pre-fit before the size fit (see batch.fit_sizes).

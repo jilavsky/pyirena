@@ -1381,6 +1381,12 @@ class SizesDistribution:
             'fractional_error_value':   self.fractional_error_value,
             'power_law_B':              self.power_law_B,
             'power_law_P':              self.power_law_P,
+            # Slit smearing changes the fitted sizes, so it is state, not a
+            # property of the loaded curve.  Omitting it made a slit-smeared
+            # setup reload as a pinhole fit — a different, plausible answer.
+            # Additive, so files written before this still load.
+            'use_slit_smearing':        self.use_slit_smearing,
+            'slit_length':              self.slit_length,
         }
 
     @classmethod

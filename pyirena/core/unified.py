@@ -369,6 +369,17 @@ class UnifiedFitModel:
 
     # ── Serialisation ────────────────────────────────────────────────────
 
+    #: Settings deliberately absent from :meth:`to_dict`, each with the reason.
+    #: The completeness contract (``tests/test_config_contract.py``) requires
+    #: every scalar setting to be either serialised or named here, so a field
+    #: added later cannot go missing quietly the way several already have.
+    _NOT_SERIALISED = {
+        'use_analytic_jacobian':
+            'An implementation detail of how the solver gets its gradient. It '
+            'does not change the fitted result, and fit() falls back to finite '
+            'differences by itself if the analytic path raises.',
+    }
+
     def to_dict(self) -> dict:
         """The whole model's parameters as a plain dict — no data, no results.
 

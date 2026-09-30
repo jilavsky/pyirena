@@ -1019,6 +1019,15 @@ class WAXSPeakFitModel:
         # never worse.  Implementation detail — not serialised.
         self.use_analytic_jacobian = True
 
+    #: Settings deliberately absent from :meth:`to_dict`, each with the reason.
+    #: See ``tests/test_config_contract.py`` for the contract this satisfies.
+    _NOT_SERIALISED = {
+        'use_analytic_jacobian':
+            'An implementation detail of how the solver gets its gradient. It '
+            'does not change the fitted result, and the fit falls back to '
+            'finite differences by itself for any peak shape without one.',
+    }
+
     # ── Parameter vector helpers ──────────────────────────────────────────
 
     def _build_param_list(self) -> List[Tuple[str, float, bool, Optional[float], Optional[float]]]:
