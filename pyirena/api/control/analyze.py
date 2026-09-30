@@ -236,7 +236,22 @@ def _apply_q_range(session, setup, notes: list):
 
 
 def _run_fit(tool: str, session_id: str, section: Dict):
-    """Call the tool's own run_* function, passing what the config asks for."""
+    """Call the tool's own run_* function, passing what the config asks for.
+
+    **Unified Fit keeps ``walk_limits`` on here, on purpose.** It looks wrong
+    for a tool whose job is to replay a setup exactly — the bounds travel
+    correctly and are then widened when the fit reaches them — and it is the
+    behaviour the tool exists for. A saved config is replayed across a series
+    of measurements in which the structure is *growing*, so a limit that was
+    right for the first scan is passed by the tenth; a fit that stopped dead
+    at it would report the bound rather than the size. The limits cannot
+    simply be dropped instead, because several fitting methods require finite
+    bounds. Walking them is what lets one configuration follow a sample
+    through its whole run.
+
+    Pass ``no_limits`` in the config for the other case — a bound you want
+    ignored for this fit rather than followed.
+    """
     from pyirena.api import control as ctrl
 
     name, arg_map = _RUNNERS[tool]
