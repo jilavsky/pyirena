@@ -190,6 +190,7 @@ def test_rho_struc_decreases_when_the_lattice_swells():
 
 def test_sld_is_linear_in_density():
     """The cached per-gram shortcut must agree with the full computation."""
+    pytest.importorskip("periodictable")
     from pyirena.core.scattering_contrast import compute_compound
 
     for rho in (1.0, 1.8, 2.26):
@@ -393,6 +394,7 @@ def test_crumpled_envelope_multiplies_the_peaks():
 
 def test_moving_the_002_peak_changes_both_contrasts():
     """The chain really is live: peak position → density → SLD → contrast."""
+    pytest.importorskip("periodictable")
     m = CarbonFitModel()
     before = m.resolve_material()
     m.peak_by_label('002').Q0 = 2.0 * np.pi / 3.80        # swollen interlayer

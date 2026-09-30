@@ -157,6 +157,7 @@ def test_add_and_remove_peaks(sid):
 
 
 def test_moving_the_002_peak_moves_the_whole_contrast_chain(sid):
+    pytest.importorskip("periodictable")
     before = ctrl.get_carbon_config(sid)["material"]
     ctrl.set_carbon_parameter(sid, "peak.002.Q0", 2 * np.pi / 3.80)
     after = ctrl.get_carbon_config(sid)["material"]
@@ -177,6 +178,7 @@ def test_material_overrides_take_effect_immediately(sid):
 
 
 def test_a_doped_formula_changes_the_sld(sid):
+    pytest.importorskip("periodictable")
     plain = ctrl.get_carbon_config(sid)["material"]["sld_struc"]
     doped = ctrl.set_carbon_material(sid, formula="C0.9N0.1")["material"]
     assert doped["sld_struc"] != pytest.approx(plain)

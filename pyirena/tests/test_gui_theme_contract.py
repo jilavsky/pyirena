@@ -267,6 +267,7 @@ def test_theme_never_makes_selection_controls_transparent():
 
 def test_check_box_indicator_is_visible():
     """An unchecked box is drawn, with an outline the user can see."""
+    pytest.importorskip("PySide6", reason="Qt binding required to render")
     from pyirena.gui import theme
 
     painted = _render_check_box(checked=False)
@@ -284,6 +285,7 @@ def test_check_box_indicator_is_visible():
 
 def test_checked_box_is_distinguishable_from_unchecked():
     """Checked and unchecked must differ by more than a thin glyph."""
+    pytest.importorskip("PySide6", reason="Qt binding required to render")
     from pyirena.gui import theme
 
     off = _render_check_box(checked=False)
