@@ -26,6 +26,22 @@ def get_default_state_file() -> Path:
     return state_dir / 'state.json'
 
 
+def _default_unified_level() -> Dict[str, Any]:
+    """One Unified Fit level's shipped defaults, in the core dialect.
+
+    A function rather than five copies of the same literal: the list used to
+    be 115 lines of hand-maintained JSON in which levels 2-5 had already
+    drifted from level 1 (they were missing ``link_rgco``).
+    """
+    return {
+        "G": 100.0, "Rg": 100.0, "B": 0.01, "P": 4.0, "ETA": 0.0, "PACK": 0.0,
+        "RgCO": 0.0,
+        "fit_G": False, "fit_Rg": False, "fit_B": False, "fit_P": False,
+        "fit_ETA": False, "fit_PACK": False,
+        "correlations": False, "link_B": False, "link_RGCO": False,
+    }
+
+
 class StateManager:
     """
     Manages application state for pyIrena.
@@ -132,104 +148,21 @@ class StateManager:
             "background_q_max": None,
         },
         "unified_fit": {
+            "schema_version": 3,
             "num_levels": 1,
-            "levels": [
-                {
-                    "level": 1,
-                    "G": {
-                        "value": 100.0,
-                        "fit": False,
-                        "low_limit": None,
-                        "high_limit": None
-                    },
-                    "Rg": {
-                        "value": 100.0,
-                        "fit": False,
-                        "low_limit": None,
-                        "high_limit": None
-                    },
-                    "B": {
-                        "value": 0.01,
-                        "fit": False,
-                        "low_limit": None,
-                        "high_limit": None
-                    },
-                    "P": {
-                        "value": 4.0,
-                        "fit": False,
-                        "low_limit": None,
-                        "high_limit": None
-                    },
-                    "ETA": {
-                        "value": 0.0,
-                        "fit": False,
-                        "low_limit": None,
-                        "high_limit": None
-                    },
-                    "PACK": {
-                        "value": 0.0,
-                        "fit": False,
-                        "low_limit": None,
-                        "high_limit": None
-                    },
-                    "RgCutoff": 0.0,
-                    "correlated": False,
-                    "estimate_B": False
-                },
-                # Levels 2-5 with same structure
-                {
-                    "level": 2,
-                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
-                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "RgCutoff": 0.0,
-                    "correlated": False,
-                    "estimate_B": False
-                },
-                {
-                    "level": 3,
-                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
-                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "RgCutoff": 0.0,
-                    "correlated": False,
-                    "estimate_B": False
-                },
-                {
-                    "level": 4,
-                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
-                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "RgCutoff": 0.0,
-                    "correlated": False,
-                    "estimate_B": False
-                },
-                {
-                    "level": 5,
-                    "G": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "Rg": {"value": 100.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "B": {"value": 0.01, "fit": False, "low_limit": None, "high_limit": None},
-                    "P": {"value": 4.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "ETA": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "PACK": {"value": 0.0, "fit": False, "low_limit": None, "high_limit": None},
-                    "RgCutoff": 0.0,
-                    "correlated": False,
-                    "estimate_B": False
-                }
-            ],
-            "background": {
-                "value": 1e-6,
-                "fit": False
-            },
+            # The core dialect (UnifiedLevel.to_dict()) as of schema 3 — each
+            # parameter a bare number beside its own fit_<name> flag, rather
+            # than the panel's older {"value", "fit", "low_limit",
+            # "high_limit"} block. The panel reads both; it writes only this.
+            # See planning/config-dialects/ §4 rule 3.
+            #
+            # Bounds are deliberately absent rather than set to the model's
+            # wide defaults: the level widget ships narrower, GUI-friendly
+            # starting limits (G low "20", B low "0.002", P low "2"), and a
+            # stated bound here would overwrite them on every launch.
+            "levels": [_default_unified_level() for _ in range(5)],
+            "background": 1e-6,
+            "fit_background": False,
             "cursor_left": None,  # Will be set when data is loaded
             "cursor_right": None,  # Will be set when data is loaded
             "update_auto": False,
@@ -242,7 +175,6 @@ class StateManager:
             # _merge_state without an explicit migration.  use_slit_smearing is
             # auto-enabled when slit-smeared data (dQl) are loaded; slit_length
             # (1/Å) is file-derived but user-editable in the GUI.
-            "schema_version": 2,
             "use_slit_smearing": False,
             "slit_length": 0.0,
         },

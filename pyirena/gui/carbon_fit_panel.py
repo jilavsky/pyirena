@@ -33,6 +33,7 @@ from pyirena.core.carbon_fit import (
     CarbonFitModel,
     CarbonWaxsPeak,
 )
+from pyirena.core.tool_config import without_view_state
 from pyirena.gui._qt import (
     QCheckBox,
     QComboBox,
@@ -2074,7 +2075,10 @@ class CarbonFitPanel(QWidget):
         config.setdefault('_pyirena_config', {})
         config['_pyirena_config'].update(
             {'tool': 'carbon_fit', 'saved_at': datetime.now().isoformat()})
-        config['carbon_fit'] = self._collect_state()
+        # View state (the exporting machine's last folder, the active tab)
+        # is kept in the StateManager but never written into a shared
+        # config file.
+        config['carbon_fit'] = without_view_state(self._collect_state())
         try:
             Path(path).write_text(json.dumps(config, indent=2))
         except Exception as exc:

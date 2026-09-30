@@ -25,6 +25,23 @@ from scipy.special import digamma, erf, gamma
 
 from pyirena.core.smearing import SlitSmearer
 
+#: Version of the Unified Fit *setup state* — the dict the panel collects,
+#: the StateManager stores and ``_pyirena_config`` embeds.
+#:
+#: 1: the panel dialect — each parameter a ``{"value", "fit", "low_limit",
+#:    "high_limit"}`` block.
+#: 2: the same, plus the slit-smearing keys (2026-07-20).
+#: 3: the core dialect — each level ``UnifiedLevel.to_dict()``, background a
+#:    bare number beside ``fit_background``.
+#:
+#: Readers still tell the dialects apart by shape, because versions 1 and 2
+#: cannot be distinguished any other way — but everything written from here
+#: on says which it is rather than leaving the next reader to sniff, since
+#: sniffing is the mechanism that produced ``planning/config-dialects/`` §2.1.
+#: No migration function is needed: the reader accepts both, so an old state
+#: file loads unchanged and is rewritten in the new dialect when next saved.
+UNIFIED_STATE_SCHEMA_VERSION = 3
+
 
 @dataclass
 class UnifiedLevel:
@@ -263,6 +280,41 @@ class UnifiedLevel:
                 if lo in params and hi in params:
                     setattr(level, attr, (_f(lo), _f(hi)))
         return level
+
+    #: The six parameters the panel has controls for, and the key names it
+    #: uses for their bounds. Shared by both translators so they cannot drift.
+    _PANEL_PARAMS = ('G', 'Rg', 'B', 'P', 'ETA', 'PACK')
+
+    #: Core field name -> panel key, for the four that were renamed.
+    _PANEL_RENAMES = (('RgCO', 'RgCutoff'), ('correlations', 'correlated'),
+                      ('link_B', 'estimate_B'), ('link_RGCO', 'link_rgco'))
+
+    def to_panel_params(self) -> dict:
+        """This level in the *panel's* key names — the inverse of
+        :meth:`from_panel_params`.
+
+        The panel vocabulary is narrower than the model: it has no control for
+        ``K`` (derived from P), ``mass_fractal``, or ``RgCO``'s fit flag and
+        bounds, so those four do not appear here and a round trip through the
+        panel form drops them. That is a property of the vocabulary, not a
+        bug to fix on this side — which is exactly why the panel dialect is
+        now read-only and :meth:`to_dict` is what gets written.
+
+        Having the pair in one place is the point: the forward direction was
+        written out by hand at eight call sites before
+        :meth:`from_panel_params` existed, and the reverse still was, in
+        ``api/control/unified_fit.py``.
+        """
+        params = {name: float(getattr(self, name)) for name in self._PANEL_PARAMS}
+        params.update({panel: getattr(self, core)
+                       for core, panel in self._PANEL_RENAMES})
+        params['RgCutoff'] = float(self.RgCO)
+        for name in self._PANEL_PARAMS:
+            params[f'fit_{name}'] = bool(getattr(self, f'fit_{name}'))
+            lo, hi = getattr(self, f'{name}_limits')
+            params[f'{name}_low'] = float(lo)
+            params[f'{name}_high'] = float(hi)
+        return params
 
     def slit_smearing_note(self, slit_length: float = 0.0) -> str:
         """Soft warning when this level's feature is washed out by the slit.

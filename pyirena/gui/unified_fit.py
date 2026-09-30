@@ -20,7 +20,13 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
-from pyirena.core.unified import UnifiedFitModel, UnifiedLevel, panel_auto_limits
+from pyirena.core.tool_config import is_panel_level, unified_level_from_config, without_view_state
+from pyirena.core.unified import (
+    UNIFIED_STATE_SCHEMA_VERSION,
+    UnifiedFitModel,
+    UnifiedLevel,
+    panel_auto_limits,
+)
 from pyirena.gui._qt import (
     QApplication,
     QBrush,
@@ -1963,6 +1969,40 @@ This will be merged into unified_fit_pyqtgraph.py
 """
 
 
+def _level_state_to_panel_params(level_state: dict) -> dict:
+    """One saved level, in either dialect, as the panel's key names.
+
+    Bounds the saved state did not actually state are left out, so the level
+    widget keeps the narrower starting limits it ships with (G low "20", B
+    low "0.002", …) instead of being overwritten with the model's wide
+    defaults. Users have state files whose bounds are ``null``; loading one
+    should not silently widen every limit field they see.
+    """
+    params = unified_level_from_config(level_state).to_panel_params()
+
+    stated = set()
+    for name in UnifiedLevel._PANEL_PARAMS:
+        if is_panel_level(level_state):
+            entry = level_state.get(name)
+            if isinstance(entry, dict) and entry.get('low_limit') is not None \
+                    and entry.get('high_limit') is not None:
+                stated.add(name)
+            elif level_state.get(f'{name}_low') is not None \
+                    and level_state.get(f'{name}_high') is not None:
+                stated.add(name)
+        else:
+            pair = level_state.get(f'{name}_limits')
+            if isinstance(pair, (list, tuple)) and len(pair) == 2 \
+                    and None not in pair:
+                stated.add(name)
+
+    for name in UnifiedLevel._PANEL_PARAMS:
+        if name not in stated:
+            params.pop(f'{name}_low', None)
+            params.pop(f'{name}_high', None)
+    return params
+
+
 class UnifiedFitPanel(SlitSmearingMixin, QWidget):
     """
     Main Unified Fit panel for pyIrena with state management.
@@ -3426,14 +3466,28 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
     # STATE MANAGEMENT METHODS
 
     def _collect_state(self) -> Dict:
-        """Get current GUI state for saving."""
+        """Get current GUI state for saving.
+
+        Written in the **core** dialect: each level is
+        :meth:`UnifiedLevel.to_dict`, the same shape the other five tools
+        embed, rather than the panel's older ``{"value", "fit", "low_limit",
+        "high_limit"}`` blocks. The panel vocabulary is still read — by
+        :meth:`_apply_state`, for every state file and ``.h5`` a user already
+        has — but it is no longer written. See ``planning/config-dialects/``
+        §4 rule 3.
+        """
         state = {
+            'schema_version': UNIFIED_STATE_SCHEMA_VERSION,
             'num_levels': self.num_levels_spin.value(),
-            'levels': [],
-            'background': {
-                'value': float(self.background_value.text() or 0),
-                'fit': self.fit_background_check.isChecked()
-            },
+            # All five levels, not just the active ones, so switching the
+            # level count does not discard the settings of the ones hidden.
+            'levels': [
+                UnifiedLevel.from_panel_params(
+                    self.level_widgets[i].get_parameters()).to_dict()
+                for i in range(5)
+            ],
+            'background': float(self.background_value.text() or 0),
+            'fit_background': self.fit_background_check.isChecked(),
             'cursor_left': self.graph_window.cursor_left,
             'cursor_right': self.graph_window.cursor_right,
             'update_auto': self.update_auto_check.isChecked(),
@@ -3444,67 +3498,30 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                                   if hasattr(self, 'slit_smear_check') else False),
             'slit_length': float(getattr(self, '_slit_length', 0.0) or 0.0),
         }
-
-        # Get all level parameters
-        for i in range(5):
-            params = self.level_widgets[i].get_parameters()
-            level_state = {
-                'level': i + 1,
-                'G': {
-                    'value': params['G'],
-                    'fit': params['fit_G'],
-                    'low_limit': params['G_low'],
-                    'high_limit': params['G_high']
-                },
-                'Rg': {
-                    'value': params['Rg'],
-                    'fit': params['fit_Rg'],
-                    'low_limit': params['Rg_low'],
-                    'high_limit': params['Rg_high']
-                },
-                'B': {
-                    'value': params['B'],
-                    'fit': params['fit_B'],
-                    'low_limit': params['B_low'],
-                    'high_limit': params['B_high']
-                },
-                'P': {
-                    'value': params['P'],
-                    'fit': params['fit_P'],
-                    'low_limit': params['P_low'],
-                    'high_limit': params['P_high']
-                },
-                'ETA': {
-                    'value': params['ETA'],
-                    'fit': params['fit_ETA'],
-                    'low_limit': params['ETA_low'],
-                    'high_limit': params['ETA_high']
-                },
-                'PACK': {
-                    'value': params['PACK'],
-                    'fit': params['fit_PACK'],
-                    'low_limit': params['PACK_low'],
-                    'high_limit': params['PACK_high']
-                },
-                'RgCutoff': params['RgCutoff'],
-                'correlated': params['correlated'],
-                'estimate_B': params['estimate_B'],
-                'link_rgco': params['link_rgco']
-            }
-            state['levels'].append(level_state)
-
         return state
 
     def _apply_state(self, state: Dict):
-        """Apply saved state to GUI."""
+        """Apply a saved state to the GUI, in either dialect.
+
+        Every state file and every saved ``.h5`` a user already has speaks
+        the panel dialect; everything written from now on speaks the core
+        one. Both are read, told apart by shape, and translated in exactly
+        one place — :func:`pyirena.core.tool_config.unified_level_from_config`
+        — rather than by a second copy of the mapping here.
+        """
         # Set number of levels
         self.num_levels_spin.setValue(state.get('num_levels', 1))
 
-        # Set background
-        bg = state.get('background', {})
+        # Background: a bare number (core) or a {'value', 'fit'} block (panel).
         from pyirena.gui.fmt_utils import eng_fmt_edit
-        self.background_value.setText(eng_fmt_edit(bg.get('value', 1e-6), sig=3))
-        self.fit_background_check.setChecked(bg.get('fit', False))
+        bg = state.get('background', {})
+        if isinstance(bg, dict):
+            bg_value, bg_fit = bg.get('value', 1e-6), bg.get('fit', False)
+        else:
+            bg_value = 1e-6 if bg is None else bg
+            bg_fit = state.get('fit_background', False)
+        self.background_value.setText(eng_fmt_edit(bg_value, sig=3))
+        self.fit_background_check.setChecked(bool(bg_fit))
 
         # Set checkboxes
         self.update_auto_check.setChecked(state.get('update_auto', False))
@@ -3530,65 +3547,10 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             self.graph_window.cursor_right = state['cursor_right']
 
         # Set level parameters
-        levels = state.get('levels', [])
-        for i, level_state in enumerate(levels):
-            if i < 5:
-                level_widget = self.level_widgets[i]
-
-                # Set parameter values and limits
-                level_widget.g_value.setText(str(level_state['G']['value']))
-                level_widget.g_fit.setChecked(level_state['G']['fit'])
-                if level_state['G'].get('low_limit') is not None:
-                    level_widget.g_low.setText(str(level_state['G']['low_limit']))
-                if level_state['G'].get('high_limit') is not None:
-                    level_widget.g_high.setText(str(level_state['G']['high_limit']))
-
-                level_widget.rg_value.setText(str(level_state['Rg']['value']))
-                level_widget.rg_fit.setChecked(level_state['Rg']['fit'])
-                if level_state['Rg'].get('low_limit') is not None:
-                    level_widget.rg_low.setText(str(level_state['Rg']['low_limit']))
-                if level_state['Rg'].get('high_limit') is not None:
-                    level_widget.rg_high.setText(str(level_state['Rg']['high_limit']))
-
-                level_widget.b_value.setText(str(level_state['B']['value']))
-                level_widget.b_fit.setChecked(level_state['B']['fit'])
-                if level_state['B'].get('low_limit') is not None:
-                    level_widget.b_low.setText(str(level_state['B']['low_limit']))
-                if level_state['B'].get('high_limit') is not None:
-                    level_widget.b_high.setText(str(level_state['B']['high_limit']))
-
-                level_widget.p_value.setText(str(level_state['P']['value']))
-                level_widget.p_fit.setChecked(level_state['P']['fit'])
-                if level_state['P'].get('low_limit') is not None:
-                    level_widget.p_low.setText(str(level_state['P']['low_limit']))
-                if level_state['P'].get('high_limit') is not None:
-                    level_widget.p_high.setText(str(level_state['P']['high_limit']))
-
-                # ETA and PACK parameters
-                if 'ETA' in level_state:
-                    level_widget.eta_value.setText(str(level_state['ETA']['value']))
-                    level_widget.eta_fit.setChecked(level_state['ETA']['fit'])
-                    if level_state['ETA'].get('low_limit') is not None:
-                        level_widget.eta_low.setText(str(level_state['ETA']['low_limit']))
-                    if level_state['ETA'].get('high_limit') is not None:
-                        level_widget.eta_high.setText(str(level_state['ETA']['high_limit']))
-
-                if 'PACK' in level_state:
-                    level_widget.pack_value.setText(str(level_state['PACK']['value']))
-                    level_widget.pack_fit.setChecked(level_state['PACK']['fit'])
-                    if level_state['PACK'].get('low_limit') is not None:
-                        level_widget.pack_low.setText(str(level_state['PACK']['low_limit']))
-                    if level_state['PACK'].get('high_limit') is not None:
-                        level_widget.pack_high.setText(str(level_state['PACK']['high_limit']))
-
-                level_widget.rg_cutoff.setText(str(level_state.get('RgCutoff', 0)))
-                level_widget.correlated_check.setChecked(level_state.get('correlated', False))
-                level_widget.estimate_b_check.setChecked(level_state.get('estimate_B', False))
-                if level_widget.link_rgco_check:
-                    level_widget.link_rgco_check.setChecked(level_state.get('link_rgco', False))
-
-                # Update feasibility status
-                level_widget.update_feasibility_status()
+        for i, level_state in enumerate(state.get('levels', [])[:5]):
+            level_widget = self.level_widgets[i]
+            level_widget.set_parameters(_level_state_to_panel_params(level_state))
+            level_widget.update_feasibility_status()
 
     def get_current_state(self) -> Dict:
         """Public alias of :meth:`_collect_state`.
@@ -4354,7 +4316,10 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         # Collect full Unified Fit state and write it into the config
         self.state_manager.update('unified_fit', self._collect_state())
-        config['unified_fit'] = self.state_manager.get('unified_fit')
+        # View state (a remembered folder, a tab index) is kept in the
+        # StateManager but never written into a shared config file.
+        config['unified_fit'] = without_view_state(
+            self.state_manager.get('unified_fit'))
 
         try:
             with open(file_path, 'w') as f:

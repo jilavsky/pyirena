@@ -24,6 +24,7 @@ Envelope shape on disk
 
     {
       "_pyirena_config": {
+        "_note":          "pyIrena tool setup. Replay it with pyirena.batch, ...",
         "tool":           "unified_fit",
         "schema_version": 1,
         "saved_by":       "pyirena <__version__>",
@@ -31,6 +32,10 @@ Envelope shape on disk
       },
       "state": { ... the tool state dict as understood by apply_state() ... }
     }
+
+``pyirena.core.tool_config.build_setup`` reads this envelope directly, as it
+reads the *Export Parameters* sidecar and an ``export_results`` reply — one
+reader for every wrapper pyIrena writes.
 
 Schema versioning is delegated to ``StateManager._migrate_state()`` — there is
 no second migration table here. The header's ``schema_version`` is copied
@@ -73,6 +78,11 @@ def _build_envelope(tool: str, state: Dict[str, Any]) -> Dict[str, Any]:
         pyirena_version = "unknown"
 
     header: Dict[str, Any] = {
+        # Users open this attribute in HDFView, in Igor and with h5dump and
+        # read it as text. One line saying what it is and how to replay it
+        # costs a key and saves everyone who finds it having to guess.
+        "_note":    ("pyIrena tool setup. Replay it with pyirena.batch, or "
+                     "with pyirena.api.control.analyze(data, config)."),
         "tool":     tool,
         "saved_by": f"pyirena {pyirena_version}",
         "saved_at": datetime.now().isoformat(),

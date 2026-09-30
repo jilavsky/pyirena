@@ -38,6 +38,7 @@ from pyirena.core.form_factors import (
     list_form_factors,
 )
 from pyirena.core.modeling import (
+    POPULATION_PANEL_BLOCKS,
     DiffractionPeakPopulation,
     GuinierPorodPopulation,
     MassFractalPopulation,
@@ -1795,6 +1796,20 @@ class PopulationTab(QWidget):
             'sf2': self._read_sf2_state_dict(),
             'label': self.label_edit.text().strip(),
         }
+        # The active type's own fields also go in flat, in the core dialect,
+        # so a reader that knows nothing of the blocks above still sees the
+        # population this actually is — which is what the HDF5 attribute has
+        # to show someone reading it in HDFView or h5dump, and what every
+        # headless replay was getting wrong (planning/config-dialects/ §2.2).
+        #
+        # The blocks stay: they are how switching a population's type in the
+        # GUI keeps the settings of the type you switched away from, and
+        # dropping them to satisfy a consistency rule would remove a working
+        # feature. population_from_dict prefers the block, and for the active
+        # type the two are the same thing.
+        block = POPULATION_PANEL_BLOCKS.get(pt)
+        if block:
+            d.update(d[block])
         return d
 
     def from_full_dict(self, d: dict):

@@ -74,6 +74,32 @@ class ToolSetup:
     warnings: list = field(default_factory=list)
 
 
+#: Keys that describe the *view*, not the fit, and so do not belong in a
+#: config file meant to be shared or replayed.
+#:
+#: ``last_folder`` is the one that is actively wrong: it is an absolute path
+#: from whichever machine exported the file, and it travelled into every
+#: shared config and every result file. The rest are harmless but noise — a
+#: tab index and a couple of checkbox states cannot change a number, and a
+#: reader has to satisfy itself of that one key at a time.
+#:
+#: These stay in the StateManager, which is where a user's view preferences
+#: belong; only *Export Parameters* strips them. See
+#: ``planning/config-dialects/`` §2.5 and §5 Step 3.4.
+VIEW_ONLY_CONFIG_KEYS = frozenset({
+    "last_folder", "active_tab", "waxs_zoom_visible", "show_components",
+    "auto_update", "update_auto", "display_local", "store_local",
+})
+
+
+def without_view_state(section: Dict) -> Dict:
+    """A tool section with the view-only keys of :data:`VIEW_ONLY_CONFIG_KEYS`
+    removed. Non-destructive; the caller's dict is untouched."""
+    if not isinstance(section, dict):
+        return section
+    return {k: v for k, v in section.items() if k not in VIEW_ONLY_CONFIG_KEYS}
+
+
 # ---------------------------------------------------------------------------
 # Locating the tool section
 # ---------------------------------------------------------------------------
@@ -278,10 +304,15 @@ def flatten_level_config(ls: Dict) -> Dict:
     for name, (lo_default, hi_default) in _LIMIT_DEFAULTS.items():
         entry = ls.get(name, {})
         if isinstance(entry, dict):
-            flat[name] = float(entry.get("value", 0.0))
+            flat[name] = float(entry.get("value", 0.0) or 0.0)
             fit = entry.get("fit", False)
-            lo = entry.get("low_limit", lo_default)
-            hi = entry.get("high_limit", hi_default)
+            # A stated-but-null bound is how the shipped state file spells
+            # "no bound here"; treat it as absent rather than crashing on
+            # float(None).
+            lo = entry.get("low_limit")
+            hi = entry.get("high_limit")
+            lo = lo_default if lo is None else lo
+            hi = hi_default if hi is None else hi
         else:
             # Core dialect: the value is bare and its flag and bounds sit
             # beside it under their own names.
@@ -291,7 +322,9 @@ def flatten_level_config(ls: Dict) -> Dict:
             if isinstance(pair, (list, tuple)) and len(pair) == 2:
                 lo, hi = pair
             else:
-                lo, hi = ls.get(f"{name}_low", lo_default), ls.get(f"{name}_high", hi_default)
+                lo, hi = ls.get(f"{name}_low"), ls.get(f"{name}_high")
+            lo = lo_default if lo is None else lo
+            hi = hi_default if hi is None else hi
             if fit is None:
                 # Neither dialect stated a flag: leave the model's default
                 # alone rather than inventing False.

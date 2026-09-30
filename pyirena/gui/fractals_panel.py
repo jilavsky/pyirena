@@ -747,27 +747,27 @@ class FractalsPanel(QWidget):
                 self.nexus_path_edit.clear()
 
     def save_state(self):
+        """Persist the growth and optimizer settings.
+
+        The two blocks are ``GrowthConfig.to_dict()`` and
+        ``OptimizerConfig.to_dict()`` rather than a hand-written field list:
+        the panel used to enumerate the same fields the dataclasses declare,
+        so adding one meant remembering to add it here too.
+        ``OptimizerConfig`` also carries a copy of the growth template,
+        which would be written twice; only its four target fields are kept.
+        """
         st = {
-            "schema_version": 1,
-            "last_growth_params": {
-                "z": int(self.z_spin.value()),
-                "sticking_prob": float(self.sp_spin.value()),
-                "num_test_paths": int(self.ntp_spin.value()),
-                "rg_primary": float(self.rg_spin.value()),
-                "allowed_near_dist": int(self.near_combo.currentData()),
-                "attraction": str(self.attr_combo.currentText()),
-                "seed": int(self.seed_spin.value()),
-            },
+            "schema_version": 2,
+            "last_growth_params": self._current_growth_config().to_dict(),
             "q_range": {
                 "q_min": float(self.qmin_edit.text() or "0.001"),
                 "q_max": float(self.qmax_edit.text() or "1.0"),
                 "n_points": int(self.qn_spin.value()),
             },
             "optimizer": {
-                "target_dmin": float(self.opt_dmin_spin.value()),
-                "target_c": float(self.opt_c_spin.value()),
-                "tolerance": float(self.opt_tol_spin.value()),
-                "max_iter": int(self.opt_iter_spin.value()),
+                key: value
+                for key, value in self._current_optimizer_config().to_dict().items()
+                if key in ("target_dmin", "target_c", "tolerance", "max_iter")
             },
             "grow_many_n": int(self.many_n_spin.value()),
             "last_loaded_nexus_path": str(self.nexus_path_edit.text()),

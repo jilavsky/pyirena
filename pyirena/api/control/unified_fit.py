@@ -50,6 +50,7 @@ from pyirena.api.control.session import (
     get_session,
 )
 from pyirena.core.fit_metrics import fit_quality_metrics
+from pyirena.core.unified import UNIFIED_STATE_SCHEMA_VERSION
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -2007,59 +2008,32 @@ def get_parameter_uncertainties(session_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _session_to_gui_state(session: Session) -> dict:
-    """Snapshot the session's UnifiedFitModel as a GUI-compatible state dict.
+    """Snapshot the session's UnifiedFitModel as the panel's setup state.
 
-    The shape matches ``UnifiedFitPanel.get_current_state()`` exactly so the
-    panel's ``apply_state`` can restore every control verbatim — the whole
-    point of embedding this in the NXcanSAS file.
+    The panel reads both dialects, and what is written is the core one —
+    ``to_dict()``, the same shape the other five tools embed, which also
+    carries ``K``, ``mass_fractal`` and ``RgCO``'s fit flag and bounds that
+    the panel vocabulary has no room for. See ``planning/config-dialects/``
+    §4: the panel dialect is read forever and written no longer.
     """
     model = session.model
-    state: dict = {
-        "num_levels":     int(model.num_levels),
-        "background": {
-            "value": float(model.background),
-            "fit":   bool(model.fit_background),
-        },
-        "cursor_left":    session.fit_q_min,
-        "cursor_right":   session.fit_q_max,
-        "update_auto":    False,
-        "display_local":  False,
-        "no_limits":      False,
-        "skip_fit_check": False,
-        "store_local":    False,
-        "levels":         [],
+    return {
+        "schema_version":    UNIFIED_STATE_SCHEMA_VERSION,
+        "num_levels":        int(model.num_levels),
+        "levels":            [lv.to_dict() for lv in model.levels],
+        "background":        float(model.background),
+        "fit_background":    bool(model.fit_background),
+        "background_limits": [float(v) for v in model.background_limits],
+        "use_slit_smearing": bool(getattr(model, "use_slit_smearing", False)),
+        "slit_length":       float(getattr(model, "slit_length", 0.0) or 0.0),
+        "cursor_left":       session.fit_q_min,
+        "cursor_right":      session.fit_q_max,
+        "update_auto":       False,
+        "display_local":     False,
+        "no_limits":         False,
+        "skip_fit_check":    False,
+        "store_local":       False,
     }
-
-    def _lim(level, attr):
-        lo, hi = getattr(level, f"{attr}_limits", (None, None))
-        return (None if lo is None else float(lo),
-                None if hi is None else float(hi))
-
-    for i, lv in enumerate(model.levels):
-        g_lo, g_hi   = _lim(lv, "G")
-        rg_lo, rg_hi = _lim(lv, "Rg")
-        b_lo, b_hi   = _lim(lv, "B")
-        p_lo, p_hi   = _lim(lv, "P")
-        e_lo, e_hi   = _lim(lv, "ETA")
-        k_lo, k_hi   = _lim(lv, "PACK")
-
-        state["levels"].append({
-            "level":    i + 1,
-            "G":   {"value": float(lv.G),   "fit": bool(lv.fit_G),   "low_limit": g_lo,  "high_limit": g_hi},
-            "Rg":  {"value": float(lv.Rg),  "fit": bool(lv.fit_Rg),  "low_limit": rg_lo, "high_limit": rg_hi},
-            "B":   {"value": float(lv.B),   "fit": bool(lv.fit_B),   "low_limit": b_lo,  "high_limit": b_hi},
-            "P":   {"value": float(lv.P),   "fit": bool(lv.fit_P),   "low_limit": p_lo,  "high_limit": p_hi},
-            "ETA": {"value": float(lv.ETA), "fit": bool(lv.fit_ETA), "low_limit": e_lo,  "high_limit": e_hi},
-            "PACK":{"value": float(lv.PACK),"fit": bool(lv.fit_PACK),"low_limit": k_lo,  "high_limit": k_hi},
-            # UnifiedLevel uses RgCO; the GUI key is RgCutoff
-            "RgCutoff":   float(lv.RgCO),
-            # GUI naming differs from model naming for the boolean flags
-            "correlated": bool(lv.correlations),
-            "estimate_B": bool(lv.link_B),
-            "link_rgco":  bool(lv.link_RGCO),
-        })
-
-    return state
 
 
 def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:

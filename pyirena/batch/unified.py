@@ -32,6 +32,9 @@ from pyirena.core.tool_config import (  # noqa: E402,F401
     flatten_level_config as _flatten_level_config,
 )
 from pyirena.core.tool_config import (  # noqa: E402
+    is_panel_level,
+)
+from pyirena.core.tool_config import (
     unified_model_from_config as _state_to_model,
 )
 
@@ -129,6 +132,10 @@ def _build_setup_state(unified_state: Dict, fit_result: Dict) -> Dict:
     import copy
     state = copy.deepcopy(unified_state)
 
+    # The values are written back in whichever dialect the config arrived in.
+    # Mixing them — a core-dialect state that grows a 'RgCutoff' key, or a
+    # bare background replaced by a {'value', 'fit'} block — produces a state
+    # that neither reader handles whole, and quietly drops 'fit_background'.
     for i, lv in enumerate(fit_result.get('levels', [])):
         if i >= len(state.get('levels', [])):
             break
@@ -140,15 +147,17 @@ def _build_setup_state(unified_state: Dict, fit_result: Dict) -> Dict:
                 entry['value'] = float(fitted_val)
             else:
                 ls[param] = float(fitted_val)
-        # RgCutoff is stored as a plain float in the state dict
-        ls['RgCutoff'] = float(lv.RgCO)
+        if is_panel_level(ls):
+            ls['RgCutoff'] = float(lv.RgCO)
+        else:
+            ls['RgCO'] = float(lv.RgCO)
 
     bg_val = fit_result.get('background', 0.0)
-    bg = state.get('background', {})
+    bg = state.get('background')
     if isinstance(bg, dict):
         bg['value'] = float(bg_val)
     else:
-        state['background'] = {'value': float(bg_val), 'fit': False}
+        state['background'] = float(bg_val)
 
     return state
 

@@ -43,15 +43,27 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from pyirena.core.modeling import UnifiedLevelPopulation, _unified_level_intensity
+from pyirena.core.modeling import (
+    UnifiedLevelPopulation,
+    _SerialisableDataclass,
+    _unified_level_intensity,
+)
 
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
 
 @dataclass
-class GrowthConfig:
-    """Input parameters for `grow_aggregate`."""
+class GrowthConfig(_SerialisableDataclass):
+    """Input parameters for `grow_aggregate`.
+
+    ``to_dict()`` / ``from_dict()`` come from
+    :class:`~pyirena.core.modeling._SerialisableDataclass` and walk the
+    dataclass fields, so a field is serialised the moment it is declared and
+    an unknown key in an older file is ignored rather than raising. Fractals
+    had no such pair at all: the panel wrote the same field list out by hand
+    into ``last_growth_params``, which is a second place to forget one.
+    """
 
     z: int = 250                       # Degree of aggregation (number of particles)
     sticking_prob: float = 75.0        # Base sticking probability, percent (1-100)
@@ -100,8 +112,12 @@ class FractalAggregate:
 
 
 @dataclass
-class OptimizerConfig:
-    """Targets and growth template for `optimize_growth`."""
+class OptimizerConfig(_SerialisableDataclass):
+    """Targets and growth template for `optimize_growth`.
+
+    See :class:`GrowthConfig` for why the serialisation pair is inherited
+    rather than written out.
+    """
 
     target_dmin: float = 2.0
     target_c: float = 1.2
