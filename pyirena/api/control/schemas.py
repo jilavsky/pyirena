@@ -778,8 +778,14 @@ TOOL_SCHEMAS: list[dict] = [
                 "config": {
                     "type": "object",
                     "description": (
-                        "A pyIrena config file as written by the GUI's Export "
-                        "Parameters, or one tool's section with 'tool' given."
+                        "Any configuration pyIrena writes: the GUI's Export "
+                        "Parameters sidecar, the _pyirena_config attribute "
+                        "read out of a result .h5, or an export_results reply "
+                        "handed straight back — that last one is how you "
+                        "replay the fit you just ran on the next measurement, "
+                        "and it carries the fitted Q range and slit settings "
+                        "as well as the model. One tool's bare section works "
+                        "too, with 'tool' given."
                     ),
                 },
                 "tool": {
@@ -809,6 +815,9 @@ TOOL_SCHEMAS: list[dict] = [
             "metrics), the tool's own results including per-parameter "
             "uncertainties where the fit computes them, and the model config "
             "(to_dict) needed to replay the same fit on another measurement. "
+            "The whole reply can be passed back to analyze as its 'config' — "
+            "that also restores the fitted Q range and slit settings, which "
+            "are not model fields and are reported separately here. "
             "Set include_arrays to also get the data, model, residuals and "
             "per-component curves."
         ),

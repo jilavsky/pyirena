@@ -273,8 +273,44 @@ size distribution with a warning instead of raising.
 **The panel's key names are not the model's.**  `RgCutoff`, `correlated`,
 `estimate_B`, `Rg_low` are baked into saved setups and batch config files and
 cannot be renamed.  Translate in exactly one place —
-`UnifiedLevel.from_panel_params()` is the pattern — and never a second time in
-a panel or a batch module.
+`UnifiedLevel.from_panel_params()` / `.to_panel_params()` are the pattern, one
+pair, both directions — and never a second time in a panel or a batch module.
+
+### The four rules that keep this from diverging again
+
+This area has produced the same class of bug three times: a setting that
+exists in one place and is quietly dropped in another, which returns a
+plausible wrong number rather than an error.  Sharing the builder
+(`core/tool_config.py`) was necessary and was not sufficient.  What closes it:
+
+1. **Write one dialect, read every dialect.**  Everything writes
+   `model.to_dict()`.  Older shapes are read forever and written never.  If
+   you find yourself writing a second shape, you are adding the next bug.
+2. **One reader for the wrapper, one for the model.**  `unwrap_config()`
+   takes all four envelopes pyIrena writes; `build_setup()` turns a section
+   into a configured model.  A panel, a batch module or an api function that
+   parses a config itself is a bug in waiting — that is precisely how the
+   batch path and the GUI drifted apart the first time.
+3. **Detect by shape in one place, and state the version going forward.**
+   `is_panel_level()` is the only shape test; new state carries
+   `schema_version` so the next reader is told rather than left to sniff.
+   Sniffing is what produced the worst of these bugs.
+4. **A new setting is not done until the contract test covers it.**
+   `pyirena/tests/test_config_contract.py` loops over all six tools and
+   requires every scalar setting to be serialised or named in the class's
+   `_NOT_SERIALISED` allowlist *with a reason*; that a rebuilt model can run
+   a fit; and that **every fit flag inverted and every bound narrowed**
+   survives `to_dict() → build_setup() → to_dict()` in all four envelopes.
+   Add the field, run the test, work the failure.  A values-only comparison
+   passes every bug this area has ever had.
+
+**Do not confuse the three things called "config".**  Settings
+(`model.to_dict()`) are what this section is about.  *Results* — the
+`entry/<tool>_results` datasets and the `load_*_results()` dicts that mirror
+them — are a separate, **frozen** vocabulary: `RgCutoff` and `correlated` are
+the saved-file names there, and renaming one breaks every existing file, the
+Igor export and the Data Explorer.  *Reports* (`get_<tool>_config()`) are rows
+for an agent to read and are deliberately not replayable.
 
 ## Qt imports
 

@@ -437,7 +437,7 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
         {"type": "unified_fit", "item": "Rg", "level": 1}
         {"type": "unified_fit", "item": "G",  "level": 2}
         {"type": "unified_fit", "item": "chi2"}
-        {"type": "sizes",      "item": "chi2"}
+        {"type": "sizes",      "item": "chi_squared"}
         {"type": "sizes",      "item": "volume_fraction"}
         {"type": "waxs",       "item": "Q0",  "peak": 0}
         {"type": "waxs",       "item": "A",   "peak": 0}
@@ -458,6 +458,9 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
             return _collect_unified(filepath, item, spec.get("level", 1))
 
         if data_type == "sizes":
+            # NB: unlike the others, this passes *item* straight through as
+            # the dataset name, so it is "chi_squared" here and not "chi2".
+            # That is what the Data Explorer's item list offers.
             return _collect_sizes(filepath, item)
 
         if data_type == "waxs":

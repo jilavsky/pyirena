@@ -21,11 +21,22 @@ without them is a different fit, silently. :class:`ToolSetup` carries the
 model and those settings together, so a caller cannot use one and forget the
 other.
 
-Both config vocabularies are accepted. Five tools write the same names their
-model's ``to_dict()`` uses; Unified Fit's config predates ``to_dict`` and
-writes the panel's older names (``RgCutoff`` for ``RgCO``, and each parameter
-as ``{"value": …, "fit": …}`` rather than a bare number). See
-``planning/config-dialects/`` for why, and for the plan to converge them.
+**Both config vocabularies are read; only one is written.** Every tool now
+writes the core dialect — the names its ``to_dict()`` uses. Unified Fit's
+config predated ``to_dict`` and wrote the panel's older names (``RgCutoff``
+for ``RgCO``, each parameter a ``{"value": …, "fit": …}`` block); those files
+are read forever and never written again. ``is_panel_level`` tells the two
+apart by shape, in one place, and ``unified_level_from_config`` is the only
+thing that chooses a reader.
+
+**Four envelopes, one reader.** ``unwrap_config`` accepts the *Export
+Parameters* sidecar, the ``_pyirena_config`` attribute inside a result file,
+an ``export_results()`` reply and the bare ``{tool, model}`` form. For most
+of pyIrena's life only the first was accepted, so the two a remote caller
+actually held were the two that could not be fed back in.
+
+See ``planning/config-dialects/`` for the full inventory and
+``docs/batch_api.md`` for the user-facing description.
 """
 from __future__ import annotations
 

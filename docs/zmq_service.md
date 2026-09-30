@@ -306,14 +306,25 @@ counts come back** in `summary.cleaning`, so nothing is dropped silently:
 ```
 
 `config` is the model's own `to_dict()` — what you need to rebuild the model
-and fit again. For Modeling, the Carbon model and Simple Fits it is already
-the shape `pyirena.batch` and the GUI's *Export Parameters* use, so a fit can
-be replayed as-is. **Unified Fit is the exception**: the GUI and batch write a
-second, older vocabulary there (`RgCutoff` for `RgCO`, and each parameter as
-`{"value": …, "fit": …}` rather than a bare number), so the two are not
-interchangeable yet. Note also that `config` is *model* state only — the
-fitted Q range and slit settings live on the session and are reported
-separately under `fit_q_range` and `data`.
+and fit again. **This whole reply can be handed straight back to `analyze`**,
+for every one of the six tools:
+
+```python
+report = pyirena.call("export_results", session_id=sid)   # fit it once
+again  = pyirena.call("analyze", data=next_scan, config=report)
+```
+
+It is the same shape the GUI's *Export Parameters* and `pyirena.batch` use.
+Unified Fit used to be the exception — the GUI wrote a second, older
+vocabulary (`RgCutoff` for `RgCO`, each parameter a `{"value": …, "fit": …}`
+block) and the two were not interchangeable. As of 1.2 every tool writes
+`to_dict()`, the older vocabulary is still read, and the round trip holds.
+
+`config` is *model* state only. The fitted Q range and the slit settings are
+not model fields, so they are reported separately under `fit_q_range` and
+`data` — and `analyze` reads them from there, which is why passing the whole
+reply replays the whole fit rather than just the model. Passing only
+`report["config"]` would silently fit the full Q range instead.
 
 Set `include_arrays: true` for the curves — `q`, `intensity`, `error`,
 `intensity_model`, `residuals`, plus per-population curves (Modeling) or the

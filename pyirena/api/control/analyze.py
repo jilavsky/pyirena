@@ -72,9 +72,17 @@ def analyze(
         ``{q, intensity, error?, dq?, label?, is_slit_smeared?, slit_length?}``
         — the same arguments :func:`open_dataset_from_data` takes. Q in Å⁻¹.
     config : dict
-        A pyIrena config file as written by the GUI's *Export Parameters*
-        (``{"_pyirena_config": …, "<tool>": {…}}``), or one tool's section
-        with *tool* given.
+        Any configuration pyIrena writes, in any of its wrappers:
+
+        * the GUI's *Export Parameters* sidecar,
+          ``{"_pyirena_config": …, "<tool>": {…}}``;
+        * the ``_pyirena_config`` attribute read out of a result ``.h5``,
+          ``{"_pyirena_config": …, "state": {…}}``;
+        * **an :func:`export_results` reply handed straight back** — the
+          usual way to replay the fit you just ran on the next measurement,
+          and the one that also carries the fitted Q range and slit settings;
+        * ``{"tool": …, "model": {…}}``, or one tool's bare section with
+          *tool* given.
     tool : str, optional
         Which tool to run. Inferred from the config when it holds exactly one
         tool section, which is what the GUI writes.

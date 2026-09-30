@@ -13,7 +13,7 @@ development:
 - **`docs/developer_adding_features.md`** — the master checklist for changing
   or adding anything, including a whole new tool.
 
-Last update date: 29-09-2026 ; version: 1.2.0b1
+Last update date: 30-09-2026 ; version: 1.2.0b1
 
 pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
 package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,
@@ -121,6 +121,26 @@ save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
 5. Optional dependencies (GUI, 3D, MCP, plotting) must degrade gracefully —
    importing `pyirena` with no extras installed must work. See
    `pyirena/tests/test_optional_dep_modules.py`.
+6. **One dialect written, every dialect read; one envelope reader; one
+   translator.** A tool's settings are written as `model.to_dict()` and
+   nothing else. Older shapes are read forever — never write one again.
+   `core/tool_config.py` owns *every* config→model path: `unwrap_config`
+   for the wrapper, `build_setup` for the model. Do not add a second reader
+   in a panel, a batch module or an api function, and do not hand-roll
+   shape detection — `is_panel_level` / `unified_level_from_config` exist so
+   the detection can only be half-written once.
+   `pyirena/tests/test_config_contract.py` enforces this and fails the build
+   if a setting stops round-tripping. See `docs/batch_api.md` for the
+   user-facing description and `planning/config-dialects/` for the history.
+
+   Three things in this codebase are called "config" and only the first two
+   are the same idea. Keep them apart:
+
+   | | What it is | Rule |
+   |---|---|---|
+   | **Settings** | `model.to_dict()` — what you need to fit again | Written in the core dialect, read in any |
+   | **Results** | `entry/<tool>_results` datasets, and the `load_*_results()` dicts that mirror them | **Frozen.** `RgCutoff`, `correlated` etc. are the saved-file names; renaming one breaks every file and every Igor export |
+   | **Reports** | `get_<tool>_config()` rows for an agent to read | Not replayable, by design |
 
 ---
 
