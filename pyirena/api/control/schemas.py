@@ -566,6 +566,18 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "no_limits": {
+                    "type": "boolean",
+                    "description": (
+                        "Fit without the bounds set on the model - the GUI's No limits? "
+                        "check box. For Unified Fit that means the model's own wide "
+                        "defaults instead of the limits you set; the bounds themselves "
+                        "are untouched and come back after the fit. Implies "
+                        "walk_limits=False. Use it when a fit is stuck against a limit "
+                        "and you want to see where the parameter actually wants to go. "
+                    ),
+                    "default": False,
+                },
                 "session_id": {"type": "string"},
                 "max_iter": {
                     "type": ["integer", "null"],
@@ -1305,7 +1317,12 @@ TOOL_SCHEMAS: list[dict] = [
                 "session_id": {"type": "string"},
                 "no_limits": {
                     "type": "boolean",
-                    "description": "Fit unconstrained, ignoring all bounds.",
+                    "description": (
+                        "Fit without the per-parameter bounds - the panel's "
+                        "No limits? check box. A genuinely unconstrained "
+                        "solve. The bounds are untouched and are back "
+                        "afterwards. "
+                    ),
                     "default": False,
                 },
             },
@@ -1619,6 +1636,16 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "no_limits": {
+                    "type": "boolean",
+                    "description": (
+                        "Fit without the bounds set on the populations - the panel's No "
+                        "limits? check box. An unconstrained Nelder-Mead solve, so it "
+                        "forces fit_method='local': the global search needs finite "
+                        "bounds. The bounds are untouched and are back afterwards. "
+                    ),
+                    "default": False,
+                },
                 "session_id": {"type": "string"},
                 "fit_method": {
                     "type": "string",
@@ -1897,6 +1924,15 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "no_limits": {
+                    "type": "boolean",
+                    "description": (
+                        "Fit without the per-parameter bounds - the panel's No limits? "
+                        "check box. A genuinely unconstrained solve. The bounds are "
+                        "untouched and are back afterwards. "
+                    ),
+                    "default": False,
+                },
                 "session_id": {"type": "string"},
                 "weight_mode": {
                     "type": "string",
@@ -2245,6 +2281,16 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "no_limits": {
+                    "type": "boolean",
+                    "description": (
+                        "Fit without the bounds set on the model - the panel's No "
+                        "limits? check box - using each parameter's declared default "
+                        "instead. The fractal-dimension safety clamp still applies, "
+                        "because outside it the model has no gradient at all. "
+                    ),
+                    "default": False,
+                },
                 "session_id": {"type": "string"},
                 "weighting": {
                     "type": "string",

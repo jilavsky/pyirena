@@ -56,7 +56,9 @@ from __future__ import annotations
 
 import logging
 import warnings
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from dataclasses import MISSING, dataclass, field
+from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -1005,6 +1007,47 @@ class CarbonFitModel:
                         f'({pk.label}) {label}', unit))
         return refs
 
+    @contextmanager
+    def default_bounds(self, enabled: bool = True):
+        """Temporarily swap the user's fit bounds for the model's own defaults.
+
+        The Carbon panel's "No limits?" — the same meaning Unified Fit gives
+        it: not an unbounded solve, but a fit released from the limits the
+        user typed, back to each field's declared default. Every section is a
+        dataclass, so the defaults are simply the field defaults and a new
+        parameter is covered the moment it is declared.
+
+        :meth:`safe_bounds` still applies on top, and that is deliberate:
+        it narrows the fractal dimensions into the range where the model has
+        a gradient at all. Outside it the function is flat, the
+        finite-difference derivative is exactly zero, and the fit burns its
+        whole evaluation budget without moving — which looks identical to a
+        parameter that was never wired up. "No limits" must not mean "no
+        gradient".
+
+        A no-op when *enabled* is False, so callers need no branch.
+        """
+        if not enabled:
+            yield
+            return
+
+        sections = [self.background, self.saxs, self.waxs, self.material,
+                    *self.peaks]
+        saved: list = []
+        try:
+            for obj in sections:
+                defaults = {f.name: f.default for f in dataclass_fields(obj)
+                            if f.name.endswith('_limits')}
+                saved.append((obj, {name: getattr(obj, name) for name in defaults}))
+                for name, value in defaults.items():
+                    if value is not MISSING:
+                        setattr(obj, name, value)
+            yield
+        finally:
+            for obj, original in saved:
+                for name, value in original.items():
+                    setattr(obj, name, value)
+
     @staticmethod
     def safe_bounds(ref: '_ParamRef') -> Tuple[Tuple[float, float], bool]:
         """A parameter's fit bounds, narrowed to where the model has a gradient.
@@ -1302,6 +1345,7 @@ class CarbonFitModel:
         I: np.ndarray,
         error: Optional[np.ndarray] = None,
         progress: Optional[object] = None,
+        no_limits: bool = False,
     ) -> CarbonFitResult:
         """Least-squares fit of the whole model to the whole Q range.
 
@@ -1315,6 +1359,10 @@ class CarbonFitModel:
             q:        Scattering vector [Å⁻¹].
             I:        Measured intensity [cm⁻¹].
             error:    1-σ uncertainties, optional.
+            no_limits: Fit without the bounds the user set, using each
+                field's declared default instead — see :meth:`default_bounds`,
+                which also explains why the fractal-dimension safety clamp
+                still applies.
             progress: Optional callable ``progress(iteration, chi2)`` for the
                 GUI.  Raising :class:`CarbonFitAborted` from it stops the fit
                 and restores the starting parameters — that is how the Stop
@@ -1346,11 +1394,12 @@ class CarbonFitModel:
         sigma = self._sigma(If, ef)
         x_start = np.array([r.value for r in refs], dtype=float)
         bounds, narrowed = [], []
-        for ref in refs:
-            (blo, bhi), was_narrowed = self.safe_bounds(ref)
-            bounds.append((blo, bhi))
-            if was_narrowed:
-                narrowed.append(ref.key)
+        with self.default_bounds(no_limits):
+            for ref in refs:
+                (blo, bhi), was_narrowed = self.safe_bounds(ref)
+                bounds.append((blo, bhi))
+                if was_narrowed:
+                    narrowed.append(ref.key)
         lo = np.array([b[0] for b in bounds], dtype=float)
         hi = np.array([b[1] for b in bounds], dtype=float)
         x_start = np.clip(x_start, lo, hi)

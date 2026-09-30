@@ -645,7 +645,8 @@ def set_waxs_peak_parameter_bounds(
 # Fit execution
 # ---------------------------------------------------------------------------
 
-def run_waxs_fit(session_id: str, weight_mode: str = "standard") -> dict:
+def run_waxs_fit(session_id: str, weight_mode: str = "standard",
+                 no_limits: bool = False) -> dict:
     """Fit background and peaks to the data inside the current fit Q range.
 
     Parameters
@@ -656,6 +657,10 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard") -> dict:
         ``"relative"`` (σ/I) emphasises peaks over the background.  Try
         ``"equal"`` when a strong background is pulling the fit away from
         weak peaks.
+    no_limits : bool
+        Fit without the per-parameter bounds — the panel's "No limits?".
+        WAXS spells this as a genuinely unconstrained solve (±inf), the same
+        as Simple Fits. The bounds are untouched and are back afterwards.
 
     Returns
     -------
@@ -692,6 +697,8 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard") -> dict:
     I_fit = s.intensity[mask]
     err_fit = s.error[mask] if s.error is not None else None
 
+    previous_no_limits = s.model.no_limits
+    s.model.no_limits = bool(no_limits)
     try:
         result = s.model.fit(q_fit, I_fit, err_fit,
                              s.model.bg_params, s.model.peaks,
@@ -702,6 +709,9 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard") -> dict:
             suggestion="Check the peak positions, widths and the Q range.",
             code="FIT_EXCEPTION",
         )
+    finally:
+        # no_limits belongs to this one fit, not to the saved setup.
+        s.model.no_limits = previous_no_limits
 
     if not result.get("success", False):
         return make_error(

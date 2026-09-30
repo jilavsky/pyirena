@@ -14,16 +14,40 @@ from typing import Any, Dict, Optional
 log = logging.getLogger(__name__)
 
 
+#: Environment variable overriding where pyIrena keeps its settings.
+#:
+#: Everything user-specific lives in one directory — ``state.json``,
+#: ``window_geometry.json``, the log folder — so one variable moves all of
+#: it. The test suite sets it to a temporary directory: without that, simply
+#: constructing a GUI panel in a test writes the developer's own saved
+#: settings, and a panel that is never shown reports layout hints rather
+#: than real pane widths, so running the tests left every control panel
+#: remembering a nonsense width. It is also the switch a site needs to put
+#: settings somewhere other than the home directory.
+STATE_DIR_ENV_VAR = 'PYIRENA_STATE_DIR'
+
+
+def get_state_dir() -> Path:
+    """The directory holding every per-user pyIrena file.
+
+    ``$PYIRENA_STATE_DIR`` when set, otherwise ``~/.pyirena``. Created if it
+    does not exist.
+    """
+    import os
+
+    override = os.environ.get(STATE_DIR_ENV_VAR)
+    state_dir = Path(override).expanduser() if override else Path.home() / '.pyirena'
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir
+
+
 def get_default_state_file() -> Path:
     """
     Get the default state file path.
 
-    Returns the path to ~/.pyirena/state.json
+    Returns the path to ``<state dir>/state.json`` — see :func:`get_state_dir`.
     """
-    home = Path.home()
-    state_dir = home / '.pyirena'
-    state_dir.mkdir(exist_ok=True)
-    return state_dir / 'state.json'
+    return get_state_dir() / 'state.json'
 
 
 def _default_unified_level() -> Dict[str, Any]:

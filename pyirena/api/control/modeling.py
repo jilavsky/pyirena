@@ -835,7 +835,8 @@ def set_modeling_q_range(session_id: str, q_min: Optional[float] = None,
 # Fit execution
 # ---------------------------------------------------------------------------
 
-def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
+def run_modeling_fit(session_id: str, fit_method: str = "local",
+                     no_limits: bool = False) -> dict:
     """Fit the enabled populations to the data over the model's Q range.
 
     Parameters
@@ -847,6 +848,12 @@ def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
         polishes locally: slower, but the right choice for core-shell models
         whose chi-squared surface has many minima.  Global needs finite bounds
         on every fitted parameter.
+    no_limits : bool
+        Fit without the bounds set on the populations — the panel's
+        "No limits?" check box. Modeling spells this as an unconstrained
+        Nelder-Mead solve, so it forces ``fit_method="local"``: differential
+        evolution cannot run without finite bounds. The bounds themselves
+        are untouched and are back in place after the fit.
 
     Returns
     -------
@@ -872,6 +879,13 @@ def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
             suggestion="Use 'local' or 'global'.",
             code="BAD_METHOD",
         )
+    notes: list = []
+    if no_limits and fit_method == "global":
+        notes.append(
+            "Global search needs finite bounds on every parameter, so "
+            "no_limits forced the local fit."
+        )
+        fit_method = "local"
     config.fit_method = fit_method
 
     n_free = sum(1 for p in enabled for row in _param_table(p) if row["fit"])
@@ -891,6 +905,8 @@ def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
 
     from pyirena.core.modeling import ModelingEngine  # noqa: PLC0415
 
+    previous_no_limits = config.no_limits
+    config.no_limits = bool(no_limits)
     try:
         result = ModelingEngine().fit(config, s.q, s.intensity, error)
     except ValueError as exc:
@@ -905,11 +921,15 @@ def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
             suggestion="Check the population setup; try fit_method='local'.",
             code="FIT_EXCEPTION",
         )
+    finally:
+        # no_limits is a property of this one fit, not of the saved setup.
+        config.no_limits = previous_no_limits
 
     s.last_fit_result = result
     # The engine returns the fitted config; adopt it so follow-up calls see the
     # optimised values (parity with the GUI, where the panel updates in place).
     s.model = result.config
+    s.model.no_limits = previous_no_limits
 
     return {
         "success": True,
@@ -921,7 +941,9 @@ def run_modeling_fit(session_id: str, fit_method: str = "local") -> dict:
         "n_free_parameters": n_free,
         "background": _f(result.config.background),
         "populations": _fitted_population_rows(result),
-        "warnings": [str(w) for w in getattr(result, 'fit_warnings', None) or []],
+        "no_limits": bool(no_limits),
+        "warnings": ([str(w) for w in getattr(result, 'fit_warnings', None) or []]
+                     + notes),
     }
 
 

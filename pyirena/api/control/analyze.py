@@ -43,12 +43,15 @@ from pyirena.core.tool_config import (
 #: Which control-API fit function drives each tool, and which config keys
 #: (if any) feed its run-time arguments.
 _RUNNERS = {
-    "unified_fit":  ("run_fit", {}),
+    "unified_fit":  ("run_fit", {"no_limits": "no_limits"}),
     "sizes":        ("run_sizes_fit", {}),
     "simple_fits":  ("run_simple_fit", {"no_limits": "no_limits"}),
-    "modeling":     ("run_modeling_fit", {"fit_method": "fit_method"}),
-    "waxs_peakfit": ("run_waxs_fit", {"weight_mode": "weight_mode"}),
-    "carbon_fit":   ("run_carbon_fit", {"weighting": "weighting"}),
+    "modeling":     ("run_modeling_fit", {"fit_method": "fit_method",
+                                          "no_limits": "no_limits"}),
+    "waxs_peakfit": ("run_waxs_fit", {"weight_mode": "weight_mode",
+                                      "no_limits": "no_limits"}),
+    "carbon_fit":   ("run_carbon_fit", {"weighting": "weighting",
+                                        "no_limits": "no_limits"}),
 }
 
 

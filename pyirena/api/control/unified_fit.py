@@ -1597,6 +1597,7 @@ def run_fit(
     tolerance: Optional[float] = None,
     random_seed: Optional[int] = None,
     walk_limits: bool = True,
+    no_limits: bool = False,
 ) -> dict:
     """Run the fitting algorithm on the current session's model and data.
 
@@ -1623,6 +1624,14 @@ def run_fit(
         to treat the current bounds (e.g. from set_parameter_bounds) as hard
         constraints; the fit then stops at the bound and reports the
         parameter in ``pinned_parameters``.
+    no_limits : bool, optional
+        Fit without the bounds set on the model — the GUI's "No limits?"
+        check box. For Unified Fit that means the model's own wide defaults
+        (Rg 0.1–1e6 Å, G 1e-10–1e10, …) rather than the limits you or the
+        config supplied; the bounds themselves are untouched and come back
+        after the fit. Implies ``walk_limits=False``, since there is nothing
+        left to walk. Use it when a fit is stuck against a limit and you
+        want to see where it actually wants to go.
 
     Returns
     -------
@@ -1656,7 +1665,12 @@ def run_fit(
         kwargs["max_iterations"] = int(max_iter)
 
     try:
-        if walk_limits:
+        if no_limits:
+            # Walking the limits is meaningless once they are the wide
+            # defaults — and fit_with_limit_walking would narrow them back
+            # around the fitted value, which is the opposite of the request.
+            result = s.model.fit(q_fit, I_fit, err_fit, no_limits=True, **kwargs)
+        elif walk_limits:
             result = s.model.fit_with_limit_walking(q_fit, I_fit, err_fit, **kwargs)
         else:
             result = s.model.fit(q_fit, I_fit, err_fit, **kwargs)
@@ -1686,7 +1700,18 @@ def run_fit(
     pinned = [f"level {i + 1} {name}"
               for i, name in s.model.pinned_fitted_parameters()]
     warnings_list = []
-    if pinned:
+    if pinned and no_limits:
+        # The fit did not use these bounds, so nothing was pinned *at* one —
+        # but the values landing outside them is the answer to the question
+        # "where does this parameter actually want to go", which is why
+        # no_limits was asked for. Say that, rather than "pinned at a limit".
+        warnings_list.append(
+            "with no_limits the fit went outside the bounds still set on the "
+            "model, for: " + ", ".join(pinned)
+            + " — widen or clear those bounds before fitting normally again, "
+            "or the next bounded fit will stop at them")
+        pinned = []
+    elif pinned:
         warnings_list.append(
             "fitted parameter(s) pinned at a limit: " + ", ".join(pinned)
             + " — the reported value is dictated by the bound, not the data"
@@ -1694,6 +1719,7 @@ def run_fit(
                "; rerun with walk_limits=True or widen the bounds"))
 
     return {
+        "no_limits":           bool(no_limits),
         "success":             bool(result.get("success", False)),
         "chi_squared":         float(result.get("chi_squared", float("nan"))),
         "reduced_chi_squared": float(result.get("reduced_chi_squared", float("nan"))),

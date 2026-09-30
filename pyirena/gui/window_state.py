@@ -455,6 +455,25 @@ def _restore_splitters(entry: dict, splitters, key: str) -> None:
                       exc_info=True)
 
 
+def _was_ever_shown(widget) -> bool:
+    """True when *widget* is a window the user actually saw.
+
+    Geometry is only ever saved from a Close event, and a window being closed
+    is still visible at that point — so ``isVisible()`` separates "the user
+    closed this window" from "this window was constructed and thrown away
+    without ever being shown", which is the case that produced nonsense pane
+    widths. (Qt has no ``WA_WasShown`` attribute to consult; a minimised
+    window still counts as visible, which is what we want.)
+    """
+    try:
+        return bool(widget.isVisible())
+    except Exception:
+        # Nothing to consult — trust the caller rather than silently
+        # dropping a real user's geometry.
+        log.debug("could not tell whether the window was shown", exc_info=True)
+        return True
+
+
 def save_window_state(widget, key: str,
                       splitters: Optional[Dict[str, object]] = None) -> None:
     """Remember *widget*'s position, size and pane widths under *key*."""
@@ -462,6 +481,14 @@ def save_window_state(widget, key: str,
         return
     if not is_top_level(widget):
         # An embedded pane's geometry belongs to its layout, not to us.
+        return
+    if not _was_ever_shown(widget):
+        # A window that was never shown has no geometry worth remembering.
+        # Its splitter reports layout hints rather than pane widths — the
+        # right-hand pane sits at its minimum — and saving that ratio made
+        # the control panel reopen at about two-thirds of the window width.
+        # Constructed-but-never-shown windows are what a test or an embedding
+        # application produces, not what a user does.
         return
     try:
         if widget.isMinimized() or widget.isFullScreen():

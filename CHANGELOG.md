@@ -95,6 +95,34 @@ the current dialect when next saved.
 
 ### Added
 
+- **"No limits?" is reachable from the agent API, for every tool that has
+  bounds.** The check box has been in the GUI for four of the fitting tools
+  and callable from the API for exactly one (Simple Fits), so a scientist
+  could release a fit stuck against a bound and an agent driving the same
+  session could not. `run_fit`, `run_modeling_fit`, `run_waxs_fit` and
+  `run_carbon_fit` all take `no_limits` now, `analyze` honours it from a
+  saved config, and the MCP schemas describe it.
+
+  What it means differs by tool, and that is deliberate — Unified Fit and the
+  Carbon model release the user's bounds back to each parameter's declared
+  default (what those panels have always done, so no number changes),
+  Simple Fits and WAXS solve genuinely unconstrained, Modeling switches to an
+  unconstrained Nelder-Mead. The contract is the same everywhere: ignore the
+  bounds I set, and put them back afterwards — they belong to the setup, not
+  to one run of it. Size Distribution has none, being an inversion.
+
+  For Unified Fit, values landing outside the bounds that are still on the
+  model are reported as exactly that, rather than as "pinned at a limit":
+  nothing was pinned, because the fit never used those limits, and where the
+  parameter went is the answer that was asked for.
+
+- **The Carbon model gains "No limits?"**, in the panel and through the API,
+  for parity with the other tools — a full-range fit with fifteen-plus free
+  parameters is the one most easily trapped against a bound that was only
+  ever a guess. The fractal-dimension safety clamp still applies: outside it
+  the model has no gradient at all, so the fit would spend its whole budget
+  without moving. "No limits" must not mean "no gradient".
+
 - **`pyirena/tests/test_config_contract.py`** — a completeness contract over
   all six tools rather than one test per tool. Every scalar setting is either
   in `to_dict()` or named in the class's `_NOT_SERIALISED` allowlist with a
@@ -111,6 +139,11 @@ the current dialect when next saved.
   through both dialects: a pre-1.2 state file restores every control, comes
   back out in the current dialect, and the agent API's embedded setup is a
   shape the GUI can open.
+
+- **`$PYIRENA_STATE_DIR`** — overrides where pyIrena keeps `state.json`,
+  `window_geometry.json` and its logs. The test suite points it at a
+  temporary directory, which it needed to: constructing a GUI panel in a
+  test wrote the developer's own saved settings.
 
 - `docs/batch_api.md` gains the two dialects, the four envelopes, the rule for
   where a fitted Q range lives, and the mapping tables for the four spellings
@@ -398,6 +431,19 @@ Install with `pip install --pre pyirena[gui]`.
   fallen two tools behind, so Data Merge, Data Manipulation and the control
   API's `output_path` carried stale SAXS Morph and Fractals results into the
   new file. The list is now derived from `io/schema.py::TOOL_REGISTRY`.
+
+- **Running the test suite left every control panel opening at two-thirds of
+  the window width.** Two faults, one symptom. The tests wrote to the real
+  `~/.pyirena` rather than a temporary directory; and geometry was recorded
+  for windows that had been constructed and thrown away without ever being
+  shown, where a splitter reports size *hints* — the graph pane sitting at
+  its minimum — instead of pane widths. Rescaling on the next launch then
+  reproduced that ratio faithfully. Tests are now isolated via
+  `$PYIRENA_STATE_DIR`, and `save_window_state` ignores a window the user
+  never saw. Unified Fit, Size Distribution, Modeling and Simple Fits were
+  affected; Carbon and SAXS Morph were not, because no test opened them.
+  Users were never affected — the GUI shows every panel as it creates it —
+  but anyone who had run the suite was.
 
 - Fixed a `QSplitter.setSizes()` quirk that could make the Modeling and
   Unified Fit control panel balloon to a large, unusable fraction of the

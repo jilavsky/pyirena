@@ -1184,6 +1184,19 @@ class CarbonFitPanel(QWidget):
             'model they always are, because contrast couples the regions.')
         self.mc_btn.clicked.connect(self._on_monte_carlo)
         row2.addWidget(self.mc_btn)
+
+        # Every other fitting tool has this; the Carbon model is the one that
+        # most often needs it, because a fifteen-parameter full-range fit is
+        # easy to trap against a bound that was only ever a guess.
+        self.no_limits_check = QCheckBox('No limits?')
+        self.no_limits_check.setToolTip(
+            'Fit without the bounds set below, using each parameter\'s '
+            'default range instead. The bounds you typed are kept and come '
+            'back after the fit.\n\n'
+            'The fractal dimensions keep their safety clamp: outside it the '
+            'model has no gradient at all, so the fit would use its whole '
+            'budget without moving.')
+        row2.addWidget(self.no_limits_check)
         col.addLayout(row2)
 
         row3 = QHBoxLayout()
@@ -1676,7 +1689,8 @@ class CarbonFitPanel(QWidget):
         try:
             result = self.model.fit(self.data['Q'], self.data['Intensity'],
                                     self.data.get('Error'),
-                                    progress=self._fit_progress)
+                                    progress=self._fit_progress,
+                                    no_limits=self.no_limits_check.isChecked())
         except ValueError as exc:
             self._set_status(str(exc))
             QMessageBox.warning(self, 'Carbon model', str(exc))
@@ -1926,6 +1940,7 @@ class CarbonFitPanel(QWidget):
             'model': self.model.to_dict(),
             'q_min': self.model.q_min or None,
             'q_max': self.model.q_max or None,
+            'no_limits': bool(self.no_limits_check.isChecked()),
             'auto_update': bool(self.auto_update_check.isChecked()),
             'show_components': bool(self.show_components_check.isChecked()),
             'waxs_zoom_visible': bool(self.zoom_check.isChecked()),
@@ -1954,6 +1969,7 @@ class CarbonFitPanel(QWidget):
                 (self.auto_update_check, 'auto_update', True),
                 (self.show_components_check, 'show_components', True),
                 (self.zoom_check, 'waxs_zoom_visible', False),
+                (self.no_limits_check, 'no_limits', False),
             ):
                 widget.blockSignals(True)
                 widget.setChecked(bool(state.get(key, default)))

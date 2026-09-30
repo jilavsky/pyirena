@@ -16,6 +16,7 @@ With optional correlations using Born-Green approximation.
 """
 
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -692,6 +693,44 @@ class UnifiedFitModel:
         if self.fit_background:
             self.background = params[idx]
 
+    @contextmanager
+    def default_bounds(self, enabled: bool = True):
+        """Temporarily swap the user's bounds for the model's own wide ones.
+
+        This is what "No limits?" has always meant for Unified Fit: not an
+        unbounded solve, but a fit released from the limits the user typed,
+        back to the dataclass defaults (Rg 0.1–1e6 Å, G 1e-10–1e10, …). The
+        panel did it by rebuilding every level with
+        ``from_panel_params(..., with_limits=False)``; doing it here instead
+        means the GUI, ``pyirena.batch`` and the agent API cannot disagree
+        about what the check box does — and the numbers are unchanged,
+        because the bounds are the same ones the panel was substituting.
+
+        Simple Fits spells its own ``no_limits`` as ±inf. The intent is the
+        same ("ignore the bounds I set") and the implementations differ
+        because the tools do; both are documented in ``docs/batch_api.md``.
+
+        A no-op when *enabled* is False, so callers need no branch.
+        """
+        if not enabled:
+            yield
+            return
+        default = UnifiedLevel()
+        saved = [{name: getattr(level, name) for name in UnifiedLevel._LIMIT_FIELDS}
+                 for level in self.levels]
+        saved_background = self.background_limits
+        try:
+            for level in self.levels:
+                for name in UnifiedLevel._LIMIT_FIELDS:
+                    setattr(level, name, getattr(default, name))
+            self.background_limits = (0.0, 1e10)
+            yield
+        finally:
+            for level, original in zip(self.levels, saved):
+                for name, value in original.items():
+                    setattr(level, name, value)
+            self.background_limits = saved_background
+
     def _get_bounds(self) -> Tuple[np.ndarray, np.ndarray]:
         """Get parameter bounds for fitting."""
         lower = []
@@ -954,7 +993,8 @@ class UnifiedFitModel:
             error: Optional[np.ndarray] = None,
             method: str = 'trf',
             max_iterations: int = 500,
-            verbose: int = 0) -> Dict:
+            verbose: int = 0,
+            no_limits: bool = False) -> Dict:
         """
         Fit the Unified model to experimental data.
 
@@ -965,6 +1005,8 @@ class UnifiedFitModel:
             method: Optimization method ('trf', 'dogbox', 'lm')
             max_iterations: Maximum number of iterations
             verbose: Verbosity level (0, 1, 2)
+            no_limits: Fit without the user's bounds — the GUI's "No limits?".
+                See :meth:`default_bounds` for exactly what that means here.
 
         Returns:
             Dictionary with fit results
@@ -977,7 +1019,8 @@ class UnifiedFitModel:
         p0 = self._pack_parameters()
 
         # Get bounds
-        lower, upper = self._get_bounds()
+        with self.default_bounds(no_limits):
+            lower, upper = self._get_bounds()
 
         # Perform fit
         # x_scale='jac' auto-rescales each parameter by its Jacobian-column

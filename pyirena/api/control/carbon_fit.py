@@ -511,7 +511,7 @@ def set_carbon_material(
 # ---------------------------------------------------------------------------
 
 def run_carbon_fit(session_id: str, weighting: str = "auto",
-                   n_mc_runs: int = 0) -> dict:
+                   n_mc_runs: int = 0, no_limits: bool = False) -> dict:
     """Refine every ticked parameter across the whole Q range at once.
 
     Args:
@@ -523,6 +523,12 @@ def run_carbon_fit(session_id: str, weighting: str = "auto",
             low-Q Porod region set every parameter.
         n_mc_runs: Monte-Carlo passes for the uncertainty estimate; 0 uses the
             covariance estimate alone.
+        no_limits: Fit without the bounds set on the model, using each
+            parameter's declared default instead — the panel's "No limits?".
+            The bounds themselves are untouched and are back afterwards. The
+            fractal-dimension safety clamp still applies: outside it the
+            model has no gradient, so the fit would burn its whole budget
+            without moving.
 
     Returns:
         dict with ``success``, χ², the fitted parameters with 1-σ
@@ -551,7 +557,7 @@ def run_carbon_fit(session_id: str, weighting: str = "auto",
             code="EMPTY_RANGE")
 
     try:
-        result = m.fit(s.q, s.intensity, s.error)
+        result = m.fit(s.q, s.intensity, s.error, no_limits=bool(no_limits))
     except ValueError as exc:
         return make_error(str(exc),
                           suggestion="Tick at least one Fit? box with "

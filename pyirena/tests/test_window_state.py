@@ -286,7 +286,14 @@ def test_a_window_reopens_where_it_was_left(isolated_store):
     first = QWidget()
     first.resize(640, 480)
     install_window_state(first, "round_trip")
+    first.show()                     # only a window the user saw is remembered
+    app.processEvents()
     first.move(70, 55)
+    app.processEvents()
+    # Where the window actually ended up: once it is shown, move() positions
+    # the frame, so the client rectangle sits a title bar lower. Comparing
+    # against the literal (70, 55) would be testing the window manager.
+    was = first.geometry()
     first.close()
     app.processEvents()
 
@@ -294,7 +301,7 @@ def test_a_window_reopens_where_it_was_left(isolated_store):
     second.resize(300, 200)          # a different default
     install_window_state(second, "round_trip")
     geo = second.geometry()
-    assert (geo.x(), geo.y()) == (70, 55)
+    assert (geo.x(), geo.y()) == (was.x(), was.y())
     assert (geo.width(), geo.height()) == (640, 480)
     first.deleteLater()
     second.deleteLater()
@@ -385,6 +392,8 @@ def test_shift_at_open_restores_the_default_and_forgets(isolated_store, monkeypa
     saved = QWidget()
     saved.resize(700, 500)
     ws.install_window_state(saved, "reset_case")
+    saved.show()
+    app.processEvents()
     saved.move(200, 150)
     saved.close()
     app.processEvents()
@@ -417,6 +426,8 @@ def test_shift_clicking_a_tool_button_resets_an_already_open_window(isolated_sto
     win = QWidget()
     win.resize(700, 500)            # the tool's coded default
     ws.install_window_state(win, "shift_reset")
+    win.show()
+    app.processEvents()
 
     win.setGeometry(120, 90, 1100, 820)   # the user drags and resizes it
     win.close()
@@ -439,6 +450,8 @@ def test_without_shift_a_launch_leaves_the_window_alone(isolated_store, monkeypa
     win = QWidget()
     win.resize(700, 500)
     ws.install_window_state(win, "no_shift")
+    win.show()
+    app.processEvents()
     win.setGeometry(120, 90, 1100, 820)
     win.close()
     app.processEvents()
@@ -501,6 +514,9 @@ def test_resetting_a_panel_also_resets_its_graph_window(isolated_store, monkeypa
 
     ws.install_window_state(graph, "linked_graph")
     ws.install_window_state(panel, "linked_panel")
+    panel.show()
+    graph.show()
+    app.processEvents()
     panel.setGeometry(50, 50, 1200, 900)
     graph.setGeometry(2000, 40, 900, 700)
     panel.close()
@@ -658,3 +674,54 @@ def test_resetting_a_panel_leaves_its_panes_at_the_coded_default(isolated_store,
     assert abs(panel.main_splitter.sizes()[0] - default_panes[0]) <= 5
     panel.deleteLater()
     _settle(app)
+
+
+# ── A window that was never shown has no geometry worth keeping ──────────
+
+def test_a_window_that_was_never_shown_saves_nothing(isolated_store):
+    """Constructing a panel and dropping it must not rewrite saved settings.
+
+    This is what a test, or an embedding application, does — and it used to
+    poison the real file. A splitter in a window that has never been laid out
+    reports size *hints*, with the right-hand pane at its minimum; saving that
+    and rescaling it on the next launch reproduced the ratio faithfully, so
+    the Unified Fit, Size Distribution, Modeling and Simple Fits control
+    panels came up at about two-thirds of the window width. The panels were
+    right; the saved state was not.
+    """
+    app = _qt_or_skip()
+    from pyirena.gui import window_state as ws
+
+    win, splitter = _make_split_window((400, 800))
+    ws.install_window_state(win, "never_shown", splitters={"main": splitter})
+    win.close()
+    app.processEvents()
+
+    assert "never_shown" not in ws._load_all(), (
+        "geometry was recorded for a window the user never saw"
+    )
+    win.deleteLater()
+
+
+def test_a_window_the_user_closed_is_still_saved(isolated_store):
+    """The guard above must not cost the real case: shown, resized, closed."""
+    app = _qt_or_skip()
+    from pyirena.gui import window_state as ws
+
+    win, splitter = _make_split_window((400, 800))
+    ws.install_window_state(win, "really_shown", splitters={"main": splitter})
+    win.resize(1600, 900)
+    win.show()
+    _settle(app)
+    splitter.setSizes([400, 1200])
+    _settle(app)
+    win.close()
+    app.processEvents()
+
+    entry = ws._load_all().get("really_shown")
+    assert entry, "a window the user actually used was not remembered"
+    sizes = entry.get("splitters", {}).get("main")
+    assert sizes and len(sizes) == 2
+    assert sizes[0] < sizes[1], (
+        f"the control pane was saved wider than the graph: {sizes}"
+    )
