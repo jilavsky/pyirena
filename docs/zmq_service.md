@@ -94,7 +94,7 @@ A bare `ping` string (not JSON) is also answered, for quick liveness checks.
 ```json
 {"protocol": "pyirena-zmq/1", "id": "c7f3", "ok": true,
  "result": { ... }, "elapsed_s": 1.84,
- "server": {"pyirena": "1.1.1", "protocol": "pyirena-zmq/1"}}
+ "server": {"pyirena": "1.2.0b1", "protocol": "pyirena-zmq/1"}}
 ```
 
 ```json
@@ -294,7 +294,7 @@ counts come back** in `summary.cleaning`, so nothing is dropped silently:
 ```
 
 ```json
-{"ok": true, "tool": "unified_fit", "pyirena_version": "1.1.1",
+{"ok": true, "tool": "unified_fit", "pyirena_version": "1.2.0b1",
  "exported_at": "2026-09-25T14:02:11+00:00",
  "data": {"label": "scan_007", "file": null, "n_points": 1998, "...": "..."},
  "fit_q_range": {"q_min": 0.001, "q_max": 0.1},

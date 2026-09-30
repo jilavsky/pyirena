@@ -13,7 +13,7 @@ development:
 - **`docs/developer_adding_features.md`** — the master checklist for changing
   or adding anything, including a whole new tool.
 
-Last update date: 21-09-2026 ; version: 1.1.1
+Last update date: 29-09-2026 ; version: 1.2.0b1
 
 pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
 package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,

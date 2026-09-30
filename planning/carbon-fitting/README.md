@@ -7,12 +7,19 @@ peaks), following Saurel et al., *Energy Storage Materials* **21** (2019)
 162–173 (`10.1016/j.ensm.2019.05.007`) and its corrigendum,
 *Energy Storage Materials* **28** (2020) 418 (`10.1016/j.ensm.2020.03.013`).
 
-**Status: planning only.** No code has been written. This folder is the
-output of a planning session (2026-09-20) that read the source paper plus its
-two supplementary-information PDFs, matched the required models against what
-already exists in pyIrena, and produced a step-by-step wiring plan against
-`docs/developer_adding_features.md`. Implementation happens later, on a
-separate branch, per file at a time, starting from [02-implementation-plan.md](02-implementation-plan.md).
+**Status: implemented.** Built on `feature/carbon-model` (2026-09-21 →
+2026-09-24) following [02-implementation-plan.md](02-implementation-plan.md),
+then carried into `feature/zmq-service` and released with 1.2.0b1. The tool
+ships as `pyirena/core/carbon_fit.py` + `gui/carbon_fit_panel.py` +
+`batch/carbon_fit.py` + `api/control/carbon_fit.py`, with the `carbon` MCP
+category and `docs/carbon_fit_gui.md`. Tested against real data; further
+features (see [03-open-questions.md](03-open-questions.md) "Left open on
+purpose") are smaller follow-ups that do not block use on simpler systems.
+
+This folder is kept for the physics reference in [01-models.md](01-models.md),
+which the code cites by equation number. The plan documents describe the build
+as planned, not necessarily as built — read the code and `CHANGELOG.md` for
+what shipped.
 
 ## Contents
 
