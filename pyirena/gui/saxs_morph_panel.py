@@ -84,6 +84,7 @@ from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer,
     make_popout_button,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.theme import apply_theme
 from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.gui.window_state import install_window_state
@@ -617,6 +618,8 @@ class SaxsMorphPanel(QWidget):
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'saxs_morph_panel',
                              splitters={'main': splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -636,12 +639,12 @@ class SaxsMorphPanel(QWidget):
         title.setStyleSheet('font-size: 14px; font-weight: bold; color: #6c3483;')
         title_row.addWidget(title)
         title_row.addStretch()
-        help_btn = QPushButton('? Help')
-        help_btn.setFixedSize(60, 22)
-        help_btn.setStyleSheet(
+        self._help_btn = QPushButton('? Help')
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
-        help_btn.clicked.connect(self._open_help)
-        title_row.addWidget(help_btn)
+        self._help_btn.clicked.connect(self._open_help)
+        title_row.addWidget(self._help_btn)
         lay.addLayout(title_row)
 
         # ── Data file ────────────────────────────────────────────────────

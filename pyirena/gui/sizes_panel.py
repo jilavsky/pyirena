@@ -48,6 +48,7 @@ from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
     READONLY_FIELD_CSS,
@@ -926,6 +927,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'sizes_panel',
                              splitters={'main': main_splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     def _open_feature_identifier(self):
         """Open the Feature Identifier dialog (non-modal) for the loaded data."""
@@ -992,14 +995,14 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         )
         self.identify_features_btn.clicked.connect(self._open_feature_identifier)
 
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/sizes_methods.md"
             ))
@@ -1009,7 +1012,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         title_row.setSpacing(4)
         title_row.addWidget(title, 1)
         title_row.addWidget(self.identify_features_btn)
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         layout.addLayout(title_row)
 
         # ── Data file loader ────────────────────────────────────────────────

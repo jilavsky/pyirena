@@ -23,6 +23,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.plot_export import save_widget_image
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.table_utils import (
     attach_table_copy,
     enable_table_sorting,
@@ -71,6 +72,9 @@ class MultiCollectWindow(QWidget):
 
         self._build_ui()
         self._populate()
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     # ── UI construction ────────────────────────────────────────────────────
 

@@ -304,12 +304,24 @@ For the full model list with formulas, see [simple_fits_gui.md](simple_fits_gui.
 
 ## Keyboard Shortcuts
 
+Every pyIrena window:
+
+| Shortcut | Action |
+|----------|--------|
+| **Cmd + W** (macOS) / **Ctrl + W** (Windows, Linux) | Close this window |
+| **F1** | Open this tool's documentation in your browser — the same thing the **? Help** button does. Only on windows that have one. |
+| **Cmd/Ctrl + C** | Copy the selected cells of a table |
+| **Cmd/Ctrl + Shift + C** | Copy a table with its column headers |
+
+In the file list:
+
 | Shortcut | Action |
 |----------|--------|
 | **Double-click** | Plot selected file immediately |
 | **Ctrl/Cmd + A** | Select all visible files |
 | **Ctrl/Cmd + Click** | Add/remove file from selection |
 | **Shift + Click** | Select range of files |
+| **Shift + click a tool button** | Open that tool at its default size and position, forgetting where you last left it |
 
 ## Supported File Formats
 

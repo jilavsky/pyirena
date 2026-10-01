@@ -48,6 +48,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 
 # ---------------------------------------------------------------------------
 # Lazy PyVista import
@@ -1004,6 +1005,9 @@ class VoxelViewerWindow(QMainWindow):
 
         if self._items:
             self._show_item(0)
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     # ── Item switching ───────────────────────────────────────────────────
 

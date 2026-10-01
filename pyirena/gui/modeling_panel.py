@@ -89,6 +89,7 @@ from pyirena.gui.sas_plot import (
     plot_iq_data,
     set_robust_y_range,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
     CHIP_BUTTON_CSS,
@@ -2335,6 +2336,8 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'modeling_panel',
                              splitters={'main': splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -2354,13 +2357,13 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         title.setStyleSheet('font-size: 14px; font-weight: bold;')
         title_row.addWidget(title)
         title_row.addStretch()
-        help_btn = QPushButton('? Help')
-        help_btn.setFixedSize(60, 22)
-        help_btn.setStyleSheet(
+        self._help_btn = QPushButton('? Help')
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
-        help_btn.setToolTip("Open the pyIrena Modeling tool documentation in a browser.")
-        help_btn.clicked.connect(self._open_help)
-        title_row.addWidget(help_btn)
+        self._help_btn.setToolTip("Open the pyIrena Modeling tool documentation in a browser.")
+        self._help_btn.clicked.connect(self._open_help)
+        title_row.addWidget(self._help_btn)
         lay.addLayout(title_row)
 
         # ── Data file ────────────────────────────────────────────────────

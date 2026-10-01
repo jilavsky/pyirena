@@ -69,6 +69,7 @@ from pyirena.gui.plot_export import (
     export_folder,
     remember_export_folder,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.table_utils import attach_table_copy
 from pyirena.gui.theme import apply_theme
 from pyirena.gui.window_state import install_window_state
@@ -243,6 +244,9 @@ class ContrastGraphWindow(QWidget):
         self._hlines: list = []
         self._scan_data: Optional[Dict] = None
         self._build_ui()
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
@@ -513,6 +517,8 @@ class ContrastPanel(QWidget):
 
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'scattering_contrast')
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     # ══════════════════════════════════════════════════════════════════
     #  UI construction
@@ -557,19 +563,19 @@ class ContrastPanel(QWidget):
         self._status_lbl.setStyleSheet("color:#7f8c8d; padding:3px; font-style:italic;")
         top_row.addWidget(self._status_lbl, stretch=1)
 
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/scattering_contrast_gui.md"
             ))
         )
-        top_row.addWidget(_help_btn)
+        top_row.addWidget(self._help_btn)
         rl.addLayout(top_row)
 
         self._tbl = self._make_results_table()

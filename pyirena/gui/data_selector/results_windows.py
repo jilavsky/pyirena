@@ -34,6 +34,7 @@ from pyirena.gui.data_selector.plot_utils import (
     _style_plot,
 )
 from pyirena.gui.sas_plot import add_slope_line_menu
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.table_utils import (
     NumericTableWidgetItem,
     attach_table_copy,
@@ -95,6 +96,9 @@ class GraphWindow(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.gl)
         self.setLayout(layout)
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     def plot_data(
         self,
@@ -321,6 +325,9 @@ class UnifiedFitResultsWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
+
     def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
         """
         Load and plot Unified Fit results from the given file paths.
@@ -490,6 +497,9 @@ class SizeDistResultsWindow(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.gl)
         self.setLayout(layout)
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
         """
@@ -674,6 +684,9 @@ class SimpleFitResultsWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
+
     def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
         """
         Load and plot Simple Fits results from the given file paths.
@@ -846,6 +859,9 @@ class WAXSPeakFitResultsWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
+
     def _toggle_waxs_data_mode(self):
         self._waxs_data_as_lines = not self._waxs_data_as_lines
         for item, color in self._waxs_data_items:
@@ -988,6 +1004,9 @@ class CarbonFitResultsWindow(QWidget):
         layout.addWidget(self.gl)
         self.setLayout(layout)
 
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
+
     def plot_results(self, file_paths: List[str], max_legend_items: int = 12):
         """Load and plot stored Carbon model results from the given files."""
         from pyirena.io.nxcansas_carbon_fit import load_carbon_fit_results
@@ -1127,6 +1146,9 @@ class TabulateResultsWindow(QWidget):
         layout.addWidget(self.table)
         layout.addLayout(btn_row)
         self.setLayout(layout)
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     def set_data(self, headers: list, rows: list, default_save_path: str = ''):
         """Populate the table and remember data for CSV export."""

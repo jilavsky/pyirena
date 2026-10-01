@@ -56,6 +56,7 @@ from pyirena.gui._qt import (
 )
 from pyirena.gui.plot_export import copy_plot_to_clipboard
 from pyirena.gui.sas_plot import add_slope_line_menu
+from pyirena.gui.shortcuts import install_standard_shortcuts
 
 from . import export as _export
 
@@ -123,6 +124,9 @@ class GraphWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self._build_ui()
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     # ── UI construction ────────────────────────────────────────────────────
 

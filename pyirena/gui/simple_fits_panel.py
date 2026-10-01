@@ -65,6 +65,7 @@ from pyirena.gui.sas_plot import (
     plot_iq_model,
     set_cursor_q_range,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
@@ -667,6 +668,8 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'simple_fits_panel',
                              splitters={'main': splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     def _create_control_panel(self) -> QWidget:
         panel = QWidget()
@@ -683,19 +686,19 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
         title_row.addWidget(title_lbl)
         title_row.addStretch()
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/simple_fits_gui.md"
             ))
         )
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         layout.addLayout(title_row)
 
         # ── Data file loader ──────────────────────────────────────────────────

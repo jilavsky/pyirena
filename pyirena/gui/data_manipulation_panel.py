@@ -79,6 +79,7 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     set_robust_y_range,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.table_utils import (
     NumericTableWidgetItem,
     attach_table_copy,
@@ -569,6 +570,8 @@ class DataManipulationPanel(QWidget):
 
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'data_manipulation')
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     # ================================================================== #
     #  UI construction                                                     #
@@ -600,19 +603,19 @@ class DataManipulationPanel(QWidget):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
         title_row.addStretch()
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/data_manipulation_gui.md"
             ))
         )
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         center_col.addLayout(title_row)
 
         self._tabs = QTabWidget()

@@ -76,6 +76,7 @@ from pyirena.gui.file_drop import (
     select_dropped_in_list,
 )
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.sizes_panel import SizesFitPanel
 from pyirena.gui.theme import apply_theme
 from pyirena.gui.unified_fit import UnifiedFitPanel
@@ -150,6 +151,8 @@ class DataSelectorPanel(QWidget):
         # Reopen where the user left it.  Hold Shift while launching pyIrena
         # to ignore the saved geometry, or set PYIRENA_RESET_WINDOWS=1.
         install_window_state(self, 'data_selector')
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
         # Drop data files (or a folder) anywhere on the panel to open them.
         enable_file_drop(self, self.open_dropped_files)
@@ -240,19 +243,19 @@ class DataSelectorPanel(QWidget):
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_row.addWidget(title_label, 1)
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/GUI_README.md"
             ))
         )
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         title_row.addSpacing(5)
         content_layout.addLayout(title_row)
 

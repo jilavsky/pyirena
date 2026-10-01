@@ -77,6 +77,7 @@ from pyirena.gui.saxs_morph_3d import (
     Voxel3DViewer,
     make_popout_button,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_fractals import (
     list_fractal_aggregates,
@@ -145,6 +146,10 @@ class FractalsGraphWindow(QMainWindow):
         # Build UI
         self.panel = FractalsPanel(self._state, self._growth_worker, self._mc_worker, parent=self)
         self.setCentralWidget(self.panel)
+
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16). The help
+        # button belongs to the central widget; the window is what closes.
+        install_standard_shortcuts(self, on_help=self.panel._help_btn)
 
     def closeEvent(self, evt):
         try:
@@ -229,12 +234,12 @@ class FractalsPanel(QWidget):
         title.setStyleSheet("font-size: 14px; font-weight: bold; color: #16a085;")
         title_row.addWidget(title)
         title_row.addStretch()
-        help_btn = QPushButton("? Help")
-        help_btn.setFixedSize(60, 22)
-        help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "background:#c0392b;color:white;font-size:11px;border-radius:3px;")
-        help_btn.clicked.connect(self._open_help)
-        title_row.addWidget(help_btn)
+        self._help_btn.clicked.connect(self._open_help)
+        title_row.addWidget(self._help_btn)
         lay.addLayout(title_row)
         lay.addWidget(_sep())
 

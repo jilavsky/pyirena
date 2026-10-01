@@ -67,6 +67,7 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     set_robust_y_range,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.theme import apply_theme
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
@@ -749,6 +750,8 @@ class DataMergePanel(QWidget):
 
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'data_merge')
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     # ================================================================== #
     #  UI construction                                                     #
@@ -897,19 +900,19 @@ class DataMergePanel(QWidget):
         row1.addWidget(self._bg_result)
 
         row1.addStretch()
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/data_merge_gui.md"
             ))
         )
-        row1.addWidget(_help_btn)
+        row1.addWidget(self._help_btn)
         vbox.addLayout(row1)
 
         # ── Row 2: Split option / Optimize button / Method ───────────────

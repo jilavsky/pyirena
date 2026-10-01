@@ -94,6 +94,14 @@ The main GUI provides:
 
 ### Keyboard Shortcuts
 
+Every window:
+
+- **Cmd + W** (macOS) / **Ctrl + W** (Windows, Linux): Close this window
+- **F1**: Open this tool's documentation — same as the **? Help** button
+- **Cmd/Ctrl + C**: Copy selected table cells (**+ Shift** to include headers)
+
+In the file list:
+
 - **Double-click** on file: Plot immediately
 - **Ctrl/Cmd + A**: Select all visible files
 - **Ctrl/Cmd + Click**: Add/remove from selection

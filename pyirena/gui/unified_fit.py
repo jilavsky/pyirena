@@ -73,6 +73,7 @@ from pyirena.gui.sas_plot import (
     _LimitedAxisItem,
     add_slope_line_menu,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
     SOFT_AMBER,
@@ -2095,6 +2096,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         # Hold Shift while opening the tool to ignore the saved geometry.
         install_window_state(self, 'unified_fit_panel',
                              splitters={'main': main_splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     def format_value_3sig(self, value: float) -> str:
         """Format a value to 3 significant digits for display."""
@@ -2151,19 +2154,19 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         )
         title_row.addWidget(title_label)
         title_row.addStretch()
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/unified_fit_gui.md"
             ))
         )
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         layout.addLayout(title_row)
 
         # ── Data file loader ────────────────────────────────────────────

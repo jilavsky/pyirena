@@ -73,6 +73,7 @@ from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import DSpacingAxisItem
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.theme import (
     SOFT_AMBER,
     soft_button_css,
@@ -1223,6 +1224,8 @@ class WAXSPeakFitPanel(QWidget):
         # Reopen where the user left it (Shift while opening = defaults).
         install_window_state(self, 'waxs_peakfit_panel',
                              splitters={'main': splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     # ===========================================================================
     # Left panel construction
@@ -1239,19 +1242,19 @@ class WAXSPeakFitPanel(QWidget):
         )
         title_row.addWidget(title_lbl)
         title_row.addStretch()
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/waxs_peakfit_gui.md"
             ))
         )
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         ll.addLayout(title_row)
 
         # ── Data file loader ──────────────────────────────────────────────

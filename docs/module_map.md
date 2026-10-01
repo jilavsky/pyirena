@@ -210,6 +210,7 @@ Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
 | `plot_export.py` | 883 | Clipboard / image / CSV / ITX export for every plot |
 | `sas_plot.py` | 1147 | The standard I(Q) plot (`make_sas_plot`, `plot_iq_data`) |
 | `window_state.py` | 779 | Window geometry, splitter widths, Shift-click reset |
+| `shortcuts.py` | 121 | ⌘W / F1 / ⌘S for every window (`install_standard_shortcuts`) |
 | `file_drop.py` | 328 | Drag-and-drop file opening |
 | `file_filter.py` | 104 | The shared filter box |
 | `q_range_ui.py` | 289 | Editable Q-range fields tied to graph cursors |

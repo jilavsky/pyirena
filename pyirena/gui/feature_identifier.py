@@ -34,6 +34,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 
 if TYPE_CHECKING:
     from pyirena.gui.unified_fit import UnifiedFitPanel
@@ -160,6 +161,9 @@ class FeatureIdentifierDialog(QWidget):
         layout.addWidget(self.summary, stretch=1)
         layout.addWidget(help_label)
         self.setLayout(layout)
+
+        # ⌘W / Ctrl+W closes this window (GitHub issue #16).
+        install_standard_shortcuts(self)
 
     # ----------------------------------------------------------------------
     # Overridable presentation hooks (subclasses customise title / help / summary)

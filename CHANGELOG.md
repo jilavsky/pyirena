@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **⌘W / Ctrl+W closes any pyIrena window, and F1 opens its documentation**
+  (#16). Tool windows are independent top-level widgets with no common base
+  class, so none of them answered the first shortcut a Mac user tries. All 26
+  windows now do, through one new helper, `gui/shortcuts.py`.
+  - The binding comes from `QKeySequence.StandardKey`, not from a literal:
+    that is ⌘W on macOS and Ctrl+W (plus Ctrl+F4) on Windows and Linux, which
+    is the point — hard-coding `"Ctrl+W"` would have given Mac users
+    Control+W, a different key from the one they press.
+  - **F1** presses the **? Help** button a window already shows, so it opens
+    exactly the page that button opens and there is no second code path to
+    keep in step. Windows without a Help button do not get F1.
+  - Each shortcut is scoped to its own window, so two open tools do not
+    compete for ⌘W, and ⌘C in tables is untouched.
+  - `pyirena/tests/test_window_shortcuts.py` keeps this true: every Qt widget
+    class under `gui/` must be declared either a window (and then it must
+    install the shortcuts) or an embedded pane (with a written reason). A new
+    window that forgets fails the build rather than silently not answering ⌘W.
+
+  **⌘S was evaluated and deliberately left out.** There is no single "save the
+  result" action across the tools — the candidates are "Save Merged Data",
+  "Apply && Save", "Save params to JSON", "Save CSV…" and "Save JPEG",
+  which are different operations. One key that means a different thing in
+  each window is worse than no key. The helper supports `on_save` for when a
+  consistent action exists.
+
 ### Removed
 
 - **SAXS Morph: the fitting that was planned and never arrived** (#29). SAXS

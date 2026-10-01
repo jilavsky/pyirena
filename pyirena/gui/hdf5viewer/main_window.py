@@ -34,6 +34,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.window_state import install_window_state
 
 from . import pyirena_readers as _readers
@@ -114,19 +115,19 @@ class HDF5ViewerWindow(QMainWindow):
             "padding:6px 10px 5px 10px; background:transparent; border:none;"
         )
         title_row.addWidget(title_lbl, 1)
-        _help_btn = QPushButton("? Help")
-        _help_btn.setFixedSize(60, 22)
-        _help_btn.setStyleSheet(
+        self._help_btn = QPushButton("? Help")
+        self._help_btn.setFixedSize(60, 22)
+        self._help_btn.setStyleSheet(
             "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
             "QPushButton:hover{background:#e74c3c;}"
         )
-        _help_btn.setToolTip("Open online documentation in your browser")
-        _help_btn.clicked.connect(
+        self._help_btn.setToolTip("Open online documentation in your browser")
+        self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(
                 "https://github.com/jilavsky/pyirena/blob/main/docs/hdf5_viewer_gui.md"
             ))
         )
-        title_row.addWidget(_help_btn)
+        title_row.addWidget(self._help_btn)
         vl.addWidget(title_w)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -165,6 +166,8 @@ class HDF5ViewerWindow(QMainWindow):
         # Reopen where the user left it, with the three panes as they were.
         install_window_state(self, 'data_explorer',
                              splitters={'main': splitter})
+        # ⌘W / Ctrl+W to close, F1 for help (GitHub issue #16).
+        install_standard_shortcuts(self, on_help=self._help_btn)
 
     def _build_menu(self) -> None:
         menu_bar = self.menuBar()
