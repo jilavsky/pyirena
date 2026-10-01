@@ -136,15 +136,28 @@ Q positions when you switch.
 |------|------|-------------|
 | **SAXS (log-log)** | I vs Q, both axes log | The default; the whole Q range at once |
 | **WAXS / diffraction (lin-lin)** | I vs Q, both axes linear | Peaks, where log scaling flattens the thing you care about |
-| **Porod (I·Q⁴ vs Q⁴)** | I·Q⁴ vs Q⁴, both axes linear | Judging whether the two curves really agree |
+| **Porod (I·Q⁴ vs Q)** | I·Q⁴ vs Q, both axes linear | Judging whether the two curves really agree |
 
 **Porod** is the one to reach for when a merge looks fine on a log-log plot
-and the result is still wrong.  A correctly subtracted high-Q tail is flat
-there, so a residual background or leftover beam-stop scattering shows up as a
-slope or a step — a difference of a few percent that log-log scaling makes
-invisible.  Because Q⁴ spans an enormous range, the low-Q end is compressed
-against the left edge; zoom in on the overlap region, which is where you are
-looking anyway.
+and the result is still wrong.  Multiplying by Q⁴ flattens a Q⁻⁴ tail, so a
+correctly subtracted high-Q segment reads as a horizontal line and a residual
+background or leftover beam-stop scattering shows up as a slope or a step —
+a difference of a few percent that log-log scaling makes invisible.  Judge
+the overlap by whether the two curves lie on the *same* flat line, not by
+whether each looks plausible on its own.
+
+The horizontal axis is plain Q on a linear scale, so the overlap region keeps
+roughly the spacing it has in the SAXS view.  Plotting against Q⁴ crushes
+everything below the overlap against the left edge; it was tried here and
+rejected.  Both axes are linear because a Porod plateau is only flat on linear
+axes, which is the whole reason to look.
+
+Note that **Simple Fits plots its Porod linearization differently** — I·Q⁴
+against *Q⁴* — and that is correct there, not an inconsistency.  For
+`I = Kp·Q⁻⁴ + Background`, I·Q⁴ = Kp + Background·Q⁴ is a straight line
+against Q⁴ whose intercept is Kp and whose slope is the background, which is
+what you want when fitting those two numbers.  Here you are not fitting
+anything; you are comparing two curves, so readable Q spacing wins.
 
 **DS2 on right axis** gives DS2 its own Y scale, so two datasets decades apart
 in intensity both fill the plot.  Use it to *find* a feature.  Do not use it to

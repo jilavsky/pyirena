@@ -13,12 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complaint behind this was that a merge can look right on a log-log plot and
   still be wrong, and that when Optimize fails there is nothing to do about it
   — Igor lets you turn the knobs by hand and pyIrena did not.
-  - **Porod display mode** (I·Q⁴ vs Q⁴, linear axes) alongside SAXS and WAXS.
-    A correctly subtracted high-Q tail is flat there, so a residual background
-    or leftover beam-stop scattering shows as a slope or a step — a
-    few-percent error that log-log scaling hides. **The mode is a display
-    transform and nothing else:** Optimize and merge always see the original
-    Q and I, and the overlap cursors keep their physical Q across a switch.
+  - **Porod display mode** (I·Q⁴ vs Q, both axes linear) alongside SAXS and
+    WAXS. Multiplying by Q⁴ flattens a Q⁻⁴ tail, so a residual background or
+    leftover beam-stop scattering shows as a slope or a step off that flat
+    line — a few-percent error log-log scaling hides. The x axis is plain Q:
+    plotting against Q⁴ crushes everything below the overlap against the left
+    edge, and was tried and rejected. **The mode is a display transform and
+    nothing else:** Optimize and merge always see the original Q and I, and
+    the overlap cursors keep their physical Q across a switch.
   - **The scale, Q-shift and background fields are now always editable**, and
     editing one redraws the merged preview without running the optimiser.
     Mouse wheel, ↑/↓ and new ▲▼ buttons all step by 1% of the current value
