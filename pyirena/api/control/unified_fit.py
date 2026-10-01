@@ -1961,7 +1961,7 @@ def get_fit_image(
     width, height : int
         Output image dimensions in pixels.
     format : str
-        Only "png" is supported in Phase 1.
+        Only "png" is supported.
 
     Returns
     -------
@@ -2010,9 +2010,9 @@ def get_residuals_image(
 def get_parameter_uncertainties(session_id: str) -> dict:
     """Return parameter uncertainties from the last fit.
 
-    Note: scipy least_squares does not return a covariance matrix by default.
-    Uncertainty estimates are not available in Phase 1.  This function returns
-    a placeholder indicating they are unavailable.
+    Note: scipy least_squares does not return a covariance matrix by default,
+    and this tool does not compute one, so uncertainties are not available
+    here.  This function returns a placeholder saying so.
     """
     s = get_session(session_id)
     if s is None:
@@ -2023,8 +2023,10 @@ def get_parameter_uncertainties(session_id: str) -> dict:
     return {
         "available": False,
         "note": (
-            "Parameter uncertainties are not computed in Phase 1. "
-            "A future phase will add covariance-based uncertainty estimation."
+            "Parameter uncertainties are not computed by this tool. "
+            "Monte-Carlo uncertainties are available from the batch API "
+            "(pyirena.batch.fit_unified(..., with_uncertainty=True)) and "
+            "from the Unified Fit GUI."
         ),
     }
 

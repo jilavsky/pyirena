@@ -162,6 +162,9 @@ caller has to discover it does nothing.
 
 ## 6. Stale "Phase 1" language in shipped surfaces — **S**
 
+**Done 01-10-2026** (issue #31). `Q_indices` was resolved by writing it
+as `[0]` rather than deleting the line.
+
 Cheap, and worth doing before a beta because these strings are user-visible.
 
 - `api/control/unified_fit.py:1987` and `schemas.py:699` — *"not available in

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale "Phase 1/2/3/4" wording in strings that ship to users** (#31). The
+  phase numbers were internal planning vocabulary and meant nothing to anyone
+  reading them from the MCP/ZMQ surface or a module docstring. They now say
+  what is true instead:
+  - `get_parameter_uncertainties` (control function and its MCP schema) said
+    uncertainties were "not available in Phase 1" and that "a future phase"
+    would add them. It now says the tool does not compute them and points at
+    the two places that do — `pyirena.batch.fit_unified(with_uncertainty=True)`
+    and the Unified Fit GUI's Monte-Carlo run.
+  - The SAXS Morph panel docstring described a Phase 2 state of the world:
+    a "placeholder" below the I(Q) plot that is in fact the 2D slice and 3D
+    voxel viewers, and Fit/Cancel/MC-uncertainty buttons "constructed but
+    disabled" that are not constructed at all. It now describes the panel as
+    it is — model evaluation only, with the morphology fit living in
+    `pyirena.batch.saxs_morph.fit_saxs_morph` — and points at #29 for the
+    unwired `_FitWorker`/`_MCWorker` classes.
+  - The AI advisor docstring's "Phase 1 supports:" is now "Supported
+    providers:".
+
+### Changed
+
+- **`saveNXcanSAS` now writes the NXcanSAS `Q_indices` attribute** on both the
+  desmeared and slit-smeared `SASdata` groups, as `[0]` — the 0-based index of
+  the dimension of `I` that `Q` spans, which for 1-D data is 0. It had been
+  commented out with a `# TODO not sure what this means`, and with the wrong
+  value (`[1]`). Purely additive: readers that ignore the attribute, including
+  pyIrena's own, are unaffected; files written before this change still read.
+
 ## [1.2.0b2] - 2026-10-01
 
 Config serialisation, and the replay path that depends on it. Everything a

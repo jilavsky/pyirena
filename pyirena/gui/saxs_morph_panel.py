@@ -5,15 +5,19 @@ Provides the left-panel (controls) + right-panel (graphs + 3D) window for
 generating a 3D voxelgram of a two-phase porous structure from experimental
 I(Q) using the Gaussian Random Fields method.
 
-Phase 2 of the implementation:
+What the panel does:
   - Left panel: Voxel grid box, Two-phase parameters box, Background tabs
     (Power-law + Flat), action buttons.
   - Right panel: I(Q) plot with three traces (data, data-bg, model) and two
-    cursors; placeholder area below for the 2D slice + 3D viewer added in
-    Phase 3.
-  - "Graph Model" button is wired (synchronous evaluation).
-  - "Fit"/"Cancel"/"MC uncertainty" buttons are constructed but disabled
-    until Phase 4 wires the QThread workers.
+    cursors; below it a 2D slice viewer and a 3D voxel viewer.
+  - "Fit Power-law Bckg" and "Fit Flat Bckg" run the two background pre-fits;
+    "Calculate 3D" generates the voxelgram (synchronous evaluation).
+
+This panel is model-evaluation-only: there is no Fit of the morphology
+parameters themselves here. That fit exists, but as a batch operation —
+``pyirena.batch.saxs_morph.fit_saxs_morph``, driven from a config. The
+``_FitWorker`` / ``_MCWorker`` QThread classes below are written but not yet
+wired to any control; see GitHub issue #29.
 
 Entry points
 ------------
@@ -172,7 +176,7 @@ def _patch_sparse_log_ticks(axis):
 # ---------------------------------------------------------------------------
 
 class SaxsMorphGraphWindow(QWidget):
-    """Right-side graph area: top I(Q) plot + bottom placeholder (Phase 3)."""
+    """Right-side graph area: top I(Q) plot + bottom 2D slice and 3D viewers."""
 
     cursor_moved = Signal()
 
