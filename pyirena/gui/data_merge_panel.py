@@ -389,12 +389,12 @@ class _DatasetSelectorWidget(QWidget):
 #: these only change what is drawn (GitHub issue #35).
 MODE_SAXS = 'saxs'      # I vs Q, log-log
 MODE_WAXS = 'waxs'      # I vs Q, lin-lin
-MODE_POROD = 'porod'    # I·Q⁴ vs Q⁴, lin-lin
+MODE_POROD = 'porod'    # I·Q⁴ vs Q, lin-lin
 
 MODE_LABELS = {
     MODE_SAXS:  "SAXS (log-log)",
     MODE_WAXS:  "WAXS / diffraction (lin-lin)",
-    MODE_POROD: "Porod (I·Q⁴ vs Q⁴)",
+    MODE_POROD: "Porod (I·Q⁴ vs Q)",
 }
 
 
@@ -454,9 +454,12 @@ class DataMergeGraphWindow(QWidget):
         return self._mode == MODE_SAXS
 
     def _tx(self, q):
-        """Physical Q → plotted x."""
-        if self._mode == MODE_POROD:
-            return np.asarray(q, dtype=float) ** 4
+        """Physical Q → plotted x.
+
+        Identity in every mode at the moment: Porod plots I·Q⁴ against plain
+        Q, so only the y transform differs. Kept as a hook because Q⁴ on x
+        was tried first and may come back.
+        """
         return q
 
     def _ty(self, q, I):
@@ -467,8 +470,6 @@ class DataMergeGraphWindow(QWidget):
 
     def _inv_x(self, x: float) -> float:
         """Plotted x → physical Q.  Inverse of :meth:`_tx`."""
-        if self._mode == MODE_POROD:
-            return float(abs(x)) ** 0.25
         return float(x)
 
     def _axis_pos(self, q: float) -> float:
@@ -477,7 +478,7 @@ class DataMergeGraphWindow(QWidget):
         pyqtgraph applies log10 itself when an axis is logarithmic, so in log
         mode a cursor position is log10 of the *plotted* x, not of Q.
         """
-        x = float(q) ** 4 if self._mode == MODE_POROD else float(q)
+        x = float(self._tx(q))
         return float(np.log10(x)) if self._log_mode else x
 
     def _q_from_axis_pos(self, pos: float) -> float:
@@ -487,7 +488,7 @@ class DataMergeGraphWindow(QWidget):
 
     def _axis_labels(self) -> tuple:
         if self._mode == MODE_POROD:
-            return 'Q⁴  (Å⁻⁴)', 'I·Q⁴  (cm⁻¹ Å⁻⁴)'
+            return 'Q  (Å⁻¹)', 'I·Q⁴  (cm⁻¹ Å⁻⁴)'
         return 'Q  (Å⁻¹)', 'I  (cm⁻¹)'
 
     # ------------------------------------------------------------------ #
@@ -769,11 +770,10 @@ class DataMergeGraphWindow(QWidget):
             # Bars are drawn in plotted coordinates. In Porod mode the ×Q⁴
             # factor is the same for both ends of one bar, so the bar still
             # spans ±dI about the point — it is only rescaled, not distorted.
-            xi = float(self._tx(np.asarray([qi]))[0]) if self._mode == MODE_POROD else qi
-            I_lo = float(self._ty(np.asarray([qi]), np.asarray([I_lo]))[0]) \
-                if self._mode == MODE_POROD else I_lo
-            I_hi = float(self._ty(np.asarray([qi]), np.asarray([I_hi]))[0]) \
-                if self._mode == MODE_POROD else I_hi
+            xi = qi
+            if self._mode == MODE_POROD:
+                I_lo = float(self._ty(np.asarray([qi]), np.asarray([I_lo]))[0])
+                I_hi = float(self._ty(np.asarray([qi]), np.asarray([I_hi]))[0])
             # Vertical bar
             xs += [xi, xi, float('nan')]
             ys += [I_lo, I_hi, float('nan')]
@@ -840,8 +840,6 @@ class DataMergeGraphWindow(QWidget):
         valid_q = q_all[(q_all > 0) & np.isfinite(q_all)]
         if len(valid_q) < 2:
             return
-        if self._mode == MODE_POROD:
-            valid_q = np.asarray(self._tx(valid_q), dtype=float)
         if self._log_mode:
             q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
             q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1

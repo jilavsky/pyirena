@@ -55,14 +55,15 @@ class TestPorodMode:
                 for i in range(panel._mode_combo.count())]
         assert keys == ['saxs', 'waxs', 'porod']
 
-    def test_transform_is_i_q4_versus_q4(self, panel):
+    def test_transform_is_i_q4_versus_q(self, panel):
+        """y is scaled by Q⁴; x stays plain Q."""
         from pyirena.gui.data_merge_panel import MODE_POROD
 
         panel._graph.set_mode(MODE_POROD)
         g = panel._graph
         q = np.array([0.01, 0.05, 0.2])
         I = np.array([100.0, 2.0, 0.1])
-        np.testing.assert_allclose(g._tx(q), q ** 4)
+        np.testing.assert_allclose(g._tx(q), q)
         np.testing.assert_allclose(g._ty(q, I), I * q ** 4)
 
     @pytest.mark.parametrize("mode", ["saxs", "waxs", "porod"])
@@ -90,7 +91,7 @@ class TestPorodMode:
     def test_axis_labels_follow_the_mode(self, panel):
         panel._graph.set_mode("porod")
         x, y = panel._graph._axis_labels()
-        assert "Q⁴" in x and "I·Q⁴" in y
+        assert "Q⁴" not in x and "I·Q⁴" in y
         panel._graph.set_mode("saxs")
         x, y = panel._graph._axis_labels()
         assert x.startswith("Q") and "Q⁴" not in x
