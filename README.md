@@ -30,7 +30,7 @@ core library only (no GUI), use `pip install pyirena`.
 
 **Trying a pre-release (beta) version:**
 
-Beta releases (e.g. `1.2.0b1`) are published to PyPI ahead of a stable release
+Beta releases (e.g. `1.2.0b2`) are published to PyPI ahead of a stable release
 for early testing. `pip` does not install pre-releases by default, so pass
 `--pre` explicitly:
 
