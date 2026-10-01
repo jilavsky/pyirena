@@ -302,7 +302,8 @@ counts come back** in `summary.cleaning`, so nothing is dropped silently:
              "dof": null, "n_points_fitted": 1204, "n_parameters": null,
              "success": true, "message": "...", "metrics": {"...": "..."}},
  "results": {"...": "tool-specific: parameters, peaks, populations, derived"},
- "config": {"...": "the model's to_dict() — replay this fit on the next scan"}}
+ "config": {"...": "the model's to_dict() — replay this fit on the next scan"},
+ "fixed_params": ["Rg"]}
 ```
 
 `config` is the model's own `to_dict()` — what you need to rebuild the model
@@ -320,11 +321,16 @@ vocabulary (`RgCutoff` for `RgCO`, each parameter a `{"value": …, "fit": …}`
 block) and the two were not interchangeable. As of 1.2 every tool writes
 `to_dict()`, the older vocabulary is still read, and the round trip holds.
 
-`config` is *model* state only. The fitted Q range and the slit settings are
-not model fields, so they are reported separately under `fit_q_range` and
-`data` — and `analyze` reads them from there, which is why passing the whole
-reply replays the whole fit rather than just the model. Passing only
-`report["config"]` would silently fit the full Q range instead.
+`config` is *model* state only. The fitted Q range, the slit settings and
+(Simple Fits) the parameters you held fixed are not model fields, so they are
+reported separately under `fit_q_range`, `data` and `fixed_params` — and
+`analyze` reads them from there, which is why passing the whole reply replays
+the whole fit rather than just the model. Passing only `report["config"]`
+would silently fit the full Q range, and refit what you pinned.
+
+`fixed_params` is a list of parameter names, present for Simple Fits. It is
+the same spelling `save_simple_fit` writes into the setup attribute of a
+result `.h5`, so the two are interchangeable.
 
 Set `include_arrays: true` for the curves — `q`, `intensity`, `error`,
 `intensity_model`, `residuals`, plus per-population curves (Modeling) or the

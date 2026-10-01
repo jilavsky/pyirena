@@ -421,6 +421,15 @@ def export_results(
         "results": parts["results"],
         "config": config,
     }
+
+    # Simple Fits' held-parameter choices are session state, not model state,
+    # so 'config' (a to_dict()) has no room for them. Without them here, a
+    # report fed straight back into analyze() refits what the scientist
+    # pinned and says nothing about it. Spelled the way save_simple_fit()
+    # already writes it into the HDF5 setup attribute, so there is one name.
+    if s.model_name == "simple_fits":
+        from pyirena.api.control.simple_fits import _fixed_set
+        report["fixed_params"] = sorted(_fixed_set(s))
     if parts["arrays"] is not None:
         report["arrays"] = parts["arrays"]
 

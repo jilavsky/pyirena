@@ -185,6 +185,30 @@ tool's `fit_X = true` means it is **free**. A config that gets this backwards
 refits everything you pinned, and returns a plausible number rather than an
 error.
 
+Because the held choices are not model state, they travel beside the model
+and three places spell them differently. All three are read:
+
+| Spelling | Written by |
+|---|---|
+| `param_fixed: {"Rg": true}` | *Export Parameters* — the GUI's "Fit?" checkboxes |
+| `fixed_params: ["Rg"]` | `save_simple_fit()`, into the setup attribute of a result `.h5`, and `export_results()` |
+| `fixed_params: {"Rg": 12.0}` | the resolved form `SimpleFitModel.fit()` itself takes |
+
+The held *value* always comes from the model's own `params`; a name with no
+parameter behind it is dropped rather than invented.
+
+### Slit smearing comes from the measurement too
+
+A config exported from a pinhole run says nothing about slit smearing, but the
+curve you replay it on may be slit smeared — and comparing slit-smeared data
+against an unsmeared model gives a wrong answer, not an error. So either side
+can switch smearing on and neither switches it off: the config's
+`use_slit_smearing`, or the data's own `is_slit_smeared`. Whichever asks for
+it names the slit length, falling back to the other when it states none. This
+is what `select_simple_model()` and its siblings have always done; `analyze()`
+and `pyirena.batch` now do the same, for all four tools that can smear
+(Unified Fit, Size Distribution, Simple Fits, Modeling).
+
 ### Annotated example
 
 ```json

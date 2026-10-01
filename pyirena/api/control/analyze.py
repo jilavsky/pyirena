@@ -55,11 +55,6 @@ _RUNNERS = {
 }
 
 
-def _section(config: Dict, tool: str) -> Dict:
-    section = config.get(tool) if isinstance(config, dict) else None
-    return section if isinstance(section, dict) else (config or {})
-
-
 def analyze(
     data: Dict[str, Any],
     config: Dict[str, Any],
@@ -165,16 +160,17 @@ def analyze(
                 if name in s.model.params:
                     s.model.params[name] = value
 
-        # Pre-fit steps the config asks for (Sizes background windows, WAXS
+        # Pre-fit steps the config asks for (Sizes background windows, the
+        # Simple Fits background the Invariant integrates on top of, WAXS
         # peak re-centring). Which data each sees is not the same — see
         # apply_prefits — so hand it both the full curve and the fitted range.
         from pyirena.api.control.session import fit_mask
         mask = fit_mask(s)
-        notes.extend(apply_prefits(setup, _section(config, setup.tool),
+        notes.extend(apply_prefits(setup, setup.section,
                                    s.q, s.intensity,
                                    s.q[mask], s.intensity[mask]))
 
-        fit_result = _run_fit(setup.tool, session_id, _section(config, setup.tool))
+        fit_result = _run_fit(setup, session_id)
         if isinstance(fit_result, dict) and "error" in fit_result:
             return fit_result
 
@@ -212,10 +208,15 @@ def _apply_q_range(session, setup, notes: list):
     hi = data_max if q_max is None else min(q_max, data_max)
 
     if lo >= hi or not np.any((session.q >= lo) & (session.q <= hi)):
+        # A one-sided range is legitimate, so either bound may be absent —
+        # say so rather than formatting None into the note that explains it.
+        def _bound(value):
+            return "open" if value is None else f"{value:.4g}"
+
         notes.append(
-            f"The config's Q range [{q_min:.4g}, {q_max:.4g}] does not overlap "
-            f"this curve [{data_min:.4g}, {data_max:.4g}]; fitting the full "
-            "range instead."
+            f"The config's Q range [{_bound(q_min)}, {_bound(q_max)}] does not "
+            f"overlap this curve [{data_min:.4g}, {data_max:.4g}]; fitting the "
+            "full range instead."
         )
         return None, None
 
@@ -235,7 +236,7 @@ def _apply_q_range(session, setup, notes: list):
     return lo, hi
 
 
-def _run_fit(tool: str, session_id: str, section: Dict):
+def _run_fit(setup, session_id: str):
     """Call the tool's own run_* function, passing what the config asks for.
 
     **Unified Fit keeps ``walk_limits`` on here, on purpose.** It looks wrong
@@ -254,11 +255,18 @@ def _run_fit(tool: str, session_id: str, section: Dict):
     """
     from pyirena.api import control as ctrl
 
-    name, arg_map = _RUNNERS[tool]
+    name, arg_map = _RUNNERS[setup.tool]
     runner = getattr(ctrl, name)
+    section = setup.section if isinstance(setup.section, dict) else {}
     kwargs = {}
     for arg, config_key in arg_map.items():
         value = section.get(config_key)
+        if value is None:
+            # Carbon keeps its weighting inside the model block, where model
+            # construction has already restored it; the runner's default
+            # would overwrite that with 'auto' and change the answer. Only
+            # the model's own value is a fallback — never an invented one.
+            value = getattr(setup.model, arg, None) if arg == "weighting" else None
         if value is not None:
             kwargs[arg] = value
     try:

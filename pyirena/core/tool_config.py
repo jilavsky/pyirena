@@ -66,6 +66,14 @@ class ToolSetup:
     tool: str
     model: Any
 
+    #: The tool's settings section, as resolved out of whichever wrapper the
+    #: caller passed. Execution needs it as much as model construction does —
+    #: ``no_limits``, the fit method and the weighting live beside the model,
+    #: not inside it, and a caller that re-reads the wrapper with its own
+    #: shallow lookup sees the wrapper instead of the section. Carrying the
+    #: one ``unwrap_config`` already resolved is what keeps the two in step.
+    section: Dict = field(default_factory=dict)
+
     #: Q range the fit should be restricted to (None = the full curve).
     fit_q_min: Optional[float] = None
     fit_q_max: Optional[float] = None
@@ -148,6 +156,11 @@ class _Envelope:
     is_slit_smeared: Optional[bool] = None
     slit_length: Optional[float] = None
 
+    #: Simple Fits' held-parameter choices, in whichever spelling the wrapper
+    #: used. They are not model state, so they only reach a replay if the
+    #: wrapper states them (see :func:`resolve_fixed_params`).
+    fixed_params: Any = None
+
 
 def _q_range_of(block: Any) -> Tuple[Optional[float], Optional[float]]:
     """Read a ``{"q_min": …, "q_max": …}`` block, tolerating None and junk."""
@@ -220,6 +233,8 @@ def unwrap_config(config: Dict, tool: Optional[str] = None
     reply = config.get("config")
     if isinstance(reply, dict) and config.get("tool") in TOOL_SECTIONS:
         env.fit_q_min, env.fit_q_max = _q_range_of(config.get("fit_q_range"))
+        if config.get("fixed_params") is not None:
+            env.fixed_params = config["fixed_params"]
         data = config.get("data")
         if isinstance(data, dict):
             if data.get("is_slit_smeared") is not None:
@@ -413,6 +428,59 @@ def unified_model_from_config(state: Dict):
 
 
 # ---------------------------------------------------------------------------
+# Slit smearing — a property of the measurement, not only of the config
+# ---------------------------------------------------------------------------
+
+def apply_data_slit_settings(model, section: Dict, *,
+                             data_is_slit_smeared: bool = False,
+                             data_slit_length: float = 0.0) -> None:
+    """Enable model slit smearing from the config *and* the loaded curve.
+
+    The session API does this in every ``select_*_model()``: a curve that is
+    slit smeared must be compared against a smeared model, or the fitted
+    parameters are wrong in a way nothing downstream flags. A replayed config
+    is not where that decision lives — it is a property of the measurement in
+    front of us, and the config may well have been exported from a pinhole
+    run. So either source can switch smearing on, and neither switches it off:
+
+    * the config's ``use_slit_smearing``, as the GUI exported it;
+    * the data's own ``is_slit_smeared``, which is what the normal session
+      path reads.
+
+    Whichever source asked for the smearing names the length, because that is
+    the one that knows it. A config that asks for smearing was written by a
+    scientist who set the length, so it wins; a config that does not ask is
+    only carrying a stale number beside an unticked box, and the curve the
+    file declares is authoritative. Either falls back to the other when it
+    states no length. Does nothing for a model that cannot smear (Carbon,
+    WAXS).
+    """
+    if not hasattr(model, "use_slit_smearing"):
+        return
+    section = section if isinstance(section, dict) else {}
+
+    def _length(value):
+        try:
+            return float(value) if value else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    cfg_length = _length(section.get("slit_length"))
+    data_length = _length(data_slit_length)
+
+    if section.get("use_slit_smearing"):
+        length = cfg_length or data_length
+    elif data_is_slit_smeared:
+        length = data_length or cfg_length
+    else:
+        return
+
+    if length > 0:
+        model.use_slit_smearing = True
+        model.slit_length = length
+
+
+# ---------------------------------------------------------------------------
 # Size Distribution
 # ---------------------------------------------------------------------------
 
@@ -463,11 +531,9 @@ def sizes_model_from_config(state: Dict, *, data_is_slit_smeared: bool = False,
 
     # Slit smearing: enable when the loaded data are slit smeared or the config
     # asks for it; slit length is file-derived unless overridden.
-    cfg_sl = state.get("slit_length")
-    sl = float(cfg_sl) if cfg_sl else float(data_slit_length or 0.0)
-    if (bool(data_is_slit_smeared) or bool(state.get("use_slit_smearing"))) and sl > 0:
-        s.use_slit_smearing = True
-        s.slit_length = sl
+    apply_data_slit_settings(s, state,
+                             data_is_slit_smeared=data_is_slit_smeared,
+                             data_slit_length=data_slit_length)
     return s
 
 
@@ -475,13 +541,53 @@ def sizes_model_from_config(state: Dict, *, data_is_slit_smeared: bool = False,
 # Simple Fits
 # ---------------------------------------------------------------------------
 
+def resolve_fixed_params(spec: Any, params: Dict) -> Dict[str, float]:
+    """Normalise *which parameters are held fixed* into ``{name: value}``.
+
+    Three parts of pyIrena spell the same choice three ways, and a reader that
+    knows only one of them silently frees what the scientist pinned:
+
+    ``{"Rg": true}``
+        ``param_fixed`` — the GUI's per-parameter "Fit?" checkboxes, written
+        into the *Export Parameters* sidecar.
+    ``["Rg"]``
+        ``fixed_params`` — the list ``save_simple_fit()`` embeds in the setup
+        attribute of a result ``.h5``, and the one ``export_results()``
+        reports. Already-written files use it, so it is read forever.
+    ``{"Rg": 12.0}``
+        The resolved form :meth:`SimpleFitModel.fit` itself takes, accepted so
+        a caller can hand back what it was given.
+
+    The held *value* always comes from the model's own parameters: a name with
+    no parameter behind it is dropped rather than invented.
+    """
+    params = params or {}
+    if not spec:
+        return {}
+    if isinstance(spec, dict):
+        held = []
+        for name, flag in spec.items():
+            # {name: True} says "held"; {name: 12.0} is the resolved form, in
+            # which every listed name is held and 0.0 is a real value.
+            if isinstance(flag, bool):
+                if flag:
+                    held.append(name)
+            elif flag is not None:
+                held.append(name)
+    elif isinstance(spec, (list, tuple, set, frozenset)):
+        held = list(spec)
+    else:
+        return {}
+    return {name: params[name] for name in held if name in params}
+
+
 def simple_model_from_config(state: Dict) -> Tuple[Any, Dict[str, float]]:
     """Convert the ``simple_fits`` config section into ``(model, fixed_params)``.
 
-    The GUI stores the per-parameter "Fit?" checkboxes as
-    ``param_fixed = {name: True when held}``, while ``SimpleFitModel.fit()``
-    wants ``fixed_params = {name: value}``. Without that translation a replay
-    refits every parameter and quietly ignores the user's choices.
+    The held-parameter choices are not model state, so they travel beside the
+    model in whichever spelling the writer used; :func:`resolve_fixed_params`
+    reads all of them. Without that translation a replay refits every
+    parameter and quietly ignores the user's choices.
     """
     from pyirena.core.simple_fits import SimpleFitModel
 
@@ -495,13 +601,11 @@ def simple_model_from_config(state: Dict) -> Tuple[Any, Dict[str, float]]:
     else:
         cfg.pop("param_limits", None)
 
-    param_fixed = cfg.pop("param_fixed", {}) or {}
+    param_fixed = cfg.pop("param_fixed", None)
+    saved_fixed = cfg.pop("fixed_params", None)
     params = cfg.get("params", {}) or {}
-    fixed_params = {
-        name: params[name]
-        for name, is_fixed in param_fixed.items()
-        if is_fixed and name in params
-    }
+    fixed_params = resolve_fixed_params(
+        param_fixed if param_fixed else saved_fixed, params)
 
     for key in ("schema_version", "no_limits"):
         cfg.pop(key, None)
@@ -555,7 +659,7 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
         With a message naming what was wrong and what was expected.
     """
     tool, section, envelope = unwrap_config(config, tool)
-    setup = ToolSetup(tool=tool, model=None)
+    setup = ToolSetup(tool=tool, model=None, section=section)
 
     # An envelope that states the curve's slit settings speaks for the data
     # the caller did not hand over separately (an export_results reply is
@@ -596,6 +700,22 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
         raise
     except Exception as exc:
         raise ConfigError(f"Could not build a {tool} model from this config: {exc}") from exc
+
+    # Slit smearing is settled here for every tool that can smear, not in the
+    # Sizes branch alone. The three analytic tools used to read the config
+    # side only, so a slit-smeared curve replayed through a pinhole config
+    # was fitted unsmeared — the one case where the normal session path and
+    # a replay of the same setup disagreed about the physics.
+    apply_data_slit_settings(setup.model, section,
+                             data_is_slit_smeared=data_is_slit_smeared,
+                             data_slit_length=data_slit_length)
+
+    # The wrapper may carry the held-parameter choices the section does not:
+    # an export_results() reply states them beside the model, because
+    # model.to_dict() has no room for them.
+    if tool == "simple_fits" and not setup.fixed_params and envelope.fixed_params:
+        setup.fixed_params = resolve_fixed_params(
+            envelope.fixed_params, getattr(setup.model, "params", {}))
 
     # The envelope's own fit_q_range wins over whatever the section spells
     # it: four tools keep the Q range beside the model and two keep it
@@ -699,15 +819,50 @@ def apply_waxs_presearch(model, section: Dict, q, intensity) -> list:
     return notes
 
 
+def apply_simple_bg_prefit(model, fixed_params: Optional[Dict], q, intensity) -> list:
+    """Replay the Simple Fits complex-background pre-fit. Returns notes.
+
+    Only for a *calculation* model — the Invariant. An ordinary fit refines
+    its background as part of the optimisation, so a stale starting value
+    costs nothing; the Invariant is an integration, and nothing after this
+    point ever touches the background again. Replaying the config without it
+    integrates the curve on top of whatever background the file happened to
+    be exported with, and the result is wrong by orders of magnitude while
+    still reporting success.
+
+    Reads the FULL curve: the saved background windows are normally outside
+    the integration range, which is the whole reason they were recorded.
+    """
+    if not getattr(model, "is_calculation", False):
+        return []
+    if not (getattr(model, "bg_prefit", None) or {}).get("enabled"):
+        return []
+    try:
+        applied = model.prefit_background(q, intensity,
+                                          fixed_params=fixed_params or None)
+    except Exception as exc:
+        return [f"Background pre-fit failed, using the configured values: {exc}"]
+
+    notes = []
+    values = "  ".join(f"{k}={v:.4g}" for k, v in (applied or {}).items()
+                       if k != "warning" and isinstance(v, (int, float)))
+    if values:
+        notes.append(f"Background pre-fit replayed: {values}")
+    if (applied or {}).get("warning"):
+        notes.append(f"Background pre-fit: {applied['warning']}")
+    return notes
+
+
 def apply_prefits(setup: "ToolSetup", section: Dict,
                   q_full, intensity_full, q_fit=None, intensity_fit=None) -> list:
     """Run whatever pre-fit steps *setup*'s tool defines. Returns notes.
 
-    The two tools disagree about which data a pre-fit should see, and both are
+    The tools disagree about which data a pre-fit should see, and each is
     right. The Size Distribution background windows are chosen independently
-    of the size-fit cursors, so they read the **full** curve. The WAXS peak
-    presearch is re-centring the peaks that are about to be fitted, so it
-    reads only the **fitted** range — scanning Q0 across data the fit will
+    of the size-fit cursors, so they read the **full** curve, and so does the
+    Simple Fits background pre-fit that the Invariant depends on. The WAXS
+    peak presearch is re-centring the peaks that are about to be fitted, so
+    it reads only the **fitted** range — scanning Q0 across data the fit will
     never see would move a peak towards a feature outside the window.
     """
     if q_fit is None:
@@ -716,4 +871,7 @@ def apply_prefits(setup: "ToolSetup", section: Dict,
         return apply_sizes_prefits(setup.model, section, q_full, intensity_full)
     if setup.tool == "waxs_peakfit":
         return apply_waxs_presearch(setup.model, section, q_fit, intensity_fit)
+    if setup.tool == "simple_fits":
+        return apply_simple_bg_prefit(setup.model, setup.fixed_params,
+                                      q_full, intensity_full)
     return []

@@ -117,17 +117,19 @@ def fit_simple(
     # ── Background prefit replay (Invariant) ────────────────────────────────
     # Re-determine the complex background from the Q ranges the GUI user
     # recorded (bg_prefit), using the FULL data — the background windows
-    # usually lie outside the integration range applied below.
-    # Background parameters the user held fixed ("Fit?" unchecked) are passed
-    # through so the replay leaves them alone, exactly as the GUI does.
-    if model.is_calculation and (model.bg_prefit or {}).get('enabled'):
-        applied = model.prefit_background(q, I, fixed_params=fixed_params)
-        if verbose and applied:
-            vals = '  '.join(f'{k}={v:.4g}' for k, v in applied.items()
-                             if k != 'warning')
-            log.info(f"[pyirena.batch] Background prefit replayed: {vals}")
-        if applied.get('warning'):
-            log.warning(f"[pyirena.batch] Background prefit: {applied['warning']}")
+    # usually lie outside the integration range applied below. Background
+    # parameters the user held fixed ("Fit?" unchecked) are passed through so
+    # the replay leaves them alone, exactly as the GUI does.
+    #
+    # Shared with analyze() rather than inlined: this path had the replay and
+    # that one did not, so the same config integrated against two different
+    # backgrounds depending on which door it came in by.
+    from pyirena.core.tool_config import apply_simple_bg_prefit  # noqa: PLC0415
+    for note in apply_simple_bg_prefit(model, fixed_params, q, I):
+        if 'failed' in note or 'warning' in note.lower():
+            log.warning(f"[pyirena.batch] {note}")
+        elif verbose:
+            log.info(f"[pyirena.batch] {note}")
 
     # ── Apply Q range mask ───────────────────────────────────────────────────
     mask = np.ones(len(q), dtype=bool)

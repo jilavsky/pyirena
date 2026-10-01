@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0b2] - 2026-10-01
+
+Config serialisation, and the replay path that depends on it. Everything a
+saved setup carries now survives being replayed — through `pyirena.batch`,
+through `analyze()`, and through every wrapper pyIrena writes.
+
 ### Config serialisation: one vocabulary, not four
 
 A tool's settings have been written in two vocabularies inside four different
@@ -63,6 +69,49 @@ the current dialect when next saved.
   `{"tool": …, "model": …}`, was unreachable and, when reached, built an
   all-defaults model without saying so. All four are now read, and the
   `export_results() → analyze()` round trip works.
+
+- **An accepted wrapper still lost the execution settings.** `build_setup()`
+  unwrapped all four envelopes, but `analyze()` then re-read the config with
+  a shallow lookup to decide what to pass the runner — so for three of them
+  it handed the runner the *wrapper* and found nothing in it. `no_limits`,
+  the Modeling fit method and the WAXS weight mode were invisible: a fit told
+  to ignore its bounds stopped dead at one and reported success. The resolved
+  section now travels on `ToolSetup`, so there is only one reader.
+
+- **Simple Fits' held parameters were lost in two directions.**
+  `export_results()` reported only `model.to_dict()`, which has no room for
+  them, so the documented *replay the reply on the next measurement* loop
+  freed on the second pass whatever the scientist had pinned on the first.
+  Separately, `save_simple_fit()` wrote a `fixed_params` list into the HDF5
+  setup while the reader understood only a `param_fixed` dict, so a saved
+  agent run lost them too. The report now states `fixed_params`, and all
+  three spellings read — including the files already on disk.
+
+- **A replayed config ignored the curve's own slit smearing**, for every tool
+  but Size Distribution. `select_simple_model()`, `select_modeling()` and
+  `select_unified_model()` all smear the model when the data say they are
+  slit smeared; `analyze()` installed the model directly and skipped that, so
+  a pinhole-exported config replayed on a USAXS curve fitted it unsmeared —
+  about 10% low in I0, with nothing to show for it. Slit settings are now
+  resolved once, in the shared setup builder, for all four tools that smear.
+  Whichever source asks for the smearing names the length: a config that asks
+  wins, a stale length beside an unticked box does not.
+
+- **The Invariant replayed without its background pre-fit.** `pyirena.batch`
+  re-determined the complex background from the saved windows before
+  integrating; the `analyze()` path did not, and an integration never
+  refines its background afterwards. On a curve with a flat background of 2
+  the invariant came back **232× too large**, reporting success. Both paths
+  now call the same pre-fit, and it obeys the held-parameter choices.
+
+- **Carbon's saved weighting was overwritten with `auto`.** The panel keeps
+  `weighting` inside its nested `model` block, where the runner mapping was
+  not looking, so a config saved with relative weighting was refitted with
+  the default — a different background on any curve where the two disagree.
+
+- **A one-sided Q range off the end of the curve raised `TypeError`.** The
+  warning explaining the nonoverlap formatted both bounds, and a config may
+  legitimately state only one; absent bounds are now rendered as `open`.
 
 ### Changed
 
