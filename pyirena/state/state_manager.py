@@ -520,7 +520,9 @@ class StateManager:
         "saxs_morph": {
             # schema_version 2: workflow rework — background pre-fits with their
             #                   own Q ranges + input_mode combo (no model fit).
-            "schema_version": 2,
+            # schema_version 3: voxel_size_fit dropped. There is no fit loop to
+            #                   size a grid for; see GitHub issue #29.
+            "schema_version": 3,
             # Modelling Q range (driven by main I(Q) cursors)
             "q_min": None,
             "q_max": None,
@@ -530,7 +532,6 @@ class StateManager:
             "background_q_min": None,
             "background_q_max": None,
             # Voxel grid
-            "voxel_size_fit":    128,
             "voxel_size_render": 256,
             "box_size_A":        1000.0,
             # Two-phase parameters
@@ -874,6 +875,21 @@ class StateManager:
                                 self.DEFAULT_STATE['modeling']['mc_workers'])
             modeling['schema_version'] = 5
             self.state['modeling'] = modeling
+
+        # --- saxs_morph -----------------------------------------------------
+        # schema_version 2 → 3: voxel_size_fit removed. SAXS Morph has no fit
+        # loop, so there is no fit-resolution grid to size; the knob was read
+        # by the batch path and could not be set from the GUI at all.
+        # _merge_state() copies every key it finds on disk straight through, so
+        # an old state file would carry the orphan forever unless it is dropped
+        # here. No version gate: popping a key that is already gone is a no-op,
+        # which is what makes this safe to run on every load.
+        saxs_morph = self.state.get('saxs_morph')
+        if isinstance(saxs_morph, dict):
+            saxs_morph.pop('voxel_size_fit', None)
+            saxs_morph['schema_version'] = \
+                self.DEFAULT_STATE['saxs_morph']['schema_version']
+            self.state['saxs_morph'] = saxs_morph
 
     def _merge_state(self, default: Dict, loaded: Dict) -> Dict:
         """

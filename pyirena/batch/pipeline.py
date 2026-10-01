@@ -126,8 +126,10 @@ def fit_pyirena(
         'carbon_fit': lambda: fit_carbon(
             data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
         ),
+        # No uncertainty arguments: SAXS Morph has no fittable model
+        # parameters, so there is nothing for MC to perturb.
         'saxs_morph': lambda: fit_saxs_morph(
-            data_file, config_file, save_to_nexus, with_uncertainty, n_mc_runs
+            data_file, config_file, save_to_nexus
         ),
     }
 

@@ -22,7 +22,11 @@ entry/saxs_morph_results/                 (NXprocess)
   spectral_k, spectral_F                 (1-D arrays)
   voxelgram                              (3-D uint8, gzip-compressed,
                                           chunks=(N, N, 1) for cheap slice loads)
-  <param>_err                            (scalars, only when MC was run)
+
+Files written before GitHub issue #29 also carry per-parameter ``fit`` /
+``limit_lo`` / ``limit_hi`` attributes and ``<param>_err`` MC scalars. SAXS
+Morph has no model fit and no MC, so those are no longer written; they are
+simply ignored when an older file is read.
 """
 
 from __future__ import annotations
@@ -129,15 +133,6 @@ def save_saxs_morph_results(
 
         grp.create_dataset('link_phi_contrast', data=bool(cfg.link_phi_contrast))
 
-        # Fit-flag attrs alongside each fittable param
-        for name in ('volume_fraction', 'contrast',
-                     'power_law_B', 'power_law_P', 'background'):
-            ds = grp[name]
-            ds.attrs['fit'] = bool(getattr(cfg, f'fit_{name}'))
-            lim = getattr(cfg, f'{name}_limits')
-            ds.attrs['limit_lo'] = float(lim[0])
-            ds.attrs['limit_hi'] = float(lim[1])
-
         # ── 1-D arrays ───────────────────────────────────────────────────
         _save_1d(grp, 'data_q', result.data_q, units='1/angstrom')
         _save_1d(grp, 'data_I', result.data_I, units='1/cm')
@@ -166,10 +161,6 @@ def save_saxs_morph_results(
             'Binary phase indicator: 0 = phase A (background), '
             '1 = phase B (scattering phase). Cube of side voxel_size.'
         )
-
-        # ── MC uncertainties ─────────────────────────────────────────────
-        for name, std in result.params_std.items():
-            grp.create_dataset(f'{name}_err', data=float(std))
 
         # ── Morphology metrics (Tier A + B; minority-phase only) ─────────
         # Saved as a flat set of scalars under a sub-group so they're
@@ -269,11 +260,6 @@ def load_saxs_morph_results(
             'rng_seed':            _scal('rng_seed'),
             'rg_A':                _scal('rg_A', float('nan')),
             'q_max_model_A':       _scal('q_max_model_A', float('nan')),
-            # Fit flags / limits (read attrs)
-            'fit_flags':   {n: bool(grp[n].attrs.get('fit', False))
-                            for n in ('volume_fraction', 'contrast',
-                                      'power_law_B', 'power_law_P', 'background')
-                            if n in grp},
             # 1-D arrays
             'data_q':       _arr('data_q'),
             'data_I':       _arr('data_I'),
@@ -287,10 +273,6 @@ def load_saxs_morph_results(
             'spectral_F':   _arr('spectral_F'),
             # Voxelgram (eager)
             'voxelgram':    _arr('voxelgram'),
-            # MC uncertainties
-            'params_std':   {n.replace('_err', ''): float(grp[n][()])
-                             for n in grp
-                             if n.endswith('_err') and n != 'reduced_chi_squared'},
         }
 
         # ── Morphology metrics (Tier A + B; minority-phase only) ─────────
@@ -324,7 +306,6 @@ def result_from_loaded_dict(d: dict) -> SaxsMorphResult:
     cfg = SaxsMorphConfig(
         q_min=d.get('q_min'),
         q_max=d.get('q_max'),
-        voxel_size_fit=int(d.get('voxel_size') or 128),
         voxel_size_render=int(d.get('voxel_size') or 256),
         box_size_A=float(d.get('box_size_A') or 1000.0),
         volume_fraction=float(d.get('volume_fraction') or 0.3),
@@ -334,10 +315,6 @@ def result_from_loaded_dict(d: dict) -> SaxsMorphResult:
         power_law_P=float(d.get('power_law_P') or 4.0),
         background=float(d.get('background') or 0.0),
     )
-    flags = d.get('fit_flags') or {}
-    for name, on in flags.items():
-        setattr(cfg, f'fit_{name}', bool(on))
-
     return SaxsMorphResult(
         config=cfg,
         chi_squared=float(d.get('chi_squared') or 0.0),
@@ -363,5 +340,4 @@ def result_from_loaded_dict(d: dict) -> SaxsMorphResult:
         rg_A=float(d.get('rg_A') if d.get('rg_A') is not None else float('nan')),
         q_max_model_A=float(d.get('q_max_model_A') if d.get('q_max_model_A') is not None else float('nan')),
         morphology_metrics=d.get('morphology_metrics'),
-        params_std=dict(d.get('params_std') or {}),
     )

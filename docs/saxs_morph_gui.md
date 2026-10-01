@@ -203,9 +203,11 @@ There are **no fittable parameters in this workflow** beyond the two
 background pre-fits — the GRF method computes the voxelgram
 deterministically from the chosen φ and the data spectrum.
 
-The `voxel_size_fit`, `fit_*`, `*_limits`, `no_limits`, `n_mc_runs`
-fields in `SaxsMorphConfig` are kept for backward compatibility with
-the deprecated `Engine.fit()` method but are not exposed in the GUI.
+`SaxsMorphConfig` used to carry `voxel_size_fit`, `fit_*`, `*_limits`,
+`no_limits` and `n_mc_runs` for a deprecated `Engine.fit()`. Both the method
+and the fields are gone (GitHub issue #29); `link_phi_contrast` is the one
+survivor, kept because it is written into saved HDF5 and older files still
+read back through it.
 
 ---
 
@@ -309,8 +311,9 @@ stochastic nature of the GRF realisation, not parameter uncertainty.
 | 384³ | 54 MB | ~13 GB | ~10 s | ~3–30 MB |
 | 512³ | 128 MB | ~32 GB | ~30 s | ~10–100 MB |
 
-**Recommendation**: keep `voxel_size_fit ≤ 256` (the engine enforces this).
-Use 384³ / 512³ only for the final render of a converged model.
+**Recommendation**: work at 256³ or below while you are choosing parameters.
+Use 384³ / 512³ only for the final render, once the two background pre-fits
+and φ are settled.
 
 ---
 

@@ -377,7 +377,7 @@ class TestInputModeResolution:
         # of 999.0, which would give absurd model intensity).
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
+            voxel_size_render=32,
             box_size_A=500.0,
             input_mode='phi',
             volume_fraction=0.30, contrast=999.0,  # contrast should be overwritten
@@ -397,7 +397,7 @@ class TestInputModeResolution:
         contrast0 = derive_contrast_from_invariant(q, I, phi=0.30)
 
         cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
+            voxel_size_render=32,
             box_size_A=500.0,
             input_mode='contrast',
             volume_fraction=0.99,  # should be overwritten
@@ -413,7 +413,7 @@ class TestInputModeResolution:
         # mode='both': both inputs are honored exactly.
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
+            voxel_size_render=32,
             box_size_A=500.0,
             input_mode='both',
             volume_fraction=0.30, contrast=2.5,
@@ -433,7 +433,7 @@ class TestEngineSmoke:
     def test_compute_voxelgram_runs(self):
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
+            voxel_size_render=32,
             box_size_A=500.0,
             volume_fraction=0.30,
             link_phi_contrast=True,
@@ -461,7 +461,7 @@ class TestEngineSmoke:
         q, I, dI = make_synthetic_dataset()
         for sigma in (0.0, 1.0, 2.0):
             cfg = SaxsMorphConfig(
-                voxel_size_fit=32, voxel_size_render=32,
+                voxel_size_render=32,
                 box_size_A=500.0,
                 volume_fraction=0.30,
                 link_phi_contrast=True,
@@ -499,7 +499,7 @@ class TestEngineSmoke:
 
         cfg = SaxsMorphConfig(
             q_min=q.min(), q_max=q.max(),
-            voxel_size_fit=128, voxel_size_render=128,
+            voxel_size_render=128,
             box_size_A=5000.0,
             input_mode='phi', volume_fraction=0.30,
             contrast=1.0, rng_seed=42, smooth_sigma=0.0,
@@ -556,7 +556,7 @@ class TestEngineSmoke:
 
         cfg = SaxsMorphConfig(
             q_min=q.min(), q_max=q.max(),
-            voxel_size_fit=128, voxel_size_render=128,
+            voxel_size_render=128,
             box_size_A=5000.0,
             input_mode='phi', volume_fraction=0.30,
             contrast=1.0, rng_seed=42, smooth_sigma=0.0,
@@ -586,7 +586,7 @@ class TestEngineSmoke:
     def test_seed_reproducible_through_engine(self):
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
+            voxel_size_render=32,
             box_size_A=500.0, volume_fraction=0.30, rng_seed=7,
             smooth_sigma=0.0,
         )
@@ -606,43 +606,6 @@ SaxsMorphResult.contrast_or_link = _contrast_or_link
 
 
 # ---------------------------------------------------------------------------
-# SaxsMorphEngine.fit (convergence smoke)
-# ---------------------------------------------------------------------------
-
-class TestEngineFit:
-    def test_fit_converges_when_only_phi_free(self):
-        # We start phi away from a 'reasonable' value and let the fitter
-        # move it.  We only require the residual to decrease, not exact
-        # convergence — exact recovery is hard at 32**3 because of strong
-        # statistical noise in voxelgram_to_iq.
-        q, I, dI = make_synthetic_dataset()
-        cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
-            box_size_A=500.0,
-            volume_fraction=0.50,
-            fit_volume_fraction=True,
-            link_phi_contrast=True,
-            rng_seed=42,
-            no_limits=True,  # Nelder-Mead — bounded fits with one var are flaky
-        )
-        engine = SaxsMorphEngine()
-        # Initial chi**2 (compute, no fit)
-        cfg_init = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
-            box_size_A=500.0,
-            volume_fraction=0.50,
-            link_phi_contrast=True,
-            rng_seed=42,
-        )
-        r0 = engine.compute_voxelgram(cfg_init, q, I, dI)
-        rf = engine.fit(cfg, q, I, dI)
-        # The fit should not increase chi**2 (least-squares guarantees this);
-        # for a single free param Nelder-Mead may stall at the start, so we
-        # use <= rather than strict inequality.
-        assert rf.chi_squared <= r0.chi_squared * 1.01
-
-
-# ---------------------------------------------------------------------------
 # HDF5 round-trip
 # ---------------------------------------------------------------------------
 
@@ -655,7 +618,7 @@ class TestHDF5RoundTrip:
 
         q, I, dI = make_synthetic_dataset()
         cfg = SaxsMorphConfig(
-            voxel_size_fit=32, voxel_size_render=32,
+            voxel_size_render=32,
             box_size_A=500.0, volume_fraction=0.30,
             rng_seed=42, link_phi_contrast=True,
             smooth_sigma=0.0,   # binary uint8 output

@@ -122,8 +122,11 @@ ABSENT_REASON: dict[tuple[str, str], str] = {
     ("saxs_morph", "dispatch"):
         "Follows from having no control surface.",
     ("saxs_morph", "viewer"):
-        "No per-file scalar worth trending yet. Open gap rather than a "
-        "decision — wire it if a user asks for SAXS Morph trend plots.",
+        "Decided against (GitHub issue #29). SAXS Morph visualises one "
+        "structure at a time: the output is a voxelgram, and the scalars it "
+        "reports are measured off that structure rather than fitted to the "
+        "data. There is no fit quality to trend across files. Revisit only "
+        "if a user asks to trend the morphology metrics.",
 
     ("fractals", "setup"):
         "Visualization tool with no JSON config by design (PLAN.md).",

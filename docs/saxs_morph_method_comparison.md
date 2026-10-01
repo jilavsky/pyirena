@@ -137,7 +137,8 @@ fidelity for stability:
 - **Display smoothing kept out of the physics** (`smooth_sigma` applied only for the 3D view; I(q)
   uses the binary cube — lines ~1100-1110). This is *more* correct than Igor, which applies
   `ImageFilter/N=5 gauss3d` to the actual matrix (line 1446) before stats.
-- **Fit voxel clamp** `MAX_FIT_VOXEL_SIZE=256`, render up to 512 — pure performance, no physics.
+- **Render voxel size** up to 512 — pure performance, no physics. (pyIrena once clamped a
+  fit-time grid to 256 via `MAX_FIT_VOXEL_SIZE`; there is no fit loop, so both are gone.)
 
 ### Finding 5 — What is consistent everywhere (reassurance)
 

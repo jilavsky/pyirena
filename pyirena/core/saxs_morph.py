@@ -27,20 +27,24 @@ scattering profile I(Q):
   6. Threshold the scalar field at alfa * sigma -> binary uint8 voxelgram.
   7. Compute the model intensity I_model(Q) by FFT of the voxelgram and
      spherical averaging of |F(k)|**2.
-  8. Add background back; compare to data; iterate parameters.
+  8. Add the background back and compare to the data.
 
 Engine class
 ------------
-SaxsMorphEngine has the same surface as ModelingEngine: ``compute_voxelgram``
-for one-shot evaluation, ``fit`` for least_squares / Nelder-Mead, and
-``calculate_uncertainty_mc`` for Gaussian-perturbation Monte Carlo.
+SaxsMorphEngine has one entry point, ``compute_voxelgram``.  There is
+deliberately no model fit and no Monte-Carlo uncertainty: this is a
+visualisation tool, not a fitting tool.  The only true fits are the two
+background pre-fits (:func:`fit_power_law_bg`, :func:`fit_flat_bg`); after
+those, the voxelgram follows deterministically from the data invariant and
+the spectral function, and the structural parameters are measured off the
+resulting GRF structure rather than optimised towards the data.  An earlier
+plan treated this as a Modeling-like fitting tool; that plan was dropped and
+its remnants removed.  See GitHub issue #29.
 
 Memory note
 -----------
 A 256**3 binary cube is 16 MB; 512**3 is 125 MB; the intermediate complex128
-FFT is 16x larger.  ``fit`` hard-clamps voxel size to <= 256 to keep iteration
-memory within reach of a typical laptop; only the final post-convergence
-voxelgram is rendered at the user-selected ``voxel_size_render`` (up to 512).
+FFT is 16x larger, so ``voxel_size_render`` is what sets peak memory.
 """
 
 from __future__ import annotations
@@ -49,21 +53,16 @@ import logging
 import math
 import warnings
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 import numpy as np
 from scipy.integrate import simpson as _simpson
-from scipy.optimize import least_squares, minimize
 from scipy.special import erfinv as _erfinv
 
 log = logging.getLogger(__name__)
 
-
-# Hard memory ceiling for the per-iteration voxelgram during fitting.
-# 256**3 complex128 FFT ~= 256 MB transient; safe on 8 GB laptops.
-MAX_FIT_VOXEL_SIZE = 256
 
 # Allowed cube sizes (cube only in v1).
 ALLOWED_VOXEL_SIZES = (64, 128, 256, 384, 512)
@@ -103,9 +102,10 @@ class SaxsMorphConfig:
         'contrast' User supplies contrast; phi is derived from the invariant.
         'both'     User supplies both; no derivation (invariant ignored).
 
-    The fit_* flags and *_limits fields are kept for backward compatibility
-    with the (deprecated) Engine.fit() method but are no longer used by the
-    GUI workflow.
+    There is no model fit, so there are no fit flags and no parameter limits;
+    the ones that used to live here drove a deprecated ``Engine.fit()`` that
+    nothing called.  ``link_phi_contrast`` survives them because it is written
+    into saved HDF5 and has to keep reading back (see below).
     """
     # Modelling Q range (driven by main cursors)
     q_min: Optional[float] = None
@@ -118,7 +118,6 @@ class SaxsMorphConfig:
     background_q_max: Optional[float] = None
 
     # Voxel grid
-    voxel_size_fit: int = 128
     voxel_size_render: int = 256
     box_size_A: float = 1000.0
 
@@ -140,28 +139,18 @@ class SaxsMorphConfig:
     #       float32 in [0, 1]).  Default 1.0 matches Igor's default.
     smooth_sigma: float = 1.0
 
-    # ----- Backward-compatibility (deprecated, used only by Engine.fit) ----
-    fit_volume_fraction: bool = False
-    volume_fraction_limits: tuple = (0.05, 0.95)
-    fit_contrast: bool = False
-    contrast_limits: tuple = (0.0, 1e10)
-    link_phi_contrast: bool = True   # legacy alias: True == input_mode 'phi'
-    fit_power_law_B: bool = False
-    power_law_B_limits: tuple = (0.0, 1e10)
-    fit_power_law_P: bool = False
-    power_law_P_limits: tuple = (0.0, 6.0)
-    fit_background: bool = False
-    background_limits: tuple = (0.0, 1e10)
-    no_limits: bool = False
-    n_mc_runs: int = 10
-    # -----------------------------------------------------------------------
+    # Saved-file compatibility.  Schema 1 had no `input_mode`; it expressed the
+    # same choice as this boolean, and files written then are still read, so
+    # this stays and `compute_voxelgram` falls back to it when `input_mode` is
+    # unset.  True == 'phi', False == 'both'.  It is not a fit flag.
+    link_phi_contrast: bool = True
 
     rng_seed: Optional[int] = None
 
 
 @dataclass
 class SaxsMorphResult:
-    """Outputs of one SaxsMorphEngine.compute_voxelgram or .fit call."""
+    """Outputs of one SaxsMorphEngine.compute_voxelgram call."""
     config: SaxsMorphConfig
     chi_squared: float
     reduced_chi_squared: float
@@ -220,9 +209,6 @@ class SaxsMorphResult:
     # (see `pyirena.core.morphology`).  None when the engine ran before
     # this feature existed or when the metrics could not be computed.
     morphology_metrics: Optional['MorphologyMetrics'] = None  # noqa: F821 (forward-ref)
-
-    # MC uncertainties (param_name -> std). Empty if not run.
-    params_std: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1010,7 +996,6 @@ class SaxsMorphEngine:
         self._spectral_cache: dict = {}
         # Optional cancellation hook installed by GUI workers; raises an
         # exception when set to abort the current fit between iterations.
-        self._cancel_check = None
 
     # ----- one-shot evaluation ---------------------------------------------
 
@@ -1025,8 +1010,7 @@ class SaxsMorphEngine:
         """One full evaluation: data -> voxelgram -> model I(Q) -> chi**2.
 
         The voxel size used is ``voxel_size_override`` if given, else
-        ``config.voxel_size_fit`` (callers that want the high-resolution
-        rendering after a fit should pass voxel_size_override = voxel_size_render).
+        ``config.voxel_size_render``.
         """
         q = np.asarray(q, dtype=float)
         I = np.asarray(I, dtype=float)
@@ -1090,7 +1074,7 @@ class SaxsMorphEngine:
         r_grid, gamma_r_norm = debye_autocorr(q_fit, I_corr, r_grid=r_grid_in)
 
         # Voxelgram size
-        N = int(voxel_size_override) if voxel_size_override else config.voxel_size_fit
+        N = int(voxel_size_override) if voxel_size_override else config.voxel_size_render
         if N < 8:
             raise ValueError(f"voxel_size must be >= 8 (got {N})")
         alfa = alfa_threshold(phi)
@@ -1239,128 +1223,6 @@ class SaxsMorphEngine:
 
     # ----- fitting ---------------------------------------------------------
 
-    def fit(
-        self,
-        config: SaxsMorphConfig,
-        q: np.ndarray,
-        I: np.ndarray,
-        dI: Optional[np.ndarray] = None,
-    ) -> SaxsMorphResult:
-        """**DEPRECATED**: kept only for backward compatibility / regression tests.
-
-        The standard SAXS Morph workflow does NOT iteratively fit the model
-        parameters; volume fraction and contrast are linked through the data
-        invariant and the voxelgram is computed deterministically from them
-        plus the spectral function.  Use
-        :meth:`compute_voxelgram` instead, after pre-fitting the background
-        with :func:`fit_power_law_bg` and :func:`fit_flat_bg`.
-
-        This method still varies any parameters whose ``fit_*`` flag is True
-        (volume_fraction, contrast, power_law_B, power_law_P, background)
-        via least_squares/Nelder-Mead and was the basis of the original
-        implementation; it is preserved only to avoid breaking existing
-        scripts and tests.
-        """
-        cfg = deepcopy(config)
-
-        # Clamp fit-time voxel size
-        cfg.voxel_size_fit = int(min(cfg.voxel_size_fit, MAX_FIT_VOXEL_SIZE))
-
-        x0, lo, hi, keys = self._pack_params(cfg)
-
-        if len(x0) == 0:
-            # Nothing to fit — just evaluate at render resolution
-            return self.compute_voxelgram(
-                cfg, q, I, dI, voxel_size_override=cfg.voxel_size_render,
-            )
-
-        x0_arr = np.array(x0, dtype=float)
-
-        def _residuals(x):
-            if self._cancel_check is not None:
-                self._cancel_check()
-            self._unpack_params(x, keys, cfg)
-            res = self.compute_voxelgram(
-                cfg, q, I, dI, voxel_size_override=cfg.voxel_size_fit,
-            )
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                r = (res.data_I - res.model_I) / res.data_dI
-            return np.where(np.isfinite(r), r, 0.0)
-
-        def _chi2(x):
-            r = _residuals(x)
-            return float(np.sum(r * r))
-
-        # Stash hooks so a GUI worker can monkey-patch _residuals/_chi2 on
-        # this engine instance for cancellation (mirror ModelingEngine pattern).
-        self._residuals = _residuals
-        self._chi2 = _chi2
-
-        if cfg.no_limits:
-            res_opt = minimize(
-                self._chi2, x0_arr,
-                method='Nelder-Mead',
-                options={'maxiter': 200, 'xatol': 1e-3, 'fatol': 1e-3},
-            )
-            x_best = res_opt.x
-        else:
-            lo_arr = np.array(lo, dtype=float)
-            hi_arr = np.array(hi, dtype=float)
-            # least_squares wants strict inequalities lo < x0 < hi
-            x0_clipped = np.clip(x0_arr, lo_arr + 1e-12, hi_arr - 1e-12)
-            res_opt = least_squares(
-                self._residuals, x0_clipped,
-                bounds=(lo_arr, hi_arr),
-                method='trf',
-                max_nfev=100,
-                xtol=1e-4, ftol=1e-4,
-            )
-            x_best = res_opt.x
-
-        self._unpack_params(x_best, keys, cfg)
-
-        # Final high-res evaluation
-        return self.compute_voxelgram(
-            cfg, q, I, dI, voxel_size_override=cfg.voxel_size_render,
-        )
-
-    # ----- Monte-Carlo uncertainty -----------------------------------------
-
-    def calculate_uncertainty_mc(
-        self,
-        config: SaxsMorphConfig,
-        q: np.ndarray, I: np.ndarray, dI: np.ndarray,
-        n_runs: int = 10,
-        progress_cb=None,
-    ) -> dict:
-        """Estimate parameter standard deviations by Monte Carlo perturbation."""
-        rng = np.random.default_rng(config.rng_seed)
-        collected: dict = {name: [] for name in
-                           ('volume_fraction', 'contrast',
-                            'power_law_B', 'power_law_P', 'background')}
-
-        for k in range(n_runs):
-            if progress_cb:
-                progress_cb(k, n_runs)
-            I_perturbed = I + rng.standard_normal(I.shape) * np.maximum(dI, 1e-30)
-            cfg = deepcopy(config)
-            try:
-                res = self.fit(cfg, q, I_perturbed, dI)
-            except Exception:
-                continue
-            for name in collected:
-                collected[name].append(getattr(res.config, name))
-
-        if progress_cb:
-            progress_cb(n_runs, n_runs)
-
-        out = {}
-        for name, vals in collected.items():
-            if len(vals) > 1:
-                out[name] = float(np.std(vals, ddof=1))
-        return out
-
     # ----- internals -------------------------------------------------------
 
     def _spectral(self, q_fit, I_corr):
@@ -1376,26 +1238,3 @@ class SaxsMorphEngine:
             self._spectral_cache.clear()
         self._spectral_cache[key] = (r, gamma, k, F)
         return r, gamma, k, F
-
-    def _pack_params(self, cfg: SaxsMorphConfig):
-        """Flatten fit_* booleans into x0 / lo / hi / keys lists."""
-        names = ['volume_fraction', 'contrast',
-                 'power_law_B', 'power_law_P', 'background']
-        # Skip contrast if linked to phi via invariant (it's derived, not fit).
-        x0, lo, hi, keys = [], [], [], []
-        for name in names:
-            if name == 'contrast' and cfg.link_phi_contrast:
-                continue
-            if not getattr(cfg, f'fit_{name}', False):
-                continue
-            val = float(getattr(cfg, name))
-            limits = getattr(cfg, f'{name}_limits')
-            x0.append(val)
-            lo.append(float(limits[0]))
-            hi.append(float(limits[1]))
-            keys.append(name)
-        return x0, lo, hi, keys
-
-    def _unpack_params(self, x, keys, cfg: SaxsMorphConfig):
-        for val, name in zip(x, keys):
-            setattr(cfg, name, float(val))

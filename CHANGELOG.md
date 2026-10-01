@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **SAXS Morph: the fitting that was planned and never arrived** (#29). SAXS
+  Morph is a visualisation tool. It takes the autocorrelation from the data,
+  builds a Gaussian Random Field realisation of it, and measures structural
+  parameters off the resulting voxelgram; the only true fits are the two
+  background pre-fits. An early plan treated it as a Modeling-like fitting
+  tool and left half of that plan in the tree, where it read as unfinished
+  work rather than as a decision. It is now a decision, and the remnants are
+  gone:
+  - `SaxsMorphEngine.fit()` (deprecated in its own docstring, called by
+    nothing but `calculate_uncertainty_mc`), `calculate_uncertainty_mc()`,
+    their `_pack_params`/`_unpack_params` helpers, and the `_cancel_check`
+    hook that existed so a GUI worker could interrupt a fit.
+  - `MAX_FIT_VOXEL_SIZE` and `voxel_size_fit`. There is no fit loop, so there
+    is no fit-resolution grid to size. `compute_voxelgram` now falls back to
+    `voxel_size_render`. The knob was readable by the batch path and not
+    settable from the GUI at all.
+  - The `fit_*`, `*_limits`, `no_limits` and `n_mc_runs` fields of
+    `SaxsMorphConfig`. `link_phi_contrast` stays: it is written into saved
+    HDF5 and older files read back through it.
+  - `_FitWorker`, `_MCWorker` and the never-instantiated `ParamRow` in
+    `gui/saxs_morph_panel.py`.
+  - The per-parameter `fit` / `limit_lo` / `limit_hi` attributes and
+    `<param>_err` MC scalars are no longer written into saved results.
+    **Files written before this still read** — those entries are simply
+    ignored, and `result_from_loaded_dict()` supplies defaults as always.
+
+- **`batch.fit_saxs_morph` no longer takes `with_uncertainty` / `n_mc_runs`.**
+  It accepted both and silently ignored them. A signature that accepts a
+  parameter and does nothing with it is worse than one that omits it, so they
+  are gone, along with the comment in `gui/data_selector/workers.py` that
+  claimed SAXS Morph supported MC. **This is a breaking change** for any
+  script passing those two arguments positionally or by keyword; passing them
+  never had an effect. The function keeps its name for symmetry with the other
+  five `fit_*` functions and for the `fit_pyirena` dispatcher, and its
+  docstring now says plainly that only steps 1 and 2 are fits.
+
+### Changed
+
+- **SAXS Morph GUI state schema 2 → 3**: `voxel_size_fit` is dropped from a
+  loaded `state.json` on migration. Every other saved value is preserved.
+- `("saxs_morph", "viewer")` in `test_tool_registration.py` was the one
+  registration gap labelled "open gap rather than a decision". It is now a
+  written decision: SAXS Morph visualises one structure at a time and has no
+  fit quality to trend across files.
+
 ### Fixed
 
 - **Merging threw away everything recorded about DS2** (#21). A merged file is

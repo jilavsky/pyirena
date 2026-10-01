@@ -13,11 +13,13 @@ What the panel does:
   - "Fit Power-law Bckg" and "Fit Flat Bckg" run the two background pre-fits;
     "Calculate 3D" generates the voxelgram (synchronous evaluation).
 
-This panel is model-evaluation-only: there is no Fit of the morphology
-parameters themselves here. That fit exists, but as a batch operation —
-``pyirena.batch.saxs_morph.fit_saxs_morph``, driven from a config. The
-``_FitWorker`` / ``_MCWorker`` QThread classes below are written but not yet
-wired to any control; see GitHub issue #29.
+There is deliberately no fit of the morphology parameters and no Monte-Carlo
+uncertainty, here or anywhere else in the tool. SAXS Morph visualises a
+structure: it takes the autocorrelation from the data, builds a Gaussian
+Random Field realisation of it, and measures the structural parameters off
+the resulting voxelgram. The only true fits are the two background pre-fits.
+``pyirena.batch.saxs_morph.fit_saxs_morph`` runs the same three steps
+headlessly from a config. See GitHub issue #29.
 
 Entry points
 ------------
@@ -48,7 +50,6 @@ from pyirena.core.saxs_morph import (
 )
 from pyirena.gui._qt import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QDesktopServices,
     QDoubleValidator,
@@ -529,103 +530,8 @@ class SaxsMorphGraphWindow(QWidget):
 
 
 # ---------------------------------------------------------------------------
-# Helper widgets for parameter rows
+# Background worker thread
 # ---------------------------------------------------------------------------
-
-class ParamRow(QWidget):
-    """One labelled parameter row: name | value | Fit? | lo | hi.
-
-    All edits emit ``changed``.  ``no_limits=True`` hides lo/hi columns.
-    """
-    changed = Signal()
-
-    def __init__(self, label: str, value: float, fit_flag: bool,
-                 limits: tuple, parent=None):
-        super().__init__(parent)
-        self._building = True
-        self._build_ui(label, value, fit_flag, limits)
-        self._building = False
-
-    def _build_ui(self, label, value, fit_flag, limits):
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
-
-        self.lbl = QLabel(label)
-        self.lbl.setMinimumWidth(120)
-        row.addWidget(self.lbl)
-
-        self.val = QLineEdit(_fmt(value))
-        self.val.setMaximumWidth(90)
-        self.val.setValidator(QDoubleValidator())
-        self.val.editingFinished.connect(self._emit_changed)
-        row.addWidget(self.val)
-
-        self.fit_cb = QCheckBox('Fit?')
-        self.fit_cb.setChecked(bool(fit_flag))
-        self.fit_cb.stateChanged.connect(self._emit_changed)
-        row.addWidget(self.fit_cb)
-
-        self.lo = QLineEdit(_fmt(limits[0]))
-        self.lo.setMaximumWidth(70)
-        self.lo.setValidator(QDoubleValidator())
-        self.lo.editingFinished.connect(self._emit_changed)
-        self.lo_lbl = QLabel('lo:')
-        row.addWidget(self.lo_lbl)
-        row.addWidget(self.lo)
-
-        self.hi = QLineEdit(_fmt(limits[1]))
-        self.hi.setMaximumWidth(70)
-        self.hi.setValidator(QDoubleValidator())
-        self.hi.editingFinished.connect(self._emit_changed)
-        self.hi_lbl = QLabel('hi:')
-        row.addWidget(self.hi_lbl)
-        row.addWidget(self.hi)
-
-        row.addStretch()
-
-    def _emit_changed(self, *_):
-        if not self._building:
-            self.changed.emit()
-
-    # API
-    def value(self) -> float:
-        return _parse(self.val.text(), 0.0)
-
-    def fit_flag(self) -> bool:
-        return self.fit_cb.isChecked()
-
-    def limits(self) -> tuple:
-        return (_parse(self.lo.text(), 0.0), _parse(self.hi.text(), 1e10))
-
-    def set_value(self, v):
-        self._building = True
-        self.val.setText(_fmt(v))
-        self._building = False
-
-    def set_fit(self, f: bool):
-        self._building = True
-        self.fit_cb.setChecked(bool(f))
-        self._building = False
-
-    def set_limits(self, lo, hi):
-        self._building = True
-        self.lo.setText(_fmt(lo))
-        self.hi.setText(_fmt(hi))
-        self._building = False
-
-    def set_no_limits(self, no_lim: bool):
-        for w in (self.lo, self.hi, self.lo_lbl, self.hi_lbl):
-            w.setVisible(not no_lim)
-
-
-# ---------------------------------------------------------------------------
-# Background worker threads
-# ---------------------------------------------------------------------------
-
-class _FitCancelled(Exception):
-    """Raised when the user cancels a fit in progress."""
-
 
 class _CalcWorker(QThread):
     """Runs SaxsMorphEngine.compute_voxelgram() on a background thread.
@@ -649,70 +555,6 @@ class _CalcWorker(QThread):
                 voxel_size_override=self._config.voxel_size_render,
             )
             self.finished.emit(result)
-        except Exception as exc:
-            import traceback
-            traceback.print_exc()
-            self.error.emit(str(exc))
-
-
-class _FitWorker(QThread):
-    """Runs SaxsMorphEngine.fit() off the GUI thread, with cancel support."""
-    finished = Signal(object)   # SaxsMorphResult
-    error = Signal(str)
-
-    def __init__(self, engine, config, q, I, dI, parent=None):
-        super().__init__(parent)
-        self._engine = engine
-        self._config = config
-        self._q, self._I, self._dI = q, I, dI
-        self._cancelled = False
-
-    def cancel(self):
-        self._cancelled = True
-
-    def run(self):
-        worker = self
-
-        def _check():
-            if worker._cancelled:
-                raise _FitCancelled('Fit cancelled by user.')
-
-        try:
-            self._engine._cancel_check = _check
-            try:
-                result = self._engine.fit(self._config, self._q, self._I, self._dI)
-                self.finished.emit(result)
-            finally:
-                self._engine._cancel_check = None
-        except _FitCancelled:
-            self.error.emit('Fit cancelled by user.')
-        except Exception as exc:
-            import traceback
-            traceback.print_exc()
-            self.error.emit(str(exc))
-
-
-class _MCWorker(QThread):
-    """Runs SaxsMorphEngine.calculate_uncertainty_mc() off the GUI thread."""
-    progress = Signal(int, int)   # (current, total)
-    finished = Signal(dict)
-    error = Signal(str)
-
-    def __init__(self, engine, config, q, I, dI, n_runs, parent=None):
-        super().__init__(parent)
-        self._engine = engine
-        self._config = config
-        self._q, self._I, self._dI = q, I, dI
-        self._n_runs = n_runs
-
-    def run(self):
-        try:
-            stds = self._engine.calculate_uncertainty_mc(
-                self._config, self._q, self._I, self._dI,
-                n_runs=self._n_runs,
-                progress_cb=lambda i, n: self.progress.emit(i, n),
-            )
-            self.finished.emit(stds)
         except Exception as exc:
             import traceback
             traceback.print_exc()
@@ -1375,7 +1217,7 @@ class SaxsMorphPanel(QWidget):
         # can judge from the start whether their Q range is meaningful.
         self._refresh_qbox_marker()
 
-    # ── Action: Graph Model ──────────────────────────────────────────────
+    # ── Action: Calculate 3D ─────────────────────────────────────────────
 
     def _make_config(self) -> SaxsMorphConfig:
         st = self._collect_state()
@@ -1386,7 +1228,6 @@ class SaxsMorphPanel(QWidget):
             background_q_min=st['background_q_min'],
             background_q_max=st['background_q_max'],
             voxel_size_render=int(st['voxel_size_render']),
-            voxel_size_fit=int(st['voxel_size_render']),  # same — fit loop is not used
             box_size_A=float(st['box_size_A']),
             input_mode=st['input_mode'],
             volume_fraction=float(st['volume_fraction']),

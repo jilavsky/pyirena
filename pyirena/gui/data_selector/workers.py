@@ -57,9 +57,11 @@ class BatchWorker(QThread):
             fit_fn = fit_sizes
         total = len(self.file_paths)
 
-        # MC uncertainty is supported by unified/modeling/sizes/simple_fits/saxs_morph, not waxs
+        # MC uncertainty is supported by unified/modeling/sizes/simple_fits.
+        # Not waxs, and not saxs_morph — the latter has no fittable model
+        # parameters, so there is nothing for MC to perturb.
         mc_kwargs = {}
-        if self.with_uncertainty and self.tool != 'waxs_peakfit':
+        if self.with_uncertainty and self.tool not in ('waxs_peakfit', 'saxs_morph'):
             mc_kwargs = {'with_uncertainty': True, 'n_mc_runs': self.n_mc_runs}
 
         for i, fp in enumerate(self.file_paths):

@@ -1,5 +1,5 @@
 """
-pyirena.batch.saxs_morph — Headless SAXS Morphology fitting (fit_saxs_morph).
+pyirena.batch.saxs_morph — Headless SAXS Morph voxelgram generation.
 
 Split from the original monolithic pyirena/batch.py (no behavior change).
 """
@@ -30,8 +30,6 @@ def fit_saxs_morph(
     data_file: Union[str, Path],
     config_file: Union[str, Path],
     save_to_nexus: bool = True,
-    with_uncertainty: bool = False,
-    n_mc_runs: int = 10,
 ) -> Optional[Dict]:
     """Run a SAXS Morph (3D voxelgram) calculation driven by a pyIrena config file.
 
@@ -49,10 +47,11 @@ def fit_saxs_morph(
     used as-is — useful when the user has already set good values and
     just wants to recompute the voxelgram).
 
-    The ``with_uncertainty`` / ``n_mc_runs`` arguments are kept for API
-    compatibility with the other fit_* functions but are no-ops here:
-    SAXS Morph has no fittable parameters, so MC perturbation produces
-    only the variation already captured by the RNG seed.
+    Despite the name — kept for symmetry with the other five ``fit_*``
+    functions and for the ``fit_pyirena`` dispatcher — the only fits here are
+    steps 1 and 2. Step 3 is deterministic given the data and the RNG seed.
+    There is correspondingly no ``with_uncertainty`` / ``n_mc_runs``: SAXS
+    Morph has no fittable model parameters to put error bars on.
 
     Parameters
     ----------
@@ -60,8 +59,6 @@ def fit_saxs_morph(
     config_file     : pyIrena JSON config containing a ``'saxs_morph'`` block
                       (e.g. produced by Export Parameters in the GUI).
     save_to_nexus   : Save voxelgram + params into the HDF5 file (HDF5 only).
-    with_uncertainty: Ignored (kept for API symmetry).
-    n_mc_runs       : Ignored (kept for API symmetry).
 
     Returns
     -------
@@ -142,7 +139,6 @@ def fit_saxs_morph(
             q_max=sm_cfg.get('q_max'),
             power_law_q_min=pl_qmin, power_law_q_max=pl_qmax,
             background_q_min=bg_qmin, background_q_max=bg_qmax,
-            voxel_size_fit=int(sm_cfg.get('voxel_size_fit', 128)),
             voxel_size_render=int(sm_cfg.get('voxel_size_render', 256)),
             box_size_A=float(sm_cfg.get('box_size_A', 1000.0)),
             input_mode=str(sm_cfg.get('input_mode', 'phi')),

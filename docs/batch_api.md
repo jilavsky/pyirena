@@ -790,7 +790,7 @@ and a description of all GUI controls.
      resolves the flat background level.
 5. **Subtracts background** from the data; derives contrast Δρ² from the Porod
    invariant if `input_mode='phi'`, or derives φ if `input_mode='contrast'`.
-6. **Computes voxelgram** at fit resolution (`voxel_size_fit`) — builds the
+6. **Computes voxelgram** at `voxel_size_render` — builds the
    autocorrelation γ(r), Fourier-transforms to the spectral density F(k),
    band-limits at q_max, generates a Gaussian random field, and thresholds to
    obtain a binary {0, 1} voxelgram.
@@ -810,8 +810,11 @@ and a description of all GUI controls.
 | `data_file` | `str` or `Path` | required | Path to SAS data file |
 | `config_file` | `str` or `Path` | required | Path to pyIrena JSON config containing a `saxs_morph` section |
 | `save_to_nexus` | `bool` | `True` | Save voxelgram and metrics to NXcanSAS HDF5; ignored for text-file inputs |
-| `with_uncertainty` | `bool` | `False` | Reserved; ignored (SAXS Morph has no fittable parameters) |
-| `n_mc_runs` | `int` | `10` | Reserved; ignored |
+
+Unlike the other five `fit_*` functions this one takes no `with_uncertainty` /
+`n_mc_runs`: SAXS Morph has no fittable model parameters, so there is nothing
+for Monte Carlo to perturb. The two arguments used to be accepted and silently
+ignored; they were removed in issue #29.
 
 ### `saxs_morph` config section fields
 
@@ -823,7 +826,6 @@ and a description of all GUI controls.
 | `power_law_q_max` | float or null | Upper Q bound for power-law background pre-fit (Å⁻¹); null = skip |
 | `background_q_min` | float or null | Lower Q bound for flat-background pre-fit (Å⁻¹); null = skip |
 | `background_q_max` | float or null | Upper Q bound for flat-background pre-fit (Å⁻¹); null = skip |
-| `voxel_size_fit` | int | Cube side length (voxels) used during the F(k) → voxelgram step; smaller = faster (e.g. `64` or `128`) |
 | `voxel_size_render` | int | Cube side length (voxels) for the final high-resolution voxelgram (e.g. `256` or `512`) |
 | `box_size_A` | float | Physical edge length of the voxel cube (Å); sets the real-space scale |
 | `input_mode` | str | `"phi"` — φ given, Δρ² derived; `"contrast"` — Δρ² given, φ derived; `"both"` — both given (no invariant derivation) |
@@ -934,7 +936,6 @@ cfg = SaxsMorphConfig(
     q_min=0.001, q_max=0.30,
     power_law_q_min=0.001, power_law_q_max=0.005,
     background_q_min=0.25,  background_q_max=0.30,
-    voxel_size_fit=128,
     voxel_size_render=256,
     box_size_A=1000.0,
     input_mode='phi',        # derive contrast from invariant

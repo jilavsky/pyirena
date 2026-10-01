@@ -87,6 +87,13 @@ covariance-derived values under the same key, or drop the two arguments.
 
 ## 3. SAXS Morph: the GUI has no Fit, and half of Phase 4 is in the tree — **M**
 
+**Done 01-10-2026** (issue #29). Resolved the second way: SAXS Morph is a
+visualisation tool, so the fit was removed rather than wired. `Engine.fit`,
+`calculate_uncertainty_mc`, `MAX_FIT_VOXEL_SIZE`, `voxel_size_fit`, the
+`fit_*`/`*_limits`/`no_limits`/`n_mc_runs` config fields, both dead GUI
+worker classes and the never-instantiated `ParamRow` are all gone. The
+`(saxs_morph, viewer)` registration gap is now a written decision.
+
 The clearest "stopped mid-way and never came back" in the package.
 
 **What exists.** The maths is real and finished: `core/saxs_morph.py` fits via
