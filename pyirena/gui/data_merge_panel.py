@@ -50,6 +50,7 @@ from pyirena.gui._qt import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QTimer,
     QUrl,
     QVBoxLayout,
     QWidget,
@@ -61,6 +62,7 @@ from pyirena.gui.file_drop import (
     select_dropped_in_list,
 )
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, filter_names
+from pyirena.gui.nudge_field import NudgeField, make_nudge_buttons
 from pyirena.gui.sas_plot import (
     SASPlotStyle,
     _SafeInfiniteLine,
@@ -383,17 +385,41 @@ class _DatasetSelectorWidget(QWidget):
 # DataMergeGraphWindow — pyqtgraph plot widget
 # ===========================================================================
 
+#: Display modes. The merge itself always runs on the original Q and I —
+#: these only change what is drawn (GitHub issue #35).
+MODE_SAXS = 'saxs'      # I vs Q, log-log
+MODE_WAXS = 'waxs'      # I vs Q, lin-lin
+MODE_POROD = 'porod'    # I·Q⁴ vs Q⁴, lin-lin
+
+MODE_LABELS = {
+    MODE_SAXS:  "SAXS (log-log)",
+    MODE_WAXS:  "WAXS / diffraction (lin-lin)",
+    MODE_POROD: "Porod (I·Q⁴ vs Q⁴)",
+}
+
+
 class DataMergeGraphWindow(QWidget):
     """Single-panel I(Q) plot for the Data Merge tool.
 
-    Supports SAXS (log-log) and WAXS/diffraction (lin-lin) modes.
+    Three display modes — SAXS (log-log), WAXS/diffraction (lin-lin) and
+    Porod (I·Q⁴ vs Q⁴, lin-lin). Porod exists because a mis-subtracted
+    background or beam-stop scattering shows up there as a slope or a step in
+    what should be a flat line, and is nearly invisible on log-log.
+
+    **The mode is a display transform and nothing else.** Every public method
+    takes and returns physical Q and I; the transform is applied on the way to
+    pyqtgraph and inverted on the way back from the cursors. Optimise and
+    merge never see a transformed value.
+
     The two movable cursors A and B define the overlap/optimisation region.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._log_mode: bool = True   # True = log-log (SAXS), False = lin-lin (WAXS)
+        self._mode: str = MODE_SAXS
         self._show_errorbars: bool = True
+        self._ds2_right_axis: bool = False
+        self._ds2_vb = None           # second ViewBox, only when DS2 is on the right
 
         # Plot items (None = not yet plotted)
         self._ds1_scatter = None
@@ -415,6 +441,56 @@ class DataMergeGraphWindow(QWidget):
         self._build_ui()
 
     # ------------------------------------------------------------------ #
+    #  Display transform                                                   #
+    # ------------------------------------------------------------------ #
+    #
+    # Only these methods know what a mode means.  `_log_mode` stays as a
+    # property because a dozen call sites below ask "are we on log axes?",
+    # which is still a yes/no question — it is just no longer the whole mode.
+
+    @property
+    def _log_mode(self) -> bool:
+        """True when both axes are logarithmic (SAXS mode only)."""
+        return self._mode == MODE_SAXS
+
+    def _tx(self, q):
+        """Physical Q → plotted x."""
+        if self._mode == MODE_POROD:
+            return np.asarray(q, dtype=float) ** 4
+        return q
+
+    def _ty(self, q, I):
+        """Physical (Q, I) → plotted y."""
+        if self._mode == MODE_POROD:
+            return np.asarray(I, dtype=float) * np.asarray(q, dtype=float) ** 4
+        return I
+
+    def _inv_x(self, x: float) -> float:
+        """Plotted x → physical Q.  Inverse of :meth:`_tx`."""
+        if self._mode == MODE_POROD:
+            return float(abs(x)) ** 0.25
+        return float(x)
+
+    def _axis_pos(self, q: float) -> float:
+        """Physical Q → the ViewBox coordinate a cursor must sit at.
+
+        pyqtgraph applies log10 itself when an axis is logarithmic, so in log
+        mode a cursor position is log10 of the *plotted* x, not of Q.
+        """
+        x = float(q) ** 4 if self._mode == MODE_POROD else float(q)
+        return float(np.log10(x)) if self._log_mode else x
+
+    def _q_from_axis_pos(self, pos: float) -> float:
+        """ViewBox coordinate → physical Q.  Inverse of :meth:`_axis_pos`."""
+        x = 10 ** float(pos) if self._log_mode else float(pos)
+        return self._inv_x(x)
+
+    def _axis_labels(self) -> tuple:
+        if self._mode == MODE_POROD:
+            return 'Q⁴  (Å⁻⁴)', 'I·Q⁴  (cm⁻¹ Å⁻⁴)'
+        return 'Q  (Å⁻¹)', 'I  (cm⁻¹)'
+
+    # ------------------------------------------------------------------ #
     #  UI construction                                                     #
     # ------------------------------------------------------------------ #
 
@@ -426,16 +502,24 @@ class DataMergeGraphWindow(QWidget):
         self._gl.setBackground('w')
         layout.addWidget(self._gl)
 
+        x_label, y_label = self._axis_labels()
         self._plot = make_sas_plot(
             self._gl, row=0, col=0,
-            x_label='Q  (Å⁻¹)',
-            y_label='I  (cm⁻¹)',
+            x_label=x_label,
+            y_label=y_label,
             log_x=self._log_mode,
             log_y=self._log_mode,
-            d_spacing_axis=not self._log_mode,
+            # The d-spacing top axis reads 2π/Q, which is meaningless once the
+            # x axis is Q⁴ — WAXS only.
+            d_spacing_axis=(self._mode == MODE_WAXS),
             parent_widget=self,
             jpeg_default_name='data_merge',
         )
+        # Mirror the left axis on the right so a value near the right-hand
+        # edge can be read without tracking back across the plot (issue #35).
+        self._plot.showAxis('right')
+        self._plot.getAxis('right').setStyle(showValues=True)
+        self._plot.getAxis('right').enableAutoSIPrefix(False)
         self._eb_action = self._plot.getViewBox().menu.addAction("Hide Error Bars")
         self._eb_action.triggered.connect(self._toggle_error_bars)
 
@@ -443,17 +527,25 @@ class DataMergeGraphWindow(QWidget):
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def set_mode(self, saxs: bool) -> None:
-        """Switch between SAXS (log-log) and WAXS (lin-lin) display mode.
+    def set_mode(self, mode: str) -> None:
+        """Switch display mode: ``MODE_SAXS`` / ``MODE_WAXS`` / ``MODE_POROD``.
 
-        Rebuilds the plot and re-plots any loaded data.
+        Rebuilds the plot and re-plots any loaded data. Cursor positions are
+        preserved in physical Q, so switching modes does not move the overlap
+        region the user picked.
         """
-        if saxs == self._log_mode:
+        if mode == self._mode:
             return
         # Save cursor Q positions (physical units) before destroying them
         q_cur_min, q_cur_max = self.get_overlap_range()
 
-        self._log_mode = saxs
+        self._mode = mode
+        # Rebuilding the PlotItem below destroys the second ViewBox, so forget
+        # it here and re-create it at the end rather than leaving the flag set
+        # against a ViewBox that no longer exists.
+        want_right = self._ds2_right_axis
+        self._ds2_right_axis = False
+        self._ds2_vb = None
         # Rebuild the PlotItem with the new mode
         self._gl.clear()
         self._ds1_scatter = self._ds1_err = None
@@ -461,16 +553,24 @@ class DataMergeGraphWindow(QWidget):
         self._merged_item = None
         self._cursor_a = self._cursor_b = None
 
+        x_label, y_label = self._axis_labels()
         self._plot = make_sas_plot(
             self._gl, row=0, col=0,
-            x_label='Q  (Å⁻¹)',
-            y_label='I  (cm⁻¹)',
+            x_label=x_label,
+            y_label=y_label,
             log_x=self._log_mode,
             log_y=self._log_mode,
-            d_spacing_axis=not self._log_mode,
+            # The d-spacing top axis reads 2π/Q, which is meaningless once the
+            # x axis is Q⁴ — WAXS only.
+            d_spacing_axis=(self._mode == MODE_WAXS),
             parent_widget=self,
             jpeg_default_name='data_merge',
         )
+        # Mirror the left axis on the right so a value near the right-hand
+        # edge can be read without tracking back across the plot (issue #35).
+        self._plot.showAxis('right')
+        self._plot.getAxis('right').setStyle(showValues=True)
+        self._plot.getAxis('right').enableAutoSIPrefix(False)
         eb_label = "Hide Error Bars" if self._show_errorbars else "Show Error Bars"
         self._eb_action = self._plot.getViewBox().menu.addAction(eb_label)
         self._eb_action.triggered.connect(self._toggle_error_bars)
@@ -484,6 +584,9 @@ class DataMergeGraphWindow(QWidget):
         # Restore cursors at their previous physical Q positions
         if q_cur_min is not None and q_cur_max is not None:
             self.init_cursors(q_cur_min, q_cur_max)
+
+        if want_right:
+            self.set_ds2_right_axis(True)
 
     def plot_ds1(
         self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None
@@ -499,8 +602,9 @@ class DataMergeGraphWindow(QWidget):
         # auto-range then uses linear Q values as ViewBox (log10-space) coordinates,
         # pushing the actual scatter points entirely out of the visible window.
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+        qm, Im = q[mask], I[mask]
         self._ds1_scatter = self._plot.plot(
-            q[mask], I[mask],
+            self._tx(qm), self._ty(qm, Im),
             pen=None,
             symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
             symbolBrush=_DS1_BRUSH, symbolPen=pg.mkPen(None),
@@ -521,12 +625,22 @@ class DataMergeGraphWindow(QWidget):
         self._remove_ds2()
 
         mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-        self._ds2_scatter = self._plot.plot(
-            q[mask], I[mask],
-            pen=None,
-            symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
-            symbolBrush=_DS2_BRUSH, symbolPen=pg.mkPen(None),
-        )
+        qm, Im = q[mask], I[mask]
+        if self._ds2_right_axis and self._ds2_vb is not None:
+            item = pg.PlotDataItem(
+                x=self._tx(qm), y=self._ty(qm, Im),
+                pen=None, symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
+                symbolBrush=_DS2_BRUSH, symbolPen=pg.mkPen(None),
+            )
+            self._ds2_vb.addItem(item)
+            self._ds2_scatter = item
+        else:
+            self._ds2_scatter = self._plot.plot(
+                self._tx(qm), self._ty(qm, Im),
+                pen=None,
+                symbol='o', symbolSize=SASPlotStyle.DATA_SIZE,
+                symbolBrush=_DS2_BRUSH, symbolPen=pg.mkPen(None),
+            )
 
         if dI is not None:
             err = self._make_error_bars(q, I, dI)
@@ -535,12 +649,60 @@ class DataMergeGraphWindow(QWidget):
 
         self._update_y_range()
 
+    def set_ds2_right_axis(self, enabled: bool) -> None:
+        """Put DS2 on its own right-hand Y scale, Igor style.
+
+        Off (the default) the right axis simply mirrors the left, so both
+        curves share one scale and their heights can be compared directly —
+        which is what merging is about. On, DS2 gets a ViewBox of its own
+        linked in X only, so two datasets decades apart in intensity both
+        fill the plot. **Then the curves no longer overlap in any physical
+        sense**, so the axis label says so and the mode is meant for finding
+        a feature, not for judging a match.
+        """
+        enabled = bool(enabled)
+        if enabled == self._ds2_right_axis:
+            return
+        self._ds2_right_axis = enabled
+        self._rebuild_ds2_axis()
+        if self._q2 is not None:
+            self.plot_ds2(self._q2, self._I2, self._dI2)
+
+    def _rebuild_ds2_axis(self) -> None:
+        """Create or tear down the second ViewBox behind the right axis."""
+        right = self._plot.getAxis('right')
+        if not self._ds2_right_axis:
+            if self._ds2_vb is not None:
+                try:
+                    self._plot.scene().removeItem(self._ds2_vb)
+                except Exception:
+                    log.debug("could not remove DS2 ViewBox", exc_info=True)
+                self._ds2_vb = None
+            right.setLabel(None)
+            right.linkToView(self._plot.getViewBox())
+            return
+
+        vb = pg.ViewBox()
+        self._plot.scene().addItem(vb)
+        right.linkToView(vb)
+        # X is shared so the two curves stay aligned in Q; only Y differs.
+        vb.setXLink(self._plot.getViewBox())
+        right.setLabel('I  DS2  (cm⁻¹)', **{'color': '#c0392b'})
+        self._ds2_vb = vb
+
+        def _follow():
+            vb.setGeometry(self._plot.getViewBox().sceneBoundingRect())
+            vb.linkedViewChanged(self._plot.getViewBox(), vb.XAxis)
+
+        _follow()
+        self._plot.getViewBox().sigResized.connect(lambda *_: _follow())
+
     def plot_merged(
         self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None
     ) -> None:
         """Overlay merged result (dark green line)."""
         self._remove_merged()
-        item = pg.PlotDataItem(x=q, y=I, pen=_MERGED_PEN)
+        item = pg.PlotDataItem(x=self._tx(q), y=self._ty(q, I), pen=_MERGED_PEN)
         self._plot.addItem(item)
         self._merged_item = item
 
@@ -562,10 +724,8 @@ class DataMergeGraphWindow(QWidget):
         """Return (q_min, q_max) in physical units from cursor positions."""
         if self._cursor_a is None or self._cursor_b is None:
             return None, None
-        pos_a = self._cursor_a.getPos()[0]
-        pos_b = self._cursor_b.getPos()[0]
-        qa = 10 ** pos_a if self._log_mode else pos_a
-        qb = 10 ** pos_b if self._log_mode else pos_b
+        qa = self._q_from_axis_pos(self._cursor_a.getPos()[0])
+        qb = self._q_from_axis_pos(self._cursor_b.getPos()[0])
         q_min, q_max = (qa, qb) if qa < qb else (qb, qa)
         return q_min, q_max
 
@@ -582,7 +742,7 @@ class DataMergeGraphWindow(QWidget):
     def _make_cursor(
         self, q: float, pen, label: str
     ) -> _SafeInfiniteLine:
-        pos = np.log10(q) if self._log_mode else q
+        pos = self._axis_pos(q)
         c = _SafeInfiniteLine(
             pos=pos, angle=90, movable=True, pen=pen,
             label=label, labelOpts={'position': 0.95, 'color': pen.color()},
@@ -590,8 +750,7 @@ class DataMergeGraphWindow(QWidget):
         return c
 
     def _set_cursor_pos(self, cursor: _SafeInfiniteLine, q: float) -> None:
-        pos = np.log10(q) if self._log_mode else q
-        cursor.setPos(pos)
+        cursor.setPos(self._axis_pos(q))
 
     def _make_error_bars(
         self, q: np.ndarray, I: np.ndarray, dI: np.ndarray
@@ -607,15 +766,23 @@ class DataMergeGraphWindow(QWidget):
         for qi, Ii, dIi in zip(q_v, I_v, dI_v):
             I_lo = max(Ii - dIi, Ii * 0.001)
             I_hi = Ii + dIi
+            # Bars are drawn in plotted coordinates. In Porod mode the ×Q⁴
+            # factor is the same for both ends of one bar, so the bar still
+            # spans ±dI about the point — it is only rescaled, not distorted.
+            xi = float(self._tx(np.asarray([qi]))[0]) if self._mode == MODE_POROD else qi
+            I_lo = float(self._ty(np.asarray([qi]), np.asarray([I_lo]))[0]) \
+                if self._mode == MODE_POROD else I_lo
+            I_hi = float(self._ty(np.asarray([qi]), np.asarray([I_hi]))[0]) \
+                if self._mode == MODE_POROD else I_hi
             # Vertical bar
-            xs += [qi, qi, float('nan')]
+            xs += [xi, xi, float('nan')]
             ys += [I_lo, I_hi, float('nan')]
             if self._log_mode:
-                q_lo_cap = qi * (10 ** (-cap))
-                q_hi_cap = qi * (10 ** cap)
+                q_lo_cap = xi * (10 ** (-cap))
+                q_hi_cap = xi * (10 ** cap)
             else:
-                q_lo_cap = qi * (1 - cap)
-                q_hi_cap = qi * (1 + cap)
+                q_lo_cap = xi * (1 - cap)
+                q_hi_cap = xi * (1 + cap)
             # Top cap
             xs += [q_lo_cap, q_hi_cap, float('nan')]
             ys += [I_hi, I_hi, float('nan')]
@@ -640,6 +807,13 @@ class DataMergeGraphWindow(QWidget):
         if not parts:
             return
         I_all = np.concatenate(parts)
+        if self._mode == MODE_POROD:
+            # Range the transformed values, not the raw ones.
+            q_for_I = np.concatenate(
+                [a for a in (self._q1 if self._I1 is not None else None,
+                             self._q2 if self._I2 is not None else None)
+                 if a is not None])
+            I_all = self._ty(q_for_I, I_all)
         if self._log_mode:
             set_robust_y_range(self._plot, I_all)
         else:
@@ -666,6 +840,8 @@ class DataMergeGraphWindow(QWidget):
         valid_q = q_all[(q_all > 0) & np.isfinite(q_all)]
         if len(valid_q) < 2:
             return
+        if self._mode == MODE_POROD:
+            valid_q = np.asarray(self._tx(valid_q), dtype=float)
         if self._log_mode:
             q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
             q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
@@ -702,8 +878,24 @@ class DataMergeGraphWindow(QWidget):
 
     def _remove_ds2(self) -> None:
         for item in (self._ds2_scatter, self._ds2_err):
-            if item is not None:
-                self._plot.removeItem(item)
+            if item is None:
+                continue
+            # The scatter may live in the second ViewBox; the error bars never
+            # do (they are built with self._plot.plot()). Ask the item which
+            # ViewBox it is in rather than trying both — removing from the
+            # wrong one is harmless but makes Qt log a scene-mismatch warning
+            # on every replot.
+            owner = self._plot
+            if self._ds2_vb is not None:
+                try:
+                    if item.getViewBox() is self._ds2_vb:
+                        owner = self._ds2_vb
+                except Exception:
+                    log.debug("could not identify DS2 item owner", exc_info=True)
+            try:
+                owner.removeItem(item)
+            except Exception:
+                log.debug("could not remove DS2 item", exc_info=True)
         self._ds2_scatter = self._ds2_err = None
 
     def _remove_merged(self) -> None:
@@ -744,6 +936,16 @@ class DataMergePanel(QWidget):
         self._last_I_merged: Optional[np.ndarray] = None
         self._last_dI_merged: Optional[np.ndarray] = None
         self._last_dQ_merged: Optional[np.ndarray] = None
+
+        # Live preview throttle. Same 150 ms and same "set a pending flag,
+        # never restart a running timer" rule as the Unified Fit and Modeling
+        # panels, so a fast scroll stays responsive and the redraw always uses
+        # the latest field values rather than a queued stale one.
+        self._live_pending = False
+        self._live_timer = QTimer(self)
+        self._live_timer.setSingleShot(True)
+        self._live_timer.setInterval(150)
+        self._live_timer.timeout.connect(self._do_live_update)
 
         self._build_ui()
         self.load_state()
@@ -825,9 +1027,28 @@ class DataMergePanel(QWidget):
 
         row1.addWidget(QLabel("Mode:"))
         self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["SAXS (log-log)", "WAXS / diffraction (lin-lin)"])
+        for _key in (MODE_SAXS, MODE_WAXS, MODE_POROD):
+            self._mode_combo.addItem(MODE_LABELS[_key], _key)
+        self._mode_combo.setToolTip(
+            "How the data is drawn. The merge itself always runs on the\n"
+            "original Q and I, whichever view is selected.\n\n"
+            "Porod (I·Q⁴ vs Q⁴) makes a mis-subtracted background or\n"
+            "beam-stop scattering visible as a slope or step in what\n"
+            "should be a flat line."
+        )
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         row1.addWidget(self._mode_combo)
+
+        self._ds2_right_chk = QCheckBox("DS2 on right axis")
+        self._ds2_right_chk.setToolTip(
+            "Give DS2 its own Y scale on the right, so two datasets decades\n"
+            "apart in intensity both fill the plot.\n\n"
+            "The curves then no longer overlap in any physical sense — use it\n"
+            "to find a feature, not to judge whether the match is good.\n"
+            "Unchecked, the right axis simply mirrors the left."
+        )
+        self._ds2_right_chk.toggled.connect(self._on_ds2_right_toggled)
+        row1.addWidget(self._ds2_right_chk)
 
         row1.addWidget(_vline())
 
@@ -841,18 +1062,15 @@ class DataMergePanel(QWidget):
         self._fit_scale_chk = QCheckBox("Fit")
         self._fit_scale_chk.setChecked(True)
         self._fit_scale_chk.setToolTip("Fit scale factor during optimisation")
-        self._fit_scale_chk.toggled.connect(self._on_fit_scale_toggled)
         row1.addWidget(self._fit_scale_chk)
 
-        self._scale_result = QLineEdit("1.0000")
-        self._scale_result.setReadOnly(True)
+        self._scale_result = NudgeField("1.0000")
         self._scale_result.setFixedWidth(75)
-        self._scale_result.setStyleSheet(_RDONLY_STYLE)
         self._scale_result.setToolTip(
-            "Optimised scale factor (read-only when Fit is checked).\n"
-            "Uncheck Fit to enter a fixed scale value manually."
+            "Scale factor applied to the selected dataset." + "\n\nType a value, scroll the wheel over it, press ↑/↓, or use the\n▲▼ buttons — 1% a step, Shift 10%, Ctrl/Cmd 0.1%. The merge preview\nredraws as you go."
         )
         row1.addWidget(self._scale_result)
+        row1.addWidget(make_nudge_buttons(self._scale_result))
 
         row1.addWidget(_vline())
 
@@ -865,17 +1083,15 @@ class DataMergePanel(QWidget):
         self._fit_qshift_chk = QCheckBox("Fit")
         self._fit_qshift_chk.setChecked(False)
         self._fit_qshift_chk.setToolTip("Fit Q-shift during optimisation")
-        self._fit_qshift_chk.toggled.connect(self._on_fit_qshift_toggled)
         row1.addWidget(self._fit_qshift_chk)
 
-        self._qshift_result = QLineEdit("0.000000")
-        self._qshift_result.setReadOnly(False)   # editable by default (Fit unchecked)
+        self._qshift_result = NudgeField("0.000000")
         self._qshift_result.setFixedWidth(80)
         self._qshift_result.setToolTip(
-            "Optimised Q shift (Å⁻¹).\n"
-            "Editable when Fit is unchecked — enter a known Q offset (e.g. 0)."
+            "Additive Q shift (Å⁻¹) applied to the selected dataset." + "\n\nType a value, scroll the wheel over it, press ↑/↓, or use the\n▲▼ buttons — 1% a step, Shift 10%, Ctrl/Cmd 0.1%. The merge preview\nredraws as you go."
         )
         row1.addWidget(self._qshift_result)
+        row1.addWidget(make_nudge_buttons(self._qshift_result))
 
         row1.addWidget(_vline())
 
@@ -884,20 +1100,15 @@ class DataMergePanel(QWidget):
         self._fit_bg_chk = QCheckBox("Fit")
         self._fit_bg_chk.setChecked(True)
         self._fit_bg_chk.setToolTip("Fit background during optimisation")
-        self._fit_bg_chk.toggled.connect(self._on_fit_bg_toggled)
         row1.addWidget(self._fit_bg_chk)
 
-        self._bg_result = QLineEdit("0.000000")
-        self._bg_result.setReadOnly(True)
+        self._bg_result = NudgeField("0.000000")
         self._bg_result.setFixedWidth(80)
-        self._bg_result.setStyleSheet(_RDONLY_STYLE)
         self._bg_result.setToolTip(
-            "Optimised constant background subtracted from DS1 "
-            "(read-only when Fit is checked).\n"
-            "Uncheck Fit to enter a fixed background value manually (e.g. 0 "
-            "when no background is expected)."
+            "Constant background subtracted from DS1." + "\n\nType a value, scroll the wheel over it, press ↑/↓, or use the\n▲▼ buttons — 1% a step, Shift 10%, Ctrl/Cmd 0.1%. The merge preview\nredraws as you go."
         )
         row1.addWidget(self._bg_result)
+        row1.addWidget(make_nudge_buttons(self._bg_result))
 
         row1.addStretch()
         self._help_btn = QPushButton("? Help")
@@ -950,6 +1161,12 @@ class DataMergePanel(QWidget):
 
         row2.addStretch()
         vbox.addLayout(row2)
+
+        # Typing, scrolling or nudging any of the three redraws the merge
+        # preview with that value held fixed — no Optimize involved.
+        for _f in (self._scale_result, self._qshift_result, self._bg_result):
+            _f.nudged.connect(self._schedule_live_update)
+            _f.editingFinished.connect(self._schedule_live_update)
 
         return vbox
 
@@ -1167,20 +1384,13 @@ class DataMergePanel(QWidget):
         self._status.setText(
             f"DS{dataset_number} reloaded{self._slit_suffix(data)}")
 
-    def _on_fit_scale_toggled(self, checked: bool) -> None:
-        """When 'Fit scale' is unchecked, let the user type a fixed scale value."""
-        self._scale_result.setReadOnly(checked)
-        self._scale_result.setStyleSheet(_RDONLY_STYLE if checked else "")
-
-    def _on_fit_qshift_toggled(self, checked: bool) -> None:
-        """When 'Fit Q-shift' is unchecked, let the user type a fixed Q shift."""
-        self._qshift_result.setReadOnly(checked)
-        self._qshift_result.setStyleSheet(_RDONLY_STYLE if checked else "")
-
-    def _on_fit_bg_toggled(self, checked: bool) -> None:
-        """When 'Fit background' is unchecked, let the user type a fixed value."""
-        self._bg_result.setReadOnly(checked)
-        self._bg_result.setStyleSheet(_RDONLY_STYLE if checked else "")
+    # The three "Fit" boxes used to lock their field read-only, which meant an
+    # optimised value could not be touched — the gap against Igor that issue
+    # #35 is about. They now say one thing only: whether Optimize is free to
+    # vary that parameter. The fields are always editable, and editing one
+    # redraws the preview (see _schedule_live_update). Re-running Optimize
+    # with the box still ticked overwrites a hand-tuned value, which is what
+    # asking to optimise it means.
 
     def _check_has_fit_target(self) -> bool:
         """At least one of Fit-scale / Fit-background must be enabled —
@@ -1196,10 +1406,16 @@ class DataMergePanel(QWidget):
         return True
 
     def _on_mode_changed(self, _idx: int) -> None:
-        saxs = self._mode_combo.currentIndex() == 0
-        self._graph.set_mode(saxs)
+        # set_mode() rebuilds the PlotItem and restores the second Y axis
+        # itself, so there is nothing to re-apply here.
+        self._graph.set_mode(self._mode_combo.currentData() or MODE_SAXS)
         self._update_cursor_display()
-        self.save_state()
+
+    def _on_ds2_right_toggled(self, checked: bool) -> None:
+        # No save_state() here: no other view control saves on change, and
+        # doing so made this one checkbox persist the whole panel's state at
+        # whatever moment it was clicked. Saved on close and after Optimize.
+        self._graph.set_ds2_right_axis(checked)
 
     def _on_filter_changed(self) -> None:
         """Re-run matching when a dataset filter changes while match mode is active."""
@@ -1257,35 +1473,15 @@ class DataMergePanel(QWidget):
             )
             return
 
-        # Build MergeConfig from UI
-        qshift_map = {"None": 0, "DS1": 1, "DS2": 2}
-        try:
-            fixed_scale = float(self._scale_result.text())
-        except ValueError:
-            fixed_scale = 1.0
-        try:
-            fixed_qshift = float(self._qshift_result.text())
-        except ValueError:
-            fixed_qshift = 0.0
-        try:
-            fixed_bg = float(self._bg_result.text())
-        except ValueError:
-            fixed_bg = 0.0
-        config = MergeConfig(
-            q_overlap_min=q_min,
-            q_overlap_max=q_max,
-            fit_scale=self._fit_scale_chk.isChecked(),
-            scale_dataset=self._scale_ds_combo.currentIndex() + 1,   # 0→1, 1→2
-            fixed_scale_value=fixed_scale,
-            fit_qshift=self._fit_qshift_chk.isChecked(),
-            fixed_qshift_value=fixed_qshift,
-            qshift_dataset=qshift_map[self._qshift_combo.currentText()],
-            fit_background=self._fit_bg_chk.isChecked(),
-            fixed_background_value=fixed_bg,
-            method=self._method_combo.currentData() or 'interpolation',
-            split_at_left_cursor=self._split_chk.isChecked(),
-            slit_length_ds1=float(self._data1.get('slit_length', 0.0) or 0.0),
-            slit_length_ds2=float(self._data2.get('slit_length', 0.0) or 0.0),
+        scale = self._scale_result.value()
+        q_shift = self._qshift_result.value()
+        background = self._bg_result.value()
+        config = self._build_config(
+            q_min, q_max,
+            1.0 if scale is None else scale,
+            0.0 if q_shift is None else q_shift,
+            0.0 if background is None else background,
+            fit_all=True,
         )
 
         _dI1 = self._data1.get('Error')
@@ -1335,6 +1531,113 @@ class DataMergePanel(QWidget):
         self._graph.plot_merged(q_m, I_m)
         self._save_btn.setEnabled(self._out_folder is not None)
         self.save_state()
+
+    # ------------------------------------------------------------------ #
+    #  Live preview — recompute without optimising                         #
+    # ------------------------------------------------------------------ #
+
+    def _build_config(self, q_min: float, q_max: float, scale: float,
+                      q_shift: float, background: float,
+                      *, fit_all: bool) -> MergeConfig:
+        """Assemble a MergeConfig from the controls plus the three values.
+
+        *fit_all* False forces every fit flag off, which is what the live
+        preview wants: apply exactly these numbers and merge, do not optimise.
+        Both callers go through here so the two paths cannot drift — the kind
+        of divergence that makes a preview disagree with what Save writes.
+        """
+        qshift_map = {"None": 0, "DS1": 1, "DS2": 2}
+        return MergeConfig(
+            q_overlap_min=q_min,
+            q_overlap_max=q_max,
+            fit_scale=fit_all and self._fit_scale_chk.isChecked(),
+            scale_dataset=self._scale_ds_combo.currentIndex() + 1,   # 0→1, 1→2
+            fixed_scale_value=scale,
+            fit_qshift=fit_all and self._fit_qshift_chk.isChecked(),
+            fixed_qshift_value=q_shift,
+            qshift_dataset=qshift_map[self._qshift_combo.currentText()],
+            fit_background=fit_all and self._fit_bg_chk.isChecked(),
+            fixed_background_value=background,
+            method=self._method_combo.currentData() or 'interpolation',
+            split_at_left_cursor=self._split_chk.isChecked(),
+            slit_length_ds1=float(self._data1.get('slit_length', 0.0) or 0.0),
+            slit_length_ds2=float(self._data2.get('slit_length', 0.0) or 0.0),
+        )
+
+    def _schedule_live_update(self) -> None:
+        """Ask for a preview redraw, at most once per timer interval."""
+        self._live_pending = True
+        if not self._live_timer.isActive():
+            self._live_timer.start()
+
+    def _do_live_update(self) -> None:
+        """Re-merge at the current field values and redraw. No optimiser.
+
+        This is the hand-tuning path: ``merge()`` takes a plain
+        :class:`MergeResult`, so the three numbers on screen can be handed
+        straight to it with every fit flag off. Optimize is not involved and
+        nothing is re-fitted — which is the point, because the case this
+        serves is data where Optimize does not converge to anything useful.
+        """
+        if not self._live_pending:
+            return
+        self._live_pending = False
+        if self._data1 is None or self._data2 is None:
+            return
+
+        q_min, q_max = self._graph.get_overlap_range()
+        if q_min is None:
+            return
+
+        scale = self._scale_result.value()
+        q_shift = self._qshift_result.value()
+        background = self._bg_result.value()
+        if scale is None or q_shift is None or background is None:
+            return      # mid-typing; wait for a value that parses
+
+        config = self._build_config(q_min, q_max, scale, q_shift, background,
+                                    fit_all=False)
+        result = MergeResult(
+            scale=scale, q_shift=q_shift, background=background,
+            success=True, message='manual',
+        )
+
+        q1, I1 = self._data1['Q'], self._data1['Intensity']
+        q2, I2 = self._data2['Q'], self._data2['Intensity']
+        _dI1 = self._data1.get('Error')
+        dI1 = _dI1 if _dI1 is not None else I1 * 0.05
+        _dI2 = self._data2.get('Error')
+        dI2 = _dI2 if _dI2 is not None else I2 * 0.05
+
+        try:
+            q_m, I_m, dI_m, dQ_m = self._engine.merge(
+                q1, I1, dI1, self._data1.get('dQ'),
+                q2, I2, dI2, self._data2.get('dQ'),
+                result, config,
+            )
+        except Exception as exc:
+            self._status.setText(f"Preview failed: {exc}")
+            return
+
+        self._last_result = result
+        self._last_config = config
+        self._last_q_merged = q_m
+        self._last_I_merged = I_m
+        self._last_dI_merged = dI_m
+        self._last_dQ_merged = dQ_m
+
+        self._graph.plot_merged(q_m, I_m)
+        self._save_btn.setEnabled(self._out_folder is not None)
+        self._status.setText(
+            f"Manual — scale={scale:.4g}  BG={background:.4g}  "
+            f"Q-shift={q_shift:.5g}  ({len(q_m)} points; "
+            f"Save writes exactly this curve)"
+        )
+
+        # A nudge that lands while the timer is still running leaves the flag
+        # set; run again so the last value the user chose is the one drawn.
+        if self._live_pending and not self._live_timer.isActive():
+            self._live_timer.start()
 
     def _save_merged(self) -> None:
         if self._last_q_merged is None:
@@ -1647,8 +1950,12 @@ class DataMergePanel(QWidget):
         self._fit_bg_chk.setChecked(bool(s.get('fit_background', True)))
         self._split_chk.setChecked(bool(s.get('split_at_left_cursor', False)))
 
-        mode = s.get('plot_mode', 'saxs')
-        self._mode_combo.setCurrentIndex(0 if mode == 'saxs' else 1)
+        # Pre-#35 states hold only 'saxs' or 'waxs'; an unknown value (or a
+        # newer one read by an older build) falls back to SAXS.
+        mode = s.get('plot_mode', MODE_SAXS)
+        idx = self._mode_combo.findData(mode)
+        self._mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._ds2_right_chk.setChecked(bool(s.get('ds2_right_axis', False)))
 
         self._match_chk.setChecked(bool(s.get('match_files', False)))
 
@@ -1679,7 +1986,8 @@ class DataMergePanel(QWidget):
             'fit_qshift': self._fit_qshift_chk.isChecked(),
             'fit_background': self._fit_bg_chk.isChecked(),
             'split_at_left_cursor': self._split_chk.isChecked(),
-            'plot_mode': 'saxs' if self._mode_combo.currentIndex() == 0 else 'waxs',
+            'plot_mode': self._mode_combo.currentData() or MODE_SAXS,
+            'ds2_right_axis': self._ds2_right_chk.isChecked(),
             'match_files': self._match_chk.isChecked(),
         })
         self._sm.save()

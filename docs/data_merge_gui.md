@@ -110,15 +110,48 @@ datasets overlap.  The current Q min / Q max values are shown in the
 
 | Control | Effect |
 |---------|--------|
-| **Mode** | SAXS (log-log plot) or WAXS / diffraction (lin-lin) |
+| **Mode** | How the data is drawn — see [Display modes](#display-modes) |
+| **DS2 on right axis** | Give DS2 its own Y scale — see [Display modes](#display-modes) |
 | **Scale: DS1 / DS2** | Which dataset the scale factor is applied to |
-| **Fit** (Scale) | Optimise scale; uncheck to fix it at the typed value |
+| **Fit** (Scale) | Whether **Optimize** is free to vary the scale |
 | **Q shift: None / DS1 / DS2** | Which dataset an additive Q shift is applied to |
-| **Fit** (Q shift) | Optimise Q shift; uncheck to fix it at the typed value |
+| **Fit** (Q shift) | Whether **Optimize** is free to vary the Q shift |
 | **BG (DS1)** | Constant background subtracted from DS1 |
-| **Fit** (BG) | Optimise background (default: on); uncheck to fix it at the typed value |
+| **Fit** (BG) | Whether **Optimize** is free to vary the background (default: on) |
 | **Split at left cursor** | Hard split mode (see [Concepts](#concepts)) |
 | **Method** | Interpolation method (currently log-log linear interpolation) |
+
+The three value fields are **always editable**, whether or not their **Fit**
+box is ticked.  A ticked **Fit** box means only that **Optimize** may change
+that number — so running Optimize again will overwrite a value you set by
+hand, which is what asking to optimise it means.
+
+### Display modes
+
+The **Mode** menu changes only what is drawn.  **The merge always runs on the
+original Q and I**, in every mode, and the overlap cursors keep their physical
+Q positions when you switch.
+
+| Mode | Plot | Use it when |
+|------|------|-------------|
+| **SAXS (log-log)** | I vs Q, both axes log | The default; the whole Q range at once |
+| **WAXS / diffraction (lin-lin)** | I vs Q, both axes linear | Peaks, where log scaling flattens the thing you care about |
+| **Porod (I·Q⁴ vs Q⁴)** | I·Q⁴ vs Q⁴, both axes linear | Judging whether the two curves really agree |
+
+**Porod** is the one to reach for when a merge looks fine on a log-log plot
+and the result is still wrong.  A correctly subtracted high-Q tail is flat
+there, so a residual background or leftover beam-stop scattering shows up as a
+slope or a step — a difference of a few percent that log-log scaling makes
+invisible.  Because Q⁴ spans an enormous range, the low-Q end is compressed
+against the left edge; zoom in on the overlap region, which is where you are
+looking anyway.
+
+**DS2 on right axis** gives DS2 its own Y scale, so two datasets decades apart
+in intensity both fill the plot.  Use it to *find* a feature.  Do not use it to
+judge the match: with two scales the curves no longer overlap in any physical
+sense, and they will look aligned whatever the scale factor is.  Unticked (the
+default) the right-hand axis simply mirrors the left, so you can read a value
+near the right edge without tracking back across the plot.
 
 ### 4 — Run optimisation
 
@@ -130,6 +163,37 @@ Click **Optimize Merge**.  The result fields update immediately:
 - Status bar shows χ², overlap point count, and convergence status
 
 The merged curve is overlaid on the plot in green.
+
+### 4b — Adjust by hand
+
+Optimize does not always converge to something sensible — poorly subtracted
+data at low Q, or beam-stop scattering left in the high-Q segment, can leave
+it with nothing good to find.  When that happens, set the three numbers
+yourself and watch the merged curve redraw:
+
+| Gesture | Step |
+|---------|------|
+| Type a value and press Enter | exactly what you typed |
+| Mouse wheel over the field | 1% of the current value |
+| **↑** / **↓** with the field focused | 1% |
+| **▲** / **▼** buttons beside the field | 1% |
+| **Shift** + any of the above | 10% — coarse |
+| **Ctrl/Cmd** + any of the above | 0.1% — fine |
+
+Steps are a percentage of the current value, so the same gesture is useful for
+a scale near 1 and a background near 1e-5.  A background sitting at exactly
+zero is the exception — a percentage of zero is zero — so it steps by a small
+absolute amount derived from the data instead.
+
+The preview redraws about every 150 ms while you scroll, and it is computed
+the same way the saved file is: **what you see is what Save writes**, trimmed
+according to **Split at left cursor** exactly as an optimised merge would be.
+The status bar shows `Manual —` while you are tuning, so it is always clear
+whether the numbers on screen came from Optimize or from you.
+
+Switch to the **Porod** display mode while doing this.  It is far easier to
+see a few-percent mismatch as a step in a flat line than as a slight thickening
+of a log-log curve.
 
 ### 5 — Save
 

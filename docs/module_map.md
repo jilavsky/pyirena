@@ -195,7 +195,7 @@ Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
 | `carbon_fit_panel.py` | 2025 |
 | `simple_fits_panel.py` | 2352 |
 | `data_manipulation_panel.py` | 2370 |
-| `data_merge_panel.py` | 1999 |
+| `data_merge_panel.py` | 2310 |
 | `saxs_morph_panel.py` | 1741 |
 | `fractals_panel.py` | 1569 |
 | `contrast_panel.py` | 1558 |
@@ -214,6 +214,7 @@ Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
 | `file_drop.py` | 328 | Drag-and-drop file opening |
 | `file_filter.py` | 104 | The shared filter box |
 | `q_range_ui.py` | 289 | Editable Q-range fields tied to graph cursors |
+| `nudge_field.py` | 183 | Wheel/arrow/▲▼ numeric field (`NudgeField`) |
 | `report_buttons.py` | 347 | "Copy results" / "Save report…" |
 | `quality_display.py` | 85 | Uniform fit-quality readout |
 | `setup_loader.py` | 145 | "Load Setup from File…" dialog flow |

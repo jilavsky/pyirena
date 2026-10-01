@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Data Merge: a Porod view, hand tuning, and a right-hand axis** (#35). The
+  complaint behind this was that a merge can look right on a log-log plot and
+  still be wrong, and that when Optimize fails there is nothing to do about it
+  — Igor lets you turn the knobs by hand and pyIrena did not.
+  - **Porod display mode** (I·Q⁴ vs Q⁴, linear axes) alongside SAXS and WAXS.
+    A correctly subtracted high-Q tail is flat there, so a residual background
+    or leftover beam-stop scattering shows as a slope or a step — a
+    few-percent error that log-log scaling hides. **The mode is a display
+    transform and nothing else:** Optimize and merge always see the original
+    Q and I, and the overlap cursors keep their physical Q across a switch.
+  - **The scale, Q-shift and background fields are now always editable**, and
+    editing one redraws the merged preview without running the optimiser.
+    Mouse wheel, ↑/↓ and new ▲▼ buttons all step by 1% of the current value
+    (Shift 10%, Ctrl/Cmd 0.1%), throttled to ~150 ms like the fit panels. The
+    preview is computed exactly as the saved file is, including trimming per
+    **Split at left cursor**, so what you see is what Save writes.
+  - The three **Fit** checkboxes no longer lock their field read-only. They
+    now mean one thing: whether Optimize may vary that parameter. Previously
+    an optimised value could not be touched at all, which is the gap this
+    issue is about.
+  - **A right-hand Y axis**, mirroring the left by default. A new **DS2 on
+    right axis** option gives DS2 its own scale for datasets decades apart in
+    intensity; the docs say plainly that it is for finding a feature, not for
+    judging a match, since two scales make any scale factor look aligned.
+  - New `gui/nudge_field.py` (`NudgeField`, `make_nudge_buttons`). Four panels
+    already had their own wheel-editable line edit; none had arrow buttons or
+    handled a value of exactly zero, where a percentage step does nothing and
+    a background usually starts. Migrating those four is a behaviour change in
+    the fitting panels and was left out of this issue.
+
+### Added
+
 - **⌘W / Ctrl+W closes any pyIrena window, and F1 opens its documentation**
   (#16). Tool windows are independent top-level widgets with no common base
   class, so none of them answered the first shortcut a Mac user tries. All 26
