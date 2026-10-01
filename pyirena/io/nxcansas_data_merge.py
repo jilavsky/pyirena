@@ -5,6 +5,8 @@ Handles:
 - Copying an input NXcanSAS file and replacing its Q/I/Idev/Qdev arrays with
   the merged data while stripping any existing pyirena result groups.
 - Creating a fresh NXcanSAS file when the DS1 input is not already NXcanSAS.
+- Carrying DS2's metadata/instrument/sample groups across under a technique
+  suffix, so a merged curve still records what produced its high-Q half.
 - Appending a provenance NXprocess group recording the merge parameters.
 """
 from __future__ import annotations
@@ -25,6 +27,12 @@ from pyirena.io._nxcansas_common import (
 )
 from pyirena.io._nxcansas_common import (
     copy_and_strip_results as _copy_and_strip_results,
+)
+from pyirena.io._nxcansas_common import (
+    copy_metadata_groups as _copy_metadata_groups,
+)
+from pyirena.io._nxcansas_common import (
+    detect_technique as _detect_technique,
 )
 from pyirena.io._nxcansas_common import (
     drop_smr_entries as _drop_smr_entries,
@@ -59,10 +67,22 @@ def save_merged_data(
     --------
     - If *ds1_is_nxcansas*: copy DS1 → output dir (stripping pyirena results),
       then replace the Q/I/Idev/Qdev arrays in the existing sasdata group.
-    - Otherwise: create a fresh NXcanSAS file via ``create_nxcansas_file()``.
+      DS1's own metadata comes across with the copy, under its plain names.
+    - Otherwise: create a fresh NXcanSAS file via ``create_nxcansas_file()``,
+      then carry DS1's metadata across explicitly if DS1 is HDF5 at all — a
+      fresh file starts with none.
 
-    In both cases a ``data_merge_results`` NXprocess group is appended with all
-    merge parameters for provenance.
+    In both cases DS2's ``metadata`` / ``instrument`` / ``sample`` groups are
+    copied in under a technique suffix (``metadata_saxs``, ``instrument_waxs``,
+    …), because DS2 otherwise contributes only numbers and everything recorded
+    about the high-Q measurement is lost.  Merging USAXS + SAXS and then
+    merging that with WAXS leaves ``metadata`` (USAXS), ``metadata_saxs`` and
+    ``metadata_waxs`` side by side — the second merge carries the first's
+    suffixed groups along with the rest of DS1.  Raw 2-D detector images are
+    not copied; see ``_nxcansas_common.BULK_DATASET_BYTES``.  GitHub issue #21.
+
+    A ``data_merge_results`` NXprocess group is appended with all merge
+    parameters for provenance.
 
     Parameters
     ----------
@@ -131,6 +151,28 @@ def save_merged_data(
         # Add dQ if available
         if dQ is not None:
             _append_dq(out_path, dQ, sample_name)
+
+    # Carry the source metadata across (issue #21).  DS1's groups arrive with
+    # the file copy on the NXcanSAS path; on the fresh-file path there is
+    # nothing yet, so copy them under their plain names.  DS2's always need an
+    # explicit copy, under a suffix, so they cannot collide with DS1's.
+    if not ds1_is_nxcansas:
+        res1 = _copy_metadata_groups(ds1_path, out_path, suffix=None)
+        if res1['copied']:
+            log.info(f"[data_merge] Carried DS1 metadata into the fresh output: "
+                     f"{', '.join(res1['copied'])}")
+
+    if ds2_path is not None:
+        tech = _detect_technique(ds2_path)
+        suffix = tech if tech != 'unknown' else 'ds2'
+        res2 = _copy_metadata_groups(ds2_path, out_path, suffix=suffix)
+        if res2['copied']:
+            log.info(f"[data_merge] Carried DS2 ({tech}) metadata into the output: "
+                     f"{', '.join(res2['copied'])}")
+        if res2['skipped']:
+            log.info(f"[data_merge] Skipped {len(res2['skipped'])} bulk dataset(s) "
+                     f"from DS2 (raw detector images are not carried into a "
+                     f"merged 1-D file).")
 
     # When the merged curve is slit smeared, mark the output so downstream
     # tools auto-detect it (writes scalar dQl + Q@resolutions).

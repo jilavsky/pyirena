@@ -12,6 +12,7 @@ processed 1-D data back to an NXcanSAS file:
 """
 from __future__ import annotations
 
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,8 @@ import numpy as np
 
 from pyirena.io.hdf5 import find_matching_groups
 from pyirena.io.schema import TOOL_REGISTRY
+
+log = logging.getLogger(__name__)
 
 # Every pyirena result group, stripped when a tool seeds a new output file from
 # a source file.  Derived from TOOL_REGISTRY rather than listed by hand: a
@@ -228,3 +231,226 @@ def drop_smr_entries(filepath: Path) -> int:
                     del scope[key]
                     removed += 1
     return removed
+
+
+# ---------------------------------------------------------------------------
+# Source metadata propagation (Data Merge)
+# ---------------------------------------------------------------------------
+#
+# A merged file is seeded from DS1, so DS1's metadata survives by being copied
+# with the rest of the file.  DS2 contributed only numbers, which meant that
+# merging USAXS + SAXS threw away everything recorded about the SAXS
+# measurement.  The groups below are carried across under a technique suffix
+# so a USAXS + SAXS + WAXS chain ends up with ``metadata`` (USAXS, from DS1),
+# ``metadata_saxs`` and ``metadata_waxs`` side by side.  See GitHub issue #21.
+
+#: Groups carried from a merge input into the output.
+PROPAGATED_METADATA_GROUPS = ('metadata', 'instrument', 'sample')
+
+#: Datasets at or above this many bytes are skipped when copying those groups.
+#: SAXS/WAXS files keep the raw 2-D detector image under
+#: ``entry/instrument/detector/data`` — ~10 MB on a current Pilatus/Eiger, and
+#: meaningless in a merged 1-D curve file.  Matilda drops the same dataset when
+#: it reduces (``convertSWAXS._geometry_from_dicts`` callers do
+#: ``del instrument_dict['detector']['data']``).
+BULK_DATASET_BYTES = 1_000_000
+
+
+def _child_ci(group: h5py.Group, name: str) -> Optional[str]:
+    """Return *group*'s child whose name matches *name* ignoring case.
+
+    Beamline files are not consistent about this: USAXS reductions write
+    ``entry/metadata`` while SAXS/WAXS files carry the raw ``entry/Metadata``.
+    An exact-match lookup silently finds nothing on half the inputs.
+    """
+    lowered = name.lower()
+    for key in group:
+        if key.lower() == lowered:
+            return key
+    return None
+
+
+def _nxentry(f: h5py.File) -> Optional[h5py.Group]:
+    """Return the file's NXentry group, or None."""
+    key = _child_ci(f, 'entry')
+    if key is not None and isinstance(f[key], h5py.Group):
+        return f[key]
+    for key in f:
+        obj = f[key]
+        if isinstance(obj, h5py.Group):
+            nx = obj.attrs.get('NX_class')
+            if isinstance(nx, bytes):
+                nx = nx.decode('utf-8', 'replace')
+            if nx == 'NXentry':
+                return obj
+    return None
+
+
+def detect_technique(filepath: Path) -> str:
+    """Identify which instrument produced *filepath*.
+
+    Returns ``'usaxs'``, ``'saxs'``, ``'waxs'``, or ``'unknown'`` when the file
+    is not HDF5, cannot be opened, or carries none of the markers.
+
+    The SAXS/WAXS discriminator is the one Matilda already relies on to pick a
+    detector geometry (``convertSWAXS._geometry_from_dicts``): a SAXS file's
+    metadata has ``pin_ccd_tilt_x``, a WAXS file's has ``waxs_ccd_tilt_x``.
+    A USAXS reduction has neither and has a ``flyScan`` group.  Nothing is
+    inferred from the filename — a renamed file would then mislabel its own
+    metadata, which is worse than labelling it ``unknown``.
+    """
+    filepath = Path(filepath)
+    try:
+        if not h5py.is_hdf5(filepath):
+            return 'unknown'
+    except Exception:
+        return 'unknown'
+
+    try:
+        with h5py.File(filepath, 'r') as f:
+            entry = _nxentry(f)
+            if entry is None:
+                return 'unknown'
+
+            md_key = _child_ci(entry, 'metadata')
+            if md_key is not None and isinstance(entry[md_key], h5py.Group):
+                md = entry[md_key]
+                if _child_ci(md, 'pin_ccd_tilt_x') is not None:
+                    return 'saxs'
+                if _child_ci(md, 'waxs_ccd_tilt_x') is not None:
+                    return 'waxs'
+
+            if _child_ci(entry, 'flyScan') is not None:
+                return 'usaxs'
+    except Exception:
+        log.debug("technique detection failed for %s", filepath, exc_info=True)
+        return 'unknown'
+
+    return 'unknown'
+
+
+def _copy_pruned(src: h5py.Group, dst_parent: h5py.Group, dst_name: str,
+                 skipped: list) -> h5py.Group:
+    """Recursively copy *src* to ``dst_parent[dst_name]``, skipping bulk arrays.
+
+    Datasets of ``BULK_DATASET_BYTES`` or more are not copied; their paths are
+    appended to *skipped* so the destination group can record what was left
+    behind rather than quietly presenting a partial instrument group as whole.
+    """
+    dst = dst_parent.create_group(dst_name)
+    for key, value in src.attrs.items():
+        dst.attrs[key] = value
+
+    def _recurse(s: h5py.Group, d: h5py.Group) -> None:
+        for key in s:
+            try:
+                obj = s[key]
+            except Exception:
+                log.debug("unreadable item %s/%s — skipped", s.name, key, exc_info=True)
+                continue
+            if isinstance(obj, h5py.Group):
+                sub = d.create_group(key)
+                for akey, avalue in obj.attrs.items():
+                    sub.attrs[akey] = avalue
+                _recurse(obj, sub)
+            elif isinstance(obj, h5py.Dataset):
+                if obj.nbytes >= BULK_DATASET_BYTES:
+                    skipped.append(obj.name)
+                    continue
+                try:
+                    s.copy(key, d, name=key)
+                except Exception:
+                    log.debug("could not copy %s", obj.name, exc_info=True)
+
+    _recurse(src, dst)
+    return dst
+
+
+def copy_metadata_groups(
+    src_path: Path,
+    dst_path: Path,
+    suffix: Optional[str] = None,
+    groups: tuple = PROPAGATED_METADATA_GROUPS,
+) -> dict:
+    """Carry *src_path*'s metadata/instrument/sample groups into *dst_path*.
+
+    Each group is written under the NXentry of *dst_path* as
+    ``<name>_<suffix>`` — ``metadata_saxs``, ``instrument_saxs``, … — or under
+    its plain ``<name>`` when *suffix* is None, which is what a fresh output
+    file with no DS1 groups of its own wants.  An existing destination group of
+    the same name is replaced, so re-saving a merge is idempotent.
+
+    Datasets of ``BULK_DATASET_BYTES`` or more are skipped (see
+    :func:`_copy_pruned`); each destination group records the source file in
+    ``pyirena_source_file`` and anything left out in ``pyirena_skipped``.
+
+    Returns ``{'copied': [names], 'skipped': [source paths]}``.  A source that
+    is not HDF5, has no NXentry, or has none of *groups* is not an error — the
+    result simply reports nothing copied.
+    """
+    src_path = Path(src_path)
+    dst_path = Path(dst_path)
+    result = {'copied': [], 'skipped': []}
+
+    try:
+        if not h5py.is_hdf5(src_path):
+            return result
+    except Exception:
+        return result
+
+    try:
+        with h5py.File(src_path, 'r') as src, h5py.File(dst_path, 'a') as dst:
+            src_entry = _nxentry(src)
+            dst_entry = _nxentry(dst)
+            if src_entry is None or dst_entry is None:
+                return result
+
+            for name in groups:
+                src_key = _child_ci(src_entry, name)
+                if src_key is None or not isinstance(src_entry[src_key], h5py.Group):
+                    continue
+
+                dst_name = f"{name}_{suffix}" if suffix else name
+
+                # Only ever replace a group we wrote ourselves on an earlier
+                # save (that is what makes re-saving idempotent).  Any other
+                # occupant is somebody else's data and must not be deleted:
+                # create_nxcansas_file() names the *subentry* after the sample,
+                # so a file called sample.h5 has its merged sasdata sitting at
+                # entry/sample — exactly where DS1's NXsample group wants to
+                # go.  Deleting that would throw away the merged curve.
+                existing = dst_entry.get(dst_name) if dst_name in dst_entry else None
+                if existing is not None:
+                    if (isinstance(existing, h5py.Group)
+                            and 'pyirena_source_file' in existing.attrs):
+                        del dst_entry[dst_name]
+                    else:
+                        alt = f"{dst_name}_src"
+                        if alt in dst_entry:
+                            log.warning(
+                                "Not propagating %s from %s: both %s and %s are "
+                                "already taken in %s.",
+                                name, src_path, dst_name, alt, dst_path,
+                            )
+                            continue
+                        log.warning(
+                            "%s already exists in %s and was not written by "
+                            "pyirena — propagating %s's %s as %s instead.",
+                            dst_name, dst_path, src_path, name, alt,
+                        )
+                        dst_name = alt
+
+                skipped: list = []
+                grp = _copy_pruned(src_entry[src_key], dst_entry, dst_name, skipped)
+                grp.attrs['pyirena_source_file'] = str(src_path)
+                grp.attrs['pyirena_source_group'] = src_entry[src_key].name
+                if skipped:
+                    grp.attrs['pyirena_skipped'] = [str(p) for p in skipped]
+
+                result['copied'].append(dst_name)
+                result['skipped'].extend(skipped)
+    except Exception:
+        log.warning("Could not propagate metadata from %s into %s",
+                    src_path, dst_path, exc_info=True)
+
+    return result

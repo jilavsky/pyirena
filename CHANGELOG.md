@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Merging threw away everything recorded about DS2** (#21). A merged file is
+  seeded by copying DS1, so DS1's metadata came across for free and DS2's was
+  dropped entirely — merge USAXS with SAXS and the result remembered the USAXS
+  measurement and nothing at all about the SAXS one. DS2's `metadata`,
+  `instrument` and `sample` groups are now carried into the output under a
+  technique suffix, so a USAXS + SAXS + WAXS chain ends up with `metadata`
+  (USAXS, from DS1), `metadata_saxs` and `metadata_waxs` side by side; the
+  second merge carries the first's suffixed groups along with the rest of DS1.
+  Three things worth knowing:
+  - The technique is read out of the file, never out of its name, using the
+    same marker Matilda uses to pick a detector geometry — `pin_ccd_tilt_x`
+    means SAXS, `waxs_ccd_tilt_x` means WAXS, a `flyScan` group means USAXS.
+    A file with none of these is carried under `_ds2` rather than guessed at.
+  - Beamline files disagree on capitalisation (`entry/metadata` from a USAXS
+    reduction, `entry/Metadata` from SAXS/WAXS), so the lookup is
+    case-insensitive. The output is always lower case.
+  - Raw 2-D detector images are **not** carried. A SAXS/WAXS `instrument`
+    group holds the detector frame — ~10 MB on a current Pilatus/Eiger — which
+    has no business in a merged 1-D curve file. Datasets of 1 MB or more are
+    skipped and listed in the destination group's `pyirena_skipped` attribute,
+    so a pruned group never passes for a complete one. On a real USAXS + SAXS
+    merge this is the difference between a 0.83 MB output and a 10.7 MB one.
+
+  Applies to every merge path — GUI single and batch, `pyirena.batch.merge_data`,
+  and the `merge` data op — since all four go through `save_merged_data`.
+
+  Where DS1 is not NXcanSAS the output is built from scratch and so began with
+  no metadata at all; DS1's groups are now copied in explicitly there too.
+
 - **Stale "Phase 1/2/3/4" wording in strings that ship to users** (#31). The
   phase numbers were internal planning vocabulary and meant nothing to anyone
   reading them from the MCP/ZMQ surface or a module docstring. They now say
