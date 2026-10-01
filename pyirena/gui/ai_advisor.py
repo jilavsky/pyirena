@@ -6,7 +6,7 @@ Provides:
   - AiAdvisorResultPanel   — non-modal result display window
   - launch_unified_fit_advisor(panel) — entry point called by the button handler
 
-Phase 1 supports:
+Supported providers:
   - Anthropic (Claude) via the official `anthropic` SDK
   - Local OpenAI-compatible endpoint (LM Studio, Ollama) via httpx
 

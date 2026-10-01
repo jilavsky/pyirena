@@ -708,7 +708,9 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "get_parameter_uncertainties",
         "description": (
             "Return parameter uncertainties from the last fit. "
-            "Note: not available in Phase 1 — returns a placeholder."
+            "Note: this tool does not compute uncertainties — it returns a "
+            "placeholder. Monte-Carlo uncertainties are available from the "
+            "batch API (pyirena.batch.fit_unified) and from the GUI."
         ),
         "input_schema": {
             "type": "object",

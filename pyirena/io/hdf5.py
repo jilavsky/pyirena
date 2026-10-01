@@ -812,7 +812,9 @@ def saveNXcanSAS(Sample,path, filename):
             nxdata.attrs['canSAS_class'] = 'SASdata'
             nxdata.attrs['signal'] = 'I'      # Y axis of default plot
             nxdata.attrs['I_axes'] = 'Q'      # X axis of default plot
-            #nxdata.attrs['Q_indices'] = [1]    # TODO not sure what this means
+            # Q_indices: 0-based index of the dimension(s) of I that Q spans.
+            # 1-D data, so [0].  NXcanSAS requires it on SASdata.
+            nxdata.attrs['Q_indices'] = np.array([0], dtype='i4')
 
             # Y axis data
             ds = nxdata.create_dataset('I', data=Intensity)
@@ -870,7 +872,9 @@ def saveNXcanSAS(Sample,path, filename):
             nxdata.attrs['canSAS_class'] = 'SASdata'
             nxdata.attrs['signal'] = 'I'      # Y axis of default plot
             nxdata.attrs['I_axes'] = 'Q'      # X axis of default plot
-            #nxdata.attrs['Q_indices'] = [1]    # TODO not sure what this means
+            # Q_indices: 0-based index of the dimension(s) of I that Q spans.
+            # 1-D data, so [0].  NXcanSAS requires it on SASdata.
+            nxdata.attrs['Q_indices'] = np.array([0], dtype='i4')
 
             # Y axis data
             ds = nxdata.create_dataset('I', data=SMR_Int)
