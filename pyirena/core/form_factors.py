@@ -24,6 +24,7 @@ where φ_j is the volume fraction of particles in bin j (dimensionless).
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 import numpy as np
 from numpy.polynomial.legendre import leggauss
@@ -149,6 +150,57 @@ def sphere_ff(q: np.ndarray, r: float) -> np.ndarray:
 # 50 points match the quadrature order used in Igor IR1R_CalcSpheroidFormFactor.
 _GL_NODES, _GL_WEIGHTS = leggauss(50)
 
+#: Orientation-average quadrature order as a function of |AR - 1|, as
+#: (max |AR-1|, n_nodes) in increasing order.  See _orientation_nodes.
+_SPHEROID_GL_TIERS = ((0.02, 4), (0.10, 8), (0.20, 16))
+
+
+@lru_cache(maxsize=None)
+def _gl_half(n: int):
+    """Gauss-Legendre nodes/weights mapped onto cos(theta) in [0, 1]."""
+    x, w = leggauss(n)
+    return 0.5 * (x + 1.0), 0.5 * w
+
+
+def _orientation_nodes(aspect_ratio: float, tiers=_SPHEROID_GL_TIERS):
+    """Quadrature nodes/weights for a spheroid orientation average.
+
+    Returns ``(cos_theta, weights)`` on cos(theta) in [0, 1], with the node
+    count chosen from how far the particle is from spherical.
+
+    The integrand only varies through r_eff(theta)/r, which sweeps the interval
+    between 1 and AR.  A near-spherical particle therefore has a nearly
+    constant integrand and reaches full double precision with a handful of
+    nodes, while an elongated one needs the full 50.  Using 50 nodes
+    regardless made a "Spheroid, AR = 1" population — which the GUI offers
+    alongside "Sphere", and which users do pick — cost ~40x a sphere for an
+    identical answer.
+
+    The tiers in :data:`_SPHEROID_GL_TIERS` are set so the result matches the
+    50-node reference (Igor IR1R_CalcSpheroidFormFactor) to better than 1e-8
+    relative over 5 A <= r <= 5000 A and 1e-4 A^-1 <= q <= 1 A^-1; AR outside
+    the last tier keeps all 50 nodes, so elongated particles are bit-for-bit
+    unchanged.  Do not widen a tier without re-running
+    ``test_spheroid_quadrature_matches_50_nodes``.
+
+    ``tiers`` overrides that table.  The core-shell spheroid passes ``()`` so
+    only the exact-sphere case is reduced: its amplitude carries two length
+    scales (R_core and R_total), so the integrand oscillates faster than the
+    plain spheroid's and the tiers above are *not* accurate enough for it
+    (measured 3e-7 at AR = 1.05).  Reducing it needs its own calibration
+    against R_total and the shell thickness.
+    """
+    d = abs(float(aspect_ratio) - 1.0)
+    if d == 0.0:
+        # Sphere: r_eff(theta) is constant, so a single node integrates the
+        # average exactly.  (_build_g_spheroid short-circuits to the sphere
+        # builder before reaching here; the core-shell spheroid path does not.)
+        return _gl_half(1)
+    for d_max, n in tiers:
+        if d <= d_max:
+            return _gl_half(n)
+    return 0.5 * (_GL_NODES + 1.0), 0.5 * _GL_WEIGHTS
+
 
 def spheroid_ff(q: np.ndarray, r: float, aspect_ratio: float = 1.0) -> np.ndarray:
     """
@@ -177,11 +229,13 @@ def spheroid_ff(q: np.ndarray, r: float, aspect_ratio: float = 1.0) -> np.ndarra
     q = np.asarray(q, dtype=float)
     AR = float(aspect_ratio)
 
+    if AR == 1.0:
+        return sphere_ff(q, r)
+
     V = (4.0 / 3.0) * np.pi * r ** 3 * AR
 
-    # Map Gauss-Legendre [-1, 1] nodes to cos(θ) ∈ [0, 1]
-    cos_t = 0.5 * (_GL_NODES + 1.0)   # shape (50,)
-    weights = 0.5 * _GL_WEIGHTS        # Jacobian factor ½ included
+    # Gauss-Legendre nodes on cos(θ) ∈ [0, 1]; order follows |AR − 1|.
+    cos_t, weights = _orientation_nodes(AR)
 
     # r_eff for each (q, cos_theta) pair → shape (len(q), 50)
     r_eff = r * np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_t[np.newaxis, :] ** 2)
@@ -235,8 +289,15 @@ def _build_g_spheroid(
     G[i,j] = V(r[j]) * ∫₀¹ F²(Q_i, r_eff(r_j, θ)) d(cosθ)
     """
     AR = float(aspect_ratio)
-    cos_t   = 0.5 * (_GL_NODES + 1.0)   # (K,)
-    weights = 0.5 * _GL_WEIGHTS          # (K,)
+
+    # A spheroid of AR = 1 *is* a sphere: r_eff(θ) ≡ r, so all K orientations
+    # carry the identical value and the average is the sphere result (verified
+    # equal to 6e-16 relative).  Skipping the average here is what keeps a
+    # "Spheroid, AR = 1" population from costing ~40x a "Sphere" one.
+    if AR == 1.0:
+        return _build_g_sphere(q, r_grid, contrast)
+
+    cos_t, weights = _orientation_nodes(AR)   # (K,) — K follows |AR − 1|
 
     M, N = len(q), len(r_grid)
     G = np.empty((M, N), dtype=float)
@@ -644,8 +705,8 @@ def _cs_spheroid_g_from_pairs(
     on a scaled q.
     """
     AR = float(aspect_ratio)
-    cos_a   = 0.5 * (_GL_NODES + 1.0)    # (K,)
-    weights = 0.5 * _GL_WEIGHTS          # (K,)
+    # tiers=() — only AR == 1 is reduced here; see _orientation_nodes.
+    cos_a, weights = _orientation_nodes(AR, tiers=())
     stretch = np.sqrt(1.0 + (AR ** 2 - 1.0) * cos_a ** 2)   # (K,)
 
     d_rho_c = float(sld_core)  - float(sld_shell)

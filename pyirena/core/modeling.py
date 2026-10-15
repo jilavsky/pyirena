@@ -104,6 +104,21 @@ def _limit_blas_threads(n: int = 1):
                 os.environ[k] = v
 
 
+def _looks_like_missing_main_guard(exc: BaseException) -> bool:
+    """True when *exc* is multiprocessing complaining about a missing guard.
+
+    Python's spawn/forkserver start methods re-import the driver module in each
+    worker. Without ``if __name__ == "__main__":`` that re-runs the whole
+    script, and multiprocessing raises a RuntimeError naming the bootstrapping
+    phase / freeze_support. Matched on text because multiprocessing raises a
+    plain RuntimeError with no distinguishing type or code.
+    """
+    text = f"{exc}".lower()
+    return ("bootstrapping phase" in text
+            or "freeze_support" in text
+            or "not using fork to start" in text)
+
+
 class _DEObjective:
     """Picklable differential-evolution objective for parallel (workers>1) runs.
 
@@ -2279,8 +2294,11 @@ class ModelingEngine:
         lo_arr = np.asarray(lo_arr, dtype=float)
         hi_arr = np.asarray(hi_arr, dtype=float)
 
-        # Decide which parameters to search in log10 space.
-        with np.errstate(divide='ignore', invalid='ignore'):
+        # Decide which parameters to search in log10 space.  over='ignore':
+        # a limit pair like B in [1e-20, 1e10] overflows this ratio to inf,
+        # which is the right answer for the >100 test below but warns on every
+        # global fit otherwise.
+        with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
             ratio = np.where(lo_arr > 0, hi_arr / np.maximum(lo_arr, 1e-300), 1.0)
         log_mask = (lo_arr > 0) & (ratio > 100.0)
 
@@ -2347,10 +2365,31 @@ class ModelingEngine:
             except Exception as exc:
                 # Multiprocessing can fail on some hosts (spawn/pickling/frozen
                 # apps). Never fail the fit for it — fall back to serial.
-                warnings.warn(
-                    f"Parallel global fit failed ({exc!r}); running serially.",
-                    RuntimeWarning,
+                #
+                # The serial fallback is typically 4-6x slower, and nothing
+                # else reports it: the fit still succeeds with the same answer,
+                # just far later. Worse, the commonest cause — a driver script
+                # with no __main__ guard — makes every spawned worker re-import
+                # and re-run that script before failing, so the machine looks
+                # fully loaded while no parallel search is happening at all.
+                # Say which case this is and what to do about it.
+                slower = (
+                    f"running the global search serially on 1 core instead of "
+                    f"de_workers={workers} — expect it to take several times "
+                    f"longer"
                 )
+                if _looks_like_missing_main_guard(exc):
+                    # multiprocessing's own text is ~600 characters and buries
+                    # the fix, so state the fix instead of quoting it.
+                    msg = (
+                        f"Parallel global fit could not start: the calling "
+                        f"script has no main guard, so worker processes cannot "
+                        f"re-import it. Wrap the top-level code in "
+                        f'`if __name__ == "__main__":`. Meanwhile {slower}.'
+                    )
+                else:
+                    msg = f"Parallel global fit could not start ({exc!r}); {slower}."
+                warnings.warn(msg, RuntimeWarning)
                 de = _serial_de()
 
         return np.clip(_to_real(de.x), lo_arr, hi_arr)

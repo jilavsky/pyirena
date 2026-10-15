@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Modeling: a "Spheroid" population with aspect ratio 1 is no longer ~40x
+  slower than "Sphere" for the same answer.** The spheroid orientation average
+  ran 50 Gauss-Legendre points regardless of aspect ratio. At AR = 1 all 50
+  carry the identical value, so picking Spheroid and pinning AR = 1 — which is
+  easy to do, since the GUI offers both — cost 50 ms per model evaluation
+  against 1.4 ms for Sphere. With a Global fit making ~10,000 evaluations that
+  is the difference between a 4-second fit and a 100-second one. AR = 1 now
+  returns the sphere result directly (identical to 6e-16), and the quadrature
+  order elsewhere follows |AR − 1|, since a nearly-spherical particle cannot
+  resolve 50 orientations: 4 points for |AR − 1| ≤ 0.02, 8 up to 0.1, 16 up to
+  0.2, and all 50 beyond that. Every reduced order matches the 50-point Igor
+  reference to better than 1e-8 relative, and AR outside the last tier is
+  bit-for-bit unchanged. The core-shell spheroid keeps all 50 points for
+  AR ≠ 1 — it carries two length scales and oscillates faster, so the same
+  tiers are not accurate enough for it.
+- **The Modeling global fit says when it has fallen back to one core.** When
+  the differential-evolution worker pool cannot start, the fit still runs, just
+  serially — several times slower for the same result. The warning now names
+  `de_workers` and the slowdown, and when the cause is a driver script with no
+  `if __name__ == "__main__":` guard it says so instead of quoting
+  multiprocessing's 600-character traceback. That case is easy to miss: every
+  spawned worker re-imports and re-runs the unguarded script before failing, so
+  the machine looks fully loaded while no parallel search is happening.
 - **Number distributions are in Irena units, 1/(cm³·Å).** Modeling
   `pop_NN/number_dist` and Sizes `number_dist` were particles per Å³ of sample
   per Å — 1e24 smaller — and either unlabelled (Modeling) or labelled

@@ -519,8 +519,27 @@ Notes:
   spheroidal, large Q arrays / many bins). For cheap models the process
   overhead can make parallel *no faster* — leave `cores` at 1 there.
 - If the host cannot start worker processes, the fit **falls back to serial
-  automatically** (a warning is logged); it never fails for this reason.
+  automatically** (a warning is logged); it never fails for this reason. The
+  usual cause in a script is a missing `if __name__ == "__main__":` guard —
+  worker processes re-import the driver module, so without the guard they
+  re-run the whole script. The warning says so when that is the cause. Watch
+  for it: the fallback is several times slower and the result is otherwise
+  identical, so nothing else tells you it happened.
 - Workers are pinned to single-threaded BLAS to avoid CPU oversubscription.
+
+### Pick Sphere, not Spheroid with AR = 1
+
+If the particles are spheres, choose the **Sphere** form factor. A **Spheroid**
+with the aspect ratio pinned to 1 is the same particle and gives the same
+answer, and pyIrena now recognises AR = 1 and takes the sphere path, so the two
+cost the same.
+
+Aspect ratios *near* 1 are also cheap now — the orientation average uses fewer
+quadrature points the closer the particle is to spherical, with no change to
+the numbers. The cost rises with |AR − 1| and is at its full value beyond
+AR = 1.2 (or 0.8), which is a genuine orientation average and genuinely slower
+than a sphere. A Core-Shell Spheroid always pays full cost unless AR is
+exactly 1.
 
 ---
 
