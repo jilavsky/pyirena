@@ -756,8 +756,8 @@ class ModelingResult:
     pop_indices: list                # list of int — original population indices
     pop_model_I: list                # list of np.ndarray
     radius_grids: list               # list of np.ndarray   [Å]
-    volume_dists: list               # list of np.ndarray   [Å⁻¹ normalised]
-    number_dists: list               # list of np.ndarray   [Å⁻¹ normalised]
+    volume_dists: list               # list of np.ndarray   [vol. fraction / Å]
+    number_dists: list               # list of np.ndarray   [1/(cm³·Å)]
     derived: list                    # list of dict per active population
 
     # MC uncertainty: {pop_i_paramname: std} and {'background': std}
@@ -767,6 +767,10 @@ class ModelingResult:
     # (None otherwise).  Saved alongside model_I so downstream plots/readers can
     # offer a smeared/ideal toggle (parity with Unified/Sizes/Simple).
     model_I_ideal: Optional[np.ndarray] = None
+
+    # Normalised residuals (I_data − I_model) / σ on model_q.  None when the
+    # result was built without measured data in hand.
+    residuals: Optional[np.ndarray] = None
 
     # Plain-language diagnostics from the fit (parameters pinned at limits,
     # non-convergence, unphysically broad distribution, huge reduced χ²).
@@ -1653,6 +1657,9 @@ class ModelingEngine:
         """Return (vol_dist, num_dist) arrays normalised so that
         ∫ vol_dist·dr = pop.scale.
 
+        vol_dist is in volume fraction per Å; num_dist = vol_dist / V(r) with
+        V(r) in cm³, i.e. Irena's 1/(cm³·Å).
+
         If pop.use_number_dist is True, the analytical PDF is treated as a
         number distribution and converted to volume by multiplying by V(r).
         """
@@ -1688,7 +1695,7 @@ class ModelingEngine:
             norm = 1.0
 
         vol_dist = vol_raw * norm
-        num_dist = num_raw * norm
+        num_dist = num_raw * norm * 1e24     # per Å³ of sample → per cm³
         return vol_dist, num_dist
 
     # ── G-matrix (with cache for "Graph Model") ──────────────────────────────
@@ -2591,6 +2598,7 @@ class ModelingEngine:
             number_dists=num_dists,
             derived=derived,
             model_I_ideal=model_I_ideal,
+            residuals=np.asarray(resid, dtype=float),
             fit_warnings=fit_warn,
         )
 

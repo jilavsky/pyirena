@@ -42,6 +42,7 @@ from typing import Any
 import h5py
 import numpy as np
 
+from pyirena.io._nxcansas_common import read_number_dist
 from pyirena.io.h5xp_writer import (
     create_h5xp,
     igor_notebook_name,
@@ -382,7 +383,8 @@ def _extract_size_distribution(grp: h5py.Group, h5xp: h5py.File,
             ("number_dist",    "SizesNumberDistribution"),
             ("cumul_vol_dist", "CumulativeSizeDist"),
         ]:
-            y = _array(grp, ds_name)
+            y = (read_number_dist(grp, ds_name) if ds_name == "number_dist"
+                 else _array(grp, ds_name))
             if y is not None:
                 write_result_wave(h5xp, folder, igor_name,
                                   r_grid, y, params, category)
@@ -587,7 +589,8 @@ def _extract_modeling(grp: h5py.Group, h5xp: h5py.File,
                     ("volume_dist", f"ModelingVolDist_Pop{n}"),
                     ("number_dist", f"ModelingNumDist_Pop{n}"),
                 ]:
-                    y = _array(pg, ds_name)
+                    y = (read_number_dist(pg, ds_name) if ds_name == "number_dist"
+                         else _array(pg, ds_name))
                     if y is not None:
                         pp: dict[str, Any] = dict(params_global)
                         pp["pop_n"] = n

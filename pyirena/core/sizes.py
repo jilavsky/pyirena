@@ -1492,8 +1492,10 @@ def number_distribution(
     """Derive the number distribution from a volume distribution.
 
     The number distribution is ``N(r) = P_V(r) / V(r)`` with the shape-aware
-    particle volume from :func:`particle_volume`.  The cumulative number
-    distribution is the running integral ``∫ N(r) dr``.
+    particle volume from :func:`particle_volume` converted to cm³, so N(r) is
+    in Irena's units of particles per cm³ of sample per Å [1/(cm³·Å)].  The
+    cumulative number distribution is the running integral ``∫ N(r) dr``
+    [1/cm³].
 
     Args:
         distribution: Volume size distribution P_V(r) [vol-fraction / Å].
@@ -1502,12 +1504,13 @@ def number_distribution(
         aspect_ratio: Spheroid aspect ratio (used only when shape=='spheroid').
 
     Returns:
-        ``(number_dist, cumul_num_dist)`` arrays matching ``r_grid``.
+        ``(number_dist, cumul_num_dist)`` arrays matching ``r_grid``,
+        in 1/(cm³·Å) and 1/cm³.
     """
     distribution = np.asarray(distribution, dtype=float)
     r_grid = np.asarray(r_grid, dtype=float)
 
-    V_r = particle_volume(r_grid, shape, aspect_ratio)
+    V_r = particle_volume(r_grid, shape, aspect_ratio) * 1e-24   # Å³ → cm³
     number_dist = np.where(V_r > 0, distribution / V_r, 0.0)
 
     dr = np.diff(r_grid, prepend=r_grid[0])
@@ -1545,6 +1548,8 @@ def surface_distribution(
     Returns:
         ``(surface_dist, cumul_surf_dist, specific_surface)`` where the arrays
         match ``r_grid`` in shape and ``specific_surface`` is a float.
+        Units: S(r) [Å⁻²] (Å² of surface per Å³ of sample per Å of radius),
+        cumulative and specific surface [Å⁻¹].
     """
     distribution = np.asarray(distribution, dtype=float)
     r_grid = np.asarray(r_grid, dtype=float)

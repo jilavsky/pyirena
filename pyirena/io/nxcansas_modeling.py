@@ -27,6 +27,7 @@ import numpy as np
 from pyirena.core.modeling import (
     ModelingResult,
 )
+from pyirena.io._nxcansas_common import NUMBER_DIST_UNITS, read_number_dist
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +113,11 @@ def save_modeling_results(
             ds_Ii = grp.create_dataset('model_I_ideal', data=result.model_I_ideal)
             ds_Ii.attrs['units'] = '1/cm'
             ds_Ii.attrs['long_name'] = 'Total model intensity (ideal / pinhole)'
+        # Normalised residuals on model_q (parity with Unified/Sizes/Simple).
+        if getattr(result, 'residuals', None) is not None:
+            ds_r = grp.create_dataset('residuals', data=np.asarray(result.residuals, dtype='f8'))
+            ds_r.attrs['units'] = 'dimensionless'
+            ds_r.attrs['long_name'] = 'Normalised residuals (I_data - I_model) / sigma'
 
         # ── Per-population groups ─────────────────────────────────────────
         cfg = result.config
@@ -228,7 +234,9 @@ def save_modeling_results(
                     pg.create_dataset('radius_grid', data=result.radius_grids[k])
                     pg['radius_grid'].attrs['units'] = 'angstrom'
                     pg.create_dataset('volume_dist', data=result.volume_dists[k])
+                    pg['volume_dist'].attrs['units'] = 'volume_fraction/angstrom'
                     pg.create_dataset('number_dist', data=result.number_dists[k])
+                    pg['number_dist'].attrs['units'] = NUMBER_DIST_UNITS
 
             # MC uncertainties (if present) — common to all types
             stds = result.params_std
@@ -280,7 +288,8 @@ def load_modeling_results(
 
     Returned dict keys (partial):
         chi_squared, reduced_chi_squared, dof, background, q_min, q_max,
-        timestamp, model_q, model_I,
+        timestamp, model_q, model_I, model_I_ideal, residuals (None in files
+        written before residuals were stored),
         populations: list of per-population dicts with sub-keys:
             dist_type, dist_params, form_factor, ff_params, structure_factor,
             sf_params, scale, contrast, use_number_dist, n_bins,
@@ -314,6 +323,7 @@ def load_modeling_results(
             'model_q':             grp['model_q'][()] if 'model_q' in grp else None,
             'model_I':             grp['model_I'][()] if 'model_I' in grp else None,
             'model_I_ideal':       grp['model_I_ideal'][()] if 'model_I_ideal' in grp else None,
+            'residuals':           grp['residuals'][()] if 'residuals' in grp else None,
             'populations':         [],
         }
 
@@ -391,7 +401,7 @@ def load_modeling_results(
                     'n_bins':           int(pg['n_bins'][()]) if 'n_bins' in pg else 200,
                     'radius_grid':      _arr(pg, 'radius_grid'),
                     'volume_dist':      _arr(pg, 'volume_dist'),
-                    'number_dist':      _arr(pg, 'number_dist'),
+                    'number_dist':      read_number_dist(pg, 'number_dist'),
                 })
 
             dervg = pg.get('derived')

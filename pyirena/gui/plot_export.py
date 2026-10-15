@@ -301,6 +301,9 @@ def collect_plot_curves(plot: pg.PlotItem) -> List[PlotCurve]:
     ``plot_iq_data``) come back in :attr:`PlotCurve.dy`.
     """
     scan_items = list(plot.listDataItems())
+    # Curves drawn in a second ViewBox (right-hand axis) register themselves here.
+    scan_items += [it for it in getattr(plot, "_extra_export_items", [])
+                   if it not in scan_items]
     for it in getattr(plot, "items", []):
         if it not in scan_items and (
             getattr(it, "_itx_export", None) is not None

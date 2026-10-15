@@ -16,10 +16,10 @@ intensity_model    — fitted model intensity [cm^-1]
 residuals          — normalised residuals (I_data - I_model) / error
 r_grid             — radius bin centres [Å]
 distribution       — volume size distribution P(r) [volume fraction / Å]
-number_dist        — number size distribution N(r) [1 / Å]
-surface_dist       — surface-area size distribution S(r) = sv(r)·P(r)
+number_dist        — number size distribution N(r) [1 / (cm³·Å)]
+surface_dist       — surface-area size distribution S(r) = sv(r)·P(r) [1 / Å²]
 cumul_vol_dist     — cumulative volume distribution (running integral from r_min)
-cumul_num_dist     — cumulative number distribution (running integral from r_min)
+cumul_num_dist     — cumulative number distribution (running integral from r_min) [1/cm³]
 cumul_surf_dist    — cumulative surface-area distribution (running integral from r_min);
                      final value = total specific surface area [Å⁻¹]
 distribution_std   — per-bin std of P(r) across Monte Carlo repetitions (if available)
@@ -52,6 +52,12 @@ from typing import Optional
 
 import h5py
 import numpy as np
+
+from pyirena.io._nxcansas_common import (
+    CUMUL_NUMBER_DIST_UNITS,
+    NUMBER_DIST_UNITS,
+    read_number_dist,
+)
 
 _GROUP = 'entry/sizes_results'
 _PROGRAM = 'pyirena.core.sizes'
@@ -213,10 +219,10 @@ def save_sizes_results(
         grp['intensity_model'].attrs['units'] = '1/cm'
         grp['r_grid'].attrs['units']         = 'angstrom'
         grp['distribution'].attrs['units']   = 'volume_fraction/angstrom'
-        grp['number_dist'].attrs['units']    = '1/angstrom'
+        grp['number_dist'].attrs['units']    = NUMBER_DIST_UNITS
         grp['cumul_vol_dist'].attrs['units'] = 'volume_fraction'
-        grp['cumul_num_dist'].attrs['units'] = 'dimensionless'
-        grp['surface_dist'].attrs['units']    = '1/angstrom'
+        grp['cumul_num_dist'].attrs['units'] = CUMUL_NUMBER_DIST_UNITS
+        grp['surface_dist'].attrs['units']    = '1/angstrom^2'   # Å² surface / Å³ sample / Å
         grp['cumul_surf_dist'].attrs['units'] = '1/angstrom'
         grp['specific_surface'].attrs['units'] = '1/angstrom'
 
@@ -297,9 +303,10 @@ def load_sizes_results(filepath: Path) -> dict:
         else:
             result['distribution_std'] = None
 
-        for key in ('number_dist', 'cumul_vol_dist', 'cumul_num_dist',
-                    'surface_dist', 'cumul_surf_dist'):
+        for key in ('cumul_vol_dist', 'surface_dist', 'cumul_surf_dist'):
             result[key] = grp[key][:] if key in grp else None
+        for key in ('number_dist', 'cumul_num_dist'):
+            result[key] = read_number_dist(grp, key)
 
         # Robust fit-quality metrics (None for files written before this feature)
         from pyirena.io.nxcansas_fit_quality import read_fit_quality

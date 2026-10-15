@@ -241,8 +241,8 @@ TOOL_REGISTRY: dict[str, dict] = {
                   "Q (Å⁻¹)", "Residuals", "Residuals",      plot_type="residuals"),
             _plot("r_grid", "distribution",    "angstrom", "volume_fraction/angstrom",
                   "r (Å)", "P(r) (vol. frac./Å)", "Volume dist.", plot_type="distribution"),
-            _plot("r_grid", "number_dist",     "angstrom", "1/angstrom",
-                  "r (Å)", "N(r) (Å⁻¹)", "Number dist.",    plot_type="distribution"),
+            _plot("r_grid", "number_dist",     "angstrom", "1/(cm^3 angstrom)",
+                  "r (Å)", "N(r) (cm⁻³ Å⁻¹)", "Number dist.", plot_type="distribution"),
             _plot("r_grid", "cumul_vol_dist",  "angstrom", "volume_fraction",
                   "r (Å)", "Cumul. vol. frac.", "Cumul. volume", plot_type="distribution"),
         ],
@@ -363,6 +363,9 @@ TOOL_REGISTRY: dict[str, dict] = {
             # Modeling does not copy raw data arrays; only model output is stored.
             _plot("model_q", "model_I", "1/angstrom", "1/cm",
                   "Q (Å⁻¹)", "I (cm⁻¹)", "Total model", plot_type="iq"),
+            # Absent in files written before residuals were stored.
+            _plot("model_q", "residuals", "1/angstrom", "",
+                  "Q (Å⁻¹)", "Residuals", "Residuals", plot_type="residuals"),
             # Per-population model_I is also available but requires sub-group traversal.
         ],
         "scalars": [

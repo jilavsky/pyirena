@@ -1938,6 +1938,28 @@ class ModelingGraphWindow(QWidget):
         self.dist_plot.setTitle('Size Distribution', size='10pt', color='k')
         self.dist_plot.addLegend(offset=(-10, 10), labelTextSize='9pt', labelTextColor='k')
         self._style_axes(self.dist_plot)
+        # Number distributions [1/(cm³·Å)] are ~1e20 larger than volume
+        # distributions [vol. frac./Å], so they get their own right-hand axis.
+        self._num_vb = pg.ViewBox()
+        self.dist_plot.scene().addItem(self._num_vb)
+        self.dist_plot.showAxis('right')
+        self.dist_plot.getAxis('right').linkToView(self._num_vb)
+        self.dist_plot.getAxis('right').setStyle(showValues=True)
+        self.dist_plot.getAxis('right').setLabel(
+            'Number (cm⁻³ Å⁻¹), dotted', **{'color': 'k', 'font-size': '10pt'})
+        self.dist_plot.getAxis('left').setLabel(
+            'Volume (Å⁻¹), solid', **{'color': 'k', 'font-size': '10pt'})
+        self._num_vb.setXLink(self.dist_plot.getViewBox())
+        # Curves in the second ViewBox are invisible to listDataItems();
+        # plot_export picks them up from here.
+        self.dist_plot._extra_export_items = []
+
+        def _follow_num_vb():
+            self._num_vb.setGeometry(self.dist_plot.getViewBox().sceneBoundingRect())
+            self._num_vb.linkedViewChanged(self.dist_plot.getViewBox(), self._num_vb.XAxis)
+
+        self.dist_plot.getViewBox().sigResized.connect(lambda *_: _follow_num_vb())
+        _follow_num_vb()
 
         # Height ratios: 5 : 2 : 3
         self.gl.ci.layout.setRowStretchFactor(0, 5)
@@ -2027,7 +2049,7 @@ class ModelingGraphWindow(QWidget):
         self._total_item = None
 
         # Also clear distribution, residuals, and annotations
-        self.dist_plot.clear()
+        self._clear_dist_plot()
         self._dist_items.clear()
         self.resid_plot.clear()
         self.resid_plot.addLine(y=0, pen=pg.mkPen('k', style=Qt.PenStyle.DashLine))
@@ -2077,7 +2099,7 @@ class ModelingGraphWindow(QWidget):
             pass  # residuals are computed in ModelingPanel.run_fit and passed explicitly
 
         # ── Size distributions (always all populations) ────────────────────
-        self.dist_plot.clear()
+        self._clear_dist_plot()
         for k, pi in enumerate(result.pop_indices):
             color = POP_COLORS[pi % len(POP_COLORS)]
             rg = result.radius_grids[k]
@@ -2090,11 +2112,24 @@ class ModelingGraphWindow(QWidget):
                 pen=pg.mkPen(color, width=2),
                 name=f'P{pi+1} vol',
             )
-            self.dist_plot.plot(
+            num_item = pg.PlotDataItem(
                 rg, nd,
                 pen=pg.mkPen(color, width=1.5, style=Qt.PenStyle.DotLine),
                 name=f'P{pi+1} num',
             )
+            self._num_vb.addItem(num_item)
+            self.dist_plot.addLegend().addItem(num_item, f'P{pi+1} num')
+            self.dist_plot._extra_export_items.append(num_item)
+
+    def _clear_dist_plot(self):
+        """Clear both distribution axes (volume left, number right)."""
+        legend = self.dist_plot.legend
+        for item in self.dist_plot._extra_export_items:
+            if legend is not None:
+                legend.removeItem(item)
+        self.dist_plot.clear()
+        self._num_vb.clear()
+        self.dist_plot._extra_export_items.clear()
 
     def plot_residuals(self, q: np.ndarray, residuals: np.ndarray):
         """Plot normalised residuals on the residuals panel."""
@@ -3235,6 +3270,11 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                 from pyirena.core.modeling import compute_derived
                 derived.append(compute_derived(rg, vd, nd, config.populations[pi]))
 
+            resid = None
+            if self._data_dI is not None:
+                resid = ((self._data_I[mask] - I_total)
+                         / np.maximum(self._data_dI[mask], 1e-30))
+
             from datetime import datetime
             mock = ModelingResult(
                 config=config,
@@ -3244,6 +3284,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                 pop_indices=pop_idx, pop_model_I=pop_I,
                 radius_grids=r_grids, volume_dists=v_dists,
                 number_dists=n_dists, derived=derived,
+                residuals=resid,
             )
 
             # Replot data then overlay model

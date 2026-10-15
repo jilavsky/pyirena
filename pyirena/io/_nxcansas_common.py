@@ -26,6 +26,33 @@ from pyirena.io.schema import TOOL_REGISTRY
 
 log = logging.getLogger(__name__)
 
+# Number-distribution units, as Irena stores them: particles per cm³ of sample
+# per Å of radius.  Files written before v1.2.0 held the same quantity per Å³
+# of sample (a factor 1e24 smaller) labelled '1/angstrom' (Sizes) or with no
+# units at all (Modeling); read_number_dist() converts those on the way in.
+NUMBER_DIST_UNITS = '1/(cm^3 angstrom)'
+CUMUL_NUMBER_DIST_UNITS = '1/cm^3'
+_A3_PER_CM3 = 1e24
+
+
+def read_number_dist(group: h5py.Group, name: str) -> Optional[np.ndarray]:
+    """Read a number-distribution dataset in Irena units, or None if absent.
+
+    ``number_dist`` comes back in 1/(cm³·Å) and ``cumul_num_dist`` in 1/cm³
+    whichever pyirena version wrote the file: legacy datasets (per Å³ of
+    sample) are recognised by their ``units`` attribute and scaled by 1e24.
+    """
+    if name not in group:
+        return None
+    ds = group[name]
+    data = np.asarray(ds[()], dtype=np.float64)
+    units = ds.attrs.get('units', '')
+    if isinstance(units, bytes):
+        units = units.decode()
+    if units not in (NUMBER_DIST_UNITS, CUMUL_NUMBER_DIST_UNITS):
+        data = data * _A3_PER_CM3
+    return data
+
 # Every pyirena result group, stripped when a tool seeds a new output file from
 # a source file.  Derived from TOOL_REGISTRY rather than listed by hand: a
 # hand-maintained copy silently fell two tools behind (SAXS Morph and Fractals

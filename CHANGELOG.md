@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Modeling saves its residuals.** `modeling_results/residuals` holds
+  (I_data − I_model)/σ on `model_q` (units `dimensionless`), as Unified, Sizes
+  and Simple Fits already did. `load_modeling_results()` returns it under
+  `residuals` (`None` for older files). Graph Model results carry them too.
+
+### Changed
+
+- **Number distributions are in Irena units, 1/(cm³·Å).** Modeling
+  `pop_NN/number_dist` and Sizes `number_dist` were particles per Å³ of sample
+  per Å — 1e24 smaller — and either unlabelled (Modeling) or labelled
+  `1/angstrom` (Sizes, wrong). Sizes `cumul_num_dist` is now 1/cm³ (was 1/Å³,
+  labelled `dimensionless`). Both datasets now carry a correct `units`
+  attribute, and the loaders (and the Igor `.h5xp` export) rescale files written
+  before this change, recognised by the old/missing `units`, so every reader
+  sees one unit. Derived quantities (mean radii) are ratios and do not change.
+  The Modeling size-distribution graph draws number distributions on a
+  right-hand axis.
+- **Sizes `surface_dist` is labelled 1/Å².** S(r) = sv(r)·P(r) is Å² of surface
+  per Å³ of sample per Å of radius; it was labelled `1/angstrom`. Values are
+  unchanged (`cumul_surf_dist` and `specific_surface` were already correctly 1/Å).
+
 ## [1.2.0b3] - 2026-10-01
 
 ### Added
