@@ -5,7 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-10-15
+
+First stable release of the 1.2 line. This entry summarises what 1.2.0 brings
+over **1.1.1**; per-change detail lives in the `1.2.0b1` – `1.2.0b3` entries
+below. The Added / Changed / Fixed sections that follow are the changes since
+`1.2.0b3`.
+
+Saved-file compatibility is preserved: result files, config files and
+`state.json` written by 1.1.x load unchanged. Files whose number distributions
+were written in the old units are rescaled on load (see *Changed*).
+
+### Highlights
+
+- **Carbon model** (b1) — a new tool that fits the whole measured range of a
+  disordered carbon (USAXS → SAXS → WAXS) as one model: grain Porod
+  scattering, micropores and turbostratic peaks.
+- **ZMQ service** (b1, optional `[zmq]` extra) and the API calls behind it:
+  `analyze()` fits a curve with a saved configuration in one call,
+  `open_dataset_from_data()` starts a session from arrays, and
+  `export_results()` writes one JSON report for every fitting tool.
+- **A saved setup replays faithfully** (b2). Fit flags, links, shapes, slit
+  settings and execution settings now survive `pyirena.batch`, `analyze()` and
+  every wrapper pyIrena writes; configs are written in one vocabulary.
+- **Data Merge** (b3): a Porod view (I·Q⁴ vs Q) for judging whether two
+  segments agree, hand tuning of scale, Q-shift and background, a right-hand
+  axis, and merged files that keep their DS2 metadata (#21).
+- **True Voigt peak shape** in WAXS Peak Fit (b1).
+- **Number distributions in Irena units**, 1/(cm³·Å), and Modeling saves its
+  residuals (this release).
+
+### Compatibility notes since 1.1.1
+
+- SAXS Morph fitting was removed (#29); `batch.fit_saxs_morph` no longer takes
+  `with_uncertainty` / `n_mc_runs`, and the GUI state schema went 2 → 3.
+- The panel dialect of Unified Fit configs is read but no longer written;
+  setups now carry `schema_version`.
+- Modeling and Sizes number distributions are 1e24 larger than in 1.1.x files
+  (the unit changed, not the physics); pyIrena's loaders rescale old files.
 
 ### Added
 
@@ -14,19 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Simple Fits already did. `load_modeling_results()` returns it under
   `residuals` (`None` for older files). Graph Model results carry them too.
 
-### Fixed
-
-- **Unified Fit: a linked RgCO was reported and saved at its starting value.**
-  With "Link RgCutoff" on, the model always computed the upper level with the
-  lower level's current Rg, but never wrote that value back to the level. The
-  GUI hid this by syncing the field after each fit; batch scripting, the
-  control API and MCP did not, so a config whose level 2 started at
-  RgCutoff = 13.1 saved 13.1 for every dataset whatever level 1's Rg fitted
-  to. Fitted G, Rg, B, P were always right; the saved `RgCutoff`, and the
-  level's Invariant and Sv computed from it, were not. The linked value is now
-  stored on the level at every evaluation, as `link_B` already did for B.
-  Files fitted before this fix can be corrected by replacing level 2's RgCO
-  with level 1's Rg and recomputing Invariant/Sv.
+### Changed
 
 - **Modeling: a "Spheroid" population with aspect ratio 1 is no longer ~40x
   slower than "Sphere" for the same answer.** The spheroid orientation average
@@ -64,6 +89,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sizes `surface_dist` is labelled 1/Å².** S(r) = sv(r)·P(r) is Å² of surface
   per Å³ of sample per Å of radius; it was labelled `1/angstrom`. Values are
   unchanged (`cumul_surf_dist` and `specific_surface` were already correctly 1/Å).
+
+### Fixed
+
+- **Unified Fit: a linked RgCO was reported and saved at its starting value.**
+  With "Link RgCutoff" on, the model always computed the upper level with the
+  lower level's current Rg, but never wrote that value back to the level. The
+  GUI hid this by syncing the field after each fit; batch scripting, the
+  control API and MCP did not, so a config whose level 2 started at
+  RgCutoff = 13.1 saved 13.1 for every dataset whatever level 1's Rg fitted
+  to. Fitted G, Rg, B, P were always right; the saved `RgCutoff`, and the
+  level's Invariant and Sv computed from it, were not. The linked value is now
+  stored on the level at every evaluation, as `link_B` already did for B.
+  Files fitted before this fix can be corrected by replacing level 2's RgCO
+  with level 1's Rg and recomputing Invariant/Sv.
 
 ## [1.2.0b3] - 2026-10-01
 
