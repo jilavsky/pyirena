@@ -402,7 +402,7 @@ class DataMergeGraphWindow(QWidget):
     """Single-panel I(Q) plot for the Data Merge tool.
 
     Three display modes — SAXS (log-log), WAXS/diffraction (lin-lin) and
-    Porod (I·Q⁴ vs Q⁴, lin-lin). Porod exists because a mis-subtracted
+    Porod (I·Q⁴ vs Q, lin-lin). Porod exists because a mis-subtracted
     background or beam-stop scattering shows up there as a slope or a step in
     what should be a flat line, and is nearly invisible on log-log.
 
@@ -510,8 +510,7 @@ class DataMergeGraphWindow(QWidget):
             y_label=y_label,
             log_x=self._log_mode,
             log_y=self._log_mode,
-            # The d-spacing top axis reads 2π/Q, which is meaningless once the
-            # x axis is Q⁴ — WAXS only.
+            # The d-spacing top axis (2π/Q) is a diffraction aid — WAXS only.
             d_spacing_axis=(self._mode == MODE_WAXS),
             parent_widget=self,
             jpeg_default_name='data_merge',
@@ -561,8 +560,7 @@ class DataMergeGraphWindow(QWidget):
             y_label=y_label,
             log_x=self._log_mode,
             log_y=self._log_mode,
-            # The d-spacing top axis reads 2π/Q, which is meaningless once the
-            # x axis is Q⁴ — WAXS only.
+            # The d-spacing top axis (2π/Q) is a diffraction aid — WAXS only.
             d_spacing_axis=(self._mode == MODE_WAXS),
             parent_widget=self,
             jpeg_default_name='data_merge',
@@ -1030,7 +1028,7 @@ class DataMergePanel(QWidget):
         self._mode_combo.setToolTip(
             "How the data is drawn. The merge itself always runs on the\n"
             "original Q and I, whichever view is selected.\n\n"
-            "Porod (I·Q⁴ vs Q⁴) makes a mis-subtracted background or\n"
+            "Porod (I·Q⁴ vs Q) makes a mis-subtracted background or\n"
             "beam-stop scattering visible as a slope or step in what\n"
             "should be a flat line."
         )
