@@ -519,10 +519,12 @@ class UnifiedFitModel:
         # Auto-calculate parameters if needed
         level.auto_calculate_K()
 
-        # Handle RgCO linking
-        RgCO = level.RgCO
+        # Handle RgCO linking.  Write the linked value back to the level, as
+        # link_B does for B, so the reported/saved RgCO is the one the curve
+        # was computed with — not the stale value the config arrived with.
         if level.link_RGCO and level_idx > 0:
-            RgCO = prev_Rg
+            level.RgCO = prev_Rg
+        RgCO = level.RgCO
 
         # Handle mass fractal mode
         if level.mass_fractal:
@@ -815,10 +817,10 @@ class UnifiedFitModel:
         level = self.levels[level_idx]
         level.auto_calculate_K()
 
-        RgCO = level.RgCO
         linked_rgco = level.link_RGCO and level_idx > 0
         if linked_rgco:
-            RgCO = prev_Rg
+            level.RgCO = prev_Rg
+        RgCO = level.RgCO
 
         # Match the forward model's derived-B handling (mass_fractal wins).
         if level.mass_fractal:

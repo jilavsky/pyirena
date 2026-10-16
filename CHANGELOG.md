@@ -14,7 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Simple Fits already did. `load_modeling_results()` returns it under
   `residuals` (`None` for older files). Graph Model results carry them too.
 
-### Changed
+### Fixed
+
+- **Unified Fit: a linked RgCO was reported and saved at its starting value.**
+  With "Link RgCutoff" on, the model always computed the upper level with the
+  lower level's current Rg, but never wrote that value back to the level. The
+  GUI hid this by syncing the field after each fit; batch scripting, the
+  control API and MCP did not, so a config whose level 2 started at
+  RgCutoff = 13.1 saved 13.1 for every dataset whatever level 1's Rg fitted
+  to. Fitted G, Rg, B, P were always right; the saved `RgCutoff`, and the
+  level's Invariant and Sv computed from it, were not. The linked value is now
+  stored on the level at every evaluation, as `link_B` already did for B.
+  Files fitted before this fix can be corrected by replacing level 2's RgCO
+  with level 1's Rg and recomputing Invariant/Sv.
 
 - **Modeling: a "Spheroid" population with aspect ratio 1 is no longer ~40x
   slower than "Sphere" for the same answer.** The spheroid orientation average

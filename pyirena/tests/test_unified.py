@@ -273,6 +273,28 @@ class TestUnifiedFitModel:
         assert lvl.fit_PACK_effective is True
         assert len(model._pack_parameters()) == 2
 
+    def test_linked_rgco_tracks_fitted_rg(self):
+        """With link_RGCO, the reported RgCO must be the fitted Rg of the level
+        below — not the stale value the config arrived with.  Batch scripting
+        used to save level 2's RgCutoff unchanged while level 1's Rg moved."""
+        q = np.logspace(np.log10(0.003), np.log10(0.6), 200)
+        truth = UnifiedFitModel(num_levels=2)
+        truth.levels[0] = UnifiedLevel(G=0.5, Rg=12.8, B=6e-5, P=4.0)
+        truth.levels[1] = UnifiedLevel(G=50.0, Rg=200.0, B=1e-6, P=4.0,
+                                       link_RGCO=True)
+        I = truth.calculate_intensity(q)
+
+        model = UnifiedFitModel(num_levels=2)
+        model.levels[0] = UnifiedLevel(G=0.5, Rg=15.0, B=6e-5, P=4.0,
+                                       fit_P=False)
+        model.levels[1] = UnifiedLevel(G=50.0, Rg=200.0, B=1e-6, P=4.0,
+                                       RgCO=15.0, link_RGCO=True, fit_P=False)
+        result = model.fit(q, I, 0.01 * I)
+
+        fitted_rg = result['levels'][0].Rg
+        assert fitted_rg == pytest.approx(12.8, rel=1e-3)
+        assert result['levels'][1].RgCO == fitted_rg
+
 
 class TestComputeInvariantSv:
     """Regression tests for compute_invariant_sv().
