@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **"Order + frame" sort mode** in every file browser (Data Selector, Data
+  Explorer, Data Manipulation, Data Merge) for files named
+  `SampleName_Order_Frame.ext`, where several detector frames are written per
+  measurement. Sorts by the order number, then by frame within it, so a series
+  no longer comes up as every frame 0, then every frame 1, … (#37). Frames
+  stay in acquisition order in both directions. Existing sort selections saved
+  in `state.json` are unaffected.
+
+### Fixed
+
+- Data Explorer: *Collect values* with the X axis taken from a filename value
+  (temperature, time, order number, pressure) failed with an `ImportError`
+  left over from the sort-key consolidation.
+
 ## [1.2.0] - 2026-10-15
 
 First stable release of the 1.2 line. This entry summarises what 1.2.0 brings

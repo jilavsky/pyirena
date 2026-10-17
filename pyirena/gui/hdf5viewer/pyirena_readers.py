@@ -804,12 +804,15 @@ def extract_sort_key_value(filepath: str | Path, sort_index: int) -> float | Non
     """
     Extract a numeric X value from the filename using the sort key at *sort_index*.
 
-    Uses the same _SORT_KEY functions as FileTreeWidget.
+    Uses the shared keys from :mod:`pyirena.core.file_sorting`, the same ones
+    the file tree sorts with.
     """
-    from .file_tree import _SORT_KEYS
+    from pyirena.core.file_sorting import sort_key_for_index
     name = Path(filepath).name
     try:
-        val = _SORT_KEYS[sort_index](name)
+        val = sort_key_for_index(sort_index)(name)
+        if isinstance(val, tuple):     # Order + frame: the order number is the X value
+            val = val[0]
         return float(val) if val != float("inf") else None
     except Exception:
         return None

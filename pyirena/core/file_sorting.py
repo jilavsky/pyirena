@@ -24,7 +24,13 @@ Temperature             ``_<number>C``              ``sample_500C.h5``
 Time                    ``_<number>min``            ``sample_10min.h5``
 Pressure                ``_<number>PSI``            ``sample_100PSI.h5``
 Order number            trailing bare ``_<int>``    ``sample_10min_03.h5``
+Order + frame           ``_<int>_<int>`` at end     ``sample_012_0003.h5``
 ======================  ==========================  ======================
+
+*Order + frame* is for beamlines that write ``SampleName_Order_Frame.ext``:
+several detector frames (0…8 or more) per measurement.  Sorting on the last
+number alone interleaves the series (every frame 1, then every frame 2, …);
+this mode sorts on the order number and then on the frame within it.
 
 Files whose name lacks the pattern sort **last** (the key is ``+inf``), so a
 stray file never lands in the middle of an ordered series.
@@ -33,7 +39,7 @@ stray file never lands in the middle of an ordered series.
 from __future__ import annotations
 
 import re
-from typing import Callable, Iterable, List, Union
+from typing import Callable, Iterable, List, Tuple, Union
 
 __all__ = [
     "SORT_LABELS",
@@ -45,12 +51,13 @@ __all__ = [
     "sort_key_time",
     "sort_key_order",
     "sort_key_pressure",
+    "sort_key_order_frame",
     "sort_key_for_index",
     "is_descending",
     "sort_names",
 ]
 
-SortKey = Union[str, float]
+SortKey = Union[str, float, Tuple[float, float]]
 
 
 # ── Key extractors ────────────────────────────────────────────────────────
@@ -94,10 +101,30 @@ def sort_key_pressure(name: str) -> float:
     return float(m.group(1)) if m else float('inf')
 
 
+def sort_key_order_frame(name: str) -> Union[Tuple[float, float], float]:
+    """(order, frame) from ``SampleName_<order>_<frame>.ext``; +inf when absent.
+
+    Same idea as Irena's sort on the second ``_``-separated number from the
+    end.  Word segments at the end of the stem are skipped exactly as in
+    :func:`sort_key_order`, so ``sample_012_0003_avg.h5`` gives ``(12, 3)``.
+    The two numbers must be adjacent segments: ``sample_5C_0003.h5`` has no
+    order number and sorts last rather than borrowing an unrelated number.
+    """
+    stem = re.sub(r'\.[^.]+$', '', name)
+    parts = stem.split('_')
+    for i in range(len(parts) - 1, 0, -1):
+        if re.fullmatch(r'\d+', parts[i]):
+            if re.fullmatch(r'\d+', parts[i - 1]):
+                return (float(parts[i - 1]), float(parts[i]))
+            return float('inf')
+    return float('inf')
+
+
 # ── The mode list shared by every browser's dropdown ──────────────────────
 #
 # Ascending/descending alternate, so index >> 1 selects the quantity and the
-# low bit selects the direction.  Keep the two lists in step.
+# low bit selects the direction.  Keep the two lists in step, and only ever
+# append: the index is what state.json stores.
 
 SORT_LABELS: List[str] = [
     "Filename A→Z",
@@ -110,6 +137,8 @@ SORT_LABELS: List[str] = [
     "Order number ↓",
     "Pressure ↑",
     "Pressure ↓",
+    "Order + frame ↑",
+    "Order + frame ↓",
 ]
 
 SORT_KEYS: List[Callable[[str], SortKey]] = [
@@ -123,6 +152,8 @@ SORT_KEYS: List[Callable[[str], SortKey]] = [
     sort_key_order,        # 7 Order number ↓
     sort_key_pressure,     # 8 Pressure ↑
     sort_key_pressure,     # 9 Pressure ↓
+    sort_key_order_frame,  # 10 Order + frame ↑
+    sort_key_order_frame,  # 11 Order + frame ↓
 ]
 
 #: Order number ↑ — what a measurement series is usually in already.
@@ -135,6 +166,8 @@ SORT_TOOLTIP = (
     "  Time         : _50min    (e.g. sample_10min.h5)\n"
     "  Pressure     : _100PSI   (e.g. sample_100PSI.h5)\n"
     "  Order number : trailing _12  (e.g. sample_10min_03.h5)\n"
+    "  Order + frame: _12_3  order, then frame within it\n"
+    "                 (e.g. sample_012_0003.h5)\n"
     "Matching is case-insensitive.  Files without the pattern sort last."
 )
 
@@ -162,6 +195,9 @@ def sort_names(names: Iterable[str], index: int = DEFAULT_SORT_INDEX) -> List[st
     stray average — above the hottest measurement.  Among themselves they keep
     the order they arrived in.
 
+    For *Order + frame* only the order number follows the direction; frames
+    within one measurement always stay in acquisition order (0, 1, 2, …).
+
     Args:
         names: File names (not paths — the patterns are matched on the name).
         index: Position in :data:`SORT_LABELS`.
@@ -181,6 +217,9 @@ def sort_names(names: Iterable[str], index: int = DEFAULT_SORT_INDEX) -> List[st
             return (1, 0.0)
         # Sorting ascending on a negated value gives descending order while
         # leaving the "missing" flag above untouched.
+        if isinstance(value, tuple):     # (order, frame): frame always ascending
+            order, frame = value
+            return (0, -order if descending else order, frame)
         return (0, -value if descending else value)
 
     return sorted(names, key=ordering)

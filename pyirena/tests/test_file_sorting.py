@@ -21,6 +21,7 @@ from pyirena.core.file_sorting import (
     sort_key_for_index,
     sort_key_name,
     sort_key_order,
+    sort_key_order_frame,
     sort_key_pressure,
     sort_key_temperature,
     sort_key_time,
@@ -80,6 +81,19 @@ def test_order_key(name, expected):
     assert sort_key_order(name) == expected
 
 
+@pytest.mark.parametrize("name,expected", [
+    ("sample_012_0003.h5", (12.0, 3.0)),
+    ("sample_500C_012_0003.h5", (12.0, 3.0)),
+    ("sample_012_0003_avg.h5", (12.0, 3.0)),   # word suffixes are skipped
+    ("sample_012_0.dat", (12.0, 0.0)),         # frames may start at 0
+    ("sample_012.h5", INF),                    # no frame number
+    ("sample_5C_0003.h5", INF),                # numbers must be adjacent
+    ("sample.h5", INF),
+])
+def test_order_frame_key(name, expected):
+    assert sort_key_order_frame(name) == expected
+
+
 def test_name_key_is_case_insensitive():
     assert sort_key_name("Sample.H5") == "sample.h5"
 
@@ -113,7 +127,7 @@ def test_default_is_order_number_ascending():
 
 
 def test_tooltip_documents_every_pattern():
-    for token in ("_25C", "_50min", "_100PSI", "_12"):
+    for token in ("_25C", "_50min", "_100PSI", "_12", "_12_3"):
         assert token in SORT_TOOLTIP
 
 
@@ -177,3 +191,45 @@ def test_sort_names_does_not_modify_the_input():
 
 def test_filename_sort_still_reverses_wholesale():
     assert sort_names(["b.h5", "a.h5", "c.h5"], 1) == ["c.h5", "b.h5", "a.h5"]
+
+
+# ── Order + frame (SampleName_Order_Frame.ext) ───────────────────────────
+
+ORDER_FRAME = "Order + frame ↑"
+
+FRAMES = [
+    "s_0002_0001.hdf5", "s_0001_0002.hdf5", "s_0002_0000.hdf5",
+    "s_0001_0000.hdf5", "s_0001_0001.hdf5", "s_0002_0002.hdf5",
+    "notes.hdf5",
+]
+
+
+def test_order_number_alone_interleaves_frame_series():
+    """The reason the mode exists: the last number is the frame, not the run."""
+    by_last = sort_names(FRAMES, DEFAULT_SORT_INDEX)
+    assert by_last[:2] == ["s_0002_0000.hdf5", "s_0001_0000.hdf5"]
+
+
+def test_order_frame_groups_each_measurement():
+    assert sort_names(FRAMES, SORT_LABELS.index(ORDER_FRAME)) == [
+        "s_0001_0000.hdf5", "s_0001_0001.hdf5", "s_0001_0002.hdf5",
+        "s_0002_0000.hdf5", "s_0002_0001.hdf5", "s_0002_0002.hdf5",
+        "notes.hdf5",
+    ]
+
+
+def test_order_frame_descending_keeps_frames_in_acquisition_order():
+    assert sort_names(FRAMES, SORT_LABELS.index(ORDER_FRAME) + 1) == [
+        "s_0002_0000.hdf5", "s_0002_0001.hdf5", "s_0002_0002.hdf5",
+        "s_0001_0000.hdf5", "s_0001_0001.hdf5", "s_0001_0002.hdf5",
+        "notes.hdf5",
+    ]
+
+
+def test_existing_mode_indices_are_unchanged():
+    """state.json stores the index; new modes are appended, never inserted."""
+    assert SORT_LABELS[:10] == [
+        "Filename A→Z", "Filename Z→A", "Temperature ↑", "Temperature ↓",
+        "Time ↑", "Time ↓", "Order number ↑", "Order number ↓",
+        "Pressure ↑", "Pressure ↓",
+    ]
