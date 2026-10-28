@@ -16,7 +16,8 @@ api.inspect_file("/data/run42/scan_007.h5")
 # Reading
 api.read_reduced_data("scan_007.h5")
 api.read_unified_fit("scan_007.h5")        # arrays decimated by default
-api.read_modeling("scan_007.h5")
+api.read_modeling("scan_007.h5")           # include_arrays=True adds residuals
+api.read_carbon_fit("scan_007.h5")         # 'derived' holds surface areas, L_c, L_a
 
 # Aggregation
 api.tabulate_parameter("/data/run42",
@@ -49,6 +50,24 @@ api.divide_data("s1.h5", "reference.h5")
 api.match_merge_files("usaxs/", "saxs/")           # read-only pairing helper
 ```
 
+The fitting control surface lives in `pyirena.api.control` (one module per
+fitting tool, plus session handling). Two calls there are worth knowing even
+if you never drive a fit step by step:
+
+```python
+from pyirena.api import control
+
+# Fit one curve the way a saved setup says: opens, fits and closes a session.
+report = control.analyze({"q": q, "intensity": I, "error": dI}, config)
+
+# Any finished fit as one JSON document; its 'config' replays the fit
+# when handed back to analyze() as config.
+control.export_results(session_id, include_arrays=True)
+
+# A session from arrays rather than a file (save_* then needs output_path).
+control.open_dataset_from_data(q, I, error=dI, label="sample_A")
+```
+
 ## Environment overrides
 
 | Variable | Purpose | Default |
@@ -63,7 +82,7 @@ api.match_merge_files("usaxs/", "saxs/")           # read-only pairing helper
 `pyirena.io.schema.TOOL_REGISTRY`:
 
 - `simple_fits`, `unified_fit`, `size_distribution`
-- `modeling`, `saxs_morph`, `waxs_peakfit`
+- `modeling`, `saxs_morph`, `waxs_peakfit`, `carbon_fit`
 - `fractals`, `data_merge`, `data_manipulation`
 
 Each tool's available scalar parameters are listed in
@@ -77,7 +96,10 @@ require a `subgroup_index` argument (1-based).
 - Numpy arrays in returned dicts are decimated to bounded length and
   NaN/inf are replaced with `None` so output is strict-JSON-safe.
 - Set `include_arrays=True` on result readers to keep arrays (still
-  decimated to `max_points`). Set `include_full=True` on
+  decimated to `max_points`). Units follow the files: Q in 1/Å,
+  intensities in 1/cm, size grids in Å, volume distributions in volume
+  fraction per Å, and number distributions in 1/(cm³·Å) (the Irena unit;
+  files written before 1.2.0 are rescaled on read). Set `include_full=True` on
   `read_reduced_data` for full-fidelity I(Q).
 - **Calculators are the exception to the two rules above.** They answer
   experiment-planning questions from first principles rather than reading a

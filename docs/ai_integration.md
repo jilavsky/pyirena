@@ -44,24 +44,30 @@ AI summarises in plain language.
 ```
 
 The MCP server is a small process that the AI client spawns on demand. It
-exposes four families of tools — see
+exposes five families of tools — see
 [ai_tools_reference.md](ai_tools_reference.md):
 
 - **Read-only tools** (`pyirena_` prefix) — discovery, per-tool result
-  reading, parameter aggregation across files, headless plotting
+  reading (one `pyirena_read_<tool>` per fitting tool, Carbon model
+  included), parameter aggregation across files, headless plotting
   (e.g. `pyirena_summarize_folder`, `pyirena_list_files`).
 - **Control tools** — drive fitting interactively and write results back
   to HDF5. **Every fitting tool** is covered: Unified Fit, Size
-  Distribution, Simple Fits, Modeling and WAXS Peak Fit. Session
-  lifecycle (`pyirena_ctrl_open_dataset` and friends) is its own MCP
-  tool; everything else — model selection, parameters, fit execution,
+  Distribution, Simple Fits, Modeling, WAXS Peak Fit and the Carbon
+  model. Session lifecycle (`pyirena_ctrl_open_dataset`,
+  `pyirena_ctrl_open_dataset_from_data` for arrays with no file, and
+  friends) is its own MCP tool; everything else — model selection, parameters, fit execution,
   quality, persistence (`*_save_fit`) — is reached through a small fixed
   dispatcher (`pyirena_list_categories` / `pyirena_list_tools` /
   `pyirena_describe_tool` / `pyirena_call`) instead of one MCP tool per
-  function, so the server's registered tool count stays small (~26)
+  function, so the server's registered tool count stays small (28)
   regardless of how many control functions exist. These tools are
   stateful (session-based) and, unlike the read-only tools, can modify
   files.
+- **Results** — `analyze` fits a curve with a saved configuration in one
+  call (opening and closing its own session), and `export_results`
+  returns any finished fit as one JSON document whose `config` replays it.
+  Dispatcher category `results`.
 - **Calculators** — stateless support calculations that need no dataset
   and open no session: scattering contrast and scattering length
   densities from chemical formulas and densities, anomalous contrast and
@@ -247,7 +253,8 @@ You should get a JSON response with server capabilities. Then:
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 ```
 
-The `tools/list` response should enumerate 18 pyirena tools.
+The `tools/list` response should enumerate 28 pyirena tools: 19 read/plot tools, 5
+session-lifecycle tools and the 4 dispatcher tools.
 
 ### 3. Browser inspector (recommended for interactive testing)
 
@@ -289,7 +296,7 @@ fetched on the fly.
   a fully trusted client (e.g. local CLI), never when exposing the server
   to a remote agent.
 - Stdio transport: the MCP process inherits its parent client's
-  credentials. There is no separate auth layer in v0.7.
+  credentials. There is no separate auth layer.
 - Array size bounding: large arrays are decimated to
   `PYIRENA_MAX_ARRAY_POINTS` to prevent context-window blowup or
   denial-of-service via huge response payloads.
@@ -329,6 +336,10 @@ api.calc_contrast("TiO", 4.95, "Ti2O3", 4.49)["xray_contrast"]  # 11.63
 api.average_data(["/data/run42/f001.h5", "/data/run42/f002.h5"])
 api.subtract_data("/data/run42/sample.h5", "/data/run42/buffer.h5")
 api.merge_datasets("/data/usaxs/s_001.h5", "/data/saxs/s_001.h5")
+
+# Fit a new curve the way a saved setup says, in one call
+from pyirena.api import control
+control.analyze({"q": q, "intensity": I, "error": dI}, config)
 ```
 
 See [pyirena/api/README.md](../pyirena/api/README.md) for a complete

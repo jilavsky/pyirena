@@ -16,8 +16,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer comes up as every frame 0, then every frame 1, … (#37). Frames
   stay in acquisition order in both directions. Existing sort selections saved
   in `state.json` are unaffected.
+- **`pyirena_read_carbon_fit` MCP tool.** Carbon model result files could be
+  fitted and saved over MCP but not read back: `pyirena.api.read_carbon_fit`
+  existed with no MCP wrapper, unlike every other tool's reader. The server
+  now registers 28 tools (19 read tools).
 
 ### Fixed
+
+- **Modeling residuals did not reach agents.** 1.2.0 started saving
+  `modeling_results/residuals`, but `pyirena.api.read_modeling` (and so
+  `pyirena_read_modeling`) dropped them, and `export_results` left them out
+  of a Modeling session's `arrays`, unlike the other tools. Both now return
+  them; `read_modeling` gives `None` for files written before 1.2.0.
+- **MCP descriptions trailed 1.2.0.** The server's connect-time instructions
+  said "five fitting models" and never mentioned the Carbon model or the
+  `results` category (`analyze`, `export_results`); they now cover both, with
+  a Carbon workflow like the other tools'. The Sizes and Modeling read tools
+  now state their array units, including number distributions in
+  1/(cm³·Å) (the 1.2.0 Irena units), and `pyirena_read_saxs_morph` says that
+  SAXS Morph fitting was removed and the reader is for older files.
+- **AI docs caught up with 1.2.0.** `docs/ai_tools_reference.md`,
+  `docs/ai_integration.md` and `pyirena/api/README.md` had not changed since
+  1.1.1. They now cover the Carbon model category, the `results` category
+  (`analyze`, `export_results`), `open_dataset_from_data`, the Unified
+  level-option and feasibility tools, `no_limits` on every fit, the Voigt
+  peak shape, and array units. One statement was wrong, not just missing:
+  the reference said `merge_datasets` always fits a background, but
+  `fit_background=false` has been able to hold it fixed since 1.2.0b1. A new
+  check in `test_tool_registration.py` fails when a tool has an api reader
+  but no `pyirena_read_<tool>` MCP wrapper.
 
 - Data Explorer: *Collect values* with the X axis taken from a filename value
   (temperature, time, order number, pressure) failed with an `ImportError`

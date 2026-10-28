@@ -19,7 +19,7 @@ def test_mcp_module_imports_and_registers_tools():
         "pyirena_read_simple_fit", "pyirena_read_unified_fit",
         "pyirena_read_size_distribution",
         "pyirena_read_modeling", "pyirena_read_saxs_morph",
-        "pyirena_read_waxs_peakfit",
+        "pyirena_read_waxs_peakfit", "pyirena_read_carbon_fit",
         "pyirena_read_fractals", "pyirena_read_merge_provenance",
         "pyirena_read_manipulation_provenance",
         "pyirena_tabulate_parameter", "pyirena_summarize_sample",

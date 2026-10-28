@@ -206,6 +206,7 @@ def test_modeling_reports_per_population_curves(fitted_sessions):
     )["arrays"]
     pops = arrays["populations"]
     assert pops and len(pops[0]["intensity"]) == arrays["n_points"]
+    assert len(arrays["residuals"]) == arrays["n_points"]
 
 
 def test_carbon_reports_its_three_components(fitted_sessions):

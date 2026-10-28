@@ -179,7 +179,7 @@ user reports six months later.
 | 5 | `_TOOL_REGISTRY` | `batch/pipeline.py` | `fit_pyirena` **silently skips** your config section. |
 | 6 | defaults block | `state/state_manager.py` | Panel settings do not survive a restart. |
 | 7 | `_build_report` kwarg + section | `core/reporting.py` | Results never appear in the Markdown report, the Data Selector report, or `export_fit_report`. |
-| 8 | `read_<tool>()` + result dataclass | `api/results.py`, `api/schemas.py` | Invisible to scripting, MCP and the AI advisor. |
+| 8 | `read_<tool>()` + result dataclass, and its `pyirena_read_<tool>` wrapper | `api/results.py`, `api/schemas.py`, `mcp/server.py` | Invisible to scripting, MCP and the AI advisor. Readers are top-level MCP tools, **not** dispatched — without the wrapper an agent can fit and save the tool but not read a saved file. Bump the locked counts in `tests/api/test_control_schemas.py`. |
 | 9 | control module + `TOOL_SCHEMA_BY_NAME` | `api/control/<tool>.py`, `api/control/schemas.py`, `api/control/__init__.py` | Agents can read the tool's results but cannot drive it. Only needed if the tool is agent-drivable. |
 | 10 | `_CATEGORY_BY_MODULE` + `_CATEGORY_BLURBS` | `mcp/dispatch.py` | The control functions exist but no MCP client can reach them. The dispatcher picks up individual *functions* automatically — the **category** is what you register. |
 | 11 | detection + `_collect_<tool>` | `gui/hdf5viewer/pyirena_readers.py` | Results invisible to the Data Explorer. |

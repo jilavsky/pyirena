@@ -113,18 +113,27 @@ mcp = FastMCP(
         "to the user's saved compound library ('list_compound_library', "
         "'load_compound'). "
         "\n\n"
-        "Five fitting models are available — Unified Fit, Size Distribution "
-        "(Sizes), Simple Fits, Modeling and WAXS Peak Fit — matching the "
-        "dispatcher categories 'unified', 'sizes', 'simple', 'modeling', "
-        "'waxs' (the 'calculators' and 'data' categories are described "
-        "above). Prefer "
+        "RESULTS (dispatcher category 'results'): 'analyze' fits a curve "
+        "with a saved pyirena configuration in one call, and "
+        "'export_results' returns a finished fit from any tool as one JSON "
+        "document (parameters, quality, derived quantities, replayable "
+        "config). "
+        "\n\n"
+        "Six fitting models are available — Unified Fit, Size Distribution "
+        "(Sizes), Simple Fits, Modeling, WAXS Peak Fit and the Carbon model "
+        "— matching the dispatcher categories 'unified', 'sizes', 'simple', "
+        "'modeling', 'waxs', 'carbon' (the 'calculators', 'data' and "
+        "'results' categories are described above). Prefer "
         "Simple Fits when the question is about one feature over a "
         "restricted Q range (an Rg, a Porod slope, the invariant); Unified "
         "Fit for a whole multi-level curve; Sizes to invert a dilute single "
         "population to a size histogram; Modeling when the curve needs "
         "several components at once or a specific form factor (core-shell, "
         "cylinder); WAXS Peak Fit for wide-angle patterns where the "
-        "questions are peak position, width and integrated area. "
+        "questions are peak position, width and integrated area; the Carbon "
+        "model for a disordered carbon measured from USAXS through WAXS, "
+        "fitted as one model (grain surface, micropores, turbostratic "
+        "stacking). "
         "Unified Fit workflow: pyirena_ctrl_open_dataset() → session_id → "
         "pyirena_call('select_model', {...}) → "
         "pyirena_call('fix_all_except', {...}) → "
@@ -163,6 +172,14 @@ mcp = FastMCP(
         "pyirena_call('run_waxs_fit', {...}) → "
         "pyirena_call('get_waxs_results', {...}) (positions, widths, areas) → "
         "pyirena_call('save_waxs_fit', {...}). "
+        "Carbon workflow (category 'carbon'): pyirena_ctrl_open_dataset() → "
+        "pyirena_call('select_carbon_model', {...}) → configure_carbon_model "
+        "(optional) → pyirena_call('list_carbon_parameters', {...}) → "
+        "set_carbon_parameter / set_carbon_parameter_fit → "
+        "pyirena_call('run_carbon_fit', {...}) (always the whole Q range at "
+        "once) → pyirena_call('get_carbon_results', {...}) (read 'derived' "
+        "for surface areas, pore/wall widths, L_c, L_a) → "
+        "pyirena_call('save_carbon_fit', {...}). "
         "The session tools and Q-range tools (set_fit_q_range etc, category "
         "'unified') are shared between all five fitting tools (Modeling has "
         "its own set_modeling_q_range). "
@@ -260,7 +277,13 @@ def pyirena_read_unified_fit(path: str, include_arrays: bool = False,
 @mcp.tool()
 def pyirena_read_size_distribution(path: str, include_arrays: bool = False,
                                    max_points: int = 500) -> dict:
-    """Read Size Distribution fit results — Vf, Rg, r_grid, distribution."""
+    """Read Size Distribution fit results — Vf, Rg, r_grid, distribution.
+
+    Arrays are omitted by default; include_arrays=True adds them. Units:
+    Q 1/Å, intensities 1/cm, residuals (I-I_model)/σ, r_grid Å,
+    distribution volume fraction/Å, number_dist 1/(cm³·Å) (Irena units),
+    cumul_vol_dist volume fraction.
+    """
     return papi.read_size_distribution(path=path, include_arrays=include_arrays,
                                         max_points=max_points)
 
@@ -268,15 +291,39 @@ def pyirena_read_size_distribution(path: str, include_arrays: bool = False,
 @mcp.tool()
 def pyirena_read_modeling(path: str, include_arrays: bool = False,
                           max_points: int = 500) -> dict:
-    """Read parametric Modeling results (size_dist / unified_level / diff_peak / fractal pops)."""
+    """Read parametric Modeling results (size_dist / unified_level / diff_peak / fractal pops).
+
+    Arrays are omitted by default; include_arrays=True adds them. Units:
+    model_q 1/Å, model_I 1/cm, residuals (I-I_model)/σ on model_q (None for
+    files written before pyirena 1.2.0). size_dist populations also carry
+    radius_grid Å, volume_dist volume fraction/Å, number_dist 1/(cm³·Å).
+    """
     return papi.read_modeling(path=path, include_arrays=include_arrays,
                                max_points=max_points)
+
+
+@mcp.tool()
+def pyirena_read_carbon_fit(path: str, include_arrays: bool = False,
+                            max_points: int = 500) -> dict:
+    """Read Carbon model results — full-range SAXS+WAXS fit of a disordered carbon.
+
+    ``derived`` holds the materials quantities (surface areas, pore and wall
+    widths, stack height, d-spacings) and is usually what you want; ``params``
+    are the fit coefficients. ``found`` is False when the file has no Carbon
+    results. Arrays (Q 1/Å; I_model, I_porod, I_mp, I_waxs, intensity_data
+    1/cm; residuals (I-I_model)/σ) are omitted unless include_arrays=True.
+    """
+    return papi.read_carbon_fit(path=path, include_arrays=include_arrays,
+                                max_points=max_points)
 
 
 @mcp.tool()
 def pyirena_read_saxs_morph(path: str, include_arrays: bool = False,
                             max_points: int = 500) -> dict:
     """Read SAXS Morph results — voxelgram-based forward modeling output.
+
+    For files written by older pyirena: SAXS Morph fitting was removed in
+    1.2.0, and the tool now only builds and visualises a structure.
 
     Note: the 3-D voxelgram itself is intentionally not returned; only
     derived scalar parameters and 1-D curves.

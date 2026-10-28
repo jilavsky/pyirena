@@ -171,7 +171,17 @@ def read_unified_fit(path: str, include_arrays: bool = False,
 
 def read_size_distribution(path: str, include_arrays: bool = False,
                            max_points: Optional[int] = None) -> dict:
-    """Read Size Distribution results."""
+    """Read Size Distribution results.
+
+    Array units (returned with ``include_arrays=True``): ``Q`` 1/Å;
+    ``intensity_data`` / ``intensity_model`` / ``intensity_error`` 1/cm;
+    ``residuals`` (I_data − I_model)/σ, dimensionless; ``r_grid`` Å;
+    ``distribution`` / ``distribution_std`` volume fraction per Å;
+    ``number_dist`` 1/(cm³·Å), the Irena unit; ``cumul_vol_dist`` volume
+    fraction.  Files written before 1.2.0 stored ``number_dist`` per Å³ of
+    sample (1e24 smaller); the loader rescales them, so every file reads in
+    the units above.
+    """
     file_p = resolve_safe_file(path)
     result = SizeDistResult(path=str(file_p))
     from pyirena.io.nxcansas_sizes import load_sizes_results
@@ -215,7 +225,15 @@ def read_size_distribution(path: str, include_arrays: bool = False,
 
 def read_modeling(path: str, include_arrays: bool = False,
                   max_points: Optional[int] = None) -> dict:
-    """Read parametric Modeling results (size_dist, unified_level, etc.)."""
+    """Read parametric Modeling results (size_dist, unified_level, etc.).
+
+    Array units (returned with ``include_arrays=True``): ``model_q`` 1/Å;
+    ``model_I`` 1/cm; ``residuals`` (I_data − I_model)/σ on ``model_q``,
+    dimensionless, and None for files written before 1.2.0.  Per size_dist
+    population: ``radius_grid`` Å, ``volume_dist`` volume fraction per Å,
+    ``number_dist`` 1/(cm³·Å), the Irena unit (pre-1.2.0 files, 1e24
+    smaller, are rescaled on load), ``model_I`` 1/cm.
+    """
     file_p = resolve_safe_file(path)
     result = ModelingResult(path=str(file_p))
     from pyirena.io.nxcansas_modeling import load_modeling_results
@@ -237,6 +255,7 @@ def read_modeling(path: str, include_arrays: bool = False,
             pass
     result.model_q = _arr(raw, "model_q", max_points, include_arrays)
     result.model_I = _arr(raw, "model_I", max_points, include_arrays)
+    result.residuals = _arr(raw, "residuals", max_points, include_arrays)
 
     pops_out: list = []
     for pd in raw.get("populations", []) or []:

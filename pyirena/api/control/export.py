@@ -239,6 +239,7 @@ def _export_modeling(s: Session, include_arrays: bool, max_points) -> dict:
             error=s.error[mask] if s.error is not None else None,
             intensity_model=r.model_I,
             intensity_model_ideal=getattr(r, "model_I_ideal", None),
+            residuals=getattr(r, "residuals", None),
         )
         # Per-population curves are the point of a Modeling fit — they show
         # which population carries which decade.

@@ -298,6 +298,23 @@ def test_api_exposes_a_reader_for_every_tool():
         assert hasattr(api, row["api"]), f"{tool}: pyirena.api has no {row['api']}()"
 
 
+def test_mcp_wraps_every_api_reader():
+    """Readers are top-level MCP tools, not dispatched: each needs its own wrapper.
+
+    The Carbon model shipped with ``read_carbon_fit`` but no
+    ``pyirena_read_carbon_fit``, so agents could fit and save a carbon but not
+    read a saved one back.
+    """
+    src = _src("pyirena/mcp/server.py")
+    for tool, row in TOOLS.items():
+        if row["api"] is None:
+            continue
+        assert re.search(rf"^def pyirena_{row['api']}\(", src, re.M), (
+            f"{tool}: mcp/server.py has no pyirena_{row['api']}() wrapping "
+            f"pyirena.api.{row['api']}"
+        )
+
+
 def test_control_modules_exist_and_are_dispatched():
     from pyirena.mcp import dispatch
 

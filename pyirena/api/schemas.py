@@ -348,6 +348,8 @@ class ModelingResult(_BaseToolResult):
     timestamp: Optional[str] = None
     model_q: Optional[list] = None
     model_I: Optional[list] = None
+    # (I_data - I_model)/sigma on model_q; None for files written before 1.2.0.
+    residuals: Optional[list] = None
     populations: list = field(default_factory=list)   # list of ModelingPopulation
 
 

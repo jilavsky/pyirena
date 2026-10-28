@@ -41,6 +41,21 @@ def test_modeling_residuals_roundtrip(tmp_path):
         assert f["entry/modeling_results/residuals"].attrs["units"] == "dimensionless"
 
 
+
+def test_modeling_residuals_reach_the_agent_reader(tmp_path):
+    """pyirena.api.read_modeling (and pyirena_read_modeling over MCP) returns them."""
+    from pyirena.api import read_modeling
+
+    res, *_ = _modeling_fit()
+    out = tmp_path / "mod.h5"
+    save_modeling_results(out, res)
+
+    assert read_modeling(str(out))["residuals"] is None   # arrays are opt-in
+    got = read_modeling(str(out), include_arrays=True)
+    np.testing.assert_allclose(got["residuals"], res.residuals)
+    assert len(got["residuals"]) == len(got["model_q"])
+
+
 def test_modeling_number_dist_is_per_cm3(tmp_path):
     res, *_ = _modeling_fit()
     r = res.radius_grids[0]

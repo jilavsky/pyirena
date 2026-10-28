@@ -11,18 +11,19 @@ questions about a user's analysis data.
 > **Tool surface at a glance:**
 > - `pyirena_*` — read-only tools that query existing fit results, plus
 >   discovery and plotting.
-> - `pyirena_ctrl_open_dataset` / `list_open_sessions` / `close_session` /
->   `get_session_summary` — session lifecycle, always available as their
->   own MCP tools.
+> - `pyirena_ctrl_open_dataset` / `open_dataset_from_data` /
+>   `list_open_sessions` / `close_session` / `get_session_summary` —
+>   session lifecycle, always available as their own MCP tools.
 > - Everything else that drives fitting — model selection, parameters,
->   fit execution, quality, persistence, across all five fitting tools —
->   plus the stateless **calculators** (scattering contrast and friends)
->   and the **data operations** (average, subtract, merge, ...),
+>   fit execution, quality, persistence, across all six fitting tools —
+>   plus one-call fitting and export (**results**: `analyze`,
+>   `export_results`), the stateless **calculators** (scattering contrast
+>   and friends) and the **data operations** (average, subtract, merge, ...),
 >   is **not** its own MCP tool any more. It is reached through a fixed
 >   4-tool dispatcher: `pyirena_list_categories()`, `pyirena_list_tools
 >   (category)`, `pyirena_describe_tool(name)`, and `pyirena_call(name,
 >   arguments)`. This keeps pyirena-mcp's registered tool count small
->   (~26) regardless of how many `pyirena.api.control` functions exist —
+>   (28) regardless of how many `pyirena.api.control` functions exist —
 >   large MCP tool counts can exceed provider-side caps on the number of
 >   tools in a single request (e.g. a 128-tool limit observed via one
 >   gateway proxy).
@@ -60,8 +61,12 @@ baseline, merging USAXS with SAXS — and write the result as a new file.
 - **Modeling** — parametric forward model with multiple populations:
   size-distribution, unified-level, diffraction-peak, Guinier-Porod,
   mass-fractal, surface-fractal.
-- **SAXS Morph** — voxelgram-based forward modeling.
+- **SAXS Morph** — voxelgram-based forward modeling (files from before
+  1.2.0; SAXS Morph no longer fits).
 - **WAXS Peak Fit** — per-peak position, FWHM, amplitude, area.
+- **Carbon model** — one fit of a disordered carbon from USAXS through
+  WAXS, with derived surface areas, pore and wall widths, stack height and
+  lattice spacings.
 - **Fractals** — grown mass-fractal aggregates (Z, df, dmin, c, Rg).
 - **Data Merge / Data Manipulation** — provenance for combined or
   transformed datasets.
@@ -89,7 +94,7 @@ than measured — above all a scattering contrast, which several fitting
 models need as an input. **Do not derive a contrast by hand**; the values
 `calc_contrast` returns are already in the units the fitting tools expect.
 
-### Control-mode fitting (all five tools)
+### Control-mode fitting (all six tools)
 
 The control tools, dispatched through `pyirena_call`, let you drive
 pyirena's fitting models end-to-end. Every fitting tool is now drivable,
@@ -110,6 +115,16 @@ one dispatcher category each:
 - **WAXS Peak Fit** — category `"waxs"` (background choice, peak
   finding, per-peak shape/position/width, integrated areas). See
   [WAXS control tools](#control-tools-reference--waxs-peak-fit-dispatcher-category-waxs).
+- **Carbon model** — category `"carbon"` (grain Porod background,
+  micropores, turbostratic diffraction peaks, and the density → contrast
+  chain that ties them together). See
+  [Carbon model control tools](#control-tools-reference--carbon-model-dispatcher-category-carbon).
+
+Two more categories work across the six tools: **`"results"`** —
+`analyze` fits a curve with a saved configuration in one call, and
+`export_results` returns any finished fit as one JSON document (see
+[Results](#results--one-call-fitting-and-export-dispatcher-category-results))
+— and the shared session tools.
 
 **Which to reach for.** Simple Fits answers one focused question over a
 restricted Q range ("what is Rg here?", "what is the Porod slope?") and is the
@@ -121,14 +136,19 @@ Modeling is the most powerful and the most work: use it when the curve needs
 particles plus a diffraction peak — or when a specific form factor
 (core-shell, cylinder) matters. WAXS Peak Fit is for wide-angle patterns:
 crystalline reflections on an amorphous background, where the questions are
-peak position, width and integrated area.
+peak position, width and integrated area. The Carbon model is for disordered
+carbons (glassy, hard, activated and carbide-derived carbons) measured over the
+whole SAXS + WAXS range: it fits grain surface, micropores and turbostratic
+stacking as one model, because the contrast that scales the SAXS terms comes
+from the fitted peak positions.
 
 Sessions are in-memory for the lifetime of the MCP server process and
 persist across tool calls within a conversation. The session lifecycle
-(`open_dataset`, `list_open_sessions`, `close_session`,
-`get_session_summary`) and the Q-range tools (`get_data_q_range`,
-`get_fit_q_range`, `set_fit_q_range`, `reset_fit_q_range`) are **shared**
-between all five tools (Modeling brings its own Q range).
+(`open_dataset`, `open_dataset_from_data`, `list_open_sessions`,
+`close_session`, `get_session_summary`) and the Q-range tools
+(`get_data_q_range`, `get_fit_q_range`, `set_fit_q_range`,
+`reset_fit_q_range`) are **shared** between all six tools (Modeling brings
+its own Q range).
 
 ---
 
@@ -233,8 +253,11 @@ hierarchical structure with multiple Rg's.
 #### `pyirena_read_size_distribution(path)`
 Returns `{method, shape, volume_fraction, rg, chi_squared, n_iterations,
 q_power, r_min, r_max, n_bins, ...}`. With `include_arrays=True`:
-`r_grid`, `distribution` (volume-weighted P(r)), `number_dist`,
-`cumul_vol_dist`.
+`r_grid` (Å), `distribution` (volume-weighted P(r), volume fraction per
+Å), `number_dist` (1/(cm³·Å), the Irena unit), `cumul_vol_dist` (volume
+fraction), plus `Q` (1/Å), the intensities (1/cm) and `residuals`
+((I−I_model)/σ). Files written before pyirena 1.2.0 stored `number_dist`
+1e24 smaller; the reader rescales them, so every file reads in these units.
 
 #### `pyirena_read_modeling(path)`
 Returns `{chi_squared, background, populations: [...]}` where each
@@ -242,19 +265,33 @@ population has `{pop_type, label, parameters{}, derived{}}`. `pop_type`
 is one of: `size_dist`, `unified_level`, `diffraction_peak`,
 `guinier_porod`, `mass_fractal`, `surface_fractal`. Population
 parameters vary by type — refer to the `parameters` dict for what's
-present.
+present. With `include_arrays=True`: `model_q` (1/Å), `model_I` (1/cm) and
+`residuals` ((I−I_model)/σ on `model_q`; `null` for files written before
+pyirena 1.2.0), and per size-distribution population `radius_grid` (Å),
+`volume_dist` (volume fraction per Å) and `number_dist` (1/(cm³·Å)).
 
 #### `pyirena_read_saxs_morph(path)`
 Returns `{chi_squared, volume_fraction, contrast, rg_A, phi_actual,
 voxel_size, box_size_A, morphology_metrics: {...}, ...}`. The 3-D
 voxelgram itself is intentionally not exposed (too large). Morphology
 metrics include pore-size statistics, Euler number, open/closed
-porosity.
+porosity. SAXS Morph fitting was removed in pyirena 1.2.0, so `chi_squared`
+and the fitted values only appear in files written before that.
 
 #### `pyirena_read_waxs_peakfit(path)`
 Returns `{n_peaks, bg_shape, chi_squared, bg_params{}, peaks: [...]}`
 where each peak has `{shape, params{Q0, A, FWHM, eta, ...},
 params_std{}, area, area_std}`.
+
+#### `pyirena_read_carbon_fit(path)`
+Returns `{found, success, formula, saxs_mode, waxs_envelope, n_peaks,
+chi_squared, reduced_chi_squared, q_min, q_max, params{}, params_std{},
+derived{}, fit_quality}`. **`derived` is usually the answer**: BET-comparable
+specific surface areas, pore and wall widths, stack height L_c, layer count,
+layer extent L_a, lattice spacings and densities. `params` holds the fit
+coefficients under dotted keys (`saxs.pore_radius`, `peak.002.Q0`). With
+`include_arrays=True`: `Q` (1/Å), `I_model`, `I_porod`, `I_mp`, `I_waxs`,
+`intensity_data`, `intensity_error` (1/cm) and `residuals`.
 
 #### `pyirena_read_fractals(path)`
 Returns metadata for each grown fractal aggregate in the file:
@@ -459,7 +496,7 @@ Resample onto a new Q grid. `mode="log"` is the usual choice for SAS;
 Because interpolation does not extrapolate, the result can be shorter than
 `n_points`.
 
-#### `merge_datasets(file1, file2, q_overlap_min=None, q_overlap_max=None, fit_scale=True, scale_dataset=2, fixed_scale_value=1.0, fit_qshift=False, fixed_qshift_value=0.0, qshift_dataset=0, split_at_left_cursor=False, output_folder=None)`
+#### `merge_datasets(file1, file2, q_overlap_min=None, q_overlap_max=None, fit_scale=True, scale_dataset=2, fixed_scale_value=1.0, fit_background=True, fixed_background_value=0.0, fit_qshift=False, fixed_qshift_value=0.0, qshift_dataset=0, split_at_left_cursor=False, output_folder=None)`
 
 Join two datasets that overlap in Q. **`file1` must be the lower-Q dataset**
 (usually USAXS) — it is the absolute-intensity reference and keeps its
@@ -470,9 +507,12 @@ Omit both overlap bounds to auto-detect (intersect the two Q ranges, trim
 10% off each side). Returns the fitted `scale`, `background`,
 `chi_squared` and `n_overlap_points`.
 
-**A background is always fitted and subtracted from file1** — there is no
-way to force it to zero. Check the returned `background` is small compared
-with the intensities before trusting the merge.
+**By default a constant background is fitted and subtracted from file1.**
+Check the returned `background` is small compared with the intensities
+before trusting the merge. Pass `fit_background=false` to hold it at
+`fixed_background_value` instead (0 for data with no background
+assumption). At least one of `fit_scale` / `fit_background` must stay true:
+a Q shift alone has nothing to optimise against.
 
 Keep `scale_dataset=2` (the default) unless you specifically need file1
 rescaled: it has a closed-form solution, while `scale_dataset=1` falls back
@@ -481,12 +521,16 @@ to slower iterative fitting.
 Mixing slit-smeared USAXS with pinhole SAXS is normal and allowed; anything
 worth knowing comes back in `slit_warning`.
 
-#### `match_merge_files(folder1, folder2)`
+#### `match_merge_files(folder1, folder2, strip1=None, strip2=None)`
 
 Read-only. Pairs files across two folders on (text before the first
 underscore, last integer in the name), so `sampleA_usaxs_007.h5` pairs with
 `sampleA_saxs_007.h5`. Call it before looping `merge_datasets` over a run,
-and check `unmatched_1` / `unmatched_2` for files with no partner.
+and check `unmatched_1` / `unmatched_2` for files with no partner. When the
+two datasets glue an instrument code onto the sample name
+(`SmySample_0001.dat` vs `WmySample_0001.dat`), pass regexes `strip1="^S"`,
+`strip2="^W"`; each is removed once from the start of the filename stem
+before matching.
 
 ---
 
@@ -616,6 +660,7 @@ export_fit_report(session_id)     → markdown summary
 | Tool | Returns |
 |------|---------|
 | `pyirena_ctrl_open_dataset(file_path)` | `session_id`, data summary |
+| `pyirena_ctrl_open_dataset_from_data(q, intensity, error=None, dq=None, label="", is_slit_smeared=False, slit_length=0.0, error_fraction=0.05)` | `session_id` from arrays, no file involved (Q in 1/Å, I in 1/cm); cleaning counts in `summary.cleaning`; `save_*` then needs an explicit `output_path` |
 | `pyirena_ctrl_list_open_sessions()` | all open sessions |
 | `pyirena_ctrl_get_session_summary(session_id)` | file, model, Q range, χ² |
 | `pyirena_ctrl_close_session(session_id)` | frees memory |
@@ -641,8 +686,16 @@ model-wide params (`background`).
 | `set_parameter_bounds(session_id, param_name, lo, hi)` | constrain range |
 | `fix_parameter(session_id, param_name)` | hold fixed |
 | `free_parameter(session_id, param_name)` | release for fitting |
-| `fix_all_except(session_id, ["Rg_1", "G_1", …])` | staged fitting setup |
+| `fix_all_except(session_id, free_list=["Rg_1", "G_1", …])` | staged fitting setup |
 | `reset_parameters_to_defaults(session_id)` | factory defaults |
+| `get_level_options(session_id, level=None)` | per-level flags: `correlations`, `mass_fractal`, `link_B`, `link_RGCO` |
+| `set_level_option(session_id, level, option, enabled)` | toggle one of those flags |
+
+**`ETA` and `PACK` do nothing unless the level's `correlations` option is
+on** — set it with `set_level_option` first. `mass_fractal` computes B
+automatically, `link_B` estimates B from the Porod invariant, and
+`link_RGCO` ties RgCutoff to the previous level's Rg (the linked value is
+stored on the level and saved).
 
 **Staged fitting strategy** (recommended):
 1. `fix_all_except(["background"])` → fit background first
@@ -770,14 +823,19 @@ high-Q tails before fitting. Either end can be `null` to leave it unchanged.
 
 ### Fit execution
 
-#### `run_fit(session_id, max_iter=None, walk_limits=True)`
+#### `run_fit(session_id, max_iter=None, walk_limits=True, no_limits=False, tolerance=None, random_seed=None)`
 Runs the fitting algorithm synchronously. With `walk_limits=True` (default,
 same behaviour as the GUI Fit button): when a fitted parameter ends pinned at
 a limit, the limits are recentred on the fitted value and the fit rerun (up
 to 4 walks), so an optimum far outside the current limits window — e.g. a B
 that must change by orders of magnitude after a change in P — is reached in
 one call. Pass `walk_limits=False` to treat bounds from
-`set_parameter_bounds` as hard constraints. Returns:
+`set_parameter_bounds` as hard constraints. `no_limits=True` (the GUI's
+*No limits?* box) fits with the model's own wide default bounds instead of
+yours, and implies `walk_limits=False`; your bounds are untouched and come
+back afterwards — use it to see where a parameter stuck at a limit actually
+wants to go. `random_seed` makes a fit reproducible from an audit trail.
+Returns:
 - `success` (bool)
 - `chi_squared`, `reduced_chi_squared` (float)
 - `iterations` (int)
@@ -819,6 +877,8 @@ parameter values — this is intentional and useful.
 | `get_fit_quality(session_id, n_bands=4)` | full robust diagnostics (scalars + per-point arrays + per-band) |
 | `get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
 | `get_residuals_image(session_id)` | same image; requires completed fit |
+| `check_level_feasibility(session_id, level=None)` | after `run_fit`: whether each level's Guinier and power-law regions join smoothly at the Hammouda rollover — catches B/P/G/Rg combinations that converged mathematically but mean nothing physically |
+| `get_parameter_uncertainties(session_id)` | placeholder only — no uncertainties are computed here; Monte-Carlo uncertainties come from `pyirena.batch.fit_unified` or the GUI |
 
 #### `get_fit_quality(session_id, n_bands=4)` — robust diagnostics
 
@@ -1124,7 +1184,8 @@ take over).
 | `set_population_option(session_id, index, option, value)` | `dist_type`, `form_factor`, `structure_factor`, `peak_type`, `correlations`, `use_porod_transition`, `use_number_dist`, `n_bins`, `label` |
 | `set_modeling_background(session_id, value, fit)` | flat background |
 | `set_modeling_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
-| `run_modeling_fit(session_id, fit_method)` | `"local"` (default) or `"global"` |
+| `get_modeling_config(session_id)` | global settings (Q range, background, fit method, slit smearing) and a summary of every population |
+| `run_modeling_fit(session_id, fit_method, no_limits=False)` | `"local"` (default) or `"global"`; `no_limits=True` drops the population bounds (unconstrained Nelder-Mead, forces `"local"`) |
 | `get_modeling_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
 | `get_modeling_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
 | `save_modeling_fit(session_id, output_path)` | writes `entry/modeling_results` |
@@ -1199,13 +1260,13 @@ is really a background artefact.
 | `get_waxs_config(session_id)` | background setup + peak list |
 | `set_waxs_background(session_id, bg_shape)` | switch background, keep peaks |
 | `set_waxs_background_parameter(...)` | value / fit / bounds |
-| `find_waxs_peaks(session_id, prominence_frac, …)` | detect and create peaks |
+| `find_waxs_peaks(session_id, prominence_frac, min_fwhm=0.001, max_fwhm=0.5, min_distance=0.005, shape="Gauss", replace=True)` | detect and create peaks; `replace=False` adds to the existing list |
 | `add_waxs_peak(session_id, q0, shape, amplitude, fwhm)` | place one by hand; amplitude defaults to the measured intensity there |
 | `remove_waxs_peak(session_id, index)` / `list_waxs_peaks(session_id)` | manage the list |
 | `get_waxs_peak_parameters(session_id, index)` | one peak's values, bounds, fit flags, area |
-| `set_waxs_peak_shape(session_id, index, shape)` | Gauss / Lorentz / Pseudo-Voigt / LogNormal |
-| `set_waxs_peak_parameter(...)` / `set_waxs_peak_parameter_fit(...)` / `set_waxs_peak_parameter_bounds(...)` | `A`, `Q0`, `FWHM`, `eta` |
-| `run_waxs_fit(session_id, weight_mode)` | `standard` / `equal` / `relative` |
+| `set_waxs_peak_shape(session_id, index, shape)` | Gauss / Lorentz / Pseudo-Voigt / Voigt / LogNormal |
+| `set_waxs_peak_parameter(...)` / `set_waxs_peak_parameter_fit(...)` / `set_waxs_peak_parameter_bounds(...)` | `A`, `Q0`, `FWHM`, plus `eta` (Pseudo-Voigt) or `FWHM_L` (Voigt) |
+| `run_waxs_fit(session_id, weight_mode, no_limits=False)` | `standard` / `equal` / `relative`; `no_limits=True` drops the per-parameter bounds |
 | `get_waxs_results(session_id)` | quality, background, peaks with uncertainties and areas |
 | `get_waxs_fit_image(session_id)` | data, model, background **and each peak** |
 | `save_waxs_fit(session_id, output_path)` | writes `entry/waxs_peakfit_results` |
@@ -1217,8 +1278,10 @@ is really a background artefact.
   size without letting the peak wander onto a neighbour.
 - **`weight_mode="equal"`** when a strong, low-noise background dominates the
   fit and weak peaks are being ignored.
-- **`eta` exists only on a Pseudo-Voigt.**  Setting it on a Gauss returns
-  `BAD_PARAM` naming the shape that has it.
+- **`eta` exists only on a Pseudo-Voigt, `FWHM_L` only on a Voigt.**  A
+  Voigt is a true convolution: `FWHM` is its Gaussian width and `FWHM_L` its
+  Lorentzian width, fitted separately.  Setting a parameter the shape lacks
+  returns `BAD_PARAM` naming the shape that has it.
 - **Look at the image.**  Each peak is drawn separately over the background; a
   peak that has drifted onto its neighbour or collapsed to zero amplitude is
   obvious there and invisible in χ².
@@ -1226,6 +1289,131 @@ is really a background artefact.
 Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
 `BAD_PEAK` (index), `BAD_PEAK_SHAPE`, `BAD_PARAM`, `BAD_BOUNDS`,
 `Q0_OUT_OF_RANGE`, `NO_PEAKS`, `BAD_WEIGHT_MODE`, `EMPTY_RANGE`, `NO_FIT`.
+
+---
+
+## Control tools reference — Carbon model (dispatcher category `"carbon"`)
+
+A disordered carbon (glassy, hard, activated or carbide-derived) scatters
+over the whole range a USAXS/SAXS/WAXS instrument covers: Porod scattering
+from the grain surface at low Q, micropores in the middle, and broad
+turbostratic (002) and (100) reflections at high Q.  The Carbon model fits all
+of it **as one model**, because the regions are not independent: the
+structural density comes from the fitted peak positions, the sample density
+from the SAXS porosity, and each density sets the contrast that scales the
+grain and micropore terms.  Fitting the regions one after another converges
+somewhere else, so there is no per-region fit.
+
+### Recommended Carbon workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                # shared
+list_carbon_options()                               # optional, no session needed
+select_carbon_model(session_id, formula="C")        # carbon defaults
+configure_carbon_model(session_id, ...)             # optional: change the shape
+list_carbon_parameters(session_id)                  # keys depend on the shape
+set_fit_q_range(session_id, q_min, q_max)           # shared, optional
+run_carbon_fit(session_id)                          # whole range at once
+get_carbon_fit_image(session_id)                    # look at the components
+get_carbon_results(session_id)                      # read `derived`
+save_carbon_fit(session_id)
+```
+
+`select_carbon_model` starts with a grain Porod background, dilute
+micropores, and (002) and (100) peaks at their graphite positions — a
+sensible start for most carbons.
+
+### Model shape
+
+| Choice | Options | Meaning |
+|--------|---------|---------|
+| `saxs_mode` | `fractal` (default) / `teubner_strey` | dilute pores of radius r, optionally aggregated (`use_fractal`) — or a two-phase Teubner-Strey term for samples with a broad correlation peak. Alternatives, never summed. |
+| `waxs_envelope` | `none` / `crumpled` | `crumpled` wraps the peaks in the curved-layer envelope, for sp2 carbons broadened by curvature rather than crystallite size |
+| switches | `background_enabled`, `saxs_enabled`, `waxs_enabled`, `use_roughness`, `use_orientation_factor` | `use_roughness` adds a nanoscale surface-roughness Porod term; **leave `use_orientation_factor` on** — without the 1/Q² powder average a fit still looks fine but reports a wrong amplitude |
+| links | `link_R_to_pore`, `link_D_to_saxs`, `link_sigma_to_saxs` | tie the crumpled-layer geometry to the SAXS region's, when both signals come from the same crumpling; a linked parameter leaves the fit vector |
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| `list_carbon_options()` | the SAXS models, WAXS envelopes, switches and links (no session) |
+| `select_carbon_model(session_id, formula="C")` | create the model; `formula` is the solid, e.g. `C0.95N0.05` |
+| `get_carbon_config(session_id)` | current shape, peaks with d-spacings, and the resolved material chain (densities, SLDs, contrasts) |
+| `configure_carbon_model(session_id, ...)` | change the shape (every argument optional) — then re-list parameters |
+| `list_carbon_parameters(session_id, active_only=True)` | dotted keys (`background.S_macro`, `saxs.pore_radius`, `waxs.delta_z2`, `peak.002.Q0`) with value, bounds, fit flag |
+| `set_carbon_parameter(session_id, key, value)` / `set_carbon_parameter_fit(session_id, key, fit)` / `set_carbon_parameter_bounds(session_id, key, lo, hi)` | value / fitted / bounds |
+| `list_carbon_peaks(session_id)` | label, position, d-spacing, amplitude, both Voigt widths |
+| `add_carbon_peak(session_id, label, Q0, K=1.0, FWHM_G=0.3, FWHM_L=0.15)` / `remove_carbon_peak(session_id, index)` | manage reflections; `label` is the Miller index and must be unique |
+| `set_carbon_material(session_id, ...)` | override a stage of the composition → density → contrast chain (below) |
+| `run_carbon_fit(session_id, weighting="auto", n_mc_runs=0, no_limits=False)` | fit every ticked parameter over the whole range |
+| `get_carbon_results(session_id)` | quality, parameters, and the `derived` block |
+| `get_carbon_fit_image(session_id)` | data, total model, and the grain Porod, micropore and diffraction components separately, residuals below |
+| `save_carbon_fit(session_id, output_path=None)` | writes `entry/carbon_fit_results` with the model settings embedded |
+
+### Working advice
+
+- **Read `derived`, not the coefficients.**  The materials answers — BET-
+  comparable specific surface areas, pore and wall widths, stack height L_c,
+  layer count, layer extent L_a, lattice spacings, densities — are all in
+  `get_carbon_results()["derived"]` (and `derived` of
+  `pyirena_read_carbon_fit` for a saved file).
+- **Weighting.**  `weighting="auto"` uses the measured uncertainties when
+  usable and relative weighting otherwise.  Relative is usually right: the fit
+  spans about five decades in Q, and absolute weighting lets the low-Q region
+  set every parameter.  For honest uncertainties set `n_mc_runs` (e.g. 20) —
+  the covariance estimate understates them because the contrast correlates
+  the regions.
+- **Peak widths mean different things.**  `FWHM_G` is crystallite-size
+  broadening, `FWHM_L` is layer curvature.  The `002` and `100` labels are the
+  ones the density calculation reads; do not relabel them.
+- **Override the material chain only when the data cannot supply a stage.**
+  `set_carbon_material` takes `rho_struc_mode` (`from_peaks` / `manual` with
+  `rho_struc` in g/cm³), `porosity_mode` (`auto` / `manual`) and
+  `contrast_mode` (`auto` / `manual` with `contrast_porod` and
+  `contrast_micropore` in 10²⁰ cm⁻⁴).  Typical cases: no usable (100) peak,
+  or the Teubner-Strey branch, whose porosity is derived from the contrast it
+  would otherwise feed.
+- **Look at the image.**  The two failures this model has — the background
+  creeping up under the micropore region, or a peak absorbing the high-Q
+  background — are obvious in the component curves and hidden in χ².
+- **`no_limits=True`** fits with each parameter's declared default bounds
+  instead of yours; the fractal-dimension safety clamp still applies.
+
+---
+
+## Results — one-call fitting and export (dispatcher category `"results"`)
+
+These two work for every fitting tool.  Use them when the fit is already
+known, or when the caller needs the result as data rather than as a file.
+
+#### `analyze(data, config, tool=None, include_arrays=False, max_points=2000)`
+
+Fit one curve with a saved pyIrena configuration in a single call: opens its
+own session, applies the config, runs the fit, returns the `export_results`
+payload and closes the session.  `data` is `{q, intensity, error?, dq?,
+label?, is_slit_smeared?, slit_length?}` with Q in 1/Å.  `config` is any
+configuration pyIrena writes — the GUI's *Export Parameters* file, the
+`_pyirena_config` attribute of a result `.h5`, or an `export_results` reply
+handed straight back (that is how you replay the fit you just ran on the
+next measurement).  The config's Q range and held parameters are part of the
+fit and change the answer.  `tool` (`unified_fit`, `sizes`, `simple_fits`,
+`modeling`, `waxs_peakfit`, `carbon_fit`) is inferred when the config holds
+one tool section.
+
+For exploring a fit step by step, use `open_dataset_from_data` and the
+per-tool tools instead.
+
+#### `export_results(session_id, include_arrays=False, max_points=2000)`
+
+A finished fit from any of the six tools as one JSON document — the
+machine-readable counterpart to `save_*`: nothing is written to disk.
+Returns the tool name, the data's identity, a normalised `quality` block
+(χ², reduced χ², dof, fit-quality metrics), the tool's own `results` with
+per-parameter uncertainties where the fit computes them, and the model
+`config` needed to replay the fit.  With `include_arrays=True`, `arrays`
+adds `q` and the data, model, residuals and per-component curves on the
+fitted Q grid (Modeling adds each population, Carbon its three components),
+decimated together to `max_points`.
 
 ---
 
