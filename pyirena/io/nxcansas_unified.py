@@ -351,7 +351,14 @@ def save_unified_fit_results(filepath: Path,
                 for param_key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
                     err_val = ud.get(param_key, 0.0)
                     if err_val > 0.0:
-                        level_group.create_dataset(f'{param_key}_err', data=float(err_val))
+                        # The GUI's level dicts already carry <param>_err keys
+                        # (shared with the report builder), so the loop above
+                        # may have written this name.  ``uncertainties`` is
+                        # authoritative: replace rather than collide.
+                        err_name = f'{param_key}_err'
+                        if err_name in level_group:
+                            del level_group[err_name]
+                        level_group.create_dataset(err_name, data=float(err_val))
 
         # Robust fit-quality metrics under fit_quality/.  Computed from the
         # consistent (data, model, error) triple this writer already has if the

@@ -127,6 +127,27 @@ class TestUnifiedFitRoundTrip:
         assert loaded["chi_squared"] == pytest.approx(1.2)
         assert loaded["num_levels"] == 1
 
+    def test_level_err_keys_with_uncertainties(self, nx_file, q_i_err):
+        """GUI level dicts carry <param>_err keys AND uncertainties is passed.
+
+        Regression: the writer created ``G_err`` from the level dict, then
+        again from ``uncertainties`` -> "name already exists" on Store in File.
+        """
+        q, intensity, error = q_i_err
+        model = intensity * 1.01
+        levels = _unified_levels()[:1]
+        levels[0].update({"G_err": 1.5, "Rg_err": 0.7})
+        unc = {"levels": [{"G": 2.0, "Rg": 0.7, "B": 0.0}], "background": 0.001}
+        save_unified_fit_results(
+            nx_file, q, intensity, model, intensity - model,
+            levels=levels, background=0.03, chi_squared=1.7,
+            num_levels=1, error=error, uncertainties=unc,
+        )
+        with h5py.File(nx_file, "r") as f:
+            lvl = f["entry/unified_fit_results/level_1"]
+            assert float(lvl["G_err"][()]) == pytest.approx(2.0)
+            assert float(lvl["Rg_err"][()]) == pytest.approx(0.7)
+
     def test_load_result_dispatcher(self, nx_file, q_i_err):
         from pyirena.io.results import load_result
         q, intensity, error = q_i_err
