@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Unified Fit "Store in File" failed after an uncertainty evaluation**
+  with "Unable to synchronously create dataset (name already exists)", and
+  nothing was saved. Since 1.1.0 the panel's level parameters also carry the
+  `<param>_err` values, so `save_unified_fit_results` wrote `G_err`,
+  `Rg_err`, … once from them and then tried again from `uncertainties`. The
+  `uncertainties` values now replace the earlier ones. Fits saved without an
+  uncertainty run were not affected.
 - **Modeling residuals did not reach agents.** 1.2.0 started saving
   `modeling_results/residuals`, but `pyirena.api.read_modeling` (and so
   `pyirena_read_modeling`) dropped them, and `export_results` left them out
