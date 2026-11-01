@@ -72,7 +72,12 @@ from pyirena.gui._qt import (
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
-from pyirena.gui.sas_plot import DSpacingAxisItem
+from pyirena.gui.sas_plot import (
+    DSpacingAxisItem,
+    reset_user_view,
+    track_user_view,
+    user_view_active,
+)
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.theme import (
     SOFT_AMBER,
@@ -574,6 +579,8 @@ class WAXSPeakFitGraphWindow(QWidget):
         self.resid_plot.showGrid(x=True, y=True, alpha=0.3)
         self.resid_plot.setXLink(self.main_plot)
         self._style_axes(self.resid_plot)
+        track_user_view(self.main_plot)
+        track_user_view(self.resid_plot)
         self._zero_line = pg.InfiniteLine(
             pos=0, angle=0,
             pen=pg.mkPen('k', width=1, style=Qt.PenStyle.DashLine),
@@ -818,6 +825,7 @@ class WAXSPeakFitGraphWindow(QWidget):
     def plot_data(self, q: np.ndarray, I: np.ndarray, dI: Optional[np.ndarray] = None,
                   label: str = "Data"):
         """Plot raw data (scatter) and optional error bars."""
+        reset_user_view(self.main_plot, self.resid_plot)   # new data → full view
         if self._data_item is not None:
             self.main_plot.removeItem(self._data_item)
         if self._err_item is not None:
@@ -951,8 +959,9 @@ class WAXSPeakFitGraphWindow(QWidget):
             r_max = float(np.percentile(np.abs(valid_r), 99))
             r_lim = (10.0 ** np.ceil(np.log10(r_max))) if r_max > 0 else 1.0
             self.resid_plot.getViewBox().setLimits(yMin=-r_lim, yMax=r_lim)
-            view_r = max(r_max * 1.5, 0.5)
-            self.resid_plot.setYRange(-view_r, view_r, padding=0)
+            if not user_view_active(self.resid_plot):
+                view_r = max(r_max * 1.5, 0.5)
+                self.resid_plot.setYRange(-view_r, view_r, padding=0)
 
     # ── Diffraction lines (CIF stick patterns) ───────────────────────────
 

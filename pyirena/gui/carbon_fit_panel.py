@@ -68,7 +68,10 @@ from pyirena.gui.sas_plot import (
     make_sas_plot,
     plot_iq_data,
     plot_iq_model,
+    reset_user_view,
     set_cursor_q_range,
+    track_user_view,
+    user_view_active,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
@@ -197,6 +200,7 @@ class CarbonFitGraphWindow(QWidget):
         self.zoom_plot.addLegend(offset=(-10, 10), labelTextSize='8pt')
         attach_plot_export(self.zoom_plot, self._parent_ref, 'carbon_fit_waxs',
                            window=self.graphics_layout)
+        track_user_view(self.zoom_plot)
 
         ci = self.graphics_layout.ci
         ci.layout.setRowStretchFactor(0, 6)
@@ -241,6 +245,7 @@ class CarbonFitGraphWindow(QWidget):
         """
         if not (q_hi > q_lo > 0):
             return
+        reset_user_view(self.zoom_plot)   # explicit framing replaces a user zoom
         self.zoom_plot.setXRange(float(q_lo), float(q_hi), padding=0.02)
         self._redraw_zoom()
         self.autoscale_zoom_y(q_lo, q_hi)
@@ -1717,7 +1722,9 @@ class CarbonFitPanel(QWidget):
         self.graph_window.plot_model(
             result.q, self.model.evaluate_components(result.q),
             show_components=self.show_components_check.isChecked())
-        if self.zoom_check.isChecked():
+        # Reframe the WAXS panel unless the user zoomed in to inspect a peak.
+        if (self.zoom_check.isChecked()
+                and not user_view_active(self.graph_window.zoom_plot)):
             self._set_zoom_to_peaks()
         for key, row in self._rows.items():
             if key in result.errors:

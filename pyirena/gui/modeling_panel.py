@@ -87,7 +87,9 @@ from pyirena.gui.sas_plot import (
     add_plot_annotation,
     add_slope_line_menu,
     plot_iq_data,
+    reset_user_view,
     set_robust_y_range,
+    track_user_view,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
@@ -1977,6 +1979,11 @@ class ModelingGraphWindow(QWidget):
         ]:
             attach_plot_export(_plot, self, _stem, window=self.gl,
                                folder=self._export_folder)
+            track_user_view(_plot)
+
+    def view_plots(self):
+        """Plots whose user zoom survives a model redraw."""
+        return (self.iq_plot, self.resid_plot, self.dist_plot)
 
     @staticmethod
     def _style_axes(plot, show_top_values=False):
@@ -3050,7 +3057,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
     def _on_q_range_typed(self, q_lo: float, q_hi: float):
         """The user typed a Q range; cursors already moved. Refresh the model."""
         if self.autoupdate_cb.isChecked() and self._data_q is not None:
-            self._graph_model()
+            self.graph_model(silent=True)
 
     def _on_cursor_moved(self):
         """Keep the editable Q min / Q max fields in step with cursor drags."""
@@ -3146,6 +3153,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         q_min = float(q.min())
         q_max = float(q.max())
+        reset_user_view(*self.graph.view_plots())   # new data → full view
         self.graph.plot_data(q, I, dI)
         set_robust_y_range(self.graph.iq_plot, I)
         self.graph.add_cursors(np.log10(q_min), np.log10(q_max))

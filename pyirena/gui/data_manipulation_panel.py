@@ -77,6 +77,7 @@ from pyirena.gui.sas_plot import (
     get_cursor_q_range,
     make_cursors,
     make_sas_plot,
+    note_plotted_data,
     set_robust_y_range,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
@@ -457,6 +458,9 @@ class DataManipulationGraphWindow(QWidget):
     def set_y_range_from_data(self, *I_arrays: np.ndarray) -> None:
         """Set robust Y range from one or more intensity arrays."""
         combined = np.concatenate([arr for arr in I_arrays if arr is not None and len(arr) > 0])
+        # Same inputs re-previewed (e.g. new subtraction scale): a view the
+        # user zoomed into is kept; new inputs get the full view.
+        note_plotted_data(self._plot, combined)
         set_robust_y_range(self._plot, combined)
 
     def ensure_cursors(self, q_min: float, q_max: float,

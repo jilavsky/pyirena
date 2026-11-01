@@ -784,7 +784,94 @@ def make_sas_plot(
         )
     if log_x and log_y:
         add_slope_line_menu(plot)
+    track_user_view(plot)
     return plot
+
+
+# ===========================================================================
+# User zoom preservation
+# ===========================================================================
+#
+# Redraw paths (Graph model, autoupdate, fit done) call ``plot_iq_data`` /
+# ``set_robust_y_range``, which reset the axes to the data range.  That is
+# right for newly loaded data, but it throws away a view the user zoomed into
+# to inspect the fit in a small Q region.  Each tracked plot remembers that
+# the user zoomed (mouse pan / wheel / rubber band); while it does, those two
+# helpers leave the axes alone.  Panels that set ranges themselves check
+# ``user_view_active`` first.  The memory is cleared when the data change
+# (``note_plotted_data``, called by ``plot_iq_data``), when a panel calls
+# ``reset_user_view`` on loading a file, or when the user asks for the full
+# view ("A" button or right-click "View All").  No extra controls needed.
+
+def _flag_user_view(vb: pg.ViewBox) -> None:
+    vb._pyirena_user_view = True
+    # A mouse zoom in an x-linked plot (e.g. residuals) moves the plot it is
+    # linked to without a manual-range signal there; flag it too, or its own
+    # redraw would reset the shared x axis.
+    for axis in (pg.ViewBox.XAxis, pg.ViewBox.YAxis):
+        linked = vb.linkedView(axis)
+        if linked is not None:
+            linked._pyirena_user_view = True
+
+
+def track_user_view(plot: pg.PlotItem) -> None:
+    """Start remembering when the user pans or zooms *plot* with the mouse.
+
+    Safe to call more than once.  ``make_sas_plot`` calls it for every plot
+    it creates; plots built directly with ``addPlot`` must call it
+    themselves, or :func:`user_view_active` stays False for them.
+    """
+    vb = plot.getViewBox()
+    if vb is None or getattr(vb, '_pyirena_view_tracked', False):
+        return
+    vb._pyirena_view_tracked = True
+    vb._pyirena_user_view = False
+    vb.sigRangeChangedManually.connect(lambda *_: _flag_user_view(vb))
+    # "A" (auto-range) button and right-click "View All" hand the axes back.
+    auto_btn = getattr(plot, 'autoBtn', None)
+    if auto_btn is not None:
+        auto_btn.clicked.connect(lambda *_: reset_user_view(plot))
+    menu = getattr(vb, 'menu', None)
+    view_all = getattr(menu, 'viewAll', None)
+    if view_all is not None:
+        view_all.triggered.connect(lambda *_: reset_user_view(plot))
+
+
+def reset_user_view(*plots) -> None:
+    """Forget any user zoom on *plots* — call when new data are loaded."""
+    for plot in plots:
+        if plot is None:
+            continue
+        vb = plot.getViewBox()
+        if vb is not None:
+            vb._pyirena_user_view = False
+
+
+def note_plotted_data(plot: pg.PlotItem, *arrays: np.ndarray) -> bool:
+    """Clear the user zoom on *plot* if *arrays* differ from the last ones noted.
+
+    Pass the arrays the axis range is computed from (typically the data
+    q and I).  A redraw of unchanged data (model recalculation, fit done)
+    keeps the zoom; new data get the full view.
+
+    Returns:
+        True if the data changed (the zoom was cleared), False otherwise.
+    """
+    vb = plot.getViewBox()
+    if vb is None:
+        return True
+    key = hash(tuple(np.ascontiguousarray(a, dtype=float).tobytes() for a in arrays))
+    if getattr(vb, '_pyirena_data_key', None) == key:
+        return False
+    vb._pyirena_data_key = key
+    vb._pyirena_user_view = False
+    return True
+
+
+def user_view_active(plot: pg.PlotItem) -> bool:
+    """Return True if the user has zoomed/panned *plot* since the last reset."""
+    vb = plot.getViewBox() if plot is not None else None
+    return bool(getattr(vb, '_pyirena_user_view', False))
 
 
 # ===========================================================================
@@ -863,6 +950,11 @@ def plot_iq_data(
             y_global_max = None
         error_item = _draw_error_bars(plot, q_, I_, dI_, y_global_max=y_global_max)
 
+    # Redraw of the same data into a view the user zoomed: keep their view.
+    note_plotted_data(plot, q_, I_)
+    if user_view_active(plot):
+        return scatter, error_item
+
     # Override auto-range with percentile-based bounds from the data only.
     # Without this, error bar segments are included in pyqtgraph's bounds
     # computation and, under log mode, the y-axis scales to the full
@@ -900,6 +992,11 @@ def set_robust_y_range(plot: pg.PlotItem, I: np.ndarray) -> None:
     ``setYRange(lo, hi, padding=0)``.  In pyqtgraph log mode the ViewBox
     coordinate system is log10 space, so log10 values are passed directly.
 
+    Does nothing while the user has a zoomed view (see
+    :func:`track_user_view`), so a redraw keeps it.  ``plot_iq_data`` clears
+    that state when it is given new data; panels that range from other
+    arrays call :func:`reset_user_view` when they load new data.
+
     Parameters
     ----------
     plot : pg.PlotItem
@@ -909,6 +1006,8 @@ def set_robust_y_range(plot: pg.PlotItem, I: np.ndarray) -> None:
     """
     valid = (np.asarray(I) > 0) & np.isfinite(I)
     if np.sum(valid) < 3:
+        return
+    if user_view_active(plot):
         return
     log_i = np.log10(np.asarray(I)[valid])
     lo = np.percentile(log_i, 2) - 0.5    # 2nd percentile minus half-decade

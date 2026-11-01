@@ -61,9 +61,12 @@ from pyirena.gui.sas_plot import (
     get_cursor_q_range,
     make_cursors,
     make_sas_plot,
+    note_plotted_data,
     plot_iq_data,
     plot_iq_model,
     set_cursor_q_range,
+    track_user_view,
+    user_view_active,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
@@ -168,6 +171,7 @@ class SimpleFitsGraphWindow(QWidget):
             self.lin_plot, self._parent_ref, 'simple_fits_linearization',
             window=self.graphics_layout,
         )
+        track_user_view(self.lin_plot)
 
         # ── Height ratios 5:1:4 ───────────────────────────────────────────────
         ci = self.graphics_layout.ci
@@ -534,6 +538,11 @@ class SimpleFitsGraphWindow(QWidget):
         if not np.any(sel):
             sel = np.isfinite(X) & np.isfinite(Y)
         if not np.any(sel):
+            return
+
+        # Same linearized data redrawn: keep a view the user zoomed into.
+        note_plotted_data(self.lin_plot, X, Y)
+        if user_view_active(self.lin_plot):
             return
 
         Xs = X[sel]

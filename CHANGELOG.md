@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Graphs no longer throw away a zoomed view on recalculation.** Zooming
+  into a Q region to check the fit there was undone by every Graph model,
+  autoupdate and fit, because each redraw reset the axes to the full data
+  range. A view the user pans or zooms with the mouse is now kept across
+  redraws of the same data in Modeling, Sizes, Simple Fits (including the
+  linearization panel), WAXS Peak Fit (residuals), Carbon model (WAXS
+  panel), Fractals, SAXS Morph and Data Manipulation previews; Unified Fit
+  and Data Merge already behaved this way. Loading new data, the "A" button
+  or right-click "View All" returns to the full view. No new controls. The
+  shared logic is in `pyirena/gui/sas_plot.py` (`track_user_view`,
+  `user_view_active`, `note_plotted_data`, `reset_user_view`).
+- **Modeling: typing a Q range with autoupdate on raised an AttributeError**
+  (`_graph_model` did not exist), so the model was not redrawn.
 - **Unified Fit "Store in File" failed after an uncertainty evaluation**
   with "Unable to synchronously create dataset (name already exists)", and
   nothing was saved. Since 1.1.0 the panel's level parameters also carry the

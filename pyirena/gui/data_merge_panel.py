@@ -67,6 +67,7 @@ from pyirena.gui.sas_plot import (
     SASPlotStyle,
     _SafeInfiniteLine,
     make_sas_plot,
+    reset_user_view,
     set_robust_y_range,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
@@ -796,6 +797,9 @@ class DataMergeGraphWindow(QWidget):
         return item
 
     def _update_y_range(self) -> None:
+        # Called only when a dataset is (re)plotted or the axis mode changes,
+        # so any user zoom is stale.  Merge recalculation does not come here.
+        reset_user_view(self._plot)
         """Combine I from all loaded datasets and set robust Y (and X) range."""
         parts = []
         if self._I1 is not None:

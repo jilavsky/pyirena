@@ -47,7 +47,14 @@ from pyirena.gui._qt import (
 from pyirena.gui.data_loading import DataFileLoaderRow
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
-from pyirena.gui.sas_plot import RadiusAxisItem, add_slope_line_menu
+from pyirena.gui.sas_plot import (
+    RadiusAxisItem,
+    add_slope_line_menu,
+    note_plotted_data,
+    reset_user_view,
+    track_user_view,
+    user_view_active,
+)
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
 from pyirena.gui.theme import (
@@ -223,6 +230,9 @@ class SizesFitGraphWindow(QWidget):
 
         # Link residuals X-axis to main plot so zooming/panning stays in sync
         self.residuals_plot.setXLink(self.main_plot)
+        # Keep a view the user zoomed into across fit redraws.
+        for _plot in (self.main_plot, self.residuals_plot, self.distribution_plot):
+            track_user_view(_plot)
 
         # ── Main I(Q) plot  (log-log) ────────────────────────────────────────
         self.main_plot.setLogMode(x=True, y=True)
@@ -436,7 +446,11 @@ class SizesFitGraphWindow(QWidget):
         if error is not None:
             tag_curve_uncertainty(self._data_item, np.asarray(error, dtype=float))
         self._ensure_cursors(q_)
-        self._set_robust_y_range(I_, q_)
+        # Same data redrawn after a fit: keep a view the user zoomed into.
+        if note_plotted_data(self.main_plot, q_, I_):
+            reset_user_view(self.residuals_plot, self.distribution_plot)
+        if not user_view_active(self.main_plot):
+            self._set_robust_y_range(I_, q_)
 
     def _set_robust_y_range(self, intensity, q=None):
         """Set Y range (and optionally x range) of main plot to percentile-based bounds.
@@ -465,6 +479,13 @@ class SizesFitGraphWindow(QWidget):
             if len(valid_q) >= 2:
                 limits['xMin'] = int(np.floor(np.log10(float(valid_q.min())))) - 1
                 limits['xMax'] = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+                # Visible x range = data Q span, so a zoom left over from the
+                # previous data set does not carry over to new data.
+                self.main_plot.setXRange(
+                    np.log10(float(valid_q.min())),
+                    np.log10(float(valid_q.max())),
+                    padding=0.05,
+                )
         self.main_plot.getViewBox().setLimits(**limits)
 
     def update_error_bars(self, q, intensity, error):
@@ -599,7 +620,13 @@ class SizesFitGraphWindow(QWidget):
         self.distribution_plot.addItem(self._dist_item)
 
         # ── Axis ranges ──────────────────────────────────────────────────────
-        # addItem() does not trigger autoRange; set ranges explicitly.
+        # addItem() does not trigger autoRange; set ranges explicitly —
+        # unless the user has zoomed in, then their view stays.
+        if user_view_active(self.distribution_plot):
+            if (hasattr(self.distribution_plot, 'legend')
+                    and self.distribution_plot.legend is not None):
+                self.distribution_plot.legend.addItem(self._dist_item, label)
+            return
         # distribution_plot is in log-x mode so setXRange takes log10 values.
         x_lo = float(log_edges[0])
         x_hi = float(log_edges[-1])
