@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-01
+
+A maintenance release on top of 1.2.0. Graphs in the fitting tools now keep a
+zoomed view across recalculations, Unified Fit "Store in File" works again
+after an uncertainty evaluation, and file browsers gain an "Order + frame"
+sort for multi-frame series (#37). Modeling residuals and Carbon model results
+are now readable over the API/MCP. Saved-file compatibility is unchanged;
+files written by 1.1.x and 1.2.0 load as before.
+
 ### Added
 
 - **"Order + frame" sort mode** in every file browser (Data Selector, Data
@@ -65,7 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fit_background=false` has been able to hold it fixed since 1.2.0b1. A new
   check in `test_tool_registration.py` fails when a tool has an api reader
   but no `pyirena_read_<tool>` MCP wrapper.
-
 - Data Explorer: *Collect values* with the X axis taken from a filename value
   (temperature, time, order number, pressure) failed with an `ImportError`
   left over from the sort-key consolidation.
