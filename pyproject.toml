@@ -39,7 +39,10 @@ dependencies = [
     # SciPy 1.13 is the first release built against NumPy 2.
     "scipy>=1.13",
     "h5py>=3.0.0",
-    "igor2>=0.5.13",
+    # 0.5.16 reads Igor 8 long names in .pxp files: data folders (0.5.15,
+    # AFM-analysis/igor2#30) and binary-wave v7 wave names (0.5.16, #33).
+    # Older versions misplace long-named folders or drop long-named waves.
+    "igor2>=0.5.16",
 ]
 
 [project.optional-dependencies]

@@ -113,9 +113,10 @@ def igor_to_nexus(
         if res.n_unparseable_records:
             log.error(f"  note:     {res.n_unparseable_records} wave record(s) could not be parsed")
         if res.n_igor8_longname_markers:
-            log.warning(f"  WARNING:  {res.n_igor8_longname_markers} Igor-8 long-name "
-                  f"record(s) seen — some samples likely missing. "
-                  f"Re-save as .h5xp from Igor.")
+            log.warning(f"  WARNING:  {res.n_igor8_longname_markers} folder name(s) longer "
+                  f"than 31 characters could not be read — samples missing or "
+                  f"misattributed. Upgrade igor2 to >= 0.5.15 and re-import, or "
+                  f"re-save as .h5xp from Igor.")
 
     return {
         'success':     True,
