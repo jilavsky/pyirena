@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Igor USAXS import writes slit-smeared data the way Matilda does.**
+  When a folder holds both desmeared (`DSM_*`) and slit-smeared (`SMR_*`)
+  waves, the file now also gets a `<sample>_SMR` entry with `dQw` and the
+  slit length `dQl`, so the "Slit smeared data" selector can load either.
+  Applies to `.pxp` and `.h5xp`.
+- **Nika's `w_<folder>` Q-resolution wave is imported** as the sample's
+  per-point Q resolution (stored for other consumers; pyIrena fits do not
+  use it yet).
+
+### Fixed
+- **Igor `.pxp` import now reads folders with names longer than 31
+  characters.** Igor Pro 8+ stores these in a record type that `igor2`
+  could not read until 0.5.15 (AFM-analysis/igor2#28, fixed in #30).
+  With older `igor2` those samples were missing, and their waves could
+  be written out under the wrong sample or technique. The minimum is now
+  `igor2>=0.5.15` (pip; the conda recipe follows once conda-forge has it).
+- **Nika "Use QRS Names" SAXS/WAXS data imports from `.pxp` regardless of
+  case.** Nika writes lowercase `q_/r_/s_` waves, but the importer only
+  matched uppercase names, so those folders were skipped entirely. Wave
+  names are now matched case-insensitively, as in Igor.
+- **Long wave names (> 31 characters) import from `.pxp`.** igor2 does
+  not read Igor's v7 wave format, so every long-named wave in a folder
+  came out under the same placeholder name, `:wave name too long:`, and
+  overwrote the others. Nika QRS data in any SAXS/WAXS folder longer than
+  29 characters was therefore skipped. pyIrena now reads the full name
+  from the wave record itself. Tested on Igor experiments with long and
+  liberal (quoted) folder and wave names in USAXS and SAXS.
+- **Slit-smeared-only USAXS folders import from `.pxp`.** Folders where
+  desmearing was not run (only `SMR_*` waves) were skipped. They now
+  import, and both `.pxp` and `.h5xp` imports write the slit length
+  (`SlitLength` from the wave note) as `dQl`, so fits smear the model.
+  Previously the `.h5xp` path wrote SMR data without `dQl`, which made
+  fits treat it as pinhole data. SMR data with no `SlitLength` is now
+  refused, not written.
+- **Long-name warning is now accurate.** The importer used to count
+  record types 26 and 33, which appear in every Igor 8 experiment, so it
+  warned about missing samples even when nothing was missing. It now
+  counts only long folder names the installed `igor2` cannot read, which
+  is always zero with `igor2>=0.5.15`. The GUI, CLI and batch messages now
+  say to upgrade `igor2` (re-saving as `.h5xp` still works).
+
 ## [1.2.1] - 2026-11-01
 
 A maintenance release on top of 1.2.0. Graphs in the fitting tools now keep a

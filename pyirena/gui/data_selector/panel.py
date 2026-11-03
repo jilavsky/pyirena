@@ -2677,24 +2677,23 @@ class DataSelectorPanel(QWidget):
                 f"pxp could not be parsed (skipped)."
             )
 
-        # Igor 8/10 long-name records (folders/waves > 31 chars) —
-        # igor2 cannot decode these, so samples are silently missing
-        # from the output. Surface this prominently so the user knows
-        # to re-save the experiment as .h5xp.
+        # Igor 8+ long folder names (> 31 chars) that the installed igor2
+        # could not read (igor2 < 0.5.15). Those folders' waves land in the
+        # parent folder, so samples are missing or misattributed. Surface
+        # this prominently so the user upgrades igor2.
         n_longname = result.get('n_igor8_longname_markers') or 0
         if n_longname > 0:
             msg_lines.append("")
             msg_lines.append(
-                f"⚠ WARNING: this .pxp contains {n_longname} Igor-8 long-name "
-                f"record(s) (folders or waves with names > 31 chars)."
+                f"⚠ WARNING: this .pxp contains {n_longname} folder(s) with "
+                f"names longer than 31 characters that igor2 could not read."
             )
             msg_lines.append(
-                "  igor2 cannot decode these, so SOME SAMPLES ARE MISSING "
-                "from the output above."
+                "  SOME SAMPLES ARE MISSING OR MISATTRIBUTED in the output above."
             )
             msg_lines.append(
-                "  Workaround: in Igor Pro, save the experiment as .h5xp "
-                "instead and re-import here."
+                '  Fix: pip install -U "igor2>=0.5.15" and re-import '
+                "(or save the experiment as .h5xp in Igor Pro)."
             )
 
         # Per-technique tally

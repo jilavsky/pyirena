@@ -29,6 +29,8 @@ requirements:
     - numpy >=2.0
     - scipy >=1.8.0
     - h5py >=3.0.0
+    # TODO: raise to >=0.5.15 (long .pxp folder names, see pyproject.toml)
+    # once conda-forge publishes it; conda-forge had only 0.5.14 on 2026-11-03.
     - igor2 >=0.5.13
     - six >=1.16
 

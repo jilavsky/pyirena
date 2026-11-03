@@ -232,6 +232,60 @@ def append_dql(filepath: Path, slit_length: float) -> None:
             sasdata['Q'].attrs['resolutions'] = ','.join(tokens)
 
 
+def append_smr_entry(filepath: Path, sample_name: str, q, intensity, error,
+                     slit_length: float, dqw=None) -> None:
+    """Add a Matilda-style slit-smeared twin ``entry/<sample_name>_SMR``.
+
+    Same layout Matilda writes (see ``saveNXcanSAS`` in ``hdf5.py``): a
+    ``sasdata`` group with ``I``, ``Q``, ``Idev``, optional per-point
+    ``dQw`` and scalar slit length ``dQl``, ``Q@resolutions = "dQw,dQl"``.
+    The desmeared entry stays the ``@default``; readers switch to this
+    twin only when slit-smeared data is requested. Overwrites an existing
+    twin. Does nothing when ``slit_length <= 0`` — a smeared curve
+    without its slit length must never be written.
+    """
+    if not slit_length or slit_length <= 0:
+        return
+    with h5py.File(filepath, 'a') as f:
+        path = f"entry/{sample_name}_SMR"
+        if path in f:
+            del f[path]
+        entry = f.create_group(path)
+        entry.attrs['NX_class'] = 'NXsubentry'
+        entry.attrs['canSAS_class'] = 'SASentry'
+        entry.attrs['default'] = 'sasdata'
+        entry.attrs['title'] = sample_name
+        entry.create_dataset('definition', data='NXcanSAS')
+        entry.create_dataset('title', data=sample_name)
+        entry.create_dataset('run', data='run_identifier')
+
+        sasdata = entry.create_group('sasdata')
+        sasdata.attrs['NX_class'] = 'NXdata'
+        sasdata.attrs['canSAS_class'] = 'SASdata'
+        sasdata.attrs['signal'] = 'I'
+        sasdata.attrs['I_axes'] = 'Q'
+        sasdata.attrs['Q_indices'] = np.array([0], dtype='i4')
+
+        ds = sasdata.create_dataset('I', data=np.asarray(intensity, dtype=float))
+        ds.attrs['units'] = '1/cm'
+        ds.attrs['uncertainties'] = 'Idev'
+        ds.attrs['long_name'] = 'Intensity'
+        ds = sasdata.create_dataset('Q', data=np.asarray(q, dtype=float))
+        ds.attrs['units'] = '1/angstrom'
+        ds.attrs['long_name'] = 'Q (A^-1)'
+        ds.attrs['resolutions'] = 'dQw,dQl' if dqw is not None else 'dQl'
+        if dqw is not None:
+            ds = sasdata.create_dataset('dQw', data=np.asarray(dqw, dtype=float))
+            ds.attrs['units'] = '1/angstrom'
+            ds.attrs['long_name'] = 'dQw (A^-1)'
+        ds = sasdata.create_dataset('dQl', data=float(slit_length))
+        ds.attrs['units'] = '1/angstrom'
+        ds.attrs['long_name'] = 'Slit length (half-height)'
+        ds = sasdata.create_dataset('Idev', data=np.asarray(error, dtype=float))
+        ds.attrs['units'] = '1/cm'
+        ds.attrs['long_name'] = 'Uncertainties'
+
+
 def drop_smr_entries(filepath: Path) -> int:
     """Delete any ``*_SMR`` (slit-smeared twin) entry groups from *filepath*.
 

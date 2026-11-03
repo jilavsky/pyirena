@@ -7,5 +7,5 @@
 numpy>=2.0
 scipy>=1.8.0
 h5py>=3.0.0
-igor2>=0.5.13
+igor2>=0.5.15  # long .pxp folder names; see pyproject.toml
 six>=1.16

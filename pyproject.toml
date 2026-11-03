@@ -38,7 +38,9 @@ dependencies = [
     "numpy>=2.0",
     "scipy>=1.8.0",
     "h5py>=3.0.0",
-    "igor2>=0.5.13",
+    # 0.5.15 reads Igor 8 long data-folder names (> 31 chars) in .pxp files
+    # (AFM-analysis/igor2#30); older versions silently misplace those folders.
+    "igor2>=0.5.15",
     # Used by the public HDF5 reader when writing metadata attributes.
     "six>=1.16",
 ]
