@@ -29,8 +29,17 @@ PACKAGE = Path(pyirena.__file__).parent
 
 
 def _readers():
-    """The Data Explorer readers; their package imports Qt, so skip without it."""
-    return pytest.importorskip("pyirena.gui.hdf5viewer.pyirena_readers")
+    """The Data Explorer readers; their package imports Qt, so skip without it.
+
+    Not ``pytest.importorskip``: ``pyirena.gui._qt`` raises a plain ImportError
+    with an installation hint, which pytest >= 8.2 reports as an error, not a
+    skip (see ``test_plot_export.py``).
+    """
+    try:
+        from pyirena.gui.hdf5viewer import pyirena_readers
+    except ImportError:
+        pytest.skip("Qt (PySide6/PyQt6) not available")
+    return pyirena_readers
 
 
 def _write_sample(path: Path, sample: str, transmission: float) -> None:
