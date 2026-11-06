@@ -449,7 +449,7 @@ def _read_nxcansas_wavelength(filepath: Optional[Path]) -> Optional[float]:
     if filepath is None:
         return None
     try:
-        import h5py
+        from pyirena.io.h5open import open_h5
     except ImportError:
         return None
     candidate_paths = [
@@ -458,7 +458,7 @@ def _read_nxcansas_wavelength(filepath: Optional[Path]) -> Optional[float]:
         "/entry/Metadata/wavelength",
     ]
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with open_h5(str(filepath), "r") as f:
             for path in candidate_paths:
                 if path in f:
                     val = f[path][()]
@@ -484,7 +484,7 @@ def _read_nxcansas_distance_mm(filepath: Optional[Path]) -> Optional[float]:
     if filepath is None:
         return None
     try:
-        import h5py
+        from pyirena.io.h5open import open_h5
     except ImportError:
         return None
     candidate_paths = [
@@ -496,7 +496,7 @@ def _read_nxcansas_distance_mm(filepath: Optional[Path]) -> Optional[float]:
         "/entry/Metadata/detector_distance",
     ]
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with open_h5(str(filepath), "r") as f:
             for path in candidate_paths:
                 if path not in f:
                     continue

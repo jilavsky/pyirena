@@ -21,13 +21,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import h5py
 import numpy as np
 
 from pyirena.core.modeling import (
     ModelingResult,
 )
 from pyirena.io._nxcansas_common import NUMBER_DIST_UNITS, read_number_dist
+from pyirena.io.h5open import open_h5
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def save_modeling_results(
     filepath = Path(filepath)
     timestamp = result.timestamp
 
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         # ── Ensure top-level entry exists ─────────────────────────────────
         if 'entry' not in f:
             f.attrs.update({
@@ -299,7 +299,7 @@ def load_modeling_results(
     if not filepath.exists():
         return None
 
-    with h5py.File(filepath, 'r') as f:
+    with open_h5(filepath, 'r') as f:
         full_path = f'entry/{group_name}'
         if full_path not in f:
             return None

@@ -141,6 +141,12 @@ save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
    | **Settings** | `model.to_dict()` — what you need to fit again | Written in the core dialect, read in any |
    | **Results** | `entry/<tool>_results` datasets, and the `load_*_results()` dicts that mirror them | **Frozen.** `RgCutoff`, `correlated` etc. are the saved-file names; renaming one breaks every file and every Igor export |
    | **Reports** | `get_<tool>_config()` rows for an agent to read | Not replayable, by design |
+7. **Open HDF5 files with `pyirena.io.h5open.open_h5`, never `h5py.File`.**
+   HDF5 identifies an open file by its filesystem ID, and network drives
+   (SSHFS-Win) give every file the same ID, so a plain `h5py.File` returns
+   whichever file is already open, with no error. `open_h5` takes the same
+   arguments. `pyirena/tests/test_h5open.py` fails the build on a direct
+   `h5py.File(` call outside the tests.
 
 ---
 

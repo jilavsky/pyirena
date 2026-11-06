@@ -14,6 +14,8 @@ from typing import Dict, List, Optional
 import h5py
 import numpy as np
 
+from pyirena.io.h5open import open_h5
+
 log = logging.getLogger(__name__)
 
 
@@ -67,7 +69,7 @@ def create_nxcansas_file(filepath: Path, q: np.ndarray, intensity: np.ndarray,
             )
             dq = None
 
-    with h5py.File(filepath, "w") as f:
+    with open_h5(filepath, "w") as f:
         # Root attributes
         f.attrs['default'] = 'entry'
         f.attrs['file_name'] = filepath.name
@@ -251,7 +253,7 @@ def save_unified_fit_results(filepath: Path,
     timestamp = datetime.now().isoformat()
 
     # Open or create file
-    with h5py.File(filepath, "a") as f:
+    with open_h5(filepath, "a") as f:
         # Ensure entry exists
         if 'entry' not in f:
             # Create basic NXcanSAS structure
@@ -404,7 +406,7 @@ def load_unified_fit_results(filepath: Path) -> Dict:
     """
     results = {}
 
-    with h5py.File(filepath, "r") as f:
+    with open_h5(filepath, "r") as f:
         if 'entry/unified_fit_results' not in f:
             raise ValueError(f"No Unified Fit results found in {filepath}")
 

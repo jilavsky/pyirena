@@ -39,6 +39,7 @@ from typing import Optional
 import h5py
 import numpy as np
 
+from pyirena.io.h5open import open_h5
 from pyirena.io.hdf5 import find_matching_groups
 
 # Tools whose result groups can be exported as a 4-column model file.
@@ -308,7 +309,7 @@ def _load_primary_data(h5_path: Path) -> dict:
        paths that ``readSimpleHDF5`` in ``hdf5.py`` recognises.
     """
     h5_path = Path(h5_path)
-    with h5py.File(h5_path, "r") as f:
+    with open_h5(h5_path, "r") as f:
         entry_path = _pick_desmeared_entry(f)
         if entry_path is not None:
             sd = _read_sasdata(f, entry_path)
@@ -1070,7 +1071,7 @@ def export_dataset_to_ascii(
     if include_models:
         # Pre-check which result groups exist so loader errors can be
         # distinguished from "no result group" (the expected silent skip).
-        with h5py.File(h5_path, "r") as f:
+        with open_h5(h5_path, "r") as f:
             present = {
                 suffix: (path in f)
                 for suffix, path in _MODEL_SUFFIX_GROUPS.items()

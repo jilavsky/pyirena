@@ -5,6 +5,12 @@ Shows groups and datasets as a collapsible tree.  Children are loaded
 from h5py only when a node is expanded (lazy loading) to keep large
 files responsive.
 
+The file is opened for each action and closed again, never held open while
+it is displayed.  On Windows an open handle stops other programs (data
+reduction at the beamline) from replacing the file, and a held file is what
+other files get confused with on filesystems where every file reports the
+same identity (see ``pyirena/io/h5open.py``).
+
 Context menu on dataset nodes:  Add as X / Y / Y error / X error axis.
 Context menu on group nodes:  Plot NXcanSAS / Unified Fit / … if known type.
 """
@@ -37,6 +43,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.io.h5open import open_h5
 
 # Qt user-data roles
 _HDF5_PATH_ROLE = Qt.ItemDataRole.UserRole        # full hdf5 path string
@@ -97,7 +104,6 @@ class HDF5BrowserWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._filepath: str | None = None
-        self._h5file:   h5py.File | None = None
         self._show_all_attrs = False
         self._build_ui()
 
@@ -156,9 +162,8 @@ class HDF5BrowserWidget(QWidget):
 
     def load_file(self, filepath: str | None) -> None:
         """Show the structure of *filepath*.  Pass None to clear."""
-        self._close_h5()
         self._tree.clear()
-        self._filepath = filepath
+        self._filepath = None
         self._value_edit.clear()
 
         if not filepath or not os.path.isfile(filepath):
@@ -169,23 +174,27 @@ class HDF5BrowserWidget(QWidget):
         self._file_label.setToolTip(filepath)
 
         try:
-            self._h5file = h5py.File(filepath, "r")
+            with open_h5(filepath, "r") as f:
+                # Populate root level
+                self._populate_group(
+                    parent=self._tree.invisibleRootItem(),
+                    h5_node=f,
+                    h5_path="/",
+                )
         except Exception as exc:
             self._file_label.setText(f"Error opening file: {exc}")
             return
-
-        # Populate root level
-        self._populate_group(
-            parent=self._tree.invisibleRootItem(),
-            h5_node=self._h5file,
-            h5_path="/",
-        )
+        self._filepath = filepath
 
     def clear(self) -> None:
-        self._close_h5()
+        self._filepath = None
         self._tree.clear()
         self._file_label.setText("(no file selected)")
         self._value_edit.clear()
+
+    def _open(self) -> h5py.File:
+        """Open the displayed file for one action; the caller closes it."""
+        return open_h5(self._filepath, "r")
 
     # ── Tree population ────────────────────────────────────────────────────
 
@@ -196,9 +205,6 @@ class HDF5BrowserWidget(QWidget):
         h5_path: str,
     ) -> None:
         """Add immediate children of *h5_node* to *parent*."""
-        if self._h5file is None:
-            return
-
         try:
             names = list(h5_node.keys())
         except Exception:
@@ -297,23 +303,27 @@ class HDF5BrowserWidget(QWidget):
     def _on_show_all_attrs_toggled(self, checked: bool) -> None:
         """Re-render attribute sub-items in place, keeping expand state."""
         self._show_all_attrs = checked
-        if self._h5file is None:
+        if self._filepath is None:
             return
         root = self._tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            self._refresh_attrs(root.child(i))
+        try:
+            with self._open() as f:
+                for i in range(root.childCount()):
+                    self._refresh_attrs(root.child(i), f)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
-    def _refresh_attrs(self, item: QTreeWidgetItem) -> None:
+    def _refresh_attrs(self, item: QTreeWidgetItem, f: h5py.File) -> None:
         """Recursively rebuild attribute sub-items of *item* and its children."""
         h5_path = item.data(0, _HDF5_PATH_ROLE)
-        if h5_path is not None and self._h5file is not None:
+        if h5_path is not None:
             # Drop existing attribute sub-items (they carry no HDF5 path).
             for i in reversed(range(item.childCount())):
                 child = item.child(i)
                 if child.data(0, _HDF5_PATH_ROLE) is None:
                     item.removeChild(child)
             try:
-                node = self._h5file[h5_path]
+                node = f[h5_path]
                 self._add_key_attrs(item, node, h5_path)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
@@ -321,7 +331,7 @@ class HDF5BrowserWidget(QWidget):
         for i in range(item.childCount()):
             child = item.child(i)
             if child.data(0, _HDF5_PATH_ROLE) is not None:
-                self._refresh_attrs(child)
+                self._refresh_attrs(child, f)
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
         """Lazily load children of a group item on first expand."""
@@ -332,14 +342,13 @@ class HDF5BrowserWidget(QWidget):
         item.setData(0, _LOADED_ROLE, True)
 
         h5_path = item.data(0, _HDF5_PATH_ROLE)
-        if not h5_path or self._h5file is None:
+        if not h5_path or self._filepath is None:
             return
         try:
-            h5_node = self._h5file[h5_path]
+            with self._open() as f:
+                self._populate_group(item, f[h5_path], h5_path)
         except Exception:
-            return
-
-        self._populate_group(item, h5_node, h5_path)
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_current_item_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
         """Show scalar value of the selected item in the value display field."""
@@ -415,13 +424,13 @@ class HDF5BrowserWidget(QWidget):
         menu.addAction(act_xpath)
 
     def _build_group_menu(self, menu: QMenu, item: QTreeWidgetItem, h5_path: str) -> None:
-        if self._h5file is None:
+        if self._filepath is None:
             return
 
         # Check if it is an NXcanSAS entry
         try:
-            grp = self._h5file[h5_path]
-            nxcansas_type = _classify_group(grp)
+            with self._open() as f:
+                nxcansas_type = _classify_group(f[h5_path])
         except Exception:
             nxcansas_type = None
 
@@ -451,20 +460,3 @@ class HDF5BrowserWidget(QWidget):
                 self.plot_known_type_requested.emit(tk, p)
             )
             menu.addAction(act)
-
-    # ── Cleanup ────────────────────────────────────────────────────────────
-
-    def _close_h5(self) -> None:
-        if self._h5file is not None:
-            try:
-                self._h5file.close()
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-            self._h5file = None
-
-    def closeEvent(self, event) -> None:
-        self._close_h5()
-        super().closeEvent(event)
-
-    def __del__(self) -> None:
-        self._close_h5()

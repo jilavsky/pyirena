@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-import h5py
 import numpy as np
 
 from pyirena.api._paths import resolve_safe_file
 from pyirena.api.schemas import ReducedData, SampleMetadata, array_to_list
+from pyirena.io.h5open import open_h5
 from pyirena.io.hdf5 import readGenericNXcanSAS
 
 
@@ -85,7 +85,7 @@ def read_metadata(path: str) -> dict:
     meta = SampleMetadata(path=str(file_p))
 
     try:
-        with h5py.File(file_p, "r") as f:
+        with open_h5(file_p, "r") as f:
             meta.found = True
             # Sample name from common locations
             from pyirena.api.discovery import _sample_name

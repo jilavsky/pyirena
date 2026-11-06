@@ -14,6 +14,7 @@ import numpy as np
 from pyirena.api._paths import resolve_safe_folder
 from pyirena.api.discovery import _DEFAULT_GLOBS, _glob_many, _sample_name, _scan_number_from_name
 from pyirena.api.schemas import FileEntry, SampleSummary, Tabulation, TabulationRow
+from pyirena.io.h5open import open_h5
 from pyirena.io.schema import TOOL_REGISTRY
 
 
@@ -203,7 +204,7 @@ def tabulate_parameter(
 
     for path in files:
         try:
-            with h5py.File(path, "r") as f:
+            with open_h5(path, "r") as f:
                 sample = _sample_name(f)
                 if sample_filter_lc:
                     if not sample or sample_filter_lc not in sample.lower():
@@ -267,7 +268,7 @@ def summarize_sample(
 
     for path in files:
         try:
-            with h5py.File(path, "r") as f:
+            with open_h5(path, "r") as f:
                 sname = _sample_name(f)
                 if not sname or sample_lc not in sname.lower():
                     continue

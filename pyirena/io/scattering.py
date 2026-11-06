@@ -15,6 +15,7 @@ from typing import Any, Mapping
 import h5py
 import numpy as np
 
+from pyirena.io.h5open import open_h5
 from pyirena.io.hdf5 import (
     Q_UNIT_TO_ANGSTROM,
     list_nxcansas_datasets,
@@ -121,7 +122,7 @@ def _discover_simple_hdf5(source: Path) -> list[dict[str, str | None]]:
             path = f"/{name}" if name else "/"
             discovered.append({"path": path, "entry": None, "name": path})
 
-    with h5py.File(source, "r") as handle:
+    with open_h5(source, "r") as handle:
         inspect_group("", handle)
 
         def visitor(name: str, obj: h5py.Group | h5py.Dataset) -> None:

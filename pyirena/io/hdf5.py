@@ -9,6 +9,8 @@ import h5py
 import numpy as np
 import six  #what is this for???
 
+from pyirena.io.h5open import open_h5
+
 # Q-unit conversion for text-file import: multiply the raw Q (and dQ) column
 # by this factor to get 1/Å, pyIrena's native unit. Keys mirror the choices
 # in the Data Selector's Configure → "Text File Options" → "Q unit in text
@@ -215,7 +217,7 @@ def readSimpleHDF5(path, filename):
     """
     Filepath = os.path.join(path, filename)
     try:
-        with h5py.File(Filepath, 'r') as f:
+        with open_h5(Filepath, 'r') as f:
             # Try common simple structures
             possible_paths = [
                 ('entry1/data1', 'Q', 'I'),
@@ -626,7 +628,7 @@ def list_nxcansas_datasets(path, filename, include_smr=False):
     :func:`find_all_sasdata`).
     """
     Filepath = os.path.join(path, filename)
-    with h5py.File(Filepath, 'r') as f:
+    with open_h5(Filepath, 'r') as f:
         return _ordered_sasdata(f, include_smr=include_smr)
 
 
@@ -638,7 +640,7 @@ def file_has_smr_entry(path, filename):
     slit-smeared copy need it).
     """
     Filepath = os.path.join(path, filename)
-    with h5py.File(Filepath, 'r') as f:
+    with open_h5(Filepath, 'r') as f:
         return any(_is_smr(d) for d in _selectable_sasdata(f))
 
 
@@ -668,7 +670,7 @@ def readGenericNXcanSAS(path, filename, data_path=None, prefer_slit_smeared=Fals
         :func:`readSimpleHDF5` for files with no recognisable NXcanSAS group.
     """
     Filepath = os.path.join(path, filename)
-    with h5py.File(Filepath, 'r') as f:
+    with open_h5(Filepath, 'r') as f:
         # If the caller already chose a dataset, just read it.
         if data_path is not None:
             if data_path in f:
@@ -757,7 +759,7 @@ def saveNXcanSAS(Sample,path, filename):
     # create the HDF5 NeXus file with same structure as our raw data files have...
     Filepath = os.path.join(path, filename)
     logging.info(f"Saving NXcanSAS data to {Filepath}")
-    with h5py.File(Filepath, "a") as f:
+    with open_h5(Filepath, "a") as f:
         # point to the default data to be plotted
         f.attrs['default']          = 'entry'   #our files have one entry input.
         # these are hopefully optional and useful.
@@ -966,7 +968,7 @@ def readMyNXcanSAS(path, filename, isUSAXS = False):
     """
     Sample = dict()
     Filepath = os.path.join(path, filename)
-    with h5py.File(Filepath, 'r') as f:
+    with open_h5(Filepath, 'r') as f:
         # Start at the root
         # Find the NXcanSAS entries
         required_attributes = {'canSAS_class': 'SASentry', 'NX_class': 'NXsubentry'}

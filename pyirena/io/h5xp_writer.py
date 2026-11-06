@@ -75,6 +75,7 @@ from typing import Any, Sequence
 import h5py
 import numpy as np
 
+from pyirena.io.h5open import open_h5
 from pyirena.io.igor_names import result_x_wave_name
 
 # ---------------------------------------------------------------------------
@@ -227,7 +228,7 @@ def create_h5xp(path: str | Path, overwrite: bool = False) -> h5py.File:
         raise FileExistsError(
             f"{p} already exists. Pass overwrite=True to replace it."
         )
-    f = h5py.File(p, "w")
+    f = open_h5(p, "w")
     _write_root_attrs(f)
     _create_skeleton(f)
     return f
@@ -246,7 +247,7 @@ def open_h5xp(path: str | Path):
         with open_h5xp("results.h5xp") as f:
             write_iq_data(f, "sample2", q, I)
     """
-    f = h5py.File(Path(path), "a")
+    f = open_h5(Path(path), "a")
     try:
         yield f
     finally:

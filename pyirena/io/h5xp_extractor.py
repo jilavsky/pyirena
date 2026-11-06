@@ -43,6 +43,7 @@ import h5py
 import numpy as np
 
 from pyirena.io._nxcansas_common import read_number_dist
+from pyirena.io.h5open import open_h5
 from pyirena.io.h5xp_writer import (
     create_h5xp,
     igor_notebook_name,
@@ -744,7 +745,7 @@ def extract_file_to_h5xp(
         "tools_absent":  [],
     }
 
-    with h5py.File(src, "r") as f:
+    with open_h5(src, "r") as f:
         # Auto-detect SAXS vs WAXS
         if category is None:
             category = "WAXS" if "entry/waxs_peakfit_results" in f else "SAXS"
@@ -849,7 +850,7 @@ def batch_extract_to_h5xp(
                 continue
 
             # Collect scalars from each tool group for the Results table
-            with h5py.File(src, "r") as f:
+            with open_h5(src, "r") as f:
                 for key in (tools or list(TOOL_REGISTRY.keys())):
                     schema = TOOL_REGISTRY.get(key)
                     if schema is None:

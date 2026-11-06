@@ -46,6 +46,24 @@ from .multi_collect_window import MultiCollectWindow
 from .plot_controls import PlotControlsPanel
 
 
+def _collect_x_value(h5, filepath: str, i: int, x_spec: dict) -> float:
+    """X value of the *i*-th selected file for Collect / Multi-Collect.
+
+    *h5* is the file opened for the row (or its path, if it could not be
+    opened); the sort key comes from the file name in *filepath*.  Falls back
+    to the 1-based order number whenever the value cannot be read.
+    """
+    x_val: float | None = None
+    try:
+        if x_spec.get("type") == "sortkey":
+            x_val = _readers.extract_sort_key_value(filepath, x_spec.get("sort_index", 6))
+        elif x_spec.get("type") == "path":
+            x_val = _readers.read_metadata_value(h5, x_spec.get("path", ""))
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return x_val if x_val is not None else float(i + 1)
+
+
 class HDF5ViewerWindow(QMainWindow):
     """
     Main window for the Data Explorer tool.
@@ -406,38 +424,22 @@ class HDF5ViewerWindow(QMainWindow):
         for i, filepath in enumerate(selected):
             stem = Path(filepath).stem
 
-            # Collect Y value
-            y_val = None
-            y_err = None
-            try:
-                collected = _readers.collect_value(filepath, spec)
-                if collected is not None:
-                    if isinstance(collected, (list, tuple)) and len(collected) == 2:
-                        y_val, y_err = float(collected[0]), float(collected[1])
-                    else:
-                        y_val = float(collected)
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
+            # One open of the file serves the Y and the X value.
+            with _readers.opened_or_path(filepath) as h5:
+                # Collect Y value
+                y_val = None
+                y_err = None
+                try:
+                    collected = _readers.collect_value(h5, spec)
+                    if collected is not None:
+                        if isinstance(collected, (list, tuple)) and len(collected) == 2:
+                            y_val, y_err = float(collected[0]), float(collected[1])
+                        else:
+                            y_val = float(collected)
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
 
-            # Collect X value
-            x_val: float | None = None
-            try:
-                if x_spec.get("type") == "order":
-                    x_val = float(i + 1)
-                elif x_spec.get("type") == "sortkey":
-                    x_val = _readers.extract_sort_key_value(
-                        filepath, x_spec.get("sort_index", 6)
-                    )
-                    if x_val is None:
-                        x_val = float(i + 1)
-                elif x_spec.get("type") == "path":
-                    x_val = _readers.read_metadata_value(
-                        filepath, x_spec.get("path", "")
-                    )
-                    if x_val is None:
-                        x_val = float(i + 1)
-            except Exception:
-                x_val = float(i + 1)
+                x_val = _collect_x_value(h5, filepath, i, x_spec)
 
             rows.append({
                 "file": stem,
@@ -488,38 +490,22 @@ class HDF5ViewerWindow(QMainWindow):
         for i, filepath in enumerate(selected):
             stem = Path(filepath).stem
 
-            # X value (same logic as _open_collect_window)
-            x_val: float | None = None
-            try:
-                if x_spec.get("type") == "order":
-                    x_val = float(i + 1)
-                elif x_spec.get("type") == "sortkey":
-                    x_val = _readers.extract_sort_key_value(
-                        filepath, x_spec.get("sort_index", 6)
-                    )
-                    if x_val is None:
-                        x_val = float(i + 1)
-                elif x_spec.get("type") == "path":
-                    x_val = _readers.read_metadata_value(
-                        filepath, x_spec.get("path", "")
-                    )
-                    if x_val is None:
-                        x_val = float(i + 1)
-            except Exception:
-                x_val = float(i + 1)
+            # One open of the file serves the X value and every item.
+            with _readers.opened_or_path(filepath) as h5:
+                x_val = _collect_x_value(h5, filepath, i, x_spec)
 
-            # Collect each item
-            values = []
-            for item_spec in items_spec:
-                try:
-                    val, _kind = _readers.read_hdf5_item(
-                        filepath,
-                        item_spec.get("path", ""),
-                        item_spec.get("reduction", "sum"),
-                    )
-                except Exception:
-                    val = None
-                values.append(val)
+                # Collect each item
+                values = []
+                for item_spec in items_spec:
+                    try:
+                        val, _kind = _readers.read_hdf5_item(
+                            h5,
+                            item_spec.get("path", ""),
+                            item_spec.get("reduction", "sum"),
+                        )
+                    except Exception:
+                        val = None
+                    values.append(val)
 
             rows.append({
                 "file":    stem,

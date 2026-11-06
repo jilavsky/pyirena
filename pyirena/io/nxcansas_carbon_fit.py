@@ -56,6 +56,8 @@ import numpy as np
 
 try:
     import h5py
+
+    from pyirena.io.h5open import open_h5
 except ImportError:                                    # pragma: no cover
     h5py = None                                        # type: ignore
 
@@ -137,7 +139,7 @@ def save_carbon_fit_results(
         raise ImportError("h5py is required to save results.")
 
     filepath = Path(filepath)
-    with h5py.File(filepath, "a") as f:
+    with open_h5(filepath, "a") as f:
         if _GROUP in f:
             del f[_GROUP]
         grp = f.require_group(_GROUP)
@@ -260,7 +262,7 @@ def load_carbon_fit_results(filepath: Path) -> Dict:
         raise ImportError("h5py is required to load results.")
 
     filepath = Path(filepath)
-    with h5py.File(filepath, "r") as f:
+    with open_h5(filepath, "r") as f:
         if _GROUP not in f:
             raise KeyError(f"No carbon_fit_results group in {filepath}")
         grp = f[_GROUP]

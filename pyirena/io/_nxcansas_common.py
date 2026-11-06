@@ -21,6 +21,7 @@ from typing import Optional
 import h5py
 import numpy as np
 
+from pyirena.io.h5open import open_h5
 from pyirena.io.hdf5 import find_matching_groups
 from pyirena.io.schema import TOOL_REGISTRY
 
@@ -96,7 +97,7 @@ def strip_nonpositive_intensities(
 def copy_and_strip_results(src: Path, dst: Path) -> None:
     """Copy *src* to *dst* then delete known pyirena result groups."""
     shutil.copy2(src, dst)
-    with h5py.File(dst, 'a') as f:
+    with open_h5(dst, 'a') as f:
         for grp_path in PYIRENA_RESULT_GROUPS:
             if grp_path in f:
                 del f[grp_path]
@@ -115,7 +116,7 @@ def replace_nxcansas_data(
     *context* is used only in the error message (e.g. "merged data",
     "manipulated data") so callers can identify which tool failed.
     """
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         # Locate the sasdata group dynamically (same approach as the reader)
         sasdata_paths = find_matching_groups(
             f,
@@ -181,7 +182,7 @@ def replace_nxcansas_data(
 
 def append_dq(filepath: Path, dQ: np.ndarray, sample_name: str) -> None:
     """Add a Qdev dataset to the sasdata group of a freshly-created NXcanSAS file."""
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         sasdata_paths = find_matching_groups(
             f,
             required_attributes={'canSAS_class': 'SASdata'},
@@ -208,7 +209,7 @@ def append_dql(filepath: Path, slit_length: float) -> None:
     """
     if not slit_length or slit_length <= 0:
         return
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         sasdata_paths = find_matching_groups(
             f, required_attributes={'canSAS_class': 'SASdata'}, required_items={},
         )
@@ -244,7 +245,7 @@ def drop_smr_entries(filepath: Path) -> int:
     Returns the number of groups removed.
     """
     removed = 0
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         entry = f.get('entry')
         # Top-level entries may also be siblings of 'entry' in some layouts;
         # scan both the root and the 'entry' group for *_SMR children.
@@ -334,7 +335,7 @@ def detect_technique(filepath: Path) -> str:
         return 'unknown'
 
     try:
-        with h5py.File(filepath, 'r') as f:
+        with open_h5(filepath, 'r') as f:
             entry = _nxentry(f)
             if entry is None:
                 return 'unknown'
@@ -426,7 +427,7 @@ def copy_metadata_groups(
         return result
 
     try:
-        with h5py.File(src_path, 'r') as src, h5py.File(dst_path, 'a') as dst:
+        with open_h5(src_path, 'r') as src, open_h5(dst_path, 'a') as dst:
             src_entry = _nxentry(src)
             dst_entry = _nxentry(dst)
             if src_entry is None or dst_entry is None:
