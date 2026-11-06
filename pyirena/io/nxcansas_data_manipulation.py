@@ -14,7 +14,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import h5py
 import numpy as np
 
 from pyirena.io._nxcansas_common import (
@@ -35,6 +34,7 @@ from pyirena.io._nxcansas_common import (
 from pyirena.io._nxcansas_common import (
     strip_nonpositive_intensities as _strip_nonpositive_intensities,
 )
+from pyirena.io.h5open import open_h5
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 
 log = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ def _append_manipulation_provenance(
     source_path: Path,
 ) -> None:
     """Append ``entry/data_manipulation_results`` NXprocess group."""
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         grp_path = 'entry/data_manipulation_results'
         if grp_path in f:
             del f[grp_path]

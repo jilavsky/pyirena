@@ -99,6 +99,7 @@ import numpy as np
 if TYPE_CHECKING:
     import h5py
 
+
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 
 __all__ = [
@@ -927,9 +928,11 @@ def _load_h5xp_filesystem(h5xp_path: Path) -> tuple[dict, int]:
     """
     import h5py
 
+    from pyirena.io.h5open import open_h5
+
     filesystem: dict = {"root": {}}
 
-    with h5py.File(h5xp_path, "r") as f:
+    with open_h5(h5xp_path, "r") as f:
         if "Packed Data" not in f:
             return filesystem, 0
         packed = f["Packed Data"]
@@ -954,6 +957,7 @@ def _h5xp_collect_into(group: "h5py.Group", out: dict) -> None:
     can consume.
     """
     import h5py
+
 
     for name, item in group.items():
         if isinstance(item, h5py.Group):
@@ -1287,8 +1291,9 @@ def extract_igor_experiment(
     # .h5 fallback: peek at the structure
     if ext in (".h5", ".hdf5"):
         try:
-            import h5py
-            with h5py.File(p, "r") as f:
+
+            from pyirena.io.h5open import open_h5
+            with open_h5(p, "r") as f:
                 if "Packed Data" in f:
                     return extract_h5xp_to_nexus(p, output_root, techniques, overwrite)
         except Exception:

@@ -123,7 +123,7 @@ def save_csv(gw: "GraphWindow", filepath: str | None = None) -> bool:
 # ── HDF5 ───────────────────────────────────────────────────────────────────
 
 def save_hdf5(gw: "GraphWindow", filepath: str | None = None) -> bool:
-    import h5py
+    from pyirena.io.h5open import open_h5
 
     curves = gw.get_curves()
     if not curves:
@@ -139,7 +139,7 @@ def save_hdf5(gw: "GraphWindow", filepath: str | None = None) -> bool:
         return False
 
     try:
-        with h5py.File(filepath, "w") as f:
+        with open_h5(filepath, "w") as f:
             f.attrs["NX_class"] = "NXroot"
             entry = f.require_group("entry")
             entry.attrs["NX_class"] = "NXentry"

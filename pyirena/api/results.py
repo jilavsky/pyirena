@@ -35,6 +35,7 @@ from pyirena.api.schemas import (
     WAXSPeakFitResult,
     array_to_list,
 )
+from pyirena.io.h5open import open_h5
 
 
 def _silent_call(fn, *args, **kwargs):
@@ -572,7 +573,7 @@ def read_merge_provenance(path: str) -> dict:
     file_p = resolve_safe_file(path)
     result = MergeProvenance(path=str(file_p))
     try:
-        with h5py.File(file_p, "r") as f:
+        with open_h5(file_p, "r") as f:
             if "entry/data_merge_results" not in f:
                 return result.to_dict()
             grp = f["entry/data_merge_results"]
@@ -627,7 +628,7 @@ def read_manipulation_provenance(path: str) -> dict:
     file_p = resolve_safe_file(path)
     result = ManipulationProvenance(path=str(file_p))
     try:
-        with h5py.File(file_p, "r") as f:
+        with open_h5(file_p, "r") as f:
             if "entry/data_manipulation_results" not in f:
                 return result.to_dict()
             grp = f["entry/data_manipulation_results"]

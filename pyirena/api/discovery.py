@@ -13,6 +13,7 @@ import h5py
 
 from pyirena.api._paths import resolve_safe_file, resolve_safe_folder
 from pyirena.api.schemas import FileEntry, FileInspection, FolderSummary
+from pyirena.io.h5open import open_h5
 from pyirena.io.schema import available_tools
 
 _DEFAULT_GLOBS = ("*.h5", "*.hdf5", "*.hdf", "*.nx", "*.nxs")
@@ -100,7 +101,7 @@ def _file_entry(path: Path, deep: bool = True) -> FileEntry:
     analyses: list[str] = []
     if deep:
         try:
-            with h5py.File(path, "r") as f:
+            with open_h5(path, "r") as f:
                 sample = _sample_name(f)
                 analyses = _analyses_in_file(f)
         except (OSError, KeyError):
@@ -195,7 +196,7 @@ def summarize_folder(
 
     for path in matches:
         try:
-            with h5py.File(path, "r") as f:
+            with open_h5(path, "r") as f:
                 sample = _sample_name(f)
                 if sample_filter_lc:
                     if not sample or sample_filter_lc not in sample.lower():
@@ -243,7 +244,7 @@ def inspect_file(path: str) -> dict:
     )
 
     try:
-        with h5py.File(file_p, "r") as f:
+        with open_h5(file_p, "r") as f:
             inspection.sample = _sample_name(f)
             inspection.analyses_present = _analyses_in_file(f)
             # Reduced data Q range: cheaply read by sniffing the default NXcanSAS data

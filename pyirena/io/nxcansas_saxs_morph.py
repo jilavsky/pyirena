@@ -36,13 +36,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import h5py
 import numpy as np
 
 from pyirena.core.saxs_morph import (
     SaxsMorphConfig,
     SaxsMorphResult,
 )
+from pyirena.io.h5open import open_h5
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def save_saxs_morph_results(
     filepath = Path(filepath)
     timestamp = result.timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         # ── Top-level entry ───────────────────────────────────────────────
         if 'entry' not in f:
             f.attrs.update({
@@ -217,7 +217,7 @@ def load_saxs_morph_results(
     if not filepath.exists():
         return None
 
-    with h5py.File(filepath, 'r') as f:
+    with open_h5(filepath, 'r') as f:
         full = f'entry/{group_name}'
         if full not in f:
             return None

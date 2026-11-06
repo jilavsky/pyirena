@@ -20,6 +20,7 @@ from pyirena.core.fractals import (
     FractalParams,
     GrowthConfig,
 )
+from pyirena.io.h5open import open_h5
 
 _ROOT_GROUP = "entry/fractals_results"
 
@@ -58,7 +59,7 @@ def save_fractal_aggregate(
     filepath = Path(filepath)
     timestamp = datetime.now().isoformat()
 
-    with h5py.File(filepath, "a") as f:
+    with open_h5(filepath, "a") as f:
         # Ensure /entry exists with NXcanSAS-friendly attributes
         if "entry" not in f:
             f.attrs["default"] = "entry"
@@ -149,7 +150,7 @@ def list_fractal_aggregates(filepath: Path) -> list[dict]:
     if not filepath.exists():
         return []
     out = []
-    with h5py.File(filepath, "r") as f:
+    with open_h5(filepath, "r") as f:
         if _ROOT_GROUP not in f:
             return []
         parent = f[_ROOT_GROUP]
@@ -175,7 +176,7 @@ def list_fractal_aggregates(filepath: Path) -> list[dict]:
 def load_fractal_aggregate(filepath: Path, group_path: str) -> FractalAggregate:
     """Load a single aggregate from *filepath* at the given HDF5 path."""
     filepath = Path(filepath)
-    with h5py.File(filepath, "r") as f:
+    with open_h5(filepath, "r") as f:
         if group_path not in f:
             raise KeyError(f"{group_path} not found in {filepath}")
         g = f[group_path]

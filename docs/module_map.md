@@ -98,6 +98,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `setup_config.py` | 186 | Embed/read the `_pyirena_config` GUI setup blob |
 | `results.py` | 351 | High-level "load whatever results this file has" |
 | `scattering.py` | 203 | Read-only data discovery and loading API |
+| `h5open.py` | 179 | **`open_h5`** — the one way to open an HDF5 file; never confuses two files on drives whose files share an ID (SSHFS-Win) |
 | `text_import.py` | 313 | Clean and convert ASCII SAS files to NXcanSAS |
 | `ascii_export.py` | 1111 | ASCII export |
 | `hdf5.py` | 1321 | Low-level HDF5 support shared with Matilda |

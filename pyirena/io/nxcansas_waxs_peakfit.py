@@ -44,6 +44,8 @@ import numpy as np
 
 try:
     import h5py
+
+    from pyirena.io.h5open import open_h5
 except ImportError:
     h5py = None  # type: ignore
 
@@ -114,7 +116,7 @@ def save_waxs_peakfit_results(
     bg_params_std: Dict = result.get("bg_params_std", {})
     peaks_std: List    = result.get("peaks_std", [{} for _ in peaks])
 
-    with h5py.File(filepath, "a") as f:
+    with open_h5(filepath, "a") as f:
         # Remove old group if present
         if _GROUP in f:
             del f[_GROUP]
@@ -274,7 +276,7 @@ def load_waxs_peakfit_results(filepath: Path) -> Dict:
 
     filepath = Path(filepath)
 
-    with h5py.File(filepath, "r") as f:
+    with open_h5(filepath, "r") as f:
         if _GROUP not in f:
             raise KeyError(f"No waxs_peakfit_results group in {filepath}")
         grp = f[_GROUP]

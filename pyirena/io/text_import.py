@@ -252,8 +252,8 @@ def ensure_nxcansas_sibling(
 
     # Write the provenance markers so the collision guard can identify our
     # files, and so a later q_unit change can invalidate this cached sibling.
-    import h5py
-    with h5py.File(out_path, 'a') as f:
+    from pyirena.io.h5open import open_h5
+    with open_h5(out_path, 'a') as f:
         f.attrs[_PROVENANCE_ATTR] = text_path.name
         f.attrs[_Q_UNIT_ATTR] = q_unit
 
@@ -271,8 +271,8 @@ def _is_valid_sibling(sibling: Path, source: Path, q_unit: str = '1/A') -> bool:
     if not sibling.exists():
         return False
     try:
-        import h5py
-        with h5py.File(sibling, 'r') as f:
+        from pyirena.io.h5open import open_h5
+        with open_h5(sibling, 'r') as f:
             if _PROVENANCE_ATTR not in f.attrs:
                 return False
             if f.attrs.get(_Q_UNIT_ATTR, '1/A') != q_unit:
@@ -295,8 +295,8 @@ def _resolve_output_path(text_path: Path, preferred: Path) -> Path:
 
     # Check whether it's ours
     try:
-        import h5py
-        with h5py.File(preferred, 'r') as f:
+        from pyirena.io.h5open import open_h5
+        with open_h5(preferred, 'r') as f:
             if _PROVENANCE_ATTR in f.attrs:
                 return preferred   # Our file — safe to overwrite/reuse
     except Exception:

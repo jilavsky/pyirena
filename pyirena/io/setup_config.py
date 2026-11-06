@@ -51,6 +51,8 @@ from typing import Any, Dict, Optional
 
 import h5py
 
+from pyirena.io.h5open import open_h5
+
 PYIRENA_CONFIG_ATTR = "_pyirena_config"
 
 
@@ -148,7 +150,7 @@ def read_setup_config(file_path: Path | str, group_path: str,
     if not fp.exists():
         raise FileNotFoundError(fp)
 
-    with h5py.File(fp, "r") as f:
+    with open_h5(fp, "r") as f:
         if group_path not in f:
             return None
         group = f[group_path]

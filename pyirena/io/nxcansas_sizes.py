@@ -58,6 +58,7 @@ from pyirena.io._nxcansas_common import (
     NUMBER_DIST_UNITS,
     read_number_dist,
 )
+from pyirena.io.h5open import open_h5
 
 _GROUP = 'entry/sizes_results'
 _PROGRAM = 'pyirena.core.sizes'
@@ -124,7 +125,7 @@ def save_sizes_results(
     timestamp = datetime.now().isoformat()
 
     mode = 'a' if filepath.exists() else 'w'
-    with h5py.File(filepath, mode) as f:
+    with open_h5(filepath, mode) as f:
         # Remove existing group if present
         if _GROUP in f:
             del f[_GROUP]
@@ -270,7 +271,7 @@ def load_sizes_results(filepath: Path) -> dict:
         OSError:   if the file cannot be opened.
     """
     filepath = Path(filepath)
-    with h5py.File(filepath, 'r') as f:
+    with open_h5(filepath, 'r') as f:
         if _GROUP not in f:
             raise KeyError(
                 f"No sizes_results group found in {filepath.name}. "

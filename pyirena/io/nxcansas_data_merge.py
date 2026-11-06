@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import h5py
 import numpy as np
 
 from pyirena.io._nxcansas_common import (
@@ -43,6 +42,7 @@ from pyirena.io._nxcansas_common import (
 from pyirena.io._nxcansas_common import (
     strip_nonpositive_intensities as _strip_nonpositive_intensities,
 )
+from pyirena.io.h5open import open_h5
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 
 log = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ def _append_merge_provenance(
     ds2_path: Optional[Path],
 ) -> None:
     """Append ``entry/data_merge_results`` NXprocess group with merge parameters."""
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         # Remove stale group if present (e.g. re-saving after re-merge)
         if 'entry/data_merge_results' in f:
             del f['entry/data_merge_results']

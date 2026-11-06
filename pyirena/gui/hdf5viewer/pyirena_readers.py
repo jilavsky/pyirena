@@ -13,10 +13,54 @@ import logging
 log = logging.getLogger(__name__)
 
 
+from contextlib import contextmanager
 from pathlib import Path
 
 import h5py
 import numpy as np
+
+from pyirena.io.h5open import open_h5
+
+
+@contextmanager
+def _opened(source):
+    """Yield an open ``h5py.File`` for *source*.
+
+    A path is opened and closed again; an already open ``h5py.File`` is used
+    as is and left open.  Collect Values opens each file once and hands the
+    open file to every reader it needs, which halves the number of opens over
+    a slow network drive.
+    """
+    if isinstance(source, h5py.File):
+        yield source
+    else:
+        with open_h5(str(source), "r") as f:
+            yield f
+
+
+@contextmanager
+def opened_or_path(filepath: str | Path):
+    """Open *filepath* once for every read of one Collect Values row.
+
+    Yields the open ``h5py.File``, closed on exit.  If the file cannot be
+    opened, yields the path instead, so each reader fails on its own and the
+    row shows blanks exactly as it did before.
+    """
+    try:
+        f = open_h5(str(filepath), "r")
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+        yield filepath
+        return
+    try:
+        yield f
+    finally:
+        f.close()
+
+
+def _path_of(source) -> str:
+    """The path of *source*, a path or an open ``h5py.File``."""
+    return source.filename if isinstance(source, h5py.File) else str(source)
 
 # ── Wildcard path resolver ────────────────────────────────────────────────
 
@@ -81,7 +125,7 @@ def detect_available_data(filepath: str | Path) -> list[str]:
     """
     available = []
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             if _has_nxcansas(f):
                 available.append("nxcansas")
             if "entry/unified_fit_results" in f:
@@ -412,7 +456,7 @@ def read_dataset(filepath: str | Path, hdf5_path: str) -> np.ndarray | None:
     Returns a numpy array, or None on failure.
     """
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             resolved = _resolve_wildcard(f, hdf5_path)
             if resolved is None:
                 return None
@@ -428,9 +472,11 @@ def read_dataset(filepath: str | Path, hdf5_path: str) -> np.ndarray | None:
 
 # ── Value collection ───────────────────────────────────────────────────────
 
-def collect_value(filepath: str | Path, spec: dict) -> float | None:
+def collect_value(filepath: str | Path | h5py.File, spec: dict) -> float | None:
     """
     Extract a single scalar value from *filepath* according to *spec*.
+
+    *filepath* may also be an already open ``h5py.File``; it is left open.
 
     spec examples::
 
@@ -470,7 +516,8 @@ def collect_value(filepath: str | Path, spec: dict) -> float | None:
             return _collect_simple_fit(filepath, item, spec.get("param_name", ""))
 
         if data_type == "modeling":
-            return _collect_modeling(filepath, item, spec.get("population", 1))
+            # read_modeling goes through the io loader, which takes a path.
+            return _collect_modeling(_path_of(filepath), item, spec.get("population", 1))
 
         if data_type == "carbon_fit":
             return _collect_carbon_fit(filepath, item, spec.get("param_name", ""))
@@ -496,7 +543,7 @@ def _read_scalar_value(node, key: str) -> float | None:
 
 def _collect_unified(filepath, item: str, level: int) -> float | tuple | None:
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             grp = f["entry/unified_fit_results"]
             if item == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
@@ -522,7 +569,7 @@ def _collect_unified(filepath, item: str, level: int) -> float | tuple | None:
 
 def _collect_sizes(filepath, item: str) -> float | None:
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             grp = f["entry/sizes_results"]
             return _read_scalar_value(grp, item)
     except Exception:
@@ -531,7 +578,7 @@ def _collect_sizes(filepath, item: str) -> float | None:
 
 def _collect_waxs(filepath, item: str, peak: int) -> float | tuple | None:
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             grp = f["entry/waxs_peakfit_results"]
             if item == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
@@ -628,7 +675,7 @@ def _collect_carbon_fit(filepath, item: str, param_name: str) -> float | tuple |
     in ``derived/``.
     """
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             grp = f["entry/carbon_fit_results"]
             if item == "chi2" or param_name == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
@@ -662,7 +709,7 @@ def _collect_carbon_fit(filepath, item: str, param_name: str) -> float | tuple |
 
 def _collect_simple_fit(filepath, item: str, param_name: str) -> float | tuple | None:
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             grp = f["entry/simple_fit_results"]
             if item == "chi2":
                 return _read_scalar_value(grp, "chi_squared")
@@ -695,9 +742,10 @@ def _collect_simple_fit(filepath, item: str, param_name: str) -> float | tuple |
         return None
 
 
-def read_metadata_value(filepath: str | Path, hdf5_path: str) -> float | None:
+def read_metadata_value(filepath: str | Path | h5py.File, hdf5_path: str) -> float | None:
     """
-    Read a scalar (attribute or dataset) from *hdf5_path* in *filepath*.
+    Read a scalar (attribute or dataset) from *hdf5_path* in *filepath*
+    (a path, or an already open ``h5py.File`` that is left open).
 
     Supports both dataset paths (``/entry/foo/bar``) and attribute paths
     (``/entry/foo/bar@attr_name``).
@@ -708,7 +756,7 @@ def read_metadata_value(filepath: str | Path, hdf5_path: str) -> float | None:
     if not hdf5_path:
         return None
     try:
-        with h5py.File(str(filepath), "r") as f:
+        with _opened(filepath) as f:
             resolved = _resolve_wildcard(f, hdf5_path)
             if resolved is None:
                 return None
@@ -730,7 +778,7 @@ def read_metadata_value(filepath: str | Path, hdf5_path: str) -> float | None:
 # ── Multi-item collection ──────────────────────────────────────────────────
 
 def read_hdf5_item(
-    filepath: str | Path,
+    filepath: str | Path | h5py.File,
     hdf5_path: str,
     reduction: str = 'sum',
 ) -> tuple[object, str]:
@@ -739,7 +787,7 @@ def read_hdf5_item(
 
     Parameters
     ----------
-    filepath : str or Path
+    filepath : str, Path or open h5py.File (left open)
     hdf5_path : str
         HDF5 internal path, optionally with ``@attr_name`` suffix.
     reduction : {'sum', 'mean', 'min', 'max'}
@@ -757,7 +805,7 @@ def read_hdf5_item(
     if not hdf5_path:
         return None, 'error'
     try:
-        with h5py.File(str(filepath), 'r') as f:
+        with _opened(filepath) as f:
             resolved = _resolve_wildcard(f, hdf5_path)
             if resolved is None:
                 return None, 'error'

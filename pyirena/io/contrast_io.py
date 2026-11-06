@@ -15,8 +15,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import h5py
 import numpy as np
+
+from pyirena.io.h5open import open_h5
 
 DEFAULT_LIBRARY_PATH = Path.home() / ".pyirena" / "contrast_compounds.h5"
 
@@ -34,7 +35,7 @@ def list_compounds_in_library(library_path: Optional[Path] = None) -> List[str]:
     if not library_path.exists():
         return []
     try:
-        with h5py.File(library_path, 'r') as f:
+        with open_h5(library_path, 'r') as f:
             if _LIBRARY_ROOT not in f:
                 return []
             return sorted(f[_LIBRARY_ROOT].keys())
@@ -80,7 +81,7 @@ def save_compound_to_library(
         compound_name = "unnamed"
 
     mode = 'a' if library_path.exists() else 'w'
-    with h5py.File(library_path, mode) as f:
+    with open_h5(library_path, mode) as f:
         root = f.require_group(_LIBRARY_ROOT)
 
         # Delete existing group with same name so we can overwrite
@@ -132,7 +133,7 @@ def load_compound_from_library(
     if not library_path.exists():
         raise FileNotFoundError(f"Library not found: {library_path}")
 
-    with h5py.File(library_path, 'r') as f:
+    with open_h5(library_path, 'r') as f:
         if _LIBRARY_ROOT not in f or name not in f[_LIBRARY_ROOT]:
             raise KeyError(f"Compound '{name}' not found in library.")
         grp = f[f'{_LIBRARY_ROOT}/{name}']
@@ -168,7 +169,7 @@ def delete_compound_from_library(
     library_path = Path(library_path or DEFAULT_LIBRARY_PATH)
     if not library_path.exists():
         return
-    with h5py.File(library_path, 'a') as f:
+    with open_h5(library_path, 'a') as f:
         if _LIBRARY_ROOT in f and name in f[_LIBRARY_ROOT]:
             del f[f'{_LIBRARY_ROOT}/{name}']
 
@@ -304,7 +305,7 @@ def save_scan_to_hdf5(
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     mode = 'a' if filepath.exists() else 'w'
-    with h5py.File(filepath, mode) as f:
+    with open_h5(filepath, mode) as f:
         if group_name in f:
             del f[group_name]
         grp = f.require_group(group_name)

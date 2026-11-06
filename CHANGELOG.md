@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reading HDF5 files from a network drive (SSHFS-Win) could return another
+  file's values with no error.** Collect Values / Multi-Collect in the Data
+  Explorer showed, for every selected file, the value from the file being
+  displayed in the browser. HDF5 recognises an open file by the ID the
+  filesystem reports, not by its name, and SSHFS-Win reports the same ID (0)
+  for every file. So whenever one HDF5 file was open, opening any other file
+  silently gave back the open one. Saving results while another file was open
+  had the same exposure. pyIrena now opens every HDF5 file through one helper
+  (`pyirena.io.h5open.open_h5`) that detects this and opens such a file
+  independently. Local disks are unaffected and keep the normal, equally fast
+  path. Files written are unchanged.
+- The Data Explorer's browser no longer keeps the displayed file open between
+  actions, so it no longer blocks other programs from replacing that file on
+  Windows.
+- Collect Values and Multi-Collect open each file once instead of once for the
+  X value and again for the Y value(s), which halves the opens over a slow
+  network drive.
+
 ## [1.2.1] - 2026-11-01
 
 A maintenance release on top of 1.2.0. Graphs in the fitting tools now keep a

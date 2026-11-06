@@ -1438,8 +1438,8 @@ class ContrastPanel(QWidget):
             save_scan_to_hdf5(self._scan_data, Path(path), metadata=meta)
 
             # Write compound definitions and all computed properties
-            import h5py
-            with h5py.File(path, "a") as f:
+            from pyirena.io.h5open import open_h5
+            with open_h5(path, "a") as f:
                 grp = f["contrast_scan"]
                 _prop_fields = [
                     "mol_weight", "weight_1mol", "n_mol_per_cm3",

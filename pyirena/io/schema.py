@@ -18,10 +18,10 @@ Usage examples
 --------------
 Check whether a tool's group is present in a file::
 
-    import h5py
+    from pyirena.io.h5open import open_h5
     from pyirena.io.schema import TOOL_REGISTRY, tool_group_present
 
-    with h5py.File("data.h5", "r") as f:
+    with open_h5("data.h5", "r") as f:
         if tool_group_present(f, "unified_fit"):
             ...
 
@@ -29,7 +29,7 @@ Enumerate all available tools in a file::
 
     from pyirena.io.schema import available_tools
 
-    with h5py.File("data.h5", "r") as f:
+    with open_h5("data.h5", "r") as f:
         for key, schema in available_tools(f):
             print(key, schema["label"])
 
