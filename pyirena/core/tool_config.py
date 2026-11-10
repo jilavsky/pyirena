@@ -626,8 +626,22 @@ def simple_model_from_config(state: Dict) -> Tuple[Any, Dict[str, float]]:
 # ---------------------------------------------------------------------------
 
 def modeling_model_from_config(state: Dict):
+    """The ``modeling`` section as a ModelingConfig — the one translator.
+
+    ``pyirena.batch`` used to build its own; its one deliberate quirk is kept
+    here so no existing pipeline changes: a size-distribution population
+    whose config omits ``enabled`` is treated as disabled (GUI-written
+    configs always carry the key). A missing Q range is filled with the
+    data's own range by the runner (``core.fit_runner.run_modeling``), not
+    with ``ModelingConfig``'s 0.001–1 Å⁻¹ default.
+    """
     from pyirena.core.modeling import ModelingConfig
-    return ModelingConfig.from_dict(state)
+    cfg = ModelingConfig.from_dict(state)
+    for pop, pd in zip(cfg.populations, state.get("populations") or [], strict=False):
+        if isinstance(pd, dict) and pd.get("pop_type", "size_dist") == "size_dist" \
+                and "enabled" not in pd:
+            pop.enabled = False
+    return cfg
 
 
 def waxs_model_from_config(state: Dict):

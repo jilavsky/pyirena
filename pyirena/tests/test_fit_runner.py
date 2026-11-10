@@ -138,3 +138,35 @@ def test_batch_simple_from_config_honours_no_limits(tmp_path, monkeypatch):
     batch.fit_simple_from_config(str(src / "SimpleFits_Porod.h5"), str(cfg_path),
                                  save_to_nexus=False)
     assert seen["no_limits"] is True
+
+
+# ── Modeling ─────────────────────────────────────────────────────────────────
+
+def test_modeling_builder_keeps_batch_enabled_quirk():
+    from pyirena.core.tool_config import modeling_model_from_config
+    cfg = modeling_model_from_config({"populations": [
+        {"pop_type": "size_dist"},                       # no 'enabled' → disabled
+        {"pop_type": "size_dist", "enabled": True},
+    ]})
+    assert [p.enabled for p in cfg.populations] == [False, True]
+
+
+def test_run_modeling_fills_missing_q_range_from_data():
+    from pyirena.core.fit_runner import run_modeling
+    from pyirena.core.modeling import ModelingConfig, population_from_dict
+    I, e = _curve()
+    cfg = ModelingConfig.from_dict({})
+    cfg.populations = [population_from_dict({"pop_type": "size_dist", "enabled": True})]
+    run = run_modeling(cfg, Q, I, e)
+    assert cfg.q_min == pytest.approx(Q.min()) and cfg.q_max == pytest.approx(Q.max())
+    assert len(run.data.q) == len(Q)
+
+
+def test_run_modeling_mc_refuses_without_sigma_unless_fraction_given():
+    from pyirena.core.fit_runner import run_modeling
+    from pyirena.core.modeling import ModelingConfig, population_from_dict
+    I, _ = _curve()
+    cfg = ModelingConfig.from_dict({})
+    cfg.populations = [population_from_dict({"pop_type": "size_dist", "enabled": True})]
+    run = run_modeling(cfg, Q, I, None, n_mc_runs=2, seed=1)
+    assert run.mc["available"] is False and run.mc["n_ok"] is None

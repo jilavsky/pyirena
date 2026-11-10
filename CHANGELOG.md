@@ -167,6 +167,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the envelope reader, and keeps σ ≤ 0 points (repaired) instead of
     dropping them. The Invariant's background pre-fit is replayed on every
     path, including API sessions.
+  - *Modeling*: batch builds its configuration with the one shared
+    translator (it had its own copy) and reads the envelope; slit settings
+    follow the shared rule. A config without a Q range is fitted over the
+    data's own range everywhere (the API replay cropped to 0.001–1 Å⁻¹, and
+    batch failed on a `null` range). `batch.fit_modeling(n_mc_runs=None)`
+    now takes the config's `n_mc_runs` — the argument's 10 used to win.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

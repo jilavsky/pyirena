@@ -89,6 +89,6 @@ config's `n_mc_runs > 1`.
 ## Status
 
 - [ ] Data rules D2/D3 in one shared helper, used by batch, control, analyze and the GUI panels
-- [ ] Runner: ~~Unified~~ · ~~Sizes~~ · ~~Simple Fits~~ (done) · Modeling · WAXS · Carbon
+- [ ] Runner: ~~Unified~~ · ~~Sizes~~ · ~~Simple Fits~~ · ~~Modeling~~ (done) · WAXS · Carbon
 - [ ] GUI writes `load_slit_smeared`
 - [ ] Snapshot comparison clean (or every change explained) per tool

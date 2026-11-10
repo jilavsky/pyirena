@@ -173,3 +173,75 @@ def run_simple(model, q, intensity, error=None, *, q_min=None, q_max=None,
             noise_sigma=_mc_noise(data, mc_noise_fraction),
             progress_cb=progress_cb, cancel_cb=cancel_cb)
     return run
+
+
+# ---------------------------------------------------------------------------
+# Modeling
+# ---------------------------------------------------------------------------
+
+def run_modeling(config, q, intensity, error=None, *, q_min=None, q_max=None,
+                 error_fraction: float = 0.05, no_limits: Optional[bool] = None,
+                 n_mc_runs: int = 0, seed=None,
+                 mc_noise_fraction: Optional[float] = None, mc_workers=None,
+                 progress_cb=None, cancel_cb=None) -> FitRun:
+    """Fit a :class:`~pyirena.core.modeling.ModelingConfig` (updated in place).
+
+    Q range: *q_min*/*q_max*, a missing bound being the data's own (written
+    onto the config, which the engine crops by). σ: the shared rule for
+    σ ≤ 0; with no uncertainties at all, ``|I| × error_fraction`` — the fit
+    needs a σ, and this is the user's generated fraction (GUI/batch) or the
+    session's (API). *no_limits*, when given, applies to this fit only.
+    Monte-Carlo starts from the fitted config; data without uncertainties
+    are refused unless *mc_noise_fraction* is given. The core reports σ but
+    not how many refits succeeded, so ``mc['n_ok']`` is None.
+    """
+    from pyirena.core import mc_uncertainty as mcu
+    from pyirena.core.modeling import ModelingEngine
+
+    q_arr = np.asarray(q, dtype=float)
+    finite = q_arr[np.isfinite(q_arr) & (q_arr > 0)]
+    lo = float(q_min) if q_min is not None else float(finite.min())
+    hi = float(q_max) if q_max is not None else float(finite.max())
+    config.q_min, config.q_max = lo, hi
+    data = prepare_fit_arrays(q, intensity, error, error_fraction,
+                              base_mask=q_range_mask(q, lo, hi))
+    dI = data.error if data.error is not None else \
+        np.abs(data.intensity) * float(error_fraction)
+
+    engine = ModelingEngine()
+    previous = config.no_limits
+    if no_limits is not None:
+        config.no_limits = bool(no_limits)
+    try:
+        result = engine.fit(config, data.q, data.intensity, dI)
+    finally:
+        config.no_limits = previous          # a property of this fit only
+    result.config.no_limits = previous
+    run = FitRun("modeling", result.config, result, data, notes=data.notes())
+
+    if n_mc_runs:
+        if data.error is None and mc_noise_fraction is None:
+            run.mc = mcu.not_available(mcu.check_sigma(None, len(data.q)), n_mc_runs, 0, seed)
+            run.mc["n_ok"] = None
+        else:
+            dI_mc = dI if data.error is not None else \
+                np.abs(data.intensity) * float(mc_noise_fraction)
+            cfg = result.config
+            prev = cfg.no_limits
+            if no_limits is not None:
+                cfg.no_limits = bool(no_limits)
+            try:
+                stds = engine.calculate_uncertainty_mc(
+                    cfg, data.q, data.intensity, dI_mc, n_runs=n_mc_runs, seed=seed,
+                    workers=mc_workers, progress_cb=progress_cb, cancel_cb=cancel_cb)
+            finally:
+                cfg.no_limits = prev
+            if stds:
+                run.mc = mcu.base_result(n_mc_runs, 0, seed)
+                run.mc["stds"] = stds
+            else:
+                run.mc = mcu.not_available("fewer than 2 refits succeeded",
+                                           n_mc_runs, 0, seed)
+            run.mc["n_ok"] = None
+            run.mc["sigma_source"] = "measured" if data.error is not None else "generated"
+    return run

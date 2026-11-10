@@ -63,7 +63,8 @@ def summarize_mc(mc: dict, parameters: list[dict], scalars: Optional[dict] = Non
         "reason": mc.get("reason"),
         "method": MONTE_CARLO,
         "n_runs": int(mc.get("n_runs", 0)),
-        "n_ok": int(mc.get("n_ok", 0)),
+        # None when the core cannot say (Modeling reports σ only).
+        "n_ok": None if mc.get("n_ok", 0) is None else int(mc.get("n_ok", 0)),
         "seed": mc.get("seed"),
         "parameters": parameters if mc.get("available") else [],
     }

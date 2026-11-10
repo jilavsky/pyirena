@@ -907,14 +907,18 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
             code="ALL_FIXED",
         )
 
-    error = s.error if s.error is not None else 0.05 * np.abs(s.intensity)
-
-    from pyirena.core.modeling import ModelingEngine  # noqa: PLC0415
-
+    # The shared Modeling runner (core/fit_runner.py), as batch: point rule,
+    # σ = |I| × the session's error_fraction when the data have none (5 %
+    # unless open_dataset_from_data was told otherwise), Monte-Carlo.
+    from pyirena.core.fit_runner import run_modeling
     previous_no_limits = config.no_limits
-    config.no_limits = bool(no_limits)
     try:
-        result = ModelingEngine().fit(config, s.q, s.intensity, error)
+        run = run_modeling(config, s.q, s.intensity, s.error,
+                           q_min=config.q_min, q_max=config.q_max,
+                           error_fraction=getattr(s, "error_fraction", 0.05),
+                           no_limits=bool(no_limits),
+                           n_mc_runs=n_mc_runs, seed=random_seed)
+        result = run.result
     except ValueError as exc:
         return make_error(
             f"Fit failed: {exc}",
@@ -927,9 +931,6 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
             suggestion="Check the population setup; try fit_method='local'.",
             code="FIT_EXCEPTION",
         )
-    finally:
-        # no_limits is a property of this one fit, not of the saved setup.
-        config.no_limits = previous_no_limits
 
     s.last_fit_result = result
     # The engine returns the fitted config; adopt it so follow-up calls see the
@@ -939,8 +940,11 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
     s.last_uncertainty = None
 
     mc_block = None
-    if n_mc_runs:
-        mc_block = _modeling_mc(s, n_mc_runs, random_seed, no_limits)
+    if run.mc is not None:
+        stds = run.mc.get("stds") or {}
+        mc_block = unc.summarize_mc(run.mc, [{"name": k, "std": unc._f(v)}
+                                             for k, v in stds.items()])
+        mc_block["n_ok"] = None
         s.last_uncertainty = mc_block
 
     return {
@@ -955,47 +959,9 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
         "populations": _fitted_population_rows(result),
         "no_limits": bool(no_limits),
         "warnings": ([str(w) for w in getattr(result, 'fit_warnings', None) or []]
-                     + notes),
+                     + notes + list(run.notes)),
         **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
-
-
-def _modeling_mc(s, n_mc_runs: int, seed, no_limits: bool) -> dict:
-    """Monte-Carlo uncertainties for the session's fitted Modeling config.
-
-    No σ is assumed: without measured uncertainties the estimate is refused
-    (issue #38), although the fit itself weights by 5 % of I in that case.
-    The core function reports σ only, not how many refits succeeded, so
-    ``n_ok`` is null rather than a guess.
-    """
-    from pyirena.api.control import uncertainty as unc
-    from pyirena.core import mc_uncertainty as mcu
-    from pyirena.core.modeling import ModelingEngine  # noqa: PLC0415
-
-    why = mcu.check_sigma(s.error, len(s.intensity))
-    if why:
-        block = unc.summarize_mc(mcu.not_available(why, n_mc_runs, 0, seed), [])
-        block["n_ok"] = None
-        return block
-    config = s.model
-    previous = config.no_limits
-    config.no_limits = bool(no_limits)
-    try:
-        stds = ModelingEngine().calculate_uncertainty_mc(
-            config, s.q, s.intensity, s.error, n_runs=n_mc_runs, seed=seed)
-    except Exception as exc:  # pragma: no cover - defensive
-        stds, why = {}, f"Monte-Carlo failed: {exc}"
-    finally:
-        config.no_limits = previous
-    if stds:
-        mc = mcu.base_result(n_mc_runs, 0, seed)
-    else:
-        mc = mcu.not_available(why or "fewer than 2 refits succeeded",
-                               n_mc_runs, 0, seed)
-    block = unc.summarize_mc(mc, [{"name": k, "std": unc._f(v)}
-                                  for k, v in stds.items()])
-    block["n_ok"] = None
-    return block
 
 
 def _fitted_population_rows(result) -> list:
