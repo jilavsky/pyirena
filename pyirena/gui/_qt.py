@@ -12,7 +12,8 @@ Two import styles are supported:
 * flat names — ``from pyirena.gui._qt import QWidget, Qt, Signal``
 * submodules — ``from pyirena.gui._qt import QtWidgets, QtCore, QtGui``
 
-``Signal`` is normalised across bindings (``pyqtSignal`` under PyQt6).
+``Signal`` and ``Slot`` are normalised across bindings (``pyqtSignal`` /
+``pyqtSlot`` under PyQt6).
 
 When neither binding can be imported the failure is diagnosed by
 ``pyirena.diagnostics`` rather than reported as "not installed" — an
@@ -25,12 +26,13 @@ import os
 
 try:
     from PySide6 import QtCore, QtGui, QtWidgets
-    from PySide6.QtCore import Signal
+    from PySide6.QtCore import Signal, Slot
     QT_BINDING = "PySide6"
 except ImportError as _pyside_error:  # pragma: no cover - only without PySide6
     try:
         from PyQt6 import QtCore, QtGui, QtWidgets  # type: ignore[no-redef]
         from PyQt6.QtCore import pyqtSignal as Signal  # type: ignore[no-redef]
+        from PyQt6.QtCore import pyqtSlot as Slot  # type: ignore[no-redef]
         QT_BINDING = "PyQt6"
     except ImportError as _pyqt_error:  # pragma: no cover
         # Do NOT report this as "not installed": ImportError also covers an
@@ -108,6 +110,7 @@ QDir = QtCore.QDir
 QEvent = QtCore.QEvent
 QIODevice = QtCore.QIODevice
 QMimeData = QtCore.QMimeData
+QObject = QtCore.QObject
 QPointF = QtCore.QPointF
 QRectF = QtCore.QRectF
 QThread = QtCore.QThread
@@ -134,7 +137,7 @@ QShortcut = QtGui.QShortcut
 QTransform = QtGui.QTransform
 
 __all__ = [
-    "QtWidgets", "QtCore", "QtGui", "Signal", "QT_BINDING",
+    "QtWidgets", "QtCore", "QtGui", "Signal", "Slot", "QT_BINDING",
     # QtWidgets
     "QAbstractItemView", "QApplication", "QButtonGroup", "QCheckBox",
     "QColorDialog", "QComboBox", "QDialog", "QDialogButtonBox", "QDoubleSpinBox",
@@ -148,7 +151,7 @@ __all__ = [
     "QTreeWidgetItem", "QVBoxLayout", "QWidget",
     # QtCore
     "Qt", "QBuffer", "QByteArray", "QDir", "QEvent", "QIODevice", "QMimeData",
-    "QPointF",
+    "QObject", "QPointF",
     "QRectF", "QThread", "QTimer", "QUrl",
     # QtGui
     "QAction", "QBrush", "QCloseEvent", "QColor", "QDesktopServices",

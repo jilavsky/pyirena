@@ -70,6 +70,7 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
@@ -1227,6 +1228,12 @@ class WAXSPeakFitPanel(QWidget):
         root.setContentsMargins(4, 4, 4, 4)
         root.addWidget(splitter)
 
+        # The fit runs on a worker thread (issue #38).
+        self._jobs = FitJobRunner(self, lock=[
+            self._fit_btn, self._find_btn, self._graph_btn,
+            self._fix_limits_btn, self._revert_btn,
+        ])
+
         # ── Apply saved state ─────────────────────────────────────────────
         self.load_state()
 
@@ -1973,6 +1980,7 @@ class WAXSPeakFitPanel(QWidget):
     def _run_presearch(
         self, q, I, bg_shape, bg_params, peaks,
         run_cc: bool = True, run_scan: bool = True,
+        window: float | None = None, n_steps: int | None = None,
     ):
         """Run Q0 pre-search steps and return an updated peaks list.
 
@@ -1981,14 +1989,18 @@ class WAXSPeakFitPanel(QWidget):
         2. Per-peak Q0 scan — optimises each Q0 independently by grid search.
 
         Returns a deep-copied peaks list; the input is not modified.
+        *window* / *n_steps* default to the panel's spin boxes; pass them when
+        calling off the GUI thread, which must not read widgets.
         """
         from pyirena.core.waxs_peakfit import (
             cross_corr_q_shift,
             presearch_q0_per_peak,
         )
 
-        window  = self._ps_window_spin.value()
-        n_steps = int(self._ps_steps_spin.value())
+        if window is None:
+            window = self._ps_window_spin.value()
+        if n_steps is None:
+            n_steps = int(self._ps_steps_spin.value())
         updated = copy.deepcopy(peaks)
 
         # ── Step 1: Cross-correlation global Q-shift ──────────────────────
@@ -2012,6 +2024,8 @@ class WAXSPeakFitPanel(QWidget):
         return updated
 
     def _run_fit(self):
+        if self._jobs.busy:          # a fit is already running
+            return
         if self._q is None:
             self._set_status("No data loaded.", error=True)
             return
@@ -2040,9 +2054,7 @@ class WAXSPeakFitPanel(QWidget):
         no_limits = self._no_limits_chk.isChecked()
         engine    = WAXSPeakFitModel(bg_shape=bg_shape, peaks=[], no_limits=no_limits)
 
-        # Show orange "Fitting…" and force Qt to repaint before the blocking call
         self._set_status("Fitting…", progress=True)
-        pg.QtWidgets.QApplication.processEvents()
 
         # Map combo index to weight_mode string
         _WEIGHT_MAP = {0: "standard", 1: "equal", 2: "relative"}
@@ -2051,34 +2063,48 @@ class WAXSPeakFitPanel(QWidget):
         peaks_now     = self._get_peaks()
         bg_params_now = self._get_bg_params()
 
-        # ── Q0 pre-search ─────────────────────────────────────────────────
+        # Everything below the widget reads runs on a worker thread (issue #38):
+        # the Q0 pre-search, then the fit.
         run_cc   = self._ps_crosscorr_cb.isChecked()
         run_scan = self._ps_scan_cb.isChecked()
-        if (run_cc or run_scan) and peaks_now:
-            self._set_status("Pre-searching Q₀…", progress=True)
-            pg.QtWidgets.QApplication.processEvents()
-            peaks_now = self._run_presearch(
-                q_fit, I_fit, bg_shape, bg_params_now, peaks_now,
-                run_cc=run_cc, run_scan=run_scan,
-            )
-            # Update Q0 spinboxes in the GUI so the user sees the new start values
-            for row_w, pk in zip(self._peak_rows, peaks_now):
-                row_w.set_q0(float(pk["Q0"]["value"]))
-            self._set_status("Fitting…", progress=True)
-            pg.QtWidgets.QApplication.processEvents()
+        ps_window = self._ps_window_spin.value()
+        ps_steps = int(self._ps_steps_spin.value())
+        presearch = (run_cc or run_scan) and bool(peaks_now)
 
-        try:
+        def job(progress_cb, cancel_cb):
+            peaks = peaks_now
+            if presearch:
+                progress_cb("presearch", None)
+                peaks = self._run_presearch(
+                    q_fit, I_fit, bg_shape, bg_params_now, peaks,
+                    run_cc=run_cc, run_scan=run_scan,
+                    window=ps_window, n_steps=ps_steps,
+                )
+                progress_cb("fit", None)
             result = engine.fit(
                 q_fit, I_fit, dI_fit,
                 bg_params=bg_params_now,
-                peaks=peaks_now,
+                peaks=peaks,
                 weight_mode=weight_mode,
             )
-        except Exception as exc:
-            import traceback
-            traceback.print_exc()
-            self._set_status(f"Fit error: {exc}", error=True)
-            return
+            return peaks, result
+
+        def progress(stage, _):
+            self._set_status("Pre-searching Q₀…" if stage == "presearch" else "Fitting…",
+                             progress=True)
+
+        self._jobs.start(
+            job, lambda out: self._finish_fit(out, presearch, q_fit, I_fit, dI_fit),
+            on_error=lambda m: self._set_status(f"Fit error: {m}", error=True),
+            on_progress=progress, button=self._fit_btn, busy_text="Fitting…")
+
+    def _finish_fit(self, out, presearch, q_fit, I_fit, dI_fit):
+        """Apply a finished background fit (GUI thread)."""
+        peaks_now, result = out
+        if presearch:
+            # Show the pre-searched Q0 start values, as before the fit.
+            for row_w, pk in zip(self._peak_rows, peaks_now):
+                row_w.set_q0(float(pk["Q0"]["value"]))
 
         if not result.get("success", False):
             self._set_status(f"Fit failed: {result.get('message', '')}", error=True)
@@ -2290,6 +2316,7 @@ class WAXSPeakFitPanel(QWidget):
 
     def closeEvent(self, event):
         """Auto-save state on close (the explicit Save State button was removed)."""
+        self._jobs.shutdown()
         try:
             self.save_state()
         except Exception as exc:

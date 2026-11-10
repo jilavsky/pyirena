@@ -8,6 +8,7 @@ interactive single-model fitting of SAS data.
 
 from __future__ import annotations
 
+import copy
 import logging
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import (
     attach_plot_export,
     save_plot_image,
@@ -647,6 +649,13 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         self._fit_col_header_lbl:  QLabel | None = None
 
         self.init_ui()
+        # Fits and MC run on a worker thread (issue #38).
+        self._jobs = FitJobRunner(self, lock=[
+            self.fit_btn, self.prefit_bp_btn, self.prefit_flat_btn,
+            self.graph_model_btn, self.results_to_graph_btn, self.revert_btn,
+            self.store_btn, self.load_setup_btn, self.import_btn, self.reset_btn,
+            self.unc_btn,
+        ])
         self.load_state()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -1675,6 +1684,8 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     # ── Fit ───────────────────────────────────────────────────────────────────
 
     def _run_fit(self):
+        if self._jobs.busy:          # a fit/MC job is already running
+            return
         if self.data is None:
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
@@ -1710,9 +1721,22 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
                                 'Not enough data points in the selected Q range.')
             return
 
-        result = model.fit(q, I, dI,
-                           fixed_params=fixed_params if fixed_params else None,
-                           no_limits=no_limits)
+        # On a worker thread, and on a copy: _collect_model() returns the
+        # panel's own model, which the graph keeps using meanwhile.
+        trial = copy.deepcopy(model)
+
+        def job(progress_cb, cancel_cb):
+            return trial.fit(q, I, dI,
+                             fixed_params=fixed_params if fixed_params else None,
+                             no_limits=no_limits)
+
+        self._jobs.start(job, lambda result: self._finish_fit(result, q, I, dI),
+                         on_error=lambda m: QMessageBox.critical(
+                             self, 'Fit failed', f'Fit failed:\n{m}'),
+                         button=self.fit_btn, busy_text='Fitting…')
+
+    def _finish_fit(self, result, q, I, dI):
+        """Apply a finished background fit (GUI thread)."""
         if not result['success']:
             QMessageBox.critical(self, 'Fit failed',
                                  f"Fit failed:\n{result.get('error', 'Unknown error')}")
@@ -1854,6 +1878,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     # ── Uncertainty ───────────────────────────────────────────────────────────
 
     def _calculate_uncertainty(self):
+        """MC uncertainty on a worker thread; a second click cancels."""
+        if self._jobs.busy:
+            self._jobs.cancel()
+            return
         if self.data is None:
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
@@ -1861,7 +1889,8 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             QMessageBox.warning(self, 'No fit', 'Run Fit first.')
             return
 
-        model = self._collect_model()
+        # Copied here, on the GUI thread: the panel keeps editing self.model.
+        model = copy.deepcopy(self._collect_model())
         fixed_params = self._collect_fixed_params()
         no_limits = self.no_limits_check.isChecked()
         q, I, dI = self._get_filtered_data()
@@ -1869,22 +1898,35 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         # Same model, fixed parameters and limits as Fit. Data without
         # measured uncertainties are refused rather than perturbed with an
-        # assumed 5 % of I (issue #38).
-        mc = model.calculate_uncertainty_mc(
-            q, I, dI, n_runs=n_runs, fixed_params=fixed_params or None,
-            no_limits=no_limits)
+        # assumed 5 % of I (issue #38). The core works on its own copies.
+        def job(progress_cb, cancel_cb):
+            return model.calculate_uncertainty_mc(
+                q, I, dI, n_runs=n_runs, fixed_params=fixed_params or None,
+                no_limits=no_limits, progress_cb=progress_cb, cancel_cb=cancel_cb)
+
+        self._jobs.start(
+            job, lambda mc: self._finish_uncertainty(mc, n_runs),
+            on_error=lambda m: QMessageBox.warning(self, 'Uncertainty', f'MC failed: {m}'),
+            on_progress=lambda d, n: self.status_label.setText(f'MC uncertainty: {d}/{n} …'),
+            button=self.unc_btn, cancellable=True, busy_text='Cancel MC')
+
+    def _finish_uncertainty(self, mc, n_runs):
+        """Apply a finished (or cancelled) MC run (GUI thread)."""
         n_ok = mc['n_ok']
         if not mc['available']:
             QMessageBox.warning(self, 'Uncertainty',
                                 f"MC uncertainty not computed ({n_ok}/{n_runs} "
                                 f"runs OK): {mc['reason']}.")
             return
+        if self.fit_result is None:
+            return
 
         stds = mc['params_std']
         self.fit_result['params_std'] = stds
         self._apply_result_to_widgets(self.fit_result)
+        note = ' — cancelled' if self._jobs.cancelled else ''
         self.status_label.setText(
-            f'MC uncertainty done ({n_ok}/{n_runs} successful runs).')
+            f'MC uncertainty done ({n_ok}/{n_runs} successful runs{note}).')
 
     # ── Store in file ─────────────────────────────────────────────────────────
 
@@ -2354,5 +2396,6 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         )
 
     def closeEvent(self, event):
+        self._jobs.shutdown()
         self.save_state()
         super().closeEvent(event)

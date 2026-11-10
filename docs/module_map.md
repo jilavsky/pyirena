@@ -29,6 +29,8 @@ shared ones** — those are what gets reimplemented by accident.
 | builds a Markdown fit report (one builder, all consumers) | `core/reporting.py` |
 | adds the "Copy results / Save report…" buttons | `gui/report_buttons.py` |
 | shows the fit-quality summary line | `gui/quality_display.py` |
+| runs a fit / Monte-Carlo off the GUI thread (progress, Cancel) | `gui/fit_worker.py` |
+| estimates Monte-Carlo parameter uncertainties (shared plumbing) | `core/mc_uncertainty.py` |
 | imports Qt (the only place allowed to) | `gui/_qt.py` |
 | persists panel settings between sessions | `state/state_manager.py` |
 | embeds GUI setup inside a result file | `io/setup_config.py` |
@@ -68,6 +70,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `distributions.py` | 630 | Parametric size distributions for Modeling |
 | `smearing.py` | 463 | Slit-smearing engine |
 | `fit_metrics.py` | 361 | Robust, σ-scale-independent fit diagnostics |
+| `mc_uncertainty.py` | 159 | Shared Monte-Carlo plumbing (no invented σ, seeded noise, n_ok) for the tools' `calculate_uncertainty_mc` |
 | `feature_detect.py` | 684 | Feature detection in I(Q) — drives the Feature Identifier |
 | `similarity.py` | 307 | Outlier / radiation-damage detection across datasets |
 | `morphology.py` | 306 | Morphology metrics for binary 3-D voxelgrams |
@@ -151,6 +154,7 @@ shared ones** — those are what gets reimplemented by accident.
 | `carbon_fit.py` | 704 | Agent-drivable Carbon model |
 | `simple_fits.py` | 691 | Agent-drivable Simple Fits |
 | `export.py` | 429 | **`export_results`** — one JSON report for all six tools |
+| `uncertainty.py` | 210 | `get_parameter_uncertainties` for every tool; the `n_mc_runs` result block |
 | `schemas.py` | 2277 | **`TOOL_SCHEMA_BY_NAME`** — JSON schema per control function |
 | `session.py` | 95 | In-memory session registry (`file_path` may be None) |
 | `_save.py` | 93 | Where `save_*` writes, and what happens with no source file |
@@ -218,6 +222,7 @@ Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
 | `nudge_field.py` | 183 | Wheel/arrow/▲▼ numeric field (`NudgeField`) |
 | `report_buttons.py` | 347 | "Copy results" / "Save report…" |
 | `quality_display.py` | 85 | Uniform fit-quality readout |
+| `fit_worker.py` | 259 | `FitJobRunner` — one background fit/MC job per panel, button locking, Cancel |
 | `setup_loader.py` | 145 | "Load Setup from File…" dialog flow |
 | `data_loading.py` | 313 | Shared loader row widget |
 | `slit_smearing_ui.py` | 207 | Shared "Slit smeared data" row |

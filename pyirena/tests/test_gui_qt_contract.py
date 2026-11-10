@@ -99,7 +99,7 @@ def test_every_name_the_gui_asks_for_actually_exists():
 
     source = SHIM.read_text(encoding="utf-8")
     defined = set(re.findall(r"^(\w+) = Qt(?:Widgets|Core|Gui)\.", source, re.M))
-    defined |= {"QtWidgets", "QtCore", "QtGui", "Signal", "QT_BINDING"}
+    defined |= {"QtWidgets", "QtCore", "QtGui", "Signal", "Slot", "QT_BINDING"}
 
     missing = {n: sorted(f) for n, f in wanted.items() if n not in defined}
     assert not missing, f"imported from _qt.py but not defined there: {missing}"

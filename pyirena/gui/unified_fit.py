@@ -13,6 +13,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
+import copy
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -61,6 +62,7 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import (
     attach_plot_export,
     save_plot_image,
@@ -2056,7 +2058,20 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self._auto_update_timer.timeout.connect(self._do_auto_update)
 
         self.init_ui()
+        self._jobs = FitJobRunner(self, lock=self._job_locked_widgets())
         self.load_state()
+
+    def _job_locked_widgets(self) -> list:
+        """Controls that must not start anything while a fit/MC job runs."""
+        widgets = [
+            self.fit_button, self.graph_unified_button, self.fix_limits_button,
+            self.results_graphs_button, self.revert_button, self.store_data_button,
+            self.load_setup_button, self.import_params_button, self.reset_button,
+            self.analyze_results_button, self.num_levels_spin,
+        ]
+        for lw in self.level_widgets:
+            widgets += [lw.fit_rg_g_button, lw.fit_p_b_button, lw.copy_move_button]
+        return widgets
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -2908,6 +2923,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def run_fit(self):
         """Run the unified fit."""
+        if self._jobs.busy:          # a fit/MC job is already running
+            return
         if self.data is None:
             self.graph_window.show_error_message("No data loaded. Please load data first.")
             return
@@ -3008,7 +3025,45 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # had to press Fit repeatedly. The walking fit recentres the
             # auto-limits and refits until nothing is pinned — one press now
             # does what several used to.
-            result = self.model.fit_with_limit_walking(q_fit, intensity_fit, error_fit)
+            # Runs on a worker thread (the window stays live; issue #38) and on
+            # a copy, because the GUI keeps redrawing from self.model meanwhile.
+            trial = copy.deepcopy(self.model)
+
+            def job(progress_cb, cancel_cb):
+                return trial, trial.fit_with_limit_walking(q_fit, intensity_fit, error_fit)
+
+            ctx = {
+                'num_levels': num_levels, 'num_points': num_points,
+                'cursor_range': cursor_range,
+                'q_min': cursor_range[0] if cursor_range is not None else None,
+                'q_max': cursor_range[1] if cursor_range is not None else None,
+            }
+            self._jobs.start(job, lambda out: self._finish_fit(out, ctx),
+                             on_error=self._fit_failed, button=self.fit_button,
+                             busy_text="Fitting…")
+
+        except Exception as e:
+            self.graph_window.show_error_message(f"Error during fitting: {str(e)}")
+            self.status_label.setText("Fit failed")
+            import traceback
+            traceback.print_exc()
+
+    def _fit_failed(self, message: str):
+        """A background fit raised."""
+        self.graph_window.show_error_message(f"Error during fitting: {message}")
+        self.status_label.setText("Fit failed")
+
+    def _finish_fit(self, out, ctx):
+        """Apply a finished background fit (GUI thread)."""
+        trial, result = out
+        # Copy the fitted state into the panel's model object rather than
+        # replacing it, so anything holding self.model keeps the same object.
+        self.model.__dict__.update(trial.__dict__)
+        num_levels = ctx['num_levels']
+        num_points = ctx['num_points']
+        cursor_range = ctx['cursor_range']
+        q_min, q_max = ctx['q_min'], ctx['q_max']
+        try:
             self.fit_result = result
 
             # Update GUI with fitted values and reset limits around them
@@ -3814,7 +3869,14 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             self.status_label.setText("Reset to defaults")
 
     def analyze_results(self):
-        """Monte Carlo uncertainty analysis on Gaussian-randomised data."""
+        """Monte Carlo uncertainty analysis on Gaussian-randomised data.
+
+        Runs on a worker thread with progress; clicking the button again
+        cancels, keeping the refits that finished.
+        """
+        if self._jobs.busy:
+            self._jobs.cancel()
+            return
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return
@@ -3858,16 +3920,28 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             mask = (Q >= q_min) & (Q <= q_max)
         else:
             mask = np.ones(len(Q), dtype=bool)
+        q_mc = np.array(Q[mask])
+        I_mc = np.array(self.data['Intensity'][mask])
+        err_mc = np.array(self.data['Error'][mask])
 
-        def _progress(n_done, n_runs):
+        def job(progress_cb, cancel_cb):
+            return mc_model.calculate_uncertainty_mc(
+                q_mc, I_mc, err_mc, n_runs=N_RUNS,
+                progress_cb=progress_cb, cancel_cb=cancel_cb)
+
+        def progress(n_done, n_runs):
             self.status_label.setText(f"Monte Carlo: run {n_done}/{n_runs} …")
-            QApplication.processEvents()
 
-        mc = mc_model.calculate_uncertainty_mc(
-            Q[mask], self.data['Intensity'][mask], self.data['Error'][mask],
-            n_runs=N_RUNS, progress_cb=_progress)
+        self.status_label.setText(f"Monte Carlo: 0/{N_RUNS} …")
+        self._jobs.start(job, lambda mc: self._finish_mc(mc, num_levels, N_RUNS),
+                         on_error=lambda m: self.graph_window.show_error_message(
+                             f"Monte Carlo failed: {m}"),
+                         on_progress=progress, button=self.analyze_results_button,
+                         cancellable=True, busy_text="Cancel MC")
 
-        # --- Store statistics ---
+    def _finish_mc(self, mc, num_levels, N_RUNS):
+        """Store a finished (or cancelled) Monte-Carlo run (GUI thread)."""
+        cancelled = self._jobs.cancelled
         self.fit_uncertainties = self._empty_uncertainties()
         n_success = mc['n_ok']
         if mc['available']:
@@ -3885,7 +3959,10 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 f"Monte Carlo uncertainties not computed: {mc['reason']}.")
             return
 
-        msg = (f"Monte Carlo analysis complete: {n_success}/{N_RUNS} successful runs. "
+        what = (f"cancelled after {mc.get('n_done', n_success)} of {N_RUNS} runs, "
+                f"{n_success} successful" if cancelled
+                else f"{n_success}/{N_RUNS} successful runs")
+        msg = (f"Monte Carlo analysis complete: {what}. "
                f"Uncertainties updated — click 'Results to graphs' to display.")
         self.status_label.setText(
             f"MC analysis: {n_success}/{N_RUNS} runs OK"
@@ -4355,6 +4432,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def closeEvent(self, event):
         """Handle window close - auto-save state."""
+        self._jobs.shutdown()
         state = self._collect_state()
         self.state_manager.update('unified_fit', state)
         self.state_manager.save()

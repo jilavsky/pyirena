@@ -245,8 +245,9 @@ filter boxes use `gui/file_filter.py`, file-list sorting uses
 `core/file_sorting.py`, tables use `gui/table_utils.py`
 (`attach_table_copy` / `enable_table_sorting` / `rows_to_csv_text`), plot export
 uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
-`parent_widget`), and text reports come from `core/reporting.py` via
-`gui/report_buttons.py`. The full list is the "standard UX contract" in
+`parent_widget`), text reports come from `core/reporting.py` via
+`gui/report_buttons.py`, and fits / Monte-Carlo run off the GUI thread via
+`gui/fit_worker.py` (`FitJobRunner`; never `processEvents()` in a loop). The full list is the "standard UX contract" in
 `docs/developer_adding_features.md`; `pyirena/tests/test_gui_table_contract.py`
 and `test_gui_plot_contract.py` enforce it.
 

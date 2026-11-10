@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   many refits succeeded) or covariance values. `export_results` carries the
   same `uncertainty` block, `analyze()` takes `n_mc_runs`, and
   `save_fit` stores Unified Fit's Monte-Carlo uncertainties as the GUI does.
+- **Fits no longer freeze the window** (#38). Unified Fit, Size Distribution,
+  Simple Fits, the Carbon model and WAXS Peak Fit now run their fit — and
+  Monte-Carlo uncertainties — on a background thread, as Modeling already
+  did. While one runs, the other action buttons are disabled, so a second
+  click can no longer start a second fit inside the first (possible before in
+  Unified Fit and WAXS). The Monte-Carlo uncertainty buttons show progress
+  and become **Cancel MC** while running; cancelling keeps the refits that
+  finished. The Carbon model's Stop button keeps working. A single fit cannot
+  be interrupted (scipy's optimisers have no cancel hook), but it no longer
+  blocks the window.
 - WAXS batch results say their uncertainties are covariance values
   (`uncertainty_method: "covariance"`); `with_uncertainty=True` is logged
   rather than silently ignored.
