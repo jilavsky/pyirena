@@ -123,10 +123,10 @@ def test_batch_simple_from_config_honours_no_limits(tmp_path, monkeypatch):
     src = Path(__file__).resolve().parents[2] / "testData" / "Scripting"
     if not (src / "SimpleFits_Porod.json").exists():
         pytest.skip("fixtures not present")
-    cfg = json.loads((src / "SimpleFits_Porod.json").read_text())
+    cfg = json.loads((src / "SimpleFits_Porod.json").read_text(encoding="utf-8"))
     cfg["simple_fits"]["no_limits"] = True
     cfg_path = tmp_path / "c.json"
-    cfg_path.write_text(json.dumps(cfg))
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
     seen = {}
     real = fr.run_simple
 

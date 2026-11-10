@@ -179,6 +179,11 @@ def analyze(
         fit_result = _run_fit(setup, session_id, n_mc_runs, notes)
         if isinstance(fit_result, dict) and "error" in fit_result:
             return fit_result
+        # What the shared runner did on the way (pre-fits it replayed,
+        # repaired σ, …) belongs with the other notes about this replay.
+        if isinstance(fit_result, dict):
+            notes.extend(w for w in (fit_result.get("warnings") or [])
+                         if isinstance(w, str) and w not in notes)
 
         report = export_results(session_id, include_arrays=include_arrays,
                                 max_points=max_points)
