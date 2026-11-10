@@ -154,7 +154,8 @@ def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
             )
 
         # Check for error column; generate from intensity if absent
-        if data.shape[1] >= 3:
+        error_generated = data.shape[1] < 3
+        if not error_generated:
             error = data[:, 2]
         else:
             error = I * error_fraction
@@ -176,6 +177,8 @@ def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
             'Intensity': I,
             'Error': error,
             'dQ': dQ,
+            # True when Error was made up as I × error_fraction (no column).
+            'error_generated': error_generated,
         }
 
     except Exception as e:

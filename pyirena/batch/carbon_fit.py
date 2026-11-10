@@ -166,9 +166,8 @@ def _read_data(data_file: Path, verbose: bool = True):
     try:
         if data_file.suffix.lower() in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            from pyirena.state.state_manager import StateManager
-            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
-            h5_file = ensure_nxcansas_sibling(data_file, q_unit=q_unit)
+            from pyirena.state.state_manager import text_import_settings
+            h5_file = ensure_nxcansas_sibling(data_file, **text_import_settings())
         else:
             h5_file = data_file
         data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)

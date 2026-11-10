@@ -94,6 +94,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Every result reports how many refits succeeded, and the core functions
     take a `seed` for reproducible uncertainties (MC values are therefore not
     bit-identical with earlier runs, only statistically equivalent).
+- **The Data Selector's "Generated uncertainty fraction" is honoured
+  everywhere** (#38). It is the user's chosen σ for data without
+  uncertainties. `pyirena.batch`, the API, plotting, Data Merge and Data
+  Manipulation converted text files with a fixed 5 % regardless of the
+  setting; they now use it. Modeling (GUI and batch) used a fixed 5 % for an
+  NXcanSAS file with no uncertainty dataset; it now uses the setting too, for
+  the fit weights and for Monte-Carlo, so Modeling MC error bars on such data
+  scale with the chosen fraction (fitted values are unchanged, since a
+  constant fraction only rescales the weights). Converted text files now
+  record the fraction they were made with; a later change of the setting is
+  logged rather than silently ignored (the cached file is not rewritten,
+  because results are stored in it). The conversion note also now counts
+  generated uncertainties correctly for two-column files (it said 0).
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

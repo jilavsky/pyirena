@@ -3081,6 +3081,18 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     # ── File I/O ─────────────────────────────────────────────────────────────
 
+    def _generated_error(self, I):
+        """σ for data without uncertainties: I × the Data Selector's
+        "Generated uncertainty fraction" (Configure → Text File Options).
+
+        That setting is the user's stated choice of σ, so it is what the fit
+        weights by and what Monte-Carlo perturbs with. Until 1.2.1 Modeling
+        hard-coded 5 % here regardless of the setting (issue #38).
+        """
+        from pyirena.state.state_manager import text_import_settings
+        frac = text_import_settings(self._state)["error_fraction"]
+        return np.abs(np.asarray(I, dtype=float)) * frac
+
     def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
         """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
         import numpy as _np
@@ -3088,7 +3100,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         I   = _np.asarray(data['Intensity'], dtype=float)
         err = data.get('Error')
         dI  = (_np.asarray(err, dtype=float)
-               if err is not None else _np.full_like(I, 0.05 * I))
+               if err is not None else self._generated_error(I))
         self.set_data(q, I, dI,
                       filename=display_name,
                       filepath=hdf5_path,
@@ -3111,7 +3123,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                 return
             I = _np.asarray(d['Intensity'], dtype=float)
             err = d.get('Error')
-            dI = _np.asarray(err, dtype=float) if err is not None else _np.full_like(I, 0.05 * I)
+            dI = _np.asarray(err, dtype=float) if err is not None else self._generated_error(I)
             self.set_data(_np.asarray(d['Q'], dtype=float), I, dI,
                           filename=Path(fp).name,
                           filepath=str(fp), is_nxcansas=True,

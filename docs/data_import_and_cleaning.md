@@ -53,6 +53,20 @@ The `error_fraction` default is **0.05** (5 % of intensity).  You can change
 it in *Data Selector → Configure → Text File Options → Generated uncertainty
 fraction*.
 
+**This setting is your stated uncertainty for data that have none.** Every
+path that converts a text file uses it — the GUI tools, `pyirena.batch`, the
+API and plotting (up to 1.2.1 batch always generated 5 %, whatever the
+setting) — and the generated σ is then treated as a measured one: fits weight
+by it and Monte-Carlo uncertainties perturb with it, so those error bars scale
+with the fraction you chose. Modeling also uses it for an NXcanSAS file that
+has no uncertainty dataset (it used a fixed 5 % there).
+
+**Changing it does not rewrite files already converted.** The converted
+`.h5` is cached next to the text file and results are stored into it, so it
+is not regenerated behind your back. pyIrena records the fraction each file
+was converted with and logs a warning when it differs from the current
+setting; delete the `.h5` to regenerate it (stored results go with it).
+
 ## Q units
 
 Text files carry no unit metadata (unlike NXcanSAS HDF5, which always

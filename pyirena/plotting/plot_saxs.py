@@ -316,9 +316,8 @@ def _load_raw(fpath: Path):
         ext = fpath.suffix.lower()
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            from pyirena.state.state_manager import StateManager
-            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
-            fpath = ensure_nxcansas_sibling(fpath, q_unit=q_unit)
+            from pyirena.state.state_manager import text_import_settings
+            fpath = ensure_nxcansas_sibling(fpath, **text_import_settings())
         data = readGenericNXcanSAS(str(fpath.parent), fpath.name)
         if data is None:
             return None

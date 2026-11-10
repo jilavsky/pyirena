@@ -75,9 +75,8 @@ def _load_data(
     try:
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            from pyirena.state.state_manager import StateManager
-            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
-            h5_file = ensure_nxcansas_sibling(data_file, q_unit=q_unit)
+            from pyirena.state.state_manager import text_import_settings
+            h5_file = ensure_nxcansas_sibling(data_file, **text_import_settings())
             data = readGenericNXcanSAS(
                 str(h5_file.parent), h5_file.name,
                 prefer_slit_smeared=load_slit_smeared,

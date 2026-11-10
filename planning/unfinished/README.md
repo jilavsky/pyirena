@@ -46,9 +46,10 @@ control. `run_fit` / `run_sizes_fit` / `run_simple_fit` /
 serves every tool from `api/control/uncertainty.py`; `export_results` and
 `analyze(n_mc_runs=…)` carry it. WAXS keeps its signature (the pipeline passes
 the arguments to every tool) but now says its uncertainties are covariance
-ones. Still open: Modeling GUI/batch still perturb error-less data with 5 %
-of I, unlike the other tools (needs a decision), and the Size Distribution
-GUI does not store its MC per-bin σ in the file (neither path does).
+ones. Modeling's error-less data now use the Data Selector's "Generated
+uncertainty fraction" (decided 10-11-2026: that setting is the user's σ).
+Still open: the Size Distribution GUI does not store its MC per-bin σ in the
+file (neither path does).
 
 The largest capability gap between the batch path and the MCP/ZMQ path, and
 the one an agent notices first.

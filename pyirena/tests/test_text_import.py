@@ -350,3 +350,68 @@ class TestEnsureNxcanSASSibling:
             "No 'sasdata' group found — the converted file is not a valid "
             "NXcanSAS file and tools will fail to save results into it."
         )
+
+
+# ── Generated-uncertainty fraction (issue #38) ──────────────────────────────
+
+def _write_two_column(path, n=20):
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write("# Q I\n")
+        for k in range(n):
+            q = 0.01 * (k + 1)
+            f.write(f"{q}  {100.0 / (k + 1)}\n")
+
+
+class TestGeneratedErrorFraction:
+
+    def test_sibling_records_fraction_and_count(self, tmp_path):
+        from pyirena.io.h5open import open_h5
+        from pyirena.io.hdf5 import readGenericNXcanSAS
+        txt = tmp_path / 'noerr.dat'
+        _write_two_column(txt)
+        h5 = ensure_nxcansas_sibling(txt, error_fraction=0.03)
+        with open_h5(h5, 'r') as f:
+            assert f.attrs['pyirena_error_fraction'] == pytest.approx(0.03)
+            assert int(f.attrs['pyirena_n_errors_synthesized']) == 20
+        d = readGenericNXcanSAS(str(h5.parent), h5.name)
+        assert np.allclose(d['Error'], 0.03 * d['Intensity'])
+
+    def test_changed_fraction_warns_and_keeps_cached_file(self, tmp_path, caplog):
+        """A rebuild would rewrite the file and lose stored results, so the
+        cached sibling is kept and the mismatch is logged instead."""
+        txt = tmp_path / 'noerr.dat'
+        _write_two_column(txt)
+        h5 = ensure_nxcansas_sibling(txt, error_fraction=0.03)
+        mtime = h5.stat().st_mtime_ns
+        with caplog.at_level('WARNING', logger='pyirena.io.text_import'):
+            again = ensure_nxcansas_sibling(txt, error_fraction=0.08)
+        assert again == h5 and h5.stat().st_mtime_ns == mtime
+        assert any('0.08' in r.getMessage() for r in caplog.records)
+
+    def test_no_warning_when_file_had_errors(self, tmp_path, caplog):
+        txt = tmp_path / 'witherr.dat'
+        _write_text_file(txt)
+        ensure_nxcansas_sibling(txt, error_fraction=0.03)
+        with caplog.at_level('WARNING', logger='pyirena.io.text_import'):
+            ensure_nxcansas_sibling(txt, error_fraction=0.08)
+        assert not caplog.records
+
+
+class TestTextImportSettings:
+
+    class _FakeState:
+        def __init__(self, values):
+            self.values = values
+
+        def get(self, tool, key, default=None):
+            return self.values.get(key, default)
+
+    def test_reads_both_settings(self):
+        from pyirena.state.state_manager import text_import_settings
+        got = text_import_settings(self._FakeState({'error_fraction': 0.02, 'q_unit': '1/nm'}))
+        assert got == {'error_fraction': 0.02, 'q_unit': '1/nm'}
+
+    @pytest.mark.parametrize('bad', [0, -0.1, 'x', None])
+    def test_bad_fraction_falls_back_to_five_percent(self, bad):
+        from pyirena.state.state_manager import text_import_settings
+        assert text_import_settings(self._FakeState({'error_fraction': bad}))['error_fraction'] == 0.05

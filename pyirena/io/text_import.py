@@ -64,6 +64,11 @@ _PROVENANCE_ATTR = 'pyirena_converted_from'
 # so a later change to the Q-unit setting invalidates a stale cached sibling
 # even though its mtime still looks up to date.
 _Q_UNIT_ATTR = 'pyirena_q_unit'
+#: Fraction of I used for uncertainties the text file did not have, and how
+#: many points needed one. Recorded so a later change of the Data Selector's
+#: "Generated uncertainty fraction" can be noticed on a cached sibling.
+_ERROR_FRACTION_ATTR = 'pyirena_error_fraction'
+_N_SYNTHESIZED_ATTR = 'pyirena_n_errors_synthesized'
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -196,6 +201,7 @@ def ensure_nxcansas_sibling(
     # ── Cache check ───────────────────────────────────────────────────────
     if not force and _is_valid_sibling(out_path, text_path, q_unit):
         logger.debug("ensure_nxcansas_sibling: reusing cached '%s'", out_path.name)
+        _warn_if_error_fraction_changed(out_path, error_fraction)
         return out_path
 
     # ── Read raw text ─────────────────────────────────────────────────────
@@ -206,7 +212,10 @@ def ensure_nxcansas_sibling(
 
     Q_raw = np.asarray(raw['Q'],         dtype=float)
     I_raw = np.asarray(raw['Intensity'], dtype=float)
-    E_raw = raw.get('Error')
+    # A generated error column is handed on as "absent", so the cleaner makes
+    # the same E = I × error_fraction and also counts it (the provenance note
+    # used to say 0 synthesized for every two-column file).
+    E_raw = None if raw.get('error_generated') else raw.get('Error')
     dQ_raw = raw.get('dQ')
 
     # ── Clean ─────────────────────────────────────────────────────────────
@@ -256,6 +265,8 @@ def ensure_nxcansas_sibling(
     with open_h5(out_path, 'a') as f:
         f.attrs[_PROVENANCE_ATTR] = text_path.name
         f.attrs[_Q_UNIT_ATTR] = q_unit
+        f.attrs[_ERROR_FRACTION_ATTR] = float(error_fraction)
+        f.attrs[_N_SYNTHESIZED_ATTR] = int(report['n_e_synthesized'])
 
     logger.info("ensure_nxcansas_sibling: wrote '%s' (%d pts)", out_path.name, len(Q))
     return out_path
@@ -282,6 +293,30 @@ def _is_valid_sibling(sibling: Path, source: Path, q_unit: str = '1/A') -> bool:
         return sib_mtime >= src_mtime
     except Exception:
         return False
+
+
+def _warn_if_error_fraction_changed(sibling: Path, error_fraction: float) -> None:
+    """Log when a cached sibling's generated uncertainties used another fraction.
+
+    The sibling is deliberately *not* rebuilt: results are stored into it
+    ("Store in File"), and a rebuild rewrites the file. The user is told
+    instead, and can delete the ``.h5`` to regenerate it.
+    """
+    try:
+        from pyirena.io.h5open import open_h5
+        with open_h5(sibling, 'r') as f:
+            used = f.attrs.get(_ERROR_FRACTION_ATTR)
+            n_synth = int(f.attrs.get(_N_SYNTHESIZED_ATTR, 0))
+    except Exception:
+        return
+    if used is None or n_synth == 0:
+        return
+    if abs(float(used) - float(error_fraction)) > 1e-12:
+        logger.warning(
+            "'%s' was converted with generated uncertainties E = I x %.4g for %d "
+            "point(s); the current setting is %.4g. The cached file is kept "
+            "(it may hold stored results) - delete it to regenerate.",
+            sibling.name, float(used), n_synth, float(error_fraction))
 
 
 def _resolve_output_path(text_path: Path, preferred: Path) -> Path:

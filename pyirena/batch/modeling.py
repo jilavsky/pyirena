@@ -140,9 +140,14 @@ def fit_modeling(
 
     q  = np.asarray(data['Q'],         dtype=float)
     I  = np.asarray(data['Intensity'],  dtype=float)
+    # No measured uncertainties: σ = I × the Data Selector's "Generated
+    # uncertainty fraction" — the user's choice, the same σ the GUI uses for
+    # the fit and for Monte-Carlo (it was a fixed 5 % here; issue #38).
+    from pyirena.state.state_manager import text_import_settings
+    frac = text_import_settings()["error_fraction"]
     _err = data.get('Error')
-    dI = np.asarray(_err if _err is not None else np.ones_like(q) * 0.05 * I, dtype=float)
-    dI = np.where(dI <= 0, 0.05 * np.abs(I), dI)
+    dI = np.asarray(_err if _err is not None else frac * np.abs(I), dtype=float)
+    dI = np.where(dI <= 0, frac * np.abs(I), dI)
 
     # --- Build ModelingConfig from the dict stored by the GUI ---
     try:

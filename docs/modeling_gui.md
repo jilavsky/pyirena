@@ -551,6 +551,14 @@ Click **Calc. Uncertainty (MC)** to estimate parameter uncertainties by Monte Ca
 2. `N` refit runs with Gaussian noise added to I(Q) (scaled by dI)
 3. Standard deviations of the fitted parameters are reported in the Derived panel
 
+**Data without uncertainties.** When the file has no uncertainty dataset,
+dI is taken as I × the *Generated uncertainty fraction* set in *Data Selector
+→ Configure → Text File Options* (default 5 %) — for the fit weights and for
+the Monte-Carlo noise alike, so the MC error bars scale with that choice. Text
+files already get their uncertainties from the same setting when they are
+converted. (Over the API/MCP/ZMQ there is no such setting, so Monte-Carlo is
+refused for data sent without uncertainties.)
+
 Set the number of passes with the **Passes:** spin box (1–500, default 10).
 More passes give better uncertainty estimates at the cost of longer compute time.
 
