@@ -94,12 +94,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     fractional error and error scaling are honoured, as the GUI already did.
     `batch.fit_sizes(with_uncertainty=True)` used the raw file error, so its
     error bars change for configs with fractional error or `error_scale ≠ 1`.
-  - *No σ is assumed.* Data without measured uncertainties no longer get
-    Monte-Carlo error bars computed from an invented 5 % of I; the estimate is
-    refused with that reason (Unified Fit GUI already refused). Affects
-    Unified Fit batch and Simple Fits / Size Distribution GUI and batch. Size
-    Distribution with "fractional error" on still runs, since there the user
-    chose σ.
+  - *No σ is invented; the user's is used.* For data without measured
+    uncertainties, Monte-Carlo perturbs with I × the Data Selector's
+    "Generated uncertainty fraction" (Configure → Text File Options) — the
+    σ the user chose for such data — instead of a hard-coded 5 % of I. The
+    refits keep the main fit's weighting, so fitted values do not move; the
+    MC error bars scale with the chosen fraction, and every result says
+    whether σ was measured or generated. Unified Fit GUI, which refused MC on
+    such data, now runs it. Over the API/MCP/ZMQ, where there is no such
+    setting, MC is refused for data sent without uncertainties.
   - At least two refits must succeed; Size Distribution previously quoted a
     zero uncertainty from a single successful refit.
   - Every result reports how many refits succeeded, and the core functions

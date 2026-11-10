@@ -58,6 +58,28 @@ def check_sigma(sigma, n_points: int) -> Optional[str]:
     return None
 
 
+def resolve_noise_sigma(measured, noise_sigma, n_points: int):
+    """Pick the σ that drives the perturbations, and say where it came from.
+
+    *measured* is the data's own uncertainty (what the fit weights by);
+    *noise_sigma* is an explicit choice from the caller — in pyIrena, I × the
+    Data Selector's "Generated uncertainty fraction" for data that have no
+    uncertainties (the user's stated σ; issue #38). Measured σ wins when both
+    are given.
+
+    Returns ``(sigma, source, reason)``: *source* is ``"measured"`` or
+    ``"generated"``; *reason* is None, or why no σ is usable.
+    """
+    if measured is not None and check_sigma(measured, n_points) is None:
+        return np.asarray(measured, dtype=float), "measured", None
+    if noise_sigma is not None:
+        why = check_sigma(noise_sigma, n_points)
+        if why is None:
+            return np.asarray(noise_sigma, dtype=float), "generated", None
+        return None, None, why
+    return None, None, check_sigma(measured, n_points)
+
+
 def perturbed_intensities(I, sigma, n_runs: int, seed=None,
                           floor: Optional[float] = None) -> list[np.ndarray]:
     """Draw *n_runs* noisy copies ``I + sigma · N(0, 1)`` up front.

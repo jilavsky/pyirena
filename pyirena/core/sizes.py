@@ -1385,7 +1385,7 @@ class SizesDistribution:
 
     def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
                                  seed=None, progress_cb=None,
-                                 cancel_cb=None) -> dict:
+                                 cancel_cb=None, noise_sigma=None) -> dict:
         """Per-bin and scalar uncertainties by refitting noise-perturbed data.
 
         Each pass refits a copy of this model to ``I + σ·N(0,1)`` where σ is
@@ -1402,12 +1402,13 @@ class SizesDistribution:
             n_runs: Number of perturbed refits.
             seed: Seed for the perturbations and for any stochastic refit
                 (Monte Carlo method); None = nondeterministic.
-            progress_cb, cancel_cb: As for
-                :meth:`UnifiedFitModel.calculate_uncertainty_mc`.
+            progress_cb, cancel_cb, noise_sigma: As for
+                :meth:`UnifiedFitModel.calculate_uncertainty_mc`; *noise_sigma*
+                is used only when there is no effective error.
 
         Returns:
             dict with ``available``, ``reason``, ``n_runs``, ``n_ok``,
-            ``seed`` and, when available, ``r_grid``, ``distribution_mean``,
+            ``seed``, ``sigma_source`` and, when available, ``r_grid``, ``distribution_mean``,
             ``distribution_std`` (arrays), and ``rg_mean``/``rg_std``,
             ``volume_fraction_mean``/``volume_fraction_std``,
             ``peak_r_mean``/``peak_r_std`` (floats).
@@ -1422,10 +1423,12 @@ class SizesDistribution:
         if n_runs < mcu.MIN_SUCCESSFUL_RUNS:
             return mcu.not_available(
                 f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
-        sigma = self.effective_error(I, error)
-        why = mcu.check_sigma(sigma, len(I))
+        sigma, source, why = mcu.resolve_noise_sigma(
+            self.effective_error(I, error), noise_sigma, len(I))
         if why:
             return mcu.not_available(why, n_runs, 0, seed)
+        if self.fractional_error:
+            source = "fractional_error"
 
         trial = copy.deepcopy(self)
         if trial.method == 'montecarlo':
@@ -1470,6 +1473,7 @@ class SizesDistribution:
         out = mcu.base_result(n_runs, n_ok, seed)
         out.update({
             'n_done': n_done,
+            'sigma_source': source,
             'r_grid': r_ref,
             'distribution_mean': arr.mean(axis=0),
             'distribution_std': arr.std(axis=0, ddof=1),

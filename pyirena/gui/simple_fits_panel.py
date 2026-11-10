@@ -1897,12 +1897,17 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         n_runs = self.n_runs_spin.value()
 
         # Same model, fixed parameters and limits as Fit. Data without
-        # measured uncertainties are refused rather than perturbed with an
-        # assumed 5 % of I (issue #38). The core works on its own copies.
+        # measured uncertainties are perturbed with I × the Data Selector's
+        # "Generated uncertainty fraction" (issue #38). The core works on its
+        # own copies.
+        from pyirena.state.state_manager import generated_noise_sigma
+        noise = generated_noise_sigma(I, dI, self.state_manager)
+
         def job(progress_cb, cancel_cb):
             return model.calculate_uncertainty_mc(
                 q, I, dI, n_runs=n_runs, fixed_params=fixed_params or None,
-                no_limits=no_limits, progress_cb=progress_cb, cancel_cb=cancel_cb)
+                no_limits=no_limits, noise_sigma=noise,
+                progress_cb=progress_cb, cancel_cb=cancel_cb)
 
         self._jobs.start(
             job, lambda mc: self._finish_uncertainty(mc, n_runs),
@@ -1925,6 +1930,8 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         self.fit_result['params_std'] = stds
         self._apply_result_to_widgets(self.fit_result)
         note = ' — cancelled' if self._jobs.cancelled else ''
+        if mc.get('sigma_source') == 'generated':
+            note += ', σ = I × generated-uncertainty fraction'
         self.status_label.setText(
             f'MC uncertainty done ({n_ok}/{n_runs} successful runs{note}).')
 

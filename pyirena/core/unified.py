@@ -1238,7 +1238,7 @@ class UnifiedFitModel:
 
     def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
                                  seed=None, progress_cb=None, cancel_cb=None,
-                                 **fit_kwargs) -> Dict:
+                                 noise_sigma=None, **fit_kwargs) -> Dict:
         """Monte-Carlo parameter uncertainties, as Irena's "Analyze Results".
 
         Each pass refits a copy of *this* model — same levels, fit flags,
@@ -1249,8 +1249,12 @@ class UnifiedFitModel:
 
         Args:
             q, intensity: The fitted Q range.
-            error: Measured 1σ for those points. Required — with no measured
-                uncertainties the estimate is refused, not run on an assumed σ.
+            error: Measured 1σ for those points; also what every refit
+                weights by, as in the main fit (None = unit weights).
+            noise_sigma: σ to perturb with when *error* is None — the
+                caller's explicit choice (the GUI and batch pass I × the
+                "Generated uncertainty fraction"). With neither, the estimate
+                is refused rather than run on an assumed σ.
             n_runs: Number of perturbed refits.
             seed: RNG seed for the perturbations; None = nondeterministic.
             progress_cb: Optional ``callable(n_done, n_runs)``.
@@ -1275,10 +1279,10 @@ class UnifiedFitModel:
         if n_runs < mcu.MIN_SUCCESSFUL_RUNS:
             return mcu.not_available(
                 f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
-        why = mcu.check_sigma(error, len(intensity))
+        sigma, source, why = mcu.resolve_noise_sigma(error, noise_sigma, len(intensity))
         if why:
             return mcu.not_available(why, n_runs, 0, seed)
-        error = np.asarray(error, dtype=float)
+        error = np.asarray(error, dtype=float) if error is not None else None
 
         n_lv = self.num_levels
         start = copy.deepcopy(self)
@@ -1286,7 +1290,7 @@ class UnifiedFitModel:
         for key in self.MC_LEVEL_KEYS:
             samples[key] = [[] for _ in range(n_lv)]
 
-        noisy = mcu.perturbed_intensities(intensity, error, n_runs, seed,
+        noisy = mcu.perturbed_intensities(intensity, sigma, n_runs, seed,
                                           floor=mcu.POSITIVE_FLOOR)
         n_done = 0
         for I_k in noisy:
@@ -1314,6 +1318,7 @@ class UnifiedFitModel:
 
         out = mcu.base_result(n_runs, n_ok, seed)
         out['n_done'] = n_done
+        out['sigma_source'] = source
         out['uncertainties'] = {
             'background': mcu.std_of(samples['background']),
             'levels': [

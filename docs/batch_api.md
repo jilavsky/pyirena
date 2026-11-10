@@ -387,8 +387,8 @@ result = fit_unified(
    `UnifiedFitModel.calculate_uncertainty_mc`, the same code as the GUI's
    *Analyze Results*: the fitted model (links, limits, slit smearing) is
    refitted `n_mc_runs` times to data perturbed by the measured σ. Data
-   without measured uncertainties are refused (logged) rather than perturbed
-   with an assumed 5 % of I.
+   without measured uncertainties are perturbed with I × the Data Selector's
+   "Generated uncertainty fraction" (Configure → Text File Options).
 6. **Saves results** *(if `save_to_nexus=True`)* — writes to NXcanSAS HDF5:
    - NXcanSAS input → results appended to the same file
    - Text input → new file `<stem>_NX.h5` created alongside the data
@@ -438,8 +438,9 @@ With `with_uncertainty=True` the per-bin σ of the distribution is computed by
 `SizesDistribution.calculate_uncertainty_mc` — the GUI's *Calc. Uncertainty
 (MC)*: the data are perturbed with the σ the fit weights by, so fractional
 error and error scaling are honoured (up to 1.2.1 batch used the raw file
-error). Without measured uncertainties this is refused unless fractional
-error is on. `n_mc_runs=None` takes the config's `unc_n_runs`.
+error). Without measured uncertainties (and fractional error off), σ = I ×
+the Data Selector's "Generated uncertainty fraction". `n_mc_runs=None` takes
+the config's `unc_n_runs`.
 
 ### Returns
 

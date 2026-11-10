@@ -183,10 +183,12 @@ def fit_simple(
             log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")
 
         # Same model, fixed parameters and limits as the main fit. Data without
-        # measured uncertainties are refused rather than perturbed with an
-        # assumed 5 % of I (issue #38).
+        # measured uncertainties are perturbed with I × the Data Selector's
+        # "Generated uncertainty fraction" — the user's σ (issue #38).
+        from pyirena.state.state_manager import generated_noise_sigma
         mc = model.calculate_uncertainty_mc(
-            qf, If, dIf, n_runs=n_mc_runs, fixed_params=fixed_params)
+            qf, If, dIf, n_runs=n_mc_runs, fixed_params=fixed_params,
+            noise_sigma=generated_noise_sigma(If, dIf))
         result['mc_n_ok'] = mc['n_ok']
         result['mc_n_runs'] = mc['n_runs']
         if mc['available']:

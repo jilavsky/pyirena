@@ -941,3 +941,18 @@ def text_import_settings(state_manager: Optional["StateManager"] = None) -> Dict
         "error_fraction": frac,
         "q_unit": sm.get('data_selector', 'q_unit', '1/A') or '1/A',
     }
+
+
+def generated_noise_sigma(intensity, error=None,
+                          state_manager: Optional["StateManager"] = None):
+    """σ for Monte-Carlo when the data have no uncertainties, else None.
+
+    I × the Data Selector's "Generated uncertainty fraction" — the user's
+    stated σ for such data (issue #38). Returns None when *error* is given,
+    so measured uncertainties always win.
+    """
+    if error is not None:
+        return None
+    import numpy as np
+    frac = text_import_settings(state_manager)["error_fraction"]
+    return np.abs(np.asarray(intensity, dtype=float)) * frac

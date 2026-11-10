@@ -2560,8 +2560,12 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         # error / error scale honoured); data with no measured error are
         # refused unless fractional error is on (issue #38). Runs on a worker
         # thread; clicking the button again cancels and keeps finished fits.
+        from pyirena.state.state_manager import generated_noise_sigma
+        noise = generated_noise_sigma(intensity, error, self.state_manager)
+
         def job(progress_cb, cancel_cb):
             return s.calculate_uncertainty_mc(q, intensity, error, n_runs=N_runs,
+                                              noise_sigma=noise,
                                               progress_cb=progress_cb,
                                               cancel_cb=cancel_cb)
 
@@ -2609,6 +2613,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         runs = (f"cancelled — {n_ok} of {mc.get('n_done', n_ok)} finished fits OK"
                 if self._jobs.cancelled else f"{n_ok}/{N_runs} fits OK")
+        if mc.get('sigma_source') == 'generated':
+            runs += ", σ = I × generated-uncertainty fraction"
         msg = (
             f"MC uncertainty ({runs}) | "
             f"Rg: {rg_mean:.4g} ± {rg_std:.4g} Å | "

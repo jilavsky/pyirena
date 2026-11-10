@@ -69,11 +69,13 @@ def _mc_uncertainty_unified(
     Returns the core result dict (``available``, ``reason``, ``n_ok``,
     ``n_runs`` and, when available, ``uncertainties`` in the format
     ``save_unified_fit_results`` expects).  Data without measured
-    uncertainties are refused rather than perturbed with an assumed 5 % of I
-    (until 1.2.1 this path invented that σ; the GUI refused — issue #38).
+    uncertainties are perturbed with I × the Data Selector's "Generated
+    uncertainty fraction" — the user's σ — as in the GUI (issue #38).
     """
+    from pyirena.state.state_manager import generated_noise_sigma
     return model.calculate_uncertainty_mc(
-        q_fit, intensity_fit, error_fit, n_runs=n_runs, seed=seed)
+        q_fit, intensity_fit, error_fit, n_runs=n_runs, seed=seed,
+        noise_sigma=generated_noise_sigma(intensity_fit, error_fit))
 
 
 def _build_setup_state(unified_state: Dict, fit_result: Dict) -> Dict:

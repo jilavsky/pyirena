@@ -3,8 +3,10 @@
 One implementation per tool now serves the GUI, batch and api/control paths.
 These tests pin the decisions made when the copies were merged:
 
-* no measured σ → refused with a reason (no assumed 5 % of I), except Sizes
-  with fractional error, where the user chose σ;
+* no measured σ → refused with a reason (no assumed 5 % of I), unless the
+  caller passes an explicit ``noise_sigma`` (GUI/batch: I × the Data
+  Selector's "Generated uncertainty fraction") or Sizes has fractional error
+  on — in both the user chose σ;
 * Sizes perturbs with the *effective* error (fractional / scaled);
 * Unified refits the same model as the main fit: links and slit smearing kept;
 * a seed reproduces the result exactly; ``n_ok`` of ``n_runs`` is reported.
@@ -256,3 +258,58 @@ def test_simple_mc_refusals():
     calc.model = 'Invariant'
     r = calc.calculate_uncertainty_mc(q, I, 0.03 * I, n_runs=4)
     assert r['available'] is False and 'calculation' in r['reason']
+
+
+# ── explicit noise σ for data without uncertainties ──────────────────────────
+
+def test_unified_noise_sigma_drives_noise_but_refits_keep_main_weighting(monkeypatch):
+    m, I_obs, _ = _unified_data()
+    seen = []
+    real_fit = UnifiedFitModel.fit
+
+    def spy(self, q, I, error=None, **k):
+        seen.append(error)
+        return real_fit(self, q, I, error, **k)
+
+    monkeypatch.setattr(UnifiedFitModel, 'fit', spy)
+    r = m.calculate_uncertainty_mc(Q, I_obs, None, n_runs=3, seed=1,
+                                   noise_sigma=0.03 * I_obs)
+    assert r['available'] and r['sigma_source'] == 'generated'
+    assert seen == [None, None, None]          # unit weights, like the main fit
+
+
+def test_measured_sigma_wins_over_noise_sigma():
+    m, I_obs, dI = _unified_data()
+    r = m.calculate_uncertainty_mc(Q, I_obs, dI, n_runs=3, seed=1,
+                                   noise_sigma=10 * I_obs)
+    assert r['sigma_source'] == 'measured'
+
+
+def test_noise_sigma_scales_uncertainty():
+    q, I, _ = _guinier_data()
+    sf = SimpleFitModel()
+    small = sf.calculate_uncertainty_mc(q, I, None, n_runs=8, seed=4, noise_sigma=0.01 * I)
+    large = sf.calculate_uncertainty_mc(q, I, None, n_runs=8, seed=4, noise_sigma=0.04 * I)
+    assert large['params_std']['Rg'] == pytest.approx(4 * small['params_std']['Rg'], rel=0.2)
+
+
+def test_sizes_noise_sigma_and_source():
+    _, I_obs, _ = _unified_data()
+    s = SizesDistribution()
+    r = s.calculate_uncertainty_mc(Q, I_obs, None, n_runs=3, seed=1, noise_sigma=0.03 * I_obs)
+    assert r['available'] and r['sigma_source'] == 'generated'
+    s.fractional_error = True
+    r = s.calculate_uncertainty_mc(Q, I_obs, None, n_runs=3, seed=1)
+    assert r['sigma_source'] == 'fractional_error'
+
+
+def test_generated_noise_sigma_helper():
+    from pyirena.state.state_manager import generated_noise_sigma
+
+    class _State:
+        def get(self, tool, key, default=None):
+            return {'error_fraction': 0.02}.get(key, default)
+
+    I = np.array([1.0, -2.0])
+    assert np.allclose(generated_noise_sigma(I, None, _State()), [0.02, 0.04])
+    assert generated_noise_sigma(I, np.ones(2), _State()) is None

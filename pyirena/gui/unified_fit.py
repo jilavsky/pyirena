@@ -3885,12 +3885,6 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 "No fit result available. Run Fit first, then Analyze Results."
             )
             return
-        if self.data.get('Error') is None:
-            self.graph_window.show_error_message(
-                "Data has no uncertainties — cannot run Monte Carlo analysis."
-            )
-            return
-
         N_RUNS = self.n_runs_spin.value()
         num_levels = self.num_levels_spin.value()
         no_limits = self.no_limits_check.isChecked()
@@ -3922,11 +3916,17 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             mask = np.ones(len(Q), dtype=bool)
         q_mc = np.array(Q[mask])
         I_mc = np.array(self.data['Intensity'][mask])
-        err_mc = np.array(self.data['Error'][mask])
+        err = self.data.get('Error')
+        err_mc = np.array(err[mask]) if err is not None else None
+        # No measured uncertainties: perturb with I × the Data Selector's
+        # "Generated uncertainty fraction" (the user's σ); refits keep the
+        # main fit's weighting.
+        from pyirena.state.state_manager import generated_noise_sigma
+        noise = generated_noise_sigma(I_mc, err_mc, self.state_manager)
 
         def job(progress_cb, cancel_cb):
             return mc_model.calculate_uncertainty_mc(
-                q_mc, I_mc, err_mc, n_runs=N_RUNS,
+                q_mc, I_mc, err_mc, n_runs=N_RUNS, noise_sigma=noise,
                 progress_cb=progress_cb, cancel_cb=cancel_cb)
 
         def progress(n_done, n_runs):
@@ -3962,6 +3962,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         what = (f"cancelled after {mc.get('n_done', n_success)} of {N_RUNS} runs, "
                 f"{n_success} successful" if cancelled
                 else f"{n_success}/{N_RUNS} successful runs")
+        if mc.get('sigma_source') == 'generated':
+            what += " (σ = I × generated-uncertainty fraction; data have no uncertainties)"
         msg = (f"Monte Carlo analysis complete: {what}. "
                f"Uncertainties updated — click 'Results to graphs' to display.")
         self.status_label.setText(

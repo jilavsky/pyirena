@@ -900,7 +900,9 @@ Two rules hold everywhere:
 - **No σ is assumed.** Without measured uncertainties the estimate is refused
   (`available: false` with the reason) rather than run on an invented 5 % of
   I. Size Distribution with fractional error on is the exception: there σ is
-  the user's choice.
+  the user's choice. (The GUI and `pyirena.batch` use I × the Data
+  Selector's "Generated uncertainty fraction" for such data — a setting this
+  service does not have, so send uncertainties if you want error bars.)
 - **Failures are counted.** `n_ok` of `n_runs` refits succeeded (Modeling
   reports `n_ok: null`); fewer than two successes means no uncertainty.
 

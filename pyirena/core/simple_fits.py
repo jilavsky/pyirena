@@ -1373,7 +1373,8 @@ class SimpleFitModel:
     def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
                                  fixed_params: Optional[dict] = None,
                                  no_limits: bool = False, seed=None,
-                                 progress_cb=None, cancel_cb=None) -> dict:
+                                 progress_cb=None, cancel_cb=None,
+                                 noise_sigma=None) -> dict:
         """Monte-Carlo parameter uncertainties by refitting perturbed data.
 
         Each pass refits a copy of this model to ``I + σ·N(0,1)`` with the
@@ -1382,8 +1383,11 @@ class SimpleFitModel:
 
         Args:
             q, intensity: The fitted Q range.
-            error: Measured 1σ. Required — with no measured uncertainties the
-                estimate is refused, not run on an assumed 5 % of I.
+            error: Measured 1σ; also what every refit weights by, as in the
+                main fit.
+            noise_sigma: σ to perturb with when *error* is None (see
+                :meth:`UnifiedFitModel.calculate_uncertainty_mc`). With
+                neither, the estimate is refused.
             n_runs: Number of perturbed refits.
             fixed_params, no_limits: As passed to :meth:`fit` for the main fit.
             seed: RNG seed for the perturbations; None = nondeterministic.
@@ -1408,14 +1412,14 @@ class SimpleFitModel:
             return mcu.not_available(
                 f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
         I = np.asarray(intensity, dtype=float)
-        why = mcu.check_sigma(error, len(I))
+        sigma, source, why = mcu.resolve_noise_sigma(error, noise_sigma, len(I))
         if why:
             return mcu.not_available(why, n_runs, 0, seed)
 
         start = copy.deepcopy(self)
         samples: dict[str, list] = {}
         n_ok = n_done = 0
-        for I_k in mcu.perturbed_intensities(I, error, n_runs, seed):
+        for I_k in mcu.perturbed_intensities(I, sigma, n_runs, seed):
             if mcu.cancelled(cancel_cb):
                 break
             try:
@@ -1438,6 +1442,7 @@ class SimpleFitModel:
                 n_runs, n_ok, seed)
         out = mcu.base_result(n_runs, n_ok, seed)
         out['n_done'] = n_done
+        out['sigma_source'] = source
         out['params_std'] = {k: mcu.std_of(v) for k, v in samples.items()}
         return out
 
