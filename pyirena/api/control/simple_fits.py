@@ -420,10 +420,6 @@ def run_simple_fit(session_id: str, no_limits: bool = False,
             code="EMPTY_RANGE",
         )
 
-    q_fit = s.q[mask]
-    I_fit = s.intensity[mask]
-    err_fit = s.error[mask] if s.error is not None else None
-
     fixed = _fixed_set(s)
     free = [n for n in s.model.params if n not in fixed]
     if not free and not s.model.is_calculation:
@@ -435,10 +431,17 @@ def run_simple_fit(session_id: str, no_limits: bool = False,
 
     fixed_params = {n: float(s.model.params[n]) for n in fixed}
 
+    # The shared Simple Fits runner (core/fit_runner.py), as batch: point
+    # rule, Invariant background replay, Monte-Carlo.
+    from pyirena.core.fit_runner import run_simple
     try:
-        result = s.model.fit(q_fit, I_fit, err_fit,
-                             fixed_params=fixed_params or None,
-                             no_limits=bool(no_limits))
+        run = run_simple(s.model, s.q, s.intensity, s.error,
+                         q_min=s.fit_q_min, q_max=s.fit_q_max,
+                         fixed_params=fixed_params or None, no_limits=bool(no_limits),
+                         error_fraction=getattr(s, "error_fraction", 0.05),
+                         n_mc_runs=n_mc_runs, seed=random_seed)
+        result = run.result
+        q_fit = run.data.q
     except Exception as exc:  # pragma: no cover - defensive
         return make_error(
             f"Fit failed with exception: {exc}",
@@ -460,11 +463,8 @@ def run_simple_fit(session_id: str, no_limits: bool = False,
 
     mc_block = None
     method = unc.COVARIANCE
-    if n_mc_runs and not s.model.is_calculation:
-        mc = s.model.calculate_uncertainty_mc(
-            q_fit, I_fit, err_fit, n_runs=n_mc_runs,
-            fixed_params=fixed_params or None, no_limits=bool(no_limits),
-            seed=random_seed)
+    if run.mc is not None:
+        mc = run.mc
         mc_block = unc.summarize_mc(
             mc, [{"name": k, "std": unc._f(v)}
                  for k, v in (mc.get("params_std") or {}).items()])
@@ -495,6 +495,7 @@ def run_simple_fit(session_id: str, no_limits: bool = False,
         ],
         "derived": {k: _f(v) for k, v in (result.get("derived") or {}).items()},
         "warning": result.get("warning"),
+        "warnings": list(run.notes),
         "uncertainty_method": None if s.model.is_calculation else method,
         **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }

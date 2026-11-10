@@ -162,6 +162,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     missing MaxEnt/TNNLS iteration limits default to 1000 like the GUI (was
     300). Batch saves its fit-quality metrics with the smeared background
     when smearing is on.
+  - *Simple Fits*: batch honours `no_limits` (it was ignored, so a config
+    exported with "No limits?" was fitted bounded), reads the config through
+    the envelope reader, and keeps σ ≤ 0 points (repaired) instead of
+    dropping them. The Invariant's background pre-fit is replayed on every
+    path, including API sessions.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

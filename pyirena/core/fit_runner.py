@@ -138,3 +138,38 @@ def run_sizes(model, q, intensity, error=None, *, q_min=None, q_max=None,
             noise_sigma=_mc_noise(data, mc_noise_fraction),
             progress_cb=progress_cb, cancel_cb=cancel_cb)
     return run
+
+
+# ---------------------------------------------------------------------------
+# Simple Fits
+# ---------------------------------------------------------------------------
+
+def run_simple(model, q, intensity, error=None, *, q_min=None, q_max=None,
+               fixed_params: Optional[dict] = None, no_limits: bool = False,
+               error_fraction: float = 0.05, n_mc_runs: int = 0, seed=None,
+               mc_noise_fraction: Optional[float] = None,
+               progress_cb=None, cancel_cb=None) -> FitRun:
+    """Fit (or, for the Invariant, calculate) a
+    :class:`~pyirena.core.simple_fits.SimpleFitModel`.
+
+    The Invariant's complex-background pre-fit is replayed here on the FULL
+    curve when the model records one (``bg_prefit``) — every path now does
+    this; the API session path used to skip it. Points follow the shared rule
+    (I ≤ 0 kept, σ ≤ 0 repaired); batch used to drop σ ≤ 0 points and the
+    GUI I ≤ 0 points. Monte-Carlo does not apply to the Invariant.
+    """
+    from pyirena.core.tool_config import apply_simple_bg_prefit
+
+    notes = list(apply_simple_bg_prefit(model, fixed_params, q, intensity))
+    data = prepare_fit_arrays(q, intensity, error, error_fraction,
+                              base_mask=q_range_mask(q, q_min, q_max))
+    result = model.fit(data.q, data.intensity, data.error,
+                       fixed_params=fixed_params or None, no_limits=bool(no_limits))
+    run = FitRun("simple_fits", model, result, data, notes=notes + data.notes())
+    if n_mc_runs and run.success and not model.is_calculation:
+        run.mc = model.calculate_uncertainty_mc(
+            data.q, data.intensity, data.error, n_runs=n_mc_runs,
+            fixed_params=fixed_params or None, no_limits=bool(no_limits), seed=seed,
+            noise_sigma=_mc_noise(data, mc_noise_fraction),
+            progress_cb=progress_cb, cancel_cb=cancel_cb)
+    return run

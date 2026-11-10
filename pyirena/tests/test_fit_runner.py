@@ -87,3 +87,54 @@ def test_control_sizes_fit_reports_repaired_sigma():
         assert r["success"]
     finally:
         ctrl.close_session(sid)
+
+
+# ── Simple Fits ──────────────────────────────────────────────────────────────
+
+def test_run_simple_repairs_sigma_and_passes_options(monkeypatch):
+    from pyirena.core.fit_runner import run_simple
+    from pyirena.core.simple_fits import SimpleFitModel
+    I, e = _curve()
+    e = e.copy()
+    e[5] = 0.0
+    seen = {}
+    real = SimpleFitModel.fit
+
+    def spy(self, q, I_, err, **k):
+        seen.update(n=len(q), err5=err[5], **k)
+        return real(self, q, I_, err, **k)
+
+    monkeypatch.setattr(SimpleFitModel, "fit", spy)
+    run = run_simple(SimpleFitModel(), Q, I, e, q_max=0.02, no_limits=True,
+                     fixed_params={"I0": 1000.0}, error_fraction=0.1)
+    assert seen["no_limits"] is True and seen["fixed_params"] == {"I0": 1000.0}
+    assert seen["err5"] == pytest.approx(0.1 * abs(I[5]))     # repaired, not dropped
+    assert seen["n"] == int(np.sum(Q <= 0.02))
+    assert any("generated-uncertainty" in n for n in run.notes)
+
+
+def test_batch_simple_from_config_honours_no_limits(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    import pyirena.batch as batch
+    import pyirena.core.fit_runner as fr
+
+    src = Path(__file__).resolve().parents[2] / "testData" / "Scripting"
+    if not (src / "SimpleFits_Porod.json").exists():
+        pytest.skip("fixtures not present")
+    cfg = json.loads((src / "SimpleFits_Porod.json").read_text())
+    cfg["simple_fits"]["no_limits"] = True
+    cfg_path = tmp_path / "c.json"
+    cfg_path.write_text(json.dumps(cfg))
+    seen = {}
+    real = fr.run_simple
+
+    def spy(*a, **k):
+        seen["no_limits"] = k.get("no_limits")
+        return real(*a, **k)
+
+    monkeypatch.setattr(fr, "run_simple", spy)
+    batch.fit_simple_from_config(str(src / "SimpleFits_Porod.h5"), str(cfg_path),
+                                 save_to_nexus=False)
+    assert seen["no_limits"] is True

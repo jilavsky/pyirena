@@ -889,7 +889,6 @@ def apply_prefits(setup: "ToolSetup", section: Dict,
                                    setup.fit_q_min, setup.fit_q_max)
     if setup.tool == "waxs_peakfit":
         return apply_waxs_presearch(setup.model, section, q_fit, intensity_fit)
-    if setup.tool == "simple_fits":
-        return apply_simple_bg_prefit(setup.model, setup.fixed_params,
-                                      q_full, intensity_full)
+    # Simple Fits: the Invariant's background replay is done by
+    # core.fit_runner.run_simple itself, on every path (issue #38).
     return []

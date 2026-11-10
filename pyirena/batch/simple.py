@@ -36,6 +36,7 @@ def fit_simple(
     verbose: bool = True,
     setup_state: Optional[Dict] = None,
     save_to_nexus: bool = True,
+    no_limits: bool = False,
 ) -> Optional[Dict]:
     """
     Fit a single analytical model to one SAS file and save the result.
@@ -114,50 +115,34 @@ def fit_simple(
         model.use_slit_smearing = True
         model.slit_length = float(data.get('slit_length', 0.0) or 0.0)
 
-    # ── Background prefit replay (Invariant) ────────────────────────────────
-    # Re-determine the complex background from the Q ranges the GUI user
-    # recorded (bg_prefit), using the FULL data — the background windows
-    # usually lie outside the integration range applied below. Background
-    # parameters the user held fixed ("Fit?" unchecked) are passed through so
-    # the replay leaves them alone, exactly as the GUI does.
-    #
-    # Shared with analyze() rather than inlined: this path had the replay and
-    # that one did not, so the same config integrated against two different
-    # backgrounds depending on which door it came in by.
-    from pyirena.core.tool_config import apply_simple_bg_prefit  # noqa: PLC0415
-    for note in apply_simple_bg_prefit(model, fixed_params, q, I):
+    # ── Fit (+ MC): the shared Simple Fits runner, as the API ──────────────
+    # Replays the Invariant background pre-fit on the full curve, applies the
+    # shared point rule (I <= 0 kept, sigma <= 0 repaired — this path used to
+    # drop sigma <= 0 points), honours no_limits (it was ignored here), and
+    # holds the GUI's "Fit?"-unchecked parameters fixed.
+    from pyirena.core.fit_runner import run_simple
+    from pyirena.state.state_manager import text_import_settings
+    fraction = text_import_settings()["error_fraction"]
+    if with_uncertainty and model.is_calculation:
+        log.info("[pyirena.batch] MC uncertainty is not applicable to "
+                 f"calculation model '{model.model}' — skipped.")
+    if verbose:
+        log.info(f"[pyirena.batch] Fitting {model.model} to '{data_file.name}' ...")
+    run = run_simple(model, q, I, dI, q_min=q_min, q_max=q_max,
+                     fixed_params=fixed_params or None, no_limits=bool(no_limits),
+                     error_fraction=fraction,
+                     n_mc_runs=(n_mc_runs if with_uncertainty else 0),
+                     mc_noise_fraction=fraction)
+    for note in run.notes:
         if 'failed' in note or 'warning' in note.lower():
             log.warning(f"[pyirena.batch] {note}")
         elif verbose:
             log.info(f"[pyirena.batch] {note}")
-
-    # ── Apply Q range mask ───────────────────────────────────────────────────
-    mask = np.ones(len(q), dtype=bool)
-    if q_min is not None:
-        mask &= (q >= q_min)
-    if q_max is not None:
-        mask &= (q <= q_max)
-    mask &= np.isfinite(q) & np.isfinite(I) & (q > 0)
-    if dI is not None:
-        mask &= np.isfinite(dI) & (dI > 0)
-
-    if mask.sum() < 2:
+    if len(run.data.q) < 2:
         log.info(f"[pyirena.batch.fit_simple] Too few data points after Q masking "
-              f"({mask.sum()} points, need ≥ 2).")
+                 f"({len(run.data.q)} points, need ≥ 2).")
         return None
-
-    qf = q[mask]
-    If = I[mask]
-    dIf = dI[mask] if dI is not None else None
-
-    # ── Initial fit ──────────────────────────────────────────────────────────
-    if verbose:
-        log.info(f"[pyirena.batch] Fitting {model.model} to '{data_file.name}' ...")
-
-    # Honor the GUI's "Fit?" checkboxes: parameters marked fixed are held
-    # constant during fitting, matching SimpleFitsPanel._run_fit().
-    fixed_params = fixed_params if fixed_params else None
-    result = model.fit(qf, If, dIf, fixed_params=fixed_params)
+    result = run.result
 
     if not result.get('success'):
         msg = result.get('error', 'Unknown error')
@@ -173,31 +158,16 @@ def fit_simple(
             log.info("[pyirena.batch] Calculation done.  "
                      + '  '.join(f'{k}={v:.4g}' for k, v in derived.items()))
 
-    # ── Monte Carlo uncertainty ──────────────────────────────────────────────
-    if with_uncertainty and model.is_calculation:
-        log.info("[pyirena.batch] MC uncertainty is not applicable to "
-                 f"calculation model '{model.model}' — skipped.")
-        with_uncertainty = False
-    if with_uncertainty:
-        if verbose:
-            log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")
-
-        # Same model, fixed parameters and limits as the main fit. Data without
-        # measured uncertainties are perturbed with I × the Data Selector's
-        # "Generated uncertainty fraction" — the user's σ (issue #38).
-        from pyirena.state.state_manager import generated_noise_sigma
-        mc = model.calculate_uncertainty_mc(
-            qf, If, dIf, n_runs=n_mc_runs, fixed_params=fixed_params,
-            noise_sigma=generated_noise_sigma(If, dIf))
-        result['mc_n_ok'] = mc['n_ok']
-        result['mc_n_runs'] = mc['n_runs']
-        if mc['available']:
-            result['params_std'] = mc['params_std']
+    if run.mc is not None:
+        result['mc_n_ok'] = run.mc['n_ok']
+        result['mc_n_runs'] = run.mc['n_runs']
+        if run.mc['available']:
+            result['params_std'] = run.mc['params_std']
             if verbose:
                 log.info(f"[pyirena.batch] MC uncertainty done "
-                         f"({mc['n_ok']}/{mc['n_runs']} successful runs).")
+                         f"({run.mc['n_ok']}/{run.mc['n_runs']} successful runs).")
         else:
-            log.error(f"[pyirena.batch] MC uncertainty not computed: {mc['reason']}.")
+            log.error(f"[pyirena.batch] MC uncertainty not computed: {run.mc['reason']}.")
 
     # ── Save to HDF5 (only for NXcanSAS files) ───────────────────────────────
     # save_to_nexus=False must actually mean it: this writes into the file it
@@ -210,8 +180,8 @@ def fit_simple(
                 filepath=data_file,
                 result=result,
                 model_obj=model,
-                intensity_data=I[mask] if mask is not None else I,
-                intensity_error=dI[mask] if (dI is not None and mask is not None) else dI,
+                intensity_data=run.data.intensity,
+                intensity_error=run.data.error,
                 setup_state=setup_state,
             )
             if verbose:
@@ -266,35 +236,32 @@ def fit_simple_from_config(
         log.error(f"[pyirena.batch.fit_simple_from_config] Cannot load config: {config_file}")
         return None
 
-    sf_cfg = config.get('simple_fits')
-    if sf_cfg is None:
-        log.info(f"[pyirena.batch.fit_simple_from_config] No 'simple_fits' section in "
-              f"'{config_file.name}'")
-        return {'success': False, 'message': "No 'simple_fits' section in config file"}
+    # The one envelope reader and translator (AGENTS.md invariant 6), shared
+    # with analyze: GUI param_limits/param_fixed spelling, the envelope's
+    # fit_q_range and held parameters, and no_limits (ignored here before).
+    from pyirena.core.tool_config import ConfigError, build_setup, unwrap_config
+    try:
+        _, sf_cfg, _ = unwrap_config(config, 'simple_fits')
+        setup = build_setup(config, 'simple_fits')
+    except ConfigError as exc:
+        log.info(f"[pyirena.batch.fit_simple_from_config] {exc}")
+        return {'success': False, 'message': str(exc)}
 
-    # Shared with api.control.analyze via core/tool_config.py: the GUI's
-    # param_limits/param_fixed spelling and the Q range are translated in one
-    # place, so a replay over the ZMQ service honours the same fixed
-    # parameters this path does.
-    from pyirena.core.tool_config import simple_model_from_config
-    q_min = sf_cfg.get('q_min')
-    q_max = sf_cfg.get('q_max')
     # Pass the built model rather than the dict: fit_simple() would otherwise
     # re-run from_dict() on a section still spelling 'param_limits', losing
     # the user's bounds.
-    model, fixed_params = simple_model_from_config(sf_cfg)
-
     result = fit_simple(
         data_file=data_file,
-        config=model,
+        config=setup.model,
         with_uncertainty=with_uncertainty,
         n_mc_runs=n_mc_runs,
-        q_min=q_min,
-        q_max=q_max,
-        fixed_params=fixed_params if fixed_params else None,
+        q_min=setup.fit_q_min,
+        q_max=setup.fit_q_max,
+        fixed_params=setup.fixed_params or None,
         verbose=True,
-        setup_state=config.get('simple_fits'),
+        setup_state=sf_cfg,
         save_to_nexus=save_to_nexus,
+        no_limits=bool(sf_cfg.get('no_limits', False)),
     )
 
     if result is None:
