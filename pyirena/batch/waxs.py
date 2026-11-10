@@ -32,10 +32,15 @@ def fit_waxs_peaks_from_config(
     """Fit WAXS diffraction peaks using parameters from a pyIrena config file.
 
     Reads the ``'waxs_peakfit'`` section from a JSON config file and calls
-    :func:`fit_waxs_peaks`.  The ``with_uncertainty`` and ``n_mc_runs``
-    parameters are accepted for API consistency with :func:`fit_unified` and
-    :func:`fit_sizes` but are not yet used (WAXS uncertainty comes from the
-    ``curve_fit`` covariance matrix, not Monte Carlo).
+    :func:`fit_waxs_peaks`.
+
+    **Uncertainties.** Every WAXS fit returns the ``curve_fit`` covariance
+    1σ of each parameter (``peaks_std``, ``bg_params_std``, and the peak
+    areas' σ); there is no Monte-Carlo estimate for WAXS. ``with_uncertainty``
+    and ``n_mc_runs`` are in the signature because
+    :func:`pyirena.batch.pipeline.fit_pyirena` passes them to every tool; asking for uncertainty here is
+    logged and the result says which estimate it carries
+    (``uncertainty_method: 'covariance'``).
 
     This function is also exported as :func:`fit_waxs` for convenience.
 
@@ -51,9 +56,10 @@ def fit_waxs_peaks_from_config(
         Write fitted results to ``entry/waxs_peakfit_results`` in the HDF5
         file (default ``True``).
     with_uncertainty : bool, optional
-        Accepted for API compatibility; not currently used.
+        No effect on the numbers: the covariance σ are always returned. When
+        True, that is logged so a caller expecting Monte-Carlo is told.
     n_mc_runs : int, optional
-        Accepted for API compatibility; not currently used.
+        Not used — WAXS has no Monte-Carlo uncertainty.
 
     Returns
     -------
@@ -103,6 +109,11 @@ def fit_waxs_peaks_from_config(
 
     if not result.get('success'):
         result.setdefault('message', result.get('error', 'fit failed'))
+    else:
+        result['uncertainty_method'] = 'covariance'
+        if with_uncertainty:
+            log.info("[pyirena.batch.fit_waxs] WAXS uncertainties are the curve_fit "
+                     "covariance values already in the result; n_mc_runs does not apply.")
 
     return result
 

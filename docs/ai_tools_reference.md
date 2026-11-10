@@ -823,7 +823,7 @@ high-Q tails before fitting. Either end can be `null` to leave it unchanged.
 
 ### Fit execution
 
-#### `run_fit(session_id, max_iter=None, walk_limits=True, no_limits=False, tolerance=None, random_seed=None)`
+#### `run_fit(session_id, max_iter=None, walk_limits=True, no_limits=False, tolerance=None, random_seed=None, n_mc_runs=0)`
 Runs the fitting algorithm synchronously. With `walk_limits=True` (default,
 same behaviour as the GUI Fit button): when a fitted parameter ends pinned at
 a limit, the limits are recentred on the fitted value and the fit rerun (up
@@ -835,12 +835,19 @@ one call. Pass `walk_limits=False` to treat bounds from
 yours, and implies `walk_limits=False`; your bounds are untouched and come
 back afterwards — use it to see where a parameter stuck at a limit actually
 wants to go. `random_seed` makes a fit reproducible from an audit trail.
+`n_mc_runs > 0` adds Monte-Carlo uncertainties after the fit — the GUI's
+*Analyze Results*: the fitted model (links, limits, slit smearing) is refitted
+`n_mc_runs` times to data perturbed by the measured σ, seeded by
+`random_seed`. It needs measured uncertainties and multiplies the call time,
+so it is off by default (see **Parameter uncertainties** below).
 Returns:
 - `success` (bool)
 - `chi_squared`, `reduced_chi_squared` (float)
 - `iterations` (int)
 - `message` (fit status from scipy)
-- `parameters_updated` (list of {name, value})
+- `parameters_updated` (list of {name, value}, plus `std` when `n_mc_runs > 0`)
+- `uncertainty` (only when `n_mc_runs > 0`) — `{available, reason, method,
+  n_runs, n_ok, seed}`
 - `pinned_parameters` (list of str) — fitted parameters that ended at a
   bound (normally empty when walking; with `walk_limits=False` it shows
   which bound stopped the fit)
@@ -878,7 +885,37 @@ parameter values — this is intentional and useful.
 | `get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
 | `get_residuals_image(session_id)` | same image; requires completed fit |
 | `check_level_feasibility(session_id, level=None)` | after `run_fit`: whether each level's Guinier and power-law regions join smoothly at the Hammouda rollover — catches B/P/G/Rg combinations that converged mathematically but mean nothing physically |
-| `get_parameter_uncertainties(session_id)` | placeholder only — no uncertainties are computed here; Monte-Carlo uncertainties come from `pyirena.batch.fit_unified` or the GUI |
+| `get_parameter_uncertainties(session_id, include_arrays=False)` | any tool — see **Parameter uncertainties** below |
+
+#### Parameter uncertainties
+
+`run_fit`, `run_sizes_fit`, `run_simple_fit` and `run_modeling_fit` take
+`n_mc_runs` (0 = off, the default; Carbon's `run_carbon_fit` already had it).
+With `n_mc_runs > 0` the fit is followed by that many Monte-Carlo refits on
+data perturbed by the measured σ — the same core code as the GUI's
+uncertainty buttons and `pyirena.batch(..., with_uncertainty=True)`, so the
+three return the same numbers for the same setup and seed (`random_seed`).
+Two rules hold everywhere:
+
+- **No σ is assumed.** Without measured uncertainties the estimate is refused
+  (`available: false` with the reason) rather than run on an invented 5 % of
+  I. Size Distribution with fractional error on is the exception: there σ is
+  the user's choice.
+- **Failures are counted.** `n_ok` of `n_runs` refits succeeded (Modeling
+  reports `n_ok: null`); fewer than two successes means no uncertainty.
+
+Each refit is a full fit, so `n_mc_runs` multiplies the call time — mind a
+remote client's timeout (the ZMQ service gives a request 55 s).
+
+`get_parameter_uncertainties(session_id)` returns the stored Monte-Carlo
+block `{available, reason, method: "monte_carlo", n_runs, n_ok, seed,
+parameters: [{name, std}]}` (Size Distribution: `scalars` with `rg_std`,
+`volume_fraction_std`, `peak_r_std`, and `distribution_std` with
+`include_arrays=True`). Without a Monte-Carlo run, Simple Fits and WAXS Peak
+Fit return their covariance σ (`method: "covariance"`), Carbon its own
+estimate, and the others `available: false` with how to get them. A new fit
+clears the previous fit's uncertainties. `export_results` carries the same
+block as `uncertainty`, and `analyze(..., n_mc_runs=N)` passes it through.
 
 #### `get_fit_quality(session_id, n_bands=4)` — robust diagnostics
 
@@ -1012,7 +1049,7 @@ particle (Guinier/knee) region.
 
 | Tool | Returns |
 |------|---------|
-| `run_sizes_fit(session_id, random_seed=None)` | `success`, `chi_squared`, `volume_fraction`, `rg`, `peak_r`, `n_iterations`, `n_data` |
+| `run_sizes_fit(session_id, random_seed=None, n_mc_runs=0)` | `success`, `chi_squared`, `volume_fraction`, `rg`, `peak_r`, `n_iterations`, `n_data`; `uncertainty` (`rg_std`, `volume_fraction_std`, `peak_r_std`) when `n_mc_runs > 0`. `random_seed` seeds the Monte Carlo inversion and the uncertainty refits |
 | `get_sizes_distribution(session_id, max_points=500)` | `r_grid` [Å], `distribution` P(r) [vol-frac/Å] (decimated), `distribution_std` (or null) |
 | `get_sizes_results(session_id)` | full scalar results + configuration (`parameters` dict) |
 | `get_sizes_fit_image(session_id, width=1024, height=900)` | inline PNG: top = log-log data + model (+ background); bottom = size distribution P(r) vs r |
@@ -1098,7 +1135,7 @@ then check `q_max·Rg` and narrow the range if it exceeds ~1.3.
 
 | Tool | Returns |
 |------|---------|
-| `run_simple_fit(session_id, no_limits=False)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values |
+| `run_simple_fit(session_id, no_limits=False, n_mc_runs=0, random_seed=None)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values, `uncertainty_method` (`covariance`, or `monte_carlo` when `n_mc_runs > 0` replaced the σ) |
 | `get_simple_results(session_id)` | the same summary for the last fit |
 | `get_simple_fit_image(session_id)` | PNG: log-log data + model, residuals below |
 | `get_simple_linearization_image(session_id)` | PNG of the linearized plot + slope, intercept, R² |
@@ -1185,7 +1222,7 @@ take over).
 | `set_modeling_background(session_id, value, fit)` | flat background |
 | `set_modeling_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
 | `get_modeling_config(session_id)` | global settings (Q range, background, fit method, slit smearing) and a summary of every population |
-| `run_modeling_fit(session_id, fit_method, no_limits=False)` | `"local"` (default) or `"global"`; `no_limits=True` drops the population bounds (unconstrained Nelder-Mead, forces `"local"`) |
+| `run_modeling_fit(session_id, fit_method, no_limits=False, n_mc_runs=0, random_seed=None)` | `"local"` (default) or `"global"`; `no_limits=True` drops the population bounds (unconstrained Nelder-Mead, forces `"local"`); `n_mc_runs > 0` adds Monte-Carlo uncertainties (slow with many populations) |
 | `get_modeling_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
 | `get_modeling_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
 | `save_modeling_fit(session_id, output_path)` | writes `entry/modeling_results` |
@@ -1386,7 +1423,7 @@ sensible start for most carbons.
 These two work for every fitting tool.  Use them when the fit is already
 known, or when the caller needs the result as data rather than as a file.
 
-#### `analyze(data, config, tool=None, include_arrays=False, max_points=2000)`
+#### `analyze(data, config, tool=None, include_arrays=False, max_points=2000, n_mc_runs=0)`
 
 Fit one curve with a saved pyIrena configuration in a single call: opens its
 own session, applies the config, runs the fit, returns the `export_results`
@@ -1398,7 +1435,10 @@ handed straight back (that is how you replay the fit you just ran on the
 next measurement).  The config's Q range and held parameters are part of the
 fit and change the answer.  `tool` (`unified_fit`, `sizes`, `simple_fits`,
 `modeling`, `waxs_peakfit`, `carbon_fit`) is inferred when the config holds
-one tool section.
+one tool section.  `n_mc_runs > 0` asks for Monte-Carlo uncertainties (see
+**Parameter uncertainties**); they come back in the `uncertainty` block with
+the number of refits that succeeded. WAXS Peak Fit ignores it (its covariance
+σ are always reported) and says so in `analyze.notes`.
 
 For exploring a fit step by step, use `open_dataset_from_data` and the
 per-tool tools instead.
@@ -1409,8 +1449,9 @@ A finished fit from any of the six tools as one JSON document — the
 machine-readable counterpart to `save_*`: nothing is written to disk.
 Returns the tool name, the data's identity, a normalised `quality` block
 (χ², reduced χ², dof, fit-quality metrics), the tool's own `results` with
-per-parameter uncertainties where the fit computes them, and the model
-`config` needed to replay the fit.  With `include_arrays=True`, `arrays`
+per-parameter uncertainties where the fit computes them, an `uncertainty`
+block saying which estimate those are (`monte_carlo` or `covariance`, and how
+many refits succeeded), and the model `config` needed to replay the fit.  With `include_arrays=True`, `arrays`
 adds `q` and the data, model, residuals and per-component curves on the
 fitted Q grid (Modeling adds each population, Carbon its three components),
 decimated together to `max_points`.

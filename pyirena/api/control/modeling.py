@@ -836,7 +836,8 @@ def set_modeling_q_range(session_id: str, q_min: Optional[float] = None,
 # ---------------------------------------------------------------------------
 
 def run_modeling_fit(session_id: str, fit_method: str = "local",
-                     no_limits: bool = False) -> dict:
+                     no_limits: bool = False, n_mc_runs: int = 0,
+                     random_seed: Optional[int] = None) -> dict:
     """Fit the enabled populations to the data over the model's Q range.
 
     Parameters
@@ -854,15 +855,30 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
         Nelder-Mead solve, so it forces ``fit_method="local"``: differential
         evolution cannot run without finite bounds. The bounds themselves
         are untouched and are back in place after the fit.
+    n_mc_runs : int
+        Monte-Carlo uncertainty refits after the fit; 0 (default) = none.
+        The GUI's "Calc. Uncertainty" estimate
+        (``ModelingEngine.calculate_uncertainty_mc``): local refits of the
+        fitted model to data perturbed by the measured σ. Needs measured
+        uncertainties. Slow for many populations — mind a remote client's
+        timeout.
+    random_seed : int, optional
+        Seed for the Monte-Carlo perturbations (reproducible uncertainties).
 
     Returns
     -------
     dict with success, chi_squared, reduced_chi_squared, dof, n_data, and the
-    fitted value of every free parameter grouped by population.
+    fitted value of every free parameter grouped by population; plus
+    ``uncertainty`` (per-parameter ``std``) when n_mc_runs > 0.
     """
+    from pyirena.api.control import uncertainty as unc
+
     s, err = _require_modeling(session_id)
     if err:
         return err
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
 
     config = s.model
     enabled = [p for p in config.populations if getattr(p, "enabled", True)]
@@ -930,6 +946,12 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
     # optimised values (parity with the GUI, where the panel updates in place).
     s.model = result.config
     s.model.no_limits = previous_no_limits
+    s.last_uncertainty = None
+
+    mc_block = None
+    if n_mc_runs:
+        mc_block = _modeling_mc(s, n_mc_runs, random_seed, no_limits)
+        s.last_uncertainty = mc_block
 
     return {
         "success": True,
@@ -944,7 +966,46 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
         "no_limits": bool(no_limits),
         "warnings": ([str(w) for w in getattr(result, 'fit_warnings', None) or []]
                      + notes),
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
+
+
+def _modeling_mc(s, n_mc_runs: int, seed, no_limits: bool) -> dict:
+    """Monte-Carlo uncertainties for the session's fitted Modeling config.
+
+    No σ is assumed: without measured uncertainties the estimate is refused
+    (issue #38), although the fit itself weights by 5 % of I in that case.
+    The core function reports σ only, not how many refits succeeded, so
+    ``n_ok`` is null rather than a guess.
+    """
+    from pyirena.api.control import uncertainty as unc
+    from pyirena.core import mc_uncertainty as mcu
+    from pyirena.core.modeling import ModelingEngine  # noqa: PLC0415
+
+    why = mcu.check_sigma(s.error, len(s.intensity))
+    if why:
+        block = unc.summarize_mc(mcu.not_available(why, n_mc_runs, 0, seed), [])
+        block["n_ok"] = None
+        return block
+    config = s.model
+    previous = config.no_limits
+    config.no_limits = bool(no_limits)
+    try:
+        stds = ModelingEngine().calculate_uncertainty_mc(
+            config, s.q, s.intensity, s.error, n_runs=n_mc_runs, seed=seed)
+    except Exception as exc:  # pragma: no cover - defensive
+        stds, why = {}, f"Monte-Carlo failed: {exc}"
+    finally:
+        config.no_limits = previous
+    if stds:
+        mc = mcu.base_result(n_mc_runs, 0, seed)
+    else:
+        mc = mcu.not_available(why or "fewer than 2 refits succeeded",
+                               n_mc_runs, 0, seed)
+    block = unc.summarize_mc(mc, [{"name": k, "std": unc._f(v)}
+                                  for k, v in stds.items()])
+    block["n_ok"] = None
+    return block
 
 
 def _fitted_population_rows(result) -> list:

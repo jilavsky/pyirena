@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Monte-Carlo uncertainties over the API, MCP and ZMQ** (#28, #38).
+  `run_fit`, `run_sizes_fit`, `run_simple_fit` and `run_modeling_fit` take
+  `n_mc_runs` (0 = off, the default, because Monte-Carlo can outrun a remote
+  client's timeout) and run the same estimate as the GUI and
+  `pyirena.batch`, seeded by `random_seed`. `get_parameter_uncertainties` is
+  no longer a Unified Fit placeholder: it returns the last fit's
+  uncertainties for every tool, saying whether they are Monte-Carlo (with how
+  many refits succeeded) or covariance values. `export_results` carries the
+  same `uncertainty` block, `analyze()` takes `n_mc_runs`, and
+  `save_fit` stores Unified Fit's Monte-Carlo uncertainties as the GUI does.
+- WAXS batch results say their uncertainties are covariance values
+  (`uncertainty_method: "covariance"`); `with_uncertainty=True` is logged
+  rather than silently ignored.
+
 ### Fixed
 
 - **Reading HDF5 files from a network drive (SSHFS-Win) could return another

@@ -61,6 +61,7 @@ def analyze(
     tool: Optional[str] = None,
     include_arrays: bool = False,
     max_points: Optional[int] = 2000,
+    n_mc_runs: int = 0,
 ) -> dict:
     """Fit one curve with a saved pyIrena configuration and return the results.
 
@@ -88,6 +89,11 @@ def analyze(
         Also return the model curve, residuals and per-component curves.
     max_points : int or None
         Cap on each returned array; None for no cap.
+    n_mc_runs : int
+        Monte-Carlo uncertainty refits; 0 (default) = none. Passed to the
+        tool's ``run_*_fit``; the result's ``uncertainty`` block reports how
+        many succeeded. WAXS Peak Fit always reports covariance uncertainties
+        and does not take it (noted in ``analyze.notes``).
 
     Returns
     -------
@@ -170,7 +176,7 @@ def analyze(
                                    s.q, s.intensity,
                                    s.q[mask], s.intensity[mask]))
 
-        fit_result = _run_fit(setup, session_id)
+        fit_result = _run_fit(setup, session_id, n_mc_runs, notes)
         if isinstance(fit_result, dict) and "error" in fit_result:
             return fit_result
 
@@ -185,6 +191,7 @@ def analyze(
             "fit_q_min": applied_q[0],
             "fit_q_max": applied_q[1],
             "fixed_parameters": sorted(setup.fixed_params),
+            "n_mc_runs": int(n_mc_runs or 0),
             "n_points_input": opened["summary"]["n_points"],
             "cleaning": opened["summary"]["cleaning"],
             "notes": notes,
@@ -236,7 +243,7 @@ def _apply_q_range(session, setup, notes: list):
     return lo, hi
 
 
-def _run_fit(setup, session_id: str):
+def _run_fit(setup, session_id: str, n_mc_runs: int = 0, notes: Optional[list] = None):
     """Call the tool's own run_* function, passing what the config asks for.
 
     **Unified Fit keeps ``walk_limits`` on here, on purpose.** It looks wrong
@@ -269,6 +276,15 @@ def _run_fit(setup, session_id: str):
             value = getattr(setup.model, arg, None) if arg == "weighting" else None
         if value is not None:
             kwargs[arg] = value
+    if n_mc_runs:
+        import inspect
+
+        if "n_mc_runs" in inspect.signature(runner).parameters:
+            kwargs["n_mc_runs"] = int(n_mc_runs)
+        elif notes is not None:
+            notes.append(
+                f"n_mc_runs ignored: {setup.tool} reports covariance "
+                "uncertainties from every fit, not Monte-Carlo ones.")
     try:
         return runner(session_id, **kwargs)
     except TypeError:

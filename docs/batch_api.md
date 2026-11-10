@@ -382,7 +382,13 @@ result = fit_unified(
    If either cursor is absent, the full Q range is used.
 4. **Builds `UnifiedFitModel`** — constructs `UnifiedLevel` objects from config
    values, fit flags, and limits.  Respects `no_limits` flag.
-5. **Runs the fit** — calls `model.fit(q, intensity, error)`.
+5. **Runs the fit** — calls `model.fit(q, intensity, error)`. With
+   `with_uncertainty=True` it then calls
+   `UnifiedFitModel.calculate_uncertainty_mc`, the same code as the GUI's
+   *Analyze Results*: the fitted model (links, limits, slit smearing) is
+   refitted `n_mc_runs` times to data perturbed by the measured σ. Data
+   without measured uncertainties are refused (logged) rather than perturbed
+   with an assumed 5 % of I.
 6. **Saves results** *(if `save_to_nexus=True`)* — writes to NXcanSAS HDF5:
    - NXcanSAS input → results appended to the same file
    - Text input → new file `<stem>_NX.h5` created alongside the data
@@ -395,6 +401,8 @@ result = fit_unified(
 | `data_file` | `str` or `Path` | required | Path to SAS data file |
 | `config_file` | `str` or `Path` | required | Path to pyIrena JSON config |
 | `save_to_nexus` | `bool` | `True` | Save fit results to NXcanSAS HDF5 |
+| `with_uncertainty` | `bool` | `False` | Monte-Carlo uncertainties after the fit (step 5) |
+| `n_mc_runs` | `int` | `10` | Number of Monte-Carlo refits |
 
 ### Returns
 
@@ -425,6 +433,13 @@ inversion (same four methods as the GUI: Regularization, MaxEnt, TNNLS, Monte Ca
 Saves the volume size distribution, number size distribution, cumulative
 distributions (volume and number), residuals, and all scalar parameters to
 `entry/sizes_results` in the HDF5 file.
+
+With `with_uncertainty=True` the per-bin σ of the distribution is computed by
+`SizesDistribution.calculate_uncertainty_mc` — the GUI's *Calc. Uncertainty
+(MC)*: the data are perturbed with the σ the fit weights by, so fractional
+error and error scaling are honoured (up to 1.2.1 batch used the raw file
+error). Without measured uncertainties this is refused unless fractional
+error is on. `n_mc_runs=None` takes the config's `unc_n_runs`.
 
 ### Returns
 
@@ -546,6 +561,7 @@ background, and (if `save_to_nexus=True`) writes results back to the HDF5 file.
 | `data_file` | `str` or `Path` | required | Path to WAXS data file |
 | `config_file` | `str` or `Path` | required | Path to pyIrena JSON config |
 | `save_to_nexus` | `bool` | `True` | Save fit results to NXcanSAS HDF5 |
+| `with_uncertainty`, `n_mc_runs` | | | Accepted because `fit_pyirena` passes them to every tool, but WAXS has no Monte-Carlo estimate: every fit returns the `curve_fit` covariance σ, and the result says so (`uncertainty_method: "covariance"`) |
 
 ### Returns
 

@@ -49,6 +49,10 @@ from pyirena.api.control.session import (
     fit_mask,
     get_session,
 )
+
+# get_parameter_uncertainties serves every tool and lives in uncertainty.py;
+# re-exported here, where it used to be defined, so existing imports work.
+from pyirena.api.control.uncertainty import get_parameter_uncertainties  # noqa: F401
 from pyirena.core.fit_metrics import fit_quality_metrics
 from pyirena.core.unified import UNIFIED_STATE_SCHEMA_VERSION
 
@@ -1598,6 +1602,7 @@ def run_fit(
     random_seed: Optional[int] = None,
     walk_limits: bool = True,
     no_limits: bool = False,
+    n_mc_runs: int = 0,
 ) -> dict:
     """Run the fitting algorithm on the current session's model and data.
 
@@ -1632,13 +1637,26 @@ def run_fit(
         after the fit. Implies ``walk_limits=False``, since there is nothing
         left to walk. Use it when a fit is stuck against a limit and you
         want to see where it actually wants to go.
+    n_mc_runs : int, optional
+        Monte-Carlo uncertainty refits after the fit; 0 (default) = none.
+        The same estimate as the GUI's "Analyze Results" and
+        ``batch.fit_unified(with_uncertainty=True)``: the fitted model —
+        links, limits, slit smearing — is refitted to data perturbed by the
+        measured σ. Needs measured uncertainties. *random_seed* makes it
+        reproducible. Slow: n refits; mind a remote client's timeout.
 
     Returns
     -------
     dict with keys: success, chi_squared, reduced_chi_squared, iterations,
-    message, random_seed, parameters_updated (list of {name, value}),
-    pinned_parameters, warnings.
+    message, random_seed, parameters_updated (list of {name, value}, plus
+    ``std`` when Monte-Carlo ran), pinned_parameters, warnings, and
+    ``uncertainty`` when n_mc_runs > 0.
     """
+    from pyirena.api.control import uncertainty as unc
+
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
     s = get_session(session_id)
     if s is None:
         return no_session(session_id)
@@ -1683,12 +1701,35 @@ def run_fit(
 
     result["random_seed"] = random_seed  # None if not supplied; stored for audit trail
     s.last_fit_result = result
+    s.last_uncertainty = None
+
+    mc_block = None
+    if n_mc_runs and result.get("success", False):
+        mc_kwargs = dict(kwargs)
+        if no_limits:
+            mc_kwargs["no_limits"] = True
+        mc = s.model.calculate_uncertainty_mc(
+            q_fit, I_fit, err_fit, n_runs=n_mc_runs, seed=random_seed, **mc_kwargs)
+        rows = []
+        if mc.get("available"):
+            u = mc["uncertainties"]
+            for i, lv in enumerate(u["levels"]):
+                for key, std in lv.items():
+                    rows.append({"name": f"{key}_{i + 1}", "std": unc._f(std)})
+            rows.append({"name": "background", "std": unc._f(u["background"])})
+        mc_block = unc.summarize_mc(mc, rows)
+        mc_block["_levels"] = mc.get("uncertainties")
+        s.last_uncertainty = mc_block
 
     # Build per-parameter update list (current fitted values)
-    updated = [
-        {"name": row["name"], "value": row["value"]}
-        for row in _param_table(s.model)
-    ]
+    std_by_name = ({row["name"]: row["std"] for row in mc_block["parameters"]}
+                   if mc_block else {})
+    updated = []
+    for row in _param_table(s.model):
+        entry = {"name": row["name"], "value": row["value"]}
+        if row["name"] in std_by_name:
+            entry["std"] = std_by_name[row["name"]]
+        updated.append(entry)
 
     # Robust fit-quality scalars (additive; complement reduced χ² when σ are
     # mis-scaled).  Full arrays/bands available via get_fit_quality().
@@ -1735,6 +1776,7 @@ def run_fit(
         "slit_smearing_applied": bool(getattr(s.model, "use_slit_smearing", False)
                                        and getattr(s.model, "slit_length", 0.0) > 0),
         "slit_length":           float(getattr(s.model, "slit_length", 0.0)),
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
 
 
@@ -2007,33 +2049,17 @@ def get_residuals_image(
     return get_fit_image(session_id, width=width, height=height)
 
 
-def get_parameter_uncertainties(session_id: str) -> dict:
-    """Return parameter uncertainties from the last fit.
-
-    Note: scipy least_squares does not return a covariance matrix by default,
-    and this tool does not compute one, so uncertainties are not available
-    here.  This function returns a placeholder saying so.
-    """
-    s = get_session(session_id)
-    if s is None:
-        return no_session(session_id)
-    if s.last_fit_result is None:
-        return no_fit(session_id)
-
-    return {
-        "available": False,
-        "note": (
-            "Parameter uncertainties are not computed by this tool. "
-            "Monte-Carlo uncertainties are available from the batch API "
-            "(pyirena.batch.fit_unified(..., with_uncertainty=True)) and "
-            "from the Unified Fit GUI."
-        ),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Category F — Persistence
 # ---------------------------------------------------------------------------
+
+def _mc_levels(session: Session) -> Optional[dict]:
+    """The MC uncertainties of the last fit in save_unified_fit_results' shape."""
+    block = getattr(session, "last_uncertainty", None)
+    if not block or not block.get("available"):
+        return None
+    return block.get("_levels")
+
 
 def _session_to_gui_state(session: Session) -> dict:
     """Snapshot the session's UnifiedFitModel as the panel's setup state.
@@ -2126,6 +2152,9 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
             error=model.error_data,
             slit_length=slit_length,
             intensity_model_ideal=intensity_model_ideal,
+            # Monte-Carlo uncertainties from run_fit(n_mc_runs=…), stored the
+            # way the GUI's Store in File stores "Analyze Results".
+            uncertainties=_mc_levels(s),
             # Embed the full setup so the GUI can "Load Setup from File…"
             # and resume exactly where pyirena-ai left off.
             setup_state=_session_to_gui_state(s),

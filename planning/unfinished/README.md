@@ -38,6 +38,18 @@ plan is the beta blocker**; Steps 1–4 are cleanup and can follow.
 
 ## 2. Monte-Carlo uncertainties are missing from the agent surface — **M**
 
+**Done 10-11-2026** (issue #38, closes #28). Monte-Carlo moved into core
+(`calculate_uncertainty_mc` on `UnifiedFitModel`, `SizesDistribution`,
+`SimpleFitModel`, plus `core/mc_uncertainty.py`), shared by GUI, batch and
+control. `run_fit` / `run_sizes_fit` / `run_simple_fit` /
+`run_modeling_fit` take `n_mc_runs` (0 = off); `get_parameter_uncertainties`
+serves every tool from `api/control/uncertainty.py`; `export_results` and
+`analyze(n_mc_runs=…)` carry it. WAXS keeps its signature (the pipeline passes
+the arguments to every tool) but now says its uncertainties are covariance
+ones. Still open: Modeling GUI/batch still perturb error-less data with 5 %
+of I, unlike the other tools (needs a decision), and the Size Distribution
+GUI does not store its MC per-bin σ in the file (neither path does).
+
 The largest capability gap between the batch path and the MCP/ZMQ path, and
 the one an agent notices first.
 

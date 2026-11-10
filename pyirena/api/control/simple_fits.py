@@ -378,7 +378,8 @@ def set_simple_background(session_id: str, enabled: bool = True) -> dict:
 # Fit execution
 # ---------------------------------------------------------------------------
 
-def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
+def run_simple_fit(session_id: str, no_limits: bool = False,
+                   n_mc_runs: int = 0, random_seed: Optional[int] = None) -> dict:
     """Fit the selected model to the data inside the current fit Q range.
 
     Parameters
@@ -386,16 +387,29 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
     no_limits : bool
         Fit unconstrained, ignoring every parameter bound.  Useful when a fit
         stalls against a bound that was only a guess.
+    n_mc_runs : int
+        Monte-Carlo uncertainty refits after the fit; 0 (default) keeps the
+        covariance σ. The same estimate as the GUI's MC uncertainty button
+        and ``batch.fit_simple(with_uncertainty=True)``; the parameters'
+        ``std`` is then the Monte-Carlo value. Needs measured uncertainties.
+    random_seed : int, optional
+        Seed for the Monte-Carlo perturbations (reproducible uncertainties).
 
     Returns
     -------
     dict with success, model, chi_squared, reduced_chi_squared, dof,
-    q_min/q_max, n_data, parameters (value + 1σ) and derived quantities.
+    q_min/q_max, n_data, parameters (value + 1σ), derived quantities,
+    ``uncertainty_method`` and, when n_mc_runs > 0, ``uncertainty``.
     Calculation models (Invariant) are evaluated rather than optimised.
     """
+    from pyirena.api.control import uncertainty as unc
+
     s, err = _require_simple(session_id)
     if err:
         return err
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
 
     mask = fit_mask(s)
     if not np.any(mask):
@@ -441,6 +455,24 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
     # Fitted values become the new starting point, as in the GUI.
     s.model.params.update(result.get("params", {}))
     s.last_fit_result = result
+    s.last_uncertainty = None
+
+    mc_block = None
+    method = unc.COVARIANCE
+    if n_mc_runs and not s.model.is_calculation:
+        mc = s.model.calculate_uncertainty_mc(
+            q_fit, I_fit, err_fit, n_runs=n_mc_runs,
+            fixed_params=fixed_params or None, no_limits=bool(no_limits),
+            seed=random_seed)
+        mc_block = unc.summarize_mc(
+            mc, [{"name": k, "std": unc._f(v)}
+                 for k, v in (mc.get("params_std") or {}).items()])
+        s.last_uncertainty = mc_block
+        if mc.get("available"):
+            # As the GUI does: the MC σ replace the covariance σ, so results,
+            # export and save all report the estimate that was asked for.
+            result["params_std"] = mc["params_std"]
+            method = unc.MONTE_CARLO
 
     return {
         "success": True,
@@ -462,6 +494,8 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
         ],
         "derived": {k: _f(v) for k, v in (result.get("derived") or {}).items()},
         "warning": result.get("warning"),
+        "uncertainty_method": None if s.model.is_calculation else method,
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
 
 

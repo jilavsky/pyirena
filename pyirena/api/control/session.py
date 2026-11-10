@@ -47,6 +47,11 @@ class Session:
     # reading it must handle both.
     last_fit_result: Optional[Any] = None
 
+    # Monte-Carlo uncertainty block for last_fit_result (see
+    # api/control/uncertainty.py), or None when none was computed. Every
+    # run_*_fit resets it, so an uncertainty never outlives its fit.
+    last_uncertainty: Optional[dict] = None
+
 
 _SESSIONS: Dict[str, Session] = {}
 

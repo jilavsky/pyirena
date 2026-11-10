@@ -521,20 +521,38 @@ def get_background_preview_image(
 # Fit execution & results
 # ---------------------------------------------------------------------------
 
-def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
+def run_sizes_fit(session_id: str, random_seed: Optional[int] = None,
+                  n_mc_runs: int = 0) -> dict:
     """Run the size-distribution inversion on the current model and data.
 
     The inversion Q-range (set_fit_q_range) is applied first.  The complex
     background is subtracted internally by the model before inversion.
 
+    Parameters
+    ----------
+    random_seed : int, optional
+        Seeds the stochastic Monte Carlo inversion and the uncertainty
+        refits, so a fit can be reproduced exactly.
+    n_mc_runs : int, optional
+        Monte-Carlo uncertainty refits after the fit; 0 (default) = none.
+        The same estimate as the GUI's "Calc. Uncertainty (MC)": data
+        perturbed by the σ the fit weights by (fractional error / error scale
+        honoured). Needs measured uncertainties unless fractional error is on.
+
     Returns
     -------
     dict with keys: success, chi_squared, volume_fraction, rg, peak_r,
-    n_iterations, n_data, message.
+    n_iterations, n_data, message, and ``uncertainty`` (rg_std,
+    volume_fraction_std, peak_r_std, n_ok of n_runs) when n_mc_runs > 0.
     """
+    from pyirena.api.control import uncertainty as unc
+
     s, err = _require_sizes(session_id)
     if err:
         return err
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
 
     mask = fit_mask(s)
     if not np.any(mask):
@@ -570,6 +588,18 @@ def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
 
     result["random_seed"] = random_seed
     s.last_fit_result = result
+    s.last_uncertainty = None
+
+    mc_block = None
+    if n_mc_runs:
+        mc = s.model.calculate_uncertainty_mc(q_fit, I_fit, err_fit,
+                                              n_runs=n_mc_runs, seed=rng)
+        mc_block = unc.summarize_mc(
+            mc, parameters=[],
+            scalars={k: mc.get(k) for k in ("rg_std", "volume_fraction_std",
+                                            "peak_r_std")},
+            distribution_std=mc.get("distribution_std"))
+        s.last_uncertainty = mc_block
 
     dist = result.get("distribution")
     r_grid = result.get("r_grid")
@@ -587,6 +617,7 @@ def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
         "n_data": int(result.get("n_data", len(q_fit))),
         "random_seed": random_seed,
         "message": str(result.get("message", "")),
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
 
 
