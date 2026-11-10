@@ -34,7 +34,7 @@ from pyirena.core.tool_config import (  # noqa: E402,F401
 from pyirena.core.tool_config import (  # noqa: E402
     is_panel_level,
 )
-from pyirena.core.tool_config import (
+from pyirena.core.tool_config import (  # noqa: F401 - re-exported by pyirena.batch
     unified_model_from_config as _state_to_model,
 )
 
@@ -263,26 +263,25 @@ def fit_unified(
     config_file = Path(config_file)
 
     # --- Load config ---
+    # unwrap_config is the one envelope reader (AGENTS.md invariant 6): it
+    # accepts every wrapper pyIrena writes, which this function used to
+    # bypass by reading config['unified_fit'] directly.
+    from pyirena.core.tool_config import ConfigError, build_setup, unwrap_config
     try:
         config = _load_config(config_file)
         if config is None:
             return None
-
-        if 'unified_fit' not in config:
-            log.info(f"[pyirena.batch] Config file '{config_file}' has no 'unified_fit' group.")
-            return None
-
-        unified_state = config['unified_fit']
+        _, unified_state, _ = unwrap_config(config, 'unified_fit')
+    except ConfigError as exc:
+        log.info(f"[pyirena.batch] Config file '{config_file}': {exc}")
+        return None
     except Exception:
         log.error(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
         return None
 
     # --- Load data ---
-    # JSON keys (canonical, see slit-smearing plan §5.1):
-    #   "load_slit_smeared": true  -> load the file's slit-smeared (_SMR) dataset
-    #   "slit_length": <float>     -> optional override of the file-derived SL
-    # When slit-smeared data are loaded, model smearing is enabled automatically
-    # (SasView-style: slit-length presence drives smearing).
+    # "load_slit_smeared": true loads the file's slit-smeared (_SMR) dataset;
+    # model smearing then follows the data (apply_data_slit_settings).
     load_slit_smeared = bool(unified_state.get('load_slit_smeared', False))
     try:
         data = _load_data(data_file, load_slit_smeared=load_slit_smeared)
@@ -292,75 +291,57 @@ def fit_unified(
         log.error(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
         return None
 
-    # --- Build model ---
+    # --- Build model + run settings (shared with analyze) ---
     try:
-        model = _state_to_model(unified_state)
+        setup = build_setup(
+            config, 'unified_fit',
+            data_is_slit_smeared=bool(data.get('is_slit_smeared')),
+            data_slit_length=float(data.get('slit_length', 0.0) or 0.0))
+        model = setup.model
         num_levels = model.num_levels
-        # Enable slit smearing when the loaded curve is slit smeared, or when
-        # the config explicitly requests it.  slit_length is file-derived unless
-        # overridden in the config.
-        cfg_slit_length = unified_state.get('slit_length')
-        data_slit_length = float(data.get('slit_length', 0.0) or 0.0)
-        slit_length = float(cfg_slit_length) if cfg_slit_length else data_slit_length
-        want_smearing = (
-            bool(data.get('is_slit_smeared'))
-            or bool(unified_state.get('use_slit_smearing'))
-        )
-        if want_smearing and slit_length > 0:
-            model.use_slit_smearing = True
-            model.slit_length = slit_length
-            log.info(f"[pyirena.batch] Slit smearing enabled (SL={slit_length:.4g} 1/A).")
-        elif want_smearing and slit_length <= 0:
-            log.warning(
-                "[pyirena.batch] Slit smearing requested but no slit length "
-                "available (no dQl and no 'slit_length' in config); fitting pinhole."
-            )
+        for note in setup.warnings:
+            log.warning(f"[pyirena.batch] {note}")
+        if model.use_slit_smearing:
+            log.info(f"[pyirena.batch] Slit smearing enabled (SL={model.slit_length:.4g} 1/A).")
     except Exception:
         log.error(f"[pyirena.batch] Error building model from config:\n{traceback.format_exc()}")
         return None
 
-    # --- Apply Q range from cursor positions ---
-    try:
-        q_min = unified_state.get('cursor_left')
-        q_max = unified_state.get('cursor_right')
-        Q = data['Q']
-        Intensity = data['Intensity']
-        Error = data.get('Error')
+    Q = data['Q']
+    Intensity = data['Intensity']
+    Error = data.get('Error')
 
-        if q_min is not None and q_max is not None:
-            mask = (Q >= float(q_min)) & (Q <= float(q_max))
-            q_fit = Q[mask]
-            intensity_fit = Intensity[mask]
-            error_fit = Error[mask] if Error is not None else None
-        else:
-            q_fit, intensity_fit, error_fit = Q, Intensity, Error
-    except Exception:
-        log.error(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
-        return None
-
-    # --- Run fit ---
+    # --- Fit (+ MC): the shared Unified runner, as the GUI and the API ---
+    # Walks limits like the GUI (decision D1, planning/fit-runner/); until
+    # 1.2.1 batch used a plain fit, so a fit that reached a bound reported
+    # the bound value.
+    from pyirena.core.fit_runner import run_unified
+    from pyirena.state.state_manager import text_import_settings
+    fraction = text_import_settings()["error_fraction"]
     try:
-        fit_result = model.fit(q_fit, intensity_fit, error_fit)
+        run = run_unified(
+            model, Q, Intensity, Error,
+            q_min=setup.fit_q_min, q_max=setup.fit_q_max,
+            error_fraction=fraction,
+            no_limits=bool(unified_state.get('no_limits', False)),
+            n_mc_runs=(n_mc_runs if with_uncertainty else 0),
+            mc_noise_fraction=fraction)
+        fit_result = run.result
+        q_fit = run.data.q
+        for note in run.notes:
+            log.info(f"[pyirena.batch] {note}")
     except Exception:
         log.error(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
         return None
 
-    # --- MC uncertainty analysis (optional) ---
     uncertainties = None
-    if with_uncertainty and fit_result.get('success', False):
-        log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
-        try:
-            mc = _mc_uncertainty_unified(
-                model, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
-            )
-            if mc.get('available'):
-                uncertainties = mc['uncertainties']
-                log.info(f"[pyirena.batch] MC uncertainty: {mc['n_ok']}/{mc['n_runs']} "
-                         "refits succeeded.")
-            else:
-                log.error(f"[pyirena.batch] MC uncertainty not computed: {mc['reason']}.")
-        except Exception:
-            log.error(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
+    if run.mc is not None:
+        if run.mc.get('available'):
+            uncertainties = run.mc['uncertainties']
+            log.info(f"[pyirena.batch] MC uncertainty: {run.mc['n_ok']}/{run.mc['n_runs']} "
+                     "refits succeeded.")
+        else:
+            log.error(f"[pyirena.batch] MC uncertainty not computed: {run.mc['reason']}.")
 
     # --- Build return structure ---
     try:

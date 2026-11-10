@@ -218,7 +218,8 @@ def test_sessions_are_visible_and_closable_across_connections(service):
 def test_a_cleaned_curve_reports_what_was_removed(client):
     q, I, e = _curve(100)
     I = I.copy()
-    I[5] = 0.0                       # beamstop zero: removed
+    I[5] = np.nan                    # unreadable intensity: removed
+    I[6] = -1.0                      # negative (background-subtracted): kept, #38 D3
     q = q.copy()
     q[0] = 0.0                       # direct beam: removed
 

@@ -140,6 +140,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   discarding every result saved into it. Now, when it holds results, the GUI
   asks — Recreate (old file kept as `….h5.bak`), Keep existing, or Cancel —
   and batch, API and plotting back it up and recreate, with a warning.
+- **One fit runner per tool, shared by `pyirena.batch` and the API**
+  (`pyirena/core/fit_runner.py`, #38; design and decisions in
+  `planning/fit-runner/README.md`). An audit of all six fitting tools found
+  ~35 places where the GUI, batch, API and `analyze()` copies of the fit
+  orchestration disagreed. Being unified tool by tool; so far:
+  - *Points and σ, one rule everywhere* (`core/fit_data.py`): I ≤ 0 points
+    are kept (array sessions / `analyze()` used to drop them); σ ≤ 0 is
+    repaired to |I| × the generated-uncertainty fraction instead of being
+    clamped to 1e-30, which gave one point a dominant weight.
+  - *Unified Fit batch walks limits* like the GUI and the API, uses the
+    shared slit-smearing rule and reads the config through the one envelope
+    reader (so `export_results` replies and the envelope's `fit_q_range` work
+    in batch too). Fits that reached a bound in batch now walk past it.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

@@ -1203,9 +1203,11 @@ class UnifiedFitModel:
         factor of 5.  This method automates exactly that loop, so one call
         reaches the interior optimum.
 
-        Only intended for panel-maintained limits.  Batch runs with
-        explicit user limits in the config should call :meth:`fit` directly
-        — those limits are a deliberate constraint, not a moving window.
+        Every path uses it for bounded fits — GUI, batch and API alike, via
+        :func:`pyirena.core.fit_runner.run_unified` (decision D1,
+        ``planning/fit-runner/README.md``): the limits a config carries are
+        the panel's auto-window, reset by *Fix limits* after every fit, not a
+        deliberate constraint. With ``no_limits`` there is nothing to walk.
 
         Args:
             q, intensity, error: As for :meth:`fit`.

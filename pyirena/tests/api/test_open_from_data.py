@@ -118,22 +118,32 @@ def test_dq_is_stored_for_provenance(arrays):
 # Cleaning — same rules as text-file import
 # ---------------------------------------------------------------------------
 
-def test_nonpositive_and_nonfinite_points_are_removed_and_counted(arrays):
+def test_nonfinite_points_removed_but_negative_intensity_kept(arrays):
+    """The shared point rule (core/fit_data.py, issue #38 D3): I <= 0 is kept —
+    real negative values of background-subtracted data — while non-finite
+    values and Q <= 0 are removed, and an I = 0 point with no valid σ (which
+    cannot be repaired) is dropped. Until 1.2.1 every I <= 0 point was removed."""
     q, I, e = arrays
     q = q.copy()
     I = I.copy()
+    e = np.array(e, dtype=float)
     q[0] = 0.0            # Q <= 0     → removed
     q[1] = np.nan         # non-finite → removed
-    I[10] = 0.0           # I <= 0     → removed
-    I[11] = -5.0          # I <= 0     → removed
+    I[10] = 0.0           # I = 0, valid σ → kept
+    I[11] = -5.0          # I < 0       → kept
+    I[12] = np.nan        # non-finite I → removed
+    I[13] = 0.0
+    e[13] = 0.0           # I = 0 and σ = 0 → cannot be repaired → removed
+    e[14] = -1.0          # σ <= 0 → repaired to fraction × |I|
 
     r = _open(q, I, error=list(e))
     cleaning = r["summary"]["cleaning"]
     assert cleaning["n_input"] == len(q)
     assert cleaning["n_removed_q"] == 2
     assert cleaning["n_removed_i"] == 2
+    assert cleaning["n_repaired_error"] == 1
     assert cleaning["n_kept"] == len(q) - 4
-    assert r["summary"]["n_points"] == len(q) - 4
+    assert r["summary"]["intensity_min"] == -5.0
     ctrl.close_session(r["session_id"])
 
 

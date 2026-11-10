@@ -588,9 +588,9 @@ def pyirena_ctrl_open_dataset_from_data(
 ) -> dict:
     """Create a fitting session from arrays instead of a file.
 
-    Use when you hold the data rather than a path pyIrena can read. Cleaning
-    (Q<=0, I<=0, bad uncertainties) matches text-file import and is reported
-    in summary.cleaning. save_* on such a session needs an output_path.
+    Use when you hold the data rather than a path pyIrena can read. Points with
+    Q<=0 or non-finite values are removed, I<=0 points are kept, bad
+    uncertainties are repaired; all reported in summary.cleaning. save_* on such a session needs an output_path.
     """
     return _ctrl.open_dataset_from_data(
         q=q, intensity=intensity, error=error, dq=dq, label=label,

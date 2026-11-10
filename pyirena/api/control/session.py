@@ -52,6 +52,11 @@ class Session:
     # run_*_fit resets it, so an uncertainty never outlives its fit.
     last_uncertainty: Optional[dict] = None
 
+    # σ for points whose uncertainty is <= 0, as a fraction of |I| (the
+    # shared data rule, core/fit_data.py). open_dataset_from_data takes it
+    # from its error_fraction argument; 5 % otherwise.
+    error_fraction: float = 0.05
+
 
 _SESSIONS: Dict[str, Session] = {}
 

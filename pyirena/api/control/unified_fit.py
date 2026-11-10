@@ -911,27 +911,21 @@ def run_fit(
             code="EMPTY_RANGE",
         )
 
-    q_fit = s.q[mask]
-    I_fit = s.intensity[mask]
-    err_fit = s.error[mask] if s.error is not None else None
-
     if random_seed is not None:
         np.random.seed(int(random_seed))
 
-    kwargs: dict = {}
-    if max_iter is not None:
-        kwargs["max_iterations"] = int(max_iter)
-
+    # The shared Unified runner (core/fit_runner.py) — the same code batch
+    # uses: data rule, walking (no walking with no_limits, since the wide
+    # defaults leave nothing to walk), Monte-Carlo.
+    from pyirena.core.fit_runner import run_unified
     try:
-        if no_limits:
-            # Walking the limits is meaningless once they are the wide
-            # defaults — and fit_with_limit_walking would narrow them back
-            # around the fitted value, which is the opposite of the request.
-            result = s.model.fit(q_fit, I_fit, err_fit, no_limits=True, **kwargs)
-        elif walk_limits:
-            result = s.model.fit_with_limit_walking(q_fit, I_fit, err_fit, **kwargs)
-        else:
-            result = s.model.fit(q_fit, I_fit, err_fit, **kwargs)
+        run = run_unified(
+            s.model, s.q, s.intensity, s.error,
+            q_min=s.fit_q_min, q_max=s.fit_q_max,
+            error_fraction=getattr(s, "error_fraction", 0.05),
+            no_limits=bool(no_limits), walk_limits=bool(walk_limits),
+            max_iterations=max_iter, n_mc_runs=n_mc_runs, seed=random_seed)
+        result = run.result
     except Exception as exc:
         return make_error(
             f"Fit failed with exception: {exc}",
@@ -944,12 +938,8 @@ def run_fit(
     s.last_uncertainty = None
 
     mc_block = None
-    if n_mc_runs and result.get("success", False):
-        mc_kwargs = dict(kwargs)
-        if no_limits:
-            mc_kwargs["no_limits"] = True
-        mc = s.model.calculate_uncertainty_mc(
-            q_fit, I_fit, err_fit, n_runs=n_mc_runs, seed=random_seed, **mc_kwargs)
+    if run.mc is not None:
+        mc = run.mc
         rows = []
         if mc.get("available"):
             u = mc["uncertainties"]
@@ -980,7 +970,7 @@ def run_fit(
     # bound stopped the fit — the difficult-to-debug case).
     pinned = [f"level {i + 1} {name}"
               for i, name in s.model.pinned_fitted_parameters()]
-    warnings_list = []
+    warnings_list = list(run.notes)
     if pinned and no_limits:
         # The fit did not use these bounds, so nothing was pinned *at* one —
         # but the values landing outside them is the answer to the question

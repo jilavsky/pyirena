@@ -194,13 +194,14 @@ def open_dataset_from_data(
     ``open_dataset`` does, except that ``save_*`` needs an explicit
     ``output_path`` (there is no source file to write back into).
 
-    The data is cleaned with the same rules text-file import uses
-    (``pyirena.io.text_import.clean_sas_arrays``), so a curve behaves the same
-    whether it arrived as a file or as arrays: points with Q ≤ 0 or I ≤ 0 (and
-    any non-finite value) are removed, and non-positive uncertainties are
-    replaced by ``error_fraction × I``. The counts are reported back in
-    ``summary["cleaning"]`` rather than applied silently — see
-    ``docs/data_import_and_cleaning.md`` for why each rule exists.
+    The data get the fitting tools' shared point rule
+    (:mod:`pyirena.core.fit_data`, issue #38): points with Q ≤ 0 or a
+    non-finite Q or I are removed; **points with I ≤ 0 are kept** (real
+    negative values of background-subtracted data — dropping only the
+    negative half of the noise biases a fitted background); non-positive
+    uncertainties are replaced by ``error_fraction × |I|``. Until 1.2.1
+    I ≤ 0 points were removed here. The counts are reported back in
+    ``summary["cleaning"]`` rather than applied silently.
 
     Parameters
     ----------
@@ -232,7 +233,6 @@ def open_dataset_from_data(
         ``SHAPE_MISMATCH``, ``EMPTY_DATA``, ``TOO_FEW_POINTS``,
         ``TOO_MANY_POINTS``, ``BAD_VALUES`` or ``NO_VALID_POINTS``.
     """
-    from pyirena.io.text_import import clean_sas_arrays
 
     def _as_array(values, name):
         try:
@@ -296,15 +296,24 @@ def open_dataset_from_data(
         err_arr = err_arr[order] if err_arr is not None else None
         dq_arr = dq_arr[order] if dq_arr is not None else None
 
-    q_c, I_c, e_c, dq_c, report = clean_sas_arrays(
-        q_arr, I_arr, err_arr, dq_arr, error_fraction=error_fraction
-    )
+    from pyirena.core.fit_data import prepare_fit_arrays
+    prep = prepare_fit_arrays(q_arr, I_arr, err_arr, error_fraction)
+    q_c, I_c, e_c = prep.q, prep.intensity, prep.error
+    dq_c = dq_arr[prep.mask] if dq_arr is not None and len(dq_arr) == len(q_arr) else None
+    n_q_removed = int(np.sum(~np.isfinite(q_arr) | (q_arr <= 0)))
+    report = {
+        "n_original": int(len(q_arr)),
+        "n_kept": int(len(q_c)),
+        "n_q_removed": n_q_removed,
+        "n_i_removed": int(len(q_arr) - len(q_c) - n_q_removed),
+        "n_e_synthesized": int(prep.n_sigma_repaired),
+    }
 
     if len(q_c) < _MIN_INPUT_POINTS:
         return make_error(
             f"Only {len(q_c)} of {len(q_arr)} points survived cleaning "
-            f"(removed {report['n_q_removed']} with Q<=0 and "
-            f"{report['n_i_removed']} with I<=0).",
+            f"(removed {report['n_q_removed']} with Q<=0 or non-finite Q and "
+            f"{report['n_i_removed']} with non-finite I or unusable σ).",
             suggestion="Check the Q and intensity units and sign conventions.",
             code="NO_VALID_POINTS",
         )
@@ -324,6 +333,7 @@ def open_dataset_from_data(
         slit_length=float(slit_length or 0.0),
         dq=dq_c,
     )
+    session.error_fraction = float(error_fraction)
 
     return {
         "session_id": session.session_id,

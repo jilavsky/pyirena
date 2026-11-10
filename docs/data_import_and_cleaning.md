@@ -162,6 +162,23 @@ result = fit_sizes("sample42.dat", "pyirena_config.json")
 print(result['output_file'])   # → .../sample42.h5
 ```
 
+## What the fitting tools do with the points
+
+Separately from import, every fitting path — GUI, `pyirena.batch`, the API
+and `analyze()` — applies one rule to the points it fits
+(`pyirena/core/fit_data.py`; issue #38):
+
+- **I ≤ 0 points are kept.** Background-subtracted data have real negative
+  values at high Q; dropping only the negative half of the noise biases a
+  fitted background upward. (Text import above still removes them from text
+  files; core maths that needs I > 0, such as the Size Distribution
+  inversion, masks internally.)
+- **σ ≤ 0 is repaired** to `|I| × error_fraction` (the *Generated uncertainty
+  fraction*). Some paths used to clamp it to 1e-30, which gave that single
+  point a weight of ~10⁶⁰ — it dominated the fit.
+- A point with I = 0 and no valid σ cannot be repaired and is dropped.
+- Non-finite Q or I, and Q ≤ 0, are dropped.
+
 ## Data Merge and Data Manipulation
 
 These panels read text files directly (they are pre-processing tools that

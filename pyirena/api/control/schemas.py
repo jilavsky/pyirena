@@ -50,9 +50,10 @@ TOOL_SCHEMAS: list[dict] = [
             "is in the request rather than on the machine running pyIrena "
             "(a remote service, a notebook, a reduction pipeline). Returns a "
             "session_id that works with every other tool. Points with Q<=0 or "
-            "I<=0 are removed and non-positive uncertainties repaired, the "
-            "same cleaning a text file gets; the counts come back in "
-            "summary.cleaning. Sessions made this way have no source file, so "
+            "a non-finite Q/I are removed; points with I<=0 are KEPT (real "
+            "negative values of background-subtracted data); non-positive "
+            "uncertainties are repaired to error_fraction x |I|. The counts "
+            "come back in summary.cleaning. Sessions made this way have no source file, so "
             "save_* needs an explicit output_path."
         ),
         "input_schema": {
