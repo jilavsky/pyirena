@@ -5,7 +5,6 @@
 #   pip install "pyirena[all]"     (everything)
 # numpy.trapezoid (used throughout core/) requires NumPy >= 2.0.
 numpy>=2.0
-scipy>=1.8.0
+scipy>=1.13
 h5py>=3.0.0
 igor2>=0.5.13
-six>=1.16

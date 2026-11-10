@@ -268,7 +268,7 @@ Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
 | `diagnostics.py` | 609 | `pyirena-doctor` |
 | `logging_setup.py` | 166 | Rotating log configuration |
 | `version_check.py` | 79 | GitHub-based update notification |
-| `examples/basic_demo.py` | 390 | Unified Fit demonstration script |
+| `examples/unified_fit_demo.py` | 70 | Minimal Unified Fit example on synthetic data |
 | `gui/ai_skills/*.md` | — | Tool-specific prompt context for the AI advisor |
 
 ---

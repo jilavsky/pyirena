@@ -4,16 +4,19 @@ Utility functions for Unified Fit Model analysis.
 Includes plotting, data export, and analysis helpers.
 """
 
+import logging
 from typing import Dict, Optional
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 try:
     import matplotlib.pyplot as plt
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
-    print("Warning: matplotlib not available. Plotting functions disabled.")
+    log.debug("matplotlib not available; Unified Fit plotting functions disabled.")
 
 
 def plot_fit_results(model, show_residuals: bool = True,
@@ -29,11 +32,11 @@ def plot_fit_results(model, show_residuals: bool = True,
         save_path: Path to save the figure (if None, display only)
     """
     if not HAS_MATPLOTLIB:
-        print("Matplotlib not available. Cannot plot.")
+        log.warning("matplotlib not available; cannot plot.")
         return
 
     if model.q_data is None or model.fit_intensity is None:
-        print("No fit data available. Run fit() first.")
+        log.warning("No fit data available. Run fit() first.")
         return
 
     # Create figure
@@ -109,7 +112,7 @@ def plot_fit_results(model, show_residuals: bool = True,
 
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Figure saved to {save_path}")
+        log.info(f"Figure saved to {save_path}")
 
     plt.show()
 
@@ -123,11 +126,11 @@ def plot_guinier_analysis(model, level_idx: int = 0):
         level_idx: Level index to analyze
     """
     if not HAS_MATPLOTLIB:
-        print("Matplotlib not available. Cannot plot.")
+        log.warning("matplotlib not available; cannot plot.")
         return
 
     if model.q_data is None:
-        print("No data available.")
+        log.warning("No data available.")
         return
 
     level = model.levels[level_idx]
@@ -173,11 +176,11 @@ def plot_porod_analysis(model, level_idx: int = 0):
         level_idx: Level index to analyze
     """
     if not HAS_MATPLOTLIB:
-        print("Matplotlib not available. Cannot plot.")
+        log.warning("matplotlib not available; cannot plot.")
         return
 
     if model.q_data is None:
-        print("No data available.")
+        log.warning("No data available.")
         return
 
     level = model.levels[level_idx]
@@ -271,7 +274,7 @@ def export_fit_results(model, filename: str, include_levels: bool = True):
 
             f.write("\t".join(row) + "\n")
 
-    print(f"Results exported to {filename}")
+    log.info(f"Results exported to {filename}")
 
 
 def calculate_size_distribution_moments(model, level_idx: int = 0) -> Dict[str, float]:

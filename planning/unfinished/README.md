@@ -137,6 +137,10 @@ SAXS Morph is not going to get trend plots, turn it into a decision.
 
 ## 4. Sizes `unc_n_runs` is collected, saved, exported and ignored — **S**
 
+**Done** (confirmed in the 09-11-2026 review, issue #38). `ToolSetup.mc_n_runs`
+is read from `unc_n_runs` in `core/tool_config.py`, and `batch.fit_sizes`
+uses it whenever the caller passes no `n_mc_runs`.
+
 `unc_n_runs` is a real spin box (`gui/sizes_panel.py:1729`), it drives the GUI
 uncertainty run (`sizes_panel.py:2478`), it is written into the panel state
 (`:2729`), restored from it (`:2786`), and it is present in the real exported

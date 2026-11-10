@@ -3454,9 +3454,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             warns = getattr(result, 'fit_warnings', None) or []
             if warns:
                 # Status line gets a compact summary; full text goes to the
-                # console so nothing is lost on long warning lists.
+                # log so nothing is lost on long warning lists.
                 for w in warns:
-                    print(f'Modeling fit warning: {w}')
+                    log.warning(f'Modeling fit warning: {w}')
                 msg += '  ⚠ ' + '  |  '.join(warns)
                 self.graph.set_status(msg, 'warning')
             else:

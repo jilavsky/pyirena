@@ -26,6 +26,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Collect Values and Multi-Collect open each file once instead of once for the
   X value and again for the Y value(s), which halves the opens over a slow
   network drive.
+- **SAXS Morph reported an Euler-Poincaré characteristic of 0 for every
+  structure unless scikit-image happened to be installed** (#38). scikit-image
+  is in no pyIrena extra, so on a standard install the missing package was
+  reported as χ = 0, which is a real topology (a torus) rather than an error.
+  χ is now computed directly with numpy (6-connected, the same convention as
+  before); it agrees exactly with scikit-image on 300 random test volumes.
+  Morphology results saved by earlier versions without scikit-image carry
+  χ = 0 regardless of the structure.
+
+### Changed
+
+- Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
+  NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
+  dependency is removed; it wrapped two strings in a no-op. Saved files are
+  unchanged.
+- The broken `pyirena/examples/basic_demo.py` (it imported modules that no
+  longer exist) is replaced by `pyirena/examples/unified_fit_demo.py`, which
+  is the demo formerly at the bottom of `core/unified.py`.
+- README: the entry-point table lists all ten console scripts, and the Simple
+  Fits (15) and form-factor (10) counts match the code.
 
 ## [1.2.1] - 2026-11-01
 
