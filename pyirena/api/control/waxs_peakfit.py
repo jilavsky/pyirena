@@ -636,7 +636,8 @@ def set_waxs_peak_parameter_bounds(
 # ---------------------------------------------------------------------------
 
 def run_waxs_fit(session_id: str, weight_mode: str = "standard",
-                 no_limits: bool = False) -> dict:
+                 no_limits: bool = False,
+                 presearch: Optional[dict] = None) -> dict:
     """Fit background and peaks to the data inside the current fit Q range.
 
     Parameters
@@ -651,6 +652,11 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard",
         Fit without the per-parameter bounds — the panel's "No limits?".
         WAXS spells this as a genuinely unconstrained solve (±inf), the same
         as Simple Fits. The bounds are untouched and are back afterwards.
+        (``analyze`` passes a replayed config's own ``no_limits``.)
+    presearch : dict, optional
+        Q0 pre-search before the fit, as the GUI's "Pre-search Q0" options:
+        ``{"cross_corr": bool, "per_peak_scan": bool, "search_window": float,
+        "n_steps": int}``. Runs on the fitted range.
 
     Returns
     -------
@@ -683,25 +689,22 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard",
             code="EMPTY_RANGE",
         )
 
-    q_fit = s.q[mask]
-    I_fit = s.intensity[mask]
-    err_fit = s.error[mask] if s.error is not None else None
-
-    previous_no_limits = s.model.no_limits
-    s.model.no_limits = bool(no_limits)
+    # The shared WAXS runner (core/fit_runner.py), as batch: point rule,
+    # peaks outside the range removed, Q0 pre-search when asked.
+    from pyirena.core.fit_runner import run_waxs
     try:
-        result = s.model.fit(q_fit, I_fit, err_fit,
-                             s.model.bg_params, s.model.peaks,
-                             weight_mode=weight_mode)
+        run = run_waxs(s.model, s.q, s.intensity, s.error,
+                       q_min=s.fit_q_min, q_max=s.fit_q_max,
+                       error_fraction=getattr(s, "error_fraction", 0.05),
+                       weight_mode=weight_mode, no_limits=bool(no_limits),
+                       presearch=presearch)
+        result = run.result
     except Exception as exc:  # pragma: no cover - defensive
         return make_error(
             f"Fit failed with exception: {exc}",
             suggestion="Check the peak positions, widths and the Q range.",
             code="FIT_EXCEPTION",
         )
-    finally:
-        # no_limits belongs to this one fit, not to the saved setup.
-        s.model.no_limits = previous_no_limits
 
     if not result.get("success", False):
         return make_error(
@@ -710,9 +713,7 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard",
             code="FIT_FAILED",
         )
 
-    # Fitted values become the new state, as in the GUI.
-    s.model.bg_params = result.get("bg_params", s.model.bg_params)
-    s.model.peaks = result.get("peaks", s.model.peaks)
+    # Fitted values become the new state (the runner updated the model).
     s.last_fit_result = result
 
     peaks_std = result.get("peaks_std") or []
@@ -722,7 +723,8 @@ def run_waxs_fit(session_id: str, weight_mode: str = "standard",
         "chi_squared": _f(result.get("chi2")),
         "reduced_chi_squared": _f(result.get("reduced_chi2")),
         "dof": (int(result["dof"]) if result.get("dof") is not None else None),
-        "n_data": int(len(q_fit)),
+        "n_data": int(len(run.data.q)),
+        "warnings": list(run.notes),
         "bg_shape": s.model.bg_shape,
         "background_parameters": _bg_rows(s.model),
         "peaks": [

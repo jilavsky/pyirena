@@ -47,7 +47,10 @@ Defaults taken without a separate question (say if any is wrong):
 - **Envelope `fit_q_range` / `unwrap_config`** used by batch too (AGENTS.md
   invariant 6); batch Unified/Simple/WAXS/Carbon bypassed it.
 - **Session settings stored on the model win over argument defaults** in
-  control (Carbon `weighting`/`n_mc_runs`/Q range, WAXS `no_limits`).
+  control (Carbon `weighting`/`n_mc_runs`/Q range). WAXS `no_limits` keeps
+  its `False` default — `test_no_limits.py` makes "honour the bounds unless
+  asked" a rule for every bounded tool, and `analyze` passes a config's own
+  value explicitly.
 
 ## Audit — real differences, by tool
 
@@ -89,6 +92,6 @@ config's `n_mc_runs > 1`.
 ## Status
 
 - [ ] Data rules D2/D3 in one shared helper, used by batch, control, analyze and the GUI panels
-- [ ] Runner: ~~Unified~~ · ~~Sizes~~ · ~~Simple Fits~~ · ~~Modeling~~ (done) · WAXS · Carbon
+- [ ] Runner: ~~Unified~~ · ~~Sizes~~ · ~~Simple Fits~~ · ~~Modeling~~ · ~~WAXS~~ (done) · Carbon
 - [ ] GUI writes `load_slit_smeared`
 - [ ] Snapshot comparison clean (or every change explained) per tool

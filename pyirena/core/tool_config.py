@@ -886,23 +886,22 @@ def apply_simple_bg_prefit(model, fixed_params: Optional[Dict], q, intensity) ->
 
 def apply_prefits(setup: "ToolSetup", section: Dict,
                   q_full, intensity_full, q_fit=None, intensity_fit=None) -> list:
-    """Run whatever pre-fit steps *setup*'s tool defines. Returns notes.
+    """Run the config-driven pre-fit steps that precede the runner. Returns notes.
 
-    The tools disagree about which data a pre-fit should see, and each is
-    right. The Size Distribution background windows are chosen independently
-    of the size-fit cursors, so they read the **full** curve, and so does the
-    Simple Fits background pre-fit that the Invariant depends on. The WAXS
-    peak presearch is re-centring the peaks that are about to be fitted, so
-    it reads only the **fitted** range — scanning Q0 across data the fit will
-    never see would move a peak towards a feature outside the window.
+    Only the Size Distribution background windows remain here; they read the
+    **full** curve, since they are chosen independently of the size-fit
+    cursors. The other pre-fit steps moved into the shared runners
+    (``core/fit_runner.py``, issue #38), so every path runs them, once:
+    the Simple Fits Invariant background replay (full curve) in
+    ``run_simple``, the WAXS Q0 pre-search (fitted range, after pruning
+    out-of-range peaks) in ``run_waxs``. *q_fit*/*intensity_fit* are
+    accepted for compatibility and unused.
     """
-    if q_fit is None:
-        q_fit, intensity_fit = q_full, intensity_full
     if setup.tool == "sizes":
         return apply_sizes_prefits(setup.model, section, q_full, intensity_full,
                                    setup.fit_q_min, setup.fit_q_max)
-    if setup.tool == "waxs_peakfit":
-        return apply_waxs_presearch(setup.model, section, q_fit, intensity_fit)
+    # WAXS: the Q0 pre-search is run by core.fit_runner.run_waxs itself
+    # (after pruning out-of-range peaks), on every path (issue #38).
     # Simple Fits: the Invariant's background replay is done by
     # core.fit_runner.run_simple itself, on every path (issue #38).
     return []

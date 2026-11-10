@@ -170,3 +170,42 @@ def test_run_modeling_mc_refuses_without_sigma_unless_fraction_given():
     cfg.populations = [population_from_dict({"pop_type": "size_dist", "enabled": True})]
     run = run_modeling(cfg, Q, I, None, n_mc_runs=2, seed=1)
     assert run.mc["available"] is False and run.mc["n_ok"] is None
+
+
+# ── WAXS ─────────────────────────────────────────────────────────────────────
+
+def _waxs_data():
+    q = np.linspace(0.5, 5.0, 300)
+    I = 10.0 + 2.0 / q + 50.0 * np.exp(-((q - 1.8) ** 2) / (2 * 0.12 ** 2))
+    return q, I
+
+
+def _waxs_model(peaks_q0=(1.8,)):
+    from pyirena.core.waxs_peakfit import WAXSPeakFitModel, default_peak_params
+    peaks = [default_peak_params("Gauss", q0, 40.0, 0.3) for q0 in peaks_q0]
+    return WAXSPeakFitModel.from_dict({"bg_shape": "Linear", "peaks": peaks})
+
+
+def test_run_waxs_without_uncertainties_and_prunes_out_of_range_peaks():
+    from pyirena.core.fit_runner import run_waxs
+    q, I = _waxs_data()
+    model = _waxs_model((1.8, 4.5))
+    run = run_waxs(model, q, I, None, q_min=1.0, q_max=3.0)
+    assert run.success
+    assert len(model.peaks) == 1
+    assert any("outside the fitted range" in n for n in run.notes)
+
+
+def test_run_waxs_respects_models_no_limits_by_default(monkeypatch):
+    from pyirena.core.fit_runner import run_waxs
+    from pyirena.core.waxs_peakfit import WAXSPeakFitModel
+    q, I = _waxs_data()
+    model = _waxs_model()
+    model.no_limits = True
+    seen = []
+    real = WAXSPeakFitModel.fit
+    monkeypatch.setattr(WAXSPeakFitModel, "fit",
+                        lambda self, *a, **k: seen.append(self.no_limits) or real(self, *a, **k))
+    run_waxs(model, q, I, None)
+    run_waxs(model, q, I, None, no_limits=False)
+    assert seen == [True, False] and model.no_limits is True

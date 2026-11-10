@@ -49,7 +49,8 @@ _RUNNERS = {
     "modeling":     ("run_modeling_fit", {"fit_method": "fit_method",
                                           "no_limits": "no_limits"}),
     "waxs_peakfit": ("run_waxs_fit", {"weight_mode": "weight_mode",
-                                      "no_limits": "no_limits"}),
+                                      "no_limits": "no_limits",
+                                      "presearch": "presearch"}),
     "carbon_fit":   ("run_carbon_fit", {"weighting": "weighting",
                                         "no_limits": "no_limits"}),
 }

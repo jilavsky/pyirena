@@ -173,6 +173,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     data's own range everywhere (the API replay cropped to 0.001–1 Å⁻¹, and
     batch failed on a `null` range). `batch.fit_modeling(n_mc_runs=None)`
     now takes the config's `n_mc_runs` — the argument's 10 used to win.
+  - *WAXS Peak Fit*: every path removes peaks whose Q0 lies outside the
+    fitted range before fitting (only the GUI did; reported), and the API
+    session fit can run the Q0 pre-search (`run_waxs_fit(presearch=…)`) — it
+    never did. Batch no longer crashes on files without uncertainties and
+    reads the envelope's Q range.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

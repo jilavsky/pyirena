@@ -2004,6 +2004,17 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "presearch": {
+                    "type": "object",
+                    "description": (
+                        "Optional Q0 pre-search before the fit, as the GUI's "
+                        "Pre-search options: {cross_corr: bool, per_peak_scan: "
+                        "bool, search_window: float (1/A, default 0.05), "
+                        "n_steps: int (default 50)}. Runs on the fitted range. "
+                        "Peaks whose Q0 lies outside the fit range are removed "
+                        "before fitting either way (reported in warnings)."
+                    ),
+                },
                 "no_limits": {
                     "type": "boolean",
                     "description": (

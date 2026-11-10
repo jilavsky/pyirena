@@ -245,3 +245,69 @@ def run_modeling(config, q, intensity, error=None, *, q_min=None, q_max=None,
             run.mc["n_ok"] = None
             run.mc["sigma_source"] = "measured" if data.error is not None else "generated"
     return run
+
+
+# ---------------------------------------------------------------------------
+# WAXS Peak Fit
+# ---------------------------------------------------------------------------
+
+def run_waxs(model, q, intensity, error=None, *, q_min=None, q_max=None,
+             error_fraction: float = 0.05, weight_mode: str = "standard",
+             no_limits: Optional[bool] = None, presearch: Optional[dict] = None,
+             peak_find: Optional[dict] = None) -> FitRun:
+    """Fit a :class:`~pyirena.core.waxs_peakfit.WAXSPeakFitModel` (updated in place).
+
+    In order, as the GUI does:
+
+    1. points: the shared rule within the Q range (files without
+       uncertainties are fine — batch crashed on them);
+    2. peaks whose Q0 lies outside the fitted range are removed (only the GUI
+       did this; a peak outside the window is unconstrained but still bends
+       the model) — listed in the notes;
+    3. with no peaks and a ``peak_find`` block, peaks are found in the range;
+    4. the Q0 pre-search (``presearch`` block: cross-correlation shift and/or
+       per-peak scan) on the fitted range — the API session path never ran it;
+    5. the fit, with *weight_mode*; *no_limits* None means the model's own.
+    """
+    from pyirena.core.tool_config import apply_waxs_presearch
+
+    data = prepare_fit_arrays(q, intensity, error, error_fraction,
+                              base_mask=q_range_mask(q, q_min, q_max))
+    notes = data.notes()
+    if len(data.q):
+        lo, hi = float(data.q.min()), float(data.q.max())
+        kept, dropped = [], []
+        for pk in model.peaks or []:
+            v = pk.get("Q0", {})
+            q0 = float(v.get("value", 0.0) if isinstance(v, dict) else v)
+            (kept if lo <= q0 <= hi else dropped).append(pk)
+        if dropped:
+            model.peaks = kept
+            notes.append(f"Removed {len(dropped)} peak(s) with Q0 outside the fitted "
+                         f"range [{lo:.4g}, {hi:.4g}] 1/A.")
+    if not model.peaks and peak_find:
+        from pyirena.core.waxs_peakfit import find_peaks_in_data
+        model.peaks = find_peaks_in_data(
+            data.q, data.intensity,
+            prominence_frac=peak_find.get('prominence', 0.05),
+            min_fwhm=peak_find.get('min_fwhm', 0.001),
+            max_fwhm=peak_find.get('max_fwhm', 0.5),
+            min_distance=peak_find.get('min_distance', 0.005),
+            sg_window_frac=peak_find.get('sg_window_frac', 0.15))
+        notes.append(f"Auto-found {len(model.peaks)} peak(s).")
+    if presearch:
+        notes.extend(apply_waxs_presearch(model, {"presearch": presearch},
+                                          data.q, data.intensity))
+
+    previous = model.no_limits
+    if no_limits is not None:
+        model.no_limits = bool(no_limits)
+    try:
+        result = model.fit(data.q, data.intensity, data.error,
+                           model.bg_params, model.peaks, weight_mode=weight_mode)
+    finally:
+        model.no_limits = previous              # a property of this fit only
+    if result.get("success", False):
+        model.bg_params = result.get("bg_params", model.bg_params)
+        model.peaks = result.get("peaks", model.peaks)
+    return FitRun("waxs_peakfit", model, result, data, notes=notes)
