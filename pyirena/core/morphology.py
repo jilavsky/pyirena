@@ -7,8 +7,7 @@ the **minority phase** of a two-phase voxelgram (the structure of
 interest — pores in a solid matrix, or solid inclusions in a void
 matrix, whichever is rarer by volume).
 
-All metrics use only `scipy.ndimage` and (optionally for one item)
-`skimage.measure`, both of which are common dependencies.  Compute time
+All metrics use only `numpy` and `scipy.ndimage`.  Compute time
 for a 256³ voxelgram is well under one second on a typical laptop.
 
 Reusable from both the SAXS-Morph engine and (in principle) the Fractals
@@ -159,6 +158,42 @@ def _percolates(labels: np.ndarray, axis: int) -> bool:
     return bool(neg & pos)
 
 
+def _euler_number_6conn(mask: np.ndarray) -> int:
+    """Euler-Poincaré characteristic of a 3-D binary mask, 6-connected.
+
+    Same convention as ``skimage.measure.euler_number(mask, connectivity=1)``:
+    the foreground is 6-connected (face neighbours) and the background
+    26-connected, with everything outside the array treated as background.
+    That library was an optional import that is in no pyIrena extra, and its
+    absence used to be reported as ``χ = 0`` — a real topology (a torus), so
+    a missing package looked like a measurement.
+
+    Computed exactly on the voxel dual complex, which is homotopy-equivalent
+    to the 6-connected foreground: every foreground voxel is a vertex, every
+    face-adjacent foreground pair an edge, every fully-foreground planar 2×2
+    block a square, every fully-foreground 2×2×2 block a cube, and
+
+        χ = n_vertices − n_edges + n_squares − n_cubes.
+
+    Checks: a solid blob gives 1, a closed shell around a cavity 2, a ring 0,
+    and k disjoint blobs k.
+    """
+    m = np.asarray(mask, dtype=bool)
+    if m.ndim != 3:
+        raise ValueError(f"expected a 3-D mask, got shape {m.shape}")
+    a = m[:-1, :, :] & m[1:, :, :]           # x-edges
+    b = m[:, :-1, :] & m[:, 1:, :]           # y-edges
+    c = m[:, :, :-1] & m[:, :, 1:]           # z-edges
+    n_vertices = int(m.sum())
+    n_edges = int(a.sum()) + int(b.sum()) + int(c.sum())
+    sq_xy = a[:, :-1, :] & a[:, 1:, :]       # 2×2 blocks in the xy plane
+    sq_xz = a[:, :, :-1] & a[:, :, 1:]
+    sq_yz = b[:, :, :-1] & b[:, :, 1:]
+    n_squares = int(sq_xy.sum()) + int(sq_xz.sum()) + int(sq_yz.sum())
+    n_cubes = int((sq_xy[:, :, :-1] & sq_xy[:, :, 1:]).sum())
+    return n_vertices - n_edges + n_squares - n_cubes
+
+
 def _open_closed_voxel_counts(labels: np.ndarray) -> tuple[int, int]:
     """Return `(n_open_voxels, n_closed_voxels)` for the labelled image.
 
@@ -259,16 +294,10 @@ def compute_morphology_metrics(
 
     # ── Euler-Poincaré characteristic ─────────────────────────────────
     # χ = N_components − N_handles + N_cavities.  Single integer that
-    # captures topological complexity: a sphere has χ=2, a torus χ=0,
-    # a sponge with many handles is large negative.  Reported per box,
-    # not per unit volume.
-    try:
-        from skimage.measure import euler_number as _euler_number
-        euler = int(_euler_number(minority_mask, connectivity=1))
-    except Exception:
-        # skimage missing or older signature — graceful zero so the rest
-        # of the metric set still ships.
-        euler = 0
+    # captures topological complexity: a solid blob has χ=1, a hollow
+    # shell χ=2, a torus χ=0, a sponge with many handles is large
+    # negative.  Reported per box, not per unit volume.
+    euler = _euler_number_6conn(minority_mask)
 
     # ── Pore-size percentiles from Euclidean distance transform ───────
     # For each minority-phase voxel, the EDT value = distance to the
