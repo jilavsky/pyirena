@@ -254,7 +254,12 @@ def unwrap_config(config: Dict, tool: Optional[str] = None
         env.fit_q_min, env.fit_q_max = _q_range_of(config.get("fit_q_range"))
         return tool, model, env
 
-    # 5. A bare section, passed with the tool named.
+    # 5. A bare section, passed with the tool named. A dict carrying the
+    #    '_pyirena_config' header is a wrapper, never a bare section: one with
+    #    no matching section must be refused, or a config file for another
+    #    tool (or an empty one) is fitted as an all-defaults model.
+    if PYIRENA_CONFIG_HEADER in config:
+        raise ConfigError(f"Config has no '{tool}' section.")
     if detected is None or detected == tool:
         return tool, config, env
 
@@ -716,8 +721,14 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
             setup.fit_q_max = section.get("q_max")
         elif tool == "carbon_fit":
             setup.model = carbon_model_from_config(section)
-            setup.fit_q_min = section.get("q_min")
-            setup.fit_q_max = section.get("q_max")
+            # Panel-level keys first, else the model's own; in a model dict
+            # 0 means "no limit" — reading it as a bound lost a one-sided
+            # range (issue #38).
+            model_d = section.get("model") if isinstance(section.get("model"), dict) else section
+            lo = section.get("q_min", model_d.get("q_min"))
+            hi = section.get("q_max", model_d.get("q_max"))
+            setup.fit_q_min = lo if lo else None
+            setup.fit_q_max = hi if hi else None
     except ConfigError:
         raise
     except Exception as exc:

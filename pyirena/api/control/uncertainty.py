@@ -140,7 +140,8 @@ def _covariance_waxs(s) -> dict:
 def _carbon(s) -> dict:
     r = s.last_fit_result
     errors = getattr(r, "errors", None) or {}
-    n_mc = int(getattr(s.model, "n_mc_runs", 0) or 0)
+    # The run count of the last fit (the model's own is restored afterwards).
+    n_mc = int(getattr(s, "carbon_mc_runs", 0) or 0)
     return {
         "available": any(_f(v) is not None for v in errors.values()),
         "reason": None if errors else "the fit returned no uncertainties",

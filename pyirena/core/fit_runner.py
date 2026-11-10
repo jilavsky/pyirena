@@ -311,3 +311,38 @@ def run_waxs(model, q, intensity, error=None, *, q_min=None, q_max=None,
         model.bg_params = result.get("bg_params", model.bg_params)
         model.peaks = result.get("peaks", model.peaks)
     return FitRun("waxs_peakfit", model, result, data, notes=notes)
+
+
+# ---------------------------------------------------------------------------
+# Carbon model
+# ---------------------------------------------------------------------------
+
+def run_carbon(model, q, intensity, error=None, *, q_min=None, q_max=None,
+               error_fraction: float = 0.05, weighting: Optional[str] = None,
+               n_mc_runs: int = 0, no_limits: bool = False,
+               progress=None) -> FitRun:
+    """Fit a :class:`~pyirena.core.carbon_fit.CarbonFitModel` (updated in place).
+
+    *q_min*/*q_max* None = open (the model's ``0`` convention). *weighting*
+    None keeps the model's own (API sessions used to overwrite it with
+    ``'auto'``). *n_mc_runs* applies to this fit only and is restored
+    afterwards, as the GUI does — so a config's stored count no longer turns
+    MC on by itself in batch. Uncertainties (covariance, or MC) come back in
+    ``result.errors``; ``FitRun.mc`` stays None. *progress* is the core's
+    ``progress(iteration, chi2)`` callback (raise ``CarbonFitAborted`` from
+    it to stop).
+    """
+    model.q_min = float(q_min) if q_min else 0.0
+    model.q_max = float(q_max) if q_max else 0.0
+    data = prepare_fit_arrays(q, intensity, error, error_fraction,
+                              base_mask=q_range_mask(q, q_min or None, q_max or None))
+    if weighting is not None:
+        model.weighting = weighting
+    previous_mc = model.n_mc_runs
+    model.n_mc_runs = int(n_mc_runs or 0)
+    try:
+        result = model.fit(data.q, data.intensity, data.error,
+                           progress=progress, no_limits=bool(no_limits))
+    finally:
+        model.n_mc_runs = previous_mc
+    return FitRun("carbon_fit", model, result, data, notes=data.notes())

@@ -178,6 +178,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     session fit can run the Q0 pre-search (`run_waxs_fit(presearch=…)`) — it
     never did. Batch no longer crashes on files without uncertainties and
     reads the envelope's Q range.
+  - *Carbon model*: batch honours `no_limits` (ignored before) and runs
+    Monte-Carlo only when asked for (a config's stored `n_mc_runs` used to
+    switch it on); API sessions keep the model's weighting unless told
+    otherwise (it was overwritten with `auto`), and report MC results as
+    Monte-Carlo rather than covariance; a one-sided Q range in a bare model
+    dict (`q_max = 0` meaning "none") is no longer lost.
+  - A config file that has the pyIrena header but no section for the tool
+    being run is refused with an error; batch used to fit an all-defaults
+    model from it.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

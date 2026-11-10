@@ -209,3 +209,38 @@ def test_run_waxs_respects_models_no_limits_by_default(monkeypatch):
     run_waxs(model, q, I, None)
     run_waxs(model, q, I, None, no_limits=False)
     assert seen == [True, False] and model.no_limits is True
+
+
+# ── Carbon ───────────────────────────────────────────────────────────────────
+
+def test_carbon_one_sided_range_from_model_dict_is_kept():
+    from pyirena.core.carbon_fit import CarbonFitModel
+    from pyirena.core.tool_config import build_setup
+    d = CarbonFitModel().to_dict()
+    d["q_min"], d["q_max"] = 0.01, 0.0                 # 0 = open upper end
+    setup = build_setup({"carbon_fit": d})
+    assert setup.fit_q_min == 0.01 and setup.fit_q_max is None
+
+
+def test_run_carbon_restores_mc_runs_and_keeps_model_weighting(monkeypatch):
+    from pyirena.core.carbon_fit import CarbonFitModel
+    from pyirena.core.fit_runner import run_carbon
+    m = CarbonFitModel()
+    m.weighting, m.n_mc_runs = "relative", 7
+    seen = {}
+    monkeypatch.setattr(CarbonFitModel, "fit",
+                        lambda self, *a, **k: seen.update(w=self.weighting, n=self.n_mc_runs,
+                                                          nl=k.get("no_limits")) or None)
+    q = np.logspace(-3, 0.6, 50)
+    run_carbon(m, q, q ** -2, None, n_mc_runs=3, no_limits=True)
+    assert seen == {"w": "relative", "n": 3, "nl": True}
+    assert m.n_mc_runs == 7                            # restored, as the GUI does
+
+
+@pytest.mark.parametrize("tool", ["unified_fit", "sizes", "simple_fits", "modeling",
+                                  "waxs_peakfit", "carbon_fit"])
+def test_wrapper_without_the_tools_section_is_refused(tool):
+    """A config file for another tool must not be fitted as all defaults."""
+    from pyirena.core.tool_config import ConfigError, unwrap_config
+    with pytest.raises(ConfigError):
+        unwrap_config({"_pyirena_config": {"tool": "x"}, "other": {}}, tool)
