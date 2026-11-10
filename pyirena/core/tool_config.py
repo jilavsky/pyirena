@@ -519,13 +519,21 @@ def sizes_model_from_config(state: Dict, *, data_is_slit_smeared: bool = False,
     s.power_law_B        = float(state.get("power_law_B", 0.0))
     s.power_law_P        = float(state.get("power_law_P", 4.0))
     s.method             = str(state.get("method", "regularization"))
+    if s.method == "mcsas":                      # old name, as the GUI maps it
+        s.method = "montecarlo"
     s.maxent_sky_background  = float(state.get("maxent_sky_background", 1e-6))
     s.maxent_stability       = float(state.get("maxent_stability", 0.01))
-    s.maxent_max_iter        = int(state.get("maxent_max_iter", 300))
+    # Defaults match the GUI and the core (1000); this reader used 300.
+    s.maxent_max_iter        = int(state.get("maxent_max_iter", 1000))
     s.regularization_evalue  = float(state.get("regularization_evalue", 1.0))
     s.regularization_min_ratio = float(state.get("regularization_min_ratio", 1e-4))
     s.tnnls_approach_param   = float(state.get("tnnls_approach_param", 0.95))
-    s.tnnls_max_iter         = int(state.get("tnnls_max_iter", 300))
+    s.tnnls_max_iter         = int(state.get("tnnls_max_iter", 1000))
+    # Read like the GUI's _apply_state (they were dropped here, issue #38).
+    s.montecarlo_convergence = float(state.get("montecarlo_convergence")
+                                     or state.get("mcsas_convergence", 1.0))
+    s.montecarlo_max_iter    = int(state.get("montecarlo_max_iter")
+                                   or state.get("mcsas_max_iter", 100000))
     # The main fit always uses a single MC run, matching the GUI.
     s.montecarlo_n_repetitions = 1
 
@@ -751,8 +759,16 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
 # Both pre-fits deliberately use the FULL curve, not the fitted Q range: the
 # windows are chosen independently of the fit cursors, exactly as the GUI does.
 
-def apply_sizes_prefits(model, section: Dict, q, intensity) -> list:
-    """Run the Size Distribution pre-fits a config requests. Returns notes."""
+def apply_sizes_prefits(model, section: Dict, q, intensity,
+                        fit_q_min=None, fit_q_max=None) -> list:
+    """Run the Size Distribution pre-fits a config requests. Returns notes.
+
+    The power-law pre-fit re-runs whenever ``fit_power_law_B/P`` is checked
+    (the GUI's "Fit Cmplx. Bckg. & Sizes"). With no power-law Q window it
+    falls back to the size-fit cursor range (*fit_q_min/max*), as the GUI
+    does — it used the whole curve here (decision D4,
+    ``planning/fit-runner/README.md``).
+    """
     import numpy as np
 
     notes: list = []
@@ -762,7 +778,8 @@ def apply_sizes_prefits(model, section: Dict, q, intensity) -> list:
         lo = section.get("power_law_q_min")
         hi = section.get("power_law_q_max")
         if lo is None or hi is None:
-            lo, hi = float(np.min(q)), float(np.max(q))
+            lo = fit_q_min if fit_q_min is not None else float(np.min(q))
+            hi = fit_q_max if fit_q_max is not None else float(np.max(q))
         try:
             result = model.fit_power_law(q, intensity, float(lo), float(hi),
                                          fit_B=fit_B, fit_P=fit_P)
@@ -868,7 +885,8 @@ def apply_prefits(setup: "ToolSetup", section: Dict,
     if q_fit is None:
         q_fit, intensity_fit = q_full, intensity_full
     if setup.tool == "sizes":
-        return apply_sizes_prefits(setup.model, section, q_full, intensity_full)
+        return apply_sizes_prefits(setup.model, section, q_full, intensity_full,
+                                   setup.fit_q_min, setup.fit_q_max)
     if setup.tool == "waxs_peakfit":
         return apply_waxs_presearch(setup.model, section, q_fit, intensity_fit)
     if setup.tool == "simple_fits":

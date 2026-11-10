@@ -153,6 +153,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     shared slit-smearing rule and reads the config through the one envelope
     reader (so `export_results` replies and the envelope's `fit_q_range` work
     in batch too). Fits that reached a bound in batch now walk past it.
+  - *Size Distribution*: API sessions now slit-smear slit-smeared data (they
+    never did) and run one Monte Carlo inversion repetition like the GUI
+    (the core default of 10 made the session result a 10-run average). An
+    empty power-law Q window in a replayed config falls back to the cursor
+    range like the GUI, not the whole curve. Configs' `montecarlo_convergence`
+    / `montecarlo_max_iter` and the old `mcsas` method name are read again;
+    missing MaxEnt/TNNLS iteration limits default to 1000 like the GUI (was
+    300). Batch saves its fit-quality metrics with the smeared background
+    when smearing is on.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

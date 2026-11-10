@@ -110,3 +110,31 @@ def run_unified(model, q, intensity, error=None, *, q_min=None, q_max=None,
             noise_sigma=_mc_noise(data, mc_noise_fraction),
             progress_cb=progress_cb, cancel_cb=cancel_cb, **mc_kwargs)
     return run
+
+
+# ---------------------------------------------------------------------------
+# Size Distribution
+# ---------------------------------------------------------------------------
+
+def run_sizes(model, q, intensity, error=None, *, q_min=None, q_max=None,
+              error_fraction: float = 0.05, seed=None, n_mc_runs: int = 0,
+              mc_noise_fraction: Optional[float] = None,
+              progress_cb=None, cancel_cb=None) -> FitRun:
+    """Invert with a :class:`~pyirena.core.sizes.SizesDistribution`.
+
+    Background pre-fits are the caller's (``core.tool_config.apply_prefits``
+    on a replay); the model arrives with its background terms set. *seed*
+    seeds the stochastic Monte Carlo inversion and the uncertainty refits.
+    Points with σ ≤ 0 are repaired rather than dropped by the core (D2); the
+    core's own I > 0 mask is unchanged.
+    """
+    data = prepare_fit_arrays(q, intensity, error, error_fraction,
+                              base_mask=q_range_mask(q, q_min, q_max))
+    result = model.fit(data.q, data.intensity, data.error, rng=seed)
+    run = FitRun("sizes", model, result, data, notes=data.notes())
+    if n_mc_runs and run.success:
+        run.mc = model.calculate_uncertainty_mc(
+            data.q, data.intensity, data.error, n_runs=n_mc_runs, seed=seed,
+            noise_sigma=_mc_noise(data, mc_noise_fraction),
+            progress_cb=progress_cb, cancel_cb=cancel_cb)
+    return run
