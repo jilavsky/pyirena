@@ -134,6 +134,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `inspect_file`, unreadable result parameters, skipped fit-quality metrics
   in batch Sizes/Modeling saves, and the Modeling fallback from the analytic
   to the finite-difference Jacobian. Return values are unchanged.
+- **Re-converting a text file no longer wipes the results stored in its
+  `.h5`** (#38). A converted file is rebuilt when the Q-unit setting changed
+  or the text file is newer; the rebuild used to overwrite it, silently
+  discarding every result saved into it. Now, when it holds results, the GUI
+  asks — Recreate (old file kept as `….h5.bak`), Keep existing, or Cancel —
+  and batch, API and plotting back it up and recreate, with a warning.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

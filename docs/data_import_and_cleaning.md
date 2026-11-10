@@ -61,7 +61,24 @@ by it and Monte-Carlo uncertainties perturb with it, so those error bars scale
 with the fraction you chose. Modeling also uses it for an NXcanSAS file that
 has no uncertainty dataset (it used a fixed 5 % there).
 
-**Changing it does not rewrite files already converted.** The converted
+**When a converted file has to be re-converted.** Changing the *Q unit*
+setting, or a text file that is newer than its converted `.h5`, means the
+`.h5` must be converted again. Results you stored into it were computed on
+the old data, so pyIrena never deletes them:
+
+- no stored results — the file is simply converted again;
+- stored results, in the GUI — you are asked: **Recreate** (the old file is
+  renamed to `<name>_<old unit>_backup-<date>.h5.bak` and a new one written),
+  **Keep existing** (use the old file and its results as they are) or
+  **Cancel**;
+- stored results, in `pyirena.batch`, the API or plotting — the old file is
+  backed up the same way and a new one written, with a warning in the log.
+
+The `.bak` extension keeps backups out of the file lists; rename one back to
+`.h5` to reopen it.
+
+**Changing the generated-uncertainty fraction does not rewrite files already
+converted.** The converted
 `.h5` is cached next to the text file and results are stored into it, so it
 is not regenerated behind your back. pyIrena records the fraction each file
 was converted with and logs a warning when it differs from the current

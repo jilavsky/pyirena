@@ -115,6 +115,40 @@ def read_nxcansas_with_picker(
     return data
 
 
+def sibling_rebuild_prompt(parent):
+    """``confirm_rebuild`` callback for ``ensure_nxcansas_sibling`` in the GUI.
+
+    Asks before a converted ``.h5`` that holds stored results is re-converted
+    (Q-unit setting changed, or the text file changed): **Recreate** keeps the
+    old file as ``….h5.bak`` and converts again; **Keep existing** uses the
+    old file and its results unchanged; **Cancel** stops loading.
+    """
+    from pyirena.gui._qt import QMessageBox
+
+    def confirm(info) -> str:
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Re-convert data file?")
+        box.setText(info.describe())
+        box.setInformativeText(
+            "Recreate: convert again with the current settings; the old file, "
+            "with its results, is kept next to it as a .h5.bak backup.\n"
+            "Keep existing: use the old file and its results unchanged.")
+        recreate = box.addButton("Recreate", QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton("Keep existing", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(recreate)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is recreate:
+            return "recreate"
+        if clicked is keep:
+            return "keep"
+        return "cancel"
+
+    return confirm
+
+
 def load_data_file(
     parent: QWidget,
     file_path: str,
@@ -142,12 +176,14 @@ def load_data_file(
     ``hdf5_path_str`` is the path tools should use for result saving.
     ``display_name``  is a human-readable label (original filename/stem).
     """
-    from pyirena.io.text_import import ensure_nxcansas_sibling
+    from pyirena.io.text_import import ConversionCancelled, ensure_nxcansas_sibling
 
     fp = Path(file_path)
     try:
         if fp.suffix.lower() in ('.txt', '.dat', '.csv'):
-            h5_path = ensure_nxcansas_sibling(fp, error_fraction=error_fraction, q_unit=q_unit)
+            h5_path = ensure_nxcansas_sibling(
+                fp, error_fraction=error_fraction, q_unit=q_unit,
+                confirm_rebuild=sibling_rebuild_prompt(parent))
             data = read_nxcansas_with_picker(
                 parent, str(h5_path.parent), h5_path.name
             )
@@ -159,6 +195,8 @@ def load_data_file(
             if data is None:
                 return None
             return data, str(fp), fp.name
+    except ConversionCancelled:
+        return None
     except Exception as exc:
         QMessageBox.critical(parent, "Load Error", f"Could not load '{fp.name}':\n{exc}")
         return None

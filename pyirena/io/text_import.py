@@ -50,6 +50,7 @@ invalidates any previously cached sibling.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -69,6 +70,39 @@ _Q_UNIT_ATTR = 'pyirena_q_unit'
 #: "Generated uncertainty fraction" can be noticed on a cached sibling.
 _ERROR_FRACTION_ATTR = 'pyirena_error_fraction'
 _N_SYNTHESIZED_ATTR = 'pyirena_n_errors_synthesized'
+
+
+class ConversionCancelled(RuntimeError):
+    """The user chose Cancel when asked whether to rebuild a converted file."""
+
+
+@dataclass
+class SiblingRebuild:
+    """What a rebuild of a converted ``.h5`` would replace — for asking the user.
+
+    A converted file is rebuilt when the Q-unit setting changed since it was
+    made (``reason="q_unit"``), when the text file is newer
+    (``reason="source_newer"``), or on request (``reason="forced"``). Results
+    are stored into the converted file, so when it holds any the caller is
+    asked; see ``ensure_nxcansas_sibling(confirm_rebuild=…)``.
+    """
+    sibling: Path
+    source: Path
+    reason: str
+    old_q_unit: str
+    new_q_unit: str
+    stored_results: list = field(default_factory=list)
+
+    def describe(self) -> str:
+        why = {
+            "q_unit": (f"it was converted assuming Q in {self.old_q_unit}, and the "
+                       f"Q-unit setting is now {self.new_q_unit}"),
+            "source_newer": "the text file has changed since it was converted",
+            "forced": "a re-conversion was requested",
+        }.get(self.reason, self.reason)
+        return (f"'{self.sibling.name}' needs to be re-converted: {why}. It holds "
+                f"stored results ({', '.join(self.stored_results)}), computed on "
+                "the old data.")
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -159,6 +193,7 @@ def ensure_nxcansas_sibling(
     error_fraction: float = 0.05,
     q_unit: str = '1/A',
     force: bool = False,
+    confirm_rebuild=None,
 ) -> Path:
     """Return an up-to-date NXcanSAS HDF5 sibling for a text SAS file.
 
@@ -178,6 +213,16 @@ def ensure_nxcansas_sibling(
         made with a different unit — see ``_is_valid_sibling``.
     force : bool
         Re-convert even if an up-to-date sibling already exists.
+    confirm_rebuild : callable, optional
+        Called with a :class:`SiblingRebuild` when an existing converted file
+        that holds stored results would be rebuilt (Q unit changed, text file
+        newer, or *force*). Return ``"recreate"`` (the old file is kept as
+        ``<stem>_…_backup-<time>.h5.bak`` and a new one written), ``"keep"``
+        (use the existing file unchanged) or ``"cancel"`` (raise
+        :class:`ConversionCancelled`). The GUI passes a dialog; without one —
+        batch, API, plotting — the answer is ``"recreate"``, with a warning
+        logged. A file with no stored results is rebuilt without asking.
+        Nothing is ever deleted (issue #38).
 
     Returns
     -------
@@ -203,6 +248,18 @@ def ensure_nxcansas_sibling(
         logger.debug("ensure_nxcansas_sibling: reusing cached '%s'", out_path.name)
         _warn_if_error_fraction_changed(out_path, error_fraction)
         return out_path
+
+    # ── An existing converted file is about to be rewritten ──────────────
+    rebuild = _pending_rebuild(out_path, text_path, q_unit, force)
+    if rebuild is not None and rebuild.stored_results:
+        decision = confirm_rebuild(rebuild) if confirm_rebuild is not None else "recreate"
+        if decision == "keep":
+            logger.warning("Keeping '%s' as it is: %s", out_path.name, rebuild.describe())
+            return out_path
+        if decision != "recreate":
+            raise ConversionCancelled(rebuild.describe())
+        backup = _backup_sibling(out_path, rebuild.old_q_unit)
+        logger.warning("%s The old file was kept as '%s'.", rebuild.describe(), backup.name)
 
     # ── Read raw text ─────────────────────────────────────────────────────
     raw = readTextFile(str(text_path.parent), text_path.name,
@@ -293,6 +350,61 @@ def _is_valid_sibling(sibling: Path, source: Path, q_unit: str = '1/A') -> bool:
         return sib_mtime >= src_mtime
     except Exception:
         return False
+
+
+def _stored_results(sibling: Path) -> list:
+    """Names of the ``entry/*_results`` groups a converted file holds."""
+    try:
+        from pyirena.io.h5open import open_h5
+        with open_h5(sibling, 'r') as f:
+            entry = f.get('entry')
+            if entry is None:
+                return []
+            return sorted(k for k in entry.keys() if k.endswith('_results'))
+    except Exception:
+        logger.debug("Could not list stored results in %s", sibling, exc_info=True)
+        return []
+
+
+def _pending_rebuild(sibling: Path, source: Path, q_unit: str, force: bool):
+    """A :class:`SiblingRebuild` when *sibling* is ours and would be rewritten."""
+    if not sibling.exists():
+        return None
+    try:
+        from pyirena.io.h5open import open_h5
+        with open_h5(sibling, 'r') as f:
+            if _PROVENANCE_ATTR not in f.attrs:
+                return None                     # not ours: never overwritten
+            old_unit = f.attrs.get(_Q_UNIT_ATTR, '1/A')
+            if isinstance(old_unit, bytes):
+                old_unit = old_unit.decode('utf-8', errors='replace')
+    except Exception:
+        logger.debug("Could not inspect %s", sibling, exc_info=True)
+        return None
+    if force:
+        reason = "forced"
+    elif str(old_unit) != q_unit:
+        reason = "q_unit"
+    else:
+        reason = "source_newer"
+    return SiblingRebuild(sibling=sibling, source=source, reason=reason,
+                          old_q_unit=str(old_unit), new_q_unit=q_unit,
+                          stored_results=_stored_results(sibling))
+
+
+def _backup_sibling(sibling: Path, old_q_unit: str) -> Path:
+    """Rename *sibling* out of the way; ``.h5.bak`` keeps it out of file lists."""
+    from datetime import datetime
+    unit = str(old_q_unit).replace('/', '-')
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    backup = sibling.with_name(f"{sibling.stem}_{unit}_backup-{stamp}{sibling.suffix}.bak")
+    n = 1
+    while backup.exists():
+        backup = sibling.with_name(
+            f"{sibling.stem}_{unit}_backup-{stamp}-{n}{sibling.suffix}.bak")
+        n += 1
+    sibling.rename(backup)
+    return backup
 
 
 def _warn_if_error_fraction_changed(sibling: Path, error_fraction: float) -> None:

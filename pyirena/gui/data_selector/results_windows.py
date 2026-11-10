@@ -24,6 +24,7 @@ from pyirena.gui._qt import (
     QVBoxLayout,
     QWidget,
 )
+from pyirena.gui.data_loading import sibling_rebuild_prompt
 from pyirena.gui.data_selector.plot_utils import (
     _add_jpeg_export,
     _gen_colors,
@@ -136,6 +137,7 @@ class GraphWindow(QWidget):
                         Path(file_path),
                         error_fraction=error_fraction,
                         q_unit=q_unit,
+                        confirm_rebuild=sibling_rebuild_prompt(self),
                     )
                     data = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                 else:
