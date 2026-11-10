@@ -2880,7 +2880,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             _USE_RESCALED_RESIDUALS = True
 
             if self.data.get('Error') is not None:
-                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self._residual_sigma()
             else:
                 norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
@@ -2968,20 +2968,22 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # model to the (smeared) data and returns ideal-space parameters.
             self._sync_smearing_to_model()
 
-            # Get cursor range and filter data
+            # Get cursor range and filter data. The shared point rule
+            # (core/fit_data.py, issue #38): σ <= 0 is repaired to |I| × the
+            # generated-uncertainty fraction — it used to give that point
+            # ~1e60 weight — and non-finite points are left out.
+            from pyirena.core.fit_data import prepare_fit_arrays, q_range_mask
+            from pyirena.state.state_manager import text_import_settings
             cursor_range = self.graph_window.get_cursor_range()
             if cursor_range is not None:
                 q_min, q_max = cursor_range
-                mask = (self.data['Q'] >= q_min) & (self.data['Q'] <= q_max)
-                q_fit = self.data['Q'][mask]
-                intensity_fit = self.data['Intensity'][mask]
-                error_fit = self.data.get('Error')[mask] if self.data.get('Error') is not None else None
-                num_points = len(q_fit)
-            else:
-                q_fit = self.data['Q']
-                intensity_fit = self.data['Intensity']
-                error_fit = self.data.get('Error')
-                num_points = len(q_fit)
+            prep = prepare_fit_arrays(
+                self.data['Q'], self.data['Intensity'], self.data.get('Error'),
+                text_import_settings(self.state_manager)["error_fraction"],
+                base_mask=(q_range_mask(self.data['Q'], *cursor_range)
+                           if cursor_range is not None else None))
+            q_fit, intensity_fit, error_fit = prep.q, prep.intensity, prep.error
+            num_points = len(q_fit)
 
             # Pre-flight: verify all initial guesses are inside their bounds.
             # scipy least_squares raises a generic ValueError that doesn't name
@@ -3048,6 +3050,18 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             import traceback
             traceback.print_exc()
 
+    def _residual_sigma(self):
+        """The data's σ for residual display, σ <= 0 repaired as for the fit
+        (core/fit_data.py, issue #38) so one zero-σ point cannot make the
+        residual axis infinite. Call only when the data have an Error array."""
+        from pyirena.state.state_manager import text_import_settings
+        I = np.asarray(self.data['Intensity'], dtype=float)
+        sig = np.array(self.data['Error'], dtype=float)
+        bad = ~np.isfinite(sig) | (sig <= 0)
+        sig[bad] = np.abs(I[bad]) * text_import_settings(self.state_manager)["error_fraction"]
+        sig[sig <= 0] = np.nan              # I = 0 and no σ: show no residual
+        return sig
+
     def _fit_failed(self, message: str):
         """A background fit raised."""
         self.graph_window.show_error_message(f"Error during fitting: {message}")
@@ -3100,7 +3114,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             _USE_RESCALED_RESIDUALS = True
 
             if self.data.get('Error') is not None:
-                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self._residual_sigma()
             else:
                 norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
@@ -3555,6 +3569,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             'use_slit_smearing': (bool(self.slit_smear_check.isChecked())
                                   if hasattr(self, 'slit_smear_check') else False),
             'slit_length': float(getattr(self, '_slit_length', 0.0) or 0.0),
+            'load_slit_smeared': self.slit_state_keys()['load_slit_smeared'],
         }
         return state
 
@@ -3841,7 +3856,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             # Residuals
             if self.data.get('Error') is not None:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                residuals = (self.data['Intensity'] - intensity_calc) / self._residual_sigma()
             else:
                 residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
@@ -3914,10 +3929,12 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             mask = (Q >= q_min) & (Q <= q_max)
         else:
             mask = np.ones(len(Q), dtype=bool)
-        q_mc = np.array(Q[mask])
-        I_mc = np.array(self.data['Intensity'][mask])
-        err = self.data.get('Error')
-        err_mc = np.array(err[mask]) if err is not None else None
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            Q, self.data['Intensity'], self.data.get('Error'),
+            text_import_settings(self.state_manager)["error_fraction"], base_mask=mask)
+        q_mc, I_mc, err_mc = prep.q, prep.intensity, prep.error
         # No measured uncertainties: perturb with I × the Data Selector's
         # "Generated uncertainty fraction" (the user's σ); refits keep the
         # main fit's weighting.

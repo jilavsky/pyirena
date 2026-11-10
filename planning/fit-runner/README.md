@@ -91,7 +91,7 @@ config's `n_mc_runs > 1`.
 
 ## Status
 
-- [ ] Data rules D2/D3 in one shared helper, used by batch, control, analyze and the GUI panels
+- [x] Data rules D2/D3 in one shared helper (`core/fit_data.py`), used by batch, control, analyze and the six GUI fitting panels
 - [x] Runner: Unified · Sizes · Simple Fits · Modeling · WAXS · Carbon (all six, 10-11-2026)
-- [ ] GUI writes `load_slit_smeared`
+- [x] GUI writes `load_slit_smeared` (Unified, Sizes) and all three slit keys (Simple Fits, Modeling state + Export Parameters)
 - [x] Snapshot comparison clean per tool (identical on all six fixtures)

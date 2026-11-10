@@ -1691,10 +1691,15 @@ class CarbonFitPanel(QWidget):
 
         self._stop_requested = False
         model = self.model
-        q = np.array(self.data['Q'])
-        I = np.array(self.data['Intensity'])
-        err = self.data.get('Error')
-        err = np.array(err) if err is not None else None
+        # The shared point rule (core/fit_data.py, issue #38): I <= 0 kept,
+        # σ <= 0 repaired to |I| × the generated-uncertainty fraction. The
+        # model's own Q range still selects the fitted points.
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            self.data['Q'], self.data['Intensity'], self.data.get('Error'),
+            text_import_settings(self.state_manager)["error_fraction"])
+        q, I, err = prep.q, prep.intensity, prep.error
         no_limits = self.no_limits_check.isChecked()
 
         def job(progress_cb, cancel_cb):

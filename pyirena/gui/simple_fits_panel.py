@@ -1476,13 +1476,15 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         I  = self.data['Intensity']
         dI = self.data['Error']
         q_min, q_max = self._get_q_range()
-        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-        if q_min is not None:
-            mask &= (q >= q_min)
-        if q_max is not None:
-            mask &= (q <= q_max)
-        dI_f = dI[mask] if dI is not None else None
-        return q[mask], I[mask], dI_f
+        # The fitting tools' shared point rule (core/fit_data.py, issue #38):
+        # I <= 0 points are kept (this panel used to drop them), σ <= 0 is
+        # repaired to |I| × the generated-uncertainty fraction.
+        from pyirena.core.fit_data import prepare_fit_arrays, q_range_mask
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            q, I, dI, text_import_settings(self.state_manager)["error_fraction"],
+            base_mask=q_range_mask(q, q_min, q_max))
+        return prep.q, prep.intensity, prep.error
 
     # ── Complex-background prefit ──────────────────────────────────────────────
 
@@ -2354,6 +2356,9 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             'n_mc_runs': self.n_runs_spin.value(),
             'invariant_porod_tail': self.porod_tail_check.isChecked(),
             'bg_prefit': dict(self.model.bg_prefit or {}),
+            # Slit settings, so a replay fits the same (smeared) data the
+            # GUI did — this state used to carry none (issue #38).
+            **self.slit_state_keys(),
         }
 
     def save_state(self):

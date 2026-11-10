@@ -187,6 +187,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A config file that has the pyIrena header but no section for the tool
     being run is refused with an error; batch used to fit an all-defaults
     model from it.
+  - *GUI*: the six fitting panels apply the same point rule (σ ≤ 0
+    repaired, I ≤ 0 kept — Simple Fits used to drop them); Unified Fit's
+    residual plot no longer fails on a zero-σ point. Data handed to Modeling
+    by the Data Selector without uncertainties get the generated fraction
+    (it was a fixed 5 %). Saved and exported setups record
+    `load_slit_smeared` when the file's slit-smeared copy is loaded, so a
+    batch replay fits the same data instead of smearing the model against
+    the desmeared copy; Simple Fits and Modeling setups carry the slit
+    settings at all for the first time.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

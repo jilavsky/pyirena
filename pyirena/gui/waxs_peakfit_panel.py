@@ -2039,9 +2039,15 @@ class WAXSPeakFitPanel(QWidget):
                 error=True,
             )
             return
-        q_fit  = self._q[mask]
-        I_fit  = self._I[mask]
-        dI_fit = self._dI[mask] if self._dI is not None else None
+        # The shared point rule (core/fit_data.py, issue #38): σ <= 0 is
+        # repaired to |I| × the generated-uncertainty fraction rather than
+        # the point being dropped by the fit.
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            self._q, self._I, self._dI,
+            text_import_settings(self._state_mgr)["error_fraction"], base_mask=mask)
+        q_fit, I_fit, dI_fit = prep.q, prep.intensity, prep.error
 
         # Remove peaks outside Q range before fitting
         self._prune_peaks_to_range()

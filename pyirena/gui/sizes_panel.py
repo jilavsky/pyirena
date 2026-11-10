@@ -2053,6 +2053,14 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         q = self.data['Q']
         intensity = self.data['Intensity']
         error = self.data.get('Error')
+        # The shared point rule (core/fit_data.py, issue #38): σ <= 0 is
+        # repaired to |I| × the generated-uncertainty fraction instead of the
+        # point being dropped by the inversion; non-finite points go.
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            q, intensity, error, text_import_settings(self.state_manager)["error_fraction"])
+        q, intensity, error = prep.q, prep.intensity, prep.error
 
         cursor_range = self.graph_window.get_cursor_range()
         if cursor_range is not None:
@@ -2787,6 +2795,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             # nothing to show it changed.
             'use_slit_smearing': bool(s.use_slit_smearing),
             'slit_length': float(s.slit_length or 0.0),
+            'load_slit_smeared': self.slit_state_keys()['load_slit_smeared'],
             # Whether to fit B / P when "Fit P/B" or "Fit All" runs.  Persisted
             # so the GUI remembers the user's choice and scripts can drive a
             # background pre-fit before the size fit (see batch.fit_sizes).
