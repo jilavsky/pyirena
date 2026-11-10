@@ -3832,19 +3832,26 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         N_RUNS = self.n_runs_spin.value()
         num_levels = self.num_levels_spin.value()
         no_limits = self.no_limits_check.isChecked()
-        fit_background = self.fit_background_check.isChecked()
-        background_init = float(self.background_value.text() or 0)
 
-        # Capture current (fitted) level parameters once — used as starting point
-        # for every MC run so we always start from the same initial guess.
-        level_params_list = [self.level_widgets[i].get_parameters() for i in range(num_levels)]
-
-        # Full Q / I / Error arrays
-        Q = self.data['Q']
-        I_orig = self.data['Intensity']
-        Error = self.data['Error']
+        # Refit exactly the model Fit uses (run_fit): same fit flags and
+        # limits, links ON, and the slit smearing of the loaded data. Until
+        # 1.2.1 this refit dropped the links and the slit smearing, so smeared
+        # data got pinhole refits and the error bars described another model.
+        self.sync_rgcutoff_links()
+        self._sync_smearing_to_model()
+        mc_model = UnifiedFitModel(num_levels=num_levels)
+        mc_model.levels = [
+            UnifiedLevel.from_panel_params(
+                self.level_widgets[i].get_parameters(), with_limits=not no_limits)
+            for i in range(num_levels)
+        ]
+        mc_model.background = float(self.background_value.text() or 0)
+        mc_model.fit_background = self.fit_background_check.isChecked()
+        mc_model.use_slit_smearing = self.model.use_slit_smearing
+        mc_model.slit_length = self.model.slit_length
 
         # Apply cursor Q range
+        Q = self.data['Q']
         cursor_range = self.graph_window.get_cursor_range()
         if cursor_range is not None:
             q_min, q_max = cursor_range
@@ -3852,76 +3859,31 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         else:
             mask = np.ones(len(Q), dtype=bool)
 
-        q_fit = Q[mask]
-        I_fit_orig = I_orig[mask]
-        err_fit = Error[mask]
-
-        # Storage for MC results
-        mc = {
-            'background': [],
-            'G':    [[] for _ in range(num_levels)],
-            'Rg':   [[] for _ in range(num_levels)],
-            'B':    [[] for _ in range(num_levels)],
-            'P':    [[] for _ in range(num_levels)],
-            'ETA':  [[] for _ in range(num_levels)],
-            'PACK': [[] for _ in range(num_levels)],
-        }
-
-        for run in range(N_RUNS):
-            self.status_label.setText(f"Monte Carlo: run {run + 1}/{N_RUNS} …")
+        def _progress(n_done, n_runs):
+            self.status_label.setText(f"Monte Carlo: run {n_done}/{n_runs} …")
             QApplication.processEvents()
 
-            # Randomise intensities within uncertainties (Gaussian, σ = 1×Error)
-            I_noisy = I_fit_orig + np.random.normal(0.0, 1.0, len(q_fit)) * err_fit
-            # Clip to positive values to avoid numerical issues
-            I_noisy = np.maximum(I_noisy, 1e-30)
+        mc = mc_model.calculate_uncertainty_mc(
+            Q[mask], self.data['Intensity'][mask], self.data['Error'][mask],
+            n_runs=N_RUNS, progress_cb=_progress)
 
-            # Build model from current (pre-MC) GUI parameters
-            levels = []
-            for i in range(num_levels):
-                p = level_params_list[i]
-                # Monte-Carlo uncertainties re-fit the *same* setup, so the fit
-                # flags and bounds come across; the links are left off to match
-                # the pre-MC model the errors are quoted against.
-                lv = UnifiedLevel.from_panel_params(
-                    p, with_limits=not no_limits, with_links=False)
-                levels.append(lv)
-
-            mc_model = UnifiedFitModel(num_levels=num_levels)
-            mc_model.levels = levels
-            mc_model.background = background_init
-            mc_model.fit_background = fit_background
-
-            try:
-                result = mc_model.fit(q_fit, I_noisy, err_fit)
-                if not result.get('success', False):
-                    continue
-                mc['background'].append(result['background'])
-                for i in range(num_levels):
-                    fitted_lv = result['levels'][i]
-                    mc['G'][i].append(fitted_lv.G)
-                    mc['Rg'][i].append(fitted_lv.Rg)
-                    mc['B'][i].append(fitted_lv.B)
-                    mc['P'][i].append(fitted_lv.P)
-                    mc['ETA'][i].append(fitted_lv.ETA)
-                    mc['PACK'][i].append(fitted_lv.PACK)
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)  # Failed runs are silently skipped
-
-        # --- Compute statistics ---
+        # --- Store statistics ---
         self.fit_uncertainties = self._empty_uncertainties()
-        n_success = len(mc['background'])
-
-        if n_success > 1:
-            self.fit_uncertainties['background'] = float(np.std(mc['background'], ddof=1))
+        n_success = mc['n_ok']
+        if mc['available']:
+            unc = mc['uncertainties']
+            self.fit_uncertainties['background'] = unc['background']
             for i in range(num_levels):
-                ud = self.fit_uncertainties['levels'][i]
-                for key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
-                    vals = mc[key][i]
-                    ud[key] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+                self.fit_uncertainties['levels'][i].update(unc['levels'][i])
 
         # --- Restore original model and replot ---
         self.graph_unified()
+
+        if not mc['available']:
+            self.status_label.setText(f"MC analysis: {n_success}/{N_RUNS} runs OK")
+            self.graph_window.show_error_message(
+                f"Monte Carlo uncertainties not computed: {mc['reason']}.")
+            return
 
         msg = (f"Monte Carlo analysis complete: {n_success}/{N_RUNS} successful runs. "
                f"Uncertainties updated — click 'Results to graphs' to display.")

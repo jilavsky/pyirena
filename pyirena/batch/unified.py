@@ -60,66 +60,20 @@ def _mc_uncertainty_unified(
     intensity_fit: np.ndarray,
     error_fit: Optional[np.ndarray],
     n_runs: int = 10,
-) -> Optional[Dict]:
-    """Run MC noise-perturbation fits and return per-parameter std-devs.
+    seed=None,
+) -> Dict:
+    """MC uncertainties for a fitted Unified model — a thin wrapper over
+    :meth:`UnifiedFitModel.calculate_uncertainty_mc`, kept so existing
+    callers keep their import.
 
-    Each of *n_runs* iterations perturbs intensity by Gaussian noise scaled by
-    the measurement errors, refits the model, and collects the fitted values.
-    Returns an ``uncertainties`` dict (format expected by
-    ``save_unified_fit_results``) or ``None`` when fewer than 2 runs succeed.
+    Returns the core result dict (``available``, ``reason``, ``n_ok``,
+    ``n_runs`` and, when available, ``uncertainties`` in the format
+    ``save_unified_fit_results`` expects).  Data without measured
+    uncertainties are refused rather than perturbed with an assumed 5 % of I
+    (until 1.2.1 this path invented that σ; the GUI refused — issue #38).
     """
-    import copy
-
-    num_levels = model.num_levels
-    err = error_fit if error_fit is not None else intensity_fit * 0.05
-    err = np.maximum(err, 1e-30)
-
-    mc: Dict[str, list] = {
-        'background': [],
-        'G':    [[] for _ in range(num_levels)],
-        'Rg':   [[] for _ in range(num_levels)],
-        'B':    [[] for _ in range(num_levels)],
-        'P':    [[] for _ in range(num_levels)],
-        'ETA':  [[] for _ in range(num_levels)],
-        'PACK': [[] for _ in range(num_levels)],
-    }
-
-    for _ in range(n_runs):
-        I_noisy = intensity_fit + np.random.normal(0.0, 1.0, len(q_fit)) * err
-        I_noisy = np.maximum(I_noisy, 1e-30)
-        mc_model = copy.deepcopy(model)
-        try:
-            res = mc_model.fit(q_fit, I_noisy, error_fit)
-        except Exception:
-            continue
-        if not res.get('success', False):
-            continue
-        mc['background'].append(res.get('background', 0.0))
-        for i, lv in enumerate(res.get('levels', mc_model.levels)):
-            mc['G'][i].append(lv.G)
-            mc['Rg'][i].append(lv.Rg)
-            mc['B'][i].append(lv.B)
-            mc['P'][i].append(lv.P)
-            mc['ETA'][i].append(lv.ETA)
-            mc['PACK'][i].append(lv.PACK)
-
-    n_ok = len(mc['background'])
-    if n_ok < 2:
-        return None
-
-    ddof = 1
-    uncertainties: Dict = {
-        'background': float(np.std(mc['background'], ddof=ddof)),
-        'levels': [],
-    }
-    for i in range(num_levels):
-        ud: Dict[str, float] = {}
-        for key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
-            vals = mc[key][i]
-            ud[key] = float(np.std(vals, ddof=ddof)) if len(vals) > 1 else 0.0
-        uncertainties['levels'].append(ud)
-
-    return uncertainties
+    return model.calculate_uncertainty_mc(
+        q_fit, intensity_fit, error_fit, n_runs=n_runs, seed=seed)
 
 
 def _build_setup_state(unified_state: Dict, fit_result: Dict) -> Dict:
@@ -394,11 +348,15 @@ def fit_unified(
     if with_uncertainty and fit_result.get('success', False):
         log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
         try:
-            uncertainties = _mc_uncertainty_unified(
+            mc = _mc_uncertainty_unified(
                 model, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
             )
-            if uncertainties is None:
-                log.error("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
+            if mc.get('available'):
+                uncertainties = mc['uncertainties']
+                log.info(f"[pyirena.batch] MC uncertainty: {mc['n_ok']}/{mc['n_runs']} "
+                         "refits succeeded.")
+            else:
+                log.error(f"[pyirena.batch] MC uncertainty not computed: {mc['reason']}.")
         except Exception:
             log.error(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
 

@@ -1231,6 +1231,98 @@ class UnifiedFitModel:
             result = self.fit(q, intensity, error, **fit_kwargs)
         return result
 
+    # ── Monte-Carlo uncertainty ───────────────────────────────────────────
+
+    #: Level parameters whose spread is reported by the MC estimate.
+    MC_LEVEL_KEYS = ('G', 'Rg', 'B', 'P', 'ETA', 'PACK')
+
+    def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
+                                 seed=None, progress_cb=None, cancel_cb=None,
+                                 **fit_kwargs) -> Dict:
+        """Monte-Carlo parameter uncertainties, as Irena's "Analyze Results".
+
+        Each pass refits a copy of *this* model — same levels, fit flags,
+        limits, links and slit smearing — to ``I + σ·N(0,1)`` (clipped to
+        positive values), starting from the current parameter values, so the
+        spread describes exactly the model the fit used. Call it on the
+        fitted model. The model itself is not modified.
+
+        Args:
+            q, intensity: The fitted Q range.
+            error: Measured 1σ for those points. Required — with no measured
+                uncertainties the estimate is refused, not run on an assumed σ.
+            n_runs: Number of perturbed refits.
+            seed: RNG seed for the perturbations; None = nondeterministic.
+            progress_cb: Optional ``callable(n_done, n_runs)``.
+            cancel_cb: Optional ``callable() -> bool``; True stops early and
+                the passes already finished are still used.
+            **fit_kwargs: Passed to :meth:`fit` for every pass (e.g.
+                ``no_limits``), so they match the main fit.
+
+        Returns:
+            dict with ``available``, ``reason``, ``n_runs``, ``n_ok``,
+            ``seed`` and, when available, ``uncertainties`` in the shape
+            ``save_unified_fit_results`` stores:
+            ``{'background': σ, 'levels': [{'G': σ, 'Rg': σ, …}, …]}``.
+        """
+        import copy
+
+        from pyirena.core import mc_uncertainty as mcu
+
+        q = np.asarray(q, dtype=float)
+        intensity = np.asarray(intensity, dtype=float)
+        n_runs = int(n_runs)
+        if n_runs < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
+        why = mcu.check_sigma(error, len(intensity))
+        if why:
+            return mcu.not_available(why, n_runs, 0, seed)
+        error = np.asarray(error, dtype=float)
+
+        n_lv = self.num_levels
+        start = copy.deepcopy(self)
+        samples: Dict[str, list] = {'background': []}
+        for key in self.MC_LEVEL_KEYS:
+            samples[key] = [[] for _ in range(n_lv)]
+
+        noisy = mcu.perturbed_intensities(intensity, error, n_runs, seed,
+                                          floor=mcu.POSITIVE_FLOOR)
+        n_done = 0
+        for I_k in noisy:
+            if mcu.cancelled(cancel_cb):
+                break
+            trial = copy.deepcopy(start)
+            try:
+                res = trial.fit(q, I_k, error, **fit_kwargs)
+            except Exception:
+                res = None
+            n_done += 1
+            mcu.report_progress(progress_cb, n_done, n_runs)
+            if not res or not res.get('success', False):
+                continue
+            samples['background'].append(float(res['background']))
+            for i, lv in enumerate(res['levels'][:n_lv]):
+                for key in self.MC_LEVEL_KEYS:
+                    samples[key][i].append(float(getattr(lv, key)))
+
+        n_ok = len(samples['background'])
+        if n_ok < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"only {n_ok} of {n_done} perturbed refits succeeded",
+                n_runs, n_ok, seed)
+
+        out = mcu.base_result(n_runs, n_ok, seed)
+        out['n_done'] = n_done
+        out['uncertainties'] = {
+            'background': mcu.std_of(samples['background']),
+            'levels': [
+                {key: mcu.std_of(samples[key][i]) for key in self.MC_LEVEL_KEYS}
+                for i in range(n_lv)
+            ],
+        }
+        return out
+
     def calculate_invariant(self, level_idx: int = 0,
                            q_min: float = 0.0,
                            q_max: Optional[float] = None) -> Dict[str, float]:

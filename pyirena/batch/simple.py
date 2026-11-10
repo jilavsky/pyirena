@@ -182,26 +182,20 @@ def fit_simple(
         if verbose:
             log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs ...")
 
-        dIf_safe = (dIf if dIf is not None
-                    else np.maximum(If * 0.05, 1e-30))
-        mc_params: Dict[str, list] = {k: [] for k in result['params']}
-
-        for _ in range(n_mc_runs):
-            I_perturbed = If + dIf_safe * np.random.randn(len(If))
-            mc_res = model.fit(qf, I_perturbed, dIf, fixed_params=fixed_params)
-            if mc_res.get('success'):
-                for k in mc_params:
-                    mc_params[k].append(mc_res['params'].get(k, float('nan')))
-
-        if any(len(v) > 1 for v in mc_params.values()):
-            result['params_std'] = {
-                k: float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')
-                for k, v in mc_params.items()
-            }
+        # Same model, fixed parameters and limits as the main fit. Data without
+        # measured uncertainties are refused rather than perturbed with an
+        # assumed 5 % of I (issue #38).
+        mc = model.calculate_uncertainty_mc(
+            qf, If, dIf, n_runs=n_mc_runs, fixed_params=fixed_params)
+        result['mc_n_ok'] = mc['n_ok']
+        result['mc_n_runs'] = mc['n_runs']
+        if mc['available']:
+            result['params_std'] = mc['params_std']
             if verbose:
                 log.info(f"[pyirena.batch] MC uncertainty done "
-                      f"({sum(len(v) for v in mc_params.values()) // max(len(mc_params), 1)} "
-                      f"successful runs).")
+                         f"({mc['n_ok']}/{mc['n_runs']} successful runs).")
+        else:
+            log.error(f"[pyirena.batch] MC uncertainty not computed: {mc['reason']}.")
 
     # ── Save to HDF5 (only for NXcanSAS files) ───────────────────────────────
     # save_to_nexus=False must actually mean it: this writes into the file it

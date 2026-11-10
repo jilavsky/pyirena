@@ -17,6 +17,7 @@ import pyqtgraph as pg
 
 from pyirena.core.sizes import SizesDistribution
 from pyirena.gui._qt import (
+    QApplication,
     QBrush,
     QCheckBox,
     QColor,
@@ -1871,12 +1872,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         Fractional error → ``|I| × fraction`` (file/measured error ignored).
         Otherwise → ``raw_err × error_scale`` (or ``raw_err`` unscaled).
+        The rule lives in :meth:`SizesDistribution.effective_error`.
         """
-        if s.fractional_error:
-            return np.abs(intensity) * float(s.fractional_error_value)
-        if raw_err is None:
-            return None
-        return raw_err * float(s.error_scale) if s.error_scale != 1.0 else raw_err
+        return s.effective_error(intensity, raw_err)
 
     def _update_error_display(self):
         """Redraw error bars on I(Q) plot immediately when the error settings
@@ -2503,11 +2501,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         s = self._collect_params()
 
-        # Number of perturbed fits — controlled by the Passes spinner.
-        # For Monte Carlo, ensure each perturbed fit uses a single internal MC run.
+        # Number of perturbed fits — controlled by the Passes spinner.  (For
+        # the Monte Carlo method the core uses one internal run per refit.)
         N_runs = self.unc_n_runs_spin.value()
-        if s.method == 'montecarlo':
-            s.montecarlo_n_repetitions = 1  # one MC run per perturbed fit
 
         q, intensity, error = self._get_q_filtered_data()
 
@@ -2517,67 +2513,30 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             )
             return
 
-        # If no experimental errors, generate synthetic ones for the MC runs
-        if error is None:
-            error = intensity * 0.05
-            error = np.maximum(error, 1e-30)
-        # Perturbation noise matches the error model the fit actually uses
-        # (fractional error replaces the measured/synthetic error entirely).
-        err_mc = self._effective_error(intensity, error, s)
-        err_mc = np.maximum(err_mc, 1e-30)
-
         self.status_label.setText(f"Running {N_runs} MC fits for uncertainty…")
 
-        distributions, rg_vals, vf_vals, peak_r_vals = [], [], [], []
-        r_grid_ref = None
+        def _progress(n_done, n_runs):
+            self.status_label.setText(f"MC uncertainty: fit {n_done}/{n_runs} …")
+            QApplication.processEvents()
 
-        for i in range(N_runs):
-            # Perturb data with Gaussian noise proportional to the scaled errors
-            I_perturbed = intensity + err_mc * np.random.randn(len(intensity))
-            try:
-                result = s.fit(q, I_perturbed, error)
-            except Exception:
-                continue
-            if not result.get('success', False):
-                continue
-
-            dist = result.get('distribution')
-            rg   = result.get('rg', np.nan)
-            vf   = result.get('volume_fraction', np.nan)
-            r_g  = result.get('r_grid')
-
-            if dist is None or r_g is None:
-                continue
-
-            if r_grid_ref is None:
-                r_grid_ref = r_g
-
-            distributions.append(dist)
-            rg_vals.append(rg)
-            vf_vals.append(vf)
-            peak_idx = int(np.argmax(dist))
-            peak_r_vals.append(float(r_g[peak_idx]))
-
-        n_ok = len(distributions)
-        if n_ok == 0:
+        # Perturbation σ is the effective error the fit weights by (fractional
+        # error / error scale honoured); data with no measured error are
+        # refused unless fractional error is on (issue #38).
+        mc = s.calculate_uncertainty_mc(q, intensity, error, n_runs=N_runs,
+                                        progress_cb=_progress)
+        n_ok = mc['n_ok']
+        if not mc['available']:
             self.graph_window.show_error_message(
-                f"All {N_runs} MC fits failed — cannot estimate uncertainty."
+                f"MC uncertainty not computed: {mc['reason']}."
             )
-            self.status_label.setText("MC uncertainty: all fits failed")
+            self.status_label.setText(f"MC uncertainty: {n_ok}/{N_runs} fits OK — not computed")
             return
 
-        # Compute per-bin statistics
-        dist_array = np.array(distributions)          # (n_ok, n_bins)
-        dist_mean  = np.mean(dist_array, axis=0)
-        dist_std   = np.std(dist_array, axis=0, ddof=min(1, n_ok - 1))
-
-        # Scalar statistics
-        rg_mean  = float(np.nanmean(rg_vals))
-        rg_std   = float(np.nanstd(rg_vals,  ddof=min(1, n_ok - 1)))
-        vf_mean  = float(np.nanmean(vf_vals))
-        vf_std   = float(np.nanstd(vf_vals,  ddof=min(1, n_ok - 1)))
-        pr_mean  = float(np.nanmean(peak_r_vals))
-        pr_std   = float(np.nanstd(peak_r_vals, ddof=min(1, n_ok - 1)))
+        r_grid_ref = mc['r_grid']
+        dist_mean, dist_std = mc['distribution_mean'], mc['distribution_std']
+        rg_mean, rg_std = mc['rg_mean'], mc['rg_std']
+        vf_mean, vf_std = mc['volume_fraction_mean'], mc['volume_fraction_std']
+        pr_mean, pr_std = mc['peak_r_mean'], mc['peak_r_std']
 
         # Store MC scalar stats so _results_to_graph can include uncertainties
         self._mc_rg_std   = rg_std

@@ -29,40 +29,19 @@ def _mc_uncertainty_sizes(
     intensity_fit: np.ndarray,
     error_fit: Optional[np.ndarray],
     n_runs: int = 10,
-) -> Optional[np.ndarray]:
-    """Run MC noise-perturbation fits and return per-bin std-dev of P(r).
+    seed=None,
+) -> Dict:
+    """MC uncertainties for a Sizes fit — a thin wrapper over
+    :meth:`SizesDistribution.calculate_uncertainty_mc`, kept so existing
+    callers keep their import.
 
-    Returns a 1-D array with the same length as the r-grid, or ``None``
-    when fewer than 2 runs succeed.
+    Returns the core result dict; ``distribution_std`` is the per-bin 1σ.
+    Perturbs with the model's *effective* error (fractional error / error
+    scale honoured), as the GUI always did; until 1.2.1 this path used the
+    raw error and invented 5 % of I when there was none (issue #38).
     """
-    import copy
-
-    err = error_fit if error_fit is not None else intensity_fit * 0.05
-    err = np.maximum(err, 1e-30)
-
-    # For Monte Carlo method: one internal MC run per perturbed fit (same as GUI)
-    s_mc = copy.deepcopy(s)
-    if s_mc.method == 'montecarlo':
-        s_mc.montecarlo_n_repetitions = 1
-
-    distributions = []
-    for _ in range(n_runs):
-        I_perturbed = intensity_fit + err * np.random.randn(len(intensity_fit))
-        try:
-            res = s_mc.fit(q_fit, I_perturbed, error_fit)
-        except Exception:
-            continue
-        if not res.get('success', False):
-            continue
-        dist = res.get('distribution')
-        if dist is not None:
-            distributions.append(dist)
-
-    if len(distributions) < 2:
-        return None
-
-    arr = np.array(distributions)          # (n_ok, n_bins)
-    return np.std(arr, axis=0, ddof=1)
+    return s.calculate_uncertainty_mc(
+        q_fit, intensity_fit, error_fit, n_runs=n_runs, seed=seed)
 
 
 def fit_sizes(
@@ -249,11 +228,15 @@ def fit_sizes(
     if with_uncertainty and fit_result.get('success', False):
         log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
         try:
-            distribution_std = _mc_uncertainty_sizes(
+            mc = _mc_uncertainty_sizes(
                 s, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
             )
-            if distribution_std is None:
-                log.error("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
+            if mc.get('available'):
+                distribution_std = mc['distribution_std']
+                log.info(f"[pyirena.batch] MC uncertainty: {mc['n_ok']}/{mc['n_runs']} "
+                         "refits succeeded.")
+            else:
+                log.error(f"[pyirena.batch] MC uncertainty not computed: {mc['reason']}.")
         except Exception:
             log.error(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
 

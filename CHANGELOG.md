@@ -35,8 +35,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Morphology results saved by earlier versions without scikit-image carry
   χ = 0 regardless of the structure.
 
+- **Unified Fit "Analyze Results" (Monte-Carlo uncertainties) refitted
+  slit-smeared data with a pinhole model, and without the links the fit
+  used** (#38). The error bars therefore described a different model from the
+  one whose parameters they were quoted against. The Monte-Carlo refits now
+  use exactly the model Fit uses: same fit flags and limits, links on, and the
+  data's slit smearing. Uncertainties change for slit-smeared data and for
+  setups with linked B / RgCO.
+- `run_sizes_fit(random_seed=…)` (api/MCP/ZMQ) did not make the Monte Carlo
+  inversion reproducible: it seeded NumPy's global generator, which that
+  method does not use. The seed now reaches the inversion.
+
 ### Changed
 
+- **Monte-Carlo uncertainties for Unified Fit, Size Distribution and Simple
+  Fits are computed by one implementation per tool in core** (#38), used by
+  the GUI and by `pyirena.batch`. The GUI and batch copies had drifted apart;
+  where they disagreed, this is what they now share, and the numbers that
+  move:
+  - *Size Distribution perturbs the data with the error the fit weights by*:
+    fractional error and error scaling are honoured, as the GUI already did.
+    `batch.fit_sizes(with_uncertainty=True)` used the raw file error, so its
+    error bars change for configs with fractional error or `error_scale ≠ 1`.
+  - *No σ is assumed.* Data without measured uncertainties no longer get
+    Monte-Carlo error bars computed from an invented 5 % of I; the estimate is
+    refused with that reason (Unified Fit GUI already refused). Affects
+    Unified Fit batch and Simple Fits / Size Distribution GUI and batch. Size
+    Distribution with "fractional error" on still runs, since there the user
+    chose σ.
+  - At least two refits must succeed; Size Distribution previously quoted a
+    zero uncertainty from a single successful refit.
+  - Every result reports how many refits succeeded, and the core functions
+    take a `seed` for reproducible uncertainties (MC values are therefore not
+    bit-identical with earlier runs, only statistically equivalent).
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

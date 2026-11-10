@@ -548,11 +548,13 @@ def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
     I_fit = s.intensity[mask]
     err_fit = s.error[mask] if s.error is not None else None
 
-    if random_seed is not None:
-        np.random.seed(int(random_seed))
+    # The seed goes to the inversion's own generator. np.random.seed() used to
+    # be called here, which the Monte Carlo method (default_rng) ignored, so
+    # random_seed reproduced nothing (issue #38).
+    rng = int(random_seed) if random_seed is not None else None
 
     try:
-        result = s.model.fit(q_fit, I_fit, err_fit)
+        result = s.model.fit(q_fit, I_fit, err_fit, rng=rng)
     except Exception as exc:  # pragma: no cover - defensive
         return make_error(
             f"Fit failed with exception: {exc}",

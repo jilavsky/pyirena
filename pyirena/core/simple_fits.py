@@ -1370,6 +1370,77 @@ class SimpleFitModel:
             'error': None,
         }
 
+    def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
+                                 fixed_params: Optional[dict] = None,
+                                 no_limits: bool = False, seed=None,
+                                 progress_cb=None, cancel_cb=None) -> dict:
+        """Monte-Carlo parameter uncertainties by refitting perturbed data.
+
+        Each pass refits a copy of this model to ``I + σ·N(0,1)`` with the
+        same *fixed_params*, *no_limits* and slit smearing as the main fit,
+        and reports the standard deviation of every fitted parameter.
+
+        Args:
+            q, intensity: The fitted Q range.
+            error: Measured 1σ. Required — with no measured uncertainties the
+                estimate is refused, not run on an assumed 5 % of I.
+            n_runs: Number of perturbed refits.
+            fixed_params, no_limits: As passed to :meth:`fit` for the main fit.
+            seed: RNG seed for the perturbations; None = nondeterministic.
+            progress_cb, cancel_cb: As for
+                :meth:`UnifiedFitModel.calculate_uncertainty_mc`.
+
+        Returns:
+            dict with ``available``, ``reason``, ``n_runs``, ``n_ok``,
+            ``seed`` and, when available, ``params_std``
+            (``{name: σ}``, NaN where fewer than two values were finite).
+        """
+        import copy
+
+        from pyirena.core import mc_uncertainty as mcu
+
+        n_runs = int(n_runs)
+        if self.is_calculation:
+            return mcu.not_available(
+                f"'{self.model}' is a calculation, not a fit; Monte-Carlo "
+                "uncertainty does not apply", n_runs, 0, seed)
+        if n_runs < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
+        I = np.asarray(intensity, dtype=float)
+        why = mcu.check_sigma(error, len(I))
+        if why:
+            return mcu.not_available(why, n_runs, 0, seed)
+
+        start = copy.deepcopy(self)
+        samples: dict[str, list] = {}
+        n_ok = n_done = 0
+        for I_k in mcu.perturbed_intensities(I, error, n_runs, seed):
+            if mcu.cancelled(cancel_cb):
+                break
+            try:
+                res = copy.deepcopy(start).fit(
+                    q, I_k, error, fixed_params=fixed_params or None,
+                    no_limits=no_limits)
+            except Exception:
+                res = None
+            n_done += 1
+            mcu.report_progress(progress_cb, n_done, n_runs)
+            if not res or not res.get('success'):
+                continue
+            n_ok += 1
+            for k, v in res['params'].items():
+                samples.setdefault(k, []).append(v)
+
+        if n_ok < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"only {n_ok} of {n_done} perturbed refits succeeded",
+                n_runs, n_ok, seed)
+        out = mcu.base_result(n_runs, n_ok, seed)
+        out['n_done'] = n_done
+        out['params_std'] = {k: mcu.std_of(v) for k, v in samples.items()}
+        return out
+
     def _run_calculation(self, q: np.ndarray, intensity: np.ndarray) -> dict:
         """Run a direct-calculation model (currently only 'Invariant').
 

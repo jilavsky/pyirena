@@ -1866,27 +1866,21 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         no_limits = self.no_limits_check.isChecked()
         q, I, dI = self._get_filtered_data()
         n_runs = self.n_runs_spin.value()
-        dI_safe = dI if dI is not None else np.maximum(I * 0.05, 1e-30)
 
-        mc_params: dict[str, list] = {k: [] for k in self.fit_result['params']}
-        n_ok = 0
-        for _ in range(n_runs):
-            I_pert = I + dI_safe * np.random.randn(len(I))
-            mc_res = model.fit(q, I_pert, dI,
-                               fixed_params=fixed_params if fixed_params else None,
-                               no_limits=no_limits)
-            if mc_res.get('success'):
-                for k in mc_params:
-                    mc_params[k].append(mc_res['params'].get(k, float('nan')))
-                n_ok += 1
-
-        if n_ok < 2:
+        # Same model, fixed parameters and limits as Fit. Data without
+        # measured uncertainties are refused rather than perturbed with an
+        # assumed 5 % of I (issue #38).
+        mc = model.calculate_uncertainty_mc(
+            q, I, dI, n_runs=n_runs, fixed_params=fixed_params or None,
+            no_limits=no_limits)
+        n_ok = mc['n_ok']
+        if not mc['available']:
             QMessageBox.warning(self, 'Uncertainty',
-                                f'Too few successful MC runs ({n_ok}/{n_runs}).')
+                                f"MC uncertainty not computed ({n_ok}/{n_runs} "
+                                f"runs OK): {mc['reason']}.")
             return
 
-        stds = {k: float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')
-                for k, v in mc_params.items()}
+        stds = mc['params_std']
         self.fit_result['params_std'] = stds
         self._apply_result_to_widgets(self.fit_result)
         self.status_label.setText(
