@@ -370,6 +370,8 @@ def fit_sizes(
                     fq_metrics = fit_quality_metrics(
                         _q_q, _I_obs, intensity_model + _bg, _err, n_params=1)
             except Exception:
+                log.warning("[pyirena.batch] Fit-quality metrics not computed; saving "
+                            "without them.", exc_info=True)
                 fq_metrics = None
 
             save_sizes_results(

@@ -215,6 +215,8 @@ def fit_modeling(
                         q[_mask], I[_mask], fit_result.model_I,
                         dI[_mask] if dI is not None else None, n_params=_n_free)
             except Exception:
+                log.warning("[pyirena.batch.fit_modeling] Fit-quality metrics not "
+                            "computed; saving without them.", exc_info=True)
                 fq_metrics = None
             save_modeling_results(data_file, fit_result, fit_quality=fq_metrics,
                                   setup_state=mod_cfg)

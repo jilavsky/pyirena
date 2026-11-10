@@ -72,6 +72,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inversion reproducible: it seeded NumPy's global generator, which that
   method does not use. The seed now reaches the inversion.
 
+- **Scattering Contrast: an isotope override that could not be honoured was
+  silently replaced by the natural element** (#38). For a deuterated compound
+  that used H's molecular weight and b_c (−3.74 fm instead of +6.67 fm), so
+  the neutron contrast came out with the wrong sign and no warning. An
+  unknown isotope, or one with no tabulated b_c, is now an error. Elements
+  with no neutron b_c or no Chantler X-ray data are still left out of those
+  sums, but now with a warning in the log; the absorption sum used to skip
+  them silently, overestimating the transmission. `get_element_info()` raises
+  a clear `ValueError` for an unknown symbol instead of crashing on an
+  unbound variable.
+
 ### Changed
 
 - **Monte-Carlo uncertainties for Unified Fit, Size Distribution and Simple
@@ -115,6 +126,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   array-thinning helpers became one each in `pyirena.api._json`; arrays the
   control tools thin "to at most N points" now really stay at or below N
   (lengths between N and 2N came back unthinned before).
+- Errors that were swallowed silently in the api, batch and core layers are
+  now logged (#38): an unreadable data file in `read_reduced_data` /
+  `inspect_file`, unreadable result parameters, skipped fit-quality metrics
+  in batch Sizes/Modeling saves, and the Modeling fallback from the analytic
+  to the finite-difference Jacobian. Return values are unchanged.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are
