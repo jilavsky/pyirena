@@ -25,26 +25,15 @@ one JSON-safe block::
 """
 from __future__ import annotations
 
-import math
 from typing import Optional
 
+from pyirena.api._json import json_float as _f  # shared helper (#38)
 from pyirena.api.control.errors import make_error, no_fit, no_session
 from pyirena.api.control.session import get_session
 
 #: Methods reported in the ``method`` field.
 MONTE_CARLO = "monte_carlo"
 COVARIANCE = "covariance"
-
-
-def _f(value):
-    """Float, or None for missing/non-finite — JSON has no NaN."""
-    if value is None:
-        return None
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return None
-    return v if math.isfinite(v) else None
 
 
 def check_n_mc_runs(n_mc_runs) -> tuple[int, Optional[dict]]:

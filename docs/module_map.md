@@ -147,7 +147,8 @@ shared ones** — those are what gets reimplemented by accident.
 
 | Module | Lines | Purpose |
 |---|---:|---|
-| `unified_fit.py` | 2260 | Agent-drivable Unified Fit; also `open_dataset` / `open_dataset_from_data` and the rest of the session lifecycle |
+| `unified_fit.py` | 1530 | Agent-drivable Unified Fit (re-exports the session tools below for old imports) |
+| `data_session.py` | 800 | Session lifecycle (`open_dataset`, `open_dataset_from_data`, …), fit Q range, local Guinier / power-law fits, `detect_features` — shared by every tool |
 | `modeling.py` | 1079 | Agent-drivable Modeling |
 | `sizes.py` | 871 | Agent-drivable Size Distribution |
 | `waxs_peakfit.py` | 881 | Agent-drivable WAXS Peak Fit |

@@ -49,6 +49,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import json_float as _finite  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -133,15 +134,6 @@ def _peak_summary(model) -> list:
             "FWHM_L": float(peak.FWHM_L),
         })
     return out
-
-
-def _finite(value) -> Optional[float]:
-    """A JSON-safe float, or None for NaN/inf — agents choke on NaN."""
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return None
-    return v if np.isfinite(v) else None
 
 
 # ---------------------------------------------------------------------------

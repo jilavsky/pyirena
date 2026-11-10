@@ -70,6 +70,9 @@ SESSION_LIFECYCLE_NAMES = frozenset(
 
 _CATEGORY_BY_MODULE = {
     "unified_fit": "unified",
+    # Q range, local estimators and feature detection moved out of
+    # unified_fit.py (#38) but stay listed where agents already look for them.
+    "data_session": "unified",
     "sizes": "sizes",
     "simple_fits": "simple",
     "modeling": "modeling",

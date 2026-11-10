@@ -107,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logged rather than silently ignored (the cached file is not rewritten,
   because results are stored in it). The conversion note also now counts
   generated uncertainties correctly for two-column files (it said 0).
+- `pyirena.api.control`: the session lifecycle, fit-Q-range, local
+  Guinier / power-law and feature-detection tools moved from `unified_fit.py`
+  to `data_session.py` (#38). Every name is still importable from
+  `pyirena.api.control` and from `unified_fit`, and MCP/ZMQ list the same
+  tools under the same categories. The per-module copies of the JSON-float and
+  array-thinning helpers became one each in `pyirena.api._json`; arrays the
+  control tools thin "to at most N points" now really stay at or below N
+  (lengths between N and 2N came back unthinned before).
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

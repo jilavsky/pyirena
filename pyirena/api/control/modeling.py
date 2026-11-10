@@ -56,6 +56,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import json_float as _f  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -322,17 +323,6 @@ def _bad_param(name: str, pop) -> dict:
         ),
         code="BAD_PARAM",
     )
-
-
-def _f(value):
-    """Float, or None for missing/non-finite — JSON has no NaN."""
-    if value is None:
-        return None
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    return out if np.isfinite(out) else None
 
 
 def _render_image(fig, session_id: str, tag: str, dpi: int) -> tuple[str, str]:

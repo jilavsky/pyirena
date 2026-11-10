@@ -42,6 +42,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import decimate_for_json as _decimated  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -68,16 +69,6 @@ def _require_sizes(session_id: str):
             code="NO_SIZES_MODEL",
         )
     return s, None
-
-
-def _decimated(arr, max_points: int = 500) -> list:
-    """Thin an array to at most max_points for JSON transport (NaN/inf -> None)."""
-    a = np.asarray(arr, dtype=float)
-    n = len(a)
-    if n > max_points:
-        step = max(1, n // max_points)
-        a = a[::step]
-    return [v if np.isfinite(v) else None for v in a.tolist()]
 
 
 def _config_dict(model) -> dict:
