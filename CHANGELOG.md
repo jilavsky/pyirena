@@ -222,6 +222,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     batch replay fits the same data instead of smearing the model against
     the desmeared copy; Simple Fits and Modeling setups carry the slit
     settings at all for the first time.
+- **Carbon model: the `log` weighting is removed.** It was accepted
+  (`run_carbon_fit(weighting="log")`, configs) but never implemented — it ran
+  as `relative`, which near a good fit gives the same answer, since
+  ln(I/M) ≈ (I − M)/I. Configs and saved results that say `log` load as
+  `relative` (logged), so their numbers do not change; the API now refuses
+  `log` with a pointer to `relative`. Modes: `auto`, `sigma`, `relative`.
 - Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
   NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
   dependency is removed; it wrapped two strings in a no-op. Saved files are

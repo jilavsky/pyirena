@@ -173,3 +173,29 @@ def test_sizes_without_mc_reads_none(tmp_path):
     # An MC run that failed stores nothing either.
     _save_sizes(p, {'available': False, 'n_runs': 20, 'n_ok': 1})
     assert load_sizes_results(p)['rg_std'] is None
+
+
+# ── Carbon model: 'log' weighting dropped ────────────────────────────────────
+
+def test_carbon_log_weighting_maps_to_relative():
+    from pyirena.core.carbon_fit import CARBON_WEIGHTINGS, CarbonFitModel
+    assert 'log' not in CARBON_WEIGHTINGS
+    assert CarbonFitModel.from_dict({'weighting': 'log'}).weighting == 'relative'
+    assert CarbonFitModel.from_dict({'weighting': 'sigma'}).weighting == 'sigma'
+    assert CarbonFitModel.from_dict({}).weighting == 'auto'
+
+
+def test_carbon_api_refuses_log_weighting():
+    import pyirena.api.control as ctrl
+    from pyirena.api.control.session import create_session, drop_session
+    from pyirena.core.carbon_fit import CarbonFitModel
+    q = np.logspace(-3, 0.65, 100)
+    I = CarbonFitModel().evaluate(q)
+    s = create_session("/tmp/synthetic_carbon.h5", q, I, 0.02 * I, label="c")
+    try:
+        ctrl.select_carbon_model(s.session_id)
+        out = ctrl.run_carbon_fit(s.session_id, weighting="log")
+        assert out.get("code") == "BAD_WEIGHTING"
+        assert "relative" in out["error"]
+    finally:
+        drop_session(s.session_id)

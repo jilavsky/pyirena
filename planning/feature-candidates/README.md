@@ -7,7 +7,7 @@ it its own folder (design + decisions) and remove it from this list.
 
 | # | Feature | Issue | Notes |
 |---|---|---|---|
-| 1 | **Q-resolution (dQ) smearing in fits** | #30 | Data, sessions and io already carry `dQ`; only slit smearing is applied. For SANS and pinhole users this decides whether a fit is quantitative. `core/smearing.py` already has the matrix machinery. Decide first — see `planning/unfinished/README.md` §1. |
+| 1 | **Q-resolution (dQ) smearing in fits** | #30 | Data, sessions and io already carry `dQ`; only slit smearing is applied. For SANS and pinhole users this decides whether a fit is quantitative. `core/smearing.py` already has the matrix machinery. **Deferred 11-11-2026** (Jan): wanted, but a large piece of work; until then `dq` is stored for provenance only, as the API schema says. |
 | 2 | **More form and structure factors in Modeling** | — | pyIrena has 10 form factors and 2 structure factors; Igor Irena offers more (tube, core-shell cylinder, fractal aggregate, disk/rod variants; sticky hard sphere, square well, Hayter-Penfold MSA, interprecipitate). `docs/developer_adding_*` make each a contained task; pick by user request. |
 | 3 | **Series / in-situ workflow from the GUI** | — | Fit a sequence using the previous result as the start, live trend plot of chosen parameters, stop on a bad fit. The pieces exist (batch, tabulate, Data Explorer trend plots); check how much is already wired before designing. |
 | 4 | **Data Manipulation: trim/delete points** | #36 | Requested. |

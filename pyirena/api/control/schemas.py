@@ -2385,7 +2385,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "session_id": {"type": "string"},
                 "weighting": {
                     "type": "string",
-                    "enum": ["auto", "sigma", "relative", "log"],
+                    "enum": ["auto", "sigma", "relative"],
                     "default": "auto",
                     "description": (
                         "'auto' uses the measured uncertainties when usable, "

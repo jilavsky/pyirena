@@ -82,6 +82,3 @@ panel is written — that is what stops the tool being coded into a corner.
   The selector is a registry so this stays cheap.
 - **Digitised regression fixtures from the paper's Tables 1–3** — a stretch
   goal for `validationData/`, not a blocker.
-- **`weighting='log'`** is accepted but behaves exactly like `'relative'`
-  (no branch in `_sigma()`); implement log-space residuals or drop the
-  option — tracked in `planning/unfinished/README.md` §2.

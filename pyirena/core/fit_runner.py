@@ -338,7 +338,8 @@ def run_carbon(model, q, intensity, error=None, *, q_min=None, q_max=None,
     data = prepare_fit_arrays(q, intensity, error, error_fraction,
                               base_mask=q_range_mask(q, q_min or None, q_max or None))
     if weighting is not None:
-        model.weighting = weighting
+        from pyirena.core.carbon_fit import normalize_weighting
+        model.weighting = normalize_weighting(weighting)
     previous_mc = model.n_mc_runs
     model.n_mc_runs = int(n_mc_runs or 0)
     try:
