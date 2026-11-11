@@ -16,6 +16,9 @@ three ways, and all three are in §2:
 - the **`export_results` → `analyze` round trip is lossy today**, for Unified
   Fit and for Sizes, in the ZMQ service as shipped.
 
+**Kept as a design record**: the code cites this file by section (§2.1, §4
+rule 3, …), so it stays although no work is open.
+
 **Status: done, 30-09-2026**, on `feature/config-dialects` — all five steps,
 against issues #23-#27. Two decisions the plan left open were taken: Step 3
 was done in full rather than deferred, and Fractals was given the core

@@ -88,8 +88,7 @@ implies the exponent on the macro term need not be fixed at −4 (real
 interfaces are rarely perfectly sharp). Recommend keeping `S_macro·Q⁻⁴` as
 the physically-motivated default but exposing the exponent as a fittable
 parameter (defaulting to 4, fixed by default) — this is exactly the existing
-`use_complex_bg` mechanism in Simple Fits (`Prefactor·Q⁻Exponent + Background`,
-see 02-implementation-plan.md §2) and should be reused rather than
+`use_complex_bg` mechanism in Simple Fits (`Prefactor·Q⁻Exponent + Background`) and should be reused rather than
 reimplemented.
 
 **Derived:** `S_part = S_macro + S_rough` (total specific surface area,
@@ -119,7 +118,7 @@ I0 = φ·(ΔSLD)²·V_P¹      (paper's eq. 6; V_P¹ = (4/3)π r³, single-pore 
   (Annex 3 eq. A3.17) with fractal dimension `D` and cutoff length `Σ`
   (correlation length above which the fractal ordering is lost) — **this is
   already implemented** as `MassFractalPopulation`/`_mass_fractal_intensity`
-  in `pyirena/core/modeling.py` (Teixeira 1988), see 02-implementation-plan.md.
+  in `pyirena/core/modeling.py` (Teixeira 1988).
   Set `D=3` (or `S≈1`) to disable aggregation and recover the dilute limit.
 - Second bracket is the "algebraic globule" unified form factor for a pore of
   radius `r` (Annex 3 eq. A3.8/A3.9, Beaucage unified fit) — pore is
@@ -232,8 +231,7 @@ Q_c = 2π/d          (peak center; d = layer spacing, e.g. d002)
   SAXS+WAXS range, better than either pure shape alone). **pyIrena's existing
   `WAXSPeakFitModel`/`waxs_peakfit.py` only has Gauss/Lorentz/Pseudo-Voigt
   (linear mix) — a true Voigt (convolution) is new physics to add**, ideally
-  as a fourth peak shape there so both tools share it (see
-  02-implementation-plan.md §3).
+  as a fourth peak shape there so both tools share it.
 - `exp(−Q²⟨δz²⟩/3)` — **distortions of the first kind** (Debye-Waller-like):
   random local fluctuations of interlayer spacing (or, in the general
   Debye-Waller sense, atomic thermal motion). Affects **intensity only**,

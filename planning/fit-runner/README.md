@@ -1,25 +1,15 @@
-# One fit runner per tool — audit and decisions (issue #38, review §3.2)
+# One fit runner per tool — decisions and the remaining GUI step
 
-Started 10-11-2026 on `fix/review-2026-11-issue38`.
+Started 10-11-2026 for issue #38 (review §3.2); the batch/API part was merged
+11-11-2026 (PR #39). What shipped is in `CHANGELOG.md`.
 
-## Why
+**Done:** `core/fit_runner.py` (one runner per fitting tool) and
+`core/fit_data.py` (one point/σ rule). `pyirena.batch`, `api/control` and
+`analyze()` call them; the six GUI panels apply the same data rule. A snapshot
+of every batch/`analyze` number on the six `testData/Scripting` fixtures was
+identical before and after each tool's change.
 
-Fit orchestration — data preparation → Q mask → slit settings → fit →
-Monte-Carlo → result — existed three times per tool: the GUI panel,
-`pyirena/batch/<tool>.py` and `pyirena/api/control/<tool>.py` (plus the
-`analyze()` replay). A read-only audit of all six fitting tools (10-11-2026)
-found ~35 places where the copies do something different. Most are plain bugs;
-some were genuine choices, decided below.
-
-**Scope of this step:** batch and api/control (incl. `analyze`) call one
-runner per tool. The GUI keeps its own orchestration for now (a later
-`FitPanelBase` step), but the *data rules* below apply to the GUI too.
-
-**Guard:** `validationData/run_validation_report.py` calls the core fits
-directly, so it does not cover orchestration. A snapshot of every number batch
-`fit_*` and `analyze()` produce on the six `testData/Scripting` fixtures is
-compared before/after each tool's change; it must be identical except where a
-decision below changes a number deliberately.
+**Kept here** because the code cites the decisions (D1–D4) below.
 
 ## Decisions (Jan, 10-11-2026)
 
@@ -52,46 +42,28 @@ Defaults taken without a separate question (say if any is wrong):
   asked" a rule for every bounded tool, and `analyze` passes a config's own
   value explicitly.
 
-## Audit — real differences, by tool
+## Remaining — the GUI step (`FitPanelBase`)
 
-Unified Fit: batch never walks (D1); batch slit-length rule differs from
-`apply_data_slit_settings` (config length wins even when smearing is off);
-SMR dataset not reloaded in batch (GUI never writes `load_slit_smeared`); MC
-refit windows differ by path; batch needs both cursors, `analyze` accepts one.
+The panels still orchestrate their own fits (load → Q mask → slit settings →
+fit → MC → store), next to the runners. Open work, in order:
 
-Simple Fits: batch ignores `no_limits`; points dropped differ on every path
-(D2/D3); control skips the Invariant background prefit; batch MC run count
-ignores the config.
+1. **`FitPanelBase`** (review §4.2). The six fit panels each re-define the
+   same ~20 methods — `set_data`, `plot_data`, `plot_residuals`,
+   `save_state`/`load_state`, `_load_setup_from_file`,
+   `_data_info_for_report`, `get/set_cursor_range`,
+   `_reload_data_with_smearing`, `_get_data_folder`, `closeEvent`. Those are
+   logic, not widget assembly, so they drift (the reason PLAN.md gives for
+   *not* sharing the file browsers cuts the other way here). The base owns
+   data loading, Q range, state and setup I/O, and calls the tool's runner,
+   so the panel only maps widgets ↔ model. `gui/fit_worker.py`
+   (`FitJobRunner`) is already shared and is the threading half of it.
+2. **WAXS Peak Fit GUI: stored results recompute the background over the
+   full Q range** instead of the fitted range, so a re-displayed stored
+   result does not match the fit. A GUI-only bug found by the audit; fix it
+   in the move (or before, if a user hits it).
+3. **Large-panel split** (`PLAN.md`, "Large-file comfort refactors") —
+   `FitPanelBase` is its natural seam; do it after, tool by tool.
 
-Size Distribution: control never slit-smears; control MC inversion runs 10
-repetitions (core default) where GUI/batch/analyze use 1; prefit trigger and
-empty-window fallback (D4); σ ≤ 0 dropped vs repaired (D2); `tool_config`
-ignores `montecarlo_convergence` / `montecarlo_max_iter`, maps no `'mcsas'`
-alias, and defaults max iterations to 300 vs 1000; batch saved quality
-metrics add the unsmeared background.
-
-Modeling: batch builds the config by hand (`_build_pop`) instead of
-`modeling_model_from_config` (missing `enabled` → disabled; missing q range
-→ data range); σ for data without errors is 5 % in control/analyze vs the
-setting in GUI/batch; σ ≤ 0 floored vs repaired (D2); Export Parameters omits
-the slit keys; batch MC run count ignores the config; DE unseeded everywhere.
-
-WAXS Peak Fit: control never runs the Q0 pre-search; out-of-range peaks pruned
-only in the GUI; batch crashes on files without uncertainties; batch ignores
-envelope/panel Q range; control ignores the model's `no_limits`; with no peaks
-GUI fits background, batch auto-finds, control/analyze refuse; GUI *stored*
-results recompute the background over the full range (GUI bug — for the
-`FitPanelBase` step).
-
-Carbon model: batch ignores `no_limits`; control overwrites the model's
-`weighting`/`n_mc_runs`/Q range with argument defaults; batch reads Q range
-from the model dict only; a one-sided range from a bare model dict can be
-lost in `analyze` (q_max = 0 meaning "none"); batch runs MC whenever the
-config's `n_mc_runs > 1`.
-
-## Status
-
-- [x] Data rules D2/D3 in one shared helper (`core/fit_data.py`), used by batch, control, analyze and the six GUI fitting panels
-- [x] Runner: Unified · Sizes · Simple Fits · Modeling · WAXS · Carbon (all six, 10-11-2026)
-- [x] GUI writes `load_slit_smeared` (Unified, Sizes) and all three slit keys (Simple Fits, Modeling state + Export Parameters)
-- [x] Snapshot comparison clean per tool (identical on all six fixtures)
+**Guard:** the snapshot script covers batch/`analyze` only. For the GUI step,
+compare stored HDF5 results from each panel before/after on the same fixtures
+(offscreen), and keep `validationData/run_validation_report.py` at 195/195.

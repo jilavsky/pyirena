@@ -30,8 +30,8 @@ Two design points worth keeping:
   returns ``{"error", "code", "suggestion"}``. Those are promoted to the
   envelope's error slot so a caller has exactly one place to look, rather than
   having to know that a successful transport can still carry a failed fit.
-  (Still to confirm with the project owner — see planning/zmq-service/ open
-  question 6 — and the one line that decides it is ``_reply_for_result``.)
+  (Settled with the project owner 25-09-2026; the one line that decides it
+  is ``_reply_for_result``.)
 * **Every reply is strictly serialisable.** ``to_strict_json`` runs over the
   whole envelope and ``json.dumps`` uses ``allow_nan=False``, so a NaN in one
   uncertainty cannot produce a reply the caller's parser rejects wholesale.

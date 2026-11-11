@@ -2,7 +2,7 @@
 
 The seven open questions from the planning pass are answered. Recorded here
 so they are not re-litigated; the answers are already folded into
-[01-models.md](01-models.md) and [02-implementation-plan.md](02-implementation-plan.md).
+[01-models.md](01-models.md) and the code.
 
 Implementation branch: `feature/carbon-model`.
 
@@ -82,3 +82,6 @@ panel is written — that is what stops the tool being coded into a corner.
   The selector is a registry so this stays cheap.
 - **Digitised regression fixtures from the paper's Tables 1–3** — a stretch
   goal for `validationData/`, not a blocker.
+- **`weighting='log'`** is accepted but behaves exactly like `'relative'`
+  (no branch in `_sigma()`); implement log-space residuals or drop the
+  option — tracked in `planning/unfinished/README.md` §2.

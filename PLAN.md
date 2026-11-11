@@ -34,8 +34,43 @@ and `B` as two separate commits. Whether to adopt `ruff format` at all is
 still to be decided when that branch is cut; until then, do not reformat
 files you are not otherwise changing.
 
+**Shared GUI fit orchestration (`FitPanelBase`).** The batch/API half of the
+fit-runner work shipped with #38; the panels still orchestrate their own
+fits. Plan and the one GUI bug waiting on it are in
+`planning/fit-runner/README.md` ("Remaining").
+
+**One NXcanSAS reader, not two generations** (review §3.8). `io/hdf5.py`
+(camelCase `readGenericNXcanSAS` / `readMyNXcanSAS` / `saveNXcanSAS`, no type
+hints) sits beside the documented `io/scattering.py` stable API. Make the old
+functions thin shims over the new ones so there is one reader to fix. Saved
+files must not change.
+
+**Very long functions that hold logic** (review §3.7), split when next
+touched: `core/reporting.py:_build_report` (~690 lines, one branch per tool —
+a per-tool builder table would match the rest of the design);
+`gui/data_selector/panel.py:tabulate_results` (~480 lines — check whether it
+duplicates `api/aggregate.py`; if so the panel should call that);
+`io/hdf5.py:saveNXcanSAS` / `readMyNXcanSAS` (with the item above). Pure
+widget-assembly giants (`sizes_panel._create_control_panel`,
+`data_selector.init_ui`) only along group boxes, when touched.
+
+**Tests: a coverage floor and a panel smoke test** (review §3.10). CI runs
+`pytest --cov` and discards the number; publish it and set a floor for
+`core/` and `io/` only. Add an offscreen test that constructs every
+registered panel (the contract tests check source conventions, not
+construction).
+
+**Small packaging leftovers.** `pyIrena.icns` (470 KB) and `.kilo/` are
+tracked in git; `pyirena/examples/` ships in the wheel. Decide per item.
+
+**`print()` in library code** — mostly resolved (review §3.5). What is left
+is deliberate console output: the `print_*_results` helpers in
+`io/nxcansas_*.py` and CLI `main()`s. The MCP server logs to stderr; convert
+any remaining print only if it becomes reachable from an MCP/ZMQ tool, where
+stdout is the protocol stream.
+
 **Batch path for Data Manipulation.** Wanted, but the tool needs revising
-first. Filed as its own GitHub issue.
+first. Filed as its own GitHub issue (#19).
 
 **MCP 2.x migration.** `mcp` is pinned `<2`. Migrating is its own project;
 nothing needs it yet, and it should be decided before anything new is built on
