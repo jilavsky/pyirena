@@ -2401,6 +2401,7 @@ class ModelingEngine:
         I: np.ndarray,
         dI: np.ndarray,
         cancel_cb=None,
+        seed=None,
     ) -> ModelingResult:
         """Fit the multi-population model to SAS data.
 
@@ -2415,6 +2416,10 @@ class ModelingEngine:
                 parallel global search (workers > 1) to poll for "Cancel Fit"
                 via the DE per-generation callback (the serial path cancels
                 through the GUI's per-evaluation _chi2 wrapper instead).
+            seed: seed for the global (differential evolution) search when
+                ``config.fit_method == 'global'``, so a global fit is
+                reproducible. None (default) leaves it unseeded. The local
+                refinement is deterministic and does not use it.
 
         Returns:
             ModelingResult containing fitted parameters and derived quantities.
@@ -2485,6 +2490,7 @@ class ModelingEngine:
                     x_seed = self._run_global_de(
                         lo_arr, hi_arr, keys, cfg,
                         q_fit, I_fit, dI_fit, x0_arr,
+                        seed=seed,
                         workers=getattr(config, 'de_workers', 1),
                         cancel_cb=cancel_cb,
                     )

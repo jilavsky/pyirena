@@ -645,6 +645,7 @@ result = fit_modeling(
     with_uncertainty=False, # bool — run MC uncertainty estimation after the main fit
     n_mc_runs=10,           # int — number of MC runs (used when with_uncertainty=True)
     mc_workers=None,        # int — worker processes for the MC passes; None = use the config
+    random_seed=None,       # int — seeds the global (DE) search and the MC perturbations
 )
 ```
 
@@ -690,6 +691,7 @@ result = fit_modeling(
 | `with_uncertainty` | `bool` | `False` | Run Monte Carlo uncertainty estimation |
 | `n_mc_runs` | `int` | `10` | Number of MC passes for uncertainty estimation |
 | `mc_workers` | `int` or `None` | `None` | Worker processes for the MC passes, overriding the config's `mc_workers`. `0` = auto (`cpu_count - 2`), `1` = serial, `N > 1` = explicit. Keep at `1` when parallelising over files instead — nest one level of parallelism, not two |
+| `random_seed` | `int` or `None` | `None` | Seeds the global search (config `fit_method: "global"`) and the Monte-Carlo perturbations, so both are reproducible. `None` leaves them unseeded |
 
 ### Population types
 

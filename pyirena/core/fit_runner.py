@@ -191,6 +191,7 @@ def run_modeling(config, q, intensity, error=None, *, q_min=None, q_max=None,
     σ ≤ 0; with no uncertainties at all, ``|I| × error_fraction`` — the fit
     needs a σ, and this is the user's generated fraction (GUI/batch) or the
     session's (API). *no_limits*, when given, applies to this fit only.
+    *seed* seeds the global (DE) search and the Monte-Carlo perturbations.
     Monte-Carlo starts from the fitted config; data without uncertainties
     are refused unless *mc_noise_fraction* is given. The core reports σ but
     not how many refits succeeded, so ``mc['n_ok']`` is None.
@@ -213,7 +214,7 @@ def run_modeling(config, q, intensity, error=None, *, q_min=None, q_max=None,
     if no_limits is not None:
         config.no_limits = bool(no_limits)
     try:
-        result = engine.fit(config, data.q, data.intensity, dI)
+        result = engine.fit(config, data.q, data.intensity, dI, seed=seed)
     finally:
         config.no_limits = previous          # a property of this fit only
     result.config.no_limits = previous

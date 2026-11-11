@@ -1714,7 +1714,7 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "random_seed": {
                     "type": "integer",
-                    "description": "Seed for the Monte-Carlo perturbations, for reproducible uncertainties.",
+                    "description": "Seed for the global search (fit_method=\"global\") and the Monte-Carlo perturbations, so both are reproducible.",
                 },
                 "no_limits": {
                     "type": "boolean",

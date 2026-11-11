@@ -100,9 +100,12 @@ def fit_saxs_morph(
 
     q = np.asarray(data['Q'], dtype=float)
     I = np.asarray(data['Intensity'], dtype=float)
-    _err = data.get('Error')
-    dI = np.asarray(_err if _err is not None else 0.05 * np.abs(I), dtype=float)
-    dI = np.where(dI <= 0, 0.05 * np.abs(I), dI)
+    # Data without uncertainties, and σ <= 0 points, get σ = |I| × the Data
+    # Selector's "Generated uncertainty fraction" (was a fixed 5 %).
+    from pyirena.core.saxs_morph import repair_sigma
+    from pyirena.state.state_manager import text_import_settings
+    error_fraction = text_import_settings()['error_fraction']
+    dI = repair_sigma(I, data.get('Error'), error_fraction)
 
     # --- Step 1: Power-law pre-fit (if Q range provided) ---
     pl_qmin = sm_cfg.get('power_law_q_min')

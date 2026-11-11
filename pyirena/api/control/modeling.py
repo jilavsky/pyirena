@@ -853,7 +853,9 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
         uncertainties. Slow for many populations — mind a remote client's
         timeout.
     random_seed : int, optional
-        Seed for the Monte-Carlo perturbations (reproducible uncertainties).
+        Seed for the global search (``fit_method="global"``) and the
+        Monte-Carlo perturbations, so both are reproducible. None (default)
+        leaves them unseeded.
 
     Returns
     -------

@@ -1224,7 +1224,7 @@ take over).
 | `set_modeling_background(session_id, value, fit)` | flat background |
 | `set_modeling_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
 | `get_modeling_config(session_id)` | global settings (Q range, background, fit method, slit smearing) and a summary of every population |
-| `run_modeling_fit(session_id, fit_method, no_limits=False, n_mc_runs=0, random_seed=None)` | `"local"` (default) or `"global"`; `no_limits=True` drops the population bounds (unconstrained Nelder-Mead, forces `"local"`); `n_mc_runs > 0` adds Monte-Carlo uncertainties (slow with many populations) |
+| `run_modeling_fit(session_id, fit_method, no_limits=False, n_mc_runs=0, random_seed=None)` | `"local"` (default) or `"global"`; `no_limits=True` drops the population bounds (unconstrained Nelder-Mead, forces `"local"`); `n_mc_runs > 0` adds Monte-Carlo uncertainties (slow with many populations); `random_seed` seeds the global search and the Monte-Carlo refits |
 | `get_modeling_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
 | `get_modeling_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
 | `save_modeling_fit(session_id, output_path)` | writes `entry/modeling_results` |

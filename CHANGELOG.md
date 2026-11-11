@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   finished. The Carbon model's Stop button keeps working. A single fit cannot
   be interrupted (scipy's optimisers have no cancel hook), but it no longer
   blocks the window.
+- **Reproducible Modeling global fits.** `run_modeling_fit(random_seed=…)`
+  (API/MCP/ZMQ) and the new `batch.fit_modeling(random_seed=…)` now also
+  seed the global (differential evolution) search, so a
+  `fit_method="global"` fit lands in the same basin on a re-run; before,
+  the seed reached only the Monte-Carlo refits. The default stays unseeded,
+  and local fits are unaffected (they were already deterministic).
 - WAXS batch results say their uncertainties are covariance values
   (`uncertainty_method: "covariance"`); `with_uncertainty=True` is logged
   rather than silently ignored.
@@ -68,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use exactly the model Fit uses: same fit flags and limits, links on, and the
   data's slit smearing. Uncertainties change for slit-smeared data and for
   setups with linked B / RgCO.
+- **Size Distribution "Calculate uncertainty" results were lost on Store in
+  File.** The per-bin σ of the distribution was shown as error bars but not
+  written, so a reloaded file had none. It is now stored as
+  `distribution_std`, as `batch.fit_sizes(with_uncertainty=True)` already
+  did (same dataset; no format change). The scalar σ of Rg, volume fraction
+  and peak r are still shown only on screen, on both paths.
 - `run_sizes_fit(random_seed=…)` (api/MCP/ZMQ) did not make the Monte Carlo
   inversion reproducible: it seeded NumPy's global generator, which that
   method does not use. The seed now reaches the inversion.
@@ -121,6 +133,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logged rather than silently ignored (the cached file is not rewritten,
   because results are stored in it). The conversion note also now counts
   generated uncertainties correctly for two-column files (it said 0).
+  Data Manipulation (scale, trim, rebin, average, subtract, divide and their
+  previews) and SAXS Morph (GUI and batch) used a fixed 5 % for data without
+  uncertainties; they now use the setting too, and the σ is |I| × fraction
+  (negative intensities used to get a negative or floored σ). SAXS Morph
+  also gives σ ≤ 0 points that σ instead of a 1e-30 floor, which let one
+  point dominate its χ² (the shared rule of `core/fit_data.py`). Output
+  uncertainties and χ² on such data shift whenever the setting is not 5 %.
 - `pyirena.api.control`: the session lifecycle, fit-Q-range, local
   Guinier / power-law and feature-detection tools moved from `unified_fit.py`
   to `data_session.py` (#38). Every name is still importable from
