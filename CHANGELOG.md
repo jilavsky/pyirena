@@ -144,7 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`pyirena/core/fit_runner.py`, #38; design and decisions in
   `planning/fit-runner/README.md`). An audit of all six fitting tools found
   ~35 places where the GUI, batch, API and `analyze()` copies of the fit
-  orchestration disagreed. Being unified tool by tool; so far:
+  orchestration disagreed. All six tools now run through it:
   - *Points and σ, one rule everywhere* (`core/fit_data.py`): I ≤ 0 points
     are kept (array sessions / `analyze()` used to drop them); σ ≤ 0 is
     repaired to |I| × the generated-uncertainty fraction instead of being
