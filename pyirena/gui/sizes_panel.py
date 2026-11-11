@@ -45,6 +45,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import attach_plot_export, tag_curve_uncertainty
 from pyirena.gui.report_buttons import make_report_buttons
 from pyirena.gui.sas_plot import (
@@ -920,6 +921,15 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self.sizes = SizesDistribution()
 
         self.init_ui()
+        # Fits and MC run on a worker thread (issue #38); these stay disabled
+        # meanwhile so nothing is started twice.
+        self._jobs = FitJobRunner(self, lock=[
+            self.fit_button, self.fit_all_button, self.fit_pl_button,
+            self.fit_bg_button, self.graph_button, self.revert_button,
+            self.store_file_button, self.load_setup_button,
+            self.import_params_button, self.reset_button,
+            self.uncertainty_button, self.results_to_graph_button,
+        ])
         self.load_state()
 
     # ── UI construction ──────────────────────────────────────────────────────
@@ -1871,12 +1881,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         Fractional error → ``|I| × fraction`` (file/measured error ignored).
         Otherwise → ``raw_err × error_scale`` (or ``raw_err`` unscaled).
+        The rule lives in :meth:`SizesDistribution.effective_error`.
         """
-        if s.fractional_error:
-            return np.abs(intensity) * float(s.fractional_error_value)
-        if raw_err is None:
-            return None
-        return raw_err * float(s.error_scale) if s.error_scale != 1.0 else raw_err
+        return s.effective_error(intensity, raw_err)
 
     def _update_error_display(self):
         """Redraw error bars on I(Q) plot immediately when the error settings
@@ -2046,6 +2053,14 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         q = self.data['Q']
         intensity = self.data['Intensity']
         error = self.data.get('Error')
+        # The shared point rule (core/fit_data.py, issue #38): σ <= 0 is
+        # repaired to |I| × the generated-uncertainty fraction instead of the
+        # point being dropped by the inversion; non-finite points go.
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            q, intensity, error, text_import_settings(self.state_manager)["error_fraction"])
+        q, intensity, error = prep.q, prep.intensity, prep.error
 
         cursor_range = self.graph_window.get_cursor_range()
         if cursor_range is not None:
@@ -2159,6 +2174,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
     def run_fit(self):
         """Run the size distribution fit with current parameters."""
+        if self._jobs.busy:          # a fit/MC job is already running
+            return
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return
@@ -2183,8 +2200,31 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             if s.method == 'montecarlo':
                 s.montecarlo_n_repetitions = 1
 
-            result = s.fit(q, intensity, error)
+            # The inversion runs on a worker thread; s is a fresh object from
+            # _collect_params(), so nothing on the GUI side shares it.
+            q, intensity = np.array(q), np.array(intensity)
+            error = np.array(error) if error is not None else None
 
+            def job(progress_cb, cancel_cb):
+                return s.fit(q, intensity, error)
+
+            self._jobs.start(job, lambda result: self._finish_fit(result, s, q),
+                             on_error=self._fit_failed, button=self.fit_button,
+                             busy_text="Fitting…")
+        except Exception as exc:
+            self.graph_window.show_error_message(f"Error during fitting: {exc}")
+            self.status_label.setText("Fit failed")
+            import traceback
+            traceback.print_exc()
+
+    def _fit_failed(self, message):
+        """A background inversion raised."""
+        self.graph_window.show_error_message(f"Error during fitting: {message}")
+        self.status_label.setText("Fit failed")
+
+    def _finish_fit(self, result, s, q):
+        """Apply a finished background inversion (GUI thread)."""
+        try:
             if not result.get('success', False):
                 self.graph_window.show_error_message(
                     f"Fit did not converge: {result.get('message', '')}"
@@ -2485,6 +2525,8 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
     def calculate_uncertainty(self):
         """Run N noise-perturbed fits to estimate size distribution uncertainties.
 
+        Runs on a worker thread; a second click cancels (finished fits are kept).
+
         Each data point is perturbed by  ΔI = σᵢ · N(0,1)  where σᵢ is the
         measurement error.  The spread of the resulting size distributions gives
         per-bin statistical uncertainties; Rg, Vf, and peak r are also propagated.
@@ -2492,6 +2534,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         The number of perturbed fits is controlled by the Passes spinner (default 10).
         For Monte Carlo each perturbed fit uses a single internal MC run.
         """
+        if self._jobs.busy:
+            self._jobs.cancel()
+            return
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return
@@ -2503,11 +2548,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         s = self._collect_params()
 
-        # Number of perturbed fits — controlled by the Passes spinner.
-        # For Monte Carlo, ensure each perturbed fit uses a single internal MC run.
+        # Number of perturbed fits — controlled by the Passes spinner.  (For
+        # the Monte Carlo method the core uses one internal run per refit.)
         N_runs = self.unc_n_runs_spin.value()
-        if s.method == 'montecarlo':
-            s.montecarlo_n_repetitions = 1  # one MC run per perturbed fit
 
         q, intensity, error = self._get_q_filtered_data()
 
@@ -2517,67 +2560,47 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             )
             return
 
-        # If no experimental errors, generate synthetic ones for the MC runs
-        if error is None:
-            error = intensity * 0.05
-            error = np.maximum(error, 1e-30)
-        # Perturbation noise matches the error model the fit actually uses
-        # (fractional error replaces the measured/synthetic error entirely).
-        err_mc = self._effective_error(intensity, error, s)
-        err_mc = np.maximum(err_mc, 1e-30)
-
         self.status_label.setText(f"Running {N_runs} MC fits for uncertainty…")
+        q, intensity = np.array(q), np.array(intensity)
+        error = np.array(error) if error is not None else None
 
-        distributions, rg_vals, vf_vals, peak_r_vals = [], [], [], []
-        r_grid_ref = None
+        # Perturbation σ is the effective error the fit weights by (fractional
+        # error / error scale honoured); data with no measured error are
+        # refused unless fractional error is on (issue #38). Runs on a worker
+        # thread; clicking the button again cancels and keeps finished fits.
+        from pyirena.state.state_manager import generated_noise_sigma
+        noise = generated_noise_sigma(intensity, error, self.state_manager)
 
-        for i in range(N_runs):
-            # Perturb data with Gaussian noise proportional to the scaled errors
-            I_perturbed = intensity + err_mc * np.random.randn(len(intensity))
-            try:
-                result = s.fit(q, I_perturbed, error)
-            except Exception:
-                continue
-            if not result.get('success', False):
-                continue
+        def job(progress_cb, cancel_cb):
+            return s.calculate_uncertainty_mc(q, intensity, error, n_runs=N_runs,
+                                              noise_sigma=noise,
+                                              progress_cb=progress_cb,
+                                              cancel_cb=cancel_cb)
 
-            dist = result.get('distribution')
-            rg   = result.get('rg', np.nan)
-            vf   = result.get('volume_fraction', np.nan)
-            r_g  = result.get('r_grid')
+        def progress(n_done, n_runs):
+            self.status_label.setText(f"MC uncertainty: fit {n_done}/{n_runs} …")
 
-            if dist is None or r_g is None:
-                continue
+        self._jobs.start(job, lambda mc: self._finish_uncertainty(mc, N_runs),
+                         on_error=lambda m: self.graph_window.show_error_message(
+                             f"MC uncertainty failed: {m}"),
+                         on_progress=progress, button=self.uncertainty_button,
+                         cancellable=True, busy_text="Cancel MC")
 
-            if r_grid_ref is None:
-                r_grid_ref = r_g
-
-            distributions.append(dist)
-            rg_vals.append(rg)
-            vf_vals.append(vf)
-            peak_idx = int(np.argmax(dist))
-            peak_r_vals.append(float(r_g[peak_idx]))
-
-        n_ok = len(distributions)
-        if n_ok == 0:
+    def _finish_uncertainty(self, mc, N_runs):
+        """Show a finished (or cancelled) MC uncertainty run (GUI thread)."""
+        n_ok = mc['n_ok']
+        if not mc['available']:
             self.graph_window.show_error_message(
-                f"All {N_runs} MC fits failed — cannot estimate uncertainty."
+                f"MC uncertainty not computed: {mc['reason']}."
             )
-            self.status_label.setText("MC uncertainty: all fits failed")
+            self.status_label.setText(f"MC uncertainty: {n_ok}/{N_runs} fits OK — not computed")
             return
 
-        # Compute per-bin statistics
-        dist_array = np.array(distributions)          # (n_ok, n_bins)
-        dist_mean  = np.mean(dist_array, axis=0)
-        dist_std   = np.std(dist_array, axis=0, ddof=min(1, n_ok - 1))
-
-        # Scalar statistics
-        rg_mean  = float(np.nanmean(rg_vals))
-        rg_std   = float(np.nanstd(rg_vals,  ddof=min(1, n_ok - 1)))
-        vf_mean  = float(np.nanmean(vf_vals))
-        vf_std   = float(np.nanstd(vf_vals,  ddof=min(1, n_ok - 1)))
-        pr_mean  = float(np.nanmean(peak_r_vals))
-        pr_std   = float(np.nanstd(peak_r_vals, ddof=min(1, n_ok - 1)))
+        r_grid_ref = mc['r_grid']
+        dist_mean, dist_std = mc['distribution_mean'], mc['distribution_std']
+        rg_mean, rg_std = mc['rg_mean'], mc['rg_std']
+        vf_mean, vf_std = mc['volume_fraction_mean'], mc['volume_fraction_std']
+        pr_mean, pr_std = mc['peak_r_mean'], mc['peak_r_std']
 
         # Store MC scalar stats so _results_to_graph can include uncertainties
         self._mc_rg_std   = rg_std
@@ -2596,8 +2619,12 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         if cr is not None:
             self.graph_window.update_trust_bar(r_grid_ref, *cr)
 
+        runs = (f"cancelled — {n_ok} of {mc.get('n_done', n_ok)} finished fits OK"
+                if self._jobs.cancelled else f"{n_ok}/{N_runs} fits OK")
+        if mc.get('sigma_source') == 'generated':
+            runs += ", σ = I × generated-uncertainty fraction"
         msg = (
-            f"MC uncertainty ({n_ok}/{N_runs} fits OK) | "
+            f"MC uncertainty ({runs}) | "
             f"Rg: {rg_mean:.4g} ± {rg_std:.4g} Å | "
             f"Vf: {vf_mean:.4g} ± {vf_std:.4g} | "
             f"peak r: {pr_mean:.4g} ± {pr_std:.4g} Å"
@@ -2768,6 +2795,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             # nothing to show it changed.
             'use_slit_smearing': bool(s.use_slit_smearing),
             'slit_length': float(s.slit_length or 0.0),
+            'load_slit_smeared': self.slit_state_keys()['load_slit_smeared'],
             # Whether to fit B / P when "Fit P/B" or "Fit All" runs.  Persisted
             # so the GUI remembers the user's choice and scripts can drive a
             # background pre-fit before the size fit (see batch.fit_sizes).
@@ -2855,6 +2883,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
     def closeEvent(self, event):
         """Auto-save state on close (silent — no confirmation dialog)."""
+        self._jobs.shutdown()
         try:
             self.state_manager.update('sizes', self._collect_state())
             self.state_manager.save()

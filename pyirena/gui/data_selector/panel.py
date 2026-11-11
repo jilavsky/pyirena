@@ -56,6 +56,7 @@ from pyirena.gui.data_loading import (
 from pyirena.gui.data_loading import (
     read_nxcansas_with_picker as _read_nxcansas_with_picker_fn,
 )
+from pyirena.gui.data_loading import sibling_rebuild_prompt
 from pyirena.gui.data_selector.config_dialogs import ConfigManagerDialog, DataSelectorConfigDialog
 from pyirena.gui.data_selector.igor_import import _IgorImportDialog
 from pyirena.gui.data_selector.plot_utils import _gen_colors, _legend_indices
@@ -1470,7 +1471,8 @@ class DataSelectorPanel(QWidget):
                     dir_path, filename = os.path.split(file_path)
                     if ext.lower() in ['.txt', '.dat', '.csv']:
                         h5_path = ensure_nxcansas_sibling(
-                            Path(file_path), error_fraction=error_fraction, q_unit=q_unit)
+                            Path(file_path), error_fraction=error_fraction, q_unit=q_unit,
+                            confirm_rebuild=sibling_rebuild_prompt(self))
                         raw = readGenericNXcanSAS(str(h5_path.parent), h5_path.name)
                     else:
                         raw = readGenericNXcanSAS(dir_path, filename)
@@ -2133,7 +2135,8 @@ class DataSelectorPanel(QWidget):
             # Auto-convert text files to NXcanSAS before ASCII export
             if fp.suffix.lower() in ('.txt', '.dat', '.csv'):
                 try:
-                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac, q_unit=q_unit)
+                    fp = ensure_nxcansas_sibling(fp, error_fraction=err_frac, q_unit=q_unit,
+                                                 confirm_rebuild=sibling_rebuild_prompt(self))
                 except Exception as exc:
                     errors.append((fp.name, f'conversion failed: {exc}'))
                     continue

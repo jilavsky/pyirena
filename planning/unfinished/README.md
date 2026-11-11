@@ -38,6 +38,19 @@ plan is the beta blocker**; Steps 1–4 are cleanup and can follow.
 
 ## 2. Monte-Carlo uncertainties are missing from the agent surface — **M**
 
+**Done 10-11-2026** (issue #38, closes #28). Monte-Carlo moved into core
+(`calculate_uncertainty_mc` on `UnifiedFitModel`, `SizesDistribution`,
+`SimpleFitModel`, plus `core/mc_uncertainty.py`), shared by GUI, batch and
+control. `run_fit` / `run_sizes_fit` / `run_simple_fit` /
+`run_modeling_fit` take `n_mc_runs` (0 = off); `get_parameter_uncertainties`
+serves every tool from `api/control/uncertainty.py`; `export_results` and
+`analyze(n_mc_runs=…)` carry it. WAXS keeps its signature (the pipeline passes
+the arguments to every tool) but now says its uncertainties are covariance
+ones. Modeling's error-less data now use the Data Selector's "Generated
+uncertainty fraction" (decided 10-11-2026: that setting is the user's σ).
+Still open: the Size Distribution GUI does not store its MC per-bin σ in the
+file (neither path does).
+
 The largest capability gap between the batch path and the MCP/ZMQ path, and
 the one an agent notices first.
 
@@ -136,6 +149,10 @@ SAXS Morph is not going to get trend plots, turn it into a decision.
 ---
 
 ## 4. Sizes `unc_n_runs` is collected, saved, exported and ignored — **S**
+
+**Done** (confirmed in the 09-11-2026 review, issue #38). `ToolSetup.mc_n_runs`
+is read from `unc_n_runs` in `core/tool_config.py`, and `batch.fit_sizes`
+uses it whenever the caller passes no `n_mc_runs`.
 
 `unc_n_runs` is a real spin box (`gui/sizes_panel.py:1729`), it drives the GUI
 uncertainty run (`sizes_panel.py:2478`), it is written into the panel state

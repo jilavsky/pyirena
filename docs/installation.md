@@ -105,16 +105,16 @@ https://github.com/jilavsky/pyirena/issues.
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| numpy | ≥ 1.20 | Numerical arrays |
-| scipy | ≥ 1.7 | Optimization, fitting |
+| numpy | ≥ 2.0 | Numerical arrays |
+| scipy | ≥ 1.13 | Optimization, fitting |
 | h5py | ≥ 3.0 | HDF5 / NXcanSAS file I/O |
-| six | ≥ 1.16 | HDF5 metadata compatibility |
+| igor2 | ≥ 0.5.13 | Igor Pro `.pxp` / `.ibw` import |
 
 ### GUI (required to run the interactive GUI)
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| PySide6 | ≥ 6.4 | Qt6 Python bindings |
+| PySide6 | ≥ 6.6 (not 6.7.x, 6.10.x) | Qt6 Python bindings |
 | pyqtgraph | ≥ 0.13 | Fast scientific plotting |
 | matplotlib | ≥ 3.3 | Additional plot export |
 

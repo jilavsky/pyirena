@@ -29,40 +29,22 @@ def _mc_uncertainty_sizes(
     intensity_fit: np.ndarray,
     error_fit: Optional[np.ndarray],
     n_runs: int = 10,
-) -> Optional[np.ndarray]:
-    """Run MC noise-perturbation fits and return per-bin std-dev of P(r).
+    seed=None,
+) -> Dict:
+    """MC uncertainties for a Sizes fit — a thin wrapper over
+    :meth:`SizesDistribution.calculate_uncertainty_mc`, kept so existing
+    callers keep their import.
 
-    Returns a 1-D array with the same length as the r-grid, or ``None``
-    when fewer than 2 runs succeed.
+    Returns the core result dict; ``distribution_std`` is the per-bin 1σ.
+    Perturbs with the model's *effective* error (fractional error / error
+    scale honoured), as the GUI always did; until 1.2.1 this path used the
+    raw error. Without measured uncertainties, σ = I × the Data Selector's
+    "Generated uncertainty fraction" (issue #38).
     """
-    import copy
-
-    err = error_fit if error_fit is not None else intensity_fit * 0.05
-    err = np.maximum(err, 1e-30)
-
-    # For Monte Carlo method: one internal MC run per perturbed fit (same as GUI)
-    s_mc = copy.deepcopy(s)
-    if s_mc.method == 'montecarlo':
-        s_mc.montecarlo_n_repetitions = 1
-
-    distributions = []
-    for _ in range(n_runs):
-        I_perturbed = intensity_fit + err * np.random.randn(len(intensity_fit))
-        try:
-            res = s_mc.fit(q_fit, I_perturbed, error_fit)
-        except Exception:
-            continue
-        if not res.get('success', False):
-            continue
-        dist = res.get('distribution')
-        if dist is not None:
-            distributions.append(dist)
-
-    if len(distributions) < 2:
-        return None
-
-    arr = np.array(distributions)          # (n_ok, n_bins)
-    return np.std(arr, axis=0, ddof=1)
+    from pyirena.state.state_manager import generated_noise_sigma
+    return s.calculate_uncertainty_mc(
+        q_fit, intensity_fit, error_fit, n_runs=n_runs, seed=seed,
+        noise_sigma=generated_noise_sigma(intensity_fit, error_fit))
 
 
 def fit_sizes(
@@ -132,17 +114,21 @@ def fit_sizes(
     data_file = Path(data_file)
     config_file = Path(config_file)
 
-    # --- Load config ---
+    # --- Load config (the one envelope reader, AGENTS.md invariant 6) ---
+    from pyirena.core.tool_config import (
+        ConfigError,
+        apply_prefits,
+        build_setup,
+        unwrap_config,
+    )
     try:
         config = _load_config(config_file)
         if config is None:
             return None
-
-        if 'sizes' not in config:
-            log.info(f"[pyirena.batch] Config file '{config_file}' has no 'sizes' group.")
-            return None
-
-        sizes_state = config['sizes']
+        _, sizes_state, _ = unwrap_config(config, 'sizes')
+    except ConfigError as exc:
+        log.info(f"[pyirena.batch] Config file '{config_file}': {exc}")
+        return None
     except Exception:
         log.error(f"[pyirena.batch] Unexpected error reading config:\n{traceback.format_exc()}")
         return None
@@ -159,16 +145,13 @@ def fit_sizes(
         log.error(f"[pyirena.batch] Unexpected error loading data:\n{traceback.format_exc()}")
         return None
 
-    # --- Build SizesDistribution from config ---
-    # Shared with api.control.analyze via core/tool_config.py, so a config
-    # replayed over the ZMQ service builds the identical model.
+    # --- Build SizesDistribution + run settings (shared with analyze) ---
     try:
-        from pyirena.core.tool_config import sizes_model_from_config
-        s = sizes_model_from_config(
-            sizes_state,
+        setup = build_setup(
+            config, 'sizes',
             data_is_slit_smeared=bool(data.get('is_slit_smeared')),
-            data_slit_length=float(data.get('slit_length', 0.0) or 0.0),
-        )
+            data_slit_length=float(data.get('slit_length', 0.0) or 0.0))
+        s = setup.model
         if s.use_slit_smearing:
             log.info(f"[pyirena.batch] Sizes slit smearing enabled "
                      f"(SL={s.slit_length:.4g} 1/A).")
@@ -177,85 +160,52 @@ def fit_sizes(
                   f"{traceback.format_exc()}")
         return None
 
-    # --- Apply Q range from saved cursor positions ---
+    Q = data['Q']
+    Intensity = data['Intensity']
+    Error = data.get('Error')
+
+    # --- Background pre-fits (the GUI "Fit Cmplx. Bckg. & Sizes" sequence) ---
+    # Shared with analyze: full-curve windows, and an empty power-law window
+    # falls back to the cursor range like the GUI (decision D4).
     try:
-        q_min = sizes_state.get('cursor_q_min')
-        q_max = sizes_state.get('cursor_q_max')
-        Q = data['Q']
-        Intensity = data['Intensity']
-        Error = data.get('Error')
-
-        if q_min is not None and q_max is not None:
-            mask = (Q >= float(q_min)) & (Q <= float(q_max))
-            q_fit = Q[mask]
-            intensity_fit = Intensity[mask]
-            error_fit = Error[mask] if Error is not None else None
-        else:
-            q_fit, intensity_fit, error_fit = Q, Intensity, Error
-    except Exception:
-        log.error(f"[pyirena.batch] Error applying Q range:\n{traceback.format_exc()}")
-        return None
-
-    # --- Optional background pre-fits (mirrors the GUI "Fit All" sequence) ---
-    # 1. Power-law B·q^(-P): fit B and/or P over the power-law Q range when the
-    #    config's fit flags are set, updating s.power_law_B / s.power_law_P.
-    # 2. Flat background: averaged over the background Q range when one is set,
-    #    updating s.background.
-    # Both pre-fits use the full (un-masked) data Q so the chosen Q windows are
-    # honoured independently of the size-fit cursor range, exactly as the GUI does.
-    try:
-        fit_B = bool(sizes_state.get('fit_power_law_B', False))
-        fit_P = bool(sizes_state.get('fit_power_law_P', False))
-        if fit_B or fit_P:
-            pl_qmin = sizes_state.get('power_law_q_min')
-            pl_qmax = sizes_state.get('power_law_q_max')
-            if pl_qmin is None or pl_qmax is None:
-                pl_qmin, pl_qmax = float(Q.min()), float(Q.max())
-            pl_res = s.fit_power_law(
-                Q, Intensity, float(pl_qmin), float(pl_qmax),
-                fit_B=fit_B, fit_P=fit_P,
-            )
-            log.info(f"[pyirena.batch] Power-law pre-fit: {pl_res.get('message', '')}")
-
-        bg_qmin = sizes_state.get('background_q_min')
-        bg_qmax = sizes_state.get('background_q_max')
-        if bg_qmin is not None and bg_qmax is not None:
-            bg_res = s.fit_background_term(
-                Q, Intensity, float(bg_qmin), float(bg_qmax),
-            )
-            log.info(f"[pyirena.batch] Background pre-fit: {bg_res.get('message', '')}")
+        for note in apply_prefits(setup, sizes_state, Q, Intensity):
+            log.info(f"[pyirena.batch] {note}")
     except Exception:
         log.error(f"[pyirena.batch] Background pre-fit failed (continuing with "
-              f"configured values):\n{traceback.format_exc()}")
+                  f"configured values):\n{traceback.format_exc()}")
 
-    # --- Run fit ---
+    # The config's own 'unc_n_runs' is the number the user set in the GUI.
+    # An explicit argument still wins, so existing callers are unaffected.
+    if n_mc_runs is None:
+        n_mc_runs = setup.mc_n_runs or 10
+
+    # --- Fit (+ MC): the shared Sizes runner, as the API ---
+    from pyirena.core.fit_runner import run_sizes
+    from pyirena.state.state_manager import text_import_settings
+    fraction = text_import_settings()["error_fraction"]
     try:
-        fit_result = s.fit(q_fit, intensity_fit, error_fit)
+        run = run_sizes(s, Q, Intensity, Error,
+                        q_min=setup.fit_q_min, q_max=setup.fit_q_max,
+                        error_fraction=fraction,
+                        n_mc_runs=(n_mc_runs if with_uncertainty else 0),
+                        mc_noise_fraction=fraction)
+        fit_result = run.result
+        q_fit = run.data.q
+        for note in run.notes:
+            log.info(f"[pyirena.batch] {note}")
     except Exception:
         log.error(f"[pyirena.batch] Fitting failed for '{data_file}':\n{traceback.format_exc()}")
         return None
 
-    # --- MC uncertainty analysis (optional) ---
+    # --- MC uncertainty (computed by the runner) ---
     distribution_std = None
-    # The config's own 'unc_n_runs' is the number the user set in the GUI;
-    # it was read by nothing on this path until now. An explicit argument
-    # still wins, so existing callers are unaffected.
-    if n_mc_runs is None:
-        try:
-            n_mc_runs = max(1, int(sizes_state.get('unc_n_runs', 10)))
-        except (TypeError, ValueError):
-            n_mc_runs = 10
-
-    if with_uncertainty and fit_result.get('success', False):
-        log.info(f"[pyirena.batch] Running {n_mc_runs} MC uncertainty runs for '{data_file.name}' ...")
-        try:
-            distribution_std = _mc_uncertainty_sizes(
-                s, q_fit, intensity_fit, error_fit, n_runs=n_mc_runs
-            )
-            if distribution_std is None:
-                log.error("[pyirena.batch] MC uncertainty: fewer than 2 runs succeeded; skipping.")
-        except Exception:
-            log.error(f"[pyirena.batch] MC uncertainty failed:\n{traceback.format_exc()}")
+    if run.mc is not None:
+        if run.mc.get('available'):
+            distribution_std = run.mc['distribution_std']
+            log.info(f"[pyirena.batch] MC uncertainty: {run.mc['n_ok']}/{run.mc['n_runs']} "
+                     "refits succeeded.")
+        else:
+            log.error(f"[pyirena.batch] MC uncertainty not computed: {run.mc['reason']}.")
 
     # --- Build return structure ---
     try:
@@ -383,16 +333,26 @@ def fit_sizes(
                 _I_obs = fit_result.get('I_data')
                 _err = fit_result.get('err')
                 if _I_obs is not None:
-                    _bg = s.compute_complex_background(_q_q)
+                    # Smeared when the model is, as the GUI's
+                    # _display_background (it was always the pinhole one).
+                    if s.use_slit_smearing and s.slit_length > 0:
+                        from pyirena.core.smearing import SlitSmearer
+                        _bg = SlitSmearer(np.asarray(_q_q, dtype=float),
+                                          s.slit_length).smear_model(
+                                              s.compute_complex_background)
+                    else:
+                        _bg = s.compute_complex_background(_q_q)
                     fq_metrics = fit_quality_metrics(
                         _q_q, _I_obs, intensity_model + _bg, _err, n_params=1)
             except Exception:
+                log.warning("[pyirena.batch] Fit-quality metrics not computed; saving "
+                            "without them.", exc_info=True)
                 fq_metrics = None
 
             save_sizes_results(
                 filepath=output_path,
                 q=q_fit,
-                intensity_data=intensity_fit,
+                intensity_data=run.data.intensity,
                 intensity_model=intensity_model,
                 residuals=residuals,
                 r_grid=r_grid,

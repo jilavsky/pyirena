@@ -92,6 +92,13 @@ Individual tools can also be launched directly:
 | `pyirena-modeling` | Modeling tool (standalone) |
 | `pyirena-datamerge` | Data Merge tool (standalone) |
 | `pyirena-contrast` | Scattering Contrast Calculator |
+| `pyirena-datamanip` | Data Manipulation tool (standalone) |
+| `pyirena-saxsmorph` | SAXS Morph tool (standalone) |
+| `pyirena-mcp` | MCP server for AI assistants (stdio) — see [AI integration](#ai-integration-mcp) |
+| `pyirena-zmq` | ZMQ service for remote/beamline orchestration ([docs](docs/zmq_service.md)) |
+| `pyirena-doctor` | Install/startup diagnostics |
+
+`[project.scripts]` in `pyproject.toml` is the authoritative list.
 
 ---
 
@@ -103,8 +110,9 @@ can be a Size Distribution, Unified Fit Level, or Diffraction Peak. Fits the com
 model to experimental data using least-squares optimization.
 
 - **5 distribution functions**: Gaussian, LogNormal, LSW, Schulz-Zimm, Ardell
-- **9 form factors**: Sphere, Spheroid, Cylinder (aspect ratio / fixed length),
-  Core-Shell Sphere and Spheroid (by core R / shell t / total R)
+- **10 form factors**: Sphere, Spheroid, Cylinder (aspect ratio / fixed length),
+  Core-Shell Sphere (by core R / shell t / total R), Core-Shell-Shell Sphere,
+  Core-Shell Spheroid (by core R / total R)
 - **2 structure factors**: Born-Green interferences, Hard Sphere (Percus-Yevick)
 - Monte Carlo uncertainty estimation
 - [Modeling GUI guide](docs/modeling_gui.md)
@@ -123,9 +131,11 @@ Four inversion methods: MaxEnt, Regularization, TNNLS, and Monte Carlo.
 - [Size Distribution methods](docs/sizes_methods.md)
 
 ### Simple Fits
-13 direct analytical models: Guinier, Guinier-Porod, Porod, Sphere, Spheroid,
-Debye-Bueche, Teubner-Strey, Power Law, and more. Each with linearization plots
-and Monte Carlo uncertainty estimation.
+15 direct analytical models: Guinier (sphere, rod, sheet), Porod, Power Law,
+Debye polymer chain, Sphere, Spheroid, Debye-Bueche, Teubner-Strey,
+Benedetti-Ciccariello, Hermans, Hybrid Hermans, Unified Born-Green, and the
+Invariant calculation. Each fit has linearization plots and Monte Carlo
+uncertainty estimation.
 
 - [Simple Fits GUI guide](docs/simple_fits_gui.md)
 

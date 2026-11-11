@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 from typing import Optional
 
 import h5py
@@ -36,6 +37,8 @@ from pyirena.api.schemas import (
     array_to_list,
 )
 from pyirena.io.h5open import open_h5
+
+log = logging.getLogger(__name__)
 
 
 def _silent_call(fn, *args, **kwargs):
@@ -613,6 +616,7 @@ def read_merge_provenance(path: str) -> dict:
                             val = val.decode("utf-8", errors="replace")
                         result.extra[key] = val
                 except Exception:
+                    log.debug("Result field %r unreadable", key, exc_info=True)
                     continue
     except OSError:
         pass
@@ -659,6 +663,7 @@ def read_manipulation_provenance(path: str) -> dict:
                             val = float(val)
                         result.parameters[key] = val
                 except Exception:
+                    log.warning("Result parameter %r unreadable; omitted", key, exc_info=True)
                     continue
     except OSError:
         pass

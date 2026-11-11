@@ -32,10 +32,15 @@ def fit_waxs_peaks_from_config(
     """Fit WAXS diffraction peaks using parameters from a pyIrena config file.
 
     Reads the ``'waxs_peakfit'`` section from a JSON config file and calls
-    :func:`fit_waxs_peaks`.  The ``with_uncertainty`` and ``n_mc_runs``
-    parameters are accepted for API consistency with :func:`fit_unified` and
-    :func:`fit_sizes` but are not yet used (WAXS uncertainty comes from the
-    ``curve_fit`` covariance matrix, not Monte Carlo).
+    :func:`fit_waxs_peaks`.
+
+    **Uncertainties.** Every WAXS fit returns the ``curve_fit`` covariance
+    1σ of each parameter (``peaks_std``, ``bg_params_std``, and the peak
+    areas' σ); there is no Monte-Carlo estimate for WAXS. ``with_uncertainty``
+    and ``n_mc_runs`` are in the signature because
+    :func:`pyirena.batch.pipeline.fit_pyirena` passes them to every tool; asking for uncertainty here is
+    logged and the result says which estimate it carries
+    (``uncertainty_method: 'covariance'``).
 
     This function is also exported as :func:`fit_waxs` for convenience.
 
@@ -51,9 +56,10 @@ def fit_waxs_peaks_from_config(
         Write fitted results to ``entry/waxs_peakfit_results`` in the HDF5
         file (default ``True``).
     with_uncertainty : bool, optional
-        Accepted for API compatibility; not currently used.
+        No effect on the numbers: the covariance σ are always returned. When
+        True, that is logged so a caller expecting Monte-Carlo is told.
     n_mc_runs : int, optional
-        Accepted for API compatibility; not currently used.
+        Not used — WAXS has no Monte-Carlo uncertainty.
 
     Returns
     -------
@@ -79,14 +85,19 @@ def fit_waxs_peaks_from_config(
         log.info(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
         return {'success': False, 'message': msg}
 
-    wp_cfg = config.get('waxs_peakfit')
-    if wp_cfg is None:
-        msg = f"No 'waxs_peakfit' section in '{config_file.name}'"
+    # The one envelope reader (AGENTS.md invariant 6): every wrapper pyIrena
+    # writes, and the envelope's fit_q_range, as analyze() reads them.
+    from pyirena.core.tool_config import ConfigError, build_setup, unwrap_config
+    try:
+        _, wp_cfg, _ = unwrap_config(config, 'waxs_peakfit')
+        setup = build_setup(config, 'waxs_peakfit')
+    except ConfigError as exc:
+        msg = f"'{config_file.name}': {exc}"
         log.info(f"[pyirena.batch.fit_waxs_peaks_from_config] {msg}")
         return {'success': False, 'message': msg}
 
-    q_min = wp_cfg.get('q_min')
-    q_max = wp_cfg.get('q_max')
+    q_min = setup.fit_q_min
+    q_max = setup.fit_q_max
 
     result = fit_waxs_peaks(
         data_file=data_file,
@@ -103,6 +114,11 @@ def fit_waxs_peaks_from_config(
 
     if not result.get('success'):
         result.setdefault('message', result.get('error', 'fit failed'))
+    else:
+        result['uncertainty_method'] = 'covariance'
+        if with_uncertainty:
+            log.info("[pyirena.batch.fit_waxs] WAXS uncertainties are the curve_fit "
+                     "covariance values already in the result; n_mc_runs does not apply.")
 
     return result
 
@@ -154,11 +170,6 @@ def fit_waxs_peaks(
     _ensure_console()
     from pyirena.core.waxs_peakfit import (
         WAXSPeakFitModel,
-        cross_corr_q_shift,
-        default_bg_params,
-        eval_model,
-        find_peaks_in_data,
-        presearch_q0_per_peak,
     )
     from pyirena.io.hdf5 import readGenericNXcanSAS
 
@@ -171,9 +182,8 @@ def fit_waxs_peaks(
         ext = data_file.suffix.lower()
         if ext in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            from pyirena.state.state_manager import StateManager
-            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
-            h5_file = ensure_nxcansas_sibling(data_file, q_unit=q_unit)
+            from pyirena.state.state_manager import text_import_settings
+            h5_file = ensure_nxcansas_sibling(data_file, **text_import_settings())
             data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)
         else:
             data = readGenericNXcanSAS(str(data_file.parent), data_file.name)
@@ -188,86 +198,35 @@ def fit_waxs_peaks(
 
     q   = np.asarray(data['Q'],        float)
     I   = np.asarray(data['Intensity'], float)
-    dI  = np.asarray(data.get('Error', np.ones_like(I) * np.nan), float)
+    dI  = data.get('Error')
+    dI  = np.asarray(dI, float) if dI is not None else None     # no Idev: fine
 
-    # ── Q range crop ─────────────────────────────────────────────────────────
-    mask = np.isfinite(q) & np.isfinite(I) & (q > 0)
-    if q_min is not None:
-        mask &= q >= q_min
-    if q_max is not None:
-        mask &= q <= q_max
-    q_, I_ = q[mask], I[mask]
-    dI_    = dI[mask] if dI is not None else None
-
-    if len(q_) < 5:
-        if verbose:
-            log.info("  [fit_waxs_peaks] Too few data points in Q range.")
-        return None
-
-    # ── Build model config ────────────────────────────────────────────────────
-    bg_shape  = config.get('bg_shape', 'Constant')
-    no_limits = config.get('no_limits', False)
-    bg_params = config.get('bg_params', default_bg_params(bg_shape))
-    peaks     = config.get('peaks', [])
-
-    # Auto-find peaks if none provided and peak_find config given
-    if not peaks and 'peak_find' in config:
-        pf = config['peak_find']
-        peaks = find_peaks_in_data(
-            q_, I_,
-            prominence_frac=pf.get('prominence',    0.05),
-            min_fwhm=       pf.get('min_fwhm',      0.001),
-            max_fwhm=       pf.get('max_fwhm',      0.5),
-            min_distance=   pf.get('min_distance',  0.005),
-            sg_window_frac= pf.get('sg_window_frac', 0.15),
-        )
-        if verbose:
-            log.info(f"  [fit_waxs_peaks] Auto-found {len(peaks)} peak(s).")
-
-    if not peaks:
-        if verbose:
-            log.info("  [fit_waxs_peaks] No peaks defined; fitting background only.")
-        peaks = []
-
-    # ── Q0 pre-search ─────────────────────────────────────────────────────────
-    ps = config.get('presearch', {})
-    run_cc   = bool(ps.get('cross_corr',    False))
-    run_scan = bool(ps.get('per_peak_scan', False))
-    if peaks and (run_cc or run_scan):
-        ps_window = float(ps.get('search_window', 0.05))
-        ps_steps  = int(  ps.get('n_steps',       50))
-        if run_cc:
-            I_model = eval_model(q_, bg_shape, bg_params, peaks, I=I_)
-            shift   = cross_corr_q_shift(q_, I_, I_model, max_shift=ps_window)
-            if abs(shift) > 1e-6:
-                import copy as _cp
-                peaks = _cp.deepcopy(peaks)
-                # Only shift Q0 of peaks where Q0['fit'] is True; locked
-                # Q0s stay where the user set them.
-                for pk in peaks:
-                    if bool(pk.get("Q0", {}).get("fit", True)):
-                        pk["Q0"]["value"] = float(pk["Q0"]["value"]) + shift
-                if verbose:
-                    log.info(f"  [fit_waxs_peaks] Cross-corr. shift applied: {shift:+.4f} Å⁻¹")
-        if run_scan:
-            peaks = presearch_q0_per_peak(
-                q_, I_, bg_shape, bg_params, peaks,
-                search_window=ps_window, n_steps=ps_steps,
-            )
-            if verbose:
-                log.info(f"  [fit_waxs_peaks] Per-peak Q0 scan done "
-                      f"(window=±{ps_window:.3f} Å⁻¹, steps={ps_steps}).")
-
-    # ── Fit ───────────────────────────────────────────────────────────────────
-    weight_mode = config.get('weight_mode', 'standard')
-    engine = WAXSPeakFitModel(bg_shape=bg_shape, peaks=peaks, no_limits=no_limits)
+    # ── Fit: the shared WAXS runner, as the API ──────────────────────────────
+    # Prunes peaks outside the range, auto-finds peaks when none are given
+    # and the config has a peak_find block, runs the Q0 pre-search, applies
+    # the shared point rule (it crashed on files without uncertainties).
+    from pyirena.core.fit_runner import run_waxs
+    from pyirena.state.state_manager import text_import_settings
+    model = WAXSPeakFitModel.from_dict(config)
     try:
-        result = engine.fit(q_, I_, dI_ if (dI_ is not None and np.any(np.isfinite(dI_))) else None,
-                            bg_params=bg_params, peaks=peaks, weight_mode=weight_mode)
+        run = run_waxs(model, q, I, dI, q_min=q_min, q_max=q_max,
+                       error_fraction=text_import_settings()["error_fraction"],
+                       weight_mode=config.get('weight_mode', 'standard'),
+                       presearch=config.get('presearch') or None,
+                       peak_find=config.get('peak_find') or None)
     except Exception as exc:
         if verbose:
             log.error(f"  [fit_waxs_peaks] Fit error: {exc}")
         return None
+    if len(run.data.q) < 5:
+        if verbose:
+            log.info("  [fit_waxs_peaks] Too few data points in Q range.")
+        return None
+    if verbose:
+        for note in run.notes:
+            log.info(f"  [fit_waxs_peaks] {note}")
+    result = run.result
+    q_, I_, dI_ = run.data.q, run.data.intensity, run.data.error
 
     if verbose:
         status = "OK" if result.get('success') else "FAILED"

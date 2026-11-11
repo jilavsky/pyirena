@@ -7,7 +7,6 @@ import os
 
 import h5py
 import numpy as np
-import six  #what is this for???
 
 from pyirena.io.h5open import open_h5
 
@@ -155,7 +154,8 @@ def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
             )
 
         # Check for error column; generate from intensity if absent
-        if data.shape[1] >= 3:
+        error_generated = data.shape[1] < 3
+        if not error_generated:
             error = data[:, 2]
         else:
             error = I * error_fraction
@@ -177,6 +177,8 @@ def readTextFile(path, filename, error_fraction=0.05, q_unit='1/A'):
             'Intensity': I,
             'Error': error,
             'dQ': dQ,
+            # True when Error was made up as I × error_fraction (no column).
+            'error_generated': error_generated,
         }
 
     except Exception as e:
@@ -769,8 +771,8 @@ def saveNXcanSAS(Sample,path, filename):
         f.attrs['creator']          = 'Matilda NeXus writer'
         f.attrs['Matilda_version']  = '1.0.0' # version 2025-07-06
         f.attrs['NeXus_version']    = '4.3.0' #2025-5-9 4.3.0 is rc, it is current.
-        f.attrs['HDF5_version']     = six.u(h5py.version.hdf5_version)
-        f.attrs['h5py_version']     = six.u(h5py.version.version)
+        f.attrs['HDF5_version']     = h5py.version.hdf5_version
+        f.attrs['h5py_version']     = h5py.version.version
 
         # now create the NXentry group called entry if does not exist
         if 'entry' not in f:

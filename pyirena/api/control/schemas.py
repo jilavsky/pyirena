@@ -50,9 +50,10 @@ TOOL_SCHEMAS: list[dict] = [
             "is in the request rather than on the machine running pyIrena "
             "(a remote service, a notebook, a reduction pipeline). Returns a "
             "session_id that works with every other tool. Points with Q<=0 or "
-            "I<=0 are removed and non-positive uncertainties repaired, the "
-            "same cleaning a text file gets; the counts come back in "
-            "summary.cleaning. Sessions made this way have no source file, so "
+            "a non-finite Q/I are removed; points with I<=0 are KEPT (real "
+            "negative values of background-subtracted data); non-positive "
+            "uncertainties are repaired to error_fraction x |I|. The counts "
+            "come back in summary.cleaning. Sessions made this way have no source file, so "
             "save_* needs an explicit output_path."
         ),
         "input_schema": {
@@ -566,6 +567,18 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "n_mc_runs": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "Monte-Carlo uncertainty refits after the fit; 0 = none. "
+                        "Refits the fitted model (links, limits, slit smearing) to data perturbed by the measured sigma - the GUI's Analyze Results. random_seed makes it reproducible; each parameter then carries a std. Needs measured uncertainties. Each run is a "
+                        "full refit, so this multiplies the call time - mind a "
+                        "remote client's timeout. The reply's 'uncertainty' block "
+                        "says how many refits succeeded; get_parameter_uncertainties "
+                        "returns the values again later."
+                    ),
+                },
                 "no_limits": {
                     "type": "boolean",
                     "description": (
@@ -707,14 +720,23 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "name": "get_parameter_uncertainties",
         "description": (
-            "Return parameter uncertainties from the last fit. "
-            "Note: this tool does not compute uncertainties — it returns a "
-            "placeholder. Monte-Carlo uncertainties are available from the "
-            "batch API (pyirena.batch.fit_unified) and from the GUI."
+            "Return parameter uncertainties from the last fit, for any fitting "
+            "tool. Monte-Carlo values when the last run_*_fit was called with "
+            "n_mc_runs > 0 (method 'monte_carlo', with n_ok of n_runs); "
+            "otherwise the covariance std for Simple Fits and WAXS Peak Fit "
+            "(method 'covariance'), Carbon's own estimate, or available: false "
+            "with how to get them."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"session_id": {"type": "string"}},
+            "properties": {
+                "session_id": {"type": "string"},
+                "include_arrays": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Size Distribution only: also return the per-bin distribution_std.",
+                },
+            },
             "required": ["session_id"],
         },
     },
@@ -782,6 +804,18 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "n_mc_runs": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "Monte-Carlo uncertainty refits after the fit; 0 = none. "
+                        "Passed to the tool's run_*_fit (Unified, Sizes, Simple Fits, Modeling; Carbon uses its own n_mc_runs). WAXS reports covariance uncertainties and ignores it, saying so in analyze.notes. Needs measured uncertainties. Each run is a "
+                        "full refit, so this multiplies the call time - mind a "
+                        "remote client's timeout. The reply's 'uncertainty' block "
+                        "says how many refits succeeded; get_parameter_uncertainties "
+                        "returns the values again later."
+                    ),
+                },
                 "data": {
                     "type": "object",
                     "description": (
@@ -1088,6 +1122,18 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "n_mc_runs": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "Monte-Carlo uncertainty refits after the fit; 0 = none. "
+                        "Perturbs with the sigma the fit weights by (fractional error / error scale honoured), the GUI's Calc. Uncertainty; returns rg_std, volume_fraction_std, peak_r_std. random_seed makes it reproducible. Needs measured uncertainties unless fractional error is on. Each run is a "
+                        "full refit, so this multiplies the call time - mind a "
+                        "remote client's timeout. The reply's 'uncertainty' block "
+                        "says how many refits succeeded; get_parameter_uncertainties "
+                        "returns the values again later."
+                    ),
+                },
                 "session_id": {"type": "string"},
                 "random_seed": {"type": ["integer", "null"]},
             },
@@ -1316,6 +1362,22 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "n_mc_runs": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "Monte-Carlo uncertainty refits after the fit; 0 = none. "
+                        "Replaces the covariance std of each parameter with the Monte-Carlo one, as the GUI's uncertainty button does. Needs measured uncertainties. Each run is a "
+                        "full refit, so this multiplies the call time - mind a "
+                        "remote client's timeout. The reply's 'uncertainty' block "
+                        "says how many refits succeeded; get_parameter_uncertainties "
+                        "returns the values again later."
+                    ),
+                },
+                "random_seed": {
+                    "type": "integer",
+                    "description": "Seed for the Monte-Carlo perturbations, for reproducible uncertainties.",
+                },
                 "session_id": {"type": "string"},
                 "no_limits": {
                     "type": "boolean",
@@ -1638,6 +1700,22 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "n_mc_runs": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "Monte-Carlo uncertainty refits after the fit; 0 = none. "
+                        "Local refits of the fitted model to perturbed data - the GUI's Calc. Uncertainty. Slow with many populations. Needs measured uncertainties. Each run is a "
+                        "full refit, so this multiplies the call time - mind a "
+                        "remote client's timeout. The reply's 'uncertainty' block "
+                        "says how many refits succeeded; get_parameter_uncertainties "
+                        "returns the values again later."
+                    ),
+                },
+                "random_seed": {
+                    "type": "integer",
+                    "description": "Seed for the Monte-Carlo perturbations, for reproducible uncertainties.",
+                },
                 "no_limits": {
                     "type": "boolean",
                     "description": (
@@ -1926,6 +2004,17 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "presearch": {
+                    "type": "object",
+                    "description": (
+                        "Optional Q0 pre-search before the fit, as the GUI's "
+                        "Pre-search options: {cross_corr: bool, per_peak_scan: "
+                        "bool, search_window: float (1/A, default 0.05), "
+                        "n_steps: int (default 50)}. Runs on the fitted range. "
+                        "Peaks whose Q0 lies outside the fit range are removed "
+                        "before fitting either way (reported in warnings)."
+                    ),
+                },
                 "no_limits": {
                     "type": "boolean",
                     "description": (

@@ -4,6 +4,7 @@ These are the first calls an AI agent makes to orient itself.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,9 @@ from pyirena.api._paths import resolve_safe_file, resolve_safe_folder
 from pyirena.api.schemas import FileEntry, FileInspection, FolderSummary
 from pyirena.io.h5open import open_h5
 from pyirena.io.schema import available_tools
+
+log = logging.getLogger(__name__)
+
 
 _DEFAULT_GLOBS = ("*.h5", "*.hdf5", "*.hdf", "*.nx", "*.nxs")
 _VALID_SORT = frozenset({"name_asc", "name_desc", "mtime_asc", "mtime_desc",
@@ -63,7 +67,7 @@ def _sample_name(f: h5py.File) -> Optional[str]:
                 if s:
                     return s
             except Exception:
-                pass
+                log.debug("sample-name lookup failed in %s", path, exc_info=True)
     # Try a root attribute
     for attr in ("sample", "sample_name", "title"):
         if attr in f.attrs:
@@ -75,7 +79,7 @@ def _sample_name(f: h5py.File) -> Optional[str]:
                 if s:
                     return s
             except Exception:
-                pass
+                log.debug("sample-name attribute %s unreadable", attr, exc_info=True)
     # The data sub-entry name itself is often the sample name
     if "entry" in f:
         entry = f["entry"]
@@ -275,7 +279,9 @@ def inspect_file(path: str) -> dict:
                                     inspection.q_min = float(q_arr.min())
                                     inspection.q_max = float(q_arr.max())
             except Exception:
-                pass
+                # Best effort, but say so: a broken file otherwise looks like
+                # one with no reduced data.
+                log.warning("Could not inspect reduced data in %s", path, exc_info=True)
 
             # A few interesting root attrs (creator, instrument)
             for key in ("creator", "instrument", "file_time"):

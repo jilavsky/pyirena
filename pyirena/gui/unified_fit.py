@@ -13,6 +13,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
+import copy
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -61,6 +62,7 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import (
     attach_plot_export,
     save_plot_image,
@@ -2056,7 +2058,20 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self._auto_update_timer.timeout.connect(self._do_auto_update)
 
         self.init_ui()
+        self._jobs = FitJobRunner(self, lock=self._job_locked_widgets())
         self.load_state()
+
+    def _job_locked_widgets(self) -> list:
+        """Controls that must not start anything while a fit/MC job runs."""
+        widgets = [
+            self.fit_button, self.graph_unified_button, self.fix_limits_button,
+            self.results_graphs_button, self.revert_button, self.store_data_button,
+            self.load_setup_button, self.import_params_button, self.reset_button,
+            self.analyze_results_button, self.num_levels_spin,
+        ]
+        for lw in self.level_widgets:
+            widgets += [lw.fit_rg_g_button, lw.fit_p_b_button, lw.copy_move_button]
+        return widgets
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -2865,7 +2880,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             _USE_RESCALED_RESIDUALS = True
 
             if self.data.get('Error') is not None:
-                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self._residual_sigma()
             else:
                 norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
@@ -2908,6 +2923,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def run_fit(self):
         """Run the unified fit."""
+        if self._jobs.busy:          # a fit/MC job is already running
+            return
         if self.data is None:
             self.graph_window.show_error_message("No data loaded. Please load data first.")
             return
@@ -2951,20 +2968,22 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # model to the (smeared) data and returns ideal-space parameters.
             self._sync_smearing_to_model()
 
-            # Get cursor range and filter data
+            # Get cursor range and filter data. The shared point rule
+            # (core/fit_data.py, issue #38): σ <= 0 is repaired to |I| × the
+            # generated-uncertainty fraction — it used to give that point
+            # ~1e60 weight — and non-finite points are left out.
+            from pyirena.core.fit_data import prepare_fit_arrays, q_range_mask
+            from pyirena.state.state_manager import text_import_settings
             cursor_range = self.graph_window.get_cursor_range()
             if cursor_range is not None:
                 q_min, q_max = cursor_range
-                mask = (self.data['Q'] >= q_min) & (self.data['Q'] <= q_max)
-                q_fit = self.data['Q'][mask]
-                intensity_fit = self.data['Intensity'][mask]
-                error_fit = self.data.get('Error')[mask] if self.data.get('Error') is not None else None
-                num_points = len(q_fit)
-            else:
-                q_fit = self.data['Q']
-                intensity_fit = self.data['Intensity']
-                error_fit = self.data.get('Error')
-                num_points = len(q_fit)
+            prep = prepare_fit_arrays(
+                self.data['Q'], self.data['Intensity'], self.data.get('Error'),
+                text_import_settings(self.state_manager)["error_fraction"],
+                base_mask=(q_range_mask(self.data['Q'], *cursor_range)
+                           if cursor_range is not None else None))
+            q_fit, intensity_fit, error_fit = prep.q, prep.intensity, prep.error
+            num_points = len(q_fit)
 
             # Pre-flight: verify all initial guesses are inside their bounds.
             # scipy least_squares raises a generic ValueError that doesn't name
@@ -3008,7 +3027,57 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             # had to press Fit repeatedly. The walking fit recentres the
             # auto-limits and refits until nothing is pinned — one press now
             # does what several used to.
-            result = self.model.fit_with_limit_walking(q_fit, intensity_fit, error_fit)
+            # Runs on a worker thread (the window stays live; issue #38) and on
+            # a copy, because the GUI keeps redrawing from self.model meanwhile.
+            trial = copy.deepcopy(self.model)
+
+            def job(progress_cb, cancel_cb):
+                return trial, trial.fit_with_limit_walking(q_fit, intensity_fit, error_fit)
+
+            ctx = {
+                'num_levels': num_levels, 'num_points': num_points,
+                'cursor_range': cursor_range,
+                'q_min': cursor_range[0] if cursor_range is not None else None,
+                'q_max': cursor_range[1] if cursor_range is not None else None,
+            }
+            self._jobs.start(job, lambda out: self._finish_fit(out, ctx),
+                             on_error=self._fit_failed, button=self.fit_button,
+                             busy_text="Fitting…")
+
+        except Exception as e:
+            self.graph_window.show_error_message(f"Error during fitting: {str(e)}")
+            self.status_label.setText("Fit failed")
+            import traceback
+            traceback.print_exc()
+
+    def _residual_sigma(self):
+        """The data's σ for residual display, σ <= 0 repaired as for the fit
+        (core/fit_data.py, issue #38) so one zero-σ point cannot make the
+        residual axis infinite. Call only when the data have an Error array."""
+        from pyirena.state.state_manager import text_import_settings
+        I = np.asarray(self.data['Intensity'], dtype=float)
+        sig = np.array(self.data['Error'], dtype=float)
+        bad = ~np.isfinite(sig) | (sig <= 0)
+        sig[bad] = np.abs(I[bad]) * text_import_settings(self.state_manager)["error_fraction"]
+        sig[sig <= 0] = np.nan              # I = 0 and no σ: show no residual
+        return sig
+
+    def _fit_failed(self, message: str):
+        """A background fit raised."""
+        self.graph_window.show_error_message(f"Error during fitting: {message}")
+        self.status_label.setText("Fit failed")
+
+    def _finish_fit(self, out, ctx):
+        """Apply a finished background fit (GUI thread)."""
+        trial, result = out
+        # Copy the fitted state into the panel's model object rather than
+        # replacing it, so anything holding self.model keeps the same object.
+        self.model.__dict__.update(trial.__dict__)
+        num_levels = ctx['num_levels']
+        num_points = ctx['num_points']
+        cursor_range = ctx['cursor_range']
+        q_min, q_max = ctx['q_min'], ctx['q_max']
+        try:
             self.fit_result = result
 
             # Update GUI with fitted values and reset limits around them
@@ -3045,7 +3114,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             _USE_RESCALED_RESIDUALS = True
 
             if self.data.get('Error') is not None:
-                norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                norm_residuals = (self.data['Intensity'] - intensity_calc) / self._residual_sigma()
             else:
                 norm_residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
@@ -3500,6 +3569,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             'use_slit_smearing': (bool(self.slit_smear_check.isChecked())
                                   if hasattr(self, 'slit_smear_check') else False),
             'slit_length': float(getattr(self, '_slit_length', 0.0) or 0.0),
+            'load_slit_smeared': self.slit_state_keys()['load_slit_smeared'],
         }
         return state
 
@@ -3786,7 +3856,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             # Residuals
             if self.data.get('Error') is not None:
-                residuals = (self.data['Intensity'] - intensity_calc) / self.data['Error']
+                residuals = (self.data['Intensity'] - intensity_calc) / self._residual_sigma()
             else:
                 residuals = (self.data['Intensity'] - intensity_calc) / self.data['Intensity']
 
@@ -3814,7 +3884,14 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
             self.status_label.setText("Reset to defaults")
 
     def analyze_results(self):
-        """Monte Carlo uncertainty analysis on Gaussian-randomised data."""
+        """Monte Carlo uncertainty analysis on Gaussian-randomised data.
+
+        Runs on a worker thread with progress; clicking the button again
+        cancels, keeping the refits that finished.
+        """
+        if self._jobs.busy:
+            self._jobs.cancel()
+            return
         if self.data is None:
             self.graph_window.show_error_message("No data loaded.")
             return
@@ -3823,107 +3900,88 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 "No fit result available. Run Fit first, then Analyze Results."
             )
             return
-        if self.data.get('Error') is None:
-            self.graph_window.show_error_message(
-                "Data has no uncertainties — cannot run Monte Carlo analysis."
-            )
-            return
-
         N_RUNS = self.n_runs_spin.value()
         num_levels = self.num_levels_spin.value()
         no_limits = self.no_limits_check.isChecked()
-        fit_background = self.fit_background_check.isChecked()
-        background_init = float(self.background_value.text() or 0)
 
-        # Capture current (fitted) level parameters once — used as starting point
-        # for every MC run so we always start from the same initial guess.
-        level_params_list = [self.level_widgets[i].get_parameters() for i in range(num_levels)]
-
-        # Full Q / I / Error arrays
-        Q = self.data['Q']
-        I_orig = self.data['Intensity']
-        Error = self.data['Error']
+        # Refit exactly the model Fit uses (run_fit): same fit flags and
+        # limits, links ON, and the slit smearing of the loaded data. Until
+        # 1.2.1 this refit dropped the links and the slit smearing, so smeared
+        # data got pinhole refits and the error bars described another model.
+        self.sync_rgcutoff_links()
+        self._sync_smearing_to_model()
+        mc_model = UnifiedFitModel(num_levels=num_levels)
+        mc_model.levels = [
+            UnifiedLevel.from_panel_params(
+                self.level_widgets[i].get_parameters(), with_limits=not no_limits)
+            for i in range(num_levels)
+        ]
+        mc_model.background = float(self.background_value.text() or 0)
+        mc_model.fit_background = self.fit_background_check.isChecked()
+        mc_model.use_slit_smearing = self.model.use_slit_smearing
+        mc_model.slit_length = self.model.slit_length
 
         # Apply cursor Q range
+        Q = self.data['Q']
         cursor_range = self.graph_window.get_cursor_range()
         if cursor_range is not None:
             q_min, q_max = cursor_range
             mask = (Q >= q_min) & (Q <= q_max)
         else:
             mask = np.ones(len(Q), dtype=bool)
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            Q, self.data['Intensity'], self.data.get('Error'),
+            text_import_settings(self.state_manager)["error_fraction"], base_mask=mask)
+        q_mc, I_mc, err_mc = prep.q, prep.intensity, prep.error
+        # No measured uncertainties: perturb with I × the Data Selector's
+        # "Generated uncertainty fraction" (the user's σ); refits keep the
+        # main fit's weighting.
+        from pyirena.state.state_manager import generated_noise_sigma
+        noise = generated_noise_sigma(I_mc, err_mc, self.state_manager)
 
-        q_fit = Q[mask]
-        I_fit_orig = I_orig[mask]
-        err_fit = Error[mask]
+        def job(progress_cb, cancel_cb):
+            return mc_model.calculate_uncertainty_mc(
+                q_mc, I_mc, err_mc, n_runs=N_RUNS, noise_sigma=noise,
+                progress_cb=progress_cb, cancel_cb=cancel_cb)
 
-        # Storage for MC results
-        mc = {
-            'background': [],
-            'G':    [[] for _ in range(num_levels)],
-            'Rg':   [[] for _ in range(num_levels)],
-            'B':    [[] for _ in range(num_levels)],
-            'P':    [[] for _ in range(num_levels)],
-            'ETA':  [[] for _ in range(num_levels)],
-            'PACK': [[] for _ in range(num_levels)],
-        }
+        def progress(n_done, n_runs):
+            self.status_label.setText(f"Monte Carlo: run {n_done}/{n_runs} …")
 
-        for run in range(N_RUNS):
-            self.status_label.setText(f"Monte Carlo: run {run + 1}/{N_RUNS} …")
-            QApplication.processEvents()
+        self.status_label.setText(f"Monte Carlo: 0/{N_RUNS} …")
+        self._jobs.start(job, lambda mc: self._finish_mc(mc, num_levels, N_RUNS),
+                         on_error=lambda m: self.graph_window.show_error_message(
+                             f"Monte Carlo failed: {m}"),
+                         on_progress=progress, button=self.analyze_results_button,
+                         cancellable=True, busy_text="Cancel MC")
 
-            # Randomise intensities within uncertainties (Gaussian, σ = 1×Error)
-            I_noisy = I_fit_orig + np.random.normal(0.0, 1.0, len(q_fit)) * err_fit
-            # Clip to positive values to avoid numerical issues
-            I_noisy = np.maximum(I_noisy, 1e-30)
-
-            # Build model from current (pre-MC) GUI parameters
-            levels = []
-            for i in range(num_levels):
-                p = level_params_list[i]
-                # Monte-Carlo uncertainties re-fit the *same* setup, so the fit
-                # flags and bounds come across; the links are left off to match
-                # the pre-MC model the errors are quoted against.
-                lv = UnifiedLevel.from_panel_params(
-                    p, with_limits=not no_limits, with_links=False)
-                levels.append(lv)
-
-            mc_model = UnifiedFitModel(num_levels=num_levels)
-            mc_model.levels = levels
-            mc_model.background = background_init
-            mc_model.fit_background = fit_background
-
-            try:
-                result = mc_model.fit(q_fit, I_noisy, err_fit)
-                if not result.get('success', False):
-                    continue
-                mc['background'].append(result['background'])
-                for i in range(num_levels):
-                    fitted_lv = result['levels'][i]
-                    mc['G'][i].append(fitted_lv.G)
-                    mc['Rg'][i].append(fitted_lv.Rg)
-                    mc['B'][i].append(fitted_lv.B)
-                    mc['P'][i].append(fitted_lv.P)
-                    mc['ETA'][i].append(fitted_lv.ETA)
-                    mc['PACK'][i].append(fitted_lv.PACK)
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)  # Failed runs are silently skipped
-
-        # --- Compute statistics ---
+    def _finish_mc(self, mc, num_levels, N_RUNS):
+        """Store a finished (or cancelled) Monte-Carlo run (GUI thread)."""
+        cancelled = self._jobs.cancelled
         self.fit_uncertainties = self._empty_uncertainties()
-        n_success = len(mc['background'])
-
-        if n_success > 1:
-            self.fit_uncertainties['background'] = float(np.std(mc['background'], ddof=1))
+        n_success = mc['n_ok']
+        if mc['available']:
+            unc = mc['uncertainties']
+            self.fit_uncertainties['background'] = unc['background']
             for i in range(num_levels):
-                ud = self.fit_uncertainties['levels'][i]
-                for key in ('G', 'Rg', 'B', 'P', 'ETA', 'PACK'):
-                    vals = mc[key][i]
-                    ud[key] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+                self.fit_uncertainties['levels'][i].update(unc['levels'][i])
 
         # --- Restore original model and replot ---
         self.graph_unified()
 
-        msg = (f"Monte Carlo analysis complete: {n_success}/{N_RUNS} successful runs. "
+        if not mc['available']:
+            self.status_label.setText(f"MC analysis: {n_success}/{N_RUNS} runs OK")
+            self.graph_window.show_error_message(
+                f"Monte Carlo uncertainties not computed: {mc['reason']}.")
+            return
+
+        what = (f"cancelled after {mc.get('n_done', n_success)} of {N_RUNS} runs, "
+                f"{n_success} successful" if cancelled
+                else f"{n_success}/{N_RUNS} successful runs")
+        if mc.get('sigma_source') == 'generated':
+            what += " (σ = I × generated-uncertainty fraction; data have no uncertainties)"
+        msg = (f"Monte Carlo analysis complete: {what}. "
                f"Uncertainties updated — click 'Results to graphs' to display.")
         self.status_label.setText(
             f"MC analysis: {n_success}/{N_RUNS} runs OK"
@@ -4393,6 +4451,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
     def closeEvent(self, event):
         """Handle window close - auto-save state."""
+        self._jobs.shutdown()
         state = self._collect_state()
         self.state_manager.update('unified_fit', state)
         self.state_manager.save()

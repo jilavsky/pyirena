@@ -550,6 +550,31 @@ fit object's internal ones — and `pyirena.core.reporting` renders it.  Add the
 tool's section there rather than formatting text in the panel, so the panel,
 the Data Selector report and the MCP `export_fit_report` cannot drift apart.
 
+**Every fit panel** — fits and Monte-Carlo run off the GUI thread:
+
+```python
+from pyirena.gui.fit_worker import FitJobRunner
+
+self._jobs = FitJobRunner(self, lock=[self.fit_btn, self.mc_btn, ...])
+
+def job(progress_cb, cancel_cb):            # worker thread: no widgets here
+    return model_copy.calculate_uncertainty_mc(q, I, dI, n_runs=n,
+                                               progress_cb=progress_cb,
+                                               cancel_cb=cancel_cb)
+
+self._jobs.start(job, on_done=self._finish_mc, on_progress=self._show_progress,
+                 button=self.mc_btn, cancellable=True, busy_text='Cancel MC')
+```
+
+Collect every input from widgets *before* `start()`, give the job copies of
+anything the GUI may redraw from meanwhile, and apply the result in `on_done`
+(GUI thread). A second click on a cancellable button calls
+`self._jobs.cancel()`; `closeEvent` calls `self._jobs.shutdown()`; tests call
+`self._jobs.wait()`. Never pump the event loop with
+`QApplication.processEvents()` from inside a long computation — it lets a
+second click start a second fit inside the first.
+`pyirena/tests/test_gui_fit_worker_contract.py` enforces both rules.
+
 **Every panel** — state methods use one naming convention, so a helper can call
 them and a reader of one panel knows the next:
 

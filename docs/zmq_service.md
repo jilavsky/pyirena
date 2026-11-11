@@ -270,10 +270,12 @@ Without the helper client, each of those is one `send_string` of
 | `label` | name for the curve, used in reports |
 | `is_slit_smeared`, `slit_length` | slit-smeared data; `slit_length` in Å⁻¹ |
 
-The data is cleaned exactly as a text file would be: points with Q ≤ 0 or
-I ≤ 0 (beamstop zeros, direct-beam rows) and any non-finite value are removed,
-and non-positive uncertainties are replaced by `error_fraction × I`. **The
-counts come back** in `summary.cleaning`, so nothing is dropped silently:
+The data get the fitting tools' shared point rule: points with Q ≤ 0
+(direct-beam rows) and any non-finite value are removed; **points with I ≤ 0
+are kept** — real negative values of background-subtracted data, which
+must not be dropped one-sidedly (until 1.2.1 they were); non-positive
+uncertainties are replaced by `error_fraction × |I|`. **The counts come
+back** in `summary.cleaning`, so nothing is dropped silently:
 
 ```json
 {"session_id": "a1b2c3d4",

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Monte-Carlo uncertainties over the API, MCP and ZMQ** (#28, #38).
+  `run_fit`, `run_sizes_fit`, `run_simple_fit` and `run_modeling_fit` take
+  `n_mc_runs` (0 = off, the default, because Monte-Carlo can outrun a remote
+  client's timeout) and run the same estimate as the GUI and
+  `pyirena.batch`, seeded by `random_seed`. `get_parameter_uncertainties` is
+  no longer a Unified Fit placeholder: it returns the last fit's
+  uncertainties for every tool, saying whether they are Monte-Carlo (with how
+  many refits succeeded) or covariance values. `export_results` carries the
+  same `uncertainty` block, `analyze()` takes `n_mc_runs`, and
+  `save_fit` stores Unified Fit's Monte-Carlo uncertainties as the GUI does.
+- **Fits no longer freeze the window** (#38). Unified Fit, Size Distribution,
+  Simple Fits, the Carbon model and WAXS Peak Fit now run their fit — and
+  Monte-Carlo uncertainties — on a background thread, as Modeling already
+  did. While one runs, the other action buttons are disabled, so a second
+  click can no longer start a second fit inside the first (possible before in
+  Unified Fit and WAXS). The Monte-Carlo uncertainty buttons show progress
+  and become **Cancel MC** while running; cancelling keeps the refits that
+  finished. The Carbon model's Stop button keeps working. A single fit cannot
+  be interrupted (scipy's optimisers have no cancel hook), but it no longer
+  blocks the window.
+- WAXS batch results say their uncertainties are covariance values
+  (`uncertainty_method: "covariance"`); `with_uncertainty=True` is logged
+  rather than silently ignored.
+
 ### Fixed
 
 - **Reading HDF5 files from a network drive (SSHFS-Win) could return another
@@ -26,6 +52,159 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Collect Values and Multi-Collect open each file once instead of once for the
   X value and again for the Y value(s), which halves the opens over a slow
   network drive.
+- **SAXS Morph reported an Euler-Poincaré characteristic of 0 for every
+  structure unless scikit-image happened to be installed** (#38). scikit-image
+  is in no pyIrena extra, so on a standard install the missing package was
+  reported as χ = 0, which is a real topology (a torus) rather than an error.
+  χ is now computed directly with numpy (6-connected, the same convention as
+  before); it agrees exactly with scikit-image on 300 random test volumes.
+  Morphology results saved by earlier versions without scikit-image carry
+  χ = 0 regardless of the structure.
+
+- **Unified Fit "Analyze Results" (Monte-Carlo uncertainties) refitted
+  slit-smeared data with a pinhole model, and without the links the fit
+  used** (#38). The error bars therefore described a different model from the
+  one whose parameters they were quoted against. The Monte-Carlo refits now
+  use exactly the model Fit uses: same fit flags and limits, links on, and the
+  data's slit smearing. Uncertainties change for slit-smeared data and for
+  setups with linked B / RgCO.
+- `run_sizes_fit(random_seed=…)` (api/MCP/ZMQ) did not make the Monte Carlo
+  inversion reproducible: it seeded NumPy's global generator, which that
+  method does not use. The seed now reaches the inversion.
+
+- **Scattering Contrast: an isotope override that could not be honoured was
+  silently replaced by the natural element** (#38). For a deuterated compound
+  that used H's molecular weight and b_c (−3.74 fm instead of +6.67 fm), so
+  the neutron contrast came out with the wrong sign and no warning. An
+  unknown isotope, or one with no tabulated b_c, is now an error. Elements
+  with no neutron b_c or no Chantler X-ray data are still left out of those
+  sums, but now with a warning in the log; the absorption sum used to skip
+  them silently, overestimating the transmission. `get_element_info()` raises
+  a clear `ValueError` for an unknown symbol instead of crashing on an
+  unbound variable.
+
+### Changed
+
+- **Monte-Carlo uncertainties for Unified Fit, Size Distribution and Simple
+  Fits are computed by one implementation per tool in core** (#38), used by
+  the GUI and by `pyirena.batch`. The GUI and batch copies had drifted apart;
+  where they disagreed, this is what they now share, and the numbers that
+  move:
+  - *Size Distribution perturbs the data with the error the fit weights by*:
+    fractional error and error scaling are honoured, as the GUI already did.
+    `batch.fit_sizes(with_uncertainty=True)` used the raw file error, so its
+    error bars change for configs with fractional error or `error_scale ≠ 1`.
+  - *No σ is invented; the user's is used.* For data without measured
+    uncertainties, Monte-Carlo perturbs with I × the Data Selector's
+    "Generated uncertainty fraction" (Configure → Text File Options) — the
+    σ the user chose for such data — instead of a hard-coded 5 % of I. The
+    refits keep the main fit's weighting, so fitted values do not move; the
+    MC error bars scale with the chosen fraction, and every result says
+    whether σ was measured or generated. Unified Fit GUI, which refused MC on
+    such data, now runs it. Over the API/MCP/ZMQ, where there is no such
+    setting, MC is refused for data sent without uncertainties.
+  - At least two refits must succeed; Size Distribution previously quoted a
+    zero uncertainty from a single successful refit.
+  - Every result reports how many refits succeeded, and the core functions
+    take a `seed` for reproducible uncertainties (MC values are therefore not
+    bit-identical with earlier runs, only statistically equivalent).
+- **The Data Selector's "Generated uncertainty fraction" is honoured
+  everywhere** (#38). It is the user's chosen σ for data without
+  uncertainties. `pyirena.batch`, the API, plotting, Data Merge and Data
+  Manipulation converted text files with a fixed 5 % regardless of the
+  setting; they now use it. Modeling (GUI and batch) used a fixed 5 % for an
+  NXcanSAS file with no uncertainty dataset; it now uses the setting too, for
+  the fit weights and for Monte-Carlo, so Modeling MC error bars on such data
+  scale with the chosen fraction (fitted values are unchanged, since a
+  constant fraction only rescales the weights). Converted text files now
+  record the fraction they were made with; a later change of the setting is
+  logged rather than silently ignored (the cached file is not rewritten,
+  because results are stored in it). The conversion note also now counts
+  generated uncertainties correctly for two-column files (it said 0).
+- `pyirena.api.control`: the session lifecycle, fit-Q-range, local
+  Guinier / power-law and feature-detection tools moved from `unified_fit.py`
+  to `data_session.py` (#38). Every name is still importable from
+  `pyirena.api.control` and from `unified_fit`, and MCP/ZMQ list the same
+  tools under the same categories. The per-module copies of the JSON-float and
+  array-thinning helpers became one each in `pyirena.api._json`; arrays the
+  control tools thin "to at most N points" now really stay at or below N
+  (lengths between N and 2N came back unthinned before).
+- Errors that were swallowed silently in the api, batch and core layers are
+  now logged (#38): an unreadable data file in `read_reduced_data` /
+  `inspect_file`, unreadable result parameters, skipped fit-quality metrics
+  in batch Sizes/Modeling saves, and the Modeling fallback from the analytic
+  to the finite-difference Jacobian. Return values are unchanged.
+- **Re-converting a text file no longer wipes the results stored in its
+  `.h5`** (#38). A converted file is rebuilt when the Q-unit setting changed
+  or the text file is newer; the rebuild used to overwrite it, silently
+  discarding every result saved into it. Now, when it holds results, the GUI
+  asks — Recreate (old file kept as `….h5.bak`), Keep existing, or Cancel —
+  and batch, API and plotting back it up and recreate, with a warning.
+- **One fit runner per tool, shared by `pyirena.batch` and the API**
+  (`pyirena/core/fit_runner.py`, #38; design and decisions in
+  `planning/fit-runner/README.md`). An audit of all six fitting tools found
+  ~35 places where the GUI, batch, API and `analyze()` copies of the fit
+  orchestration disagreed. All six tools now run through it:
+  - *Points and σ, one rule everywhere* (`core/fit_data.py`): I ≤ 0 points
+    are kept (array sessions / `analyze()` used to drop them); σ ≤ 0 is
+    repaired to |I| × the generated-uncertainty fraction instead of being
+    clamped to 1e-30, which gave one point a dominant weight.
+  - *Unified Fit batch walks limits* like the GUI and the API, uses the
+    shared slit-smearing rule and reads the config through the one envelope
+    reader (so `export_results` replies and the envelope's `fit_q_range` work
+    in batch too). Fits that reached a bound in batch now walk past it.
+  - *Size Distribution*: API sessions now slit-smear slit-smeared data (they
+    never did) and run one Monte Carlo inversion repetition like the GUI
+    (the core default of 10 made the session result a 10-run average). An
+    empty power-law Q window in a replayed config falls back to the cursor
+    range like the GUI, not the whole curve. Configs' `montecarlo_convergence`
+    / `montecarlo_max_iter` and the old `mcsas` method name are read again;
+    missing MaxEnt/TNNLS iteration limits default to 1000 like the GUI (was
+    300). Batch saves its fit-quality metrics with the smeared background
+    when smearing is on.
+  - *Simple Fits*: batch honours `no_limits` (it was ignored, so a config
+    exported with "No limits?" was fitted bounded), reads the config through
+    the envelope reader, and keeps σ ≤ 0 points (repaired) instead of
+    dropping them. The Invariant's background pre-fit is replayed on every
+    path, including API sessions.
+  - *Modeling*: batch builds its configuration with the one shared
+    translator (it had its own copy) and reads the envelope; slit settings
+    follow the shared rule. A config without a Q range is fitted over the
+    data's own range everywhere (the API replay cropped to 0.001–1 Å⁻¹, and
+    batch failed on a `null` range). `batch.fit_modeling(n_mc_runs=None)`
+    now takes the config's `n_mc_runs` — the argument's 10 used to win.
+  - *WAXS Peak Fit*: every path removes peaks whose Q0 lies outside the
+    fitted range before fitting (only the GUI did; reported), and the API
+    session fit can run the Q0 pre-search (`run_waxs_fit(presearch=…)`) — it
+    never did. Batch no longer crashes on files without uncertainties and
+    reads the envelope's Q range.
+  - *Carbon model*: batch honours `no_limits` (ignored before) and runs
+    Monte-Carlo only when asked for (a config's stored `n_mc_runs` used to
+    switch it on); API sessions keep the model's weighting unless told
+    otherwise (it was overwritten with `auto`), and report MC results as
+    Monte-Carlo rather than covariance; a one-sided Q range in a bare model
+    dict (`q_max = 0` meaning "none") is no longer lost.
+  - A config file that has the pyIrena header but no section for the tool
+    being run is refused with an error; batch used to fit an all-defaults
+    model from it.
+  - *GUI*: the six fitting panels apply the same point rule (σ ≤ 0
+    repaired, I ≤ 0 kept — Simple Fits used to drop them); Unified Fit's
+    residual plot no longer fails on a zero-σ point. Data handed to Modeling
+    by the Data Selector without uncertainties get the generated fraction
+    (it was a fixed 5 %). Saved and exported setups record
+    `load_slit_smeared` when the file's slit-smeared copy is loaded, so a
+    batch replay fits the same data instead of smearing the model against
+    the desmeared copy; Simple Fits and Modeling setups carry the slit
+    settings at all for the first time.
+- Dependency floors corrected (#38): `scipy>=1.13` (the first SciPy built for
+  NumPy 2, which pyIrena already required) and `PySide6>=6.6`. The `six`
+  dependency is removed; it wrapped two strings in a no-op. Saved files are
+  unchanged.
+- The broken `pyirena/examples/basic_demo.py` (it imported modules that no
+  longer exist) is replaced by `pyirena/examples/unified_fit_demo.py`, which
+  is the demo formerly at the bottom of `core/unified.py`.
+- README: the entry-point table lists all ten console scripts, and the Simple
+  Fits (15) and form-factor (10) counts match the code.
 
 ## [1.2.1] - 2026-11-01
 

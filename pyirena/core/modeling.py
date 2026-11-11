@@ -2558,6 +2558,11 @@ class ModelingEngine:
                                 self._residuals, x_seed_, jac=self._jacobian,
                                 **ls_common)
                         except Exception:
+                            # Analytic Jacobian failed; refit with finite
+                            # differences from the same seed (same answer,
+                            # slower) — logged so the slowdown is explained.
+                            log.debug("Analytic Jacobian failed; using finite "
+                                      "differences", exc_info=True)
                             self._unpack_params(
                                 np.asarray(x_seed_, dtype=float), keys, cfg)
                     return least_squares(

@@ -254,7 +254,12 @@ def unwrap_config(config: Dict, tool: Optional[str] = None
         env.fit_q_min, env.fit_q_max = _q_range_of(config.get("fit_q_range"))
         return tool, model, env
 
-    # 5. A bare section, passed with the tool named.
+    # 5. A bare section, passed with the tool named. A dict carrying the
+    #    '_pyirena_config' header is a wrapper, never a bare section: one with
+    #    no matching section must be refused, or a config file for another
+    #    tool (or an empty one) is fitted as an all-defaults model.
+    if PYIRENA_CONFIG_HEADER in config:
+        raise ConfigError(f"Config has no '{tool}' section.")
     if detected is None or detected == tool:
         return tool, config, env
 
@@ -519,13 +524,21 @@ def sizes_model_from_config(state: Dict, *, data_is_slit_smeared: bool = False,
     s.power_law_B        = float(state.get("power_law_B", 0.0))
     s.power_law_P        = float(state.get("power_law_P", 4.0))
     s.method             = str(state.get("method", "regularization"))
+    if s.method == "mcsas":                      # old name, as the GUI maps it
+        s.method = "montecarlo"
     s.maxent_sky_background  = float(state.get("maxent_sky_background", 1e-6))
     s.maxent_stability       = float(state.get("maxent_stability", 0.01))
-    s.maxent_max_iter        = int(state.get("maxent_max_iter", 300))
+    # Defaults match the GUI and the core (1000); this reader used 300.
+    s.maxent_max_iter        = int(state.get("maxent_max_iter", 1000))
     s.regularization_evalue  = float(state.get("regularization_evalue", 1.0))
     s.regularization_min_ratio = float(state.get("regularization_min_ratio", 1e-4))
     s.tnnls_approach_param   = float(state.get("tnnls_approach_param", 0.95))
-    s.tnnls_max_iter         = int(state.get("tnnls_max_iter", 300))
+    s.tnnls_max_iter         = int(state.get("tnnls_max_iter", 1000))
+    # Read like the GUI's _apply_state (they were dropped here, issue #38).
+    s.montecarlo_convergence = float(state.get("montecarlo_convergence")
+                                     or state.get("mcsas_convergence", 1.0))
+    s.montecarlo_max_iter    = int(state.get("montecarlo_max_iter")
+                                   or state.get("mcsas_max_iter", 100000))
     # The main fit always uses a single MC run, matching the GUI.
     s.montecarlo_n_repetitions = 1
 
@@ -618,8 +631,22 @@ def simple_model_from_config(state: Dict) -> Tuple[Any, Dict[str, float]]:
 # ---------------------------------------------------------------------------
 
 def modeling_model_from_config(state: Dict):
+    """The ``modeling`` section as a ModelingConfig — the one translator.
+
+    ``pyirena.batch`` used to build its own; its one deliberate quirk is kept
+    here so no existing pipeline changes: a size-distribution population
+    whose config omits ``enabled`` is treated as disabled (GUI-written
+    configs always carry the key). A missing Q range is filled with the
+    data's own range by the runner (``core.fit_runner.run_modeling``), not
+    with ``ModelingConfig``'s 0.001–1 Å⁻¹ default.
+    """
     from pyirena.core.modeling import ModelingConfig
-    return ModelingConfig.from_dict(state)
+    cfg = ModelingConfig.from_dict(state)
+    for pop, pd in zip(cfg.populations, state.get("populations") or [], strict=False):
+        if isinstance(pd, dict) and pd.get("pop_type", "size_dist") == "size_dist" \
+                and "enabled" not in pd:
+            pop.enabled = False
+    return cfg
 
 
 def waxs_model_from_config(state: Dict):
@@ -694,8 +721,14 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
             setup.fit_q_max = section.get("q_max")
         elif tool == "carbon_fit":
             setup.model = carbon_model_from_config(section)
-            setup.fit_q_min = section.get("q_min")
-            setup.fit_q_max = section.get("q_max")
+            # Panel-level keys first, else the model's own; in a model dict
+            # 0 means "no limit" — reading it as a bound lost a one-sided
+            # range (issue #38).
+            model_d = section.get("model") if isinstance(section.get("model"), dict) else section
+            lo = section.get("q_min", model_d.get("q_min"))
+            hi = section.get("q_max", model_d.get("q_max"))
+            setup.fit_q_min = lo if lo else None
+            setup.fit_q_max = hi if hi else None
     except ConfigError:
         raise
     except Exception as exc:
@@ -751,8 +784,16 @@ def build_setup(config: Dict, tool: Optional[str] = None, *,
 # Both pre-fits deliberately use the FULL curve, not the fitted Q range: the
 # windows are chosen independently of the fit cursors, exactly as the GUI does.
 
-def apply_sizes_prefits(model, section: Dict, q, intensity) -> list:
-    """Run the Size Distribution pre-fits a config requests. Returns notes."""
+def apply_sizes_prefits(model, section: Dict, q, intensity,
+                        fit_q_min=None, fit_q_max=None) -> list:
+    """Run the Size Distribution pre-fits a config requests. Returns notes.
+
+    The power-law pre-fit re-runs whenever ``fit_power_law_B/P`` is checked
+    (the GUI's "Fit Cmplx. Bckg. & Sizes"). With no power-law Q window it
+    falls back to the size-fit cursor range (*fit_q_min/max*), as the GUI
+    does — it used the whole curve here (decision D4,
+    ``planning/fit-runner/README.md``).
+    """
     import numpy as np
 
     notes: list = []
@@ -762,7 +803,8 @@ def apply_sizes_prefits(model, section: Dict, q, intensity) -> list:
         lo = section.get("power_law_q_min")
         hi = section.get("power_law_q_max")
         if lo is None or hi is None:
-            lo, hi = float(np.min(q)), float(np.max(q))
+            lo = fit_q_min if fit_q_min is not None else float(np.min(q))
+            hi = fit_q_max if fit_q_max is not None else float(np.max(q))
         try:
             result = model.fit_power_law(q, intensity, float(lo), float(hi),
                                          fit_B=fit_B, fit_P=fit_P)
@@ -855,23 +897,22 @@ def apply_simple_bg_prefit(model, fixed_params: Optional[Dict], q, intensity) ->
 
 def apply_prefits(setup: "ToolSetup", section: Dict,
                   q_full, intensity_full, q_fit=None, intensity_fit=None) -> list:
-    """Run whatever pre-fit steps *setup*'s tool defines. Returns notes.
+    """Run the config-driven pre-fit steps that precede the runner. Returns notes.
 
-    The tools disagree about which data a pre-fit should see, and each is
-    right. The Size Distribution background windows are chosen independently
-    of the size-fit cursors, so they read the **full** curve, and so does the
-    Simple Fits background pre-fit that the Invariant depends on. The WAXS
-    peak presearch is re-centring the peaks that are about to be fitted, so
-    it reads only the **fitted** range — scanning Q0 across data the fit will
-    never see would move a peak towards a feature outside the window.
+    Only the Size Distribution background windows remain here; they read the
+    **full** curve, since they are chosen independently of the size-fit
+    cursors. The other pre-fit steps moved into the shared runners
+    (``core/fit_runner.py``, issue #38), so every path runs them, once:
+    the Simple Fits Invariant background replay (full curve) in
+    ``run_simple``, the WAXS Q0 pre-search (fitted range, after pruning
+    out-of-range peaks) in ``run_waxs``. *q_fit*/*intensity_fit* are
+    accepted for compatibility and unused.
     """
-    if q_fit is None:
-        q_fit, intensity_fit = q_full, intensity_full
     if setup.tool == "sizes":
-        return apply_sizes_prefits(setup.model, section, q_full, intensity_full)
-    if setup.tool == "waxs_peakfit":
-        return apply_waxs_presearch(setup.model, section, q_fit, intensity_fit)
-    if setup.tool == "simple_fits":
-        return apply_simple_bg_prefit(setup.model, setup.fixed_params,
-                                      q_full, intensity_full)
+        return apply_sizes_prefits(setup.model, section, q_full, intensity_full,
+                                   setup.fit_q_min, setup.fit_q_max)
+    # WAXS: the Q0 pre-search is run by core.fit_runner.run_waxs itself
+    # (after pruning out-of-range peaks), on every path (issue #38).
+    # Simple Fits: the Invariant's background replay is done by
+    # core.fit_runner.run_simple itself, on every path (issue #38).
     return []

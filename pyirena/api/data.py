@@ -1,6 +1,7 @@
 """Raw I(Q) reading and sample metadata for the api surface."""
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import numpy as np
@@ -9,6 +10,8 @@ from pyirena.api._paths import resolve_safe_file
 from pyirena.api.schemas import ReducedData, SampleMetadata, array_to_list
 from pyirena.io.h5open import open_h5
 from pyirena.io.hdf5 import readGenericNXcanSAS
+
+log = logging.getLogger(__name__)
 
 
 def read_reduced_data(
@@ -34,6 +37,9 @@ def read_reduced_data(
     try:
         data = readGenericNXcanSAS(str(file_p.parent), file_p.name)
     except Exception:
+        # Still reported as found=False, but a file that exists and cannot be
+        # read is logged, not confused with a missing one.
+        log.warning("Could not read scattering data from %s", file_p, exc_info=True)
         return result.to_dict()
     if data is None:
         return result.to_dict()
@@ -112,7 +118,7 @@ def read_metadata(path: str) -> dict:
                     if label:
                         meta.label = str(label)
             except Exception:
-                pass
+                log.debug("Optional metadata unreadable in %s", file_p, exc_info=True)
 
             # Top-level file attributes
             for attr_key, meta_field in (
@@ -135,6 +141,7 @@ def read_metadata(path: str) -> dict:
                         v = v.decode("utf-8", errors="replace")
                     meta.extra[key] = str(v)
                 except Exception:
+                    log.debug("File attribute %r unreadable", key, exc_info=True)
                     continue
     except OSError:
         pass

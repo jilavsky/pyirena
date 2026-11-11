@@ -98,3 +98,34 @@ def is_strict_json(obj: Any) -> bool:
     except (TypeError, ValueError):
         return False
     return True
+
+
+def json_float(value: Any):
+    """Float, or None for missing / non-numeric / non-finite — JSON has no NaN.
+
+    The one copy of a helper every control module used to define for itself
+    (``_f`` / ``_finite``; issue #38).
+    """
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def decimate_for_json(arr: Any, max_points: int = 500) -> list:
+    """Thin an array to **at most** *max_points* values for JSON transport.
+
+    Every ``ceil(n / max_points)``-th point is kept (the same stride
+    ``export_results`` uses), and NaN/inf become None. Arrays of equal length
+    decimate identically, so a Q array and its intensities stay aligned.
+    The control modules' private copies used ``n // max_points``, which
+    returned up to twice the cap.
+    """
+    a = np.asarray(arr, dtype=float)
+    n = len(a)
+    if max_points and max_points > 0 and n > max_points:
+        a = a[::int(math.ceil(n / max_points))]
+    return [v if math.isfinite(v) else None for v in a.tolist()]

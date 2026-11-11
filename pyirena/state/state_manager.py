@@ -914,3 +914,45 @@ class StateManager:
                 merged[key] = value
 
         return merged
+
+
+def text_import_settings(state_manager: Optional["StateManager"] = None) -> Dict[str, Any]:
+    """The Data Selector's text-import choices, as ``ensure_nxcansas_sibling`` kwargs.
+
+    ``{"error_fraction": …, "q_unit": …}`` from *Configure → Text File
+    Options*: the fraction of I used as the uncertainty when a file has none
+    ("Generated uncertainty fraction"), and the Q unit assumed in text files.
+    GUI, batch, api and plotting all convert text files through this, so a
+    file gets the same uncertainties whichever path opens it (batch used to
+    honour the Q unit but always generate 5 %).
+
+    Args:
+        state_manager: An existing StateManager; a fresh one (reading the
+            saved state file) when None.
+    """
+    sm = state_manager if state_manager is not None else StateManager()
+    try:
+        frac = float(sm.get('data_selector', 'error_fraction', 0.05))
+    except (TypeError, ValueError):
+        frac = 0.05
+    if not frac > 0:
+        frac = 0.05
+    return {
+        "error_fraction": frac,
+        "q_unit": sm.get('data_selector', 'q_unit', '1/A') or '1/A',
+    }
+
+
+def generated_noise_sigma(intensity, error=None,
+                          state_manager: Optional["StateManager"] = None):
+    """σ for Monte-Carlo when the data have no uncertainties, else None.
+
+    I × the Data Selector's "Generated uncertainty fraction" — the user's
+    stated σ for such data (issue #38). Returns None when *error* is given,
+    so measured uncertainties always win.
+    """
+    if error is not None:
+        return None
+    import numpy as np
+    frac = text_import_settings(state_manager)["error_fraction"]
+    return np.abs(np.asarray(intensity, dtype=float)) * frac

@@ -70,6 +70,9 @@ SESSION_LIFECYCLE_NAMES = frozenset(
 
 _CATEGORY_BY_MODULE = {
     "unified_fit": "unified",
+    # Q range, local estimators and feature detection moved out of
+    # unified_fit.py (#38) but stay listed where agents already look for them.
+    "data_session": "unified",
     "sizes": "sizes",
     "simple_fits": "simple",
     "modeling": "modeling",
@@ -77,6 +80,7 @@ _CATEGORY_BY_MODULE = {
     "carbon_fit": "carbon",
     "export": "results",
     "analyze": "results",
+    "uncertainty": "results",
 }
 
 _CATEGORY_BLURBS = {
@@ -94,7 +98,9 @@ _CATEGORY_BLURBS = {
         "Results — fit a curve with a saved configuration in one call "
         "(analyze), and export a finished fit as one JSON document "
         "whichever tool produced it (export_results): parameters, "
-        "quality, derived quantities and the config needed to replay it."
+        "quality, derived quantities and the config needed to replay it; "
+        "and the last fit's parameter uncertainties for any tool "
+        "(get_parameter_uncertainties)."
     ),
     "calculators": (
         "Calculators — stateless support calculations that need no dataset "

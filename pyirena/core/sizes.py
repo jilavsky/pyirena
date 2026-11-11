@@ -220,6 +220,7 @@ class SizesDistribution:
         q: np.ndarray,
         intensity: np.ndarray,
         error: Optional[np.ndarray] = None,
+        rng=None,
     ) -> dict:
         """
         Fit a size distribution to the experimental SAS data.
@@ -237,6 +238,10 @@ class SizesDistribution:
             intensity: Measured I(Q) [cm^-1], 1-D.
             error:     Measurement uncertainty [cm^-1], 1-D.
                        If None, generated as ``intensity × 0.05``.
+            rng:       Random source for the stochastic Monte Carlo method —
+                       a ``numpy.random.Generator`` or anything
+                       ``default_rng`` accepts (an int seed).  None = fresh
+                       entropy.  Ignored by the deterministic methods.
 
         Returns:
             dict with keys:
@@ -368,7 +373,8 @@ class SizesDistribution:
             elif method in ('tnnls', 'ipg', 'nnls'):
                 x_raw, n_iter = self._fit_tnnls(G, I, err)
             elif method == 'montecarlo':
-                x_raw, n_iter, x_raw_std = self._fit_montecarlo(G, I, err, r_grid, q=q)
+                x_raw, n_iter, x_raw_std = self._fit_montecarlo(
+                    G, I, err, r_grid, q=q, rng=rng)
             else:
                 return self._fail(f"Unknown method '{self.method}'.")
         except Exception as exc:
@@ -1130,6 +1136,7 @@ class SizesDistribution:
         r_grid: np.ndarray,
         n_reps: Optional[int] = None,
         q: Optional[np.ndarray] = None,
+        rng=None,
     ) -> tuple[np.ndarray, int, Optional[np.ndarray]]:
         """
         Monte Carlo Size Analysis (McSAS) inversion.
@@ -1219,7 +1226,10 @@ class SizesDistribution:
         allowed_idx = np.flatnonzero(allowed_mask)
         n_allowed = allowed_idx.size
 
-        rng = np.random.default_rng()
+        # Never the global np.random state: a seed passed by the caller must
+        # actually reproduce the inversion (api run_sizes_fit(random_seed=…)
+        # used to call np.random.seed, which default_rng() ignores).
+        rng = np.random.default_rng(rng)
         inv_err2 = 1.0 / (err ** 2)               # (M,)
 
         def _scale_factor(g_sum: np.ndarray) -> float:
@@ -1353,6 +1363,128 @@ class SizesDistribution:
         return float(
             np.sqrt(np.trapezoid(self.r_grid ** 2 * self.distribution, self.r_grid) / vf)
         )
+
+    # ── Error model and Monte-Carlo uncertainty ──────────────────────────────
+
+    def effective_error(self, intensity, error):
+        """The 1σ the fit weights by, given this model's error settings.
+
+        Mirrors :meth:`fit`: with ``fractional_error`` on, ``|I| × fraction``
+        (any measured error is ignored); otherwise the measured error times
+        ``error_scale``.  Returns None when there is no measured error and
+        fractional error is off — :meth:`fit` then invents 5 % of I for its
+        weights, but that is not a σ anyone measured or chose.
+        """
+        I = np.asarray(intensity, dtype=float)
+        if self.fractional_error:
+            return np.abs(I) * float(self.fractional_error_value)
+        if error is None:
+            return None
+        err = np.asarray(error, dtype=float)
+        return err * float(self.error_scale) if self.error_scale != 1.0 else err
+
+    def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
+                                 seed=None, progress_cb=None,
+                                 cancel_cb=None, noise_sigma=None) -> dict:
+        """Per-bin and scalar uncertainties by refitting noise-perturbed data.
+
+        Each pass refits a copy of this model to ``I + σ·N(0,1)`` where σ is
+        :meth:`effective_error` — the same σ the fit weights by, so fractional
+        error and error scaling are honoured (until 1.2.1 the GUI did this and
+        ``batch.fit_sizes`` perturbed with the raw error; issue #38).  The
+        refit receives the original *error*, so it applies the same error
+        model as the main fit.  For the Monte Carlo method each pass uses a
+        single internal repetition, as before.
+
+        Args:
+            q, intensity, error: The fitted Q range and its measured σ (may be
+                None only when ``fractional_error`` is on).
+            n_runs: Number of perturbed refits.
+            seed: Seed for the perturbations and for any stochastic refit
+                (Monte Carlo method); None = nondeterministic.
+            progress_cb, cancel_cb, noise_sigma: As for
+                :meth:`UnifiedFitModel.calculate_uncertainty_mc`; *noise_sigma*
+                is used only when there is no effective error.
+
+        Returns:
+            dict with ``available``, ``reason``, ``n_runs``, ``n_ok``,
+            ``seed``, ``sigma_source`` and, when available, ``r_grid``, ``distribution_mean``,
+            ``distribution_std`` (arrays), and ``rg_mean``/``rg_std``,
+            ``volume_fraction_mean``/``volume_fraction_std``,
+            ``peak_r_mean``/``peak_r_std`` (floats).
+        """
+        import copy
+
+        from pyirena.core import mc_uncertainty as mcu
+
+        q = np.asarray(q, dtype=float)
+        I = np.asarray(intensity, dtype=float)
+        n_runs = int(n_runs)
+        if n_runs < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
+        sigma, source, why = mcu.resolve_noise_sigma(
+            self.effective_error(I, error), noise_sigma, len(I))
+        if why:
+            return mcu.not_available(why, n_runs, 0, seed)
+        if self.fractional_error:
+            source = "fractional_error"
+
+        trial = copy.deepcopy(self)
+        if trial.method == 'montecarlo':
+            trial.montecarlo_n_repetitions = 1
+
+        # Independent streams for the noise and for the (stochastic) refits.
+        noise_seed, refit_seed = mcu.child_seeds(seed, 2)
+        noisy = mcu.perturbed_intensities(I, sigma, n_runs, noise_seed)
+        refit_seeds = mcu.child_seeds(refit_seed, n_runs)
+
+        dists, rgs, vfs, peaks = [], [], [], []
+        r_ref = None
+        n_done = 0
+        for I_k, s_k in zip(noisy, refit_seeds, strict=True):
+            if mcu.cancelled(cancel_cb):
+                break
+            try:
+                res = trial.fit(q, I_k, error, rng=s_k)
+            except Exception:
+                res = None
+            n_done += 1
+            mcu.report_progress(progress_cb, n_done, n_runs)
+            if not res or not res.get('success', False):
+                continue
+            dist, r_g = res.get('distribution'), res.get('r_grid')
+            if dist is None or r_g is None:
+                continue
+            if r_ref is None:
+                r_ref = np.asarray(r_g, dtype=float)
+            dists.append(np.asarray(dist, dtype=float))
+            rgs.append(res.get('rg', np.nan))
+            vfs.append(res.get('volume_fraction', np.nan))
+            peaks.append(float(r_g[int(np.argmax(dist))]))
+
+        n_ok = len(dists)
+        if n_ok < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"only {n_ok} of {n_done} perturbed refits succeeded",
+                n_runs, n_ok, seed)
+
+        arr = np.array(dists)
+        out = mcu.base_result(n_runs, n_ok, seed)
+        out.update({
+            'n_done': n_done,
+            'sigma_source': source,
+            'r_grid': r_ref,
+            'distribution_mean': arr.mean(axis=0),
+            'distribution_std': arr.std(axis=0, ddof=1),
+            'rg_mean': float(np.nanmean(rgs)),
+            'rg_std': mcu.std_of(rgs),
+            'volume_fraction_mean': float(np.nanmean(vfs)),
+            'volume_fraction_std': mcu.std_of(vfs),
+            'peak_r_mean': float(np.nanmean(peaks)),
+            'peak_r_std': mcu.std_of(peaks),
+        })
+        return out
 
     def to_dict(self) -> dict:
         """Serialise all parameters (not results) to a plain dict."""

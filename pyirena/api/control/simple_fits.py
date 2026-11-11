@@ -46,6 +46,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import json_float as _f  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -378,7 +379,8 @@ def set_simple_background(session_id: str, enabled: bool = True) -> dict:
 # Fit execution
 # ---------------------------------------------------------------------------
 
-def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
+def run_simple_fit(session_id: str, no_limits: bool = False,
+                   n_mc_runs: int = 0, random_seed: Optional[int] = None) -> dict:
     """Fit the selected model to the data inside the current fit Q range.
 
     Parameters
@@ -386,16 +388,29 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
     no_limits : bool
         Fit unconstrained, ignoring every parameter bound.  Useful when a fit
         stalls against a bound that was only a guess.
+    n_mc_runs : int
+        Monte-Carlo uncertainty refits after the fit; 0 (default) keeps the
+        covariance σ. The same estimate as the GUI's MC uncertainty button
+        and ``batch.fit_simple(with_uncertainty=True)``; the parameters'
+        ``std`` is then the Monte-Carlo value. Needs measured uncertainties.
+    random_seed : int, optional
+        Seed for the Monte-Carlo perturbations (reproducible uncertainties).
 
     Returns
     -------
     dict with success, model, chi_squared, reduced_chi_squared, dof,
-    q_min/q_max, n_data, parameters (value + 1σ) and derived quantities.
+    q_min/q_max, n_data, parameters (value + 1σ), derived quantities,
+    ``uncertainty_method`` and, when n_mc_runs > 0, ``uncertainty``.
     Calculation models (Invariant) are evaluated rather than optimised.
     """
+    from pyirena.api.control import uncertainty as unc
+
     s, err = _require_simple(session_id)
     if err:
         return err
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
 
     mask = fit_mask(s)
     if not np.any(mask):
@@ -404,10 +419,6 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
             suggestion="Call reset_fit_q_range() or widen set_fit_q_range().",
             code="EMPTY_RANGE",
         )
-
-    q_fit = s.q[mask]
-    I_fit = s.intensity[mask]
-    err_fit = s.error[mask] if s.error is not None else None
 
     fixed = _fixed_set(s)
     free = [n for n in s.model.params if n not in fixed]
@@ -420,10 +431,17 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
 
     fixed_params = {n: float(s.model.params[n]) for n in fixed}
 
+    # The shared Simple Fits runner (core/fit_runner.py), as batch: point
+    # rule, Invariant background replay, Monte-Carlo.
+    from pyirena.core.fit_runner import run_simple
     try:
-        result = s.model.fit(q_fit, I_fit, err_fit,
-                             fixed_params=fixed_params or None,
-                             no_limits=bool(no_limits))
+        run = run_simple(s.model, s.q, s.intensity, s.error,
+                         q_min=s.fit_q_min, q_max=s.fit_q_max,
+                         fixed_params=fixed_params or None, no_limits=bool(no_limits),
+                         error_fraction=getattr(s, "error_fraction", 0.05),
+                         n_mc_runs=n_mc_runs, seed=random_seed)
+        result = run.result
+        q_fit = run.data.q
     except Exception as exc:  # pragma: no cover - defensive
         return make_error(
             f"Fit failed with exception: {exc}",
@@ -441,6 +459,21 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
     # Fitted values become the new starting point, as in the GUI.
     s.model.params.update(result.get("params", {}))
     s.last_fit_result = result
+    s.last_uncertainty = None
+
+    mc_block = None
+    method = unc.COVARIANCE
+    if run.mc is not None:
+        mc = run.mc
+        mc_block = unc.summarize_mc(
+            mc, [{"name": k, "std": unc._f(v)}
+                 for k, v in (mc.get("params_std") or {}).items()])
+        s.last_uncertainty = mc_block
+        if mc.get("available"):
+            # As the GUI does: the MC σ replace the covariance σ, so results,
+            # export and save all report the estimate that was asked for.
+            result["params_std"] = mc["params_std"]
+            method = unc.MONTE_CARLO
 
     return {
         "success": True,
@@ -462,18 +495,10 @@ def run_simple_fit(session_id: str, no_limits: bool = False) -> dict:
         ],
         "derived": {k: _f(v) for k, v in (result.get("derived") or {}).items()},
         "warning": result.get("warning"),
+        "warnings": list(run.notes),
+        "uncertainty_method": None if s.model.is_calculation else method,
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
-
-
-def _f(value):
-    """Float, or None for missing/non-finite — JSON has no NaN."""
-    if value is None:
-        return None
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    return out if np.isfinite(out) else None
 
 
 # ---------------------------------------------------------------------------

@@ -171,7 +171,7 @@ def parse_formula(formula_str: str, mode: str = "atomic_ratio") -> Dict[str, flo
         try:
             f = pt.formula(formula_str)
         except Exception as e:
-            raise ValueError(f"Cannot parse formula '{formula_str}': {e}")
+            raise ValueError(f"Cannot parse formula '{formula_str}': {e}") from e
         return {str(el): float(cnt) for el, cnt in f.atoms.items()}
 
     elif mode == "weight_fraction_elements":
@@ -180,7 +180,7 @@ def parse_formula(formula_str: str, mode: str = "atomic_ratio") -> Dict[str, flo
         try:
             f = pt.formula(formula_str)
         except Exception as e:
-            raise ValueError(f"Cannot parse formula '{formula_str}': {e}")
+            raise ValueError(f"Cannot parse formula '{formula_str}': {e}") from e
         raw = {str(el): float(cnt) for el, cnt in f.atoms.items()}
         # Validate that fractions sum to ~1
         total = sum(raw.values())
@@ -194,8 +194,8 @@ def parse_formula(formula_str: str, mode: str = "atomic_ratio") -> Dict[str, flo
         for sym, wf in raw.items():
             try:
                 M_i = pt.elements.symbol(sym).mass
-            except Exception:
-                raise ValueError(f"Unknown element '{sym}'.")
+            except Exception as exc:
+                raise ValueError(f"Unknown element '{sym}'.") from exc
             element_counts[sym] = wf / M_i
         return element_counts
 
@@ -239,8 +239,9 @@ def _parse_weight_fraction_compounds(formula_str: str) -> Dict[str, float]:
         frac_str = frac_str.rstrip('%').strip()
         try:
             frac = float(frac_str)
-        except ValueError:
-            raise ValueError(f"Cannot parse fraction '{frac_str}' in token '{token}'.")
+        except ValueError as exc:
+            raise ValueError(
+                f"Cannot parse fraction '{frac_str}' in token '{token}'.") from exc
         if frac_str.endswith('%') or (frac > 1.0 and not token.endswith('%')):
             # If fraction looks like a percent value (>1), convert
             if frac > 1.0:
@@ -258,7 +259,7 @@ def _parse_weight_fraction_compounds(formula_str: str) -> Dict[str, float]:
         try:
             f = pt.formula(comp_str)
         except Exception as e:
-            raise ValueError(f"Cannot parse compound formula '{comp_str}': {e}")
+            raise ValueError(f"Cannot parse compound formula '{comp_str}': {e}") from e
 
         M_compound = f.mass  # g/mol of this compound
 
@@ -321,11 +322,7 @@ def compute_compound(
     for sym, cnt in element_counts.items():
         el = pt.elements.symbol(sym)
         if sym in isotope_overrides:
-            try:
-                iso_num = int(isotope_overrides[sym])
-                mass_i = el[iso_num].mass
-            except Exception:
-                mass_i = el.mass
+            mass_i = _isotope(el, sym, isotope_overrides[sym]).mass
         else:
             mass_i = el.mass
         M_mol += cnt * mass_i
@@ -350,7 +347,9 @@ def compute_compound(
         bc = _get_neutron_b_c(sym, isotope_overrides)
         if bc is not None:
             neutron_total_b_fm += cnt * bc
-        # Elements without data contribute 0 (with implicit warning)
+        else:
+            log.warning("Element '%s' has no coherent neutron scattering length; "
+                        "its contribution to the neutron SLD is OMITTED", sym)
 
     neutron_total_b_cm = neutron_total_b_fm * _FM_TO_CM   # [cm per formula-unit]
     neutron_sld_cm2 = neutron_total_b_cm / volume_1mol if volume_1mol > 0 else 0.0
@@ -378,21 +377,37 @@ def compute_compound(
     )
 
 
+def _isotope(el, element_symbol: str, iso_str):
+    """The isotope a user override names, or ValueError.
+
+    An override is an explicit choice (H→2 for deuterium); an isotope that
+    cannot be found must not quietly become the natural element, which
+    changes the molecular weight and, for neutrons, the sign of b_c.
+    """
+    try:
+        return el[int(iso_str)]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ValueError(
+            f"Isotope override {element_symbol}→{iso_str!r} is not a known "
+            f"isotope of {element_symbol}.") from exc
+
+
 def _get_neutron_b_c(element_symbol: str,
                      isotope_overrides: Dict[str, str]) -> Optional[float]:
     """Return coherent neutron scattering length b_c in fm for an element."""
     import periodictable as pt
     el = pt.elements.symbol(element_symbol)
     if element_symbol in isotope_overrides:
-        iso_str = isotope_overrides[element_symbol]
-        try:
-            iso_num = int(iso_str)
-            iso = el[iso_num]
-            if iso.neutron is not None and iso.neutron.b_c is not None:
-                return iso.neutron.b_c
-        except (ValueError, KeyError, AttributeError):
-            pass
-    # Fall back to natural element
+        iso = _isotope(el, element_symbol, isotope_overrides[element_symbol])
+        b_c = getattr(getattr(iso, 'neutron', None), 'b_c', None)
+        if b_c is None:
+            # Falling back to the natural element here would silently swap,
+            # e.g., D (+6.67 fm) for H (−3.74 fm) and flip the contrast.
+            raise ValueError(
+                f"No coherent neutron scattering length is tabulated for "
+                f"{element_symbol}-{isotope_overrides[element_symbol]}.")
+        return b_c
+    # Natural element
     if el.neutron is not None and el.neutron.b_c is not None:
         return el.neutron.b_c
     return None
@@ -485,12 +500,12 @@ def compute_anomalous(
     for sym, cnt in element_counts.items():
         try:
             mu_mass = xraydb.mu_chantler(sym, energy_eV)   # [cm²/g]
-        except Exception:
-            continue
-        import periodictable as pt
-        try:
+            import periodictable as pt
             M_i = pt.elements.symbol(sym).mass
         except Exception:
+            log.warning("Element '%s' not found in Chantler tables; its absorption "
+                        "is OMITTED (transmission is overestimated)", sym,
+                        exc_info=True)
             continue
         w_i = cnt * M_i / comp.mol_weight   # weight fraction of element i
         mu_linear += comp.density * w_i * mu_mass   # [cm⁻¹]
@@ -610,6 +625,8 @@ def compute_anomalous_scan(
                     z = xraydb.atomic_number(sym)
                     f_total_arr = np.full(n_points, float(z))
                 except Exception:
+                    log.warning("Element '%s' not found in Chantler tables nor as "
+                                "atomic number; its contribution to f1 is OMITTED", sym)
                     f_total_arr = np.zeros(n_points)
 
             try:
@@ -617,11 +634,15 @@ def compute_anomalous_scan(
                     [xraydb.mu_chantler(sym, e) for e in energies_eV]
                 )
             except Exception:
+                log.warning("Element '%s' not found in Chantler tables; its "
+                            "absorption is OMITTED from the scan", sym)
                 mu_arr = np.zeros(n_points)
 
             try:
                 M_i = pt.elements.symbol(sym).mass
             except Exception:
+                log.warning("No atomic mass for element '%s'; its absorption is "
+                            "OMITTED from the scan", sym)
                 M_i = 0.0
 
             w_i = cnt * M_i / comp.mol_weight
@@ -671,10 +692,11 @@ def get_element_info(symbol: str) -> Dict[str, object]:
     import periodictable as pt
     try:
         el = pt.elements.symbol(symbol)
-        z = el.number
-        mass = el.mass
-    except Exception:
-        z, mass = 0, 0.0
+    except Exception as exc:
+        # Used to set Z = 0 and then fail on an unbound `el`.
+        raise ValueError(f"Unknown element symbol '{symbol}'.") from exc
+    z = el.number
+    mass = el.mass
     result = {'symbol': symbol, 'Z': z, 'mass': mass, 'neutron_b_c': None}
     if el.neutron is not None:
         result['neutron_b_c'] = el.neutron.b_c

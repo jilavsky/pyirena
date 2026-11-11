@@ -152,7 +152,10 @@ def test_list_and_describe_round_trip():
     assert {"unified", "results"} <= {c["name"] for c in categories}
 
     tools = send({"op": "list_tools", "args": {"category": "results"}})["result"]["tools"]
-    assert [t["name"] for t in tools] == ["analyze", "export_results"]
+    # get_parameter_uncertainties serves every tool, so it sits with the other
+    # tool-independent results tools rather than under Unified Fit (#38).
+    assert [t["name"] for t in tools] == [
+        "analyze", "export_results", "get_parameter_uncertainties"]
 
     schema = send({"op": "describe_tool", "args": {"name": "export_results"}})["result"]
     assert schema["name"] == "export_results"

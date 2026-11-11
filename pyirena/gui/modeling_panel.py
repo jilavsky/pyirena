@@ -2863,6 +2863,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             'q_min':         None,
             'q_max':         None,
             'populations':   [pw.to_full_dict() for pw in self._pop_widgets],
+            # Slit settings, so a replay fits the same data the GUI did
+            # (issue #38); ModelingConfig.from_dict reads the first two.
+            **self.slit_state_keys(),
         }
         if self._data_q is not None:
             q_lo, q_hi = self.graph.get_q_range()
@@ -3081,14 +3084,37 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
     # ── File I/O ─────────────────────────────────────────────────────────────
 
+    def _generated_error(self, I):
+        """σ for data without uncertainties: I × the Data Selector's
+        "Generated uncertainty fraction" (Configure → Text File Options).
+
+        That setting is the user's stated choice of σ, so it is what the fit
+        weights by and what Monte-Carlo perturbs with. Until 1.2.1 Modeling
+        hard-coded 5 % here regardless of the setting (issue #38).
+        """
+        from pyirena.state.state_manager import text_import_settings
+        frac = text_import_settings(self._state)["error_fraction"]
+        return np.abs(np.asarray(I, dtype=float)) * frac
+
+    def _repaired_error(self, I, err):
+        """Measured σ with σ <= 0 points repaired to |I| × the generated
+        fraction (the shared point rule, issue #38) — the core used to floor
+        them at 1e-30, giving one point a dominant weight."""
+        I = np.asarray(I, dtype=float)
+        if err is None:
+            return self._generated_error(I)
+        err = np.array(err, dtype=float)
+        bad = ~np.isfinite(err) | (err <= 0)
+        err[bad] = self._generated_error(I)[bad]
+        return err
+
     def _on_loader_data_loaded(self, data, hdf5_path: str, display_name: str):
         """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
         import numpy as _np
         q   = _np.asarray(data['Q'],        dtype=float)
         I   = _np.asarray(data['Intensity'], dtype=float)
         err = data.get('Error')
-        dI  = (_np.asarray(err, dtype=float)
-               if err is not None else _np.full_like(I, 0.05 * I))
+        dI  = self._repaired_error(I, err)
         self.set_data(q, I, dI,
                       filename=display_name,
                       filepath=hdf5_path,
@@ -3111,7 +3137,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
                 return
             I = _np.asarray(d['Intensity'], dtype=float)
             err = d.get('Error')
-            dI = _np.asarray(err, dtype=float) if err is not None else _np.full_like(I, 0.05 * I)
+            dI = self._repaired_error(I, err)
             self.set_data(_np.asarray(d['Q'], dtype=float), I, dI,
                           filename=Path(fp).name,
                           filepath=str(fp), is_nxcansas=True,
@@ -3138,7 +3164,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         """Accept pre-loaded Q/I/dI arrays (called from Data Selector)."""
         q = np.asarray(q, dtype=float)
         I = np.asarray(I, dtype=float)
-        dI = np.asarray(dI, dtype=float) if dI is not None else I * 0.05
+        # Generated fraction for missing σ (was a fixed 5 % on this entry
+        # point), repaired σ <= 0 — one rule for every way data arrive.
+        dI = self._repaired_error(I, dI)
 
         self._file_path = Path(filepath) if filepath else None
         self._data_q = q
@@ -3454,9 +3482,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             warns = getattr(result, 'fit_warnings', None) or []
             if warns:
                 # Status line gets a compact summary; full text goes to the
-                # console so nothing is lost on long warning lists.
+                # log so nothing is lost on long warning lists.
                 for w in warns:
-                    print(f'Modeling fit warning: {w}')
+                    log.warning(f'Modeling fit warning: {w}')
                 msg += '  ⚠ ' + '  |  '.join(warns)
                 self.graph.set_status(msg, 'warning')
             else:
@@ -3719,6 +3747,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
             'q_min':          mc.q_min,
             'q_max':          mc.q_max,
             'populations':    [_pop_to_dict(p) for p in mc.populations],
+            **self.slit_state_keys(),
         }
         try:
             with open(config_path, 'w', encoding='utf-8') as f:

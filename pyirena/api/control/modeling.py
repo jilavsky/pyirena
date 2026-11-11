@@ -56,6 +56,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import json_float as _f  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -322,17 +323,6 @@ def _bad_param(name: str, pop) -> dict:
         ),
         code="BAD_PARAM",
     )
-
-
-def _f(value):
-    """Float, or None for missing/non-finite — JSON has no NaN."""
-    if value is None:
-        return None
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    return out if np.isfinite(out) else None
 
 
 def _render_image(fig, session_id: str, tag: str, dpi: int) -> tuple[str, str]:
@@ -836,7 +826,8 @@ def set_modeling_q_range(session_id: str, q_min: Optional[float] = None,
 # ---------------------------------------------------------------------------
 
 def run_modeling_fit(session_id: str, fit_method: str = "local",
-                     no_limits: bool = False) -> dict:
+                     no_limits: bool = False, n_mc_runs: int = 0,
+                     random_seed: Optional[int] = None) -> dict:
     """Fit the enabled populations to the data over the model's Q range.
 
     Parameters
@@ -854,15 +845,30 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
         Nelder-Mead solve, so it forces ``fit_method="local"``: differential
         evolution cannot run without finite bounds. The bounds themselves
         are untouched and are back in place after the fit.
+    n_mc_runs : int
+        Monte-Carlo uncertainty refits after the fit; 0 (default) = none.
+        The GUI's "Calc. Uncertainty" estimate
+        (``ModelingEngine.calculate_uncertainty_mc``): local refits of the
+        fitted model to data perturbed by the measured σ. Needs measured
+        uncertainties. Slow for many populations — mind a remote client's
+        timeout.
+    random_seed : int, optional
+        Seed for the Monte-Carlo perturbations (reproducible uncertainties).
 
     Returns
     -------
     dict with success, chi_squared, reduced_chi_squared, dof, n_data, and the
-    fitted value of every free parameter grouped by population.
+    fitted value of every free parameter grouped by population; plus
+    ``uncertainty`` (per-parameter ``std``) when n_mc_runs > 0.
     """
+    from pyirena.api.control import uncertainty as unc
+
     s, err = _require_modeling(session_id)
     if err:
         return err
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
 
     config = s.model
     enabled = [p for p in config.populations if getattr(p, "enabled", True)]
@@ -901,14 +907,18 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
             code="ALL_FIXED",
         )
 
-    error = s.error if s.error is not None else 0.05 * np.abs(s.intensity)
-
-    from pyirena.core.modeling import ModelingEngine  # noqa: PLC0415
-
+    # The shared Modeling runner (core/fit_runner.py), as batch: point rule,
+    # σ = |I| × the session's error_fraction when the data have none (5 %
+    # unless open_dataset_from_data was told otherwise), Monte-Carlo.
+    from pyirena.core.fit_runner import run_modeling
     previous_no_limits = config.no_limits
-    config.no_limits = bool(no_limits)
     try:
-        result = ModelingEngine().fit(config, s.q, s.intensity, error)
+        run = run_modeling(config, s.q, s.intensity, s.error,
+                           q_min=config.q_min, q_max=config.q_max,
+                           error_fraction=getattr(s, "error_fraction", 0.05),
+                           no_limits=bool(no_limits),
+                           n_mc_runs=n_mc_runs, seed=random_seed)
+        result = run.result
     except ValueError as exc:
         return make_error(
             f"Fit failed: {exc}",
@@ -921,15 +931,21 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
             suggestion="Check the population setup; try fit_method='local'.",
             code="FIT_EXCEPTION",
         )
-    finally:
-        # no_limits is a property of this one fit, not of the saved setup.
-        config.no_limits = previous_no_limits
 
     s.last_fit_result = result
     # The engine returns the fitted config; adopt it so follow-up calls see the
     # optimised values (parity with the GUI, where the panel updates in place).
     s.model = result.config
     s.model.no_limits = previous_no_limits
+    s.last_uncertainty = None
+
+    mc_block = None
+    if run.mc is not None:
+        stds = run.mc.get("stds") or {}
+        mc_block = unc.summarize_mc(run.mc, [{"name": k, "std": unc._f(v)}
+                                             for k, v in stds.items()])
+        mc_block["n_ok"] = None
+        s.last_uncertainty = mc_block
 
     return {
         "success": True,
@@ -943,7 +959,8 @@ def run_modeling_fit(session_id: str, fit_method: str = "local",
         "populations": _fitted_population_rows(result),
         "no_limits": bool(no_limits),
         "warnings": ([str(w) for w in getattr(result, 'fit_warnings', None) or []]
-                     + notes),
+                     + notes + list(run.notes)),
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
 
 

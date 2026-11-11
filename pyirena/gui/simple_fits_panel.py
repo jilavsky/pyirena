@@ -8,6 +8,7 @@ interactive single-model fitting of SAS data.
 
 from __future__ import annotations
 
+import copy
 import logging
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import (
     attach_plot_export,
     save_plot_image,
@@ -647,6 +649,13 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         self._fit_col_header_lbl:  QLabel | None = None
 
         self.init_ui()
+        # Fits and MC run on a worker thread (issue #38).
+        self._jobs = FitJobRunner(self, lock=[
+            self.fit_btn, self.prefit_bp_btn, self.prefit_flat_btn,
+            self.graph_model_btn, self.results_to_graph_btn, self.revert_btn,
+            self.store_btn, self.load_setup_btn, self.import_btn, self.reset_btn,
+            self.unc_btn,
+        ])
         self.load_state()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -1467,13 +1476,15 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         I  = self.data['Intensity']
         dI = self.data['Error']
         q_min, q_max = self._get_q_range()
-        mask = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
-        if q_min is not None:
-            mask &= (q >= q_min)
-        if q_max is not None:
-            mask &= (q <= q_max)
-        dI_f = dI[mask] if dI is not None else None
-        return q[mask], I[mask], dI_f
+        # The fitting tools' shared point rule (core/fit_data.py, issue #38):
+        # I <= 0 points are kept (this panel used to drop them), σ <= 0 is
+        # repaired to |I| × the generated-uncertainty fraction.
+        from pyirena.core.fit_data import prepare_fit_arrays, q_range_mask
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            q, I, dI, text_import_settings(self.state_manager)["error_fraction"],
+            base_mask=q_range_mask(q, q_min, q_max))
+        return prep.q, prep.intensity, prep.error
 
     # ── Complex-background prefit ──────────────────────────────────────────────
 
@@ -1675,6 +1686,8 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     # ── Fit ───────────────────────────────────────────────────────────────────
 
     def _run_fit(self):
+        if self._jobs.busy:          # a fit/MC job is already running
+            return
         if self.data is None:
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
@@ -1710,9 +1723,22 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
                                 'Not enough data points in the selected Q range.')
             return
 
-        result = model.fit(q, I, dI,
-                           fixed_params=fixed_params if fixed_params else None,
-                           no_limits=no_limits)
+        # On a worker thread, and on a copy: _collect_model() returns the
+        # panel's own model, which the graph keeps using meanwhile.
+        trial = copy.deepcopy(model)
+
+        def job(progress_cb, cancel_cb):
+            return trial.fit(q, I, dI,
+                             fixed_params=fixed_params if fixed_params else None,
+                             no_limits=no_limits)
+
+        self._jobs.start(job, lambda result: self._finish_fit(result, q, I, dI),
+                         on_error=lambda m: QMessageBox.critical(
+                             self, 'Fit failed', f'Fit failed:\n{m}'),
+                         button=self.fit_btn, busy_text='Fitting…')
+
+    def _finish_fit(self, result, q, I, dI):
+        """Apply a finished background fit (GUI thread)."""
         if not result['success']:
             QMessageBox.critical(self, 'Fit failed',
                                  f"Fit failed:\n{result.get('error', 'Unknown error')}")
@@ -1854,6 +1880,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
     # ── Uncertainty ───────────────────────────────────────────────────────────
 
     def _calculate_uncertainty(self):
+        """MC uncertainty on a worker thread; a second click cancels."""
+        if self._jobs.busy:
+            self._jobs.cancel()
+            return
         if self.data is None:
             QMessageBox.warning(self, 'No data', 'Load data first.')
             return
@@ -1861,36 +1891,51 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             QMessageBox.warning(self, 'No fit', 'Run Fit first.')
             return
 
-        model = self._collect_model()
+        # Copied here, on the GUI thread: the panel keeps editing self.model.
+        model = copy.deepcopy(self._collect_model())
         fixed_params = self._collect_fixed_params()
         no_limits = self.no_limits_check.isChecked()
         q, I, dI = self._get_filtered_data()
         n_runs = self.n_runs_spin.value()
-        dI_safe = dI if dI is not None else np.maximum(I * 0.05, 1e-30)
 
-        mc_params: dict[str, list] = {k: [] for k in self.fit_result['params']}
-        n_ok = 0
-        for _ in range(n_runs):
-            I_pert = I + dI_safe * np.random.randn(len(I))
-            mc_res = model.fit(q, I_pert, dI,
-                               fixed_params=fixed_params if fixed_params else None,
-                               no_limits=no_limits)
-            if mc_res.get('success'):
-                for k in mc_params:
-                    mc_params[k].append(mc_res['params'].get(k, float('nan')))
-                n_ok += 1
+        # Same model, fixed parameters and limits as Fit. Data without
+        # measured uncertainties are perturbed with I × the Data Selector's
+        # "Generated uncertainty fraction" (issue #38). The core works on its
+        # own copies.
+        from pyirena.state.state_manager import generated_noise_sigma
+        noise = generated_noise_sigma(I, dI, self.state_manager)
 
-        if n_ok < 2:
+        def job(progress_cb, cancel_cb):
+            return model.calculate_uncertainty_mc(
+                q, I, dI, n_runs=n_runs, fixed_params=fixed_params or None,
+                no_limits=no_limits, noise_sigma=noise,
+                progress_cb=progress_cb, cancel_cb=cancel_cb)
+
+        self._jobs.start(
+            job, lambda mc: self._finish_uncertainty(mc, n_runs),
+            on_error=lambda m: QMessageBox.warning(self, 'Uncertainty', f'MC failed: {m}'),
+            on_progress=lambda d, n: self.status_label.setText(f'MC uncertainty: {d}/{n} …'),
+            button=self.unc_btn, cancellable=True, busy_text='Cancel MC')
+
+    def _finish_uncertainty(self, mc, n_runs):
+        """Apply a finished (or cancelled) MC run (GUI thread)."""
+        n_ok = mc['n_ok']
+        if not mc['available']:
             QMessageBox.warning(self, 'Uncertainty',
-                                f'Too few successful MC runs ({n_ok}/{n_runs}).')
+                                f"MC uncertainty not computed ({n_ok}/{n_runs} "
+                                f"runs OK): {mc['reason']}.")
+            return
+        if self.fit_result is None:
             return
 
-        stds = {k: float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')
-                for k, v in mc_params.items()}
+        stds = mc['params_std']
         self.fit_result['params_std'] = stds
         self._apply_result_to_widgets(self.fit_result)
+        note = ' — cancelled' if self._jobs.cancelled else ''
+        if mc.get('sigma_source') == 'generated':
+            note += ', σ = I × generated-uncertainty fraction'
         self.status_label.setText(
-            f'MC uncertainty done ({n_ok}/{n_runs} successful runs).')
+            f'MC uncertainty done ({n_ok}/{n_runs} successful runs{note}).')
 
     # ── Store in file ─────────────────────────────────────────────────────────
 
@@ -2311,6 +2356,9 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
             'n_mc_runs': self.n_runs_spin.value(),
             'invariant_porod_tail': self.porod_tail_check.isChecked(),
             'bg_prefit': dict(self.model.bg_prefit or {}),
+            # Slit settings, so a replay fits the same (smeared) data the
+            # GUI did — this state used to carry none (issue #38).
+            **self.slit_state_keys(),
         }
 
     def save_state(self):
@@ -2360,5 +2408,6 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         )
 
     def closeEvent(self, event):
+        self._jobs.shutdown()
         self.save_state()
         super().closeEvent(event)

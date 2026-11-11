@@ -49,6 +49,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import json_float as _finite  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -133,15 +134,6 @@ def _peak_summary(model) -> list:
             "FWHM_L": float(peak.FWHM_L),
         })
     return out
-
-
-def _finite(value) -> Optional[float]:
-    """A JSON-safe float, or None for NaN/inf — agents choke on NaN."""
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return None
-    return v if np.isfinite(v) else None
 
 
 # ---------------------------------------------------------------------------
@@ -510,12 +502,14 @@ def set_carbon_material(
 # Fitting and results
 # ---------------------------------------------------------------------------
 
-def run_carbon_fit(session_id: str, weighting: str = "auto",
+def run_carbon_fit(session_id: str, weighting: Optional[str] = None,
                    n_mc_runs: int = 0, no_limits: bool = False) -> dict:
     """Refine every ticked parameter across the whole Q range at once.
 
     Args:
-        weighting: ``"auto"`` uses the measured uncertainties when they exist
+        weighting: None (default) keeps the model's own weighting — ``"auto"``
+            for a new session, or whatever a restored config set (it used to
+            be overwritten with ``"auto"``). ``"auto"`` uses the measured uncertainties when they exist
             and relative weighting otherwise; ``"sigma"``, ``"relative"`` and
             ``"log"`` force a choice.  Relative weighting is usually right for
             this tool even when errors exist: the fit spans five decades in Q
@@ -539,15 +533,11 @@ def run_carbon_fit(session_id: str, weighting: str = "auto",
         return err
 
     m = s.model
-    if weighting not in ("auto", "sigma", "relative", "log"):
+    if weighting is not None and weighting not in ("auto", "sigma", "relative", "log"):
         return make_error(
             f"Unknown weighting '{weighting}'.",
             suggestion="Choose auto, sigma, relative or log.",
             code="BAD_WEIGHTING")
-    m.weighting = weighting
-    m.n_mc_runs = int(n_mc_runs or 0)
-    m.q_min = float(s.fit_q_min or 0.0)
-    m.q_max = float(s.fit_q_max or 0.0)
 
     mask = fit_mask(s)
     if not np.any(mask):
@@ -556,8 +546,15 @@ def run_carbon_fit(session_id: str, weighting: str = "auto",
             suggestion="Call reset_fit_q_range() or widen set_fit_q_range().",
             code="EMPTY_RANGE")
 
+    # The shared Carbon runner (core/fit_runner.py), as batch.
+    from pyirena.core.fit_runner import run_carbon
     try:
-        result = m.fit(s.q, s.intensity, s.error, no_limits=bool(no_limits))
+        run = run_carbon(m, s.q, s.intensity, s.error,
+                         q_min=s.fit_q_min, q_max=s.fit_q_max,
+                         error_fraction=getattr(s, "error_fraction", 0.05),
+                         weighting=weighting, n_mc_runs=int(n_mc_runs or 0),
+                         no_limits=bool(no_limits))
+        result = run.result
     except ValueError as exc:
         return make_error(str(exc),
                           suggestion="Tick at least one Fit? box with "
@@ -567,10 +564,11 @@ def run_carbon_fit(session_id: str, weighting: str = "auto",
         return make_error(f"Fit failed with exception: {exc}",
                           suggestion="Check the starting values and the Q range.",
                           code="FIT_EXCEPTION")
-    finally:
-        m.n_mc_runs = 0
 
     s.last_fit_result = result
+    # The runner restores the model's own n_mc_runs, so remember what this
+    # fit used — get_parameter_uncertainties reports the method from it.
+    s.carbon_mc_runs = int(n_mc_runs or 0)
     return get_carbon_results(session_id)
 
 

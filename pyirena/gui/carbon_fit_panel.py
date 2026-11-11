@@ -58,6 +58,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.data_loading import DataFileLoaderRow
+from pyirena.gui.fit_worker import FitJobRunner
 from pyirena.gui.plot_export import attach_plot_export
 from pyirena.gui.q_range_ui import QRangeFields
 from pyirena.gui.report_buttons import make_report_buttons
@@ -621,6 +622,13 @@ class CarbonFitPanel(QWidget):
         self._param_backup: dict | None = None     # model state before the last fit
 
         self.init_ui()
+        # The fit runs on a worker thread (issue #38). It writes into
+        # self.model, which the parameter rows are bound to, so the whole
+        # parameter area is locked while it runs; Stop cancels it.
+        self._jobs = FitJobRunner(self, lock=[
+            self.tabs, self.graph_btn, self.fit_btn, self.mc_btn, self.save_btn,
+            self.load_setup_btn, self.import_btn, self.revert_btn, self.reset_btn,
+        ])
         self.load_state()
         self._refresh_all()
 
@@ -1648,30 +1656,12 @@ class CarbonFitPanel(QWidget):
 
     def _on_stop(self):
         self._stop_requested = True
+        self._jobs.cancel()
         self._set_status('Stopping…')
 
-    def _fit_progress(self, iteration: int, chi2: float) -> None:
-        """Progress callback: keeps the Stop button responsive.
-
-        The fit is fast enough (well under a second for a few hundred points)
-        that a worker thread would cost more in complexity than it saves, so
-        the event loop is pumped here instead — the same approach WAXS Peak
-        Fit takes.
-
-        Throttled on the clock rather than on the evaluation count.  A
-        badly-conditioned model can run tens of thousands of evaluations, and
-        a repaint every tenth one made the fit several times slower than the
-        arithmetic it was reporting on.  Ten updates a second is as much as
-        anyone can read.
-        """
-        now = time.monotonic()
-        if now - self._last_progress < 0.1:
-            return
-        self._last_progress = now
+    def _fit_progress(self, iteration, chi2) -> None:
+        """Show fit progress (GUI thread; delivered from the worker)."""
         self._set_status(f'Fitting… {iteration} evaluations, χ² = {chi2:.6g}')
-        pg.QtWidgets.QApplication.processEvents()
-        if self._stop_requested:
-            raise CarbonFitAborted('stopped by the user')
 
     def _on_fit(self):
         self._run_fit(n_mc_runs=0)
@@ -1680,6 +1670,15 @@ class CarbonFitPanel(QWidget):
         self._run_fit(n_mc_runs=int(self.mc_spin.value()))
 
     def _run_fit(self, n_mc_runs: int) -> None:
+        """Fit (and optionally Monte-Carlo) on a worker thread.
+
+        The window stays live; Stop cancels between optimiser evaluations.
+        Until 1.2.1 this ran on the GUI thread and pumped the event loop from
+        the progress callback. Tests and scripts that need the result before
+        going on call ``self._jobs.wait()``.
+        """
+        if self._jobs.busy:
+            return
         if self.data is None:
             QMessageBox.information(self, 'Carbon model', 'Load a data file first.')
             return
@@ -1689,33 +1688,54 @@ class CarbonFitPanel(QWidget):
         # the snapshot is complete — sections, peak list, bounds and Fit? flags
         # — rather than only the values the fitter happened to touch.
         self._param_backup = self.model.to_dict()
-        self.revert_btn.setEnabled(True)
 
         self._stop_requested = False
-        self._last_progress = 0.0
-        self.stop_btn.setEnabled(True)
-        self.fit_btn.setEnabled(False)
-        self.mc_btn.setEnabled(False)
-        try:
-            result = self.model.fit(self.data['Q'], self.data['Intensity'],
-                                    self.data.get('Error'),
-                                    progress=self._fit_progress,
-                                    no_limits=self.no_limits_check.isChecked())
-        except ValueError as exc:
-            self._set_status(str(exc))
-            QMessageBox.warning(self, 'Carbon model', str(exc))
-            return
-        except Exception as exc:
-            self._set_status(f'Fit failed: {exc}')
-            log.error('carbon_fit: fit failed', exc_info=True)
-            QMessageBox.critical(self, 'Carbon model', f'Fit failed:\n{exc}')
-            return
-        finally:
-            self.stop_btn.setEnabled(False)
-            self.fit_btn.setEnabled(True)
-            self.mc_btn.setEnabled(True)
-            self.model.n_mc_runs = 0
+        model = self.model
+        # The shared point rule (core/fit_data.py, issue #38): I <= 0 kept,
+        # σ <= 0 repaired to |I| × the generated-uncertainty fraction. The
+        # model's own Q range still selects the fitted points.
+        from pyirena.core.fit_data import prepare_fit_arrays
+        from pyirena.state.state_manager import text_import_settings
+        prep = prepare_fit_arrays(
+            self.data['Q'], self.data['Intensity'], self.data.get('Error'),
+            text_import_settings(self.state_manager)["error_fraction"])
+        q, I, err = prep.q, prep.intensity, prep.error
+        no_limits = self.no_limits_check.isChecked()
 
+        def job(progress_cb, cancel_cb):
+            # Throttled on the clock: a badly-conditioned model can run tens of
+            # thousands of evaluations, and ten updates a second is as much as
+            # anyone can read.
+            last = [0.0]
+
+            def progress(iteration, chi2):
+                if cancel_cb():
+                    raise CarbonFitAborted('stopped by the user')
+                now = time.monotonic()
+                if now - last[0] >= 0.1:
+                    last[0] = now
+                    progress_cb(int(iteration), float(chi2))
+
+            try:
+                return model.fit(q, I, err, progress=progress, no_limits=no_limits)
+            finally:
+                model.n_mc_runs = 0
+
+        self.stop_btn.setEnabled(True)
+        self._jobs.start(job, self._finish_fit, on_error=self._fit_failed,
+                         on_progress=self._fit_progress, button=self.fit_btn,
+                         busy_text='Fitting…')
+
+    def _fit_failed(self, message: str) -> None:
+        self.stop_btn.setEnabled(False)
+        self.revert_btn.setEnabled(self._param_backup is not None)
+        self._set_status(f'Fit failed: {message}')
+        QMessageBox.warning(self, 'Carbon model', message)
+
+    def _finish_fit(self, result) -> None:
+        """Apply a finished background fit (GUI thread)."""
+        self.stop_btn.setEnabled(False)
+        self.revert_btn.setEnabled(True)
         self.fit_result = result
         self._refresh_all()
         self.graph_window.plot_residuals(result.q, result.residuals)
@@ -2047,6 +2067,7 @@ class CarbonFitPanel(QWidget):
         self._apply_state(state)
 
     def closeEvent(self, event):                     # noqa: N802 (Qt override)
+        self._jobs.shutdown()
         self.save_state()
         super().closeEvent(event)
 

@@ -107,6 +107,22 @@ class SlitSmearingMixin:
         except (ValueError, TypeError, AttributeError):
             return float(getattr(self, "_slit_length", 0.0) or 0.0)
 
+    def slit_state_keys(self) -> dict:
+        """The canonical slit keys for a saved / exported setup.
+
+        ``load_slit_smeared`` records that the file's slit-smeared copy is
+        the one loaded (the checkbox selects it when the file carries both).
+        Without it a replay (``pyirena.batch``, ``analyze``) loaded the
+        desmeared copy and smeared the model against it (issue #38).
+        """
+        checked = bool(self.slit_smear_check.isChecked()) \
+            if hasattr(self, "slit_smear_check") else False
+        return {
+            "use_slit_smearing": checked,
+            "slit_length": float(self.current_slit_length() or 0.0),
+            "load_slit_smeared": bool(checked and getattr(self, "_has_smr_sibling", False)),
+        }
+
     # ── sync from freshly-loaded data ───────────────────────────────────────
     def _refresh_slit_ui_from_data(self, slit_length, is_slit_smeared, filepath) -> None:
         """Sync the controls to freshly loaded data (call from ``set_data``)."""

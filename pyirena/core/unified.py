@@ -1203,9 +1203,11 @@ class UnifiedFitModel:
         factor of 5.  This method automates exactly that loop, so one call
         reaches the interior optimum.
 
-        Only intended for panel-maintained limits.  Batch runs with
-        explicit user limits in the config should call :meth:`fit` directly
-        — those limits are a deliberate constraint, not a moving window.
+        Every path uses it for bounded fits — GUI, batch and API alike, via
+        :func:`pyirena.core.fit_runner.run_unified` (decision D1,
+        ``planning/fit-runner/README.md``): the limits a config carries are
+        the panel's auto-window, reset by *Fix limits* after every fit, not a
+        deliberate constraint. With ``no_limits`` there is nothing to walk.
 
         Args:
             q, intensity, error: As for :meth:`fit`.
@@ -1230,6 +1232,103 @@ class UnifiedFitModel:
                             panel_auto_limits(name, value))
             result = self.fit(q, intensity, error, **fit_kwargs)
         return result
+
+    # ── Monte-Carlo uncertainty ───────────────────────────────────────────
+
+    #: Level parameters whose spread is reported by the MC estimate.
+    MC_LEVEL_KEYS = ('G', 'Rg', 'B', 'P', 'ETA', 'PACK')
+
+    def calculate_uncertainty_mc(self, q, intensity, error, n_runs: int = 10,
+                                 seed=None, progress_cb=None, cancel_cb=None,
+                                 noise_sigma=None, **fit_kwargs) -> Dict:
+        """Monte-Carlo parameter uncertainties, as Irena's "Analyze Results".
+
+        Each pass refits a copy of *this* model — same levels, fit flags,
+        limits, links and slit smearing — to ``I + σ·N(0,1)`` (clipped to
+        positive values), starting from the current parameter values, so the
+        spread describes exactly the model the fit used. Call it on the
+        fitted model. The model itself is not modified.
+
+        Args:
+            q, intensity: The fitted Q range.
+            error: Measured 1σ for those points; also what every refit
+                weights by, as in the main fit (None = unit weights).
+            noise_sigma: σ to perturb with when *error* is None — the
+                caller's explicit choice (the GUI and batch pass I × the
+                "Generated uncertainty fraction"). With neither, the estimate
+                is refused rather than run on an assumed σ.
+            n_runs: Number of perturbed refits.
+            seed: RNG seed for the perturbations; None = nondeterministic.
+            progress_cb: Optional ``callable(n_done, n_runs)``.
+            cancel_cb: Optional ``callable() -> bool``; True stops early and
+                the passes already finished are still used.
+            **fit_kwargs: Passed to :meth:`fit` for every pass (e.g.
+                ``no_limits``), so they match the main fit.
+
+        Returns:
+            dict with ``available``, ``reason``, ``n_runs``, ``n_ok``,
+            ``seed`` and, when available, ``uncertainties`` in the shape
+            ``save_unified_fit_results`` stores:
+            ``{'background': σ, 'levels': [{'G': σ, 'Rg': σ, …}, …]}``.
+        """
+        import copy
+
+        from pyirena.core import mc_uncertainty as mcu
+
+        q = np.asarray(q, dtype=float)
+        intensity = np.asarray(intensity, dtype=float)
+        n_runs = int(n_runs)
+        if n_runs < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"n_runs must be at least {mcu.MIN_SUCCESSFUL_RUNS}", n_runs, 0, seed)
+        sigma, source, why = mcu.resolve_noise_sigma(error, noise_sigma, len(intensity))
+        if why:
+            return mcu.not_available(why, n_runs, 0, seed)
+        error = np.asarray(error, dtype=float) if error is not None else None
+
+        n_lv = self.num_levels
+        start = copy.deepcopy(self)
+        samples: Dict[str, list] = {'background': []}
+        for key in self.MC_LEVEL_KEYS:
+            samples[key] = [[] for _ in range(n_lv)]
+
+        noisy = mcu.perturbed_intensities(intensity, sigma, n_runs, seed,
+                                          floor=mcu.POSITIVE_FLOOR)
+        n_done = 0
+        for I_k in noisy:
+            if mcu.cancelled(cancel_cb):
+                break
+            trial = copy.deepcopy(start)
+            try:
+                res = trial.fit(q, I_k, error, **fit_kwargs)
+            except Exception:
+                res = None
+            n_done += 1
+            mcu.report_progress(progress_cb, n_done, n_runs)
+            if not res or not res.get('success', False):
+                continue
+            samples['background'].append(float(res['background']))
+            for i, lv in enumerate(res['levels'][:n_lv]):
+                for key in self.MC_LEVEL_KEYS:
+                    samples[key][i].append(float(getattr(lv, key)))
+
+        n_ok = len(samples['background'])
+        if n_ok < mcu.MIN_SUCCESSFUL_RUNS:
+            return mcu.not_available(
+                f"only {n_ok} of {n_done} perturbed refits succeeded",
+                n_runs, n_ok, seed)
+
+        out = mcu.base_result(n_runs, n_ok, seed)
+        out['n_done'] = n_done
+        out['sigma_source'] = source
+        out['uncertainties'] = {
+            'background': mcu.std_of(samples['background']),
+            'levels': [
+                {key: mcu.std_of(samples[key][i]) for key in self.MC_LEVEL_KEYS}
+                for i in range(n_lv)
+            ],
+        }
+        return out
 
     def calculate_invariant(self, level_idx: int = 0,
                            q_min: float = 0.0,
@@ -1734,62 +1833,3 @@ def load_data_from_nxcansas(file_path: str,
         'Error': data['Error'],
         'dQ': data['dQ']
     }
-
-
-# Example usage
-if __name__ == "__main__":
-    # Create a simple example with synthetic data
-    print("Unified Fit Model - Example Usage")
-    print("=" * 70)
-
-    # Generate synthetic data (simple power law + Guinier)
-    q = np.logspace(-3, 0, 100)  # 0.001 to 1.0 Å^-1
-
-    # True parameters for level 1
-    true_Rg = 50.0
-    true_G = 1000.0
-    true_P = 4.0
-    true_B = 1e-3
-    true_background = 0.01
-
-    # Generate "measured" intensity
-    model = UnifiedFitModel(num_levels=1)
-    model.levels[0].Rg = true_Rg
-    model.levels[0].G = true_G
-    model.levels[0].P = true_P
-    model.levels[0].B = true_B
-    model.background = true_background
-
-    I_true = model.calculate_intensity(q)
-
-    # Add noise
-    np.random.seed(42)
-    noise = 0.05 * I_true * np.random.randn(len(q))
-    I_measured = I_true + noise
-    I_error = 0.05 * I_true
-
-    # Fit with initial guess
-    fit_model = UnifiedFitModel(num_levels=1)
-    fit_model.levels[0].Rg = 40.0  # Initial guess
-    fit_model.levels[0].G = 800.0
-    fit_model.levels[0].P = 4.0
-    fit_model.levels[0].B = 1e-4
-    fit_model.levels[0].fit_P = False  # Fix P for this example
-    fit_model.background = 0.0
-
-    print("\nPerforming fit...")
-    results = fit_model.fit(q, I_measured, I_error, verbose=1)
-
-    print("\n" + fit_model.get_parameter_summary())
-
-    print("\nTrue vs Fitted Parameters:")
-    print(f"  Rg:  True = {true_Rg:.2f}, Fitted = {fit_model.levels[0].Rg:.2f}")
-    print(f"  G:   True = {true_G:.2f}, Fitted = {fit_model.levels[0].G:.2f}")
-    print(f"  B:   True = {true_B:.4e}, Fitted = {fit_model.levels[0].B:.4e}")
-    print(f"  Bkg: True = {true_background:.4f}, Fitted = {fit_model.background:.4f}")
-
-    # Calculate invariant
-    inv_results = fit_model.calculate_invariant(0)
-    print(f"\nInvariant Q = {inv_results['invariant']:.4e} cm⁻¹ Å⁻³")
-    if inv_results['surface_to_volume'] is not None:
-        print(f"Surface/Volume = {inv_results['surface_to_volume']:.4e} m²/cm³")

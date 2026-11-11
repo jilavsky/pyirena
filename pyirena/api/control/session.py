@@ -47,6 +47,16 @@ class Session:
     # reading it must handle both.
     last_fit_result: Optional[Any] = None
 
+    # Monte-Carlo uncertainty block for last_fit_result (see
+    # api/control/uncertainty.py), or None when none was computed. Every
+    # run_*_fit resets it, so an uncertainty never outlives its fit.
+    last_uncertainty: Optional[dict] = None
+
+    # σ for points whose uncertainty is <= 0, as a fraction of |I| (the
+    # shared data rule, core/fit_data.py). open_dataset_from_data takes it
+    # from its error_fraction argument; 5 % otherwise.
+    error_fraction: float = 0.05
+
 
 _SESSIONS: Dict[str, Session] = {}
 

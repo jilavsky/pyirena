@@ -26,8 +26,8 @@ dependencies:
   - python>=3.10,<3.14
 
   # Core scientific stack — conda gives faster, pre-built binaries than pip
-  - numpy>=1.20
-  - scipy>=1.7
+  - numpy>=2.0
+  - scipy>=1.13
   - h5py>=3.0
   - matplotlib>=3.3
 

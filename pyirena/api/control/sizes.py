@@ -42,6 +42,7 @@ from typing import Optional
 
 import numpy as np
 
+from pyirena.api._json import decimate_for_json as _decimated  # shared helper (#38)
 from pyirena.api.control._images import render_png
 from pyirena.api.control._save import resolve_save_target
 from pyirena.api.control.errors import make_error, no_fit, no_session
@@ -68,16 +69,6 @@ def _require_sizes(session_id: str):
             code="NO_SIZES_MODEL",
         )
     return s, None
-
-
-def _decimated(arr, max_points: int = 500) -> list:
-    """Thin an array to at most max_points for JSON transport (NaN/inf -> None)."""
-    a = np.asarray(arr, dtype=float)
-    n = len(a)
-    if n > max_points:
-        step = max(1, n // max_points)
-        a = a[::step]
-    return [v if np.isfinite(v) else None for v in a.tolist()]
 
 
 def _config_dict(model) -> dict:
@@ -164,6 +155,15 @@ def select_sizes_model(session_id: str, method: str = "maxent") -> dict:
 
     model = SizesDistribution()
     model.method = method
+    # As the GUI and every replay: one internal repetition for the main fit
+    # (uncertainty comes from n_mc_runs). The core default of 10 made a
+    # session's Monte Carlo inversion a 10-run average (issue #38).
+    model.montecarlo_n_repetitions = 1
+    # Slit-smeared data need a smeared kernel, as in the other tools'
+    # select_*_model; Sizes sessions never enabled it (issue #38).
+    if s.is_slit_smeared and s.slit_length > 0:
+        model.use_slit_smearing = True
+        model.slit_length = float(s.slit_length)
     # Background-fit window bookkeeping (consumed by save / get_sizes_config)
     model._pl_q_min = None
     model._pl_q_max = None
@@ -521,20 +521,38 @@ def get_background_preview_image(
 # Fit execution & results
 # ---------------------------------------------------------------------------
 
-def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
+def run_sizes_fit(session_id: str, random_seed: Optional[int] = None,
+                  n_mc_runs: int = 0) -> dict:
     """Run the size-distribution inversion on the current model and data.
 
     The inversion Q-range (set_fit_q_range) is applied first.  The complex
     background is subtracted internally by the model before inversion.
 
+    Parameters
+    ----------
+    random_seed : int, optional
+        Seeds the stochastic Monte Carlo inversion and the uncertainty
+        refits, so a fit can be reproduced exactly.
+    n_mc_runs : int, optional
+        Monte-Carlo uncertainty refits after the fit; 0 (default) = none.
+        The same estimate as the GUI's "Calc. Uncertainty (MC)": data
+        perturbed by the σ the fit weights by (fractional error / error scale
+        honoured). Needs measured uncertainties unless fractional error is on.
+
     Returns
     -------
     dict with keys: success, chi_squared, volume_fraction, rg, peak_r,
-    n_iterations, n_data, message.
+    n_iterations, n_data, message, and ``uncertainty`` (rg_std,
+    volume_fraction_std, peak_r_std, n_ok of n_runs) when n_mc_runs > 0.
     """
+    from pyirena.api.control import uncertainty as unc
+
     s, err = _require_sizes(session_id)
     if err:
         return err
+    n_mc_runs, bad = unc.check_n_mc_runs(n_mc_runs)
+    if bad:
+        return bad
 
     mask = fit_mask(s)
     if not np.any(mask):
@@ -544,15 +562,20 @@ def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
             code="EMPTY_RANGE",
         )
 
-    q_fit = s.q[mask]
-    I_fit = s.intensity[mask]
-    err_fit = s.error[mask] if s.error is not None else None
+    # The seed goes to the inversion's own generator. np.random.seed() used to
+    # be called here, which the Monte Carlo method (default_rng) ignored, so
+    # random_seed reproduced nothing (issue #38).
+    rng = int(random_seed) if random_seed is not None else None
 
-    if random_seed is not None:
-        np.random.seed(int(random_seed))
-
+    # The shared Sizes runner (core/fit_runner.py), as batch.
+    from pyirena.core.fit_runner import run_sizes
     try:
-        result = s.model.fit(q_fit, I_fit, err_fit)
+        run = run_sizes(s.model, s.q, s.intensity, s.error,
+                        q_min=s.fit_q_min, q_max=s.fit_q_max,
+                        error_fraction=getattr(s, "error_fraction", 0.05),
+                        seed=rng, n_mc_runs=n_mc_runs)
+        result = run.result
+        q_fit = run.data.q
     except Exception as exc:  # pragma: no cover - defensive
         return make_error(
             f"Fit failed with exception: {exc}",
@@ -568,6 +591,17 @@ def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
 
     result["random_seed"] = random_seed
     s.last_fit_result = result
+    s.last_uncertainty = None
+
+    mc_block = None
+    if run.mc is not None:
+        mc = run.mc
+        mc_block = unc.summarize_mc(
+            mc, parameters=[],
+            scalars={k: mc.get(k) for k in ("rg_std", "volume_fraction_std",
+                                            "peak_r_std")},
+            distribution_std=mc.get("distribution_std"))
+        s.last_uncertainty = mc_block
 
     dist = result.get("distribution")
     r_grid = result.get("r_grid")
@@ -585,6 +619,8 @@ def run_sizes_fit(session_id: str, random_seed: Optional[int] = None) -> dict:
         "n_data": int(result.get("n_data", len(q_fit))),
         "random_seed": random_seed,
         "message": str(result.get("message", "")),
+        "warnings": list(run.notes),
+        **({"uncertainty": unc.mc_reply(mc_block)} if mc_block else {}),
     }
 
 

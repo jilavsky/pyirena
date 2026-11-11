@@ -2014,15 +2014,19 @@ class DataMergePanel(QWidget):
         """
         from pyirena.io.hdf5 import readGenericNXcanSAS, readSimpleHDF5, readTextFile
         from pyirena.io.text_import import clean_sas_arrays
+        from pyirena.state.state_manager import text_import_settings
         fp = Path(filepath)
         try:
             if file_type == "Text (.dat/.txt/.csv)":
-                q_unit = self._sm.get('data_selector', 'q_unit', '1/A')
-                data = readTextFile(str(fp.parent), fp.name, q_unit=q_unit)
+                # Same Q-unit and generated-uncertainty choices as every other
+                # text import (Configure → Text File Options).
+                _ti = text_import_settings(self._sm)
+                data = readTextFile(str(fp.parent), fp.name, **_ti)
                 if data is not None:
                     Q, I, E, dQ, _ = clean_sas_arrays(
                         data['Q'], data['Intensity'], data.get('Error'),
                         data.get('dQ'),
+                        error_fraction=_ti['error_fraction'],
                     )
                     data['Q'] = Q
                     data['Intensity'] = I

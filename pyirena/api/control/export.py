@@ -21,10 +21,12 @@ What is in the envelope:
 * **arrays** — optional, off by default: the model curve, residuals and any
   per-component curves on the fitted Q grid
 
-Uncertainties are included wherever the fit computes them (five of the six
-tools report a ``std`` per parameter as part of fitting). Unified Fit has no
-uncertainty estimation at all yet — see ``get_parameter_uncertainties`` — so
-its parameters come back without one rather than with a fabricated zero.
+Uncertainties are included wherever the fit computed them, and the envelope's
+``uncertainty`` block says which estimate they are (``monte_carlo`` or
+``covariance``) and, for Monte-Carlo, how many refits succeeded — the same
+block ``get_parameter_uncertainties`` returns. Unified Fit computes none
+unless ``run_fit`` was called with ``n_mc_runs``; without it its parameters
+come back without a ``std`` rather than with a fabricated zero.
 
 Design doc: ``planning/zmq-service/`` (Phase 1.4).
 """
@@ -120,12 +122,19 @@ def _export_unified(s: Session, include_arrays: bool, max_points) -> dict:
     r = s.last_fit_result
     q, I, err = _masked(s)
 
+    block = getattr(s, "last_uncertainty", None)
+    stds = ({row["name"]: row["std"] for row in block["parameters"]}
+            if block and block.get("available") else {})
+    params = _param_table(s.model)
+    for row in params:
+        if row["name"] in stds:
+            row["std"] = stds[row["name"]]
     results = {
         "model": "unified_fit",
         "nlevels": int(s.model.num_levels),
         "background": float(getattr(s.model, "background", 0.0) or 0.0),
-        "parameters": _param_table(s.model),
-        "uncertainties_available": False,
+        "parameters": params,
+        "uncertainties_available": bool(stds),
     }
     quality = _quality(
         chi2=r.get("chi_squared"),
@@ -422,6 +431,11 @@ def export_results(
         "results": parts["results"],
         "config": config,
     }
+
+    from pyirena.api.control.uncertainty import export_block
+    unc_block = export_block(s)
+    if unc_block is not None:
+        report["uncertainty"] = unc_block
 
     # Simple Fits' held-parameter choices are session state, not model state,
     # so 'config' (a to_dict()) has no room for them. Without them here, a

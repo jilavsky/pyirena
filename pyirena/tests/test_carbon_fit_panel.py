@@ -69,6 +69,7 @@ def test_cursors_start_on_the_full_data_range(loaded):
 
 def test_fit_uses_the_whole_range_by_default(loaded):
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     assert loaded.fit_result.n_points == 400
 
 
@@ -232,6 +233,7 @@ def test_fit_recovers_perturbed_parameters(loaded):
     loaded.model.background.S_macro = 3.0e4
     loaded._refresh_all()
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
 
     assert loaded.fit_result.success
     assert loaded.model.saxs.phi == pytest.approx(truth['saxs.phi'], rel=1e-3)
@@ -241,6 +243,7 @@ def test_fit_recovers_perturbed_parameters(loaded):
 
 def test_fit_populates_the_uncertainty_column(loaded):
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     assert loaded._rows['saxs.phi'].std_label.text() != '—'
 
 
@@ -264,6 +267,8 @@ def test_report_dict_matches_the_saved_shape(loaded):
     from pyirena.core.reporting import build_report
 
     loaded._run_fit(0)
+
+    loaded._jobs.wait()   # the fit runs on a worker thread
     report = loaded.results_for_report()
     assert set(report) >= {'chi_squared', 'reduced_chi_squared', 'params',
                            'params_std', 'derived', 'saxs_mode', 'formula'}
@@ -294,6 +299,8 @@ def test_revert_restores_the_pre_fit_parameters(loaded):
     start = dict(loaded.model.parameter_values())
 
     loaded._run_fit(0)
+
+    loaded._jobs.wait()   # the fit runs on a worker thread
     assert loaded.revert_btn.isEnabled()
     assert loaded.model.parameter_values() != start   # the fit moved things
 
@@ -310,6 +317,8 @@ def test_revert_restores_bounds_and_fit_flags_too(loaded):
     loaded._refresh_all()
 
     loaded._run_fit(0)
+
+    loaded._jobs.wait()   # the fit runs on a worker thread
     loaded.model.saxs.phi_limits = (0.0, 1.0)
     loaded.model.saxs.fit_globule_k = False
 
@@ -322,6 +331,7 @@ def test_revert_keeps_the_q_range(loaded):
     """The cursors are the user's, not the fit's — reverting them is a surprise."""
     loaded.graph_window.set_cursor_range(0.01, 1.0)
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     loaded._on_revert()
     assert loaded.model.q_min == pytest.approx(0.01)
     assert loaded.model.q_max == pytest.approx(1.0)
@@ -329,6 +339,7 @@ def test_revert_keeps_the_q_range(loaded):
 
 def test_revert_clears_the_stale_fit_display(loaded):
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     assert loaded._rows['saxs.phi'].std_label.text() != '—'
     loaded._on_revert()
     assert loaded._rows['saxs.phi'].std_label.text() == '—'
@@ -340,6 +351,7 @@ def test_revert_twice_is_harmless(loaded):
     """It is an undo of the last fit, not a stack."""
     start = dict(loaded.model.parameter_values())
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     loaded._on_revert()
     loaded._on_revert()
     assert loaded.model.parameter_values() == start
@@ -348,6 +360,7 @@ def test_revert_twice_is_harmless(loaded):
 def test_revert_survives_a_peak_being_added_by_the_fit_cycle(loaded):
     """The peak list is part of the snapshot, so the rows must be rebuilt."""
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     loaded._on_add_peak()
     n_after_add = len(loaded.model.peaks)
     loaded._on_revert()
@@ -358,6 +371,7 @@ def test_revert_survives_a_peak_being_added_by_the_fit_cycle(loaded):
 def test_loading_a_setup_drops_the_backup(loaded):
     """A snapshot of a model that is no longer loaded would graft onto the new one."""
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
     assert loaded.revert_btn.isEnabled()
     loaded._apply_state({})
     assert loaded.revert_btn.isEnabled() is False
@@ -445,6 +459,7 @@ def test_zoom_survives_a_fit_on_a_restricted_q_range(loaded):
 
     loaded.graph_window.set_cursor_range(0.01, 4.0)
     loaded._run_fit(0)
+    loaded._jobs.wait()   # the fit runs on a worker thread
 
     assert loaded.fit_result is not None            # the fit finished
     assert len(loaded.graph_window._zoom_items) == 3  # …and the panel is not empty

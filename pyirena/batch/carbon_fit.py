@@ -62,9 +62,12 @@ def fit_carbon_from_config(
     if config is None:
         return {'success': False, 'message': f"Cannot load config: {config_file}"}
 
-    section = config.get('carbon_fit')
-    if section is None:
-        msg = f"No 'carbon_fit' section in '{config_file.name}'"
+    # The one envelope reader (AGENTS.md invariant 6).
+    from pyirena.core.tool_config import ConfigError, unwrap_config
+    try:
+        _, section, _ = unwrap_config(config, 'carbon_fit')
+    except ConfigError as exc:
+        msg = f"'{config_file.name}': {exc}"
         log.info("[pyirena.batch.fit_carbon] %s", msg)
         return {'success': False, 'message': msg}
 
@@ -110,7 +113,6 @@ def fit_carbon_model(
         Result dict — see :func:`fit_carbon_from_config`.
     """
     _ensure_console()
-    from pyirena.core.carbon_fit import CarbonFitModel
 
     data_file = Path(data_file)
     if verbose:
@@ -122,12 +124,22 @@ def fit_carbon_model(
                 'message': f"Could not load data from {data_file.name}"}
     q, I, err, h5_path = loaded
 
-    model = CarbonFitModel.from_dict(config.get('model', config))
-    if with_uncertainty:
-        model.n_mc_runs = int(n_mc_runs)
-
+    # The shared translator and the shared Carbon runner, as the API: the
+    # config's Q range (panel or model keys, 0 = open), its no_limits (it was
+    # ignored here), and MC only when asked for (a stored n_mc_runs used to
+    # switch it on by itself).
+    from pyirena.core.fit_runner import run_carbon
+    from pyirena.core.tool_config import build_setup
+    from pyirena.state.state_manager import text_import_settings
     try:
-        result = model.fit(q, I, err)
+        setup = build_setup(config, 'carbon_fit')
+        model = setup.model
+        run = run_carbon(model, q, I, err,
+                         q_min=setup.fit_q_min, q_max=setup.fit_q_max,
+                         error_fraction=text_import_settings()["error_fraction"],
+                         n_mc_runs=(int(n_mc_runs) if with_uncertainty else 0),
+                         no_limits=bool(config.get('no_limits', False)))
+        result = run.result
     except Exception as exc:
         log.error("[pyirena.batch.fit_carbon] fit failed: %s", exc)
         return {'success': False, 'message': f"Fit failed: {exc}"}
@@ -166,9 +178,8 @@ def _read_data(data_file: Path, verbose: bool = True):
     try:
         if data_file.suffix.lower() in ('.txt', '.dat'):
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            from pyirena.state.state_manager import StateManager
-            q_unit = StateManager().get('data_selector', 'q_unit', '1/A')
-            h5_file = ensure_nxcansas_sibling(data_file, q_unit=q_unit)
+            from pyirena.state.state_manager import text_import_settings
+            h5_file = ensure_nxcansas_sibling(data_file, **text_import_settings())
         else:
             h5_file = data_file
         data = readGenericNXcanSAS(str(h5_file.parent), h5_file.name)

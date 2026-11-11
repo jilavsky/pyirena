@@ -108,12 +108,11 @@ def _load(path: str) -> tuple[Optional[dict], Optional[dict]]:
     try:
         if file_p.suffix.lower() in (".txt", ".dat"):
             # Same conversion the GUI and batch use, including the
-            # configured Q-unit assumption for text files.
+            # configured Q-unit and generated-uncertainty choices.
             from pyirena.io.text_import import ensure_nxcansas_sibling
-            from pyirena.state.state_manager import StateManager
+            from pyirena.state.state_manager import text_import_settings
 
-            q_unit = StateManager().get("data_selector", "q_unit", "1/A")
-            actual = ensure_nxcansas_sibling(file_p, q_unit=q_unit)
+            actual = ensure_nxcansas_sibling(file_p, **text_import_settings())
         data = readGenericNXcanSAS(str(actual.parent), actual.name)
     except Exception as exc:
         return None, _error(

@@ -15,12 +15,24 @@ months, so it is the part worth keeping.
 ## Open — no bugs, no user impact
 
 **Large-file comfort refactors.** Revisit if these keep growing or become hard
-to navigate; none of them is causing a problem today.
+to navigate. **The trigger is met** (review of 09-11-2026, issue #38): all four
+grew since this list was written. Sequence it after the shared fit worker and
+a `FitPanelBase` (review §4.1/§4.2), which give the split its natural seam.
 
-- `gui/data_selector/panel.py` (~2,800 lines) — split by mixin/topic
-- `gui/unified_fit.py` (~4,300 lines) — split along panel/widget lines
-- `gui/modeling_panel.py` (~3,800 lines)
-- `gui/sizes_panel.py` (~3,000 lines)
+- `gui/data_selector/panel.py` (~2,800 → 3,117 lines) — split by mixin/topic
+- `gui/unified_fit.py` (~4,300 → 4,420 lines) — split along panel/widget lines
+- `gui/modeling_panel.py` (~3,800 → 3,962 lines)
+- `gui/sizes_panel.py` (~3,000 → 3,230 lines)
+
+**Ruff `UP` and `B` passes, and `ruff format`.** House standard, not yet
+enabled here. Measured 09-11-2026: `UP` ≈ 1,500 auto-fixes, `B` ≈ 120 manual
+(look first at `B905` bare `zip`, `B904` in `core/scattering_contrast.py`,
+`B023` in `core/reporting.py`), and `ruff format` would rewrite 251 of 271
+files. Deferred deliberately: each is a whole-tree diff that conflicts with
+every open branch, so it runs on its own branch once those are merged — `UP`
+and `B` as two separate commits. Whether to adopt `ruff format` at all is
+still to be decided when that branch is cut; until then, do not reformat
+files you are not otherwise changing.
 
 **Batch path for Data Manipulation.** Wanted, but the tool needs revising
 first. Filed as its own GitHub issue.
