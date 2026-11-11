@@ -1519,7 +1519,7 @@ class DataManipulationPanel(QWidget):
 
         config = ScaleConfig(scale_I=s, background=bg, scale_uncertainty=s_unc)
         result = self._engine.scale(
-            data['Q'], data['Intensity'], data.get('Error', data['Intensity'] * 0.05),
+            data['Q'], data['Intensity'], self._error_or_generated(data),
             data.get('dQ'), config,
         )
         self._show_preview(data, result)
@@ -1544,7 +1544,7 @@ class DataManipulationPanel(QWidget):
 
         config = TrimConfig(q_min=q_min, q_max=q_max)
         result = self._engine.trim(
-            data['Q'], data['Intensity'], data.get('Error', data['Intensity'] * 0.05),
+            data['Q'], data['Intensity'], self._error_or_generated(data),
             data.get('dQ'), config,
         )
         self._show_preview(data, result)
@@ -1572,7 +1572,7 @@ class DataManipulationPanel(QWidget):
         )
         try:
             result = self._engine.rebin(
-                data['Q'], data['Intensity'], data.get('Error', data['Intensity'] * 0.05),
+                data['Q'], data['Intensity'], self._error_or_generated(data),
                 data.get('dQ'), config,
             )
         except ValueError as e:
@@ -1599,7 +1599,7 @@ class DataManipulationPanel(QWidget):
             self._graph.plot_data(data['Q'], data['Intensity'], data.get('Error'), color=color, label=fname)
             q = data['Q']
             I = data['Intensity']
-            dI = data.get('Error', I * 0.05)
+            dI = self._error_or_generated(data)
             dQ = data.get('dQ')
             datasets.append((q, I, dI, dQ))
             loaded_names.append(fname)
@@ -1675,7 +1675,7 @@ class DataManipulationPanel(QWidget):
                 continue
             q = data['Q']
             I = data['Intensity']
-            dI = data.get('Error', I * 0.05)
+            dI = self._error_or_generated(data)
             dQ = data.get('dQ')
             datasets.append((q, I, dI, dQ))
             filenames.append(fname)
@@ -1838,10 +1838,10 @@ class DataManipulationPanel(QWidget):
         )
         result = self._engine.subtract(
             sample_data['Q'], sample_data['Intensity'],
-            sample_data.get('Error', sample_data['Intensity'] * 0.05),
+            self._error_or_generated(sample_data),
             sample_data.get('dQ'),
             buffer_data['Q'], buffer_data['Intensity'],
-            buffer_data.get('Error', buffer_data['Intensity'] * 0.05),
+            self._error_or_generated(buffer_data),
             config,
         )
         # Update scale display if auto-scaled
@@ -1886,10 +1886,10 @@ class DataManipulationPanel(QWidget):
         config = DivideConfig(denominator_scale=scale, denominator_background=bg)
         result = self._engine.divide(
             num_data['Q'], num_data['Intensity'],
-            num_data.get('Error', num_data['Intensity'] * 0.05),
+            self._error_or_generated(num_data),
             num_data.get('dQ'),
             den_data['Q'], den_data['Intensity'],
-            den_data.get('Error', den_data['Intensity'] * 0.05),
+            self._error_or_generated(den_data),
             config,
         )
 
@@ -1907,6 +1907,21 @@ class DataManipulationPanel(QWidget):
     # ================================================================== #
     #  Common preview helper                                               #
     # ================================================================== #
+
+    def _error_or_generated(self, data: dict):
+        """The dataset's uncertainty, or I × the generated-uncertainty fraction.
+
+        Data without uncertainties get the Data Selector's "Generated
+        uncertainty fraction" (Configure → Text File Options) — the σ the
+        user chose for such data, used by every other tool (issue #38). This
+        panel used a fixed 5 % of I here.
+        """
+        err = data.get('Error')
+        if err is not None:
+            return err
+        from pyirena.state.state_manager import text_import_settings
+        frac = text_import_settings(self._sm)['error_fraction']
+        return np.abs(np.asarray(data['Intensity'], dtype=float)) * frac
 
     def _show_preview(self, data: dict, result: ManipResult) -> None:
         """Show input data + result on the plot."""
@@ -2139,7 +2154,7 @@ class DataManipulationPanel(QWidget):
 
         q = data['Q']
         I = data['Intensity']
-        dI = data.get('Error', I * 0.05)
+        dI = self._error_or_generated(data)
         dQ = data.get('dQ')
 
         try:
@@ -2184,7 +2199,7 @@ class DataManipulationPanel(QWidget):
                 return self._engine.subtract(
                     q, I, dI, dQ,
                     buf_data['Q'], buf_data['Intensity'],
-                    buf_data.get('Error', buf_data['Intensity'] * 0.05),
+                    self._error_or_generated(buf_data),
                     SubtractConfig(scale, auto, auto_qmin, auto_qmax),
                     is_slit_smeared_sample=bool(data.get('is_slit_smeared', False)),
                     slit_length_sample=float(data.get('slit_length', 0.0) or 0.0),
@@ -2202,7 +2217,7 @@ class DataManipulationPanel(QWidget):
                 return self._engine.divide(
                     q, I, dI, dQ,
                     den_data['Q'], den_data['Intensity'],
-                    den_data.get('Error', den_data['Intensity'] * 0.05),
+                    self._error_or_generated(den_data),
                     DivideConfig(s, bg),
                     is_slit_smeared_num=bool(data.get('is_slit_smeared', False)),
                     slit_length_num=float(data.get('slit_length', 0.0) or 0.0),

@@ -147,6 +147,27 @@ CARBON_WAXS_ENVELOPES: Dict[str, str] = {
     'crumpled': 'Crumpled / curved layers',
 }
 
+#: Residual weighting modes.  'log' was once advertised but never implemented
+#: (it ran as 'relative', which near a good fit gives the same answer: ln(I/M)
+#: ≈ (I − M)/I), so it was dropped (11-11-2026); old configs map to 'relative'.
+CARBON_WEIGHTINGS: tuple = ('auto', 'sigma', 'relative')
+
+
+def normalize_weighting(mode) -> str:
+    """A valid weighting mode for *mode*; legacy 'log' becomes 'relative'.
+
+    Unknown values also become 'relative' — what the fit did with them
+    before, so a stored result is reproduced — with a warning.
+    """
+    if mode in CARBON_WEIGHTINGS:
+        return mode
+    if mode == 'log':
+        log.info("carbon_fit: weighting 'log' is no longer offered (it always "
+                 "ran as 'relative'); using 'relative'.")
+    else:
+        log.warning("carbon_fit: unknown weighting %r, using 'relative'", mode)
+    return 'relative'
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Building blocks — pure functions, each independently testable
@@ -695,7 +716,7 @@ class CarbonFitModel:
         # Fit range and numerics (not physics — kept flat on the model).
         self.q_min: float = 0.0
         self.q_max: float = 0.0            # 0 = "no limit", use all data
-        self.weighting: str = 'auto'       # 'auto' | 'sigma' | 'relative' | 'log'
+        self.weighting: str = 'auto'       # one of CARBON_WEIGHTINGS
         self.max_iterations: int = 400
         self.n_mc_runs: int = 0            # 0 = no Monte-Carlo uncertainty pass
 
@@ -1289,6 +1310,7 @@ class CarbonFitModel:
                     setattr(obj, key, cast(d[key]))
                 except (TypeError, ValueError):
                     log.debug("carbon_fit: ignoring bad %s=%r", key, d[key])
+        obj.weighting = normalize_weighting(obj.weighting)
         if obj.saxs.mode not in CARBON_SAXS_MODES:
             log.warning("carbon_fit: unknown SAXS mode %r, using 'fractal'",
                         obj.saxs.mode)

@@ -881,6 +881,18 @@ def save_sizes_fit(session_id: str, output_path: Optional[str] = None) -> dict:
     except Exception:
         fq_metrics = None
 
+    # Monte-Carlo uncertainties from the last run_sizes_fit(n_mc_runs=...), as
+    # the GUI and batch store them: per-bin σ plus the σ of Rg / Vf / peak r.
+    mc_store = None
+    dist_std = res.get("distribution_std")
+    blk = getattr(s, "last_uncertainty", None)
+    if blk and blk.get("available"):
+        mc_store = {"available": True, "n_runs": blk.get("n_runs"),
+                    "n_ok": blk.get("n_ok"), **(blk.get("scalars") or {})}
+        mc_dist = blk.get("_distribution_std")
+        if mc_dist is not None and len(mc_dist) == len(res.get("r_grid", [])):
+            dist_std = np.asarray(mc_dist, dtype=float)
+
     try:
         save_sizes_results(
             filepath=target,
@@ -892,7 +904,8 @@ def save_sizes_fit(session_id: str, output_path: Optional[str] = None) -> dict:
             distribution=dist,
             params=params,
             intensity_error=err_arr,
-            distribution_std=res.get("distribution_std"),
+            distribution_std=dist_std,
+            mc_uncertainty=mc_store,
             fit_quality=fq_metrics,
             setup_state=_model_to_gui_state(s),
             intensity_model_ideal=res.get("model_intensity_ideal"),

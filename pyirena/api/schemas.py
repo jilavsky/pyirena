@@ -293,6 +293,12 @@ class SizeDistResult(_BaseToolResult):
     reduced_chi_squared: Optional[float] = None
     volume_fraction: Optional[float] = None
     rg: Optional[float] = None
+    # Monte-Carlo σ of the scalars (None unless an uncertainty run was stored)
+    rg_std: Optional[float] = None
+    volume_fraction_std: Optional[float] = None
+    peak_r_std: Optional[float] = None
+    mc_n_runs: Optional[int] = None
+    mc_n_ok: Optional[int] = None
     n_iterations: Optional[int] = None
     q_power: Optional[float] = None
     contrast: Optional[float] = None

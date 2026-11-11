@@ -1165,9 +1165,7 @@ class SaxsMorphPanel(QWidget):
         """Slot wired to DataFileLoaderRow.data_loaded — calls set_data."""
         q  = np.asarray(data['Q'],        dtype=float)
         I  = np.asarray(data['Intensity'], dtype=float)
-        err = data.get('Error')
-        dI = (np.asarray(err, dtype=float)
-              if err is not None else np.maximum(I * 0.05, 1e-30))
+        dI = data.get('Error')
         self.set_data(q, I, dI, filename=display_name, filepath=hdf5_path,
                       is_nxcansas=True)
 
@@ -1184,7 +1182,11 @@ class SaxsMorphPanel(QWidget):
                  is_nxcansas: bool = True):
         q = np.asarray(q, dtype=float)
         I = np.asarray(I, dtype=float)
-        dI = np.asarray(dI, dtype=float) if dI is not None else np.maximum(I * 0.05, 1e-30)
+        # No uncertainties, or σ <= 0: σ = |I| × the Data Selector's
+        # "Generated uncertainty fraction" (was a fixed 5 %).
+        from pyirena.core.saxs_morph import repair_sigma
+        from pyirena.state.state_manager import text_import_settings
+        dI = repair_sigma(I, dI, text_import_settings(self._state)['error_fraction'])
 
         self._file_path = Path(filepath) if filepath else None
         self._data_q = q

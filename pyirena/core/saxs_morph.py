@@ -987,6 +987,23 @@ def fit_power_law_bg_fixed_p(
 # Engine
 # ---------------------------------------------------------------------------
 
+def repair_sigma(I, dI=None, error_fraction: float = 0.05) -> np.ndarray:
+    """σ for SAXS Morph's χ²: measured where valid, else |I| × error_fraction.
+
+    Used for data without uncertainties and for σ <= 0 / non-finite points,
+    the same rule as ``core/fit_data.prepare_fit_arrays`` (issue #38). A
+    point with I = 0 and no valid σ keeps the 1e-30 floor applied later.
+    """
+    I = np.asarray(I, dtype=float)
+    gen = np.abs(I) * float(error_fraction)
+    if dI is None:
+        return gen
+    dI = np.array(dI, dtype=float)
+    bad = ~np.isfinite(dI) | (dI <= 0)
+    dI[bad] = gen[bad]
+    return dI
+
+
 class SaxsMorphEngine:
     """SAXS Morph engine: compute_voxelgram + fit + MC uncertainty."""
 
@@ -1006,18 +1023,21 @@ class SaxsMorphEngine:
         I: np.ndarray,
         dI: Optional[np.ndarray] = None,
         voxel_size_override: Optional[int] = None,
+        error_fraction: float = 0.05,
     ) -> SaxsMorphResult:
         """One full evaluation: data -> voxelgram -> model I(Q) -> chi**2.
 
         The voxel size used is ``voxel_size_override`` if given, else
         ``config.voxel_size_render``.
+
+        ``error_fraction`` gives σ = |I| × fraction for data without
+        uncertainties and for points with σ <= 0 (the shared rule of
+        ``core/fit_data.py``); callers pass the Data Selector's "Generated
+        uncertainty fraction".
         """
         q = np.asarray(q, dtype=float)
         I = np.asarray(I, dtype=float)
-        if dI is None:
-            dI = np.maximum(I * 0.05, 1e-30)
-        else:
-            dI = np.asarray(dI, dtype=float)
+        dI = repair_sigma(I, dI, error_fraction)
 
         # Crop to fit window
         q_min = config.q_min if config.q_min is not None else float(q.min())

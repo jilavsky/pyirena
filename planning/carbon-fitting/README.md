@@ -8,8 +8,8 @@ peaks), following Saurel et al., *Energy Storage Materials* **21** (2019)
 *Energy Storage Materials* **28** (2020) 418 (`10.1016/j.ensm.2020.03.013`).
 
 **Status: implemented.** Built on `feature/carbon-model` (2026-09-21 →
-2026-09-24) following [02-implementation-plan.md](02-implementation-plan.md),
-then carried into `feature/zmq-service` and released with 1.2.0b1. The tool
+2026-09-24) following an implementation plan (deleted once built; git history
+has it), then carried into `feature/zmq-service` and released with 1.2.0b1. The tool
 ships as `pyirena/core/carbon_fit.py` + `gui/carbon_fit_panel.py` +
 `batch/carbon_fit.py` + `api/control/carbon_fit.py`, with the `carbon` MCP
 category and `docs/carbon_fit_gui.md`. Tested against real data; further
@@ -17,17 +17,16 @@ features (see [03-open-questions.md](03-open-questions.md) "Left open on
 purpose") are smaller follow-ups that do not block use on simpler systems.
 
 This folder is kept for the physics reference in [01-models.md](01-models.md),
-which the code cites by equation number. The plan documents describe the build
-as planned, not necessarily as built — read the code and `CHANGELOG.md` for
-what shipped.
+which the code cites by equation number, and for the decisions and open
+follow-ups in [03-open-questions.md](03-open-questions.md). Read the code and
+`CHANGELOG.md` for what shipped.
 
 ## Contents
 
 | File | What's in it |
 |---|---|
 | [01-models.md](01-models.md) | The physics: every model, its parameters, derived quantities, and which source-paper equation it comes from. Read this before writing any core math. |
-| [02-implementation-plan.md](02-implementation-plan.md) | The wiring: what's new vs. what already exists in pyIrena to reuse, proposed architecture, the full registry checklist from `docs/developer_adding_features.md` with proposed keys, phased build order, testing strategy. |
-| [03-open-questions.md](03-open-questions.md) | Decisions for Jan to make before or during implementation — tool name, scope of v1 vs v2, a couple of equations that need re-verification against the original PDF at higher zoom, the nm↔Å unit-convention issue. |
+| [03-open-questions.md](03-open-questions.md) | The decisions taken before implementation (tool name, units, v1 scope, equation checks) and the follow-ups left open on purpose (#34). |
 
 ## Source documents (not checked into the repo)
 
@@ -51,8 +50,8 @@ Three PDFs were read for this plan, supplied by Jan:
    equations beyond what's in Annex 3.
 
 Jan has an old Igor Pro implementation of these models but judged it not
-worth digging out — the models are simple formulas; the main plan below
-takes them straight from the paper.
+worth digging out — the models are simple formulas; the models were taken
+straight from the paper.
 
 ## One-paragraph summary of the ask
 

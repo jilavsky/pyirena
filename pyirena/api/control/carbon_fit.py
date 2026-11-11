@@ -510,8 +510,8 @@ def run_carbon_fit(session_id: str, weighting: Optional[str] = None,
         weighting: None (default) keeps the model's own weighting — ``"auto"``
             for a new session, or whatever a restored config set (it used to
             be overwritten with ``"auto"``). ``"auto"`` uses the measured uncertainties when they exist
-            and relative weighting otherwise; ``"sigma"``, ``"relative"`` and
-            ``"log"`` force a choice.  Relative weighting is usually right for
+            and relative weighting otherwise; ``"sigma"`` and ``"relative"``
+            force a choice.  Relative weighting is usually right for
             this tool even when errors exist: the fit spans five decades in Q
             and ten or more in intensity, and absolute weighting lets the
             low-Q Porod region set every parameter.
@@ -533,10 +533,13 @@ def run_carbon_fit(session_id: str, weighting: Optional[str] = None,
         return err
 
     m = s.model
-    if weighting is not None and weighting not in ("auto", "sigma", "relative", "log"):
+    from pyirena.core.carbon_fit import CARBON_WEIGHTINGS
+    if weighting is not None and weighting not in CARBON_WEIGHTINGS:
+        hint = (" 'log' is no longer offered: it always ran as 'relative', "
+                "which gives the same fit." if weighting == "log" else "")
         return make_error(
-            f"Unknown weighting '{weighting}'.",
-            suggestion="Choose auto, sigma, relative or log.",
+            f"Unknown weighting '{weighting}'.{hint}",
+            suggestion="Choose auto, sigma or relative.",
             code="BAD_WEIGHTING")
 
     mask = fit_mask(s)

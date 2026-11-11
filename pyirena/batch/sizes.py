@@ -359,6 +359,7 @@ def fit_sizes(
                 distribution=distribution,
                 params=save_params,           # complete parameter set
                 distribution_std=std_to_save,
+                mc_uncertainty=run.mc,
                 fit_quality=fq_metrics,
                 setup_state=sizes_state,
                 intensity_model_ideal=fit_result.get('model_intensity_ideal'),

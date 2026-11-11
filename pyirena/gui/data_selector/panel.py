@@ -1702,7 +1702,8 @@ class DataSelectorPanel(QWidget):
         if show_sizes:
             headers += [
                 'SD_method', 'SD_shape', 'SD_chi2', 'SD_volume_fraction',
-                'SD_rg', 'SD_n_iterations', 'SD_q_power',
+                'SD_volume_fraction_std', 'SD_rg', 'SD_rg_std', 'SD_peak_r_std',
+                'SD_n_iterations', 'SD_q_power',
                 'SD_contrast', 'SD_aspect_ratio',
                 'SD_background', 'SD_error_scale',
                 'SD_power_law_B', 'SD_power_law_P',
@@ -1854,7 +1855,10 @@ class DataSelectorPanel(QWidget):
                         sz.get('shape'),
                         _fmt(sz.get('chi_squared')),
                         _fmt(sz.get('volume_fraction')),
+                        _fmt(sz.get('volume_fraction_std')),
                         _fmt(sz.get('rg')),
+                        _fmt(sz.get('rg_std')),
+                        _fmt(sz.get('peak_r_std')),
                         sz.get('n_iterations'),
                         _fmt(sz.get('q_power')),
                         _fmt(sz.get('contrast')),
@@ -1871,7 +1875,7 @@ class DataSelectorPanel(QWidget):
                         _fmt(sz.get('cursor_q_max')),
                     ]
                 else:
-                    row += [None] * 19
+                    row += [None] * 22
 
             if show_simple_fits:
                 if sf is not None:

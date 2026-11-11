@@ -33,6 +33,7 @@ def fit_modeling(
     with_uncertainty: bool = False,
     n_mc_runs: Optional[int] = None,
     mc_workers: Optional[int] = None,
+    random_seed: Optional[int] = None,
 ) -> Optional[Dict]:
     """Fit a Modeling (parametric size distribution) model using a pyIrena config file.
 
@@ -68,6 +69,9 @@ def fit_modeling(
         Note that parallelism belongs at one level only: when driving many files
         through :func:`pyirena.batch.pipeline`, leave this at 1 rather than
         nesting pools inside a per-file loop.
+    random_seed : int, optional
+        Seed for the global search (config ``fit_method: "global"``) and the
+        Monte-Carlo perturbations. None (default) leaves them unseeded.
 
     Returns
     -------
@@ -152,7 +156,8 @@ def fit_modeling(
                            error_fraction=frac,
                            n_mc_runs=(n_mc_runs if with_uncertainty else 0),
                            mc_noise_fraction=frac,
-                           mc_workers=modeling_config.mc_workers)
+                           mc_workers=modeling_config.mc_workers,
+                           seed=random_seed)
         fit_result = run.result
         for w in (getattr(fit_result, 'fit_warnings', None) or []) + run.notes:
             log.warning(f"[pyirena.batch.fit_modeling] {w}")
