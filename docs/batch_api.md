@@ -440,7 +440,12 @@ With `with_uncertainty=True` the per-bin σ of the distribution is computed by
 error and error scaling are honoured (up to 1.2.1 batch used the raw file
 error). Without measured uncertainties (and fractional error off), σ = I ×
 the Data Selector's "Generated uncertainty fraction". `n_mc_runs=None` takes
-the config's `unc_n_runs`.
+the config's `unc_n_runs`. The file then also carries `distribution_std` and
+the σ of the scalars — `rg_std`, `volume_fraction_std`, `peak_r_std` (scalar
+datasets next to `rg`, so Collect Values and Tabulate Results pick them up) —
+with `mc_n_runs` / `mc_n_ok` / `mc_sigma_source` attributes. The GUI's
+*Store in File* and the API's `save_sizes_fit` write the same keys after an
+uncertainty run; files without them read back as `None`.
 
 ### Returns
 

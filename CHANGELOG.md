@@ -78,8 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   File.** The per-bin σ of the distribution was shown as error bars but not
   written, so a reloaded file had none. It is now stored as
   `distribution_std`, as `batch.fit_sizes(with_uncertainty=True)` already
-  did (same dataset; no format change). The scalar σ of Rg, volume fraction
-  and peak r are still shown only on screen, on both paths.
+  did. The σ of Rg, volume fraction and peak r are now stored too — new
+  scalar datasets `rg_std`, `volume_fraction_std`, `peak_r_std` in
+  `entry/sizes_results`, plus `mc_n_runs` / `mc_n_ok` / `mc_sigma_source`
+  attributes — by the GUI, `batch.fit_sizes(with_uncertainty=True)` and the
+  API's `save_sizes_fit` (which also now stores the Monte-Carlo
+  `distribution_std` rather than the inversion's own). Tabulate Results gains
+  `SD_volume_fraction_std`, `SD_rg_std`, `SD_peak_r_std` columns, and
+  `read_size_distribution` returns them. Additive: older files load
+  unchanged and read these as None.
 - `run_sizes_fit(random_seed=…)` (api/MCP/ZMQ) did not make the Monte Carlo
   inversion reproducible: it seeded NumPy's global generator, which that
   method does not use. The seed now reaches the inversion.

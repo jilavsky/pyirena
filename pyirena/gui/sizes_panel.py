@@ -916,6 +916,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self._mc_vf_std = None
         self._mc_pr_std = None
         self._mc_dist_std = None
+        self._mc_summary = None
         self._feature_dialog = None         # Feature Identifier (non-modal)
 
         self.state_manager = StateManager()
@@ -1976,6 +1977,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self._mc_vf_std = None
         self._mc_pr_std = None
         self._mc_dist_std = None
+        self._mc_summary = None
 
         if hasattr(self, 'data_loader'):
             self.data_loader.set_filename(label)
@@ -2241,6 +2243,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             self._mc_vf_std = None
             self._mc_pr_std = None
             self._mc_dist_std = None
+            self._mc_summary = None
 
             r_grid = result['r_grid']
             distribution = result['distribution']
@@ -2613,6 +2616,9 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         # distribution_std (the batch MC path stores the same thing).
         self._mc_dist_std = (np.asarray(dist_std, dtype=float)
                              if dist_std is not None else None)
+        # The whole MC result: Store in File writes rg_std, volume_fraction_std,
+        # peak_r_std and the run counts next to the fit's own values.
+        self._mc_summary = mc
 
         # Update result fields with ± notation (2 sig figs on uncertainty)
         self.result_rg.setText(_fmt_unc(rg_mean, rg_std))
@@ -3211,6 +3217,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
                 params=params,
                 intensity_error=i_err,
                 distribution_std=self._distribution_std_to_store(result),
+                mc_uncertainty=getattr(self, '_mc_summary', None),
                 setup_state=setup_state,
                 fit_quality=getattr(self, '_last_quality_metrics', None),
                 intensity_model_ideal=result.get('model_intensity_ideal'),

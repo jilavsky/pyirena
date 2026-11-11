@@ -199,6 +199,8 @@ def read_size_distribution(path: str, include_arrays: bool = False,
     result.found = True
     for key in ("method", "shape", "chi_squared", "reduced_chi_squared",
                 "volume_fraction", "rg", "n_iterations", "q_power", "contrast",
+                "rg_std", "volume_fraction_std", "peak_r_std", "mc_n_runs",
+                "mc_n_ok",
                 "aspect_ratio", "r_min", "r_max", "n_bins", "background",
                 "power_law_B", "power_law_P", "timestamp"):
         if key in raw and raw[key] is not None:
@@ -206,7 +208,7 @@ def read_size_distribution(path: str, include_arrays: bool = False,
             if isinstance(v, bytes):
                 v = v.decode("utf-8", errors="replace")
             try:
-                if key in ("n_iterations", "n_bins"):
+                if key in ("n_iterations", "n_bins", "mc_n_runs", "mc_n_ok"):
                     setattr(result, key, int(v))
                 elif key in ("shape", "method", "timestamp"):
                     setattr(result, key, str(v))

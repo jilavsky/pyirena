@@ -61,6 +61,10 @@ from pyirena.io._nxcansas_common import (
 from pyirena.io.h5open import open_h5
 
 _GROUP = 'entry/sizes_results'
+
+#: Monte-Carlo σ of the scalar results, stored as scalar datasets, with units.
+MC_SCALAR_KEYS = (('rg_std', 'angstrom'), ('volume_fraction_std', ''),
+                  ('peak_r_std', 'angstrom'))
 _PROGRAM = 'pyirena.core.sizes'
 
 
@@ -78,6 +82,7 @@ def save_sizes_results(
     setup_state: Optional[dict] = None,
     fit_quality: Optional[dict] = None,
     intensity_model_ideal: Optional[np.ndarray] = None,
+    mc_uncertainty: Optional[dict] = None,
 ) -> None:
     """
     Save size distribution fitting results to an NXcanSAS HDF5 file.
@@ -115,6 +120,14 @@ def save_sizes_results(
         intensity_error:  Measurement uncertainty [cm^-1]; stored if provided.
         distribution_std: Per-bin std of P(r) across Monte Carlo repetitions;
                           stored if provided (Monte Carlo method only).
+        mc_uncertainty:   Optional Monte-Carlo uncertainty summary — a
+                          ``SizesDistribution.calculate_uncertainty_mc``
+                          result.  When it is available, ``rg_std`` [Å],
+                          ``volume_fraction_std`` and ``peak_r_std`` [Å] are
+                          stored as scalar datasets (collectable / tabulated
+                          like ``rg``), and ``mc_n_runs``, ``mc_n_ok``,
+                          ``mc_sigma_source`` as attributes.  Files without
+                          them read back as None.
         setup_state:      Optional full GUI state dict (the ``sizes`` section
                           from StateManager).  Embedded as the
                           ``_pyirena_config`` JSON attribute on
@@ -143,6 +156,20 @@ def save_sizes_results(
                     grp.create_dataset(k, data=float(params[k]))
                 except (TypeError, ValueError):
                     grp.attrs[k] = params[k]
+
+        # Monte-Carlo uncertainties of the scalar results (absent in older files)
+        mc = mc_uncertainty or {}
+        if mc.get('available'):
+            for k, unit in MC_SCALAR_KEYS:
+                v = mc.get(k)
+                if v is not None and np.isfinite(v):
+                    grp.create_dataset(k, data=float(v))
+                    if unit:
+                        grp[k].attrs['units'] = unit
+            for k, attr in (('n_runs', 'mc_n_runs'), ('n_ok', 'mc_n_ok'),
+                            ('sigma_source', 'mc_sigma_source')):
+                if mc.get(k) is not None:
+                    grp.attrs[attr] = mc[k]
 
         # Model / grid setup stored as attributes (too many to be individual datasets)
         _attr_keys = (
@@ -359,6 +386,15 @@ def load_sizes_results(filepath: Path) -> dict:
         if result.get('method') == 'mcsas':
             result['method'] = 'montecarlo'
 
+        # Monte-Carlo σ of the scalar results (None in files without them)
+        for k, _unit in MC_SCALAR_KEYS:
+            result[k] = float(grp[k][()]) if k in grp else None
+        for attr in ('mc_n_runs', 'mc_n_ok'):
+            v = grp.attrs.get(attr)
+            result[attr] = int(v) if v is not None else None
+        v = grp.attrs.get('mc_sigma_source')
+        result['mc_sigma_source'] = (v.decode() if isinstance(v, bytes) else v)
+
     return result
 
 
@@ -373,6 +409,10 @@ def print_sizes_results(results: dict) -> None:
     print(f"  Chi-squared:     {results.get('chi_squared', 'N/A'):.4f}")
     print(f"  Volume fraction: {results.get('volume_fraction', 'N/A'):.4g}")
     print(f"  Rg:              {results.get('rg', 'N/A'):.2f} Å")
+    if results.get('rg_std') is not None:
+        print(f"  MC σ:            Rg ± {results['rg_std']:.2g} Å, "
+              f"Vf ± {results.get('volume_fraction_std') or 0:.2g}, "
+              f"peak r ± {results.get('peak_r_std') or 0:.2g} Å")
     print(f"  Iterations:      {results.get('n_iterations', 'N/A')}")
     r = results.get('r_grid')
     if r is not None:

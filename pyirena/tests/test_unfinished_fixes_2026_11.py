@@ -133,3 +133,43 @@ def test_sizes_store_prefers_mc_distribution_std():
     assert pick(SimpleNamespace(_mc_dist_std=None), result) is own
     assert pick(SimpleNamespace(_mc_dist_std=np.arange(4.0)), result) is own
     assert pick(SimpleNamespace(_mc_dist_std=None), {'r_grid': r}) is None
+
+
+# ── Size Distribution: MC σ of the scalars in the saved file ─────────────────
+
+def _save_sizes(path, mc):
+    from pyirena.io.nxcansas_sizes import save_sizes_results
+    q = np.linspace(0.01, 0.2, 10)
+    r = np.linspace(10, 100, 5)
+    save_sizes_results(path, q, q * 0 + 1.0, q * 0 + 1.0, q * 0, r, r * 0 + 0.1,
+                       params={'rg': 50.0, 'volume_fraction': 0.01},
+                       distribution_std=r * 0 + 0.01, mc_uncertainty=mc)
+
+
+def test_sizes_mc_scalars_round_trip(tmp_path):
+    from pyirena.api.results import read_size_distribution
+    from pyirena.io.nxcansas_sizes import load_sizes_results
+    p = tmp_path / "s.h5"
+    _save_sizes(p, {'available': True, 'n_runs': 20, 'n_ok': 19,
+                    'sigma_source': 'measured', 'rg_std': 1.5,
+                    'volume_fraction_std': 2e-4, 'peak_r_std': 3.0})
+    res = load_sizes_results(p)
+    assert res['rg_std'] == 1.5
+    assert res['volume_fraction_std'] == pytest.approx(2e-4)
+    assert res['peak_r_std'] == 3.0
+    assert (res['mc_n_runs'], res['mc_n_ok']) == (20, 19)
+    assert res['mc_sigma_source'] == 'measured'
+    api = read_size_distribution(str(p))
+    assert (api['rg_std'], api['peak_r_std'], api['mc_n_ok']) == (1.5, 3.0, 19)
+
+
+def test_sizes_without_mc_reads_none(tmp_path):
+    from pyirena.io.nxcansas_sizes import load_sizes_results
+    p = tmp_path / "s.h5"
+    _save_sizes(p, None)
+    res = load_sizes_results(p)
+    for k in ('rg_std', 'volume_fraction_std', 'peak_r_std', 'mc_n_runs', 'mc_n_ok'):
+        assert res[k] is None
+    # An MC run that failed stores nothing either.
+    _save_sizes(p, {'available': False, 'n_runs': 20, 'n_ok': 1})
+    assert load_sizes_results(p)['rg_std'] is None
