@@ -127,7 +127,7 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/jilavsky/pyirena"
-Documentation = "https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/"
+Documentation = "https://jilavsky-docs.readthedocs.io/projects/pyirena/"
 Repository = "https://github.com/jilavsky/pyirena"
 Changelog = "https://github.com/jilavsky/pyirena/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/jilavsky/pyirena/issues"
