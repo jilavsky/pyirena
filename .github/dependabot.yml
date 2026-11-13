@@ -1,0 +1,12 @@
+# Monthly PRs for the docs pins only (docs/requirements.txt).
+# Copied from jilavsky-docs/templates/package-docs. If the repo already has a
+# dependabot.yml, add this entry to it instead of replacing the file.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: monthly
+    groups:
+      docs:
+        patterns: ["*"]

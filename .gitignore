@@ -111,3 +111,6 @@ dmypy.json
 *.session.json
 audit_*.json
 scratch_sizes_diagnosis/
+
+# Sphinx build output
+docs/_build/

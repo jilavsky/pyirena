@@ -26,6 +26,7 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.data_merge import DataMerge, MergeConfig, MergeResult
 from pyirena.core.file_sorting import (
     DEFAULT_SORT_INDEX,
@@ -1119,9 +1120,7 @@ class DataMergePanel(QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/data_merge_gui.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("data_merge")))
         )
         row1.addWidget(self._help_btn)
         vbox.addLayout(row1)

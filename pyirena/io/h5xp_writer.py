@@ -341,28 +341,19 @@ def write_iq_data(
 
     The same wave note is attached to every wave in the folder.
 
-    Parameters
-    ----------
-    f:
-        Open h5py.File (from :func:`create_h5xp` or :func:`open_h5xp`).
-    folder_name:
-        Igor data-folder name (typically the HDF5 source file stem).
-    q, intensity:
-        1-D numpy arrays; both must have the same length.
-    error:
-        Optional 1-D uncertainty array (same length as *q*).
-    dq:
-        Optional Q-resolution array (same length as *q*).
-    wave_note:
-        Metadata as a dict (converted via :func:`make_wave_note`) or a
-        pre-formatted ``"key:value;"`` string.
-    category:
-        ``"SAXS"`` (default) or ``"WAXS"``.  Controls which sub-folder of
-        ``Packed Data/`` the waves are placed in.
+    Args:
+        f: Open h5py.File (from :func:`create_h5xp` or :func:`open_h5xp`).
+        folder_name: Igor data-folder name (typically the HDF5 source file stem).
+        q: 1-D numpy array; same length as *intensity*.
+        intensity: 1-D numpy array; same length as *q*.
+        error: Optional 1-D uncertainty array (same length as *q*).
+        dq: Optional Q-resolution array (same length as *q*).
+        wave_note: Metadata as a dict (converted via :func:`make_wave_note`) or a
+            pre-formatted ``"key:value;"`` string.
+        category: ``"SAXS"`` (default) or ``"WAXS"``.  Controls which sub-folder of
+            ``Packed Data/`` the waves are placed in.
 
-    Returns
-    -------
-    str
+    Returns:
         HDF5 path of the created sample folder.
     """
     note_str = make_wave_note(wave_note) if isinstance(wave_note, dict) else wave_note

@@ -498,7 +498,7 @@ def test_the_shared_setup_dialog_knows_every_tool_that_embeds_one():
 
 
 def test_the_documented_policy_lists_every_tool():
-    """docs/HDF5_NxcanSAS_structure.md is where the per-tool decision lives.
+    """docs/reference/hdf5-nxcansas-structure.md is where the per-tool decision lives.
 
     A tool missing from that table is the state this step existed to fix: an
     asymmetry that reads as an oversight because nobody wrote down the reason.

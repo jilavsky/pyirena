@@ -7,7 +7,7 @@ This module is the single authoritative Python source of truth for:
   - what scalar quantities are extractable across a series of files
   - whether Data Merge / Data Manipulation strips the group
 
-It complements (does not replace) docs/HDF5_Structure_Reference.md.
+It complements (does not replace) docs/reference/hdf5-nxcansas-structure.md.
 That document is the human-readable reference; this module is what
 code should import to avoid hard-coding group paths, dataset names, or
 unit strings in multiple places.

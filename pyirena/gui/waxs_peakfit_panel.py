@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.waxs_peakfit import (
     _BG_ADAPTIVE_PARAMS,
     _PARAM_DEFAULTS,
@@ -1266,9 +1267,7 @@ class WAXSPeakFitPanel(QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/waxs_peakfit_gui.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("waxs_peakfit")))
         )
         title_row.addWidget(self._help_btn)
         ll.addLayout(title_row)

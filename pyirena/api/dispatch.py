@@ -36,7 +36,7 @@ visible. ``PROFILE_ALL`` (the default, what MCP uses) hides nothing;
 ``PROFILE_JSON_ONLY`` hides both.
 
 Design docs: AIDA's ``planning/mcp_tool_scaling.md`` (Tier 2) and
-``docs/zmq_service.md`` (profiles).
+``docs/reference/zmq-service.md`` (profiles).
 
 This module lives under ``pyirena/api/`` rather than ``pyirena/mcp/``
 because two transports now use it; ``pyirena/mcp/dispatch.py`` remains as a

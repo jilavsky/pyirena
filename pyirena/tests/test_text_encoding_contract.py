@@ -92,7 +92,7 @@ def test_every_read_text_and_write_text_declares_utf8():
 def test_the_documentation_really_is_utf8():
     """The docs carry angstroms, chi-squareds and an emoji.
 
-    ``docs/batch_api.md`` broke the Windows CI job exactly this way: a test
+    ``docs/batch_api.md`` (now ``docs/guides/batch-api.md``) broke the Windows CI job exactly this way: a test
     read it with the locale codec and hit the 0x8f byte of a warning sign.
     """
     import pytest
@@ -100,5 +100,7 @@ def test_the_documentation_really_is_utf8():
     docs = PACKAGE.parent / "docs"
     if not docs.is_dir():
         pytest.skip("docs/ not present")
-    for path in sorted(docs.glob("*.md")):
+    for path in sorted(docs.rglob("*.md")):
+        if "_build" in path.parts:
+            continue
         path.read_text(encoding="utf-8")      # must not raise

@@ -7,7 +7,7 @@ broken by a rename: the same two operations had grown six names
 ``_restore_state`` / ``_apply_state``), so a developer reading one panel learned
 nothing about the next, and a shared helper could not call them.
 
-The convention, also stated in ``docs/developer_adding_features.md``:
+The convention, also stated in ``docs/developer/adding-features.md``:
 
 * **panels** — public ``save_state()`` / ``load_state()``; the private halves
   ``_collect_state()`` (returns a dict) and ``_apply_state(state)`` where the

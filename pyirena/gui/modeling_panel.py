@@ -30,6 +30,7 @@ from typing import Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.distributions import DIST_DEFAULTS, DIST_LABELS, DIST_PARAM_NAMES
 from pyirena.core.form_factors import (
     CONTRAST_FREE_FORM_FACTORS,
@@ -3067,9 +3068,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.q_range_fields.refresh()
 
     def _open_help(self):
-        QDesktopServices.openUrl(QUrl(
-            'https://github.com/jilavsky/pyirena/blob/main/docs/modeling_gui.md'
-        ))
+        QDesktopServices.openUrl(QUrl(docs_url("modeling")))
 
     def _update_tab_labels(self, *_):
         """Update tab text (with optional label) and color per-population."""

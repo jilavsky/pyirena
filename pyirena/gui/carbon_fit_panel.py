@@ -14,7 +14,7 @@ one :class:`_ParamRow` factory rather than by four hand-written grids — which
 is also why adding a parameter to the core needs no change here beyond naming
 it in a tab's row list.
 
-See ``docs/carbon_fit_gui.md`` for the user-facing documentation.
+See ``docs/tools/carbon-fit.md`` for the user-facing documentation.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.carbon_fit import (
     CARBON_SAXS_MODES,
     CARBON_WAXS_ENVELOPES,
@@ -95,7 +96,6 @@ from pyirena.state.state_manager import StateManager
 
 log = logging.getLogger(__name__)
 
-_DOC_URL = "https://github.com/jilavsky/pyirena/blob/main/docs/carbon_fit_gui.md"
 
 #: Wheel step per notch, as a fraction of the value's leading decade.
 #: 0.1 (the ScrubbableLineEdit default) moves a peak centre at Q₀ ≈ 1.9 Å⁻¹ by
@@ -680,7 +680,7 @@ class CarbonFitPanel(QWidget):
             'QPushButton:hover{background:#e74c3c;}')
         self._help_btn.setToolTip('Open online documentation in your browser')
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(_DOC_URL)))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("carbon_fit"))))
         title_row.addWidget(self._help_btn)
         layout.addLayout(title_row)
 

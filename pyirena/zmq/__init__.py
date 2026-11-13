@@ -1,7 +1,7 @@
 """ZMQ service exposing ``pyirena.api`` to a remote orchestrator as JSON.
 
 One UTF-8 JSON document per message, plain REQ/REP, synchronous. See
-``docs/zmq_service.md`` for the protocol and ``planning/zmq-service/`` for why
+``docs/reference/zmq-service.md`` for the protocol and ``planning/zmq-service/`` for why
 it is shaped this way.
 
 Nothing here imports ``zmq`` at module level: ``pyirena.zmq.protocol`` and

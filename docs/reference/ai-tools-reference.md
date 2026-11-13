@@ -1,0 +1,1711 @@
+# pyirena MCP Tools — Reference for AI Agents
+
+This document is written for AI assistants and the humans who craft
+system prompts for them. It explains every tool the `pyirena-mcp` server
+exposes, when to use which, and recommended call patterns.
+
+If you are an AI assistant with access to pyirena tools, read this
+document — or have it inlined into your system prompt — before asking
+questions about a user's analysis data.
+
+> **Tool surface at a glance:**
+> - `pyirena_*` — read-only tools that query existing fit results, plus
+>   discovery and plotting.
+> - `pyirena_ctrl_open_dataset` / `open_dataset_from_data` /
+>   `list_open_sessions` / `close_session` / `get_session_summary` —
+>   session lifecycle, always available as their own MCP tools.
+> - Everything else that drives fitting — model selection, parameters,
+>   fit execution, quality, persistence, across all six fitting tools —
+>   plus one-call fitting and export (**results**: `analyze`,
+>   `export_results`), the stateless **calculators** (scattering contrast
+>   and friends) and the **data operations** (average, subtract, merge, ...),
+>   is **not** its own MCP tool any more. It is reached through a fixed
+>   4-tool dispatcher: `pyirena_list_categories()`, `pyirena_list_tools
+>   (category)`, `pyirena_describe_tool(name)`, and `pyirena_call(name,
+>   arguments)`. This keeps pyirena-mcp's registered tool count small
+>   (28) regardless of how many `pyirena.api.control` functions exist —
+>   large MCP tool counts can exceed provider-side caps on the number of
+>   tools in a single request (e.g. a 128-tool limit observed via one
+>   gateway proxy).
+>
+> **What this means for you below:** every tool name shown in the
+> "Control tools reference" sections (e.g. `run_sizes_fit`,
+> `select_modeling_model`) is a `name` argument for `pyirena_call`, not a
+> standalone MCP tool — `pyirena_call("run_sizes_fit", {"session_id": ...})`
+> where this document writes `run_sizes_fit(session_id, ...)`. Call
+> `pyirena_describe_tool(name)` if you need the exact JSON schema rather
+> than the prose parameter list here. The underlying Python library uses
+> `pyirena.api` (read) and `pyirena.api.control` (control, dispatched by
+> exactly these bare names) with no prefix.
+
+---
+
+## What pyirena gives you
+
+pyirena works in four modes. **Read mode** retrieves existing fit results
+stored in NXcanSAS HDF5 files. **Control mode** lets you actually run fits —
+configure models, set parameters, execute the fitting algorithm, evaluate
+results, and save back to HDF5. **Calculators** answer experiment-planning
+questions from first principles, with no dataset and no session at all.
+**Data operations** transform datasets — averaging frames, subtracting a
+baseline, merging USAXS with SAXS — and write the result as a new file.
+
+### Read-mode analysis tools (results stored in NXcanSAS files)
+
+- **Reduced data** — the raw I(Q) curve, plus measurement uncertainties.
+- **Unified Fit** — Beaucage multi-level model with parameters G, Rg, B,
+  P, ETA, PACK, RgCutoff (up to 5 levels per file).
+- **Simple Fits** — single-model fits (Guinier, Porod, Debye-Bueche…).
+- **Size Distribution** — particle size distribution P(r), with bulk
+  volume fraction.
+- **Modeling** — parametric forward model with multiple populations:
+  size-distribution, unified-level, diffraction-peak, Guinier-Porod,
+  mass-fractal, surface-fractal.
+- **SAXS Morph** — voxelgram-based forward modeling (files from before
+  1.2.0; SAXS Morph no longer fits).
+- **WAXS Peak Fit** — per-peak position, FWHM, amplitude, area.
+- **Carbon model** — one fit of a disordered carbon from USAXS through
+  WAXS, with derived surface areas, pore and wall widths, stack height and
+  lattice spacings.
+- **Fractals** — grown mass-fractal aggregates (Z, df, dmin, c, Rg).
+- **Data Merge / Data Manipulation** — provenance for combined or
+  transformed datasets.
+
+### Calculators (no dataset required)
+
+- **Scattering contrast** — X-ray and neutron contrast, and scattering
+  length densities, from chemical formulas and mass densities. Includes
+  anomalous (Chantler-corrected) contrast, absorption and transmission at
+  a given energy, and a contrast-vs-energy scan for anomalous SAXS
+  planning. Also element lookup and read-only access to the user's saved
+  compound library.
+
+### Data operations (creates new data files)
+
+- **Average** frames, optionally screening out radiation-damaged ones.
+- **Subtract** a buffer, solvent or baseline; **divide** by a reference.
+- **Merge** two datasets that overlap in Q (USAXS + SAXS) into one curve.
+- **Scale**, **trim** and **rebin** a dataset.
+
+Your job is to help the user understand what's in their data, and — when
+asked — to fit new datasets autonomously using the control tools. Reach
+for a calculator whenever a number can be computed from composition rather
+than measured — above all a scattering contrast, which several fitting
+models need as an input. **Do not derive a contrast by hand**; the values
+`calc_contrast` returns are already in the units the fitting tools expect.
+
+### Control-mode fitting (all six tools)
+
+The control tools, dispatched through `pyirena_call`, let you drive
+pyirena's fitting models end-to-end. Every fitting tool is now drivable,
+one dispatcher category each:
+
+- **Unified Fit** — category `"unified"` (model parameters, levels,
+  staged fitting). See [Control tools reference](#control-tools-reference--unified-fit-dispatcher-category-unified).
+- **Size Distribution** — category `"sizes"` (inversion method,
+  size grid, shape, complex background, error handling). See
+  [Size Distribution control tools](#control-tools-reference--size-distribution-dispatcher-category-sizes).
+- **Simple Fits** — category `"simple"` (one analytical model at a
+  time: Guinier, Porod, Sphere, Debye-Bueche, Teubner-Strey, Invariant, …).
+  See [Simple Fits control tools](#control-tools-reference--simple-fits-dispatcher-category-simple).
+- **Modeling** — category `"modeling"` (several populations at once:
+  size distributions with form and structure factors, unified levels,
+  Guinier-Porod levels, diffraction peaks, fractals). See
+  [Modeling control tools](#control-tools-reference--modeling-dispatcher-category-modeling).
+- **WAXS Peak Fit** — category `"waxs"` (background choice, peak
+  finding, per-peak shape/position/width, integrated areas). See
+  [WAXS control tools](#control-tools-reference--waxs-peak-fit-dispatcher-category-waxs).
+- **Carbon model** — category `"carbon"` (grain Porod background,
+  micropores, turbostratic diffraction peaks, and the density → contrast
+  chain that ties them together). See
+  [Carbon model control tools](#control-tools-reference--carbon-model-dispatcher-category-carbon).
+
+Two more categories work across the six tools: **`"results"`** —
+`analyze` fits a curve with a saved configuration in one call, and
+`export_results` returns any finished fit as one JSON document (see
+[Results](#results--one-call-fitting-and-export-dispatcher-category-results))
+— and the shared session tools.
+
+**Which to reach for.** Simple Fits answers one focused question over a
+restricted Q range ("what is Rg here?", "what is the Porod slope?") and is the
+cheapest to run and to explain — prefer it when the user asks about a single
+feature. Unified Fit describes a whole multi-level curve. Size Distribution
+inverts to a particle-size histogram and needs a dilute single population.
+Modeling is the most powerful and the most work: use it when the curve needs
+*several* components at once — particles plus a large-scale level, or
+particles plus a diffraction peak — or when a specific form factor
+(core-shell, cylinder) matters. WAXS Peak Fit is for wide-angle patterns:
+crystalline reflections on an amorphous background, where the questions are
+peak position, width and integrated area. The Carbon model is for disordered
+carbons (glassy, hard, activated and carbide-derived carbons) measured over the
+whole SAXS + WAXS range: it fits grain surface, micropores and turbostratic
+stacking as one model, because the contrast that scales the SAXS terms comes
+from the fitted peak positions.
+
+Sessions are in-memory for the lifetime of the MCP server process and
+persist across tool calls within a conversation. The session lifecycle
+(`open_dataset`, `open_dataset_from_data`, `list_open_sessions`,
+`close_session`, `get_session_summary`) and the Q-range tools
+(`get_data_q_range`, `get_fit_q_range`, `set_fit_q_range`,
+`reset_fit_q_range`) are **shared** between all six tools (Modeling brings
+its own Q range).
+
+---
+
+## Recommended discovery workflow
+
+Almost every interaction should start with cheap orientation calls:
+
+1. **`pyirena_summarize_folder(folder)`** — get a one-shot snapshot:
+   how many files, which samples, which analyses are present per file.
+   Use this first whenever the user mentions a folder.
+2. **`pyirena_list_files(folder, sort="mtime_desc", limit=20)`** — when
+   you need to identify specific files. The newest are usually most
+   relevant.
+3. **`pyirena_inspect_file(path)`** — drill into one file: sample name,
+   exact list of analyses present, Q range, number of points.
+4. **`pyirena_read_<tool>(path)`** — only now load the actual results.
+
+Do not call `pyirena_read_*` functions until you know which analyses
+exist — otherwise you'll get `{"found": false}` and waste a turn.
+
+---
+
+## Common conventions
+
+- **Every call returns a dict.** Never a raw array, never an object.
+  All values are JSON-safe (NaN and inf are converted to `null`).
+- **Missing data returns `{"found": false}`** — never an exception. You
+  can defensively check `result["found"]` before using fields.
+- **Arrays are decimated by default** to about 500 points so responses
+  stay small. To get the full curve, pass `include_arrays=True` on
+  per-tool readers or `include_full=True` on `pyirena_read_reduced_data`.
+  Only do this when you specifically need the high-resolution shape.
+- **File paths must be absolute** (or relative to `PYIRENA_DATA_ROOT` if
+  that env var is set by the operator).
+- **`PYIRENA_DATA_ROOT` may restrict access.** If a file path is rejected
+  with a security error, tell the user to widen `PYIRENA_DATA_ROOT` or
+  put the file inside the configured root.
+
+---
+
+Calculators and data operations are the exception to two of the conventions
+above: calculators take no file path, and neither group returns `found`. On bad input they return
+`{"error", "suggestion", "code"}` — read the suggestion and retry rather
+than giving up.
+
+## Tool reference (grouped)
+
+### Discovery — call these first
+
+#### `pyirena_summarize_folder(folder, sample_filter=None)`
+Aggregate snapshot. Returns total file count, distinct sample names, per-
+analysis file counts (e.g. `{"unified_fit": 30, "modeling": 12}`), and
+mtime range. Optional `sample_filter` is a case-insensitive substring.
+
+When to use: first call when the user mentions a folder or "all my data".
+
+#### `pyirena_list_files(folder, pattern="*.h5,...", sort="mtime_desc", limit=100, deep=True)`
+One row per file. Sort keys: `name_asc/desc`, `mtime_asc/desc`,
+`size_asc/desc`. Use `deep=False` for a faster shallow listing if you
+only need paths/sizes/mtime.
+
+When to use: you need to identify specific files (latest 3, oldest,
+matching a name pattern).
+
+#### `pyirena_inspect_file(path)`
+Single-file deep look. Returns sample, scan number, mtime, list of
+`analyses_present`, Q range, number of points.
+
+When to use: before any `pyirena_read_*` call, to confirm what's in the
+file.
+
+---
+
+### Reading reduced data
+
+#### `pyirena_read_reduced_data(path, decimate=500, include_full=False)`
+The raw measured I(Q). Default decimation keeps response small. Set
+`include_full=True` only if you need the actual point density (rare for
+question-answering).
+
+#### `pyirena_read_metadata(path)`
+Sample name, label, thickness, blank file, instrument, timestamp.
+
+---
+
+### Reading per-tool results
+
+All take `(path, include_arrays=False, max_points=500)` unless noted.
+Arrays are **omitted by default** to keep responses compact — pass
+`include_arrays=True` only when you specifically need the curves.
+
+#### `pyirena_read_simple_fit(path)`
+Returns `{model, success, chi_squared, reduced_chi_squared, dof, q_min,
+q_max, params{}, params_std{}, derived{}, ...}`. Single model per file.
+
+#### `pyirena_read_unified_fit(path)`
+Returns `{num_levels, background, chi_squared, levels: [...]}` where each
+level has `{G, Rg, B, P, RgCutoff, ETA, PACK, correlations,
+G_err, Rg_err, ...}`. Use this for the most common question:
+hierarchical structure with multiple Rg's.
+
+#### `pyirena_read_size_distribution(path)`
+Returns `{method, shape, volume_fraction, rg, chi_squared, n_iterations,
+q_power, r_min, r_max, n_bins, ...}`. With `include_arrays=True`:
+`r_grid` (Å), `distribution` (volume-weighted P(r), volume fraction per
+Å), `number_dist` (1/(cm³·Å), the Irena unit), `cumul_vol_dist` (volume
+fraction), plus `Q` (1/Å), the intensities (1/cm) and `residuals`
+((I−I_model)/σ). Files written before pyirena 1.2.0 stored `number_dist`
+1e24 smaller; the reader rescales them, so every file reads in these units.
+
+#### `pyirena_read_modeling(path)`
+Returns `{chi_squared, background, populations: [...]}` where each
+population has `{pop_type, label, parameters{}, derived{}}`. `pop_type`
+is one of: `size_dist`, `unified_level`, `diffraction_peak`,
+`guinier_porod`, `mass_fractal`, `surface_fractal`. Population
+parameters vary by type — refer to the `parameters` dict for what's
+present. With `include_arrays=True`: `model_q` (1/Å), `model_I` (1/cm) and
+`residuals` ((I−I_model)/σ on `model_q`; `null` for files written before
+pyirena 1.2.0), and per size-distribution population `radius_grid` (Å),
+`volume_dist` (volume fraction per Å) and `number_dist` (1/(cm³·Å)).
+
+#### `pyirena_read_saxs_morph(path)`
+Returns `{chi_squared, volume_fraction, contrast, rg_A, phi_actual,
+voxel_size, box_size_A, morphology_metrics: {...}, ...}`. The 3-D
+voxelgram itself is intentionally not exposed (too large). Morphology
+metrics include pore-size statistics, Euler number, open/closed
+porosity. SAXS Morph fitting was removed in pyirena 1.2.0, so `chi_squared`
+and the fitted values only appear in files written before that.
+
+#### `pyirena_read_waxs_peakfit(path)`
+Returns `{n_peaks, bg_shape, chi_squared, bg_params{}, peaks: [...]}`
+where each peak has `{shape, params{Q0, A, FWHM, eta, ...},
+params_std{}, area, area_std}`.
+
+#### `pyirena_read_carbon_fit(path)`
+Returns `{found, success, formula, saxs_mode, waxs_envelope, n_peaks,
+chi_squared, reduced_chi_squared, q_min, q_max, params{}, params_std{},
+derived{}, fit_quality}`. **`derived` is usually the answer**: BET-comparable
+specific surface areas, pore and wall widths, stack height L_c, layer count,
+layer extent L_a, lattice spacings and densities. `params` holds the fit
+coefficients under dotted keys (`saxs.pore_radius`, `peak.002.Q0`). With
+`include_arrays=True`: `Q` (1/Å), `I_model`, `I_porod`, `I_mp`, `I_waxs`,
+`intensity_data`, `intensity_error` (1/cm) and `residuals`.
+
+#### `pyirena_read_fractals(path)`
+Returns metadata for each grown fractal aggregate in the file:
+`{aggregates: [{Z, df, dmin, c, RgPrimary, RgAggregate, ...}]}`. Full
+intensity arrays per aggregate are not exposed via this tool — they
+require direct HDF5 access.
+
+#### `pyirena_read_merge_provenance(path)`
+Returns `{scale, q_shift, background, chi_squared, q_overlap_min,
+q_overlap_max, ds1_file, ds2_file}`. Tells you how a merged file was
+constructed.
+
+#### `pyirena_read_manipulation_provenance(path)`
+Returns `{operation, source_file, parameters{...}}`. Tells you whether a
+file was scaled, trimmed, rebinned, subtracted, divided, or averaged.
+
+---
+
+### Cross-file aggregation
+
+#### `pyirena_tabulate_parameter(folder, tool, parameter, x_axis="scan_number", subgroup_index=None, sample_filter=None)`
+The workhorse for trend questions. Extracts ONE scalar across every file
+in `folder` that contains the requested tool's results.
+
+- `tool` is one of: `unified_fit, simple_fits, size_distribution,
+  modeling, saxs_morph, waxs_peakfit, fractals, data_merge,
+  data_manipulation`.
+- `parameter` is a scalar key from that tool's schema. Common ones:
+  - unified_fit: `background`, `chi_squared`, `Rg` (per-level →
+    `subgroup_index=1` for level 1)
+  - simple_fits: `chi_squared`, `param_Rg`, `param_I0`, `param_B`
+  - size_distribution: `volume_fraction`, `rg`, `chi_squared`, `q_power`
+  - modeling: `chi_squared`, `background`
+  - waxs_peakfit: `peak_Q0`, `peak_FWHM`, `peak_A`, `peak_Area` (each
+    requires `subgroup_index` = peak number, 1-based)
+- `x_axis` controls row ordering: `scan_number` (from filename),
+  `mtime`, or `name`.
+
+Returns `{n_rows, rows: [{path, name, sample, scan_number, mtime, value,
+stddev}], units, label}`. Use `value` for the plot and `stddev` for
+error bars when available.
+
+#### `pyirena_summarize_sample(folder, sample)`
+Condenses one sample's history across the folder: how many files,
+analyses run, and min/max/n of every top-level scalar parameter. Use
+when the user asks "tell me everything about sample_X".
+
+---
+
+### Images (returns mixed text + image content)
+
+**Every** pyirena tool that produces a picture behaves the same way — the
+two plotting tools below and every `pyirena_call(name="get_*_image", ...)`
+call (`get_fit_image`, `get_residuals_image`, `get_background_preview_image`,
+`get_sizes_fit_image`, `get_simple_fit_image`,
+`get_simple_linearization_image`, `get_modeling_fit_image`,
+`get_waxs_fit_image`). Each returns a **two-item content list**, not a
+single value. Handle both items by content type:
+
+| Index | `type` | What it contains |
+|-------|--------|-----------------|
+| 0 | `text` | A one-line label, then `"PNG saved to: /abs/path/to/file.png"` — the on-disk location |
+| 1 | `image` | The PNG encoded as base64; `mimeType` is `"image/png"` |
+
+**Critical: never print or forward item 1 as a string.** It is raw
+base64 binary data. If your client or agent loop iterates over content
+items without checking `type`, it will dump thousands of characters of
+garbled text to the user. Always branch on `content[i].type`:
+
+```python
+for item in tool_result.content:
+    if item.type == "text":
+        print(item.text)          # label + file path — safe to show
+    elif item.type == "image":
+        display_image(item.data)  # base64 PNG — render, don't print
+```
+
+If the AI client renders content items by type natively (Claude Desktop /
+claude.ai, Claude Code, ChatGPT in developer mode, MCP Inspector), the image
+appears inline automatically and you do not need to handle it manually.
+
+If the client does not render images (AnythingLLM in some modes, custom
+pipelines), skip the image item entirely and give the user the file path
+from item 0 so they can open the PNG manually. The path is always present —
+the PNG is written to disk before it is encoded, so there is a real file
+even when the picture cannot be shown.
+
+PNGs are written under `$PYIRENA_PLOT_CACHE` when that is set; otherwise
+`plot_iq` / `plot_parameter_trend` write to `<tempdir>/pyirena-mcp` and the
+control-API image tools write to `<tempdir>/pyirena-ctrl`. Set
+`PYIRENA_PLOT_CACHE` to a folder the user can browse if they will want to
+open the files themselves.
+
+**Implementation note (for anyone editing `pyirena/mcp/server.py`):** image
+tools are registered with `@_image_tool()`, not `@mcp.tool()`. FastMCP ≥ 1.10
+otherwise derives a structured-output JSON schema from the return annotation
+and fails to serialise the `Image` object, so the call errors out *after* the
+PNG is written and the client sees a serialization error instead of a plot.
+
+#### `pyirena_plot_iq(paths, overlay=True, log_x=True, log_y=True, output_path=None)`
+Plots I(Q) for one or more files. Saves PNG to `PYIRENA_PLOT_CACHE`
+(or `output_path`) and returns both items described above.
+
+- `overlay=True` (default): one axes, all curves overlaid (colour-coded
+  by file).
+- `overlay=False`: a grid, one subplot per file. Use when there are
+  many curves and overlay would be unreadable.
+- WAXS data: pass `log_x=False, log_y=False` for the standard
+  linear-linear WAXS view.
+
+#### `pyirena_plot_parameter_trend(folder, tool, parameter, x_axis="scan_number", subgroup_index=None, sample_filter=None, output_path=None)`
+Internally calls `pyirena_tabulate_parameter` then renders the result as
+a line+marker plot with error bars (when `stddev` is available). Saves
+PNG and returns both items described above.
+
+Use for the very common request: "plot how Rg evolved across all my
+scans for sample X."
+
+---
+
+## Data operations reference — transforming data (dispatcher category `"data"`)
+
+These are the **only** pyirena tools that create data files. No session and
+no `session_id` — call them as `pyirena_call(name, arguments)` like any
+other dispatched tool.
+
+### Where the output goes
+
+| Input | Operation | Output |
+|---|---|---|
+| `/data/run42/s1.h5` | average | `/data/run42_manip/s1_avg.h5` |
+| `/data/run42/s1.h5` | subtract | `/data/run42_manip/s1_sub.h5` |
+| `/data/run42/s1.h5` | divide | `/data/run42_manip/s1_div.h5` |
+| `/data/run42/s1.h5` | scale | `/data/run42_manip/s1_scaled.h5` |
+| `/data/run42/s1.h5` | trim | `/data/run42_manip/s1_trimmed.h5` |
+| `/data/run42/s1.h5` | rebin | `/data/run42_manip/s1_rebinned.h5` |
+| `/data/usaxs/s1.h5` | merge | `/data/usaxs_merged/s1_merged.h5` |
+
+A **sibling** of the source folder, not a subfolder — the same place the
+GUI and `pyirena.batch` write, so the user finds results where they expect.
+Repeating an operation overwrites its own previous output; different
+operations use different suffixes and never collide. Pass `output_folder`
+to override, which you must do if you get `PATH_NOT_ALLOWED` (that happens
+when `PYIRENA_DATA_ROOT` is the data folder itself, putting the sibling
+outside the sandbox).
+
+### Always check the point accounting
+
+Every operation returns `n_points_in`, `n_points_result`,
+`n_points_written` and `n_dropped_nonpositive`, plus a `warnings` list.
+Points legitimately disappear for two reasons: log-log interpolation does
+not extrapolate (so operating against a narrower-Q dataset truncates the
+result), and the saver strips non-positive intensities before writing.
+
+**A subtraction that drops many points is over-subtracted.** Report that to
+the user and offer a smaller `buffer_scale` rather than presenting the
+result as clean.
+
+#### `average_data(files, output_folder=None, similarity_check=False, similarity_p_min=0.01, similarity_method="cormap", similarity_reference="first", similarity_normalize_scale=True)`
+
+Average two or more datasets onto the first one's Q grid. Uncertainties are
+the larger of the propagated error and the point-to-point scatter.
+
+Set `similarity_check=true` for a time series where radiation damage is
+possible: a cormap test compares the frames and drops outliers, returning
+them in `rejected`. Worth doing by default on a repeated-exposure series of
+a biological or beam-sensitive sample.
+
+All frames must share the same slit-smearing status.
+
+#### `subtract_data(sample_file, buffer_file, buffer_scale=1.0, auto_scale=False, auto_q_min=None, auto_q_max=None, output_folder=None)`
+
+`I_sample - buffer_scale * I_buffer`, with the buffer interpolated onto the
+sample's Q grid. The everyday "remove the solvent / the empty cell / the
+baseline condition" operation.
+
+`auto_scale` fits `buffer_scale` from the integral ratio over a Q window —
+it needs **both** `auto_q_min` and `auto_q_max`, and you get an error if you
+supply only one. Use a window where the sample and buffer should coincide,
+typically the high-Q tail.
+
+#### `divide_data(numerator_file, denominator_file, denominator_scale=1.0, denominator_background=0.0, output_folder=None)`
+
+`I_num / (denominator_scale * I_den - denominator_background)`. Points
+where the denominator is zero come back non-finite; they are counted in
+`n_nonfinite` and stripped on save.
+
+#### `scale_data(file, scale_I=1.0, background=0.0, scale_uncertainty=None, output_folder=None)`
+
+`scale_I * I - background` — background subtracted **after** scaling. Use
+to put a dataset on absolute scale, or to remove a known flat background.
+
+#### `trim_data(file, q_min=0.0, q_max=None, output_folder=None)`
+
+Keep only `q_min <= Q <= q_max` (1/Å, inclusive). Use to drop a noisy
+high-Q tail or a beamstop-contaminated low-Q region before fitting.
+
+#### `rebin_data(file, mode="log", n_points=200, q_min=None, q_max=None, reference_file=None, output_folder=None)`
+
+Resample onto a new Q grid. `mode="log"` is the usual choice for SAS;
+`mode="reference"` reuses another file's grid (pass `reference_file`).
+Because interpolation does not extrapolate, the result can be shorter than
+`n_points`.
+
+#### `merge_datasets(file1, file2, q_overlap_min=None, q_overlap_max=None, fit_scale=True, scale_dataset=2, fixed_scale_value=1.0, fit_background=True, fixed_background_value=0.0, fit_qshift=False, fixed_qshift_value=0.0, qshift_dataset=0, split_at_left_cursor=False, output_folder=None)`
+
+Join two datasets that overlap in Q. **`file1` must be the lower-Q dataset**
+(usually USAXS) — it is the absolute-intensity reference and keeps its
+scale; `file2` (usually SAXS) is rescaled onto it. Getting the order wrong
+returns `SWAPPED_INPUTS` naming the correct order.
+
+Omit both overlap bounds to auto-detect (intersect the two Q ranges, trim
+10% off each side). Returns the fitted `scale`, `background`,
+`chi_squared` and `n_overlap_points`.
+
+**By default a constant background is fitted and subtracted from file1.**
+Check the returned `background` is small compared with the intensities
+before trusting the merge. Pass `fit_background=false` to hold it at
+`fixed_background_value` instead (0 for data with no background
+assumption). At least one of `fit_scale` / `fit_background` must stay true:
+a Q shift alone has nothing to optimise against.
+
+Keep `scale_dataset=2` (the default) unless you specifically need file1
+rescaled: it has a closed-form solution, while `scale_dataset=1` falls back
+to slower iterative fitting.
+
+Mixing slit-smeared USAXS with pinhole SAXS is normal and allowed; anything
+worth knowing comes back in `slit_warning`.
+
+#### `match_merge_files(folder1, folder2, strip1=None, strip2=None)`
+
+Read-only. Pairs files across two folders on (text before the first
+underscore, last integer in the name), so `sampleA_usaxs_007.h5` pairs with
+`sampleA_saxs_007.h5`. Call it before looping `merge_datasets` over a run,
+and check `unmatched_1` / `unmatched_2` for files with no partner. When the
+two datasets glue an instrument code onto the sample name
+(`SmySample_0001.dat` vs `WmySample_0001.dat`), pass regexes `strip1="^S"`,
+`strip2="^W"`; each is removed once from the start of the filename stem
+before matching.
+
+---
+
+## Calculators reference — support calculations (dispatcher category `"calculators"`)
+
+These are **stateless**: no `session_id`, no `pyirena_ctrl_open_dataset()`,
+no file. Call them as `pyirena_call(name, arguments)` like any other
+dispatched tool. They need the `pyirena[contrast]` extra; if it is missing
+you get a `MISSING_DEPENDENCY` error telling the user what to install.
+
+### Why you should reach for these
+
+The single most common use is getting a **scattering contrast** to feed
+into a fit. Both Size Distribution (`set_shape(..., contrast=...)`) and
+Modeling (a population's `contrast` parameter) take (Δρ)² in
+**10²⁰ cm⁻⁴** — exactly what `calc_contrast` returns as `xray_contrast`.
+Compute it, then pass it straight through. Deriving it by hand from
+electron densities is error-prone and unnecessary.
+
+#### `calc_contrast(formula_1, density_1, formula_2, density_2, name_1="", name_2="", mode="atomic_ratio", isotopes_1=None, isotopes_2=None, energy_keV=None, thickness_mm=1.0, vol_frac_1=0.01)`
+
+X-ray and neutron contrast between two compounds. Densities in g/cm³.
+
+Returns `xray_contrast` and `neutron_contrast` (10²⁰ cm⁻⁴),
+`ratio_xray_neutron`, and the two materials' full properties under
+`compound_1` / `compound_2` (each with `xray_sld` and `neutron_sld` in
+10¹⁰ cm⁻², molar mass, electron density, molar volume).
+
+Leave one formula empty (`""`) or its density `0` for **vacuum** — that
+gives the contrast of the other material against vacuum, which is what you
+want for a dry powder or an aerogel.
+
+Pass `energy_keV` to add the anomalous, Chantler-corrected quantities:
+`xray_contrast_anom`, `mu_1` / `mu_2` (cm⁻¹) and `transmission_1` /
+`transmission_2` / `transmission_sample`. Do this near an absorption edge,
+where the free-electron approximation is simply wrong.
+
+`isotopes_1` / `isotopes_2` take `{element: mass_number_string}`, e.g.
+`{"H": "2"}` for deuteration — the standard neutron contrast-variation
+lever. It changes the neutron contrast, barely the X-ray one.
+
+**When to use:** any time the user names two materials and wants to know
+whether they will scatter against each other, and always before setting
+`contrast` on a Sizes or Modeling fit.
+
+#### `calc_compound(formula, density, mode="atomic_ratio", name="", isotopes=None, energy_keV=None, thickness_mm=1.0)`
+
+One material's scattering length densities and molar properties. Use when
+the question is about a single material rather than a pair. `energy_keV`
+adds the anomalous SLD, linear absorption and transmission.
+
+#### `calc_contrast_energy_scan(formula_1, density_1, formula_2, density_2, e_start_keV, e_end_keV, n_points=200, ..., max_points=None)`
+
+Anomalous contrast, absorption and transmission across an energy range —
+the anomalous-SAXS planning tool. Returns arrays (`energy`,
+`xray_contrast_anom`, `xray_sld_anom_1/2`, `mu_1/2`,
+`transmission_1/2/sample`) plus a `best` summary naming the energy of
+maximum |contrast|.
+
+**Always check `best.transmission_sample`.** Maximum contrast frequently
+sits at an energy where the sample is effectively opaque; the useful answer
+is the best compromise between contrast and transmission, not the peak.
+Cost is linear in `n_points` — scan wide at the default 200, then rescan a
+narrow range around the edge.
+
+#### `lookup_element(symbol)`
+
+Z, atomic mass (g/mol), neutron coherent scattering length `b_c` (fm), and
+the isotopes that have neutron data. Use it to check a symbol, or to find
+the isotope label for an `isotopes` override.
+
+#### `list_compound_library()` / `load_compound(name)`
+
+Read-only access to the compounds the user saved in the Scattering Contrast
+GUI panel. Check here before asking the user to re-type a formula and
+density they have already defined. Saving and deleting are deliberately
+not exposed. An empty library is normal.
+
+---
+
+## Control tools reference — Unified Fit (dispatcher category `"unified"`)
+
+These tools use sessions. Always start with `pyirena_ctrl_open_dataset()`,
+capture the returned `session_id`, and pass it to every subsequent call.
+Everything below except the session-lifecycle tools is called as
+`pyirena_call(name, arguments)` — see the banner at the top of this
+document.
+
+### Recommended fitting workflow
+
+Feature detection is **step 0 before selecting a model** — it tells you how
+many levels the curve needs and where to place Q-windows, so you don't
+start fitting blind.
+
+```
+pyirena_ctrl_open_dataset(file_path)           → session_id + data summary
+
+# Step 0: understand the curve structure FIRST
+detect_features(session_id)       → segments, knees, recommended_nlevels
+# → use recommended_nlevels for nlevels below
+# → use guinier_knees[i].q_min..q_max for fit_local_guinier Q windows
+# → use segments for initial P estimate per level
+
+select_model(session_id, nlevels=N)   # N from detect_features
+get_model_description(session_id) → read before fitting
+get_data_q_range(session_id)      → know your Q range
+set_fit_q_range(session_id, q_min=…, q_max=…)  # if needed
+
+# Optional: get local starting values from the detected regions
+fit_local_guinier(session_id, q_min=knee.q_min, q_max=knee.q_max)
+fit_local_power_law(session_id, q_min=seg.q_min, q_max=seg.q_max)
+set_parameter_value(session_id, "Rg_1", rg_from_local)
+set_parameter_value(session_id, "P_1", p_from_local)
+
+fix_all_except(session_id, ["Rg_1","G_1","background"])
+run_fit(session_id)               → chi_squared, params
+get_fit_image(session_id)         → inspect visually
+# if chi_squared > ~5, free more params or add a level, run again
+free_parameter(session_id, "P_1")
+run_fit(session_id)               → improved chi_squared
+save_fit(session_id)              → write back to HDF5
+export_fit_report(session_id)     → markdown summary
+```
+
+### Session lifecycle
+
+| Tool | Returns |
+|------|---------|
+| `pyirena_ctrl_open_dataset(file_path)` | `session_id`, data summary |
+| `pyirena_ctrl_open_dataset_from_data(q, intensity, error=None, dq=None, label="", is_slit_smeared=False, slit_length=0.0, error_fraction=0.05)` | `session_id` from arrays, no file involved (Q in 1/Å, I in 1/cm); cleaning counts in `summary.cleaning`; `save_*` then needs an explicit `output_path` |
+| `pyirena_ctrl_list_open_sessions()` | all open sessions |
+| `pyirena_ctrl_get_session_summary(session_id)` | file, model, Q range, χ² |
+| `pyirena_ctrl_close_session(session_id)` | frees memory |
+
+### Model selection
+
+| Tool | Returns |
+|------|---------|
+| `list_available_models()` | `["unified_fit", "sizes"]` (+ per-model `details`) |
+| `select_model(session_id, model_name="unified_fit", nlevels=1)` | full parameter table |
+| `get_model_parameters(session_id)` | current parameter table |
+| `get_model_description(session_id)` | physical meaning of each param + tips |
+
+### Parameter control
+
+All parameter names follow the convention `<param>_<level>` for
+level-specific params (e.g. `Rg_1`, `G_2`, `P_1`) and plain names for
+model-wide params (`background`).
+
+| Tool | Effect |
+|------|--------|
+| `set_parameter_value(session_id, param_name, value)` | set starting value |
+| `set_parameter_bounds(session_id, param_name, lo, hi)` | constrain range |
+| `fix_parameter(session_id, param_name)` | hold fixed |
+| `free_parameter(session_id, param_name)` | release for fitting |
+| `fix_all_except(session_id, free_list=["Rg_1", "G_1", …])` | staged fitting setup |
+| `reset_parameters_to_defaults(session_id)` | factory defaults |
+| `get_level_options(session_id, level=None)` | per-level flags: `correlations`, `mass_fractal`, `link_B`, `link_RGCO` |
+| `set_level_option(session_id, level, option, enabled)` | toggle one of those flags |
+
+**`ETA` and `PACK` do nothing unless the level's `correlations` option is
+on** — set it with `set_level_option` first. `mass_fractal` computes B
+automatically, `link_B` estimates B from the Porod invariant, and
+`link_RGCO` ties RgCutoff to the previous level's Rg (the linked value is
+stored on the level and saved).
+
+**Staged fitting strategy** (recommended):
+1. `fix_all_except(["background"])` → fit background first
+2. `fix_all_except(["Rg_1","G_1","background"])` → add Rg and G
+3. If χ²ᵣ > 5, `free_parameter("P_1")` → add power-law slope
+4. If residuals show structure at low-Q, add a level
+
+### Level management (Unified Fit)
+
+| Tool | Effect |
+|------|--------|
+| `add_unified_level(session_id, position=-1)` | add level (−1 = append) |
+| `remove_unified_level(session_id, level)` | remove 1-based level |
+
+After adding/removing a level, all parameters are renumbered and prior fit results are cleared.
+
+### Feature detection — call before selecting a model
+
+#### `detect_features(session_id, q_min=None, q_max=None, q_max_clip=0.6, config_overrides=None)`
+
+Analyses the loaded I(Q) curve in log-log space and segments it into regions
+where the power-law slope `d(log I)/d(log Q)` is approximately constant.
+Returns a structured description of the curve's features without modifying
+the model.
+
+**When to call:** always call this *before* `select_model`.  The
+return value tells you how many Unified Fit levels are needed and where to
+find them, so you don't pick the wrong model complexity.
+
+**Parameters:**
+- `q_min`, `q_max` — restrict analysis to a Q sub-range (default: full data range)
+- `q_max_clip` — silently drop data above this Q (default: 0.6 Å⁻¹, the SAS
+  approximation limit; diffraction features above 0.6 should not be treated as
+  SAS structure). Pass `null` to disable.
+- `config_overrides` — dict of `FeatureDetectConfig` field names to adjust
+  sensitivity.  Useful fields:
+  - `"change_threshold_1"` (default 0.40) — raise to get fewer coarser segments;
+    lower to catch subtler slope transitions
+  - `"change_threshold_2"` (default 0.20) — threshold for the refinement pass
+    inside wide (> 1.0 decade) segments
+  - `"min_segment_decades"` (default 0.10) — minimum width of an interior segment
+  - `"merge_slope_tol"` (default 0.15) — merge adjacent segments with similar slopes
+
+**Returns dict with:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `ok` | bool | `true` on success |
+| `segments` | list | Power-law slope segments, sorted **low-Q to high-Q** |
+| `guinier_knees` | list | Inferred Guinier knees between adjacent segments |
+| `recommended_nlevels` | int | Suggested number of Unified Fit levels |
+| `recommended_guinier_windows` | list | Q windows for `fit_local_guinier` per knee |
+| `background_q_min` | float\|null | Q where high-Q flat background begins |
+| `n_segments_found` | int | Total segments detected |
+| `log_decades` | float | Total Q range analysed in log10(Q) decades |
+| `q_min_analysed`, `q_max_analysed` | float | Actual Q range after clipping |
+| `n_points` | int | Data points used |
+
+**Each segment has:**
+
+| Field | Description |
+|-------|-------------|
+| `q_min`, `q_max` | Q range of the segment (Å⁻¹) |
+| `slope` | Mean `d(log I)/d(log Q)` — negative for power-law, near zero for plateaus |
+| `slope_std` | Std dev of slope within the segment (lower = more constant) |
+| `kind` | `"power_law"` \| `"guinier_plateau"` \| `"background"` |
+| `intensity_mid` | I at the geometric centre Q — useful initial G estimate |
+| `width_decades` | Segment width in log10(Q) decades |
+
+**Each Guinier knee has:**
+
+| Field | Description |
+|-------|-------------|
+| `q_min`, `q_max`, `q_center` | Q location of the transition |
+| `slope_low_q` | Mean slope of the lower-Q (shallower) segment |
+| `slope_high_q` | Mean slope of the higher-Q (steeper) segment |
+| `delta_slope` | `\|slope_high_q − slope_low_q\|` |
+
+A knee is only reported when `|slope_low_q| < |slope_high_q|` — the slope
+gets shallower going high-Q to low-Q, the physical Guinier-knee signature.
+
+**Each recommended Guinier window has:**
+
+| Field | Description |
+|-------|-------------|
+| `q_min_guinier` | Use as `q_min` for `fit_local_guinier` |
+| `q_max_guinier` | Use as `q_max` for `fit_local_guinier` |
+| `q_min_powerlaw` | Use as `q_min` for `fit_local_power_law` |
+
+**Interpreting the result:**
+
+1. **How many levels?** Use `recommended_nlevels`.  Each `"power_law"` or
+   `"guinier_plateau"` segment with a Guinier knee on its low-Q side is one
+   Unified Fit level; `"background"` segments are not levels.
+
+2. **Starting P?** Each segment has a `P` field (positive Porod exponent,
+   I ∝ Q⁻ᴾ).  Use it directly as the starting value for `set_parameter_value`.
+
+3. **Starting Rg and G?** Call `fit_local_guinier` with the Q window from
+   `recommended_guinier_windows[i]`; apply the returned Rg and G with
+   `set_parameter_value`.
+
+4. **Background starting value?** If `background_q_min` is non-null, read
+   `intensity_mid` of the background segment and use it as the background
+   starting value.
+
+5. **Level ordering:** `segments` and `recommended_guinier_windows` are already
+   ordered **high-Q → low-Q**, matching Unified Fit level numbering.
+   `segments[0]` corresponds to Level 1 (smallest structure, highest Q);
+   `segments[1]` to Level 2, and so on.  No reversal needed.
+
+---
+
+### Q range
+
+| Tool | Effect |
+|------|--------|
+| `get_data_q_range(session_id)` | full data Q range |
+| `get_fit_q_range(session_id)` | current fit Q range |
+| `set_fit_q_range(session_id, q_min=…, q_max=…)` | restrict fit range |
+| `reset_fit_q_range(session_id)` | restore full data range |
+
+Use `set_fit_q_range` to exclude beam-stop artefacts at low-Q or noisy
+high-Q tails before fitting. Either end can be `null` to leave it unchanged.
+
+### Fit execution
+
+#### `run_fit(session_id, max_iter=None, walk_limits=True, no_limits=False, tolerance=None, random_seed=None, n_mc_runs=0)`
+Runs the fitting algorithm synchronously. With `walk_limits=True` (default,
+same behaviour as the GUI Fit button): when a fitted parameter ends pinned at
+a limit, the limits are recentred on the fitted value and the fit rerun (up
+to 4 walks), so an optimum far outside the current limits window — e.g. a B
+that must change by orders of magnitude after a change in P — is reached in
+one call. Pass `walk_limits=False` to treat bounds from
+`set_parameter_bounds` as hard constraints. `no_limits=True` (the GUI's
+*No limits?* box) fits with the model's own wide default bounds instead of
+yours, and implies `walk_limits=False`; your bounds are untouched and come
+back afterwards — use it to see where a parameter stuck at a limit actually
+wants to go. `random_seed` makes a fit reproducible from an audit trail.
+`n_mc_runs > 0` adds Monte-Carlo uncertainties after the fit — the GUI's
+*Analyze Results*: the fitted model (links, limits, slit smearing) is refitted
+`n_mc_runs` times to data perturbed by the measured σ, seeded by
+`random_seed`. It needs measured uncertainties and multiplies the call time,
+so it is off by default (see **Parameter uncertainties** below).
+Returns:
+- `success` (bool)
+- `chi_squared`, `reduced_chi_squared` (float)
+- `iterations` (int)
+- `message` (fit status from scipy)
+- `parameters_updated` (list of {name, value}, plus `std` when `n_mc_runs > 0`)
+- `uncertainty` (only when `n_mc_runs > 0`) — `{available, reason, method,
+  n_runs, n_ok, seed}`
+- `pinned_parameters` (list of str) — fitted parameters that ended at a
+  bound (normally empty when walking; with `walk_limits=False` it shows
+  which bound stopped the fit)
+- `warnings` (list of str) — plain-language notes on the pinned parameters
+- `quality` (dict) — robust fit-quality scalars: `robust_scale_s`,
+  `realistic_reduced_chi2_floor`, `max_abs_frac_misfit`, `q_at_max_frac_misfit`,
+  `median_frac_uncertainty`, `n_outliers_3s`, `longest_same_sign_run`,
+  `sign_autocorr_lag1`, `sigma_available`. See **Quality assessment** below for
+  how to read these. (Full per-point arrays + per-band breakdown:
+  `get_fit_quality`.)
+
+**Interpreting reduced_chi_squared — read this carefully:**
+Reported uncertainties σ in SAXS are *frequently mis-scaled*, so reduced χ² alone
+is unreliable. A reduced χ² of 9 does **not** necessarily mean a bad fit — it may
+just mean σ are ~3× too small. **Do not chase reduced χ² ≈ 1** and do not dismiss
+a fit just because reduced χ² is large. Instead, combine it with `quality`:
+- If `robust_scale_s` ≈ 1 → σ are honest; the usual reading applies (~1 excellent,
+  2–10 reasonable, >10 poor, <0.5 over-fitting).
+- If `robust_scale_s` ≈ s > 1 → σ are ~s× too small; the *realistic* reduced-χ²
+  floor is `realistic_reduced_chi2_floor` ≈ s². A reduced χ² near that floor with
+  no outliers and no sign-structure is **as good as the data allows — stop.**
+- Regardless of σ scale, a large `max_abs_frac_misfit` (≳ 0.3) or a long
+  `longest_same_sign_run` indicates a **real** misfit to investigate.
+
+Re-calling `run_fit` after a partial convergence continues from current
+parameter values — this is intentional and useful.
+
+### Quality assessment
+
+| Tool | Returns |
+|------|---------|
+| `get_chi_squared(session_id)` | `chi_squared`, `reduced_chi_squared` |
+| `get_residuals(session_id)` | `residuals` (normalised), `rescaled_residual`, `frac_misfit_percent`, `summary` (rms / max_abs / mean / `robust_scale_s`) |
+| `get_fit_quality(session_id, n_bands=4)` | full robust diagnostics (scalars + per-point arrays + per-band) |
+| `get_fit_image(session_id, width=1024, height=768)` | inline PNG (data + model + residuals subplot) |
+| `get_residuals_image(session_id)` | same image; requires completed fit |
+| `check_level_feasibility(session_id, level=None)` | after `run_fit`: whether each level's Guinier and power-law regions join smoothly at the Hammouda rollover — catches B/P/G/Rg combinations that converged mathematically but mean nothing physically |
+| `get_parameter_uncertainties(session_id, include_arrays=False)` | any tool — see **Parameter uncertainties** below |
+
+#### Parameter uncertainties
+
+`run_fit`, `run_sizes_fit`, `run_simple_fit` and `run_modeling_fit` take
+`n_mc_runs` (0 = off, the default; Carbon's `run_carbon_fit` already had it).
+With `n_mc_runs > 0` the fit is followed by that many Monte-Carlo refits on
+data perturbed by the measured σ — the same core code as the GUI's
+uncertainty buttons and `pyirena.batch(..., with_uncertainty=True)`, so the
+three return the same numbers for the same setup and seed (`random_seed`).
+Two rules hold everywhere:
+
+- **No σ is assumed.** Without measured uncertainties the estimate is refused
+  (`available: false` with the reason) rather than run on an invented 5 % of
+  I. Size Distribution with fractional error on is the exception: there σ is
+  the user's choice. (The GUI and `pyirena.batch` use I × the Data
+  Selector's "Generated uncertainty fraction" for such data — a setting this
+  service does not have, so send uncertainties if you want error bars.)
+- **Failures are counted.** `n_ok` of `n_runs` refits succeeded (Modeling
+  reports `n_ok: null`); fewer than two successes means no uncertainty.
+
+Each refit is a full fit, so `n_mc_runs` multiplies the call time — mind a
+remote client's timeout (the ZMQ service gives a request 55 s).
+
+`get_parameter_uncertainties(session_id)` returns the stored Monte-Carlo
+block `{available, reason, method: "monte_carlo", n_runs, n_ok, seed,
+parameters: [{name, std}]}` (Size Distribution: `scalars` with `rg_std`,
+`volume_fraction_std`, `peak_r_std`, and `distribution_std` with
+`include_arrays=True`). Without a Monte-Carlo run, Simple Fits and WAXS Peak
+Fit return their covariance σ (`method: "covariance"`), Carbon its own
+estimate, and the others `available: false` with how to get them. A new fit
+clears the previous fit's uncertainties. `export_results` carries the same
+block as `uncertainty`, and `analyze(..., n_mc_runs=N)` passes it through.
+
+#### `get_fit_quality(session_id, n_bands=4)` — robust diagnostics
+
+The recommended way to judge a fit when σ may be mis-scaled. Returns **facts
+only** (no good/bad verdict — you apply the thresholds). Fields:
+
+**Global scalars**
+- `sigma_available` (bool) — `False` if no usable σ; then σ-dependent fields are
+  `null` and only the fractional/structure fields are meaningful.
+- `reduced_chi2`, `dof`, `n_valid`, `n_params`.
+- `robust_scale_s` — MAD-based estimate of how many × the *actual* scatter
+  exceeds the reported σ. **≈ 1** σ honest; **≈ 3** σ ~3× too small; **≪ 1** σ
+  too large / over-fitting risk. This is the single most useful number.
+- `sigma_misscale_factor` — alias of `robust_scale_s`.
+- `realistic_reduced_chi2_floor` — `robust_scale_s²`; the lowest reduced χ² the
+  data can physically support. Don't try to beat it.
+- `max_abs_frac_misfit` + `q_at_max_frac_misfit` — the largest |(I−M)/I| and the
+  Q where it occurs. **σ-independent backstop**: ≳ 0.3 (30 %) means a gross local
+  misfit no matter how unreliable σ is.
+- `median_frac_uncertainty` — typical σ/I ("a few %").
+- `n_outliers_3s`, `frac_outliers_3s` — points beyond 3·`robust_scale_s`. These
+  are genuine outliers *even after* accounting for a mis-scaled σ.
+
+**Structure scalars** (distinguish a wrong σ-scale from a wrong model)
+- `longest_same_sign_run` — long run of same-sign (I−M) ⇒ wrong functional form.
+- `sign_autocorr_lag1` — near +1 ⇒ systematic; near 0 ⇒ random scatter.
+
+**Per-band** (`bands`, count in `n_bands_used`): each `{q_lo, q_hi, n,
+reduced_chi2, robust_scale_s, max_abs_frac_misfit}`. One hot band points at the
+Q-region to fix; uneven per-band χ² is itself a misfit signal.
+
+**Decision sketch** (yours to tune):
+- bulk `robust_scale_s` small-ish, no sign-runs, `max_abs_frac_misfit` < ~0.15 →
+  fit is as good as the data allows; **stop** (a high reduced χ² is just σ-scale).
+- `n_outliers_3s` > 0 with `max_abs_frac_misfit` ≳ 0.3, or a hot band, or a long
+  sign-run → **real misfit; investigate that Q-region.**
+- `robust_scale_s` ≪ 1 while still tightening → **over-fitting; back off.**
+
+`get_fit_image` works **before and after** a fit:
+- Before: shows data + model at current starting parameter values (useful for sanity-checking starting conditions)
+- After: adds a normalised residuals subplot below the main plot
+
+Handle the image return value the same way as `pyirena_plot_iq`:
+check `content.type`, render the `image` item, show the `text` item as a label.
+
+### Persistence
+
+| Tool | Effect |
+|------|--------|
+| `save_fit(session_id, output_path=None)` | write fit to HDF5 (default: overwrites source) |
+| `export_fit_report(session_id, format="markdown")` | returns report text |
+
+---
+
+## Control tools reference — Size Distribution (dispatcher category `"sizes"`)
+
+These tools fit a **particle size distribution** P(r) by inverting I(Q).
+They share the session and Q-range tools above — `open_dataset`,
+`get_session_summary`, `set_fit_q_range`, etc. are the same. The
+`set_fit_q_range` tool defines the **inversion Q-range** (the Q window the
+distribution is fitted over).
+
+**When is a size distribution appropriate?** Only for dilute samples with a
+single, identifiable particle population over a limited size range. It is
+*not* a general-purpose model — for multi-level hierarchical structure use
+Unified Fit instead. Always call `suggest_sizes_setup` first;
+it tells you whether the data is a viable candidate and recommends a setup.
+
+### Recommended size-distribution workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                  → session_id + data summary
+
+# Step 0: check suitability + get recommendations FIRST
+suggest_sizes_setup(session_id)
+   → suitable (bool), recommended {r_min, r_max, inversion_q_min/max,
+     power_law_q_min/max, background_q_min/max}, warnings[]
+# → if suitable=false, tell the user why (warnings) before proceeding.
+
+select_sizes_model(session_id, method="maxent")   # MaxEnt = default
+set_shape(session_id, shape="sphere", contrast=1.0)
+set_size_grid(session_id, r_min=…, r_max=…, n_bins=200)
+set_error_handling(session_id, error_scale=1.0)
+
+# Complex background = power_law_B·q^(-P) + flat. Fit each over its OWN window:
+fit_power_law_background(session_id, q_min=…, q_max=…)  # low-Q
+fit_flat_background(session_id, q_min=…, q_max=…)        # high-Q
+get_background_preview_image(session_id)    # visually confirm background
+
+set_fit_q_range(session_id, q_min=…, q_max=…)   # inversion window (SHARED tool)
+run_sizes_fit(session_id)                 → chi_squared, Vf, Rg, peak_r
+get_sizes_fit_image(session_id)           → inspect (I(Q) + P(r) panels)
+save_sizes_fit(session_id)                → write back to HDF5
+```
+
+### Model lifecycle & configuration
+
+| Tool | Effect |
+|------|--------|
+| `select_sizes_model(session_id, method="maxent")` | create a Sizes model; `method` ∈ `maxent` (default), `regularization`, `tnnls`, `montecarlo`. Replaces any model and clears prior fit. |
+| `get_sizes_config(session_id)` | dump current grid, shape, method, error handling, background |
+| `set_size_grid(session_id, r_min, r_max, n_bins, log_spacing)` | radius grid [Å]. Heuristic: `r ≈ π/Q` over the inversion Q-range. |
+| `set_shape(session_id, shape, contrast, aspect_ratio)` | `shape` ∈ `sphere`/`spheroid`; `contrast` = (Δρ)² in 10²⁰ cm⁻⁴ (use 1.0 if unknown); `aspect_ratio` for spheroid only |
+| `set_method(session_id, method, …)` | switch method and/or tune it. Only params for the chosen method are applied: `maxent_sky_background`, `maxent_max_iter`; `regularization_evalue`, `regularization_min_ratio`; `tnnls_approach_param`, `tnnls_max_iter`; `montecarlo_n_repetitions`, `montecarlo_convergence`, `montecarlo_max_iter`. |
+| `set_error_handling(session_id, error_scale, fractional_error, fractional_error_value)` | either scale file σ (`error_scale`, 1.0 = unchanged) **or** ignore file σ and use σ = `|I|·fractional_error_value` (`fractional_error=true`, e.g. 0.03 = 3%) |
+
+**Choosing a method:** MaxEnt is the recommended default (smoothest
+distribution consistent with the data). Regularization is a good
+alternative. TNNLS enforces strict non-negativity without smoothing.
+Monte Carlo (McSAS) is slower and stochastic — use only when asked.
+
+### Complex background (power-law + flat)
+
+The background subtracted before inversion is
+`power_law_B·q^(-power_law_P) + background`. Set the two terms either
+directly or by fitting each over its own Q-window.
+
+| Tool | Effect |
+|------|--------|
+| `set_background(session_id, power_law_B, power_law_P, background)` | set terms directly (no fit). `power_law_B=0` → flat-only. |
+| `fit_power_law_background(session_id, q_min, q_max, fit_B=True, fit_P=True)` | fit `B·q^(-P)` over a window (typically the low-Q steep-slope region). Updates `power_law_B`/`P`. |
+| `fit_flat_background(session_id, q_min, q_max)` | fit the flat term by averaging `I − B·q^(-P)` over a window (typically the high-Q flat tail). Run *after* the power-law fit if both are present. |
+| `get_background_preview_image(session_id, width=1024, height=768)` | inline PNG: data with the current complex background overlaid. Use to confirm before inverting. |
+
+These background windows are **independent** of the inversion Q-range
+(`set_fit_q_range`) — they use the full data Q. Use them on the regions
+where each term dominates, then narrow the inversion range to the
+particle (Guinier/knee) region.
+
+### Fit execution & results
+
+| Tool | Returns |
+|------|---------|
+| `run_sizes_fit(session_id, random_seed=None, n_mc_runs=0)` | `success`, `chi_squared`, `volume_fraction`, `rg`, `peak_r`, `n_iterations`, `n_data`; `uncertainty` (`rg_std`, `volume_fraction_std`, `peak_r_std`) when `n_mc_runs > 0`. `random_seed` seeds the Monte Carlo inversion and the uncertainty refits |
+| `get_sizes_distribution(session_id, max_points=500)` | `r_grid` [Å], `distribution` P(r) [vol-frac/Å] (decimated), `distribution_std` (or null) |
+| `get_sizes_results(session_id)` | full scalar results + configuration (`parameters` dict) |
+| `get_sizes_fit_image(session_id, width=1024, height=900)` | inline PNG: top = log-log data + model (+ background); bottom = size distribution P(r) vs r |
+| `save_sizes_fit(session_id, output_path=None)` | write distribution to NXcanSAS HDF5 (default: overwrites source; embeds setup for GUI "Load Setup from File") |
+
+**Interpreting the result:**
+- `volume_fraction` is the integral ∫P(r)dr; its absolute scale depends on
+  `contrast`. If contrast is unknown (set to 1.0), treat the volume
+  fraction as relative, not absolute.
+- `peak_r` is the radius of the distribution maximum. If `peak_r` sits at
+  `r_max` (or `r_min`), the grid is too narrow — widen it and refit.
+- `rg` is the volume-weighted radius of gyration of the distribution.
+- The same reduced-χ² caveat as Unified Fit applies: reported σ are often
+  mis-scaled. Judge the fit primarily from `get_sizes_fit_image`
+  (does the model track the data; is P(r) physically plausible and not
+  piled at a grid edge).
+
+### Suitability + auto-setup
+
+#### `suggest_sizes_setup(session_id)`
+
+Inspects the loaded I(Q) and returns recommendations **without modifying
+the model**. Call this before configuring the fit.
+
+Returns:
+
+| Key | Description |
+|-----|-------------|
+| `suitable` | `true` if the data looks like a viable single size-distribution candidate |
+| `recommended.r_min`, `recommended.r_max` | suggested radius grid [Å] (from `r ≈ π/Q`) |
+| `recommended.inversion_q_min/max` | suggested inversion Q-range (the particle region) |
+| `recommended.power_law_q_min/max` | suggested low-Q power-law background window (or null) |
+| `recommended.background_q_min/max` | suggested high-Q flat background window (or null) |
+| `warnings` | list of caveats — e.g. no Guinier knee (no size scale), multiple populations (use Unified Fit), limited Q dynamic range |
+| `features` | raw feature-detection summary (`segments`, `guinier_knees`, `recommended_nlevels`, `log_decades`) |
+
+If `suitable` is `false`, surface the `warnings` to the user and consider
+recommending Unified Fit instead of forcing a size-distribution fit.
+
+---
+
+## Control tools reference — Simple Fits (dispatcher category `"simple"`)
+
+One analytical model fitted over a restricted Q range.  Use it when the
+question is about a single feature — an Rg, a Porod slope, a correlation
+length, the invariant — rather than a whole multi-level curve.  Every model
+has its own parameter set, so **always** list the models (or the parameters)
+before setting anything.
+
+### Recommended Simple Fits workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                     # shared
+list_simple_models()                        # pick a model
+select_simple_model(session_id, "Guinier")
+set_fit_q_range(session_id, q_min, q_max)   # shared — required
+set_simple_parameter(session_id, "Rg", 150) # optional start point
+run_simple_fit(session_id)
+get_simple_linearization_image(session_id)  # sanity check
+save_simple_fit(session_id)
+```
+
+The Q range matters more here than anywhere else: Guinier is only valid for
+roughly `q·Rg < 1.3`, Porod only in the high-Q tail.  Fit, read back the Rg,
+then check `q_max·Rg` and narrow the range if it exceeds ~1.3.
+
+### Model lifecycle & parameters
+
+| Tool | Purpose |
+|------|---------|
+| `list_simple_models()` | every model with its parameter names, whether it linearizes, whether it supports the complex background, and whether it is a direct calculation (Invariant) |
+| `select_simple_model(session_id, model_name)` | create the model; **resets parameters and frees them all** |
+| `get_simple_config(session_id)` | model + all parameters + background setting |
+| `get_simple_parameters(session_id)` | name, value, bounds, fixed state |
+| `set_simple_parameter(session_id, name, value)` | starting value |
+| `set_simple_parameter_bounds(session_id, name, lo, hi)` | bounds; a value outside them is clamped in |
+| `fix_simple_parameter(session_id, name)` | hold fixed |
+| `free_simple_parameter(session_id, name)` | let it vary (default) |
+| `reset_simple_parameters(session_id)` | back to registry defaults |
+| `set_simple_background(session_id, enabled)` | complex background (adds `BG_B`, `BG_P`, `BG_flat`) |
+
+### Fit, results, persistence
+
+| Tool | Returns |
+|------|---------|
+| `run_simple_fit(session_id, no_limits=False, n_mc_runs=0, random_seed=None)` | success, chi_squared, reduced_chi_squared, dof, parameters with 1σ, derived values, `uncertainty_method` (`covariance`, or `monte_carlo` when `n_mc_runs > 0` replaced the σ) |
+| `get_simple_results(session_id)` | the same summary for the last fit |
+| `get_simple_fit_image(session_id)` | PNG: log-log data + model, residuals below |
+| `get_simple_linearization_image(session_id)` | PNG of the linearized plot + slope, intercept, R² |
+| `save_simple_fit(session_id, output_path=None)` | writes `entry/simple_fit_results` |
+
+The linearized plot is drawn from the **current** parameters, so call it after
+`run_fit` — a straight line through the data is the classic check that the
+model applies over the range you chose, and `r_squared` quantifies it.
+
+Common error codes: `NO_SIMPLE_MODEL` (call `select_model` first), `BAD_PARAM`
+(that parameter belongs to a different model), `ALL_FIXED`, `EMPTY_RANGE`,
+`NO_COMPLEX_BG` (Porod and Power Law carry their own Background parameter),
+`NO_LINEARIZATION`, `NO_FIT`.
+
+---
+
+## Control tools reference — Modeling (dispatcher category `"modeling"`)
+
+Modeling builds a curve from **several populations** at once, so this surface
+is mostly population management.  Reach for it when one analytical model or one
+size distribution cannot describe the data: a size distribution *plus* a
+large-scale unified level, or particles *plus* a diffraction peak.
+
+### Recommended Modeling workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                          # shared
+select_modeling_model(session_id)
+list_population_types()                 # what exists
+add_population(session_id, "size_dist", label="pores")
+set_population_option(session_id, 0, "form_factor", "sphere")
+get_population_parameters(session_id, 0)  # exact names
+set_population_parameter(session_id, 0, "dist.mean_size", 80)
+set_population_parameter_fit(session_id, 0, "dist.mean_size", true)
+set_modeling_q_range(session_id, 0.005, 0.35)
+run_modeling_fit(session_id)
+get_modeling_fit_image(session_id)
+save_modeling_fit(session_id)
+```
+
+### One flat parameter namespace
+
+A population's parameters live in different places on the underlying object;
+these tools flatten them into **dotted names**:
+
+| Name | Where it lives |
+|------|----------------|
+| `scale`, `contrast`, `G`, `position` | plain attribute of the population |
+| `dist.mean_size`, `dist.sdeviation` | the size distribution |
+| `ff.sld_core`, `ff.t_shell` | the form factor |
+| `sf.eta`, `sf.radius` | the structure factor |
+
+`get_population_parameters` lists exactly the names that are **active** for the
+population's current distribution, form factor and structure factor — the same
+set the fitter packs.  Enumerate; never guess.  Switching `form_factor` to a
+core-shell variant adds its SLD and thickness parameters with sensible defaults
+and drops any that no longer apply (and removes `contrast`, whose role the SLDs
+take over).
+
+### Population types
+
+| `pop_type` | For |
+|------------|-----|
+| `size_dist` | polydisperse particles: distribution + form factor + optional structure factor |
+| `unified_level` | one Beaucage level (G, Rg, B, P) without assuming a shape |
+| `guinier_porod` | Guinier region joined to a power law (rods, sheets) |
+| `diffraction_peak` | Gaussian / Lorentzian / pseudo-Voigt peak |
+| `mass_fractal` | aggregates: primary radius, fractal dimension, correlation length |
+| `surface_fractal` | rough interfaces, with an optional Porod transition |
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| `select_modeling_model(session_id)` | start an empty configuration |
+| `list_population_types()` | types, options, and every distribution / form factor / structure factor with its parameters |
+| `add_population(session_id, pop_type, label)` | add one, returns its index |
+| `remove_population(session_id, index)` | remove (later indices shift down) |
+| `list_populations(session_id)` | index, type, label, enabled, free-parameter count |
+| `set_population_enabled(session_id, index, enabled)` | exclude without deleting |
+| `get_population_parameters(session_id, index)` | the active names, values, fit flags, bounds |
+| `set_population_parameter(...)` / `set_population_parameter_fit(...)` / `set_population_parameter_bounds(...)` | value / fitted / bounds |
+| `set_population_option(session_id, index, option, value)` | `dist_type`, `form_factor`, `structure_factor`, `peak_type`, `correlations`, `use_porod_transition`, `use_number_dist`, `n_bins`, `label` |
+| `set_modeling_background(session_id, value, fit)` | flat background |
+| `set_modeling_q_range(session_id, q_min, q_max)` | **Modeling's own** Q range — not the shared `set_fit_q_range` |
+| `get_modeling_config(session_id)` | global settings (Q range, background, fit method, slit smearing) and a summary of every population |
+| `run_modeling_fit(session_id, fit_method, no_limits=False, n_mc_runs=0, random_seed=None)` | `"local"` (default) or `"global"`; `no_limits=True` drops the population bounds (unconstrained Nelder-Mead, forces `"local"`); `n_mc_runs > 0` adds Monte-Carlo uncertainties (slow with many populations); `random_seed` seeds the global search and the Monte-Carlo refits |
+| `get_modeling_results(session_id)` | quality + every population, with derived volume fraction, mean radius, Rg, specific surface |
+| `get_modeling_fit_image(session_id)` | data, total model, **and each population** as a dashed curve |
+| `save_modeling_fit(session_id, output_path)` | writes `entry/modeling_results` |
+
+### Working advice
+
+- **Fit a handful of parameters at a time.** Modeling has many parameters and
+  few constraints; freeing everything at once usually finds a meaningless
+  minimum.  Population defaults start mostly held for this reason.
+- **The χ² surface is multimodal.**  `fit_method="local"` refines from where
+  you are; a poor starting point converges to a poor minimum and the tool
+  reports it honestly rather than pretending otherwise.  Use
+  `fit_method="global"` (differential evolution, then a local polish) for
+  core-shell models — it needs finite bounds on every fitted parameter.
+- **Use the per-population curves.**  `get_fit_image` draws each population
+  separately; a population that has collapsed to nothing, or one that carries
+  the whole curve, is obvious at a glance and invisible in the numbers.
+- **Test a population's worth** by disabling it and refitting rather than
+  deleting it.
+
+Common error codes: `NO_MODELING_MODEL`, `BAD_POPULATION` (index),
+`BAD_POPULATION_TYPE`, `BAD_PARAM` (not active for this population),
+`BAD_OPTION` / `BAD_OPTION_VALUE`, `BAD_BOUNDS`, `BAD_RANGE`, `EMPTY_RANGE`,
+`NO_POPULATIONS`, `ALL_FIXED`, `NO_FIT`.
+
+
+---
+
+## Control tools reference — WAXS Peak Fit (dispatcher category `"waxs"`)
+
+A wide-angle pattern is a smooth background with peaks on it.  The questions
+are almost always peak **position** (phase, d-spacing), **width** (crystallite
+size, strain) and **integrated area** (phase fraction) — so the area is
+reported for every peak, derived from the fitted shape rather than fitted
+directly.
+
+### Recommended WAXS workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                     # shared
+select_waxs_model(session_id, "SNIP")       # adaptive background
+set_fit_q_range(session_id, q_min, q_max)   # shared, optional
+find_waxs_peaks(session_id)                 # data-driven start
+list_waxs_peaks(session_id)                 # check what it found
+run_waxs_fit(session_id)
+get_waxs_fit_image(session_id)
+save_waxs_fit(session_id)
+```
+
+`find_peaks` is the natural entry point: it detects peaks in the data and
+creates them with position, amplitude and width already close, instead of you
+guessing positions.  If it returns spurious peaks on noise, raise
+`prominence_frac`; if it misses a shoulder, lower it.
+
+### Backgrounds
+
+| Kind | Shapes | Behaviour |
+|------|--------|-----------|
+| Adaptive | `SNIP`, `Rolling Quantile Spline`, `Rolling Ball` | estimated from the data, **not** fitted; one tuning value, no fit flag or bounds |
+| Polynomial | `Constant`, `Linear`, `Cubic`, `5th Polynomial` | coefficients fitted alongside the peaks, with fit flags and bounds |
+
+`SNIP` is the sensible default for a pattern with an amorphous halo.  Switching
+background keeps the peaks, which is how you test whether a stubborn residual
+is really a background artefact.
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| `list_waxs_options()` | peak shapes, background shapes (flagged adaptive), weight modes |
+| `select_waxs_model(session_id, bg_shape)` | create the model |
+| `get_waxs_config(session_id)` | background setup + peak list |
+| `set_waxs_background(session_id, bg_shape)` | switch background, keep peaks |
+| `set_waxs_background_parameter(...)` | value / fit / bounds |
+| `find_waxs_peaks(session_id, prominence_frac, min_fwhm=0.001, max_fwhm=0.5, min_distance=0.005, shape="Gauss", replace=True)` | detect and create peaks; `replace=False` adds to the existing list |
+| `add_waxs_peak(session_id, q0, shape, amplitude, fwhm)` | place one by hand; amplitude defaults to the measured intensity there |
+| `remove_waxs_peak(session_id, index)` / `list_waxs_peaks(session_id)` | manage the list |
+| `get_waxs_peak_parameters(session_id, index)` | one peak's values, bounds, fit flags, area |
+| `set_waxs_peak_shape(session_id, index, shape)` | Gauss / Lorentz / Pseudo-Voigt / Voigt / LogNormal |
+| `set_waxs_peak_parameter(...)` / `set_waxs_peak_parameter_fit(...)` / `set_waxs_peak_parameter_bounds(...)` | `A`, `Q0`, `FWHM`, plus `eta` (Pseudo-Voigt) or `FWHM_L` (Voigt) |
+| `run_waxs_fit(session_id, weight_mode, no_limits=False)` | `standard` / `equal` / `relative`; `no_limits=True` drops the per-parameter bounds |
+| `get_waxs_results(session_id)` | quality, background, peaks with uncertainties and areas |
+| `get_waxs_fit_image(session_id)` | data, model, background **and each peak** |
+| `save_waxs_fit(session_id, output_path)` | writes `entry/waxs_peakfit_results` |
+
+### Working advice
+
+- **Hold `Q0` for an identified phase.**  When a reflection position is known,
+  fix it and fit only width and amplitude — that is how you measure crystallite
+  size without letting the peak wander onto a neighbour.
+- **`weight_mode="equal"`** when a strong, low-noise background dominates the
+  fit and weak peaks are being ignored.
+- **`eta` exists only on a Pseudo-Voigt, `FWHM_L` only on a Voigt.**  A
+  Voigt is a true convolution: `FWHM` is its Gaussian width and `FWHM_L` its
+  Lorentzian width, fitted separately.  Setting a parameter the shape lacks
+  returns `BAD_PARAM` naming the shape that has it.
+- **Look at the image.**  Each peak is drawn separately over the background; a
+  peak that has drifted onto its neighbour or collapsed to zero amplitude is
+  obvious there and invisible in χ².
+
+Common error codes: `NO_WAXS_MODEL`, `BAD_BG_SHAPE`, `BAD_BG_PARAM`,
+`BAD_PEAK` (index), `BAD_PEAK_SHAPE`, `BAD_PARAM`, `BAD_BOUNDS`,
+`Q0_OUT_OF_RANGE`, `NO_PEAKS`, `BAD_WEIGHT_MODE`, `EMPTY_RANGE`, `NO_FIT`.
+
+---
+
+## Control tools reference — Carbon model (dispatcher category `"carbon"`)
+
+A disordered carbon (glassy, hard, activated or carbide-derived) scatters
+over the whole range a USAXS/SAXS/WAXS instrument covers: Porod scattering
+from the grain surface at low Q, micropores in the middle, and broad
+turbostratic (002) and (100) reflections at high Q.  The Carbon model fits all
+of it **as one model**, because the regions are not independent: the
+structural density comes from the fitted peak positions, the sample density
+from the SAXS porosity, and each density sets the contrast that scales the
+grain and micropore terms.  Fitting the regions one after another converges
+somewhere else, so there is no per-region fit.
+
+### Recommended Carbon workflow
+
+```
+pyirena_ctrl_open_dataset(file_path)                # shared
+list_carbon_options()                               # optional, no session needed
+select_carbon_model(session_id, formula="C")        # carbon defaults
+configure_carbon_model(session_id, ...)             # optional: change the shape
+list_carbon_parameters(session_id)                  # keys depend on the shape
+set_fit_q_range(session_id, q_min, q_max)           # shared, optional
+run_carbon_fit(session_id)                          # whole range at once
+get_carbon_fit_image(session_id)                    # look at the components
+get_carbon_results(session_id)                      # read `derived`
+save_carbon_fit(session_id)
+```
+
+`select_carbon_model` starts with a grain Porod background, dilute
+micropores, and (002) and (100) peaks at their graphite positions — a
+sensible start for most carbons.
+
+### Model shape
+
+| Choice | Options | Meaning |
+|--------|---------|---------|
+| `saxs_mode` | `fractal` (default) / `teubner_strey` | dilute pores of radius r, optionally aggregated (`use_fractal`) — or a two-phase Teubner-Strey term for samples with a broad correlation peak. Alternatives, never summed. |
+| `waxs_envelope` | `none` / `crumpled` | `crumpled` wraps the peaks in the curved-layer envelope, for sp2 carbons broadened by curvature rather than crystallite size |
+| switches | `background_enabled`, `saxs_enabled`, `waxs_enabled`, `use_roughness`, `use_orientation_factor` | `use_roughness` adds a nanoscale surface-roughness Porod term; **leave `use_orientation_factor` on** — without the 1/Q² powder average a fit still looks fine but reports a wrong amplitude |
+| links | `link_R_to_pore`, `link_D_to_saxs`, `link_sigma_to_saxs` | tie the crumpled-layer geometry to the SAXS region's, when both signals come from the same crumpling; a linked parameter leaves the fit vector |
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| `list_carbon_options()` | the SAXS models, WAXS envelopes, switches and links (no session) |
+| `select_carbon_model(session_id, formula="C")` | create the model; `formula` is the solid, e.g. `C0.95N0.05` |
+| `get_carbon_config(session_id)` | current shape, peaks with d-spacings, and the resolved material chain (densities, SLDs, contrasts) |
+| `configure_carbon_model(session_id, ...)` | change the shape (every argument optional) — then re-list parameters |
+| `list_carbon_parameters(session_id, active_only=True)` | dotted keys (`background.S_macro`, `saxs.pore_radius`, `waxs.delta_z2`, `peak.002.Q0`) with value, bounds, fit flag |
+| `set_carbon_parameter(session_id, key, value)` / `set_carbon_parameter_fit(session_id, key, fit)` / `set_carbon_parameter_bounds(session_id, key, lo, hi)` | value / fitted / bounds |
+| `list_carbon_peaks(session_id)` | label, position, d-spacing, amplitude, both Voigt widths |
+| `add_carbon_peak(session_id, label, Q0, K=1.0, FWHM_G=0.3, FWHM_L=0.15)` / `remove_carbon_peak(session_id, index)` | manage reflections; `label` is the Miller index and must be unique |
+| `set_carbon_material(session_id, ...)` | override a stage of the composition → density → contrast chain (below) |
+| `run_carbon_fit(session_id, weighting="auto", n_mc_runs=0, no_limits=False)` | fit every ticked parameter over the whole range |
+| `get_carbon_results(session_id)` | quality, parameters, and the `derived` block |
+| `get_carbon_fit_image(session_id)` | data, total model, and the grain Porod, micropore and diffraction components separately, residuals below |
+| `save_carbon_fit(session_id, output_path=None)` | writes `entry/carbon_fit_results` with the model settings embedded |
+
+### Working advice
+
+- **Read `derived`, not the coefficients.**  The materials answers — BET-
+  comparable specific surface areas, pore and wall widths, stack height L_c,
+  layer count, layer extent L_a, lattice spacings, densities — are all in
+  `get_carbon_results()["derived"]` (and `derived` of
+  `pyirena_read_carbon_fit` for a saved file).
+- **Weighting.**  `weighting="auto"` uses the measured uncertainties when
+  usable and relative weighting otherwise.  Relative is usually right: the fit
+  spans about five decades in Q, and absolute weighting lets the low-Q region
+  set every parameter.  For honest uncertainties set `n_mc_runs` (e.g. 20) —
+  the covariance estimate understates them because the contrast correlates
+  the regions.
+- **Peak widths mean different things.**  `FWHM_G` is crystallite-size
+  broadening, `FWHM_L` is layer curvature.  The `002` and `100` labels are the
+  ones the density calculation reads; do not relabel them.
+- **Override the material chain only when the data cannot supply a stage.**
+  `set_carbon_material` takes `rho_struc_mode` (`from_peaks` / `manual` with
+  `rho_struc` in g/cm³), `porosity_mode` (`auto` / `manual`) and
+  `contrast_mode` (`auto` / `manual` with `contrast_porod` and
+  `contrast_micropore` in 10²⁰ cm⁻⁴).  Typical cases: no usable (100) peak,
+  or the Teubner-Strey branch, whose porosity is derived from the contrast it
+  would otherwise feed.
+- **Look at the image.**  The two failures this model has — the background
+  creeping up under the micropore region, or a peak absorbing the high-Q
+  background — are obvious in the component curves and hidden in χ².
+- **`no_limits=True`** fits with each parameter's declared default bounds
+  instead of yours; the fractal-dimension safety clamp still applies.
+
+---
+
+## Results — one-call fitting and export (dispatcher category `"results"`)
+
+These two work for every fitting tool.  Use them when the fit is already
+known, or when the caller needs the result as data rather than as a file.
+
+### `analyze(data, config, tool=None, include_arrays=False, max_points=2000, n_mc_runs=0)`
+
+Fit one curve with a saved pyIrena configuration in a single call: opens its
+own session, applies the config, runs the fit, returns the `export_results`
+payload and closes the session.  `data` is `{q, intensity, error?, dq?,
+label?, is_slit_smeared?, slit_length?}` with Q in 1/Å.  `config` is any
+configuration pyIrena writes — the GUI's *Export Parameters* file, the
+`_pyirena_config` attribute of a result `.h5`, or an `export_results` reply
+handed straight back (that is how you replay the fit you just ran on the
+next measurement).  The config's Q range and held parameters are part of the
+fit and change the answer.  `tool` (`unified_fit`, `sizes`, `simple_fits`,
+`modeling`, `waxs_peakfit`, `carbon_fit`) is inferred when the config holds
+one tool section.  `n_mc_runs > 0` asks for Monte-Carlo uncertainties (see
+**Parameter uncertainties**); they come back in the `uncertainty` block with
+the number of refits that succeeded. WAXS Peak Fit ignores it (its covariance
+σ are always reported) and says so in `analyze.notes`.
+
+For exploring a fit step by step, use `open_dataset_from_data` and the
+per-tool tools instead.
+
+### `export_results(session_id, include_arrays=False, max_points=2000)`
+
+A finished fit from any of the six tools as one JSON document — the
+machine-readable counterpart to `save_*`: nothing is written to disk.
+Returns the tool name, the data's identity, a normalised `quality` block
+(χ², reduced χ², dof, fit-quality metrics), the tool's own `results` with
+per-parameter uncertainties where the fit computes them, an `uncertainty`
+block saying which estimate those are (`monte_carlo` or `covariance`, and how
+many refits succeeded), and the model `config` needed to replay the fit.  With `include_arrays=True`, `arrays`
+adds `q` and the data, model, residuals and per-component curves on the
+fitted Q grid (Modeling adds each population, Carbon its three components),
+decimated together to `max_points`.
+
+---
+
+## Example interactions
+
+### "Average these frames for me."
+```
+1. pyirena_list_files("/data/run42", sample_filter="catalyst_A")
+   → pick the frames the user means; confirm if ambiguous.
+2. pyirena_call("average_data", {
+     "files": [".../f001.h5", ".../f002.h5", ".../f003.h5"],
+     "similarity_check": true})            # screen for radiation damage
+   → {"output_path": "/data/run42_manip/f001_avg.h5",
+      "n_datasets": 3, "rejected": [],
+      "n_points_in": 900, "n_points_written": 300,
+      "n_dropped_nonpositive": 0}
+3. Report where the file went and how many frames went in. If "rejected"
+   is non-empty, name the dropped frames and their p-values — that is a
+   radiation-damage finding the user needs to hear.
+```
+
+### "Subtract the buffer from my sample."
+```
+1. pyirena_call("subtract_data", {
+     "sample_file": ".../sample.h5", "buffer_file": ".../buffer.h5"})
+   → {"output_path": "/data/run42_manip/sample_sub.h5",
+      "n_dropped_nonpositive": 31,
+      "warnings": ["31 point(s) had intensity <= 0 ..."]}
+2. 31 stripped points means over-subtraction — do NOT present this as a
+   clean result. Say so and retry with a smaller buffer_scale, or use
+   auto_scale with a high-Q window where the two should coincide.
+```
+
+### "Can you calculate the X-ray contrast between TiO (density 4.95 g/cm³) and Ti2O3 (density 4.49 g/cm³)?"
+```
+1. pyirena_call("calc_contrast", {"formula_1": "TiO",   "density_1": 4.95,
+                                  "formula_2": "Ti2O3", "density_2": 4.49})
+   → {"xray_contrast": 11.63, "neutron_contrast": 0.76,
+      "compound_1": {"xray_sld": 39.46, ...},
+      "compound_2": {"xray_sld": 36.05, ...},
+      "units": {"xray_contrast": "10^20 cm^-4", ...}}
+2. Report: SLDs 39.46 and 36.05 (10^10 cm^-2), X-ray contrast
+   11.63 x 10^20 cm^-4.
+3. Offer the follow-up: this value can be used directly as the `contrast`
+   for a Sizes or Modeling fit on such a sample —
+   pyirena_call("set_shape", {"session_id": ..., "shape": "sphere",
+                              "contrast": 11.63}).
+```
+No session, no file, no first-principles derivation — one call.
+
+### "What's in this folder?"
+```
+1. pyirena_summarize_folder("/data/run42")
+   → {"n_files": 47, "samples": ["catalyst_A", "catalyst_B"],
+       "analyses_count": {"unified_fit": 47, "size_distribution": 47,
+                          "modeling": 12}}
+2. Tell the user in plain language.
+```
+
+### "Show me the last three I(Q) curves for catalyst_A."
+```
+1. pyirena_list_files("/data/run42", sort="mtime_desc", limit=3)
+   → filter rows where sample == "catalyst_A"
+2. pyirena_plot_iq([row["path"] for row in rows], overlay=True)
+   → content[0]: text — "Plot saved to: /tmp/.../iq_xxxxx.png"
+     content[1]: image — base64 PNG (render inline; do NOT print as text)
+3. Display the image; mention the saved path.
+```
+
+### "Is Rg trending across this batch?"
+```
+1. pyirena_summarize_folder(...) — confirm unified_fit results are present.
+2. pyirena_plot_parameter_trend(folder, tool="unified_fit",
+                                 parameter="Rg", subgroup_index=1)
+   → content[0]: text — file path
+     content[1]: image — base64 PNG (render inline; do NOT print as text)
+3. Describe the trend in words (slope direction, scatter, any plateau).
+```
+
+### "Compare the two most recent fits in detail."
+```
+1. pyirena_list_files(..., limit=2)
+2. For each of the two paths:
+   - pyirena_inspect_file(path) to see which analyses are present
+   - pyirena_read_unified_fit(path) — get parameters
+3. Present the parameters side by side and comment on differences.
+```
+
+### "Fit this dataset with Unified Fit."
+```
+1. pyirena_ctrl_open_dataset("/data/scan_042.h5")
+   → session_id = "a1b2c3d4"
+
+2. detect_features("a1b2c3d4")
+   → segments=[{q_min, q_max, P, kind, intensity_mid, ...}, ...],
+     guinier_knees=[{q_min, q_max, P_low_q, P_high_q, delta_P, ...}, ...],
+     recommended_nlevels=2,
+     recommended_guinier_windows=[
+       {q_min_guinier=0.01,  q_max_guinier=0.06,  q_min_powerlaw=0.05},  # Level 1 (high Q)
+       {q_min_guinier=0.001, q_max_guinier=0.008, q_min_powerlaw=0.007}, # Level 2 (low Q)
+     ]
+   → Note: segments and windows are ordered HIGH-Q → LOW-Q (Level 1 first).
+   → recommended_nlevels=2, so use nlevels=2 below.
+
+3. select_model("a1b2c3d4", nlevels=2)
+4. get_model_description("a1b2c3d4")
+   → read fitting tips
+
+5. # segments[0] = Level 1 (high Q, small structure)
+   # segments[1] = Level 2 (low Q, large structure)
+   # recommended_guinier_windows follow the same order.
+   local_L1 = fit_local_guinier("a1b2c3d4", q_min=0.01, q_max=0.06)
+   → Rg=28, G=1e3
+   local_L2 = fit_local_guinier("a1b2c3d4", q_min=0.001, q_max=0.008)
+   → Rg=320, G=5e5
+   set_parameter_value("a1b2c3d4", "Rg_1", 28)
+   set_parameter_value("a1b2c3d4",  "G_1", 1e3)
+   set_parameter_value("a1b2c3d4", "Rg_2", 320)
+   set_parameter_value("a1b2c3d4",  "G_2", 5e5)
+
+6. fix_all_except("a1b2c3d4", ["Rg_1","G_1","Rg_2","G_2","background"])
+7. run_fit("a1b2c3d4")
+   → reduced_chi_squared=3.8 (reasonable; Rg and G now near-optimal)
+8. free_parameter("a1b2c3d4", "P_1")
+   free_parameter("a1b2c3d4", "P_2")
+   run_fit("a1b2c3d4")
+   → reduced_chi_squared=9.1, but quality.robust_scale_s=3.0
+   → σ are ~3× underestimated; realistic_reduced_chi2_floor≈9 — this IS converged,
+     not a bad fit. Don't keep tightening.
+9. get_fit_quality("a1b2c3d4")
+   → max_abs_frac_misfit=0.08 (8%), n_outliers_3s=0, longest_same_sign_run short,
+     bands all similar → no real misfit; the high χ² is purely a σ-scale artefact.
+10. get_fit_image("a1b2c3d4")
+    → confirm residuals visually (random scatter, just wide)
+11. save_fit("a1b2c3d4")
+12. export_fit_report("a1b2c3d4", format="markdown")
+    → summarise for user
+```
+
+### "Fit a size distribution to this dataset."
+```
+1. pyirena_ctrl_open_dataset("/data/spheres_042.h5")
+   → session_id = "a1b2c3d4"
+
+2. suggest_sizes_setup("a1b2c3d4")
+   → suitable=true,
+     recommended={r_min=12, r_max=400, inversion_q_min=0.004,
+                  inversion_q_max=0.2, power_law_q_min=0.001,
+                  power_law_q_max=0.003, background_q_min=0.25,
+                  background_q_max=1.0},
+     warnings=[]
+   → suitable, so proceed. (If suitable=false, report warnings first.)
+
+3. select_sizes_model("a1b2c3d4", method="maxent")
+4. set_shape("a1b2c3d4", shape="sphere", contrast=1.0)
+5. set_size_grid("a1b2c3d4", r_min=12, r_max=400, n_bins=200)
+6. set_error_handling("a1b2c3d4", error_scale=1.0)
+
+7. # complex background, each over its own window from suggest_setup
+   fit_power_law_background("a1b2c3d4", q_min=0.001, q_max=0.003)
+   fit_flat_background("a1b2c3d4", q_min=0.25, q_max=1.0)
+   get_background_preview_image("a1b2c3d4")   # confirm visually
+
+8. set_fit_q_range("a1b2c3d4", q_min=0.004, q_max=0.2)  # shared tool
+9. run_sizes_fit("a1b2c3d4")
+   → success=true, chi_squared=…, volume_fraction=…, rg=…, peak_r=48.7
+   → peak_r is well inside [12, 400] → grid is fine.
+10. get_sizes_fit_image("a1b2c3d4")
+    → confirm model tracks data and P(r) is a clean single peak
+11. save_sizes_fit("a1b2c3d4")
+```
+
+### "Why might Rg jump at scan 17?"
+```
+1. pyirena_tabulate_parameter(..., tool="unified_fit", parameter="Rg",
+                                subgroup_index=1)
+2. Identify the jump in the rows.
+3. For scan 17 specifically:
+   - pyirena_inspect_file → confirm what data is there
+   - pyirena_read_metadata → sample notes, thickness, blank
+   - pyirena_read_reduced_data(include_full=True) — get the actual curve
+     to comment on changes in slope / Guinier region
+4. Hypothesise (changed sample? exposure? beam intensity?
+   contamination?). Always frame as hypotheses, not certainties.
+```
+
+---
+
+## Things to avoid
+
+- **Don't call `pyirena_read_*` blindly.** Use `pyirena_inspect_file`
+  first to confirm the analysis is present. Otherwise you'll get
+  `{"found": false}` and burn a turn.
+- **Don't request full arrays unless necessary.** `include_arrays=True`
+  / `include_full=True` make responses much larger and consume your
+  context budget. For most questions, the scalar summary is enough.
+- **Don't fabricate parameter values.** If `value` is `null`, say so.
+  Do not interpolate or invent.
+- **Don't derive a scattering contrast by hand.** If the user gives you
+  compositions and densities, call `calc_contrast` — it already returns
+  (Δρ)² in the 10²⁰ cm⁻⁴ units the fitting tools want. Hand-derivation
+  invites both arithmetic and unit-convention errors.
+- **Don't open a session for a calculator.** The `calculators` category
+  is stateless; `pyirena_ctrl_open_dataset()` is neither needed nor used.
+- **Don't do arithmetic on returned arrays.** If the user wants data
+  averaged, subtracted, merged, scaled, trimmed or rebinned, call the
+  `data` category — it writes a proper NXcanSAS file with provenance that
+  the fitting tools can then read. Pulling arrays out with
+  `pyirena_read_reduced_data` and combining them yourself produces
+  decimated numbers, no file, and no provenance.
+- **Don't present an over-subtracted result as clean.** Check
+  `n_dropped_nonpositive` on every data operation and tell the user when
+  points were stripped.
+- **Don't confuse the provenance readers with the operations.**
+  `pyirena_read_manipulation_provenance` reports what was *already* done to
+  a file; it returns `{"found": false}` on a raw dataset. To actually
+  transform data, use the `data` category.
+- **Don't speculate beyond the data.** Physical interpretations (e.g.
+  "this Rg means …") should be framed as "consistent with…" and tied to
+  what the user has told you about their sample.
+- **Don't chase reduced χ² ≈ 1, and don't dismiss a fit for a large reduced χ².**
+  Reported σ are often mis-scaled. Call `get_fit_quality` (or read
+  the `quality` block from `run_fit`): if `robust_scale_s` ≈ 3 then σ are ~3× too
+  small and reduced χ² ≈ 9 is the *realistic floor* — a fit sitting there with no
+  outliers and no sign-structure is done. Conversely, a normalised residual of
+  20–50 is **not** "fine because σ are unreliable": check `max_abs_frac_misfit` —
+  if it is ≳ 0.3 the model is off by ≳ 30 % of the data, a real misfit.
+- **Don't skip `get_fit_image` after a fit.** Visual inspection of the
+  residuals subplot is the most reliable way to spot systematic
+  deviations that χ² alone misses.
+- **Don't free too many parameters at once.** The standard staged
+  approach (background first, then Rg+G, then P, then add levels) is
+  more robust than releasing everything simultaneously.
+- **Don't mix read tools and control tools for the same file.** The
+  read tools (`pyirena_read_unified_fit`) see what was previously saved
+  in the HDF5 file. The control tools (dispatched via `pyirena_call`)
+  operate on the in-memory session. Call `save_fit` first, then the read
+  tool, if you want to compare.
+
+---
+
+## When pyirena tools aren't enough
+
+- **SAXS Morph, Fractals, Data Merge, Data Manipulation, Scattering
+  Contrast** — these have no control-API/dispatcher tools yet (only
+  read-mode results above, where applicable). Use the pyirena GUI tools
+  (`pyirena-gui`, etc.) or the headless batch API (`pyirena.batch.*`) for
+  these.
+- **Instrument / beamline control** — use the user's instrument-control
+  agent (e.g. EPICS / pyepics), not pyirena.
+- **Data reduction** (2D → 1D, sector integration, masking) — that's
+  upstream of pyirena; use AreaDetector / pyFAI / etc.

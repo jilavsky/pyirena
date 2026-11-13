@@ -28,7 +28,7 @@ block ``get_parameter_uncertainties`` returns. Unified Fit computes none
 unless ``run_fit`` was called with ``n_mc_runs``; without it its parameters
 come back without a ``std`` rather than with a fabricated zero.
 
-Protocol: ``docs/zmq_service.md``; decisions: ``planning/zmq-service/``.
+Protocol: ``docs/reference/zmq-service.md``; decisions: ``planning/zmq-service/``.
 """
 from __future__ import annotations
 

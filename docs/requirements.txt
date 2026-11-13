@@ -1,0 +1,7 @@
+# Exact pins: a docs build changes only when we change this file.
+# Dependabot (.github/dependabot.yml) proposes updates as PRs.
+sphinx==9.2.0
+myst-parser==5.2.0
+pydata-sphinx-theme==0.24.0
+sphinx-design==0.8.0
+sphinx-copybutton==0.5.2

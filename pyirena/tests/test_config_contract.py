@@ -485,7 +485,7 @@ def test_a_saved_modeling_setup_keeps_every_population_it_described():
 # ── 5. The documentation describes a config that actually works ──────────
 
 def test_the_config_examples_in_the_docs_still_build():
-    """``docs/batch_api.md`` shows a config; it has to be one.
+    """``docs/guides/batch-api.md`` shows a config; it has to be one.
 
     A worked example is the first thing someone copies, and the only part of
     the documentation that can be checked mechanically. Both dialects appear
@@ -494,9 +494,9 @@ def test_the_config_examples_in_the_docs_still_build():
     """
     import re
 
-    doc = Path(__file__).resolve().parents[2] / "docs" / "batch_api.md"
+    doc = Path(__file__).resolve().parents[2] / "docs" / "guides" / "batch-api.md"
     if not doc.exists():
-        pytest.skip("docs/batch_api.md not present")
+        pytest.skip("docs/guides/batch-api.md not present")
 
     blocks = re.findall(r"```json\n(.*?)```",
                         doc.read_text(encoding="utf-8"), re.DOTALL)

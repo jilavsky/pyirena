@@ -19,6 +19,7 @@ from typing import Callable, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.data_manipulation import (
     DataManipulation,
     DivideConfig,
@@ -615,9 +616,7 @@ class DataManipulationPanel(QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/data_manipulation_gui.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("data_manipulation")))
         )
         title_row.addWidget(self._help_btn)
         center_col.addLayout(title_row)

@@ -1,7 +1,7 @@
 """
 Unit tests for robust fit-quality diagnostics (pyirena.core.fit_metrics).
 
-Covers the scenarios from docs/fit_quality_metrics.md: well-calibrated sigma,
+Covers the scenarios from docs/methods/fit-quality-metrics.md: well-calibrated sigma,
 under-estimated sigma, localized misfit, systematic misfit, missing sigma, the
 dof guard, and the I->0 fractional guard.
 """

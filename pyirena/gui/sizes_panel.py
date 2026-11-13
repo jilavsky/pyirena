@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.sizes import SizesDistribution
 from pyirena.gui._qt import (
     QBrush,
@@ -1042,9 +1043,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/sizes_methods.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("size_distribution")))
         )
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
@@ -2017,7 +2016,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         s.power_law_P = float(self.power_law_P_edit.text() or 4.0)
         s.method = self.method_combo.currentText()
         s.maxent_sky_background = float(self.maxent_sky_edit.text() or 1e-6)
-        s.maxent_stability = 0.01   # hardcoded; see docs/sizes_methods.md
+        s.maxent_stability = 0.01   # hardcoded; see docs/methods/size-distribution-methods.md
         s.maxent_max_iter = self.maxent_maxiter_spin.value()
         s.regularization_evalue = float(self.reg_evalue_edit.text() or 1.0)
         s.regularization_min_ratio = float(self.reg_minratio_edit.text() or 1e-4)

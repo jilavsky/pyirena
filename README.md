@@ -70,7 +70,7 @@ conda) for the entire Qt6/GUI stack — this split is deliberate. Do **not**
 run `conda install pyside6` in this env, and use Python 3.10 – 3.13
 (Python 3.14 wheels are still flaky for compiled bindings).
 
-See [docs/installation.md](docs/installation.md) for full details, troubleshooting, and platform notes.
+See [docs/getting-started/installation.md](docs/getting-started/installation.md) for full details, troubleshooting, and platform notes.
 
 ---
 
@@ -81,7 +81,7 @@ pyirena-gui
 ```
 
 This launches the Data Selector, the main entry point for all analysis tools.
-See [docs/gui_quickstart.md](docs/gui_quickstart.md) for a walkthrough.
+See [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) for a walkthrough.
 
 Individual tools can also be launched directly:
 
@@ -95,7 +95,7 @@ Individual tools can also be launched directly:
 | `pyirena-datamanip` | Data Manipulation tool (standalone) |
 | `pyirena-saxsmorph` | SAXS Morph tool (standalone) |
 | `pyirena-mcp` | MCP server for AI assistants (stdio) — see [AI integration](#ai-integration-mcp) |
-| `pyirena-zmq` | ZMQ service for remote/beamline orchestration ([docs](docs/zmq_service.md)) |
+| `pyirena-zmq` | ZMQ service for remote/beamline orchestration ([docs](docs/reference/zmq-service.md)) |
 | `pyirena-doctor` | Install/startup diagnostics |
 
 `[project.scripts]` in `pyproject.toml` is the authoritative list.
@@ -115,20 +115,20 @@ model to experimental data using least-squares optimization.
   Core-Shell Spheroid (by core R / total R)
 - **2 structure factors**: Born-Green interferences, Hard Sphere (Percus-Yevick)
 - Monte Carlo uncertainty estimation
-- [Modeling GUI guide](docs/modeling_gui.md)
+- [Modeling GUI guide](docs/tools/modeling.md)
 
 ### Unified Fit
 Beaucage hierarchical model (1995, 1996) with 1-5 structural levels, each combining
 Guinier and power-law contributions. Optional Born-Green correlation function.
 
-- [Unified Fit GUI guide](docs/unified_fit_gui.md)
-- [Unified Fit features & parameters](docs/unified_fit_features.md)
+- [Unified Fit GUI guide](docs/tools/unified-fit.md)
 
 ### Size Distribution
 Indirect Fourier transform to recover particle size distributions from SAS data.
 Four inversion methods: MaxEnt, Regularization, TNNLS, and Monte Carlo.
 
-- [Size Distribution methods](docs/sizes_methods.md)
+- [Size Distribution tool](docs/tools/size-distribution.md)
+- [Size Distribution methods](docs/methods/size-distribution-methods.md)
 
 ### Simple Fits
 15 direct analytical models: Guinier (sphere, rod, sheet), Porod, Power Law,
@@ -137,27 +137,27 @@ Benedetti-Ciccariello, Hermans, Hybrid Hermans, Unified Born-Green, and the
 Invariant calculation. Each fit has linearization plots and Monte Carlo
 uncertainty estimation.
 
-- [Simple Fits GUI guide](docs/simple_fits_gui.md)
+- [Simple Fits GUI guide](docs/tools/simple-fits.md)
 
 ### WAXS Peak Fit
 Fit diffraction peaks (Gaussian, Lorentzian, Pseudo-Voigt, Log-Normal) on linear
 I vs Q scale. Auto-detect peaks via Savitzky-Golay + `scipy.signal.find_peaks`.
 Simultaneous background fitting (constant, linear, cubic, or 5th-order polynomial).
 
-- [WAXS Peak Fit GUI guide](docs/waxs_peakfit_gui.md)
+- [WAXS Peak Fit GUI guide](docs/tools/waxs-peak-fit.md)
 
 ### Data Merge
 Merge two SAS datasets (e.g., SAXS + WAXS) onto a common Q scale. Optimizes scale
 factor, flat background, and optional Q-shift using Nelder-Mead.
 
-- [Data Merge GUI guide](docs/data_merge_gui.md)
+- [Data Merge GUI guide](docs/tools/data-merge.md)
 
 ### Data Explorer
 Browse NXcanSAS HDF5 files, inspect raw data and analysis results, extract and plot
 datasets, and export to Igor Pro h5xp format. Supports all pyIrena result types
 (Unified Fit, Sizes, Simple Fits, WAXS Peaks, Modeling).
 
-- [Data Explorer guide](docs/hdf5_viewer_gui.md)
+- [Data Explorer guide](docs/tools/data-explorer.md)
 
 ### Import Igor Experiment
 Open an Igor Pro packed experiment (`.pxp` or `.h5xp`) and export each
@@ -165,13 +165,13 @@ reduced USAXS/SAXS/WAXS sample as a stand-alone NXcanSAS `.h5` file.
 Brings legacy and modern Igor data into pyIrena's analysis tools
 without re-reducing from raw detector files.
 
-- [Import Igor Experiment guide](docs/igor_pxp_import.md)
+- [Import Igor Experiment guide](docs/guides/igor-pxp-import.md)
 
 ### Scattering Contrast Calculator
 Look up X-ray and neutron scattering length densities for materials by chemical
 formula. Computes contrast (Delta-rho-squared) between two materials.
 
-- [Contrast Calculator guide](docs/scattering_contrast_gui.md)
+- [Contrast Calculator guide](docs/tools/scattering-contrast.md)
 
 ### Data Selector
 Central GUI panel for managing data files and launching analysis tools. Load HDF5
@@ -195,7 +195,7 @@ results = fit_pyirena(
 Individual functions: `fit_unified`, `fit_sizes`, `fit_simple`, `fit_waxs`,
 `fit_modeling`, `merge_data`.
 
-See [docs/batch_api.md](docs/batch_api.md) for the full scripting guide.
+See [docs/guides/batch-api.md](docs/guides/batch-api.md) for the full scripting guide.
 
 ---
 
@@ -205,7 +205,7 @@ All data and results are stored in HDF5 files using the
 [NXcanSAS](https://www.nexusformat.org/NXcanSAS.html) format. Fit results are saved
 alongside raw data, making files self-contained and shareable.
 
-- [NXcanSAS format details](docs/NXcanSAS_UnifiedFit_Format.md)
+- [NXcanSAS format details](docs/reference/hdf5-nxcansas-structure.md)
 
 ---
 
@@ -245,37 +245,41 @@ names (`api.summarize_folder`, `api.plot_iq`, …) — no MCP needed.
 Full instructions, including configs for **Claude Desktop**, **Claude Code**,
 and **AnythingLLM**:
 
-- [docs/ai_integration.md](docs/ai_integration.md) — install & configure
-- [docs/ai_tools_reference.md](docs/ai_tools_reference.md) — tool reference for AI agents (system-prompt material)
+- [docs/guides/ai-integration.md](docs/guides/ai-integration.md) — install & configure
+- [docs/reference/ai-tools-reference.md](docs/reference/ai-tools-reference.md) — tool reference for AI agents (system-prompt material)
 
 ---
 
 ## Documentation
 
+The documentation is published at
+<https://jilavsky-docs.readthedocs.io/projects/pyirena/>; the Help buttons in the
+GUI open the matching page there. The same pages, as Markdown, are in `docs/`:
+
 | Topic | File |
 |-------|------|
-| Installation | [docs/installation.md](docs/installation.md) |
-| Quick start (GUI) | [docs/gui_quickstart.md](docs/gui_quickstart.md) |
-| Modeling GUI guide | [docs/modeling_gui.md](docs/modeling_gui.md) |
-| Unified Fit GUI guide | [docs/unified_fit_gui.md](docs/unified_fit_gui.md) |
-| Unified Fit features & parameters | [docs/unified_fit_features.md](docs/unified_fit_features.md) |
-| Size Distribution methods | [docs/sizes_methods.md](docs/sizes_methods.md) |
-| Simple Fits GUI guide | [docs/simple_fits_gui.md](docs/simple_fits_gui.md) |
-| WAXS Peak Fit GUI guide | [docs/waxs_peakfit_gui.md](docs/waxs_peakfit_gui.md) |
-| Data Merge GUI guide | [docs/data_merge_gui.md](docs/data_merge_gui.md) |
-| Data Explorer guide | [docs/hdf5_viewer_gui.md](docs/hdf5_viewer_gui.md) |
-| Import Igor Experiment (.pxp / .h5xp → NeXus) | [docs/igor_pxp_import.md](docs/igor_pxp_import.md) |
-| Contrast Calculator guide | [docs/scattering_contrast_gui.md](docs/scattering_contrast_gui.md) |
-| NXcanSAS file format | [docs/NXcanSAS_UnifiedFit_Format.md](docs/NXcanSAS_UnifiedFit_Format.md) |
-| Batch fitting API | [docs/batch_api.md](docs/batch_api.md) |
-| Usage guide (scripting) | [docs/usage_guide.md](docs/usage_guide.md) |
-| AI integration (MCP) — install & configure | [docs/ai_integration.md](docs/ai_integration.md) |
-| AI integration (MCP) — tool reference for agents | [docs/ai_tools_reference.md](docs/ai_tools_reference.md) |
-| Developer: adding features (master checklist) | [docs/developer_adding_features.md](docs/developer_adding_features.md) |
-| Developer: adding form factors | [docs/developer_adding_form_factors.md](docs/developer_adding_form_factors.md) |
-| Developer: adding structure factors | [docs/developer_adding_structure_factors.md](docs/developer_adding_structure_factors.md) |
-| Testing | [docs/testing.md](docs/testing.md) |
-| Distribution / packaging | [docs/distribution.md](docs/distribution.md) |
+| Installation | [docs/getting-started/installation.md](docs/getting-started/installation.md) |
+| Quick start (GUI) | [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) |
+| Modeling GUI guide | [docs/tools/modeling.md](docs/tools/modeling.md) |
+| Unified Fit GUI guide | [docs/tools/unified-fit.md](docs/tools/unified-fit.md) |
+| Size Distribution tool | [docs/tools/size-distribution.md](docs/tools/size-distribution.md) |
+| Size Distribution methods | [docs/methods/size-distribution-methods.md](docs/methods/size-distribution-methods.md) |
+| Simple Fits GUI guide | [docs/tools/simple-fits.md](docs/tools/simple-fits.md) |
+| WAXS Peak Fit GUI guide | [docs/tools/waxs-peak-fit.md](docs/tools/waxs-peak-fit.md) |
+| Data Merge GUI guide | [docs/tools/data-merge.md](docs/tools/data-merge.md) |
+| Data Explorer guide | [docs/tools/data-explorer.md](docs/tools/data-explorer.md) |
+| Import Igor Experiment (.pxp / .h5xp → NeXus) | [docs/guides/igor-pxp-import.md](docs/guides/igor-pxp-import.md) |
+| Contrast Calculator guide | [docs/tools/scattering-contrast.md](docs/tools/scattering-contrast.md) |
+| NXcanSAS file format | [docs/reference/hdf5-nxcansas-structure.md](docs/reference/hdf5-nxcansas-structure.md) |
+| Batch fitting API | [docs/guides/batch-api.md](docs/guides/batch-api.md) |
+| Usage guide (scripting) | [docs/guides/scripting-unified-fit.md](docs/guides/scripting-unified-fit.md) |
+| AI integration (MCP) — install & configure | [docs/guides/ai-integration.md](docs/guides/ai-integration.md) |
+| AI integration (MCP) — tool reference for agents | [docs/reference/ai-tools-reference.md](docs/reference/ai-tools-reference.md) |
+| Developer: adding features (master checklist) | [docs/developer/adding-features.md](docs/developer/adding-features.md) |
+| Developer: adding form factors | [docs/developer/adding-form-factors.md](docs/developer/adding-form-factors.md) |
+| Developer: adding structure factors | [docs/developer/adding-structure-factors.md](docs/developer/adding-structure-factors.md) |
+| Testing | [docs/developer/testing.md](docs/developer/testing.md) |
+| Distribution / packaging | [docs/developer/distribution.md](docs/developer/distribution.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 

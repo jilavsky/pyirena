@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 from pathlib import Path
 
+from pyirena._docs import docs_url
 from pyirena.gui._qt import (
     QAction,
     QCloseEvent,
@@ -141,9 +142,7 @@ class HDF5ViewerWindow(QMainWindow):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/hdf5_viewer_gui.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("data_explorer")))
         )
         title_row.addWidget(self._help_btn)
         vl.addWidget(title_w)
