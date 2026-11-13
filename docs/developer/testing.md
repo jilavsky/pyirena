@@ -304,8 +304,8 @@ Once GUI works:
 If you encounter issues:
 
 1. Check console output for error messages
-2. Review [GUI_QUICKSTART.md](GUI_QUICKSTART.md)
-3. Check [pyirena/gui/README.md](pyirena/gui/README.md)
+2. Review [GUI_QUICKSTART.md](../getting-started/quickstart.md)
+3. Check [the Data Selector page](../tools/data-selector.md)
 4. Open issue: https://github.com/jilavsky/pyirena/issues
 5. Email: ilavsky@aps.anl.gov
 

@@ -80,18 +80,18 @@ def fit_sizes(
     Returns
     -------
     dict or None
-        On success, a dictionary with:
+        On success, a dictionary with::
 
-        ``'success'``           bool — True if fit converged.
-        ``'parameters'``        dict — chi_squared, volume_fraction, rg, peak_r, etc.
-        ``'distribution_std'``  ndarray or None — per-bin 1σ uncertainty (None when
-                                ``with_uncertainty=False`` or too few runs succeeded).
-        ``'data'``              dict — Q, Intensity, Error, Q_fit, r_grid,
-                                distribution, intensity_model, residuals.
-        ``'output_file'``       Path or None — NXcanSAS output path (if save_to_nexus).
-        ``'input_file'``        Path
-        ``'config_file'``       Path
-        ``'message'``           str — human-readable summary.
+            ``'success'``           bool — True if fit converged.
+            ``'parameters'``        dict — chi_squared, volume_fraction, rg, peak_r, etc.
+            ``'distribution_std'``  ndarray or None — per-bin 1σ uncertainty (None when
+                                    ``with_uncertainty=False`` or too few runs succeeded).
+            ``'data'``              dict — Q, Intensity, Error, Q_fit, r_grid,
+                                    distribution, intensity_model, residuals.
+            ``'output_file'``       Path or None — NXcanSAS output path (if save_to_nexus).
+            ``'input_file'``        Path
+            ``'config_file'``       Path
+            ``'message'``           str — human-readable summary.
 
         Returns None if loading, configuration, or fitting fails fatally.
 

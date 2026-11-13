@@ -1,0 +1,23 @@
+# Read the Docs configuration for a jilavsky-docs subproject.
+# Copied from jilavsky-docs/templates/package-docs.
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.13"
+
+sphinx:
+  configuration: docs/conf.py
+  fail_on_warning: true
+
+# PDF can be switched on later (formats: [pdf]); it needs LaTeX-safe content.
+formats: []
+
+python:
+  install:
+    - requirements: docs/requirements.txt
+    # Install the package itself, without GUI extras, so autodoc can import
+    # the core modules. GUI imports are mocked in conf.py.
+    - method: pip
+      path: .

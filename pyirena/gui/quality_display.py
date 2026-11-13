@@ -9,7 +9,7 @@ robust-rescale and summary text in each panel.
 The residual shown is the *rescaled* residual r' = r / s, where s is the robust
 (MAD-based) noise scale — it compares the scatter to the data's own noise floor
 instead of the (often mis-scaled) reported sigma. See pyirena.core.fit_metrics
-and docs/fit_quality_metrics.md.
+and docs/methods/fit-quality-metrics.md.
 """
 
 from __future__ import annotations

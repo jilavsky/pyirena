@@ -229,18 +229,18 @@ def fit_unified(
     Returns
     -------
     dict or None
-        On success, a dictionary with:
+        On success, a dictionary with::
 
-        ``'success'``        bool — True if fit converged.
-        ``'model'``          UnifiedFitModel — the fitted model object.
-        ``'parameters'``     dict — structured fit summary (levels, chi_squared, …).
-        ``'uncertainties'``  dict or None — MC parameter uncertainties (None when
-                             ``with_uncertainty=False`` or fewer than 2 runs succeeded).
-        ``'data'``           dict — Q, Intensity, Error, intensity_model, residuals.
-        ``'output_file'``    Path or None — NXcanSAS output path (if save_to_nexus).
-        ``'input_file'``     Path
-        ``'config_file'``    Path
-        ``'message'``        str — human-readable summary.
+            ``'success'``        bool — True if fit converged.
+            ``'model'``          UnifiedFitModel — the fitted model object.
+            ``'parameters'``     dict — structured fit summary (levels, chi_squared, …).
+            ``'uncertainties'``  dict or None — MC parameter uncertainties (None when
+                                 ``with_uncertainty=False`` or fewer than 2 runs succeeded).
+            ``'data'``           dict — Q, Intensity, Error, intensity_model, residuals.
+            ``'output_file'``    Path or None — NXcanSAS output path (if save_to_nexus).
+            ``'input_file'``     Path
+            ``'config_file'``    Path
+            ``'message'``        str — human-readable summary.
 
         Returns None if loading, configuration, or fitting fails fatally.
         A failed fit (optimizer did not converge) still returns a dict with

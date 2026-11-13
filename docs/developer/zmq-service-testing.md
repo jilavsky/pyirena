@@ -4,7 +4,7 @@ A checklist to work through once, on a test machine, before the service goes
 anywhere near a beamtime. Tick the boxes as you go; anything that fails has a
 line in [Troubleshooting](#troubleshooting).
 
-Reference documentation is [zmq_service.md](zmq_service.md) — this file is the
+Reference documentation is [zmq_service.md](../reference/zmq-service.md) — this file is the
 procedure, that one is the protocol.
 
 **You will need:** the analysis workstation (RHEL — called *server* below),
@@ -360,7 +360,7 @@ Only once Parts 1–6 pass.
       ```
 
 - [ ] **7.2** Install the unit — the template is in
-      [zmq_service.md](zmq_service.md#keeping-it-running-systemd). Set `User=`
+      [zmq_service.md](../reference/zmq-service.md#keeping-it-running-systemd). Set `User=`
       to a service account, and `ExecStart=` to the venv's `pyirena-zmq`.
 
 - [ ] **7.3** Start and enable it:
@@ -387,7 +387,7 @@ Only once Parts 1–6 pass.
 ## Part 8 — Hand over to the orchestrator team
 
 - [ ] **8.1** Give them the address, `tcp://SERVER:9865`, and
-      [zmq_service.md](zmq_service.md).
+      [zmq_service.md](../reference/zmq-service.md).
 
 - [ ] **8.2** Tell them the three things that are easy to get wrong:
       1. **Set the client timeout above 55 s.** 60 s is the intended pairing.

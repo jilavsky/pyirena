@@ -104,6 +104,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Documentation moved to Read the Docs, and the Help buttons open it.** The
+  pages in `docs/` are now a Sphinx site at
+  <https://jilavsky-docs.readthedocs.io/projects/pyirena/>, regrouped into
+  getting started, one page per tool window, guides, methods, reference and
+  developer sections. The thirteen Help buttons open the matching page there:
+  the `stable` version for releases, `latest` for development and pre-release
+  installs. The old GitHub paths that released copies link to stay as
+  one-line "Moved to" pages.
 - **Monte-Carlo uncertainties for Unified Fit, Size Distribution and Simple
   Fits are computed by one implementation per tool in core** (#38), used by
   the GUI and by `pyirena.batch`. The GUI and batch copies had drifted apart;
@@ -2228,7 +2236,7 @@ was deliberately *not* done.
   **1** for the previous serial behaviour, or an explicit count. The same
   setting is available to scripts as `fit_modeling(..., mc_workers=N)` and as
   the `"mc_workers"` key in the exported JSON config. See
-  [MC Uncertainty](docs/modeling_gui.md#mc-uncertainty).
+  [MC Uncertainty](https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/tools/modeling.html#mc-uncertainty).
   - Uncertainties are unchanged by the worker count: all the noise is drawn in
     the parent process before any pass starts, so a given run produces the same
     numbers serially and in parallel.
@@ -2260,7 +2268,7 @@ was deliberately *not* done.
   your `pip`. Each dependency is classified as installed, missing, or
   *installed but failing to load* — the three states that the previous error
   messages collapsed into one. Users can paste its output into a bug report.
-  See [Installation → Troubleshooting](docs/installation.md#troubleshooting).
+  See [Installation → Troubleshooting](https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/getting-started/installation.html#troubleshooting).
 
 ### Fixed
 
@@ -2313,7 +2321,7 @@ was deliberately *not* done.
   converted HDF5 sibling's provenance, and changing the setting for a file
   you've already converted automatically invalidates the stale cached
   sibling rather than silently reusing it. See
-  [Q units](docs/data_import_and_cleaning.md#q-units).
+  [Q units](https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/guides/data-import-and-cleaning.html#q-units).
 - **CSV file support in Data Selector, Data Merge, and Data Manipulation.**
   Comma-separated `.csv` files are now recognized alongside `.dat`/`.txt`
   everywhere those text formats were already supported:
@@ -2562,4 +2570,4 @@ science or numerical results**.
 ---
 
 Entries for **1.0.1 and earlier** live in
-[docs/CHANGELOG_archive.md](docs/CHANGELOG_archive.md).
+[docs/CHANGELOG_archive.md](https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/changelog-archive.html).

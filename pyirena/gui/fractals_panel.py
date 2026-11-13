@@ -28,6 +28,7 @@ from typing import Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.fractals import (
     FractalAggregate,
     GrowthConfig,
@@ -783,9 +784,7 @@ class FractalsPanel(QWidget):
     # ── Help / NeXus loading ─────────────────────────────────────────────
 
     def _open_help(self):
-        QDesktopServices.openUrl(QUrl(
-            "https://github.com/jilavsky/pyirena/blob/main/docs/fractals_gui.md"
-        ))
+        QDesktopServices.openUrl(QUrl(docs_url("fractals")))
 
     def _on_open_nexus(self):
         last = self.nexus_path_edit.text() or str(Path.home())

@@ -7,11 +7,11 @@ different machine from the analysis workstation and **shares no filesystem with
 it**. The data travels inside the request; the results travel inside the reply.
 
 If your caller is on the same machine and can read the same files, you
-probably want [the MCP server](ai_integration.md) instead. Same tools, same
+probably want [the MCP server](../guides/ai-integration.md) instead. Same tools, same
 schemas; MCP can also open and save files.
 
 **Deploying or testing it for the first time?** Work through
-[zmq_service_testing.md](zmq_service_testing.md) — the same material as a
+[zmq_service_testing.md](../developer/zmq-service-testing.md) — the same material as a
 tickable procedure, with a smoke-test script that needs only pyzmq.
 
 ---
@@ -91,7 +91,7 @@ A bare `ping` string (not JSON) is also answered, for quick liveness checks.
 
 ### Reply
 
-```json
+```text
 {"protocol": "pyirena-zmq/1", "id": "c7f3", "ok": true,
  "result": { ... }, "elapsed_s": 1.84,
  "server": {"pyirena": "1.2.0b1", "protocol": "pyirena-zmq/1"}}
@@ -184,7 +184,7 @@ Most of the time the fit is already known — a scientist set it up in the GUI,
 exported the parameters, and every new measurement should be fitted the same
 way. That is one request, not six:
 
-```json
+```text
 {"op": "call", "tool": "analyze",
  "args": {"data": {"q": [...], "intensity": [...], "error": [...]},
           "config": { ...the exported pyirena_config.json... }}}
@@ -440,5 +440,5 @@ are served one at a time, so a long fit delays everyone — including `ping`.
 * **No authentication or encryption.** Firewall the port.
 * **Sessions do not survive a restart.** They live in the process.
 
-See [`planning/zmq-service/`](../planning/zmq-service/) for what is deferred
+See [`planning/zmq-service/`](https://github.com/jilavsky/pyirena/tree/main/planning/zmq-service) for what is deferred
 and why (async jobs, Zarr input, binary arrays, CURVE authentication).

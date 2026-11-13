@@ -8,12 +8,12 @@ to this file, so there is one map rather than one per agent.
 Two companions, both kept deliberately shallow so they survive ordinary
 development:
 
-- **`docs/module_map.md`** — one line per module. Use it when you know *what*
+- **`docs/developer/module-map.md`** — one line per module. Use it when you know *what*
   you are looking for but not *where* it lives.
-- **`docs/developer_adding_features.md`** — the master checklist for changing
+- **`docs/developer/adding-features.md`** — the master checklist for changing
   or adding anything, including a whole new tool.
 
-Last update date: 01-11-2026 ; version: 1.2.1
+Last update date: 13-11-2026 ; version: 1.2.1
 
 pyIrena is a Python port of the Igor Pro **Irena** small-angle scattering
 package (SAXS/SANS/USAXS analysis). Coded almost entirely by Claude; planned,
@@ -37,6 +37,9 @@ python validationData/generate_validation_data.py   # rebuild the synthetic
                                                     # validation data + manifest
 python validationData/run_validation_report.py      # fit it all, write
                                                     # VALIDATION_RESULTS.md/.csv
+
+pip install -r docs/requirements.txt                # build the docs site (Sphinx,
+sphinx-build -W --keep-going -b html docs docs/_build/html   # zero warnings)
 ```
 
 Console entry points are declared in `pyproject.toml` under
@@ -44,7 +47,7 @@ Console entry points are declared in `pyproject.toml` under
 
 Test data lives in `testData/`. Synthetic data with *exactly known* parameters,
 used to validate the analysis maths and to compare pyIrena with Igor Irena,
-lives in `validationData/` — see `docs/validation.md`. Tests must not require a
+lives in `validationData/` — see `docs/developer/validation.md`. Tests must not require a
 display; Qt-dependent tests mock dialogs (see `pyirena/tests/api/conftest.py`).
 
 ---
@@ -81,7 +84,7 @@ layers. `pyirena/tests/test_core_serialization.py` holds the round-trip and
 old-file tests. Panel state methods, by contrast, are now uniform
 (`save_state`/`load_state` public, `_collect_state`/`_apply_state` private) and
 enforced by `pyirena/tests/test_gui_state_contract.py`. Follow
-`docs/developer_adding_features.md` for anything new. HDF5 group names are
+`docs/developer/adding-features.md` for anything new. HDF5 group names are
 mostly `entry/<tool>_results` but not mechanically derived — Simple Fits writes
 `entry/simple_fit_results`. Check `pyirena/io/nxcansas_<tool>.py` rather than
 assuming.
@@ -130,7 +133,7 @@ save/restore), `pyirena/core/form_factors.py`, `distributions.py`,
    shape detection — `is_panel_level` / `unified_level_from_config` exist so
    the detection can only be half-written once.
    `pyirena/tests/test_config_contract.py` enforces this and fails the build
-   if a setting stops round-tripping. See `docs/batch_api.md` for the
+   if a setting stops round-tripping. See `docs/guides/batch-api.md` for the
    user-facing description and `planning/config-dialects/` for the history.
 
    Three things in this codebase are called "config" and only the first two
@@ -159,20 +162,20 @@ deliberate choice.
 
 | Tool | core | io | gui | batch | docs |
 |---|---|---|---|---|---|
-| Unified Fit | `unified.py` | `nxcansas_unified.py` | `unified_fit.py` | `unified.py` | `unified_fit_gui.md`, `unified_fit_features.md` |
-| Size Distribution | `sizes.py` | `nxcansas_sizes.py` | `sizes_panel.py` | `sizes.py` | `sizes_methods.md` |
-| Modeling | `modeling.py` | `nxcansas_modeling.py` | `modeling_panel.py` | `modeling.py` | `modeling_gui.md` |
-| Simple Fits | `simple_fits.py` | `nxcansas_simple_fits.py` | `simple_fits_panel.py` | `simple.py` | `simple_fits_gui.md` |
-| Fractals | `fractals.py` | `nxcansas_fractals.py` | `fractals_panel.py` | — | `fractals_gui.md` |
-| SAXS Morph | `saxs_morph.py` | `nxcansas_saxs_morph.py` | `saxs_morph_panel.py` | `saxs_morph.py` | `saxs_morph_gui.md`, `saxs_morph_method_comparison.md` |
-| WAXS Peak Fit | `waxs_peakfit.py` | `nxcansas_waxs_peakfit.py` | `waxs_peakfit_panel.py` | `waxs.py` | `waxs_peakfit_gui.md` |
-| Carbon model | `carbon_fit.py` | `nxcansas_carbon_fit.py` | `carbon_fit_panel.py` | `carbon_fit.py` | `carbon_fit_gui.md` |
-| Data Merge | `data_merge.py` | `nxcansas_data_merge.py` | `data_merge_panel.py` | `merge.py` | `data_merge_gui.md` |
-| Data Manipulation | `data_manipulation.py` | `nxcansas_data_manipulation.py` | `data_manipulation_panel.py` | `manipulate.py` | `data_manipulation_gui.md` |
-| Scattering Contrast | `scattering_contrast.py` | `contrast_io.py` | `contrast_panel.py` | — | `scattering_contrast_gui.md` |
-| Slit Smearing | `smearing.py` | — | `slit_smearing_ui.py` | — | `slit_smearing.md` |
-| Feature Identifier | `feature_detect.py` | — | `feature_identifier.py` | — | `feature_identifier.md` |
-| Fit Quality Metrics | `fit_metrics.py` | `nxcansas_fit_quality.py` | `quality_display.py` | — | `fit_quality_metrics.md` |
+| Unified Fit | `unified.py` | `nxcansas_unified.py` | `unified_fit.py` | `unified.py` | `tools/unified-fit.md` |
+| Size Distribution | `sizes.py` | `nxcansas_sizes.py` | `sizes_panel.py` | `sizes.py` | `tools/size-distribution.md`, `methods/size-distribution-methods.md` |
+| Modeling | `modeling.py` | `nxcansas_modeling.py` | `modeling_panel.py` | `modeling.py` | `tools/modeling.md` |
+| Simple Fits | `simple_fits.py` | `nxcansas_simple_fits.py` | `simple_fits_panel.py` | `simple.py` | `tools/simple-fits.md` |
+| Fractals | `fractals.py` | `nxcansas_fractals.py` | `fractals_panel.py` | — | `tools/fractals.md` |
+| SAXS Morph | `saxs_morph.py` | `nxcansas_saxs_morph.py` | `saxs_morph_panel.py` | `saxs_morph.py` | `tools/saxs-morph.md`, `methods/saxs-morph-method-comparison.md` |
+| WAXS Peak Fit | `waxs_peakfit.py` | `nxcansas_waxs_peakfit.py` | `waxs_peakfit_panel.py` | `waxs.py` | `tools/waxs-peak-fit.md` |
+| Carbon model | `carbon_fit.py` | `nxcansas_carbon_fit.py` | `carbon_fit_panel.py` | `carbon_fit.py` | `tools/carbon-fit.md` |
+| Data Merge | `data_merge.py` | `nxcansas_data_merge.py` | `data_merge_panel.py` | `merge.py` | `tools/data-merge.md` |
+| Data Manipulation | `data_manipulation.py` | `nxcansas_data_manipulation.py` | `data_manipulation_panel.py` | `manipulate.py` | `tools/data-manipulation.md` |
+| Scattering Contrast | `scattering_contrast.py` | `contrast_io.py` | `contrast_panel.py` | — | `tools/scattering-contrast.md` |
+| Slit Smearing | `smearing.py` | — | `slit_smearing_ui.py` | — | `methods/slit-smearing.md` |
+| Feature Identifier | `feature_detect.py` | — | `feature_identifier.py` | — | `tools/feature-identifier.md` |
+| Fit Quality Metrics | `fit_metrics.py` | `nxcansas_fit_quality.py` | `quality_display.py` | — | `methods/fit-quality-metrics.md` |
 
 Paths are relative to `pyirena/core/`, `pyirena/io/`, `pyirena/gui/`,
 `pyirena/batch/` and `docs/` respectively. Note that batch module names are
@@ -182,35 +185,39 @@ occasionally shortened (`simple.py`, `waxs.py`, `merge.py`).
 
 ## 4. Where to look
 
-Start here rather than grepping. `docs/` has ~36 files; these are the ones that
-change how you should work.
+Start here rather than grepping. `docs/` is a Sphinx/MyST site published on Read the
+Docs (<https://jilavsky-docs.readthedocs.io/projects/pyirena/>), split into
+`getting-started/`, `tools/` (one page per window), `guides/`, `methods/`,
+`reference/` and `developer/`; each section's `index.md` lists its pages by hand.
+These are the pages that change how you should work.
 
 | If you are… | Read |
 |---|---|
-| Looking for the module that does X | `docs/module_map.md` (one line per module) |
-| Adding *any* feature — start here, always | `docs/developer_adding_features.md` (master checklist of every integration surface) |
-| Adding a **whole new tool** | `docs/developer_adding_features.md` § "Adding a whole new tool" + `pyirena/tests/test_tool_registration.py` (add your row, then make it green) |
-| Adding a form factor | `docs/developer_adding_form_factors.md` |
-| Adding a structure factor | `docs/developer_adding_structure_factors.md` |
-| Touching HDF5 read/write | `docs/HDF5_NxcanSAS_structure.md` |
-| Working on the api/MCP layer | `pyirena/api/README.md`, `docs/ai_tools_reference.md`, `docs/ai_integration.md` |
-| Working on the ZMQ service (remote, JSON-only callers) | `docs/zmq_service.md`, `planning/zmq-service/` |
-| Deploying or testing the ZMQ service | `docs/zmq_service_testing.md` (checklist) + `scripts/zmq_smoke_test.py` (pyzmq only, runs anywhere) |
-| Writing or fixing tests | `docs/testing.md` |
-| Validating the maths, or comparing results with Igor Irena | `docs/validation.md`, `validationData/README.md` |
-| Working on batch/scripting | `docs/batch_api.md` |
-| Importing Igor `.pxp` files | `docs/igor_pxp_import.md` |
-| Loading or cleaning input data | `docs/data_import_and_cleaning.md` |
-| Packaging or release work | `docs/distribution.md`, `.github/workflows/publish.yml` |
-| Debugging a user's install/startup failure | `pyirena/diagnostics.py` (`pyirena-doctor`), `docs/installation.md` |
-| Understanding a specific GUI panel | `docs/<tool>_gui.md` (see tool map above) |
-| Working on the HDF5 Data Explorer | `docs/hdf5_viewer_gui.md` |
-| Reading scattering data through the stable io API | `docs/scattering_io_api.md` |
+| Looking for the module that does X | `docs/developer/module-map.md` (one line per module) |
+| Adding *any* feature — start here, always | `docs/developer/adding-features.md` (master checklist of every integration surface) |
+| Adding a **whole new tool** | `docs/developer/adding-features.md` § "Adding a whole new tool" + `pyirena/tests/test_tool_registration.py` (add your row, then make it green) |
+| Adding a form factor | `docs/developer/adding-form-factors.md` |
+| Adding a structure factor | `docs/developer/adding-structure-factors.md` |
+| Touching HDF5 read/write | `docs/reference/hdf5-nxcansas-structure.md` |
+| Working on the api/MCP layer | `pyirena/api/README.md`, `docs/reference/ai-tools-reference.md`, `docs/guides/ai-integration.md` |
+| Working on the ZMQ service (remote, JSON-only callers) | `docs/reference/zmq-service.md`, `planning/zmq-service/` |
+| Deploying or testing the ZMQ service | `docs/developer/zmq-service-testing.md` (checklist) + `scripts/zmq_smoke_test.py` (pyzmq only, runs anywhere) |
+| Writing or fixing tests | `docs/developer/testing.md` |
+| Validating the maths, or comparing results with Igor Irena | `docs/developer/validation.md`, `validationData/README.md` |
+| Working on batch/scripting | `docs/guides/batch-api.md` |
+| Importing Igor `.pxp` files | `docs/guides/igor-pxp-import.md` |
+| Loading or cleaning input data | `docs/guides/data-import-and-cleaning.md` |
+| Packaging or release work | `docs/developer/distribution.md`, `.github/workflows/publish.yml` |
+| Debugging a user's install/startup failure | `pyirena/diagnostics.py` (`pyirena-doctor`), `docs/getting-started/installation.md` |
+| Understanding a specific GUI panel | `docs/tools/<page>.md` (see tool map above) |
+| Adding a docs page, or wiring a Help button | `pyirena/_docs.py` (`HELP_TARGETS`, `docs_url()`; `tools/` page names are frozen once released), `docs/conf.py` (edit only its PER-PACKAGE block; the rest is the family template in `jilavsky-docs`), `pyirena/tests/test_help_targets.py` |
+| Working on the HDF5 Data Explorer | `docs/tools/data-explorer.md` |
+| Reading scattering data through the stable io API | `docs/reference/scattering-io-api.md` |
 | Looking for design intent on unfinished work | `planning/` (`unfinished/`, `fit-runner/`, `feature-candidates/`, `zmq-service/`, `ai-agent/`) and `PLAN.md` (open items + decisions against). `config-dialects/` and `carbon-fitting/` are finished, kept as the design records the code cites by section |
 | Asking "is this feature actually finished?" | `planning/unfinished/README.md` — work started and left half-built, where the tree and the docs disagree |
 
-`docs/GUI_README.md`, `docs/gui_quickstart.md`, `docs/QUICK_START.md` and
-`docs/usage_guide.md` are user-facing; consult them to keep terminology
+`docs/tools/data-selector.md`, `docs/getting-started/quickstart.md`, `docs/getting-started/python-quickstart.md` and
+`docs/guides/scripting-unified-fit.md` are user-facing; consult them to keep terminology
 consistent with what users see.
 
 ---
@@ -248,7 +255,7 @@ uses `gui/plot_export.py` (`attach_plot_export`, or `make_sas_plot` with
 `parent_widget`), text reports come from `core/reporting.py` via
 `gui/report_buttons.py`, and fits / Monte-Carlo run off the GUI thread via
 `gui/fit_worker.py` (`FitJobRunner`; never `processEvents()` in a loop). The full list is the "standard UX contract" in
-`docs/developer_adding_features.md`; `pyirena/tests/test_gui_table_contract.py`
+`docs/developer/adding-features.md`; `pyirena/tests/test_gui_table_contract.py`
 and `test_gui_plot_contract.py` enforce it.
 
 **Testing.** New math needs a test in `pyirena/tests/`. New HDF5 fields need a
@@ -295,13 +302,13 @@ change here.
 - a new top-level package appears under `pyirena/` → add one row to §2
 - a layering invariant in §2 changes → fix the invariant list
 - a command in §1 changes (test runner, lint tool, entry points)
-- a new `docs/developer_*.md` guide is written → add one row to §4
+- a new `docs/developer/*.md` guide is written → add one row to §4
 
 **Do not add here:** function signatures, parameter lists, model formulas,
 per-release notes, or anything already written in `docs/`. Those rot within
 weeks and belong in the code or in `docs/`. A new *module* goes in
-`docs/module_map.md`, not here.
+`docs/developer/module-map.md`, not here.
 
 If §3 or §4 has drifted, regenerate just that table by listing the directories
-rather than rewriting the whole file; `docs/module_map.md` carries the command
+rather than rewriting the whole file; `docs/developer/module-map.md` carries the command
 that regenerates its own tables.

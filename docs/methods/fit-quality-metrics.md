@@ -239,7 +239,7 @@ print(f"longest_same_sign_run: {metrics['longest_same_sign_run']}")
 
 ## References
 
-- **AI agent tools:** `docs/ai_tools_reference.md` (section "Quality assessment")
+- **AI agent tools:** [AI tools reference](../reference/ai-tools-reference.md) (section "Quality assessment")
 - **Source code:** `pyirena/core/fit_metrics.py`
 
 ---

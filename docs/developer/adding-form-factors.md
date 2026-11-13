@@ -15,7 +15,7 @@ The form-factor system has three layers:
 |-------|------|---------------|
 | Physics | `pyirena/core/form_factors.py` | Compute G-matrix column `V·F²(Q,r)` |
 | GUI | `pyirena/gui/modeling_panel.py` | Expose the new shape in the dropdown + parameter rows |
-| Docs | `docs/modeling_gui.md` | Keep the user-facing Form Factors table current |
+| Docs | `docs/tools/modeling.md` | Keep the user-facing Form Factors table current |
 
 HDF5 I/O (`pyirena/io/nxcansas_modeling.py`) and state management
 (`pyirena/state/state_manager.py`) are **generic** — they store `ff_params` as
@@ -196,7 +196,7 @@ This step is **optional** — omit it if the engine safely handles a missing key
 
 ---
 
-## Step 4 — Documentation: `docs/modeling_gui.md`
+## Step 4 — Documentation: `docs/tools/modeling.md`
 
 Add a row to the **Form Factors** table in Section 6:
 
@@ -240,5 +240,5 @@ python -c "import pyirena.gui.modeling_panel; print('modeling_panel import OK')"
 - [ ] `FF_LABELS['your_ff']` entry added to `modeling_panel.py`
 - [ ] `FF_PARAM_LABELS` updated for all new parameter keys
 - [ ] State defaults updated (if non-trivial defaults needed)
-- [ ] Row added to Form Factors table in `docs/modeling_gui.md`
+- [ ] Row added to Form Factors table in `docs/tools/modeling.md`
 - [ ] Verification script passes

@@ -24,7 +24,7 @@ sections and cannot be renamed, so the table carries the alias per surface
 rather than pretending there is one spelling.
 
 Source text and import-only: no Qt, no display, so this runs in every CI job.
-See ``docs/developer_adding_features.md`` § "Adding a whole new tool".
+See ``docs/developer/adding-features.md`` § "Adding a whole new tool".
 """
 
 from __future__ import annotations
@@ -367,27 +367,53 @@ def test_hdf5_viewer_detects_every_wired_tool():
 
 # ── GUI panels ──────────────────────────────────────────────────────────────
 
+def _is_moved_stub(page: Path) -> bool:
+    """A one-line "Moved to <RTD URL>" file left at an old GitHub path."""
+    return page.read_text(encoding="utf-8").startswith("Moved to <")
+
+
 def test_every_tool_has_a_gui_panel_and_docs():
-    """A tool nobody can reach from the GUI, or read about, is not finished."""
+    """A tool nobody can reach from the GUI, or read about, is not finished.
+
+    The docs page is the tool's Help-button target in ``pyirena/_docs.py``
+    ``HELP_TARGETS`` (keyed by the schema key), so the page the Help button
+    opens and the page this test checks are the same one.
+    """
+    from pyirena._docs import HELP_TARGETS
+
     panels = {p.name for p in (REPO / "pyirena" / "gui").glob("*.py")}
-    docs = {p.name for p in (REPO / "docs").glob("*.md")}
-    # tool key → (panel file, doc file); unified_fit predates the _panel suffix
+    # tool key → panel file; unified_fit predates the _panel suffix
     known = {
-        "unified_fit":       ("unified_fit.py", "unified_fit_gui.md"),
-        "size_distribution": ("sizes_panel.py", "sizes_methods.md"),
-        "simple_fits":       ("simple_fits_panel.py", "simple_fits_gui.md"),
-        "modeling":          ("modeling_panel.py", "modeling_gui.md"),
-        "waxs_peakfit":      ("waxs_peakfit_panel.py", "waxs_peakfit_gui.md"),
-        "carbon_fit":        ("carbon_fit_panel.py", "carbon_fit_gui.md"),
-        "saxs_morph":        ("saxs_morph_panel.py", "saxs_morph_gui.md"),
-        "fractals":          ("fractals_panel.py", "fractals_gui.md"),
-        "data_merge":        ("data_merge_panel.py", "data_merge_gui.md"),
-        "data_manipulation": ("data_manipulation_panel.py", "data_manipulation_gui.md"),
+        "unified_fit":       "unified_fit.py",
+        "size_distribution": "sizes_panel.py",
+        "simple_fits":       "simple_fits_panel.py",
+        "modeling":          "modeling_panel.py",
+        "waxs_peakfit":      "waxs_peakfit_panel.py",
+        "carbon_fit":        "carbon_fit_panel.py",
+        "saxs_morph":        "saxs_morph_panel.py",
+        "fractals":          "fractals_panel.py",
+        "data_merge":        "data_merge_panel.py",
+        "data_manipulation": "data_manipulation_panel.py",
     }
-    assert set(known) == set(TOOL_REGISTRY), "add the new tool's panel/doc pair here"
-    for tool, (panel, doc) in known.items():
+    assert set(known) == set(TOOL_REGISTRY), "add the new tool's panel here"
+    for tool, panel in known.items():
         assert panel in panels, f"{tool}: missing pyirena/gui/{panel}"
-        assert doc in docs, f"{tool}: missing docs/{doc}"
+        assert tool in HELP_TARGETS, f"{tool}: no Help target in pyirena/_docs.py"
+        page_name = HELP_TARGETS[tool]
+        assert page_name.startswith("tools/"), f"{tool}: Help target is not a tools/ page"
+        page = REPO / "docs" / f"{page_name}.md"
+        assert page.is_file(), f"{tool}: missing docs/{page_name}.md"
+        assert not _is_moved_stub(page), f"{tool}: docs/{page_name}.md is a 'Moved to' stub"
+
+
+def test_help_targets_are_real_pages_not_moved_stubs():
+    """The old GitHub paths are one-line stubs; no Help button may open one."""
+    from pyirena._docs import HELP_TARGETS
+
+    for target, page_name in HELP_TARGETS.items():
+        page = REPO / "docs" / ("index.md" if page_name == "" else f"{page_name}.md")
+        if page.is_file():  # existence itself is test_help_targets.py's job
+            assert not _is_moved_stub(page), f"HELP_TARGETS[{target!r}] opens a stub"
 
 
 @pytest.mark.parametrize("tool", sorted(TOOLS))

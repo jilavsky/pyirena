@@ -5,7 +5,7 @@ management, fitting) plus ``UnifiedFitGraphWindow`` (I(Q) plot, cursors,
 residuals).  Thin over :mod:`pyirena.core.unified`; state round-trips
 through ``StateManager`` and the HDF5-embedded ``_pyirena_config``.
 
-See ``docs/unified_fit_gui.md``.
+See ``docs/tools/unified-fit.md``.
 """
 
 import logging
@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.tool_config import is_panel_level, unified_level_from_config, without_view_state
 from pyirena.core.unified import (
     UNIFIED_STATE_SCHEMA_VERSION,
@@ -2177,9 +2178,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/unified_fit_gui.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("unified_fit")))
         )
         title_row.addWidget(self._help_btn)
         layout.addLayout(title_row)

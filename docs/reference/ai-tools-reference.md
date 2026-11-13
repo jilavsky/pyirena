@@ -1425,7 +1425,7 @@ sensible start for most carbons.
 These two work for every fitting tool.  Use them when the fit is already
 known, or when the caller needs the result as data rather than as a file.
 
-#### `analyze(data, config, tool=None, include_arrays=False, max_points=2000, n_mc_runs=0)`
+### `analyze(data, config, tool=None, include_arrays=False, max_points=2000, n_mc_runs=0)`
 
 Fit one curve with a saved pyIrena configuration in a single call: opens its
 own session, applies the config, runs the fit, returns the `export_results`
@@ -1445,7 +1445,7 @@ the number of refits that succeeded. WAXS Peak Fit ignores it (its covariance
 For exploring a fit step by step, use `open_dataset_from_data` and the
 per-tool tools instead.
 
-#### `export_results(session_id, include_arrays=False, max_points=2000)`
+### `export_results(session_id, include_arrays=False, max_points=2000)`
 
 A finished fit from any of the six tools as one JSON document — the
 machine-readable counterpart to `save_*`: nothing is written to disk.

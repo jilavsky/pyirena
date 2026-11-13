@@ -33,7 +33,7 @@ Before each release, update:
 
 2. `conda/meta.yaml` — the conda recipe is a separate build, so its version and
    the source-tarball `sha256` are bumped by hand:
-   ```yaml
+   ```jinja
    {% set version = "0.1.0" %}   # Update this
    # then set the real sha256 of the release tarball (see the comment in the file)
    ```
@@ -124,7 +124,7 @@ python -c "import pyirena; print(pyirena.__version__)"
 ### For Each Release
 
 1. **Update recipe** in `conda/meta.yaml`:
-   ```yaml
+   ```jinja
    {% set version = "0.1.0" %}  # New version
    {% set sha256 = "..." %}     # SHA256 of source tarball
    ```

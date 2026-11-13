@@ -35,7 +35,7 @@ unless the Data Selector's *Configure → Text File Options → Q unit in text
 files* setting says otherwise — every batch function converts Q (and dQ) to
 1/Å per that same setting before fitting, so a script and the GUI behave
 identically for the same file. See
-[Q units](data_import_and_cleaning.md#q-units) for details.
+[Q units](data-import-and-cleaning.md#q-units) for details.
 
 ```python
 from pyirena.batch import fit_unified, fit_sizes, fit_simple, fit_waxs, fit_modeling, fit_saxs_morph, fit_pyirena
@@ -796,7 +796,7 @@ thresholds it at the volume fraction that produces the requested φ, and evaluat
 the volume fraction and contrast (or scattering length density difference) are set
 by the user — this is a direct inversion, not an optimisation.
 
-See the [SAXS Morph GUI documentation](saxs_morph_gui.md) for background theory
+See the [SAXS Morph GUI documentation](../tools/saxs-morph.md) for background theory
 and a description of all GUI controls.
 
 ### What it does, step by step
@@ -993,7 +993,7 @@ result = merge_data(
 
 Unlike the fitting functions, `merge_data` uses its own **merge config file**
 (produced by the GUI's **Save JSON Config** button) rather than the shared
-`pyirena_config.json` format.  See the [Data Merge tool documentation](data_merge_gui.md)
+`pyirena_config.json` format.  See the [Data Merge tool documentation](../tools/data-merge.md)
 for the full config file reference.
 
 ### What it does, step by step
@@ -1025,7 +1025,7 @@ for the full config file reference.
 |-----------|------|---------|-------------|
 | `file1` | `str` or `Path` | required | DS1 file (lower-Q, absolute intensity scale cm⁻¹) |
 | `file2` | `str` or `Path` | required | DS2 file (higher-Q, any scale) |
-| `config_file` | `str`, `Path`, or `None` | `None` | Merge JSON config (see [Config file format](data_merge_gui.md#config-file-format)).  All keys optional; missing keys use defaults |
+| `config_file` | `str`, `Path`, or `None` | `None` | Merge JSON config (see [Config file format](../tools/data-merge.md#config-file-format)).  All keys optional; missing keys use defaults |
 | `save_to_nexus` | `bool` | `True` | Write merged data to a NXcanSAS HDF5 file |
 | `output_folder` | `str`, `Path`, or `None` | `None` | Output directory.  If `None`, a folder `{DS1_folder}_merged/` is created next to DS1's parent |
 | `verbose` | `bool` | `True` | Print scale / BG / χ² results to stdout |
@@ -1397,7 +1397,7 @@ for h5 in sorted(out_dir.glob("*.h5")):
     fit_pyirena(str(h5), "pyirena_config.json")
 ```
 
-See the [Import Igor Experiment guide](igor_pxp_import.md) for the
+See the [Import Igor Experiment guide](igor-pxp-import.md) for the
 wave-name and folder-name conventions, and how to extend them for
 non-standard reduction pipelines.
 
@@ -1718,7 +1718,7 @@ When a new analysis tool is added to pyIrena, three things happen:
    key in the JSON file (e.g. `"size_distribution": { ... }`).
 
 3. The tool is registered in `fit_pyirena`'s `_TOOL_REGISTRY` dict in
-   [pyirena/batch.py](../pyirena/batch.py):
+   [pyirena/batch/pipeline.py](https://github.com/jilavsky/pyirena/blob/main/pyirena/batch/pipeline.py):
 
 ```python
 _TOOL_REGISTRY = {

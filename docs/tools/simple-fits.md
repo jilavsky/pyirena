@@ -486,7 +486,7 @@ if sf and sf['success']:
     print(sf['params'])
 ```
 
-For the full batch API reference, see [batch_api.md](batch_api.md).
+For the full batch API reference, see [Batch fitting API](../guides/batch-api.md).
 
 ## Slit smearing (USAXS)
 
@@ -498,7 +498,7 @@ remain ideal-space. Guinier/Porod **linearization** has no closed form for
 smeared data, so it is drawn best-effort (ideal-space) and labelled as such. The
 **Invariant** integrates the data directly, which is invalid for smeared data,
 so it is **disabled with a message** — load the desmeared dataset, or use Unified
-Fit's model-based invariant. See **[Slit smearing](slit_smearing.md)** for the
+Fit's model-based invariant. See **[Slit smearing](../methods/slit-smearing.md)** for the
 full reference.
 
 ## Fit Quality
@@ -511,6 +511,6 @@ the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, a
 the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
 backstop.
 
-See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
+See the **[Fit Quality Metrics guide](../methods/fit-quality-metrics.md)** for full
 interpretation of these numbers.
 

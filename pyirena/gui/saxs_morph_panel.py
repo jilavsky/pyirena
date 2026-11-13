@@ -42,6 +42,7 @@ from typing import Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.saxs_morph import (
     ALLOWED_VOXEL_SIZES,
     SaxsMorphConfig,
@@ -1155,9 +1156,7 @@ class SaxsMorphPanel(QWidget):
             self.bg_qmax_edit.setText(_fmt(q_hi))
 
     def _open_help(self):
-        QDesktopServices.openUrl(QUrl(
-            'https://github.com/jilavsky/pyirena/blob/main/docs/saxs_morph_gui.md'
-        ))
+        QDesktopServices.openUrl(QUrl(docs_url("saxs_morph")))
 
     # ── File I/O ─────────────────────────────────────────────────────────
 

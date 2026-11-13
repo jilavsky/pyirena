@@ -36,7 +36,7 @@ of pyIrena's life only the first was accepted, so the two a remote caller
 actually held were the two that could not be fed back in.
 
 See ``planning/config-dialects/`` for the full inventory and
-``docs/batch_api.md`` for the user-facing description.
+``docs/guides/batch-api.md`` for the user-facing description.
 """
 from __future__ import annotations
 

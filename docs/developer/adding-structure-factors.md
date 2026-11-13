@@ -12,7 +12,7 @@ management are handled generically, so only three files ever need to change.
 |-------|------|---------------|
 | Physics | `pyirena/core/modeling.py` | Compute S(Q) and apply it to I_raw |
 | GUI | `pyirena/gui/modeling_panel.py` | Expose the new SF in the dropdown + parameter rows |
-| Docs | `docs/modeling_gui.md` | Keep the user-facing Structure Factors table current |
+| Docs | `docs/tools/modeling.md` | Keep the user-facing Structure Factors table current |
 
 `pyirena/io/nxcansas_modeling.py` and `pyirena/state/state_manager.py` store
 `sf_params` as arbitrary dicts and require **no changes**.
@@ -171,7 +171,7 @@ via `sf_params.get('param_a', default_value)` in Step 1b.
 
 ---
 
-## Step 4 — Documentation: `docs/modeling_gui.md`
+## Step 4 — Documentation: `docs/tools/modeling.md`
 
 Add a row to the **Structure Factors** table in Section 7:
 
@@ -232,5 +232,5 @@ python -c "import pyirena.gui.modeling_panel; print('modeling_panel import OK')"
 - [ ] `SF_LABELS['your_sf']` entry added to `modeling_panel.py`
 - [ ] `SF_PARAM_LABELS` updated for all new parameter keys
 - [ ] State defaults updated (if non-trivial defaults needed)
-- [ ] Row added to Structure Factors table in `docs/modeling_gui.md`
+- [ ] Row added to Structure Factors table in `docs/tools/modeling.md`
 - [ ] Verification script passes

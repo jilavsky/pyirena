@@ -229,7 +229,7 @@ Then the registry keys above, then the master checklist for everything else.
    completeness.
 6. **Data Explorer** — (11), (12), (13).
 7. **docs** — `docs/<tool>_gui.md`, a row in `AGENTS.md` §3, a line in
-   `docs/module_map.md`, a `CHANGELOG.md` entry.
+   `docs/developer/module-map.md`, a `CHANGELOG.md` entry.
 
 At each step the registration test tells you what is still unwired.
 

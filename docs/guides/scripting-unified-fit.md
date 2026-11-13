@@ -371,7 +371,7 @@ This runs four demonstrations:
 
 ## Need Help?
 
-1. Read the full documentation: [README_unified.md](README_unified.md)
+1. Read the full documentation: README_unified.md
 2. Run the demos: `python unified_demo.py`
 3. Check the references for theory details
 4. Examine the code comments in `unified.py`

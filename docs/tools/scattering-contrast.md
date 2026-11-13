@@ -400,6 +400,6 @@ parameter, so the value transfers directly into a fit.
 
 This group needs the `pyirena[contrast]` extra (`periodictable` +
 `xraydb`); it is included in both `pyirena[gui]` and `pyirena[mcp]`. See
-[ai_tools_reference.md](ai_tools_reference.md) for the agent-facing tool
+[ai_tools_reference.md](../reference/ai-tools-reference.md) for the agent-facing tool
 descriptions, and the [Physics reference](#physics-reference) above for the
 equations behind these numbers.

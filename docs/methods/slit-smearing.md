@@ -19,7 +19,7 @@ with this integral (a fixed sparse operator `W`, so a fit loop costs one matvec
 per iteration). For Size Distribution the whole G matrix is smeared once
 (`G_smeared = W @ G(q_ext)`), so the inversion machinery is untouched.
 
-Core engine: [`pyirena/core/smearing.py`](../pyirena/core/smearing.py)
+Core engine: [`pyirena/core/smearing.py`](https://github.com/jilavsky/pyirena/blob/main/pyirena/core/smearing.py)
 (`SlitSmearer`, `smear_model`, `smear_curve`, `build_smearing_matrix`).
 `SL ≤ 0` is a strict no-op, so tools call it unconditionally.
 

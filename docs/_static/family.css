@@ -1,0 +1,10 @@
+/* Shared family styling. Per package: change only --family-accent. */
+:root {
+  --family-accent: #1f6fb2;
+}
+html[data-theme="light"] {
+  --pst-color-primary: var(--family-accent);
+}
+.sd-card-title {
+  font-weight: 600;
+}

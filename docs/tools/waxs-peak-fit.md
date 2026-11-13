@@ -38,7 +38,7 @@ The window is split into a **left control panel** (≈430 px wide) and a
 - **Hide / Show error bars** — toggle ±σ vertical bars on data
 - **Copy graph to clipboard**, **Save graph as image…** (PNG/JPEG/SVG at 1600 px),
   **Save whole window as image…**, **Save curve data as CSV…**, **Save as Igor
-  Pro ITX…** — the standard export menu, described in `GUI_README.md`
+  Pro ITX…** — the standard export menu, described on the [Data Selector](data-selector.md) page
 
 ### Vertical cursors
 
@@ -402,9 +402,9 @@ Results are stored in `entry/waxs_peakfit_results` (NXprocess group).
 
 ## See also
 
-- [Batch API reference — `fit_waxs`](batch_api.md#fit_waxs)
-- [NXcanSAS file format](NXcanSAS_UnifiedFit_Format.md)
-- [Data Selector quick start](gui_quickstart.md)
+- [Batch API reference — `fit_waxs`](../guides/batch-api.md#fit_waxs)
+- [NXcanSAS file format](../reference/hdf5-nxcansas-structure.md)
+- [Data Selector quick start](../getting-started/quickstart.md)
 
 ## Fit Quality
 
@@ -416,6 +416,6 @@ the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, a
 the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
 backstop.
 
-See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
+See the **[Fit Quality Metrics guide](../methods/fit-quality-metrics.md)** for full
 interpretation of these numbers.
 

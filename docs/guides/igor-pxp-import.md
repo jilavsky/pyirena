@@ -53,7 +53,7 @@ Typical scenarios:
 
 The reverse direction — exporting pyIrena results *into* an Igor `.h5xp`
 packed experiment — is documented in
-[`hdf5_viewer_gui.md`](hdf5_viewer_gui.md#export-to-igor).
+[Data Explorer](../tools/data-explorer.md).
 
 ## What gets exported
 

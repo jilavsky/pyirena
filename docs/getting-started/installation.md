@@ -94,7 +94,7 @@ Or pin an exact version:
 pip install "pyirena[gui]==1.1.0"
 ```
 
-See [CHANGELOG.md](../CHANGELOG.md) for what changed, and report issues at
+See [CHANGELOG.md](../changelog.md) for what changed, and report issues at
 https://github.com/jilavsky/pyirena/issues.
 
 ---
@@ -298,7 +298,7 @@ binaries that avoid compiler requirements.
 
 After installation, see:
 
-- [Quick Start GUI guide](gui_quickstart.md) — open the GUI and load data
-- [Unified Fit guide](unified_fit_gui.md)
-- [WAXS Peak Fit guide](waxs_peakfit_gui.md)
-- [Batch scripting API](batch_api.md)
+- [Quick Start GUI guide](quickstart.md) — open the GUI and load data
+- [Unified Fit guide](../tools/unified-fit.md)
+- [WAXS Peak Fit guide](../tools/waxs-peak-fit.md)
+- [Batch scripting API](../guides/batch-api.md)

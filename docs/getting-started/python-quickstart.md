@@ -212,13 +212,13 @@ model.levels[0].fit_PACK = True
 
 ## Next Steps
 
-- Read the full [User Guide](../USAGE_GUIDE.md)
-- Explore [Examples](../pyirena/examples/)
-- Check [API Documentation](api.md)
-- Learn the [theory](theory.md)
+- Read the full [User Guide](../guides/scripting-unified-fit.md)
+- Explore [Examples](https://github.com/jilavsky/pyirena/tree/main/pyirena/examples)
+- Check [API Documentation](../reference/api.md)
+- Learn the theory
 
 ## Getting Help
 
 - Check [GitHub Issues](https://github.com/jilavsky/pyirena/issues)
-- Read the [FAQ](faq.md)
+- Read the FAQ
 - Contact: ilavsky@aps.anl.gov

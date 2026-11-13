@@ -287,7 +287,7 @@ Each knee dict has keys: `q_min`, `q_max`, `q_center`, `slope_low_q`,
 
 The algorithm is also available to the AI agent via the MCP tool
 `pyirena_ctrl_detect_features(session_id, q_max_clip=0.6, config_overrides={})`.
-See `docs/ai_tools_reference.md` for the full tool list.
+See [the AI tools reference](../reference/ai-tools-reference.md) for the full tool list.
 
 ### Version history
 

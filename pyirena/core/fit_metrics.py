@@ -32,7 +32,7 @@ This function returns **facts only** -- no "good/bad" verdict, no thresholds, no
 strategy, the GUI advisor, the user). Different workflows interpret the same
 numbers differently.
 
-See ``docs/fit_quality_metrics.md`` for the full rationale, the
+See ``docs/methods/fit-quality-metrics.md`` for the full rationale, the
 interpretation decision tree and worked scenarios.
 """
 

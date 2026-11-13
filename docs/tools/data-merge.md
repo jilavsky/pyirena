@@ -87,7 +87,7 @@ otherwise.
 - Select a **Type** (HDF5 NXcanSAS, HDF5 Generic, or Text .dat/.txt/.csv).
   Text files are assumed to be in the Q unit set in the Data Selector's
   *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
-  [Q units](data_import_and_cleaning.md#q-units).
+  [Q units](../guides/data-import-and-cleaning.md#q-units).
 - Use the **Sort** dropdown to order each column's file list — filename,
   temperature (`_500C`), time (`_10min`), pressure (`_100PSI`) or order number
   (trailing `_03`), ascending or descending.  This panel previously sorted by
@@ -526,7 +526,7 @@ slit lengths (`slit_length_ds1/ds2`, `slit_length_merged`). Two inputs with
 *different* nonzero slit lengths warn (the larger is kept). The optimisation
 itself is unchanged — the slit length sits at or below the SAXS Qmin, so its
 effect in the overlap region is negligible. See
-**[Slit smearing](slit_smearing.md)** for the full reference.
+**[Slit smearing](../methods/slit-smearing.md)** for the full reference.
 
 ## Optimisation details
 
@@ -589,5 +589,5 @@ a background is fitted by default (`fit_background=True`) — pass
 of `fit_scale` / `fit_background` must stay True — see [Optimisation
 details](#optimisation-details).
 
-See [ai_tools_reference.md](ai_tools_reference.md) for the agent-facing
+See [ai_tools_reference.md](../reference/ai-tools-reference.md) for the agent-facing
 tool descriptions.

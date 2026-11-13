@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.file_sorting import SORT_LABELS, SORT_TOOLTIP, sort_names
 from pyirena.core.file_types import extensions_for, files_with_extensions
 from pyirena.gui._qt import (
@@ -252,9 +253,7 @@ class DataSelectorPanel(QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/GUI_README.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("data_selector")))
         )
         title_row.addWidget(self._help_btn)
         title_row.addSpacing(5)

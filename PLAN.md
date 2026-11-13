@@ -3,9 +3,9 @@
 Living record of what is still open and, more importantly, **what was
 deliberately decided against**. Completed work is not repeated here — it is in
 [CHANGELOG.md](CHANGELOG.md) (current series) and
-[docs/CHANGELOG_archive.md](docs/CHANGELOG_archive.md) (1.0.1 and earlier),
+[docs/changelog-archive.md](docs/changelog-archive.md) (1.0.1 and earlier),
 with the reasoning for cross-cutting choices in
-[docs/developer_adding_features.md](docs/developer_adding_features.md).
+[docs/developer/adding-features.md](docs/developer/adding-features.md).
 
 A decision to *not* do something is the part that gets re-litigated every few
 months, so it is the part worth keeping.
@@ -90,7 +90,7 @@ with lazy sub-folder expansion, Data Merge shows two linked instances, Data
 Manipulation adds a context menu, and the Data Selector alone offers text files
 and the convert-on-load path. **Duplicated assembly with no logic in it does
 not drift; duplicated logic does.** Recorded in
-`docs/developer_adding_features.md`.
+`docs/developer/adding-features.md`.
 
 ### A shared batch config loader
 

@@ -72,7 +72,7 @@ The tool is available three ways:
 - **Type** --- file format: HDF5 Nexus (NXcanSAS), HDF5 Generic, or Text (.dat/.txt/.csv).
   Text files are assumed to be in the Q unit set in the Data Selector's
   *Configure → Text File Options → Q unit in text files* (default 1/Å) — see
-  [Q units](data_import_and_cleaning.md#q-units).
+  [Q units](../guides/data-import-and-cleaning.md#q-units).
 - **Sort** --- 10 sort options: filename, temperature, time, order number, pressure
   (ascending or descending).
 - **Filter** --- type text to filter filenames.  The text is a **regular
@@ -86,7 +86,7 @@ The tool is available three ways:
 - Log-log I(Q) plot with the top axis showing R = pi/Q.
 - Input data displayed as scatter points; result overlaid as a thick green line.
 - Right-click the plot for the standard export menu (clipboard copy, image,
-  curve CSV, Igor ITX — see `GUI_README.md`) and, on the Average tab, dataset
+  curve CSV, Igor ITX — see [Data Selector](data-selector.md)) and, on the Average tab, dataset
   removal.
 
 ### Output panel (right)
@@ -319,8 +319,8 @@ result = average_data(
 )
 ```
 
-See the [full `average_data` API reference](batch_api.md#average_data) in
-`batch_api.md` for all parameters, return value structure, and pipeline
+See the [full `average_data` API reference](../guides/batch-api.md#average_data) in
+[Batch fitting API](../guides/batch-api.md) for all parameters, return value structure, and pipeline
 examples.
 
 `manipulate_data()` returns a dict with keys `success`, `operation`,
@@ -337,7 +337,7 @@ Subtract and divide **refuse to mix** a slit-smeared curve with a pinhole one
 result; the guard lives in the core engine so batch scripting inherits it.
 Manipulation outputs also drop any stale `_SMR` (slit-smeared twin) entry copied
 from the source and clear an orphaned `dQl`, so a later slit-smeared load can't
-return an inconsistent curve. See **[Slit smearing](slit_smearing.md)** for the
+return an inconsistent curve. See **[Slit smearing](../methods/slit-smearing.md)** for the
 full reference.
 
 ## Interpolation and uncertainty propagation
@@ -390,5 +390,5 @@ The api layer also adds two guards the panel relies on the user for: it
 refuses to average datasets with mismatched slit smearing, and it rejects
 `auto_scale` without both Q bounds instead of silently ignoring it.
 
-See [ai_tools_reference.md](ai_tools_reference.md) for the agent-facing
+See [ai_tools_reference.md](../reference/ai-tools-reference.md) for the agent-facing
 tool descriptions.

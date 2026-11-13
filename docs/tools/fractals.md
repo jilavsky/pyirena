@@ -441,7 +441,7 @@ When the loaded I(Q) data are slit smeared (an NXcanSAS `dQl`), the calculated
 intensity is slit smeared for the overlay/comparison so it can be judged against
 the data on equal footing. If smearing the comparison curve fails it is logged
 and flagged rather than silently shown unsmeared. See
-**[Slit smearing](slit_smearing.md)** for the full reference.
+**[Slit smearing](../methods/slit-smearing.md)** for the full reference.
 
 ## Performance and memory notes
 

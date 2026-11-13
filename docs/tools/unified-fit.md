@@ -124,7 +124,7 @@ The graph window has two tabs you can switch between at any time. Both update to
 - Click-drag: pan
 - Right-click → *Copy graph to clipboard*, *Save graph as image…* (PNG/JPEG/SVG),
   *Save whole window as image…*, *Save curve data as CSV…*, *Save as Igor Pro ITX…*
-  (see "Getting graphs and tables out of pyIrena" in `GUI_README.md`)
+  (see "Getting graphs and tables out of pyIrena" on the [Data Selector](data-selector.md) page)
 - Zoom is preserved across auto-updates; only resets when new data is loaded
 
 **Cursors**
@@ -286,7 +286,7 @@ After a fit, the success message includes robust fit-quality metrics:
 
 **Key insight:** if reduced χ² is high but σ-scale is large (e.g., σ-scale ≈ 3), the *realistic* floor is `σ-scale²` ≈ 9. A fit at that floor with random scatter and no outliers is **done — you cannot improve it further** without changing the model or error bars.
 
-See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for detailed interpretation of all diagnostics, decision trees, and common scenarios.
+See the **[Fit Quality Metrics guide](../methods/fit-quality-metrics.md)** for detailed interpretation of all diagnostics, decision trees, and common scenarios.
 
 Also check the **residuals plot**: it now shows rescaled residuals `r' = r/σ(robust)`, which compare scatter against the data's own noise floor rather than (possibly unreliable) reported σ. Structure in the rescaled plot (long stretches of same-sign) indicates a systematic model problem; random scatter indicates a mis-scaled σ only.
 
@@ -299,7 +299,7 @@ data — all levels, the background, the local Guinier/Porod cursor fits, and th
 (pinhole-equivalent); the invariant is computed from the ideal model. Note that
 `ETA`/`PACK` are only fitted when a level's **correlations** are enabled — leave
 them unchecked otherwise, or the fit will iterate needlessly (slit-smeared fits
-amplify this). See **[Slit smearing](slit_smearing.md)** for the full reference,
+amplify this). See **[Slit smearing](../methods/slit-smearing.md)** for the full reference,
 scripting contract, and performance notes.
 
 ## References

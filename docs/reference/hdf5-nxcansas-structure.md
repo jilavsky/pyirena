@@ -141,5 +141,5 @@ setup = build_setup(envelope)     # -> model, fitted Q range, slit settings
 
 Settings are written in the **core** dialect (`model.to_dict()`); the older
 panel dialect, in every file written before 1.2, is still read. See
-`docs/batch_api.md` § *Configuration file format* for both, and
+[Batch fitting API](../guides/batch-api.md) § *Configuration file format* for both, and
 `planning/config-dialects/` for why there were two.

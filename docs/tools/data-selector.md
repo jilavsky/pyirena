@@ -46,7 +46,7 @@ The main GUI provides:
 2. **File Type Filtering** - Choose between:
    - HDF5 files (.hdf, .h5, .hdf5)
    - Text files (.txt, .dat, .csv) — automatically converted to cleaned NXcanSAS
-     HDF5 on first use (see [Text File Import and Cleaning](data_import_and_cleaning.md))
+     HDF5 on first use (see [Text File Import and Cleaning](../guides/data-import-and-cleaning.md))
    - All supported files
 3. **File List** - View and select files from the folder
 4. **Text Filter** - Grep-like filtering of file names, with full regular
@@ -311,8 +311,8 @@ python data_selector.py
 
 ## Contributing
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](https://github.com/jilavsky/pyirena/blob/main/CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT License - See [LICENSE](../../LICENSE)
+MIT License - See [LICENSE](https://github.com/jilavsky/pyirena/blob/main/LICENSE)

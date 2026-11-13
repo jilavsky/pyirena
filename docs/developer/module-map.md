@@ -2,8 +2,8 @@
 
 One line per module, so you can find a thing without grepping 113,000 lines.
 This is a *lookup table*, not documentation — for how the layers fit together
-read [AGENTS.md](../AGENTS.md) §2, and for how to wire something new read
-[developer_adding_features.md](developer_adding_features.md).
+read [AGENTS.md](https://github.com/jilavsky/pyirena/blob/main/AGENTS.md) §2, and for how to wire something new read
+[Adding features](adding-features.md).
 
 Per-tool modules (`core/<tool>.py`, `io/nxcansas_<tool>.py`,
 `gui/<tool>_panel.py`, `batch/<tool>.py`) follow the tool map in AGENTS.md §3
@@ -179,7 +179,7 @@ shared ones** — those are what gets reimplemented by accident.
 ## zmq/ — the remote, JSON-only transport
 
 Serves `pyirena.api` to a caller that shares no filesystem with this machine.
-Nothing here imports `zmq` at module level. See `docs/zmq_service.md`.
+Nothing here imports `zmq` at module level. See `docs/reference/zmq-service.md`.
 
 | Module | Lines | Purpose |
 |---|---:|---|

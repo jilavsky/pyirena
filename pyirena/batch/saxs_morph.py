@@ -55,10 +55,13 @@ def fit_saxs_morph(
 
     Parameters
     ----------
-    data_file       : NXcanSAS HDF5 (.h5/.hdf5/.nxs) or .dat/.txt SAS data.
-    config_file     : pyIrena JSON config containing a ``'saxs_morph'`` block
-                      (e.g. produced by Export Parameters in the GUI).
-    save_to_nexus   : Save voxelgram + params into the HDF5 file (HDF5 only).
+    data_file : str or Path
+        NXcanSAS HDF5 (.h5/.hdf5/.nxs) or .dat/.txt SAS data.
+    config_file : str or Path
+        pyIrena JSON config containing a ``'saxs_morph'`` block
+        (e.g. produced by Export Parameters in the GUI).
+    save_to_nexus : bool
+        Save voxelgram + params into the HDF5 file (HDF5 only).
 
     Returns
     -------

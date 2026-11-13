@@ -229,7 +229,7 @@ The Unified Fit window will open with:
 4. **Click "Fit"** to run the optimization
 5. **View results** in the graph (fit curve + residuals)
 
-For detailed instructions, see [UNIFIED_FIT_GUI.md](UNIFIED_FIT_GUI.md)
+For detailed instructions, see [Unified Fit](../tools/unified-fit.md)
 
 ## Using the Size Distribution Tool
 
@@ -242,7 +242,7 @@ Size Distribution panel.  Four inversion methods are available:
 - **Monte Carlo** — Monte Carlo method; provides per-bin ±1σ uncertainty estimate
 
 For a full explanation of each method and its parameters, see
-[sizes_methods.md](sizes_methods.md).
+[Size Distribution](../tools/size-distribution.md).
 
 ## Using the Simple Fits Tool
 
@@ -300,7 +300,7 @@ or ln(QI) vs Q²) so you can visually confirm the fit quality in the linear
 representation.  The Porod model shows IQ⁴ vs Q⁴.  All other models show
 "No linearization available."
 
-For the full model list with formulas, see [simple_fits_gui.md](simple_fits_gui.md).
+For the full model list with formulas, see [Simple Fits](../tools/simple-fits.md).
 
 ## Keyboard Shortcuts
 
@@ -383,7 +383,7 @@ Q,I,dI
 - Q (and dQ) is assumed to be in 1/Å by default; if your files use a
   different unit (e.g. 1/nm), set it in *Configure → Text File Options →
   Q unit in text files* and it will be converted to 1/Å automatically —
-  see [Q units](data_import_and_cleaning.md#q-units) for details
+  see [Q units](../guides/data-import-and-cleaning.md#q-units) for details
 - Scientific notation supported
 - Robust parser handles various text file formats
 

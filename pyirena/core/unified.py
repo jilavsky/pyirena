@@ -710,7 +710,7 @@ class UnifiedFitModel:
 
         Simple Fits spells its own ``no_limits`` as ±inf. The intent is the
         same ("ignore the bounds I set") and the implementations differ
-        because the tools do; both are documented in ``docs/batch_api.md``.
+        because the tools do; both are documented in ``docs/guides/batch-api.md``.
 
         A no-op when *enabled* is False, so callers need no branch.
         """

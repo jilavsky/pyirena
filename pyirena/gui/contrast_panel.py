@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 
+from pyirena._docs import docs_url
 from pyirena.core.scattering_contrast import (
     VACUUM,
     CompoundProperties,
@@ -571,9 +572,7 @@ class ContrastPanel(QWidget):
         )
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(
-                "https://github.com/jilavsky/pyirena/blob/main/docs/scattering_contrast_gui.md"
-            ))
+            lambda: QDesktopServices.openUrl(QUrl(docs_url("scattering_contrast")))
         )
         top_row.addWidget(self._help_btn)
         rl.addLayout(top_row)

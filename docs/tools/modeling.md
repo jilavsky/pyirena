@@ -775,7 +775,7 @@ a **"Slit smeared"** control row appears and the total model — all populations
 structure factors, and background — is smeared before comparison with the data,
 so fitted parameters remain ideal-space (pinhole-equivalent). The saved HDF5
 records both the smeared model and the ideal (`model_I_ideal`) curve. See
-**[Slit smearing](slit_smearing.md)** for the full reference and scripting
+**[Slit smearing](../methods/slit-smearing.md)** for the full reference and scripting
 contract.
 
 ## Fit Quality
@@ -788,6 +788,6 @@ the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, a
 the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
 backstop.
 
-See the **[Fit Quality Metrics guide](fit_quality_metrics.md)** for full
+See the **[Fit Quality Metrics guide](../methods/fit-quality-metrics.md)** for full
 interpretation of these numbers.
 

@@ -320,7 +320,7 @@ and φ are settled.
 ## HDF5 output format
 
 Saved at `entry/saxs_morph_results/`. See
-[HDF5_Structure_Reference.md](HDF5_Structure_Reference.md) for the full
+[HDF5_Structure_Reference.md](../reference/hdf5-nxcansas-structure.md) for the full
 on-disk inventory. The voxelgram is stored as a 3-D `uint8` dataset with
 gzip compression (level 4) and chunking `(N, N, 1)` so 2D slices load
 cheaply without inflating the whole cube.

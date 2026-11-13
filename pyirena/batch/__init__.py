@@ -3,29 +3,34 @@ pyirena.batch — headless (no-GUI) fitting API for scripting and automation.
 
 Typical usage
 -------------
-Single file, one tool:
+Single file, one tool::
+
     from pyirena.batch import fit_unified
     result = fit_unified("data.h5", "pyirena_config.json")
     if result:
         print(result['parameters']['chi_squared'])
 
-Carbon model (full-range SAXS+WAXS of disordered carbons):
+Carbon model (full-range SAXS+WAXS of disordered carbons)::
+
     from pyirena.batch import fit_carbon
     result = fit_carbon("carbon.h5", "pyirena_config.json")
     if result['success']:
         print(result['derived']['S_part_m2_g'], "m2/g")
 
-WAXS peak fitting (linear/linear, diffraction peaks):
+WAXS peak fitting (linear/linear, diffraction peaks)::
+
     from pyirena.batch import fit_waxs
     result = fit_waxs("waxs_data.h5", "pyirena_config.json")
     if result and result['success']:
         print(result['n_peaks'], "peaks fitted")
 
-Single file, all configured tools:
+Single file, all configured tools::
+
     from pyirena.batch import fit_pyirena
     results = fit_pyirena("data.h5", "pyirena_config.json")
 
-Batch over many files:
+Batch over many files::
+
     results = [fit_pyirena(f, cfg) for f in data_files]
     results = [r for r in results if r is not None]  # filter failures
 """

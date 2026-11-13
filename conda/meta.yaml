@@ -9,7 +9,7 @@ source:
   url: https://github.com/jilavsky/{{ name }}/archive/v{{ version }}.tar.gz
   # sha256 of the release tarball above. Fill in at release time, e.g.:
   #   curl -sL <url> | shasum -a 256
-  # (see docs/distribution.md). Kept as a Jinja variable so a forgotten value
+  # (see docs/developer/distribution.md). Kept as a Jinja variable so a forgotten value
   # fails `conda build` loudly rather than shipping a wrong/blank checksum.
   sha256: {{ sha256 }}
 

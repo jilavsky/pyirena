@@ -1,6 +1,6 @@
 # Changelog — Archive (1.0.1 and earlier)
 
-Older entries moved out of the main [CHANGELOG.md](../CHANGELOG.md) to keep
+Older entries moved out of the main [CHANGELOG.md](changelog.md) to keep
 it manageable.  The format matches the main changelog.
 
 ## [1.0.1] - 2026-07-15
@@ -443,8 +443,8 @@ it manageable.  The format matches the main changelog.
   tool-schemas added for all new tools. Monte-Carlo per-bin uncertainty is not
   exposed yet. Verified to produce results identical to `batch.fit_sizes` for
   the same settings. Docs: see
-  [ai_tools_reference.md](docs/ai_tools_reference.md) and
-  [ai_integration.md](docs/ai_integration.md).
+  [ai_tools_reference.md](reference/ai-tools-reference.md) and
+  [ai_integration.md](guides/ai-integration.md).
 - **Sizes: fractional error option.** A new "Fractional error" checkbox in the
   Error Scaling box lets you ignore the uncertainties from the data file and
   generate them as `error = |I| × fraction` (default `0.03` = 3%). Useful when
@@ -986,7 +986,7 @@ it manageable.  The format matches the main changelog.
 ---
 
 Older releases (0.7.2 and earlier) are archived in
-[docs/CHANGELOG_archive.md](docs/CHANGELOG_archive.md).
+[docs/CHANGELOG_archive.md](changelog-archive.md).
 
 ## [0.7.2] — 2026-05-20
 
@@ -1083,11 +1083,11 @@ Older releases (0.7.2 and earlier) are archived in
   ```
 
 - **Documentation:**
-  [docs/ai_integration.md](docs/ai_integration.md) — install &
+  [docs/ai_integration.md](guides/ai-integration.md) — install &
   configuration walk-through with Claude Desktop / Claude Code /
   AnythingLLM configs, env-var reference, verification steps,
   troubleshooting table, and security notes.
-  [docs/ai_tools_reference.md](docs/ai_tools_reference.md) — tool-by-tool
+  [docs/ai_tools_reference.md](reference/ai-tools-reference.md) — tool-by-tool
   reference written for AI agents (usable as system-prompt material) and
   for humans authoring agent prompts: discovery workflow, recommended
   call patterns, example interactions, things to avoid.
@@ -1580,7 +1580,7 @@ git log v0.5.8..v0.6.0 .
 
 ### Added
 
-- **Fractals: documentation file** [`docs/fractals_gui.md`](docs/fractals_gui.md)
+- **Fractals: documentation file** [`docs/fractals_gui.md`](tools/fractals.md)
   covering panel layout, workflow, target derivation formulas, growth
   parameter reference, MC vs analytical I(Q), HDF5 layout, and Igor
   compatibility notes.
