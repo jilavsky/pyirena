@@ -43,8 +43,9 @@ HELP_ANCHORS: dict[str, tuple[str, str]] = {
 def docs_version() -> str:
     """Return the RTD version to open: "stable" for releases, "latest" otherwise.
 
-    Development, local and pre-release installs ("dev", "+", "a"/"b"/"rc")
-    open "latest", which is built from the main branch.
+    Versions containing "dev", "+", "a", "b" or "rc" open "latest", which is
+    built from the main branch. An editable checkout of main reports the last
+    release number and therefore opens "stable" (accepted 2026-11-13, PLAN.md §6).
     """
     try:
         v = version(DIST)

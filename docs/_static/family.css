@@ -1,9 +1,18 @@
-/* Shared family styling. Per package: change only --family-accent. */
+/* Shared family styling. Per package: change only the two accent values.
+   Each pair is checked for >= 4.5:1 contrast as link text (white / #14181e).
+     home       #2f4b66 / #9bb8d3   (jilavsky-docs)
+     pyIrena    #1f6fb2 / #6cb4f0
+     Bernardyn  #0b7a66 / #4cc7ae
+     AIDA       #6a44b0 / #b29af0                                            */
 :root {
-  --family-accent: #1f6fb2;
+  --family-accent-light: #1f6fb2;
+  --family-accent-dark: #6cb4f0;
 }
 html[data-theme="light"] {
-  --pst-color-primary: var(--family-accent);
+  --pst-color-primary: var(--family-accent-light);
+}
+html[data-theme="dark"] {
+  --pst-color-primary: var(--family-accent-dark);
 }
 .sd-card-title {
   font-weight: 600;

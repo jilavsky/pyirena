@@ -23,7 +23,8 @@ def test_help_target_page_exists(target, page):
     assert _page_file(page).is_file(), f"HELP_TARGETS[{target!r}] -> missing docs/{page}.md"
 
 
-@pytest.mark.parametrize("target,spec", sorted(HELP_ANCHORS.items()))
+@pytest.mark.skipif(not HELP_ANCHORS, reason="no HELP_ANCHORS defined")
+@pytest.mark.parametrize("target,spec", sorted(HELP_ANCHORS.items()) or [("none", ("", ""))])
 def test_help_anchor_label_exists(target, spec):
     page, label = spec
     path = _page_file(page)
