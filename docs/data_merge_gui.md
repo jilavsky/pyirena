@@ -1,1 +1,1 @@
-Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/tools/data-merge.html>
+Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/latest/tools/data-merge.html>

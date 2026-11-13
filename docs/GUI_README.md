@@ -1,1 +1,1 @@
-Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/tools/data-selector.html>
+Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/latest/tools/data-selector.html>

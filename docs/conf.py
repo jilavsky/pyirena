@@ -59,7 +59,7 @@ extensions = [
 myst_enable_extensions = ["colon_fence", "deflist", "dollarmath", "substitution"]
 myst_heading_anchors = 3
 napoleon_google_docstring = True
-napoleon_numpy_docstring = False
+napoleon_numpy_docstring = True
 autodoc_typehints = "description"
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**/_template*.md", *LEGACY_GITHUB_STUBS]

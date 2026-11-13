@@ -1,1 +1,1 @@
-Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/tools/size-distribution.html>
+Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/latest/tools/size-distribution.html>

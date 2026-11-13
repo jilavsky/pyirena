@@ -1,1 +1,1 @@
-Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/tools/data-manipulation.html>
+Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/latest/tools/data-manipulation.html>

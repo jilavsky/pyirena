@@ -1,1 +1,1 @@
-Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/stable/tools/waxs-peak-fit.html>
+Moved to <https://jilavsky-docs.readthedocs.io/projects/pyirena/en/latest/tools/waxs-peak-fit.html>
