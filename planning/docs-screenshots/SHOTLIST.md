@@ -60,6 +60,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| saxs-morph-01-window | saxs-morph | validationData/simple_fits/simple_debye_bueche.h5 | box 4000 Å, seed 42, φ 0.3 (derive Δρ²), cursors Q 0.005–0.2, Calculate 3D; 3D pane covered (PyVista off offscreen); callouts 1–12 | whole window, model on data, slice, result block | yes | done |
+| saxs-morph-02-calculated | saxs-morph | validationData/simple_fits/simple_debye_bueche.h5 | as 01; I(Q) plot only | red model following the data, Q_box and Q_nyq markers | yes | done |
+| saxs-morph-03-slice | saxs-morph | validationData/simple_fits/simple_debye_bueche.h5 | as 01; 2D slice viewer only | bicontinuous slice, slice label | yes | done |
+| saxs-morph-04-3d-view | saxs-morph | validationData/simple_fits/simple_debye_bueche.h5 | as 01 in the real GUI with PyVista; rotate the isosurface | 3D bicontinuous isosurface with bounding box | no | todo |
 
 ## data-merge
 
