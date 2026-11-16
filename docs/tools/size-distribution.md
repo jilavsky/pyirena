@@ -5,7 +5,7 @@
 :class: tip
 
 **Launch:** `pyirena-gui` → **Models → Size Distribution**, or the **Size Distribution (GUI)**
-button (it opens the first selected file). Standalone: `python -m pyirena.gui.sizes_panel`. \
+button (it opens the first selected file). \
 **Python:** `pyirena.api.control` (`open_dataset`, `select_sizes_model`, `run_sizes_fit`, …) or
 `pyirena.batch.fit_sizes(data_file, config_file)`. \
 **MCP:** `pyirena_ctrl_open_dataset`, then the category `"sizes"` tools through `pyirena_call`;

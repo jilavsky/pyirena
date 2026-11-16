@@ -48,6 +48,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| simple-fits-01-window | simple-fits | validationData/simple_fits/simple_guinier.h5 | window 1200×900; Guinier, I0 100, Rg 30 start, default cursors, Fit; callouts 1–14 | whole window, model on data, residuals, Guinier linearization | yes | done |
+| simple-fits-02-sphere | simple-fits | validationData/simple_fits/simple_sphere.h5 | Sphere, complex background with B = 0 and P fixed, flat fitted, Fit | graph area: model through the form-factor oscillations | yes | done |
+| simple-fits-03-invariant | simple-fits | validationData/sizes/sizes_sphere_flat_background.h5 | Invariant, contrast 100, complex background B = 0 fixed, Fit Flat btwn cursors at Q 0.2–0.35, cursors 0.0008–0.35, Calculate Invariant | corrected data, background line, running integral, φ in status line | yes | done |
+| simple-fits-04-real-data | simple-fits | testData/ (Jan picks a sample) | Guinier or Porod fit on real data | linearization with the fitted range highlighted | no | todo |
 
 ## fractals
 
