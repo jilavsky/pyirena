@@ -114,6 +114,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| data-selector-01-window | data-selector | /tmp/pyirena-docs/unified: copies of validationData/unified/*.h5, each Unified-fitted and saved | folder loaded, all files selected, Data + Unified Fit checked, update check off; window 1000×720; callouts 1–12 | whole window, no update banner | yes | done |
+| data-selector-02-graph | data-selector | as 01 | Create Graph; results window 800×600 | data, fits and residuals of three files | yes | done |
+| data-selector-03-tabulate | data-selector | as 01 | Tabulate Results; window 900×420 | one row per file, Save as CSV… | yes | done |
+| data-selector-04-export-menu | data-selector | any graph (e.g. 02) | right-click on the plot | the five export actions of the context menu | no | todo |
 
 ## feature-identifier
 

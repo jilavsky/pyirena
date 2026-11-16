@@ -28,8 +28,12 @@ _FITS = {
 }
 
 
-def demo_folder(ctx: Context) -> Path:
-    """Fresh ``<scratch>/explorer/unified`` with the three files, each fitted and saved."""
+def demo_folder(ctx: Context, base: Path | None = None) -> Path:
+    """Fresh ``<base>/unified`` with the three files, each fitted and saved.
+
+    *base* defaults to ``<scratch>/explorer``. The Data Selector shows the full
+    folder path, so its shots pass a fixed base (see data_selector.py).
+    """
     from pyirena.api.control import (
         close_session,
         free_parameter,
@@ -41,7 +45,7 @@ def demo_folder(ctx: Context) -> Path:
         set_parameter_value,
     )
 
-    folder = ctx.scratch / "explorer" / "unified"
+    folder = (base or ctx.scratch / "explorer") / "unified"
     if folder.exists():
         shutil.rmtree(folder)
     folder.mkdir(parents=True)
