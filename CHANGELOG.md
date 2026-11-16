@@ -41,6 +41,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Unified Fit stored a stale RgCutoff for linked levels.** With **Link
+  RgCutoff** on, the fit used RgCutoff = the fitted Rg of the level below, but
+  the panel synced the field only before the fit. So **Results to graphs**
+  showed the pre-fit value, and **Store in File** saved it. The field is now
+  synced after a fit and after a local Guinier fit. The fitted parameters were
+  never affected.
+- **The Unified Fit "Level feasible / not feasible" banner** was recalculated
+  only when a value was typed in. After a fit, a local fit, Revert back or a
+  level copy, it kept describing the previous values, and could say "not
+  feasible" for a good fit. It now follows every change.
+- **Fits saved through `pyirena.api.control.save_fit` (scripts, MCP, AI
+  agents) wrote the cutoff radius as `RgCO`.** The saved-results name, used by
+  the GUI and `pyirena.batch`, is `RgCutoff`. Every results reader therefore
+  lost the cutoff for those files: Fractals target detection, Data Selector
+  tabulation, Igor export, and MCP tabulation and reading. `save_fit` now
+  writes `RgCutoff`, and the readers accept `RgCO` too, so files already saved
+  that way read correctly.
 - **Reading HDF5 files from a network drive (SSHFS-Win) could return another
   file's values with no error.** Collect Values / Multi-Collect in the Data
   Explorer showed, for every selected file, the value from the file being

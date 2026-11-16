@@ -1908,6 +1908,11 @@ class LevelParametersWidget(QWidget):
         if 'link_rgco' in params and self.link_rgco_check:
             self.link_rgco_check.setChecked(params['link_rgco'])
 
+        # setText() does not emit editingFinished, so a fit, local fit, revert
+        # or level copy that lands here would otherwise leave the feasibility
+        # banner showing the state before the new values.
+        self.update_feasibility_status()
+
     def update_feasibility_status(self):
         """Update the feasibility status label based on current parameters."""
         try:
@@ -3091,6 +3096,10 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                     'PACK': fitted_level.PACK
                 })
                 self.level_widgets[i].fix_limits()
+            # The fit propagated linked RgCutoffs from the fitted Rg values;
+            # show them, so "Results to graphs" and "Store in File" (which
+            # read these fields) do not keep the pre-fit cutoff.
+            self.sync_rgcutoff_links()
 
             from pyirena.gui.fmt_utils import eng_fmt_edit
             self.background_value.setText(eng_fmt_edit(result['background'], sig=3))
@@ -3273,6 +3282,8 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
             # Fix limits for this level
             level_widget.fix_limits()
+            # A new Rg changes the linked RgCutoff of the next level.
+            self.sync_rgcutoff_links()
 
             # Local Guinier curve over the Q range used for fitting (from core)
             guinier_calc = result['model_I']

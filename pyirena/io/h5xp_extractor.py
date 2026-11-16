@@ -346,6 +346,8 @@ def _extract_unified_fit(grp: h5py.Group, h5xp: h5py.File,
         for pname in ("Rg", "G", "B", "P", "ETA", "PACK", "RgCutoff",
                       "Sv", "Invariant"):
             v = _scalar(lg, pname)   # _scalar already tries attrs as fallback
+            if np.isnan(v) and pname == "RgCutoff":
+                v = _scalar(lg, "RgCO")  # api save_fit before 2026-11-16
             if not np.isnan(v):
                 params[f"{pname}_L{n}"] = v
         n += 1
@@ -886,6 +888,11 @@ def batch_extract_to_h5xp(
                                 # inside the subgroup object
                                 sc_path_rel = sc_path.split("/", 1)[1] if "/" in sc_path else sc_path
                                 val = _scalar(sg, sc_path_rel)
+                                for alt in sc.get("alt_paths", ()):
+                                    if not np.isnan(val):
+                                        break
+                                    alt = alt.replace("{n}", str(n))
+                                    val = _scalar(sg, alt.split("/", 1)[1] if "/" in alt else alt)
                                 # Key name: append suffix for clarity
                                 result_key = _subgroup_result_key(key, sc["key"], n)
                                 tool_scalars.setdefault(result_key, []).append(val)
