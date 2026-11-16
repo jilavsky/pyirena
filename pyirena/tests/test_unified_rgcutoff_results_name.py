@@ -96,8 +96,13 @@ def test_schema_readers_find_old_rgco_dataset(tmp_path):
 
 def test_fractals_targets_from_api_written_file(tmp_path):
     """The Fractals panel finds the mass-fractal pair (RgCutoff_2 ≈ Rg_1)."""
-    pytest.importorskip("pyirena.gui._qt")
-    from pyirena.gui.fractals_panel import FractalsPanel
+    # Not pytest.importorskip: since pytest 9.1 it skips only on
+    # ModuleNotFoundError, and pyirena.gui._qt raises a plain ImportError
+    # (with an install hint) when no Qt binding is installed.
+    try:
+        from pyirena.gui.fractals_panel import FractalsPanel
+    except ImportError as exc:
+        pytest.skip(f"Qt GUI not available: {exc}")
 
     out = _save_two_level_fit(tmp_path)
     for rename in (False, True):          # new file, then an old RgCO file
