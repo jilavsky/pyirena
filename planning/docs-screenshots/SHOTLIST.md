@@ -106,6 +106,9 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| data-explorer-01-window | data-explorer | scratch folder `unified`: copies of validationData/unified/*.h5, each Unified-fitted and saved | folder open, all 3 files selected, unified_two_level.h5 tree with unified_fit_results expanded, 1D Graph tab; callouts 1–10 | three panels, results group in the tree, presets | yes | done |
+| data-explorer-02-graph | data-explorer | as 01 | NXcanSAS + Unified Fit model, All selected files, New Graph; graph 760×560 | three curves with models, toolbar | yes | done |
+| data-explorer-03-collect | data-explorer | as 01 | Collect Values: Unified Fit, Rg, level 1, file order; Collect | table and scatter plot of Rg | yes | done |
 
 ## data-selector
 
