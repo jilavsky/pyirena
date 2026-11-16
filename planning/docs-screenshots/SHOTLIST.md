@@ -39,6 +39,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| modeling-01-window | modeling | validationData/modeling/modeling_sizedist_plus_unified.h5 | window 1500×1000; P1 log-normal spheres, P2 Unified level, rough starts, background fitted, Standard Fit; callouts 1–15 | whole window, model on data, residuals, P1 distribution, Fit Results | yes | done |
+| modeling-02-population-tab | modeling | validationData/modeling/modeling_sizedist_plus_unified.h5 | as 01 before fitting, P1 tab, Graph Model | P1 settings and the starting model off the data | yes | done |
+| modeling-03-fit-result | modeling | validationData/modeling/modeling_sizedist_plus_unified.h5 | as 01, Show individual? on with P2 tab, Results to graph | graph area: P2 curve, derived-values box, residuals, distribution | yes | done |
+| modeling-04-real-data | modeling | testData/ (Jan picks a sample) | multi-population fit on real data, Show individual? on | a real multi-population fit | no | todo |
 
 ## simple-fits
 

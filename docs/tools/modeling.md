@@ -1,40 +1,25 @@
-# Modeling Tool
+(modeling)=
+# Modeling
+
+:::{admonition} At a glance
+:class: tip
+
+**Launch:** `pyirena-gui` → **Models → Modeling**, or select one or more HDF5 files in the Data
+Selector and click **Modeling (GUI)** (orange button, row 4). Standalone: `pyirena-modeling`, or
+`python -m pyirena.gui.modeling_panel path/to/file.h5`. \
+**Python:** `pyirena.batch.fit_modeling(data_file, config_file)`, or `pyirena.api.control`
+(`select_modeling_model`, `add_population`, `run_modeling_fit`, …). \
+**MCP:** `pyirena_ctrl_open_dataset`, then the category `"modeling"` tools through
+`pyirena_call`; `pyirena_read_modeling` reads stored results. \
+**Igor equivalent:** {doc}`Irena Modeling <igor:Irena/Modeling>` and
+{doc}`its model description <igor:Irena/ModelingModels>`
+:::
 
 The Modeling tool performs parametric forward-modeling of small-angle scattering data.
 It sums contributions from up to 10 independent **populations**, each of which can be a
 Size Distribution, a Unified Fit Level (Beaucage equation), a Diffraction Peak,
 a Guinier-Porod Level, a Mass Fractal, or a Surface Fractal.
 The total model I(Q) is fitted to experimental data using non-linear least squares.
-
----
-
-## Contents
-
-1. [Overview](#overview)
-2. [Launching the tool](#launching-the-tool)
-3. [Panel layout](#panel-layout)
-4. [Population types](#population-types)
-   - [Size Distribution](#41-size-distribution)
-   - [Unified Fit Level](#42-unified-fit-level)
-   - [Diffraction Peak](#43-diffraction-peak)
-   - [Guinier-Porod Level](#44-guinier-porod-level)
-   - [Mass Fractal](#45-mass-fractal)
-   - [Surface Fractal](#46-surface-fractal)
-5. [Distributions](#distributions)
-6. [Form Factors](#form-factors)
-7. [Structure Factors](#structure-factors)
-8. [Population label and color coding](#population-label-and-color-coding)
-9. [Fitting controls](#fitting-controls)
-10. [MC Uncertainty](#mc-uncertainty)
-11. [Derived results](#derived-results)
-12. [Revert and state persistence](#revert-and-state-persistence)
-13. [HDF5 output format](#hdf5-output-format)
-14. [Integration with other tools](#integration-with-other-tools)
-15. [Scripting API](#scripting-api)
-
----
-
-## Overview
 
 Unlike the Sizes tool (which inverts the scattering matrix to recover a size distribution),
 the Modeling tool works **forward**: you define a parametric model and fit its parameters
@@ -47,58 +32,104 @@ Typical use cases:
 - Fitting diffraction peaks on top of a smooth scattering background
 - Mixed morphologies (e.g., spheres + cylinders modeled as two populations)
 
----
+(modeling-window)=
+## The window
 
-## Launching the tool
+```{figure} img/modeling/modeling-01-window.png
+:alt: Modeling window after a two-population fit of modeling_sizedist_plus_unified.h5. Controls on the left with the P1 tab showing a log-normal sphere population; on the right the I versus Q graph with data and total model, the residuals, and the size distribution of P1 by volume and by number. Numbered circles mark the parts described in the legend.
 
-**From the Data Selector:**
-- Select one or more HDF5 files in the file list
-- Click **Modeling (GUI)** (orange button, row 4)
+The Modeling window after a fit of `validationData/modeling/modeling_sizedist_plus_unified.h5`:
+P1 log-normal spheres, P2 a Unified Fit Level, flat background.
+```
+
+1. **Data file**: the loaded file; **Open…** picks another (or drop a file on the panel).
+2. **Slit smeared** and slit length **SL**: see [Slit smearing](#modeling-slit-smearing).
+3. **Q fit range**: Q min and Q max, the same values as the two cursors in the graph.
+4. **No limits?**: unconstrained fitting.
+5. **Population tabs P1–P10**: one population per tab (see [Population tabs](#modeling-population-tabs)).
+6. **Background** and its **Fit** box, with **Fit B/P btwn cursors** and **Fit Flat btwn cursors** below.
+7. **Fit** method (Standard or Global) and **cores** for the global search.
+8. **Graph Model**, **Fit** and **Fix limits?**.
+9. **Fit Results**: χ², χ²/dof and DOF.
+10. **Result buttons**: annotate the graph, revert, store, save and load setups, reports, reset.
+11. **Passes**, **cores** and **Calc. Uncertainty (MC)**.
+12. **I(Q) plot**: data, total model, individual populations, cursors.
+13. **Residuals plot** (rescaled, see [Fit quality](#modeling-fit-quality)).
+14. **Size Distribution plot**: volume (solid) and number (dotted) distributions of size-distribution populations.
+15. **Status bar**: the result of the last fit, with the fit-quality metrics.
 
 The tool opens with the last-used file pre-loaded and all settings restored from the
 previous session.
 
-**From the command line:**
+(modeling-workflow)=
+## Typical workflow
 
-```bash
-python -m pyirena.gui.modeling_panel path/to/file.h5
-```
+The steps use `validationData/modeling/modeling_sizedist_plus_unified.h5`: log-normal spheres
+(median 30 Å, sdeviation 0.3, scale 0.005, contrast 100) plus a Unified level (G = 20 000 cm⁻¹,
+Rg = 4000 Å, P = 3.5) on a background of 0.01 cm⁻¹ (see `validationData/README.md`).
 
-**Headless / batch fitting** — see [Scripting API](#scripting-api).
+1. **Load data** and open Modeling.
+2. **Set up P1**: **Population type** Size Distribution, **Distribution** Log-Normal, **Shape**
+   Sphere, **Contrast** 100; start values Mean Size 40, Sdeviation 0.3, Scale 0.002. **Graph
+   Model** shows how far the start is from the data.
 
----
+   ```{figure} img/modeling/modeling-02-population-tab.png
+   :alt: Modeling window with the P1 tab set to a log-normal sphere population with Mean Size 40, after Graph Model; the total model lies below the data at low Q and is shifted at high Q.
 
-## Panel layout
+   P1 and P2 set up with rough start values, after **Graph Model**.
+   ```
 
-```
-┌────────────────────────────────────┬──────────────────────────────────────────┐
-│  Modeling Input          [? Help]  │  I(Q) graph                              │
-│  ──────────────────────────────    │                                          │
-│  Data file: [____________] [Open…] │   log I(Q) vs log Q                      │
-│                                    │   data (grey) + total model (black)      │
-│  ┌──────────────────────────────┐  │   per-population curves (colored)        │
-│  │ P1 │ P2 │ P3 │ … │ P10     │  │                                          │
-│  │                              │  │  [Q cursor left]  [Q cursor right]      │
-│  │  Population type: [combo]    │  │                                          │
-│  │  ─────────────────────────── │  ├──────────────────────────────────────────┤
-│  │  [Size Dist / UF / Peak      │  │  Derived results (per population)        │
-│  │   parameters]                │  │                                          │
-│  └──────────────────────────────┘  ├──────────────────────────────────────────┤
-│                                    │  Status bar                              │
-│  Background: [____] [✓ Fit]        └──────────────────────────────────────────┘
-│  [✓ No limits?]
-│  Qmin: [____]  Qmax: [____]
-│  MC passes: [10]  cores: [auto]
-│
-│  [Graph Model]  [Fit]  [Calc. Uncertainty (MC)]
-│  [Revert]       [Save JSON]  [Load JSON]
-│  [Save HDF5]
-└────────────────────────────────────┘
-```
+3. **Set up P2**: tick **Use P2**, **Population type** Unified Fit Level, G 1e4, Rg 3000,
+   B 1e-8, P 3.5 (P held fixed).
+4. **Set the background** to 0.01 and tick its **Fit** box.
+5. **Fit** with the Standard (local) method. Unchecked "Fit?" parameters are held fixed.
+6. **Check the result**: flat residuals, χ²/dof near 1, then **Show individual?** to see one
+   population at a time and **Results to graph** for the derived values.
 
----
+   ```{figure} img/modeling/modeling-03-fit-result.png
+   :alt: Graph area after the fit with Results to graph and Show individual for P2: total model through the data, the P2 Unified level as a red dashed curve, a text box of derived values, flat residuals, and the P1 size distribution.
 
-## Population types
+   After **Fit**: χ²/dof = 1.04, P1 mean size 30.0 Å, volume fraction 0.0050, P2 Rg ≈ 4000 Å.
+   ```
+
+7. **Estimate uncertainties** with **Calc. Uncertainty (MC)**, then **Store in File**.
+
+% SCREENSHOT modeling-04-real-data: a multi-population fit (e.g. size distribution + Unified
+% level, or with a diffraction peak) on real data from testData/ (Jan picks), Show individual on.
+
+(modeling-controls)=
+## Controls
+
+(modeling-fitting-controls)=
+### Fitting controls
+
+| Control | Meaning | Default | Tips |
+|---|---|---|---|
+| **Background** | Flat additive background [cm⁻¹]; check **Fit** to optimize it | 0.0 | |
+| **Fit** (method) | Selector to the right of Background: **Standard (local)** or **Global (DE→local)** — see [Fit method](#modeling-fit-method) | Standard (local) | |
+| **cores** | Worker processes for the global search | 1 | Enabled only for Global with finite limits |
+| **Fit B/P btwn cursors** | Prefit the active Unified-Level population's power-law B·Q⁻ᴾ between the cursors | | Only for Unified Fit Level populations; with P's "Fit?" unchecked only B is fitted |
+| **Fit Flat btwn cursors** | Prefit the flat Background between the cursors (median of I − model, or median I if no model yet) | | |
+| **No limits?** | When checked, fitting is unconstrained (Nelder-Mead); unchecked uses TRF with bounds | off | |
+| **Q min / Q max** | Q range for fitting. Type a value and press Return, or drag the vertical cursor lines in the graph — the two stay in sync. Entries are validated (positive, distinct), swapped if reversed, and clamped to the data's Q range. | | |
+| **Autoupdate?** | Recompute and graph the model when a parameter changes | off | Leave off for slow models |
+| **Show individual?** | Overlay the curve of the population in the selected tab | off | Switch tabs to inspect another population |
+| **Graph Model** | Compute and display the forward model without fitting | | |
+| **Fix limits?** | Set every fit limit to ≈0.2×…5× the current value (clamped to valid ranges) — a quick way to bound a constrained or global fit | | |
+| **Fit** | Run optimization and update all parameters | | |
+| **Revert back** | Restore all parameters to the state they were in just before the last **Fit** run | | |
+| **Reset to Defaults** | Reset all parameters to factory defaults | | |
+
+**Fit parameters:** Each population has "Fit?" checkboxes per parameter. Unchecked
+parameters are held fixed during optimization. This lets you fix physically known
+quantities (e.g. P=4 for Porod scattering) while fitting others.
+
+**Fitting algorithm:**
+- With limits: `scipy.optimize.least_squares` with Trust Region Reflective (TRF)
+- No limits: `scipy.optimize.minimize` with Nelder-Mead
+
+(modeling-population-tabs)=
+### Population tabs
 
 Each population tab has a **Population type** combo at the top with six options:
 
@@ -112,329 +143,8 @@ Each population tab has a **Population type** combo at the top with six options:
 | **Surface Fractal** | Scattering from a surface with fractal roughness |
 
 Switching population type preserves the parameters of all six types independently —
-switching back restores the values from before.
-
-### 4.1 Size Distribution
-
-The Size Distribution population uses a **parametric distribution** (see [Distributions](#distributions))
-to describe particle sizes, a **form factor** to compute scattering per unit volume fraction,
-and an optional **structure factor** for inter-particle correlations.
-
-**Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| Distribution | Choice of size distribution shape |
-| Distribution params | Shape-specific parameters (see Distributions table) |
-| Scale | Overall scale factor (proportional to volume fraction × (1 − volume fraction) for hard-sphere-like systems) |
-| Contrast | (Δρ)² in units of 10²⁰ cm⁻⁴ |
-
-> **Scale and Contrast cannot both be fitted.** The model intensity depends on
-> them only through their product, so freeing both leaves the fit with a flat
-> direction: the solver drifts and the reported uncertainties are meaningless.
-> Checking either **Fit** box therefore clears the other — the box you tick
-> last is the one that is fitted.  Leaving both unchecked is fine; that just
-> holds the prefactor at the value you entered.  Fit **Scale** when you want a
-> volume fraction from a known contrast (the usual case), and **Contrast** when
-> the volume fraction is known independently.
-
-| Form factor | Particle shape (see Form Factors table) |
-| FF params | Extra form factor parameters (e.g. aspect ratio for spheroids) |
-| Structure factor | Inter-particle structure factor |
-| SF params | Structure factor parameters |
-| Use number dist. | Fit a number-weighted distribution instead of volume-weighted |
-
-**Derived quantities** (shown in the Derived panel after Graph Model or Fit):
-
-| Quantity | Description |
-|----------|-------------|
-| Volume fraction | Total particle volume fraction |
-| Vol. mean radius | Volume-weighted mean radius [Å] |
-| Num. mean radius | Number-weighted mean radius [Å] |
-| Specific surface | Specific surface area [Å⁻¹] |
-
-### 4.2 Unified Fit Level
-
-Implements a single level of the Beaucage Unified model:
-
-```
-I(Q) = G · exp(−Q²Rg²/3) + B · Q*⁻ᴾ · exp(−Q²RgCO²/3)
-
-where  Q* = Q / [erf(K·Q·Rg/√6)]³
-```
-
-**Parameters:**
-
-| Parameter | Description | Fitted by default |
-|-----------|-------------|-------------------|
-| G | Guinier pre-factor [cm⁻¹] | Yes |
-| Rg | Radius of gyration [Å] | Yes |
-| B | Power-law pre-factor | Yes |
-| P | Power-law exponent | No |
-| RgCO | Low-Q cutoff radius of gyration (0 = no cutoff) | No |
-
-**Correlations (Born-Green):** When enabled, the Unified Fit Level intensity is divided
-by a Born-Green structure factor S(Q) = 1 / (1 + PACK × F(Q, ETA)):
-
-| Parameter | Description |
-|-----------|-------------|
-| ETA [Å] | Correlation length |
-| PACK | Packing factor |
-
-### 4.3 Diffraction Peak
-
-Models a single scattering peak at position Q₀.
-
-**Peak shape:**
-
-| Shape | Formula |
-|-------|---------|
-| Gaussian | A · exp[−(Q−Q₀)² / (2σ²)] |
-| Lorentzian | A / [1 + ((Q−Q₀)/σ)²] |
-| Pseudo-Voigt | A · [η·Lorentzian + (1−η)·Gaussian] |
-
-**Parameters:**
-
-| Parameter | Description | Fitted by default |
-|-----------|-------------|-------------------|
-| Position Q₀ [Å⁻¹] | Peak centre | Yes |
-| Amplitude [cm⁻¹] | Peak height | Yes |
-| Width σ [Å⁻¹] | Gaussian/Lorentzian width | Yes |
-| η (mixing) | Voigt mixing ratio (0=Gaussian, 1=Lorentzian) | No |
-
-### 4.4 Guinier-Porod Level
-
-Implements the Guinier-Porod piecewise scattering model
-(Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
-Suitable for non-spherical or elongated scatterers, and for systems where the low-Q
-slope deviates from the Guinier-regime flat behaviour.
-
-**Formula:** Three regimes joined at crossover Q values:
-```
-Q1 = sqrt((P − s1)(3 − s1)/2) / Rg1
-D  = G · exp(−(P−s1)/2) · ((3−s1)(P−s1)/2)^((P−s1)/2) / Rg1^(P−s1)
-Q2 = sqrt((1 − s2) / (2Rg2²/(3−s2) − 2Rg1²/(3−s1)))  [0 if non-finite]
-G2 = G · exp(−Q2²·(Rg1²/(3−s1) − Rg2²/(3−s2))) · Q2^(s2−s1)
-
-I(Q) = G2/Q^s2 · exp(−Q²Rg2²/(3−s2))   Q < Q2  (active only if Q2 > 0)
-I(Q) = G/Q^s1 · exp(−Q²Rg1²/(3−s1))    Q2 ≤ Q < Q1
-I(Q) = D/Q^P                             Q ≥ Q1
-```
-Setting Rg2 = 1e10 (default) collapses Q2 to zero — single-level behaviour.
-
-Optional: `I *= exp(−RgCO²·Q²/3)` (RgCO > 0).
-Optional Born-Green correlations: `I /= (1 + PACK · F(Q, ETA))`.
-
-**Parameters:**
-
-| Parameter | Default | Limits | Fitted | Description |
-|-----------|---------|--------|--------|-------------|
-| G [cm⁻¹] | 1.0 | 1e-10 … 1e10 | Yes | Guinier amplitude |
-| Rg1 [Å] | 10.0 | 0.1 … 1e6 | Yes | Radius of gyration (high-Q level) |
-| Slope s1 | 0.0 | 0 … 3 | No | Low-Q slope (0=sphere, 1=rod, 2=lamella) |
-| Power P | 4.0 | 0 … 6 | No | Porod exponent at high Q |
-| Rg2 [Å] | 1e10 | 0.1 … 1e12 | No | Rg of second (lower-Q) level; 1e10=inactive |
-| Slope s2 | 0.0 | 0 … 3 | No | Low-Q slope of second level |
-| RgCO [Å] | 0.0 | 0 … 1e6 | No | Cutoff Rg (0 = no cutoff) |
-| ETA [Å] | 10.0 | 0.1 … 1e6 | No | Born-Green correlation length |
-| PACK | 0.0 | 0 … 16 | No | Born-Green packing factor |
-
-### 4.5 Mass Fractal
-
-Implements the Teixeira (1988) mass fractal aggregate scattering model
-(*J. Appl. Cryst.* **21**, 781–785).
-Primary particles are spheroids with aspect ratio β; the fractal aggregate structure is described analytically.
-β = 1 gives the monodisperse sphere form factor (Bessel function oscillations in the Porod region);
-β ≠ 1 uses the orientation-averaged spheroid form factor which eliminates those oscillations.
-A modest β ≈ 0.5–2 is often sufficient to obtain a physically smooth I(Q).
-
-**Formula:**
-```
-V  = (4/3)·π·Radius³
-P(Q) = (3·(sin(qR) − qR·cos(qR)) / (qR)³)²        sphere form factor
-
-Bracket = Eta · 8 · (Ksi / (2·Radius))^Dv
-
-I(Q) = Phi · Contrast · 1e-4 · V
-       · [Bracket · sin((Dv−1)·atan(Q·Ksi)) / ((Dv−1)·Q·Ksi·(1+(Q·Ksi)²)^((Dv−1)/2))
-          + (1−Eta)²]
-       · P(Q)
-```
-The factor `1e-4` is the Igor-convention contrast unit conversion
-(contrast in Å⁻⁴ units → cm⁻⁴ scale). Eta (volume filling factor) is typically 0.3–0.8.
-
-**Parameters:**
-
-| Parameter | Default | Limits | Fitted | Description |
-|-----------|---------|--------|--------|-------------|
-| Phi | 0.001 | 1e-8 … 1 | Yes | Volume fraction of primary particles |
-| Radius [Å] | 50.0 | 0.1 … 1e6 | Yes | Primary particle equatorial radius |
-| Aspect ratio β | 1.0 | 0.01 … 100 | No | Spheroid aspect ratio (1 = sphere, < 1 = oblate, > 1 = prolate) |
-| Fractal dim. Dv | 2.5 | 1 … 3 | Yes | Mass fractal dimension |
-| Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Fractal correlation length (aggregate size) |
-| Eta | 0.5 | 0.3 … 0.8 | No | Volume filling factor within the aggregate |
-| Contrast | 1.0 | 0 … 1e10 | No | Scattering contrast (Δρ)² |
-
-### 4.6 Surface Fractal
-
-Implements the Teixeira (1988) surface fractal scattering model
-(*J. Appl. Cryst.* **21**, 781–785).
-Describes scattering from a surface with fractal roughness (2 ≤ Ds ≤ 3).
-
-**Formula:**
-```
-I(Q) = π · Contrast · 1e20 · Ksi⁴ · 1e-32 · Surface · Γ(5−Ds)
-       · sin((3−Ds)·atan(Q·Ksi))
-       / ((1+(Q·Ksi)²)^((5−Ds)/2) · Q·Ksi)
-```
-Limiting slopes: `I(Q) ~ Q^(Ds−6)` for Q·Ksi >> 1 (fractal regime, slope −3 to −4).
-
-**Optional Porod transition:** Above Qc, smoothly blends to `A·Q⁻⁴` using an error-function
-step, with continuity condition `A = I(Qc)·Qc⁴`.
-
-**Parameters:**
-
-| Parameter | Default | Limits | Fitted | Description |
-|-----------|---------|--------|--------|-------------|
-| Surface [cm⁻¹] | 1e4 | 1 … 1e12 | Yes | Surface area per unit volume |
-| Fractal dim. Ds | 2.5 | 2 … 3 | Yes | Surface fractal dimension |
-| Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Correlation length (upper cutoff of fractal regime) |
-| Contrast | 1.0 | 0 … 1e10 | No | Scattering contrast |
-| Qc [Å⁻¹] | 0.1 | 0.001 … 10 | No | Crossover to Porod Q⁻⁴ (enabled by checkbox) |
-| QcWidth | 0.1 | 0.01 … 1 | No | Width of erf blending as fraction of Qc |
-
----
-
-## Distributions
-
-Available for Size Distribution populations:
-
-| Distribution | Parameters | Shape |
-|-------------|-----------|-------|
-| **Log-Normal** | Median [Å], σ (width), Shift [Å] | Asymmetric, right-tailed |
-| **Gaussian** | Mean [Å], σ (width) | Symmetric bell curve |
-| **LSW** | Location [Å] | Fixed shape (Lifshitz-Slyozov-Wagner coarsening) |
-| **Schulz-Zimm** | Mean [Å], Z (sharpness) | Gamma-like, narrow for large Z |
-| **Ardell** | Location [Å], m (≥ 2) | Asymmetric, hard cutoff at m/(m−1) × location |
-
-**Note on Ardell distribution:** The location parameter is **not** the mean or mode.
-The distribution has a hard upper cutoff at `r_max = m/(m−1) × location` and peaks
-at approximately 1.35× location for typical m values. The formula follows
-Ardell (1966) Acta Metall. 14, 1573.
-
----
-
-## Form Factors
-
-| Form Factor | Key | Extra parameters | Description |
-|------------|-----|-----------------|-------------|
-| Sphere | `sphere` | — | Solid sphere, F = 3[sin(Qr)−Qr·cos(Qr)]/(Qr)³ |
-| Spheroid | `spheroid` | Aspect ratio AR (dimensionless) | Oblate (AR<1) or prolate (AR>1) ellipsoid of revolution; orientation-averaged via 50-point Gauss-Legendre quadrature |
-| Cylinder (Aspect Ratio) | `cylinder_ar` | Aspect ratio AR = L/R (dimensionless) | Finite cylinder; "size" R is the radius, half-length L = AR·R. Disk-like for AR≪1, rod-like for AR≫1. Orientation-averaged. |
-| Cylinder (Length) | `cylinder_length` | Length H [Å] (total height) | Finite cylinder; "size" R is the radius, total height H is a fixed (or fitted) parameter independent of R. V = πR²·H scales as R². |
-
-The G-matrix element is `G[i,j] = V(r_j) × F²(Q_i, r_j) × (Δρ)² × 10⁻⁴` in cm⁻¹.
-
-### Cylinder form factor details
-
-Both cylinder entries use the same orientationally-averaged form factor:
-
-```
-⟨F²(Q)⟩ = ∫₀¹ [2J₁(QR√(1−u²)) / (QR√(1−u²))]² · [sin(QL·u) / (QL·u)]² du
-```
-
-where u = cos(α), α is the angle between Q and the cylinder axis, R is the equatorial
-radius, and L is the half-length. The integral is evaluated by 50-point Gauss-Legendre
-quadrature (same as spheroid).
-
-**Derived quantities for cylinder populations:**
-
-| Quantity | Cylinder formula |
-|----------|-----------------|
-| Rg | √(R²/2 + L²/3), volume-weighted over distribution |
-| Specific surface Sv | 2/L + 2/R (= 2(R+L)/(RL)), volume-weighted |
-
-For `cylinder_ar`: L = AR·R (varies with R), so Rg = R·√(1/2 + AR²/3).  
-For `cylinder_length`: L = H/2 is constant, so Rg² = ⟨R²⟩/2 + H²/12.
-
-**Parameterisation guide:**
-
-- **Disk-like particles** (platelets, lamellae): use `cylinder_ar` with AR < 0.5, or `cylinder_length` with H ≪ ⟨R⟩.
-- **Rod-like particles** (fibres, elongated): use `cylinder_ar` with AR > 2, or `cylinder_length` with H ≫ ⟨R⟩.
-- Use `cylinder_ar` when the aspect ratio is physically meaningful and expected to be correlated with particle size.
-- Use `cylinder_length` when the thickness/length is a fixed structural parameter (e.g., bilayer thickness, layer period).
-
-### Core-Shell form factor details
-
-Core-shell form factors embed the scattering length densities (SLDs) directly into the form factor calculation. The **Contrast** field is automatically locked to 1.0 when a core-shell form factor is selected — do not change it; contrast is encoded by the SLD difference parameters.
-
-**Available core-shell entries:**
-
-| Key | Combo label | "Size" axis | Extra FF parameters |
-|-----|-------------|-------------|---------------------|
-| `cs_sphere_by_core` | Core-Shell Sphere (by core R) | R_core | sld_core, sld_shell, sld_solvent, t_shell |
-| `cs_sphere_by_shell` | Core-Shell Sphere (by shell t) | t_shell | sld_core, sld_shell, sld_solvent, r_core_fixed |
-| `cs_sphere_by_total` | Core-Shell Sphere (by total R) | R_total | sld_core, sld_shell, sld_solvent, t_shell |
-| `cs_spheroid_by_core` | Core-Shell Spheroid (by core R) | R_core | sld_core, sld_shell, sld_solvent, t_shell, aspect_ratio |
-| `cs_spheroid_by_total` | Core-Shell Spheroid (by total R) | R_total | sld_core, sld_shell, sld_solvent, t_shell, aspect_ratio |
-
-**SLD parameters** are in units of **10⁻⁶ Å⁻²** (standard SLD units). Typical values:
-
-| Material | SLD (10⁻⁶ Å⁻²) | Notes |
-|----------|----------------|-------|
-| H₂O | 9.46 | X-ray solvent default |
-| D₂O | 6.36 | Neutron solvent default |
-| Silica SiO₂ | 18.85 | X-ray |
-| Gold Au | 121 | X-ray |
-| Polystyrene | 9.5 | X-ray |
-
-**Scattering amplitude:**
-```
-F_cs(Q, R_core, R_total) =
-    (ρ_core − ρ_shell)   · V_core  · f_sph(Q·R_core)  +
-    (ρ_shell − ρ_solvent) · V_total · f_sph(Q·R_total)
-```
-where `f_sph(x) = 3(sin x − x·cos x)/x³` (normalised sphere amplitude) and V = (4/3)πR³.
-
-**Polydispersity mode guide:**
-- **by_core** — polydisperse core radius (most common; shell thickness uniform). R_total = R_core + t_shell.
-- **by_shell** — polydisperse shell thickness (core radius fixed). R_total = r_core_fixed + t_shell.
-- **by_total** — polydisperse outer radius (shell thickness uniform). R_core = R_total − t_shell.
-
-**Derived quantities for core-shell populations:**
-
-| Quantity | Description |
-|----------|-------------|
-| vol_mean_r | Volume-weighted mean of the distributed dimension (R_core, t_shell, or R_total) |
-| r_total_mean | Volume-weighted mean total (outer) radius [Å] |
-| volume_fraction | Derived from `scale` parameter (based on total particle volume) |
-| Rg | SLD-contrast-weighted radius of gyration (matches Guinier plot) |
-| specific_surface | Based on outer surface: Sv = 3/R_total (Porod law, outer interface) |
-
-> **Volume convention (important):** The `scale` parameter and `volume_fraction`
-> derived quantity are based on the **total particle volume** V_total = (4/3)π R_total³
-> (core + shell together), **not** the core volume alone.  This means: if a sample
-> contains 1% by volume of core-shell particles, `scale ≈ Vf·(1−Vf) ≈ 0.01`.
-> The same convention applies to the number↔volume distribution conversion
-> when "Number distribution" is selected: the volume used is V_total, not V_core.
->
-> The G-matrix is normalised as G = |F_cs|²/V_total × 1e-4, so that
-> `I(Q) = G × vol_dist × dr` gives the correct cm⁻¹ intensity when vol_dist
-> integrates to the total-particle volume fraction.
-
----
-
-## Structure Factors
-
-| Structure Factor | Key | Parameters | Description |
-|----------------|-----|-----------|-------------|
-| None | `none` | — | S(Q) = 1 |
-| Interferences (Born-Green) | `interferences` | ETA [Å], PACK | S(Q) = 1/(1 + PACK·F(Q,ETA)) |
-| Hard Sphere (Percus-Yevick) | `hard_sphere` | Radius [Å], Vol. frac. | Analytical hard-sphere S(Q) |
-
----
-
-## Population label and color coding
+switching back restores the values from before. The parameters of each type are listed under
+[Model reference](#modeling-model-reference).
 
 Each population tab can have an optional **label** (text field in the tab header area).
 The label appears in the tab as `P1: label_text` (truncated to 14 characters).
@@ -450,28 +160,179 @@ Population colors are fixed per index:
 | P5  | Orange (#e67e22) |
 | P6–P10 | Additional colors |
 
----
+(modeling-results)=
+## Results and outputs
 
-## Fitting controls
+The Derived Results panel (below the graph) shows post-fit quantities:
 
-| Control | Description |
-|---------|-------------|
-| **Background** | Flat additive background [cm⁻¹]; check **Fit** to optimize it |
-| **Fit** (method) | Selector to the right of Background: **Standard (local)** or **Global (DE→local)** — see below |
-| **No limits?** | When checked, fitting is unconstrained (Nelder-Mead); unchecked uses TRF with bounds |
-| **Q min / Q max** | Q range for fitting.  Type a value and press Return, or drag the vertical cursor lines in the graph — the two stay in sync.  Entries are validated (positive, distinct), swapped if reversed, and clamped to the data's Q range. |
-| **Graph Model** | Compute and display the forward model without fitting |
-| **Fix limits?** | Set every fit limit to ≈0.2×…5× the current value (clamped to valid ranges) — a quick way to bound a constrained or global fit |
-| **Fit** | Run optimization and update all parameters |
+| Quantity | Populations |
+|----------|-------------|
+| Volume fraction | Size Distribution |
+| Vol. mean radius [Å] | Size Distribution |
+| Num. mean radius [Å] | Size Distribution |
+| Specific surface [Å⁻¹] | Size Distribution |
+| G, Rg, B, P | Unified Fit Level |
+| Position, Amplitude, Width | Diffraction Peak |
 
-**Fit parameters:** Each population has "Fit?" checkboxes per parameter. Unchecked
-parameters are held fixed during optimization. This lets you fix physically known
-quantities (e.g. P=4 for Porod scattering) while fitting others.
+% CHECK(Jan): no "Derived Results panel" below the graph was found in the current window;
+% derived values appear in the "Results to graph" annotation and the reports.
 
-**Fitting algorithm:**
-- With limits: `scipy.optimize.least_squares` with Trust Region Reflective (TRF)
-- No limits: `scipy.optimize.minimize` with Nelder-Mead
+- **Revert back** restores all parameters to the state they were in just before the last
+  **Fit** run. This lets you undo a bad fit without manually resetting values.
+- Parameters, population settings, background, and Q-range cursors are automatically
+  saved to the pyIrena state file and restored the next time the tool is opened
+  (even if the application is closed).
+- **Save params to JSON / Load params from JSON** exports/imports all population parameters to
+  a portable JSON file for sharing or archiving.
+- **Copy results / Save report…** render the current fit as Markdown text —
+  χ², background, Q range and every enabled population with its parameters and
+  derived quantities (volume fraction, mean radius) — for the clipboard or a
+  `.md` file. The same text the Data Selector's *Create Report* produces from
+  the saved file, without the save-and-reload round-trip.
+  **Ctrl-click** (⌘-click on macOS) *Save report…* also writes the graph as a
+  PNG beside the report and embeds it as a figure.
+- **Store in File** saves the results into the data file, and **Load Setup from File…** restores
+  the controls from it.
 
+(modeling-hdf5)=
+### HDF5 output format
+
+Modeling results are saved under `entry/modeling_results/` in the same HDF5 file as the
+experimental data (NXcanSAS format), with the panel setup embedded as `_pyirena_config` (see
+{ref}`hdf5-results-groups`). The schema:
+
+```
+entry/modeling_results/
+├── chi_squared              scalar
+├── reduced_chi_squared      scalar
+├── dof                      scalar (int)
+├── background               scalar [cm⁻¹]
+├── q_min, q_max             scalars [Å⁻¹]
+├── model_q                  array [Å⁻¹]
+├── model_I                  array [cm⁻¹]   (total model)
+├── background_err           scalar (if MC was run)
+│
+├── pop_01/                  (first population)
+│   ├── @pop_type            attribute: 'size_dist' | 'unified_level' | 'diffraction_peak'
+│   ├── @label               attribute: user-defined label string
+│   ├── @enabled             attribute: bool
+│   ├── @population_index    attribute: 1
+│   ├── model_I              array [cm⁻¹]   (this population's contribution)
+│   │
+│   │   [unified_level only]
+│   ├── G, Rg, B, P, RgCO, ETA, PACK   scalars
+│   │
+│   │   [diffraction_peak only]
+│   ├── @peak_type           attribute
+│   ├── position, amplitude, width, eta_voigt   scalars
+│   │
+│   │   [size_dist only]
+│   ├── @dist_type, @form_factor, @structure_factor   attributes
+│   ├── scale, contrast      scalars
+│   ├── dist_params/         sub-group (distribution parameters)
+│   ├── ff_params/           sub-group (form factor parameters)
+│   ├── sf_params/           sub-group (structure factor parameters)
+│   ├── radius_grid          array [Å]
+│   ├── volume_dist          array
+│   └── number_dist          array
+│
+├── pop_02/, pop_03/, …      (additional populations)
+```
+
+% CHECK(Jan): @pop_type lists three types; Guinier-Porod, Mass Fractal and Surface Fractal
+% populations exist too.
+
+(modeling-integration)=
+### Integration with other tools
+
+**Data Explorer.** Files containing Modeling results are automatically detected. In the **1D
+Graph** tab:
+- Check **Modeling model** to overlay the total I(Q) model curve
+- Right-click the `modeling_results` group in the browser tree → **Plot Modeling model**
+
+In the **Collect Values** tab:
+- Set Type = **Modeling**
+- Choose Population (1–10) and Item (chi2, background, Rg, G, B, P, position, vol_fraction, …)
+- Collect from all selected files into a single graph
+
+**Data Selector.** In the "Show in graph/reports:" section, check **Modeling** to include
+modeling results in:
+- **Create Graph** — overlays total model I(Q) curves for all selected files
+- **Create Report** — adds a Modeling section to the Markdown report, with chi², background,
+  and per-population parameters (type-specific)
+- **Tabulate Results** — adds `MOD_` columns to the CSV table (chi², background, Q range,
+  per-population type/label/parameters)
+
+`pyirena_read_modeling(path)` returns stored results to an AI agent.
+
+(modeling-scripting)=
+## From Python or AIDA
+
+::::{tab-set}
+:::{tab-item} Python
+Headless / batch fitting with `pyirena.batch.fit_modeling`. Run from the repository root:
+
+```python
+import json
+
+from pyirena.batch import fit_modeling
+from pyirena.core.modeling import ModelingConfig, SizeDistPopulation, UnifiedLevelPopulation
+
+# The config JSON is the same format produced by "Save params to JSON" in the GUI;
+# here it is generated programmatically from a ModelingConfig object.
+config = ModelingConfig(
+    populations=[
+        SizeDistPopulation(                                        # small spheres
+            enabled=True,
+            dist_type='lognormal',
+            dist_params={'min_size': 0.0, 'mean_size': 40.0, 'sdeviation': 0.3},
+            scale=0.002,
+            contrast=100.0,
+            form_factor='sphere',
+        ),
+        UnifiedLevelPopulation(G=1e4, Rg=3000.0, B=1e-8, P=3.5),   # large aggregates
+    ],
+    background=0.01,
+    fit_background=True,
+    q_min=5e-5,                          # the whole curve; the default q_min is 0.001
+    q_max=0.5,
+)
+with open('modeling_config.json', 'w') as f:
+    json.dump({'_pyirena_config': {'tool': 'modeling'}, 'modeling': config.to_dict()}, f)
+
+result = fit_modeling(
+    data_file='validationData/modeling/modeling_sizedist_plus_unified.h5',
+    config_file='modeling_config.json',
+    save_to_nexus=False,                 # True saves results back into the data file
+)
+
+if result['success']:
+    mod_result = result['result']
+    print(f"chi² = {mod_result.chi_squared:.4f}")   # about 493.5
+    spheres, level = mod_result.config.populations
+    print(spheres.dist_params)           # mean_size ≈ 30 Å, sdeviation ≈ 0.32
+    print(level.G, level.Rg)             # ≈ 2.0e4 cm⁻¹, ≈ 4000 Å
+```
+
+`fit_modeling` also takes `with_uncertainty=True` and `n_mc_runs` for MC uncertainty
+estimation. See [Batch API](../guides/batch-api.md).
+:::
+:::{tab-item} AIDA / MCP
+Ask in plain language, for example *"Fit validationData/modeling/modeling_sizedist_plus_unified.h5
+with log-normal spheres (contrast 100) plus a Unified level for the large aggregates."* The agent
+calls `pyirena_ctrl_open_dataset`, then `pyirena_call` with `select_modeling_model`,
+`add_population`, `set_population_parameter`, `run_modeling_fit` and `save_modeling_fit`. See the
+[AI tools reference](../reference/ai-tools-reference.md#control-tools-reference--modeling-dispatcher-category-modeling).
+:::
+::::
+
+(modeling-method)=
+## Method notes
+
+The equations and parameters of every population type, distribution, form factor and structure
+factor are listed under [Model reference](#modeling-model-reference) below.
+
+(modeling-fit-method)=
 ### Fit method: Standard vs Global
 
 The **Fit** method selector (right of the Background field) chooses how the
@@ -527,6 +388,7 @@ Notes:
   identical, so nothing else tells you it happened.
 - Workers are pinned to single-threaded BLAS to avoid CPU oversubscription.
 
+(modeling-sphere-not-spheroid)=
 ### Pick Sphere, not Spheroid with AR = 1
 
 If the particles are spheres, choose the **Sphere** form factor. A **Spheroid**
@@ -541,7 +403,41 @@ AR = 1.2 (or 0.8), which is a genuine orientation average and genuinely slower
 than a sphere. A Core-Shell Spheroid always pays full cost unless AR is
 exactly 1.
 
----
+(modeling-fit-quality)=
+### Fit quality
+
+Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized
+residual divided by a robust (MAD-based) estimate of the actual noise scale, so
+the scatter is judged against the data's own noise floor rather than the (often
+mis-scaled) reported σ. The fit status line also reports **σ-scale** (how many ×
+the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, and
+the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
+backstop.
+
+See the **[Fit Quality Metrics guide](../methods/fit-quality-metrics.md)** for full
+interpretation of these numbers.
+
+(modeling-slit-smearing)=
+### Slit smearing (USAXS)
+
+When slit-smeared USAXS data are loaded (an NXcanSAS `dQl`, e.g. from Matilda),
+a **"Slit smeared"** control row appears and the total model — all populations,
+structure factors, and background — is smeared before comparison with the data,
+so fitted parameters remain ideal-space (pinhole-equivalent). The saved HDF5
+records both the smeared model and the ideal (`model_I_ideal`) curve. See
+**[Slit smearing](../methods/slit-smearing.md)** for the full reference and scripting
+contract.
+
+## References
+
+- Hammouda, B. "A new Guinier-Porod model" *J. Appl. Cryst.* (2010) **43**, 716–719
+  (Guinier-Porod Level)
+- Teixeira, J. "Small-angle scattering by fractal systems" *J. Appl. Cryst.* (1988) **21**,
+  781–785 (Mass Fractal, Surface Fractal)
+- Ardell, A. J. (1966) *Acta Metall.* **14**, 1573 (Ardell distribution)
+
+% CHECK(Jan): the reference titles above were added from the citations in the text (Hammouda
+% 2010, Teixeira 1988, Ardell 1966); please confirm.
 
 ## MC Uncertainty
 
@@ -618,176 +514,338 @@ one pass, and the uncertainties from the passes that did finish are still
 reported (the status line says how many were used). At least two passes must
 complete for a standard deviation to exist.
 
----
+% CHECK(Jan): "a core-shell global fit that takes ~60 s serially drops to ~17 s on 6 cores"
+% (Fit method section) and this table (130 s serial, 21 s on 6 cores) quote different timings.
 
-## Derived results
+(modeling-model-reference)=
+## Model reference
 
-The Derived Results panel (below the graph) shows post-fit quantities:
+(modeling-pop-size-distribution)=
+### Size Distribution population
 
-| Quantity | Populations |
+The Size Distribution population uses a **parametric distribution** (see
+[Distributions](#modeling-distributions)) to describe particle sizes, a **form factor** to
+compute scattering per unit volume fraction, and an optional **structure factor** for
+inter-particle correlations.
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| Distribution | Choice of size distribution shape |
+| Distribution params | Shape-specific parameters (see Distributions table) |
+| Scale | Overall scale factor (proportional to volume fraction × (1 − volume fraction) for hard-sphere-like systems) |
+| Contrast | (Δρ)² in units of 10²⁰ cm⁻⁴ |
+
+> **Scale and Contrast cannot both be fitted.** The model intensity depends on
+> them only through their product, so freeing both leaves the fit with a flat
+> direction: the solver drifts and the reported uncertainties are meaningless.
+> Checking either **Fit** box therefore clears the other — the box you tick
+> last is the one that is fitted.  Leaving both unchecked is fine; that just
+> holds the prefactor at the value you entered.  Fit **Scale** when you want a
+> volume fraction from a known contrast (the usual case), and **Contrast** when
+> the volume fraction is known independently.
+
+| Parameter | Description |
+|-----------|-------------|
+| Form factor | Particle shape (see Form Factors table) |
+| FF params | Extra form factor parameters (e.g. aspect ratio for spheroids) |
+| Structure factor | Inter-particle structure factor |
+| SF params | Structure factor parameters |
+| Use number dist. | Fit a number-weighted distribution instead of volume-weighted |
+
+% CHECK(Jan): the second table above was a continuation of the first one in the old page (the
+% quote block split it); it is shown as its own table now.
+
+**Derived quantities** (shown in the Derived panel after Graph Model or Fit):
+
+| Quantity | Description |
 |----------|-------------|
-| Volume fraction | Size Distribution |
-| Vol. mean radius [Å] | Size Distribution |
-| Num. mean radius [Å] | Size Distribution |
-| Specific surface [Å⁻¹] | Size Distribution |
-| G, Rg, B, P | Unified Fit Level |
-| Position, Amplitude, Width | Diffraction Peak |
+| Volume fraction | Total particle volume fraction |
+| Vol. mean radius | Volume-weighted mean radius [Å] |
+| Num. mean radius | Number-weighted mean radius [Å] |
+| Specific surface | Specific surface area [Å⁻¹] |
 
----
+(modeling-pop-unified-level)=
+### Unified Fit Level population
 
-## Revert and state persistence
-
-- **Revert** restores all parameters to the state they were in just before the last **Fit** run.
-  This lets you undo a bad fit without manually resetting values.
-- Parameters, population settings, background, and Q-range cursors are automatically
-  saved to the pyIrena state file and restored the next time the tool is opened
-  (even if the application is closed).
-- **Save JSON / Load JSON** exports/imports all population parameters to a portable
-  JSON file for sharing or archiving.
-- **Copy results / Save report…** render the current fit as Markdown text —
-  χ², background, Q range and every enabled population with its parameters and
-  derived quantities (volume fraction, mean radius) — for the clipboard or a
-  `.md` file.  The same text the Data Selector's *Create Report* produces from
-  the saved file, without the save-and-reload round-trip.
-  **Ctrl-click** (⌘-click on macOS) *Save report…* also writes the graph as a
-  PNG beside the report and embeds it as a figure.
-
----
-
-## HDF5 output format
-
-Modeling results are saved under `entry/modeling_results/` in the same HDF5 file as the
-experimental data (NXcanSAS format). The schema:
+Implements a single level of the Beaucage Unified model:
 
 ```
-entry/modeling_results/
-├── chi_squared              scalar
-├── reduced_chi_squared      scalar
-├── dof                      scalar (int)
-├── background               scalar [cm⁻¹]
-├── q_min, q_max             scalars [Å⁻¹]
-├── model_q                  array [Å⁻¹]
-├── model_I                  array [cm⁻¹]   (total model)
-├── background_err           scalar (if MC was run)
-│
-├── pop_01/                  (first population)
-│   ├── @pop_type            attribute: 'size_dist' | 'unified_level' | 'diffraction_peak'
-│   ├── @label               attribute: user-defined label string
-│   ├── @enabled             attribute: bool
-│   ├── @population_index    attribute: 1
-│   ├── model_I              array [cm⁻¹]   (this population's contribution)
-│   │
-│   │   [unified_level only]
-│   ├── G, Rg, B, P, RgCO, ETA, PACK   scalars
-│   │
-│   │   [diffraction_peak only]
-│   ├── @peak_type           attribute
-│   ├── position, amplitude, width, eta_voigt   scalars
-│   │
-│   │   [size_dist only]
-│   ├── @dist_type, @form_factor, @structure_factor   attributes
-│   ├── scale, contrast      scalars
-│   ├── dist_params/         sub-group (distribution parameters)
-│   ├── ff_params/           sub-group (form factor parameters)
-│   ├── sf_params/           sub-group (structure factor parameters)
-│   ├── radius_grid          array [Å]
-│   ├── volume_dist          array
-│   └── number_dist          array
-│
-├── pop_02/, pop_03/, …      (additional populations)
+I(Q) = G · exp(−Q²Rg²/3) + B · Q*⁻ᴾ · exp(−Q²RgCO²/3)
+
+where  Q* = Q / [erf(K·Q·Rg/√6)]³
 ```
 
----
+**Parameters:**
 
-## Integration with other tools
+| Parameter | Description | Fitted by default |
+|-----------|-------------|-------------------|
+| G | Guinier pre-factor [cm⁻¹] | Yes |
+| Rg | Radius of gyration [Å] | Yes |
+| B | Power-law pre-factor | Yes |
+| P | Power-law exponent | No |
+| RgCO | Low-Q cutoff radius of gyration (0 = no cutoff) | No |
 
-### Data Explorer
+**Correlations (Born-Green):** When enabled, the Unified Fit Level intensity is divided
+by a Born-Green structure factor S(Q) = 1 / (1 + PACK × F(Q, ETA)):
 
-Files containing Modeling results are automatically detected. In the **1D Graph** tab:
-- Check **Modeling model** to overlay the total I(Q) model curve
-- Right-click the `modeling_results` group in the browser tree → **Plot Modeling model**
+| Parameter | Description |
+|-----------|-------------|
+| ETA [Å] | Correlation length |
+| PACK | Packing factor |
 
-In the **Collect Values** tab:
-- Set Type = **Modeling**
-- Choose Population (1–10) and Item (chi2, background, Rg, G, B, P, position, vol_fraction, …)
-- Collect from all selected files into a single graph
+(modeling-pop-diffraction-peak)=
+### Diffraction Peak population
 
-### Data Selector
+Models a single scattering peak at position Q₀.
 
-In the "Show in graph/reports:" section, check **Modeling** to include modeling results in:
-- **Create Graph** — overlays total model I(Q) curves for all selected files
-- **Create Report** — adds a Modeling section to the Markdown report, with chi², background,
-  and per-population parameters (type-specific)
-- **Tabulate Results** — adds `MOD_` columns to the CSV table (chi², background, Q range,
-  per-population type/label/parameters)
+**Peak shape:**
 
----
+| Shape | Formula |
+|-------|---------|
+| Gaussian | A · exp[−(Q−Q₀)² / (2σ²)] |
+| Lorentzian | A / [1 + ((Q−Q₀)/σ)²] |
+| Pseudo-Voigt | A · [η·Lorentzian + (1−η)·Gaussian] |
 
-## Scripting API
+**Parameters:**
 
-```python
-from pyirena.batch import fit_modeling
-from pathlib import Path
+| Parameter | Description | Fitted by default |
+|-----------|-------------|-------------------|
+| Position Q₀ [Å⁻¹] | Peak centre | Yes |
+| Amplitude [cm⁻¹] | Peak height | Yes |
+| Width σ [Å⁻¹] | Gaussian/Lorentzian width | Yes |
+| η (mixing) | Voigt mixing ratio (0=Gaussian, 1=Lorentzian) | No |
 
-result = fit_modeling(
-    data_file='path/to/data.h5',
-    config_file='path/to/config.json',   # JSON exported from Save JSON
-    save_to_nexus=True,                  # save results back into data.h5
-    with_uncertainty=True,               # run MC uncertainty estimation
-    n_mc_runs=50,
-)
+(modeling-pop-guinier-porod)=
+### Guinier-Porod Level population
 
-if result['success']:
-    mod_result = result['result']
-    print(f"chi² = {mod_result.chi_squared:.4f}")
-    for pop in mod_result.populations:
-        print(f"  {pop.pop_type}: {pop}")
+Implements the Guinier-Porod piecewise scattering model
+(Hammouda 2010, *J. Appl. Cryst.* **43**, 716–719).
+Suitable for non-spherical or elongated scatterers, and for systems where the low-Q
+slope deviates from the Guinier-regime flat behaviour.
+
+**Formula:** Three regimes joined at crossover Q values:
+```
+Q1 = sqrt((P − s1)(3 − s1)/2) / Rg1
+D  = G · exp(−(P−s1)/2) · ((3−s1)(P−s1)/2)^((P−s1)/2) / Rg1^(P−s1)
+Q2 = sqrt((1 − s2) / (2Rg2²/(3−s2) − 2Rg1²/(3−s1)))  [0 if non-finite]
+G2 = G · exp(−Q2²·(Rg1²/(3−s1) − Rg2²/(3−s2))) · Q2^(s2−s1)
+
+I(Q) = G2/Q^s2 · exp(−Q²Rg2²/(3−s2))   Q < Q2  (active only if Q2 > 0)
+I(Q) = G/Q^s1 · exp(−Q²Rg1²/(3−s1))    Q2 ≤ Q < Q1
+I(Q) = D/Q^P                             Q ≥ Q1
+```
+Setting Rg2 = 1e10 (default) collapses Q2 to zero — single-level behaviour.
+
+Optional: `I *= exp(−RgCO²·Q²/3)` (RgCO > 0).
+Optional Born-Green correlations: `I /= (1 + PACK · F(Q, ETA))`.
+
+**Parameters:**
+
+| Parameter | Default | Limits | Fitted | Description |
+|-----------|---------|--------|--------|-------------|
+| G [cm⁻¹] | 1.0 | 1e-10 … 1e10 | Yes | Guinier amplitude |
+| Rg1 [Å] | 10.0 | 0.1 … 1e6 | Yes | Radius of gyration (high-Q level) |
+| Slope s1 | 0.0 | 0 … 3 | No | Low-Q slope (0=sphere, 1=rod, 2=lamella) |
+| Power P | 4.0 | 0 … 6 | No | Porod exponent at high Q |
+| Rg2 [Å] | 1e10 | 0.1 … 1e12 | No | Rg of second (lower-Q) level; 1e10=inactive |
+| Slope s2 | 0.0 | 0 … 3 | No | Low-Q slope of second level |
+| RgCO [Å] | 0.0 | 0 … 1e6 | No | Cutoff Rg (0 = no cutoff) |
+| ETA [Å] | 10.0 | 0.1 … 1e6 | No | Born-Green correlation length |
+| PACK | 0.0 | 0 … 16 | No | Born-Green packing factor |
+
+(modeling-pop-mass-fractal)=
+### Mass Fractal population
+
+Implements the Teixeira (1988) mass fractal aggregate scattering model
+(*J. Appl. Cryst.* **21**, 781–785).
+Primary particles are spheroids with aspect ratio β; the fractal aggregate structure is described analytically.
+β = 1 gives the monodisperse sphere form factor (Bessel function oscillations in the Porod region);
+β ≠ 1 uses the orientation-averaged spheroid form factor which eliminates those oscillations.
+A modest β ≈ 0.5–2 is often sufficient to obtain a physically smooth I(Q).
+
+**Formula:**
+```
+V  = (4/3)·π·Radius³
+P(Q) = (3·(sin(qR) − qR·cos(qR)) / (qR)³)²        sphere form factor
+
+Bracket = Eta · 8 · (Ksi / (2·Radius))^Dv
+
+I(Q) = Phi · Contrast · 1e-4 · V
+       · [Bracket · sin((Dv−1)·atan(Q·Ksi)) / ((Dv−1)·Q·Ksi·(1+(Q·Ksi)²)^((Dv−1)/2))
+          + (1−Eta)²]
+       · P(Q)
+```
+The factor `1e-4` is the Igor-convention contrast unit conversion
+(contrast in Å⁻⁴ units → cm⁻⁴ scale). Eta (volume filling factor) is typically 0.3–0.8.
+
+**Parameters:**
+
+| Parameter | Default | Limits | Fitted | Description |
+|-----------|---------|--------|--------|-------------|
+| Phi | 0.001 | 1e-8 … 1 | Yes | Volume fraction of primary particles |
+| Radius [Å] | 50.0 | 0.1 … 1e6 | Yes | Primary particle equatorial radius |
+| Aspect ratio β | 1.0 | 0.01 … 100 | No | Spheroid aspect ratio (1 = sphere, < 1 = oblate, > 1 = prolate) |
+| Fractal dim. Dv | 2.5 | 1 … 3 | Yes | Mass fractal dimension |
+| Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Fractal correlation length (aggregate size) |
+| Eta | 0.5 | 0.3 … 0.8 | No | Volume filling factor within the aggregate |
+| Contrast | 1.0 | 0 … 1e10 | No | Scattering contrast (Δρ)² |
+
+(modeling-pop-surface-fractal)=
+### Surface Fractal population
+
+Implements the Teixeira (1988) surface fractal scattering model
+(*J. Appl. Cryst.* **21**, 781–785).
+Describes scattering from a surface with fractal roughness (2 ≤ Ds ≤ 3).
+
+**Formula:**
+```
+I(Q) = π · Contrast · 1e20 · Ksi⁴ · 1e-32 · Surface · Γ(5−Ds)
+       · sin((3−Ds)·atan(Q·Ksi))
+       / ((1+(Q·Ksi)²)^((5−Ds)/2) · Q·Ksi)
+```
+Limiting slopes: `I(Q) ~ Q^(Ds−6)` for Q·Ksi >> 1 (fractal regime, slope −3 to −4).
+
+**Optional Porod transition:** Above Qc, smoothly blends to `A·Q⁻⁴` using an error-function
+step, with continuity condition `A = I(Qc)·Qc⁴`.
+
+**Parameters:**
+
+| Parameter | Default | Limits | Fitted | Description |
+|-----------|---------|--------|--------|-------------|
+| Surface [cm⁻¹] | 1e4 | 1 … 1e12 | Yes | Surface area per unit volume |
+| Fractal dim. Ds | 2.5 | 2 … 3 | Yes | Surface fractal dimension |
+| Ksi [Å] | 500.0 | 1 … 1e7 | Yes | Correlation length (upper cutoff of fractal regime) |
+| Contrast | 1.0 | 0 … 1e10 | No | Scattering contrast |
+| Qc [Å⁻¹] | 0.1 | 0.001 … 10 | No | Crossover to Porod Q⁻⁴ (enabled by checkbox) |
+| QcWidth | 0.1 | 0.01 … 1 | No | Width of erf blending as fraction of Qc |
+
+(modeling-distributions)=
+### Distributions
+
+Available for Size Distribution populations:
+
+| Distribution | Parameters | Shape |
+|-------------|-----------|-------|
+| **Log-Normal** | Median [Å], σ (width), Shift [Å] | Asymmetric, right-tailed |
+| **Gaussian** | Mean [Å], σ (width) | Symmetric bell curve |
+| **LSW** | Location [Å] | Fixed shape (Lifshitz-Slyozov-Wagner coarsening) |
+| **Schulz-Zimm** | Mean [Å], Z (sharpness) | Gamma-like, narrow for large Z |
+| **Ardell** | Location [Å], m (≥ 2) | Asymmetric, hard cutoff at m/(m−1) × location |
+
+% CHECK(Jan): the window labels the Log-Normal parameters Min Size, Mean Size and Sdeviation
+% (core keys min_size, mean_size, sdeviation), not Median, σ and Shift.
+
+**Note on Ardell distribution:** The location parameter is **not** the mean or mode.
+The distribution has a hard upper cutoff at `r_max = m/(m−1) × location` and peaks
+at approximately 1.35× location for typical m values. The formula follows
+Ardell (1966) Acta Metall. 14, 1573.
+
+(modeling-form-factors)=
+### Form Factors
+
+| Form Factor | Key | Extra parameters | Description |
+|------------|-----|-----------------|-------------|
+| Sphere | `sphere` | — | Solid sphere, F = 3[sin(Qr)−Qr·cos(Qr)]/(Qr)³ |
+| Spheroid | `spheroid` | Aspect ratio AR (dimensionless) | Oblate (AR<1) or prolate (AR>1) ellipsoid of revolution; orientation-averaged via 50-point Gauss-Legendre quadrature |
+| Cylinder (Aspect Ratio) | `cylinder_ar` | Aspect ratio AR = L/R (dimensionless) | Finite cylinder; "size" R is the radius, half-length L = AR·R. Disk-like for AR≪1, rod-like for AR≫1. Orientation-averaged. |
+| Cylinder (Length) | `cylinder_length` | Length H [Å] (total height) | Finite cylinder; "size" R is the radius, total height H is a fixed (or fitted) parameter independent of R. V = πR²·H scales as R². |
+
+The G-matrix element is `G[i,j] = V(r_j) × F²(Q_i, r_j) × (Δρ)² × 10⁻⁴` in cm⁻¹.
+
+#### Cylinder form factor details
+
+Both cylinder entries use the same orientationally-averaged form factor:
+
+```
+⟨F²(Q)⟩ = ∫₀¹ [2J₁(QR√(1−u²)) / (QR√(1−u²))]² · [sin(QL·u) / (QL·u)]² du
 ```
 
-The config JSON is the same format produced by **Save JSON** in the GUI and can be
-generated programmatically by constructing a `ModelingConfig` object:
+where u = cos(α), α is the angle between Q and the cylinder axis, R is the equatorial
+radius, and L is the half-length. The integral is evaluated by 50-point Gauss-Legendre
+quadrature (same as spheroid).
 
-```python
-from pyirena.core.modeling import ModelingConfig, SizeDistPopulation
+**Derived quantities for cylinder populations:**
 
-config = ModelingConfig(
-    populations=[
-        SizeDistPopulation(
-            enabled=True,
-            dist_type='lognormal',
-            dist_params={'median': 100.0, 'sigma': 0.3, 'shift': 0.0},
-            scale=0.001,
-            contrast=1.0,
-            form_factor='sphere',
-        )
-    ],
-    background=0.0,
-    fit_background=True,
-    q_min=0.01,
-    q_max=0.3,
-)
+| Quantity | Cylinder formula |
+|----------|-----------------|
+| Rg | √(R²/2 + L²/3), volume-weighted over distribution |
+| Specific surface Sv | 2/L + 2/R (= 2(R+L)/(RL)), volume-weighted |
+
+For `cylinder_ar`: L = AR·R (varies with R), so Rg = R·√(1/2 + AR²/3).  
+For `cylinder_length`: L = H/2 is constant, so Rg² = ⟨R²⟩/2 + H²/12.
+
+**Parameterisation guide:**
+
+- **Disk-like particles** (platelets, lamellae): use `cylinder_ar` with AR < 0.5, or `cylinder_length` with H ≪ ⟨R⟩.
+- **Rod-like particles** (fibres, elongated): use `cylinder_ar` with AR > 2, or `cylinder_length` with H ≫ ⟨R⟩.
+- Use `cylinder_ar` when the aspect ratio is physically meaningful and expected to be correlated with particle size.
+- Use `cylinder_length` when the thickness/length is a fixed structural parameter (e.g., bilayer thickness, layer period).
+
+#### Core-Shell form factor details
+
+Core-shell form factors embed the scattering length densities (SLDs) directly into the form factor calculation. The **Contrast** field is automatically locked to 1.0 when a core-shell form factor is selected — do not change it; contrast is encoded by the SLD difference parameters.
+
+**Available core-shell entries:**
+
+| Key | Combo label | "Size" axis | Extra FF parameters |
+|-----|-------------|-------------|---------------------|
+| `cs_sphere_by_core` | Core-Shell Sphere (by core R) | R_core | sld_core, sld_shell, sld_solvent, t_shell |
+| `cs_sphere_by_shell` | Core-Shell Sphere (by shell t) | t_shell | sld_core, sld_shell, sld_solvent, r_core_fixed |
+| `cs_sphere_by_total` | Core-Shell Sphere (by total R) | R_total | sld_core, sld_shell, sld_solvent, t_shell |
+| `cs_spheroid_by_core` | Core-Shell Spheroid (by core R) | R_core | sld_core, sld_shell, sld_solvent, t_shell, aspect_ratio |
+| `cs_spheroid_by_total` | Core-Shell Spheroid (by total R) | R_total | sld_core, sld_shell, sld_solvent, t_shell, aspect_ratio |
+
+**SLD parameters** are in units of **10⁻⁶ Å⁻²** (standard SLD units). Typical values:
+
+| Material | SLD (10⁻⁶ Å⁻²) | Notes |
+|----------|----------------|-------|
+| H₂O | 9.46 | X-ray solvent default |
+| D₂O | 6.36 | Neutron solvent default |
+| Silica SiO₂ | 18.85 | X-ray |
+| Gold Au | 121 | X-ray |
+| Polystyrene | 9.5 | X-ray |
+
+**Scattering amplitude:**
 ```
+F_cs(Q, R_core, R_total) =
+    (ρ_core − ρ_shell)   · V_core  · f_sph(Q·R_core)  +
+    (ρ_shell − ρ_solvent) · V_total · f_sph(Q·R_total)
+```
+where `f_sph(x) = 3(sin x − x·cos x)/x³` (normalised sphere amplitude) and V = (4/3)πR³.
 
-## Slit smearing (USAXS)
+**Polydispersity mode guide:**
+- **by_core** — polydisperse core radius (most common; shell thickness uniform). R_total = R_core + t_shell.
+- **by_shell** — polydisperse shell thickness (core radius fixed). R_total = r_core_fixed + t_shell.
+- **by_total** — polydisperse outer radius (shell thickness uniform). R_core = R_total − t_shell.
 
-When slit-smeared USAXS data are loaded (an NXcanSAS `dQl`, e.g. from Matilda),
-a **"Slit smeared"** control row appears and the total model — all populations,
-structure factors, and background — is smeared before comparison with the data,
-so fitted parameters remain ideal-space (pinhole-equivalent). The saved HDF5
-records both the smeared model and the ideal (`model_I_ideal`) curve. See
-**[Slit smearing](../methods/slit-smearing.md)** for the full reference and scripting
-contract.
+**Derived quantities for core-shell populations:**
 
-## Fit Quality
+| Quantity | Description |
+|----------|-------------|
+| vol_mean_r | Volume-weighted mean of the distributed dimension (R_core, t_shell, or R_total) |
+| r_total_mean | Volume-weighted mean total (outer) radius [Å] |
+| volume_fraction | Derived from `scale` parameter (based on total particle volume) |
+| Rg | SLD-contrast-weighted radius of gyration (matches Guinier plot) |
+| specific_surface | Based on outer surface: Sv = 3/R_total (Porod law, outer interface) |
 
-Residuals are displayed **rescaled** as r' = r / σ(robust): the normalized
-residual divided by a robust (MAD-based) estimate of the actual noise scale, so
-the scatter is judged against the data's own noise floor rather than the (often
-mis-scaled) reported σ. The fit status line also reports **σ-scale** (how many ×
-the actual scatter exceeds the reported σ), the realistic reduced-χ² floor, and
-the largest fractional misfit **max|(I−M)/I|** — a σ-independent gross-misfit
-backstop.
+> **Volume convention (important):** The `scale` parameter and `volume_fraction`
+> derived quantity are based on the **total particle volume** V_total = (4/3)π R_total³
+> (core + shell together), **not** the core volume alone.  This means: if a sample
+> contains 1% by volume of core-shell particles, `scale ≈ Vf·(1−Vf) ≈ 0.01`.
+> The same convention applies to the number↔volume distribution conversion
+> when "Number distribution" is selected: the volume used is V_total, not V_core.
+>
+> The G-matrix is normalised as G = |F_cs|²/V_total × 1e-4, so that
+> `I(Q) = G × vol_dist × dr` gives the correct cm⁻¹ intensity when vol_dist
+> integrates to the total-particle volume fraction.
 
-See the **[Fit Quality Metrics guide](../methods/fit-quality-metrics.md)** for full
-interpretation of these numbers.
+(modeling-structure-factors)=
+### Structure Factors
 
+| Structure Factor | Key | Parameters | Description |
+|----------------|-----|-----------|-------------|
+| None | `none` | — | S(Q) = 1 |
+| Interferences (Born-Green) | `interferences` | ETA [Å], PACK | S(Q) = 1/(1 + PACK·F(Q,ETA)) |
+| Hard Sphere (Percus-Yevick) | `hard_sphere` | Radius [Å], Vol. frac. | Analytical hard-sphere S(Q) |
