@@ -303,5 +303,6 @@ uniquely constrain the distribution.
 - J. Skilling & R.K. Bryan, *MNRAS* **211**, 111 (1984) — MaxEnt algorithm.
 - P.C. Hansen, *Rank-Deficient and Discrete Ill-Posed Problems*, SIAM (1998) — Tikhonov regularisation, L-curve.
 - J. Ilavsky & P.R. Jemian, *J. Appl. Cryst.* **42**, 347 (2009) — Irena package (Igor Pro original).
+- J. Ilavsky, *J. Appl. Cryst.* **59**(6) (2026), [doi:10.1107/S1600576726009647](https://doi.org/10.1107/S1600576726009647) — Irena and pyIrena (open access).
 - C.L. Lawson & R.J. Hanson, *Solving Least Squares Problems*, Prentice-Hall (1974) — NNLS.
 - I. Bressler, B.R. Pauw & A.F. Thünemann, *J. Appl. Cryst.* **48**, 962 (2015) — McSAS Monte Carlo method.

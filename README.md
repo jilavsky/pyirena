@@ -8,6 +8,8 @@ GUI tools for fitting, modeling, data merging, and visualization of SAXS/SANS/US
 
 **Current release: v1.2.1**
 
+**Paper (open access):** [Irena and pyIrena, *J. Appl. Cryst.* (2026)](https://doi.org/10.1107/S1600576726009647) — please cite it if pyIrena helps your work (see [Citing pyIrena](#citing-pyirena)).
+
 [![PyPI version](https://img.shields.io/pypi/v/pyirena.svg)](https://pypi.org/project/pyirena/)
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -282,6 +284,16 @@ GUI open the matching page there. The same pages, as Markdown, are in `docs/`:
 | Distribution / packaging | [docs/developer/distribution.md](docs/developer/distribution.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
+
+---
+
+## Citing pyIrena
+
+If you use pyIrena in published work, please cite (open access):
+
+> Ilavsky, J. (2026). "Irena and pyIrena: 25 years of small-angle scattering analysis for complex materials, now with an AI-ready Python successor." *J. Appl. Cryst.* **59**(6). https://doi.org/10.1107/S1600576726009647
+
+The original Igor Pro Irena package: Ilavsky, J. & Jemian, P. R. (2009). *J. Appl. Cryst.* **42**, 347–353. https://doi.org/10.1107/S0021889809002222
 
 ---
 

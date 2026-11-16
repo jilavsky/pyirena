@@ -441,6 +441,9 @@ Watch both graphs update in real time when "Update automatically?" is checked.
   Dimension" *J. Appl. Cryst.* (1996) **29**, 134-146
 - Ilavsky, J. & Jemian, P. R. "Irena: tool suite for modeling and analysis of small-angle
   scattering" *J. Appl. Cryst.* (2009) **42**, 347-353
+- Ilavsky, J. "Irena and pyIrena: 25 years of small-angle scattering analysis for complex
+  materials, now with an AI-ready Python successor" *J. Appl. Cryst.* (2026) **59**(6),
+  [doi:10.1107/S1600576726009647](https://doi.org/10.1107/S1600576726009647) (open access)
 
 ## Support
 
