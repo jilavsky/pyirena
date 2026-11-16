@@ -67,6 +67,11 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| waxs-peak-fit-01-window | waxs-peak-fit | validationData/waxs/waxs_three_gauss.h5 | Background Linear, Find Peaks, remove peaks < 20 % of tallest, Fit; callouts 1–11 | whole window, 3 fitted Gaussians, background, residuals, quality line | yes | done |
+| waxs-peak-fit-02-find-peaks | waxs-peak-fit | validationData/waxs/waxs_three_gauss.h5 | Background Linear, Find Peaks (defaults) | detected peaks incl. false detections | yes | done |
+| waxs-peak-fit-03-fit-result | waxs-peak-fit | validationData/waxs/waxs_three_gauss.h5 | as 01, then Results to graphs | graph area with annotation | yes | done |
+| waxs-peak-fit-04-diffraction-lines | waxs-peak-fit | validationData/waxs/waxs_three_gauss.h5 + testData/Si.cif | as 01, Diffraction Lines tab, Si.cif added with hkl | CIF row, sticks with hkl labels | yes | done |
+| waxs-peak-fit-05-phase-id | waxs-peak-fit | testData/ real powder pattern + matching CIFs (Jan picks) | two phases imported, sticks aligned with peaks | a real phase identification | no | todo |
 
 ## carbon-fit
 
