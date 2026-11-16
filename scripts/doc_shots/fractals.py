@@ -2,9 +2,12 @@
 
 Reference file: a scratch copy of validationData/modeling/modeling_mass_fractal.h5
 (Teixeira mass fractal of R = 40 Å spheres, Dv = 2.4, ξ = 800 Å) with a
-two-level Unified fit stored in it first (level 2 RgCO linked to Rg of
-level 1), exactly as a user would store it from the Unified Fit tool. That
-gives the Fractals tool a fractal level pair, so it shows target parameters.
+two-level Unified fit stored in it first, so the panel shows the data and the
+Unified curve. The levels are deliberately NOT RgCutoff-linked, so the panel
+detects no fractal pair and shows no targets: a two-level Unified fit of this
+synthetic set is not a valid fractal reference (free B: c = 0.67 < 1; with the
+mass-fractal option c = 1.00 and level 1's B collapses to its bound; 16-11-2026),
+and the targets picture (fractals-05-targets) is left for a real dataset.
 Aggregates are grown with a fixed random seed so the shots are reproducible.
 
 The PyVista/VTK 3D view crashes the offscreen Qt platform (segfault), so the
@@ -24,21 +27,19 @@ SEED = 12345
 
 
 def _reference_with_unified(ctx: Context) -> str:
-    """Copy the mass-fractal dataset and store a linked two-level Unified fit in it."""
+    """Copy the mass-fractal dataset and store an unlinked two-level Unified fit in it."""
     from pyirena.api.control import (
         free_parameter,
         open_dataset,
         run_fit,
         save_fit,
         select_model,
-        set_level_option,
         set_parameter_value,
     )
 
     path = ctx.dataset(REFERENCE)
     sid = open_dataset(path)["session_id"]
-    select_model(sid, nlevels=2)
-    set_level_option(sid, 2, "link_RGCO", True)
+    select_model(sid, nlevels=2)   # no link_RGCO: see the module docstring
     for name, value in {"G_1": 2, "Rg_1": 30, "B_1": 1e-5, "P_1": 4,
                         "G_2": 500, "Rg_2": 1500, "B_2": 1e-5, "P_2": 2.4}.items():
         set_parameter_value(sid, name, value)

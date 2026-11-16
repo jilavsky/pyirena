@@ -64,7 +64,9 @@ known parameters (Rg ≈ 120 Å and Rg ≈ 1200 Å with the level-2 cut-off link
    ```
 
 3. **Initial parameter estimation.** Start with **1 level** (increase later if residuals show
-   structure). For each level, working from largest structure (Level 1) to smallest:
+   structure). Level 1 is always the **smallest** structure (highest Q), and each higher level a
+   larger one: Rg₁ < Rg₂ < Rg₃ … (see [Level order](#unified-fit-level-order)). For each level,
+   working from the smallest structure (Level 1) to the largest:
 
    - **G** — read the low-Q plateau height on the I-Q plot
    - **Rg** — position the cursors in the Guinier region and click **Fit Rg/G btwn cursors**
@@ -72,14 +74,13 @@ known parameters (Rg ≈ 120 Å and Rg ≈ 1200 Å with the level-2 cut-off link
    - **B** — use **Estimate B from G/Rg/P?** to get a starting value, or read from Fit P/B
      result
 
-   % CHECK(Jan): "largest structure (Level 1)" — see the phase-5 status report. In this file
-   % level 1 is the Rg ≈ 120 Å level and level 2 (RgCO linked to Rg of level 1) the 1200 Å one.
-
    ```{figure} img/unified-fit/unified-fit-03-guinier-fit.png
    :alt: Level 2 tab after Fit Rg/G between cursors; cursors at Q 0.0002 and 0.0012, green dashed local Guinier curve over the low-Q plateau, G and Rg updated in the level tab.
 
    **Fit Rg/G btwn cursors** on level 2, cursors at Q = 0.0002–0.0012 Å⁻¹: G ≈ 4.0×10³ cm⁻¹,
-   Rg ≈ 1.2×10³ Å.
+   Rg ≈ 1.2×10³ Å. The level still says **Level not feasible**: B and P are rough starting values
+   that do not yet match the new G and Rg (see
+   [Level feasibility](#unified-fit-feasibility)).
    ```
 
 4. **Fit.** Check **Fit?** for the parameters to optimise and click **Fit**. Three strategies
@@ -91,7 +92,8 @@ known parameters (Rg ≈ 120 Å and Rg ≈ 1200 Å with the level-2 cut-off link
 6. **Assess quality.**
    - Residuals should be flat and random around 0
    - χ² (shown in status bar after fit) should be close to 1 for well-scaled data
-   - Physical checks: Rg values should be ordered (Level 1 largest), P in 1–6, G positive
+   - Physical checks: Rg values must be ordered (Level 1 smallest, Rg₁ < Rg₂ < …), P in 1–6,
+     G positive, and every level tab should say **Level feasible**
 
    ```{figure} img/unified-fit/unified-fit-04-fit-result.png
    :alt: Graph area after the two-level fit with Results to graphs: model on the data, flat random residuals, parameter boxes for both levels, and the fit-quality message.
@@ -149,6 +151,7 @@ Each level has its own tab. Only levels up to the selected "Number of levels" ar
 | **Correlations?** | Enable Born-Green structure-factor correlations (ETA, PACK) | off | ETA/PACK are only fitted when this is on |
 | **Sv [m²/cm³] / Invariant** | Read-only surface-area and scattering-invariant estimates | | |
 | **Copy / Move / Swap level** | Reorganize level parameters across tabs | | |
+| **Level feasible / Level not feasible** | Banner under the level's title: whether the Guinier part (G, Rg) and the power-law part (B, P) of the level are consistent | | Red means such a level should not physically exist; see [Level feasibility](#unified-fit-feasibility) |
 
 Each parameter value field supports mouse-wheel scrubbing: plain = ±1 %, Shift = ±10 %,
 Ctrl = ±0.1 %.
@@ -302,6 +305,31 @@ Each level describes one population of scatterers at a characteristic size Rgᵢ
 | 4 | Smooth / sharp interface (Porod law) |
 | 5–6 | Mass fractals |
 
+(unified-fit-level-order)=
+### Level order
+
+Level 1 describes the smallest structure (highest Q) and each higher level a larger one:
+Rg of level 1 < Rg of level 2 < Rg of level 3, and so on. This order is required, not a
+convention; the model does not work properly with the levels in another order. In the equation
+above, the power law of level *i* is cut off at high Q by exp(−q² Rgᵢ₋₁²/3), the Guinier term of
+the next smaller level: **Link RgCutoff** sets RgCutoff of level *i* to Rg of level *i* − 1. If
+a fit swaps two levels, put them back in order with **Copy / Move / Swap level** and fit again.
+
+(unified-fit-feasibility)=
+### Level feasibility
+
+The banner under each level's title (**Level feasible** in grey, **Level not feasible** in red)
+compares the two halves of the level. The Guinier part (G, Rg) characterises the volume and size
+of the scatterers; the power-law part (B, P) characterises their surface. When the two are too
+far apart, such a level should not physically exist. It is a rough estimate, not a fit result:
+the check compares the Guinier term G·exp(−Q²Rg²/3) with the power law B/Q^P at the rollover
+Q = (2/Rg)·√(P/2) (Hammouda) and calls the level feasible when the power law there is between
+0.367 and 3.25 times the Guinier value, i.e. (power law − Guinier)/Guinier lies between −0.633
+and +2.25. The banner updates whenever the level's values change, by hand or
+by a fit; it never stops a fit. Scripts get the same answer from `check_level_feasibility` in
+`pyirena.api.control`. For slit-smeared data the banner adds "⚠ slit-limited" when the slit
+washes out the level's features.
+
 (unified-fit-quality)=
 ### Interpreting fit quality
 
@@ -381,8 +409,9 @@ Watch both graphs update in real time when "Update automatically?" is checked.
 ### Cursor placement
 
 - Place cursors to bracket a single structural feature
-- For Level 1 Guinier: A at low-Q flat region onset, B just past the Guinier knee
-- For Level 1 Porod: A just past the Guinier region, B before the next structural feature
+- For a level's Guinier region: A at low-Q flat region onset, B just past the Guinier knee
+- For a level's Porod region: A just past the Guinier region, B before the next structural
+  feature
 
 ### Common issues
 

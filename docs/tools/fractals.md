@@ -31,8 +31,8 @@ GUI-only; no batch / scripting / headless API.
 ```{figure} img/fractals/fractals-01-window.png
 :alt: Fractals window. Left, the controls: NeXus file box, growth parameters, Grow One / Grow Many / Optimizer tabs, active jobs, stored aggregates, active aggregate parameters, back-calculated intensity and save buttons. Right, the I(Q) plot with data, the loaded Unified fit and the aggregate's analytical curve, the 2D slice viewer and the 3D viewer pane. Numbered circles mark the parts in the legend.
 
-The Fractals window with `modeling_mass_fractal.h5` (with a stored two-level Unified fit) loaded
-and one aggregate grown (Z = 250, seed 12345). The 3D pane shows its placeholder here because the
+The Fractals window with `modeling_mass_fractal.h5` (with a stored two-level Unified fit, levels
+not RgCutoff-linked, so no targets are detected) loaded and one aggregate grown (Z = 250, seed 12345). The 3D pane shows its placeholder here because the
 screenshot is made without a display; see the 3D view below.
 ```
 
@@ -76,8 +76,8 @@ I(Q) plot (top, ~40 %) and the 2D slice and 3D viewers (bottom, ~60 %).
 
 The screenshots use `validationData/modeling/modeling_mass_fractal.h5` (a Teixeira mass fractal
 of R = 40 Å spheres, Dv = 2.4, ξ = 800 Å; see `validationData/README.md`) after a two-level
-Unified fit with level 2's RgCutoff linked to Rg of level 1 was stored in it with **Store in
-File**.
+Unified fit was stored in it with **Store in File**. The levels in that fit are not
+RgCutoff-linked, so the screenshots show no targets.
 
 1. Click **Open NeXus…** and pick an HDF5 file with a Unified-fit result that contains a fractal
    level pair (consecutive levels where the high level's `RgCutoff` ≈ the low level's `Rg`).
@@ -85,11 +85,13 @@ File**.
    parameters" widget. See [Target parameters from a Unified-fit
    pair](#fractals-targets) for the formulas used.
 
-   % CHECK(Jan): in the screenshots no targets appear although level 2's RgCO equals Rg of level
-   % 1 — see the phase-5 report (the panel reads "RgCutoff", the loader returns "RgCO").
+   % CHECK(Jan): which dataset and Unified fit make a good fractal reference? A linked two-level
+   % fit of validationData/modeling/modeling_mass_fractal.h5 gives c = 0.67 < 1 (free B) or
+   % c = 1.00 with level 1's B at its lower bound (mass-fractal option), so the panel reports
+   % "not a valid fractal". Target detection itself works since 16-11-2026 (RgCutoff fix).
    % SCREENSHOT fractals-05-targets: NeXus box and "Active aggregate parameters" with target
-   % values (green/orange/red) after loading a file with a fractal level pair; blocked until the
-   % panel finds the pair in files written by current pyIrena.
+   % values (green/orange/red) after loading a real mass-fractal aggregate with a good linked
+   % two-level Unified fit.
 
 3. Set Z in the Growth parameters to the target Z, and use the **Optimizer** tab with
    `target_dmin` and `target_c` set from the targets shown. Click **Find Best Growth**.
