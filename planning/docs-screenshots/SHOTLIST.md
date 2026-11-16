@@ -77,6 +77,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| data-manipulation-01-window | data-manipulation | validationData/manipulation/manipulate_input.h5 (+ manipulate_reference.h5 in the same folder) | folder "manipulation" (copies), Scale tab, input double-clicked, Scale I 0.4, Background 0.12; callouts 1–8 | whole window, input and green result | yes | done |
+| data-manipulation-02-scale-result | data-manipulation | validationData/manipulation/manipulate_input.h5 | as 01; graph only | input and the scaled result (= reference) | yes | done |
+| data-manipulation-03-subtract | data-manipulation | validationData/manipulation/manipulate_input.h5 + manipulate_reference.h5 | Subtract tab, reference set as buffer, input double-clicked, Buffer scale 2.5 | sample, buffer and a flat 0.3 cm⁻¹ result | yes | done |
+| data-manipulation-04-similarity | data-manipulation | testData/ (Jan picks a real exposure series with radiation damage) | Average tab, frames selected, Check Similarity | coloured frames and the accepted/rejected results table | no | todo |
 
 ## scattering-contrast
 
