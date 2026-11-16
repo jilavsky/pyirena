@@ -57,6 +57,11 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| fractals-01-window | fractals | validationData/modeling/modeling_mass_fractal.h5 (copy with a stored, RgCO-linked two-level Unified fit) | NeXus loaded, Grow One (Z 250, seed 12345); PyVista off (offscreen); callouts 1–11 | whole window, data + Unified + green analytical curve, 2D slice, parameters | yes | done |
+| fractals-02-montecarlo-iq | fractals | as 01 | as 01, then Compute Monte Carlo I(Q) (MC seed pinned) | I(Q) plot with blue dashed MC curve | yes | done |
+| fractals-03-optimizer | fractals | as 01 | Z 100, seed 12345, Optimizer: dmin 1.3, c 1.4, 2 iterations, Find Best Growth | controls panel: six trials, ★ BEST selected, green values vs targets | yes | done |
+| fractals-04-3d-viewer | fractals | any grown aggregate (Z 250, seed 12345) | real display, PyVista installed | 3D isosurface in the right pane | no | todo |
+| fractals-05-targets | fractals | file with a Unified fractal level pair | Open NeXus…; blocked until the panel finds the pair (RgCutoff/RgCO key) | target summary + colour-coded parameters | no | todo |
 
 ## waxs-peak-fit
 
