@@ -321,3 +321,33 @@ Include:
 ---
 
 **Happy Testing! 🧪**
+
+(updating-doc-screenshots)=
+## Updating documentation screenshots
+
+The screenshots on the tool pages (`docs/tools/img/<page>/<id>.png`) are made by a script, not
+by hand, so they can be regenerated whenever a window changes. With the GUI extras installed, from
+the repository root:
+
+```bash
+python scripts/make_doc_screenshots.py                    # every automated shot
+python scripts/make_doc_screenshots.py --only unified-fit # one page
+python scripts/make_doc_screenshots.py --only unified-fit-03-guinier-fit   # one shot
+python scripts/make_doc_screenshots.py --list             # what is registered
+```
+
+The script opens each panel offscreen with pyIrena's light theme at a fixed window size, on a
+copy of a dataset from `validationData/` (or `testData/`), sets the state (runs the fit, selects
+a tab) and saves a PNG. The numbered callouts on "The window" shots are drawn from the widgets'
+own positions, so they follow layout changes. Your settings are not touched: the script uses a
+temporary settings folder and never writes into the data folders.
+
+- Shots are defined in `scripts/doc_shots/<page>.py`, one function per shot, registered with
+  `@shot("<page>-<nn>-<what>")`.
+- Every shot, automated or not, has a row in `planning/docs-screenshots/SHOTLIST.md`. Shots that
+  need judgment stay as invisible `% SCREENSHOT <id>: …` comments in the page until someone
+  takes them by hand.
+- `pytest pyirena/tests/test_doc_screenshots.py` checks that the pages, the shot list, the
+  images and the script agree. The script itself is not part of the test suite.
+- Fonts come from the operating system: regenerate a page's shots on one machine, and review the
+  images (`git diff --stat docs/tools/img`) before committing.
