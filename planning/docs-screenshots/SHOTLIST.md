@@ -30,6 +30,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| size-distribution-01-window | size-distribution | validationData/sizes/sizes_sphere_lognormal.h5 | contrast 100, grid 10–1000 Å, regularization, Fit Sizes; callouts 1–16 | whole window, model on data, P(r) peak near 100 Å, results fields | yes | done |
+| size-distribution-02-background-tab | size-distribution | validationData/sizes/sizes_sphere_flat_background.h5 | Background tab, flat background Q 0.2–0.35, Fit Background | background line and blue corrected data | yes | done |
+| size-distribution-03-fit-result | size-distribution | validationData/sizes/sizes_sphere_flat_background.h5 | as 02, cursors Q 0.0008–0.15, Fit Sizes, Results to graph | graph area: annotation, residuals, P(r) peak near 114 Å | yes | done |
+| size-distribution-04-real-data | size-distribution | testData/ (Jan picks a sample) | regularization or MaxEnt fit with power-law and flat background, Results to graph | a real distribution and its fit | no | todo |
 
 ## modeling
 

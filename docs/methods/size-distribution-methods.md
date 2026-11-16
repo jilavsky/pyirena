@@ -18,6 +18,7 @@ window, are on the [Size Distribution](../tools/size-distribution.md) tool page.
 
 ---
 
+(sizes-method-maxent)=
 ## 1. Maximum Entropy (MaxEnt)
 
 ### Concept
@@ -83,6 +84,7 @@ Each iteration proceeds as follows:
 
 ---
 
+(sizes-method-regularization)=
 ## 2. Tikhonov Regularization
 
 ### Concept
@@ -139,6 +141,7 @@ followed by clamping.
 
 ---
 
+(sizes-method-tnnls)=
 ## 3. TNNLS / IPG (Truncated Non-Negative Least Squares)
 
 ### Concept
@@ -184,6 +187,7 @@ strictly inside the positive orthant:
 
 ---
 
+(sizes-method-montecarlo)=
 ## 4. Monte Carlo Size Analysis
 
 ### Concept
@@ -293,6 +297,7 @@ uniquely constrain the distribution.
 
 ---
 
+(sizes-methods-references)=
 ## References
 
 - J. Skilling & R.K. Bryan, *MNRAS* **211**, 111 (1984) — MaxEnt algorithm.
