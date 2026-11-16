@@ -78,6 +78,94 @@ top of the dispatcher.
 
 ---
 
+## Open — found while writing the tool manuals (16-11-2026)
+
+Found while restructuring `docs/tools/` and generating the screenshots
+(branch `docs-phase5`). Three of these were bugs and are fixed on that branch:
+
+- the Unified Fit feasibility banner was not refreshed after a fit;
+- linked RgCutoffs were not synced after a fit, so a stale cutoff was shown
+  and stored;
+- `api.control.save_fit` wrote `RgCO` instead of the results name `RgCutoff`,
+  so the Fractals targets, tabulation and Igor export lost the cutoff for
+  agent-written files.
+
+The rest are below. The text-only mismatches between the pages and the GUI are
+in `planning/manuals-todo.md`.
+
+**Feature Identifier needs improvement.** On
+`validationData/unified/unified_two_level.h5` (2 levels, flat background
+0.02 cm⁻¹) it reports 5 segments and "Suggested Unified Fit levels: 5", and
+labels the high-Q background "PLS P=0.6" instead of background. It is visible
+in `docs/tools/img/feature-identifier/`. Start with background detection, then
+merging segments that belong to one level. The synthetic Unified and Modeling
+sets in `validationData/` have known level counts and make a ready test set.
+Code: `core/feature_detect.py`, `gui/feature_identifier.py`.
+
+**Unified Fit: the feasibility rule and the validation data.** The rule
+(`UnifiedLevel.check_physical_feasibility`) allows (power law − Guinier) /
+Guinier between −0.633 and +2.25 at the Hammouda rollover Q. The validation
+generator defines B with the smooth-join formula. Confirm the two agree for
+all `validationData/unified` and `modeling` sets now that the banner is
+refreshed.
+
+**Default methods differ between GUI and API.**
+- Size Distribution: the GUI default is regularization, while
+  `api.control.select_sizes_model` defaults to and recommends maxent.
+- Data Merge: the panel's Scale menu defaults to DS1, while the config default
+  is `scale_dataset` 2.
+
+Decide which is intended, then make them agree or document why not.
+
+**Unseeded Monte Carlo in the GUI.** Size Distribution MC uncertainty and the
+Fractals MC worker pass no seed, so results are not reproducible. The batch
+and api paths take `random_seed`.
+
+**`api.inspect_file()` misses reduced data** that `api.read_reduced_data()`
+reads. For `validationData/unified/unified_two_level.h5` it returns
+`reduced_data_present=False` and no Q range.
+
+**The compound library ignores `PYIRENA_STATE_DIR`.**
+`io/contrast_io.DEFAULT_LIBRARY_PATH` is fixed at `~/.pyirena/`, unlike every
+other settings file. Tests and the screenshot script override it by hand.
+
+**`ai-tools-reference.md` on SAXS Morph χ².** It says χ² appears only in files
+written before 1.2.0, but the current panel computes and shows it. One of the
+two is out of date.
+
+**Stale tooltips and labels found in the code.**
+- Unified "Results to graphs" tooltip says it plots results for all files
+  selected in the Data Selector; it annotates the current graph.
+- `&` shown as an underscore in "Fit Cmplx. Bckg. & Sizes" (sizes) and the
+  group box "Data Processing & Reference" (data selector). Qt reads `&` as a
+  mnemonic; write `&&`.
+- Data Merge Split OFF tooltip ("include all data") vs the documented
+  behaviour (DS1 Q ≤ cursor B, DS2 Q ≥ cursor A): check which is true.
+
+**GUI layout issues (cosmetic).**
+- Clipped labels: "Identify Features…" (Unified), the "Parameters" group title
+  (Modeling), "Open NeXus…" (Fractals), and "Parse ▸" / "Del" (Contrast).
+- Overlapping log-axis tick labels in Simple Fits, Data Merge, Fractals and
+  Unified slit-smeared plots.
+- WAXS "Half-width" label overprints `bg0` after switching away from SNIP.
+- Carbon (100) peak header text overprints the Q₀ label.
+- Simple Fits main-plot y label has no units.
+- Data Merge error bars draw as wide grey horizontal bars.
+- Data Merge minimum width is about 1884 px.
+- Coded default sizes that clip their own controls: Modeling 1300×900, Simple
+  Fits 1200×700, Contrast 1120×740.
+- Data Selector graph legend font is very large (seen offscreen; check in the
+  real app).
+- Size Distribution and Simple Fits panels have no `__main__`, so they cannot
+  be launched standalone.
+
+**PyVista/VTK segfaults under `QT_QPA_PLATFORM=offscreen`.** It only affects
+headless use (screenshots, CI). The screenshot script switches PyVista off. If
+3D shots should ever be automated, look at VTK's offscreen rendering
+(`pv.OFF_SCREEN`).
+
+---
+
 ## Decided against — deliberate, not forgotten
 
 ### A shared `FileBrowserWidget`
