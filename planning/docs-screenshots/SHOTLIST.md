@@ -69,6 +69,9 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| data-merge-01-window | data-merge | validationData/merge/merge_usaxs.h5 + merge_saxs.h5 | DS1/DS2 folders USAXS/ and SAXS/ (copies), cursors Q 0.01–0.04, Scale: DS2, Optimize Merge; callouts 1–11 | whole window, merged curve, scale ≈ 0.872 in the field and status | yes | done |
+| data-merge-02-loaded | data-merge | validationData/merge/merge_usaxs.h5 + merge_saxs.h5 | both loaded, cursors Q 0.01–0.04, before Optimize | both branches and the overlap cursors | yes | done |
+| data-merge-03-porod-real-data | data-merge | testData/ (Jan picks a real USAXS + SAXS pair) | Porod display mode, before and/or after a good merge | mismatch as a step/slope in the flat I·Q⁴ line, then one flat line | no | todo |
 
 ## data-manipulation
 
