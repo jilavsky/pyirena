@@ -122,6 +122,7 @@ def _extract_scalar(f: h5py.File, tool: str, parameter: str,
     units = spec.get("units") or None
 
     rel_path = spec["path"]
+    alt_paths = list(spec.get("alt_paths", ()))
     if spec.get("per_subgroup"):
         n = subgroup_index if subgroup_index is not None else 1
         sub = schema.get("sub_groups") or {}
@@ -131,9 +132,14 @@ def _extract_scalar(f: h5py.File, tool: str, parameter: str,
         except (ValueError, TypeError):
             idx_str = str(n)
         rel_path = rel_path.replace("{n}", idx_str)
+        alt_paths = [p.replace("{n}", idx_str) for p in alt_paths]
 
-    # Try dataset first, then group attribute
+    # Try dataset first (then older names for it), then group attribute
     val = _read_scalar_dataset(grp, rel_path)
+    for alt in alt_paths:
+        if val is not None:
+            break
+        val = _read_scalar_dataset(grp, alt)
     if val is None:
         # Some scalars are attrs of the top group
         attr_name = rel_path.rsplit("/", 1)[-1]

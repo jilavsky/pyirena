@@ -64,11 +64,16 @@ SCHEMA_VERSION = "1.0"
 # ---------------------------------------------------------------------------
 
 def _per_subgroup(key: str, rel_path: str, units: str, label: str,
-                  subgroup_prefix: str) -> dict:
-    """Build a ScalarSpec entry for a quantity that repeats per sub-group."""
+                  subgroup_prefix: str, alt_paths: tuple = ()) -> dict:
+    """Build a ScalarSpec entry for a quantity that repeats per sub-group.
+
+    *alt_paths* are older dataset names for the same quantity, tried in order
+    when *rel_path* is absent (same ``{n}`` template).
+    """
     return {
         "key":              key,
         "path":             rel_path,    # template: {n} = sub-group index (1-based)
+        "alt_paths":        tuple(alt_paths),
         "units":            units,
         "label":            label,
         "per_subgroup":     True,
@@ -183,7 +188,9 @@ TOOL_REGISTRY: dict[str, dict] = {
             _per_subgroup("P",        "level_{n}/P",        "",    "P (Porod exponent)",      "level_"),
             _per_subgroup("ETA",      "level_{n}/ETA",      "Å",   "ETA (corr. hole size)",  "level_"),
             _per_subgroup("PACK",     "level_{n}/PACK",     "",    "PACK (packing factor)",   "level_"),
-            _per_subgroup("RgCutoff", "level_{n}/RgCutoff", "Å",   "RgCutoff",               "level_"),
+            # RgCO: written by pyirena.api.control.save_fit before 2026-11-16.
+            _per_subgroup("RgCutoff", "level_{n}/RgCutoff", "Å",   "RgCutoff",               "level_",
+                          alt_paths=("level_{n}/RgCO",)),
         ],
         "sub_groups": _LEVEL_SUBGROUP,
     },

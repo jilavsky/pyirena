@@ -339,14 +339,11 @@ plot_porod_analysis(model, level_idx=0)
 To see complete examples:
 
 ```bash
-python unified_demo.py
+python -m pyirena.examples.unified_fit_demo
 ```
 
-This runs four demonstrations:
-1. Single-level fit
-2. Two-level hierarchical structure
-3. Correlation function
-4. Real data from NXcanSAS (if you provide a file path)
+It fits a one-level Unified model to synthetic Guinier + power-law data and compares fitted with
+true parameters (`pyirena/examples/unified_fit_demo.py`).
 
 ---
 
@@ -371,9 +368,10 @@ This runs four demonstrations:
 
 ## Need Help?
 
-1. Read the full documentation: README_unified.md
-2. Run the demos: `python unified_demo.py`
+1. Read the full documentation: [Unified Fit](../tools/unified-fit.md)
+2. Run the demo: `python -m pyirena.examples.unified_fit_demo`
 3. Check the references for theory details
-4. Examine the code comments in `unified.py`
+4. Examine the code comments in
+   [`pyirena/core/unified.py`](https://github.com/jilavsky/pyirena/blob/main/pyirena/core/unified.py)
 
 Happy fitting!

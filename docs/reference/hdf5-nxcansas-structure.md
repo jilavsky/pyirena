@@ -71,6 +71,7 @@ with h5py.File("file.h5", "r") as f:
     dI = sd["Idev"][:] if "Idev" in sd else None
 ```
 
+(hdf5-results-groups)=
 ## 5. Results groups and the embedded setup (`_pyirena_config`)
 
 Each analysis tool writes its results to `entry/<tool>_results` (check

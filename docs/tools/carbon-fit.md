@@ -1,4 +1,16 @@
-# Carbon model — GUI Guide
+(carbon-fit)=
+# Carbon model
+
+:::{admonition} At a glance
+:class: tip
+
+**Launch:** `pyirena-gui` → **Models → Carbon model**, or the **Carbon model (GUI)** button. \
+**Python:** `pyirena.api.control` (`select_carbon_model`, `configure_carbon_model`,
+`run_carbon_fit`, …) or `pyirena.batch.fit_carbon(data_file, config_file)`. \
+**MCP:** `pyirena_ctrl_open_dataset`, then the category `"carbon"` tools through `pyirena_call`;
+`pyirena_read_carbon_fit` reads stored results. \
+**Igor equivalent:** none, new in pyIrena.
+:::
 
 The **Carbon model** tool fits the *whole* measured range of a disordered
 carbonaceous material — USAXS through SAXS into WAXS, often five decades in Q
@@ -14,37 +26,31 @@ I(Q) = I_Porod(Q) + I_mp(Q) + I_waxs(Q) + background
 | `I_mp` | The micropore structure — either dilute pores with optional fractal aggregation, or a Teubner-Strey two-phase description | Middle of the range |
 | `I_waxs` | Turbostratic stacking: Voigt diffraction peaks with a Debye-Waller factor and the powder-orientation average | Highest Q |
 
-Everything is refined **together**. That is not a convenience: the contrast
-that scales the background and the micropore term is computed from the fitted
-WAXS peak positions and the porosity, so the regions are coupled through the
-physics. There is deliberately no per-region fit button.
+(carbon-fit-window)=
+## The window
 
-The tool's real value beyond the formulas is the **materials-science
-convenience layer**. Enter a chemical formula once and the fitted peak
-positions give the lattice spacings, the spacings give the structural density,
-the porosity gives the sample density, and each density gives a scattering
-length density and a contrast — feeding back into the SAXS and background
-terms. Out the other side come about twenty quantities a carbon paper actually
-quotes: BET-comparable specific surface areas, pore and wall widths, stack
-height, layers per stack, d-spacings.
+```{figure} img/carbon-fit/carbon-fit-01-window.png
+:alt: Carbon model window after a full-range fit of a synthetic carbon curve. Left, the five tabs (Background shown), Q range and display options, fit and result buttons; right, the log-log I(Q) plot with data, total fit and the three dashed components, residuals below. Numbered circles mark the parts described in the legend.
 
-**Source**: D. Saurel, J. Segalini, M. Jauregui, A. Pendashteh, B. Daffos,
-P. Simon, M. Casas-Cabanas, "A SAXS outlook on disordered carbonaceous
-materials for electrochemical energy storage", *Energy Storage Materials*
-**21** (2019) 162–173, `doi:10.1016/j.ensm.2019.05.007`, with the corrigendum
-*Energy Storage Materials* **28** (2020) 418,
-`doi:10.1016/j.ensm.2020.03.013`. Equation numbers below are the paper's own.
+The Carbon model window after **Fit all** on the synthetic carbon curve described in
+[Typical workflow](#carbon-fit-workflow).
+```
 
-**Units**: Å and Å⁻¹ throughout, as everywhere else in pyIrena. The source
-paper works in nm — its tabulated lengths are ×10 and its Q values ×0.1 before
-they can be compared with anything here. Intensity is cm⁻¹, contrast
-10²⁰ cm⁻⁴, surface area cm²/cm³ (the m²/g number is derived), ⟨δz²⟩ Å².
+A **left control panel** with five tabs, and a **right graph area**.
 
----
+1. **Data file**: the loaded file; **Open…** picks another.
+2. **Tabs**: Background, SAXS region, WAXS region, Material, Results.
+3. **Q range for fit**: the same two values as cursors A and B.
+4. **Show components**, **WAXS zoom** (with **⟲**) and **Auto-update**.
+5. **Graph model**, **Fit all** and **Stop**.
+6. **MC passes**, **Calc. Uncertainty (MC)** and **No limits?**.
+7. **Store in File**, setups, JSON, reports, **Revert back** and **Reset to defaults**.
+8. **Main plot**: data, total fit (red), and the three components dashed — grain Porod (blue),
+   micropores (orange), diffraction (green).
+9. **Residuals**, x-axis linked to the main plot.
+10. **Status line**: the result of the last fit.
 
-## Opening the tool
-
-In the Data Browser:
+To open the tool, in the Data Browser:
 
 1. Select one HDF5 data file.
 2. Click **Carbon model (GUI)**, or use **Models → Carbon model**.
@@ -52,13 +58,47 @@ In the Data Browser:
 Shift-clicking the button forgets the window's remembered position and opens it
 at its default size.
 
----
+% CHECK(Jan): "Data Browser" — the main window is called the Data Selector elsewhere in the docs.
 
-## Panel layout
+(carbon-fit-workflow)=
+## Typical workflow
 
-A **left control panel** with five tabs, and a **right graph area**.
+There is no carbon dataset in `validationData/`, so the screenshots use a synthetic curve made the
+way `pyirena/tests/test_carbon_fit.py` makes one: the model's defaults with
+S_macro = 3.0×10⁴ cm²/cm³, φ = 0.20 and pore radius 7.0 Å, 900 points from 0.001 to 4.47 Å⁻¹,
+2 % noise (seed 7). The Python tab below builds the same curve.
 
-### Graph area
+1. Load the data and press **Graph model**. The default parameters will be
+   wrong, but the three dashed components show you which decade each one is
+   trying to explain.
+2. Get the WAXS peaks roughly in place first, with the **WAXS zoom** on. Their
+   positions set the density and therefore the contrast for everything else.
+3. Set a plausible porosity and pore radius so the middle of the range is in
+   the right order of magnitude.
+4. Fit everything. If it will not converge, untick the parameters you are least
+   sure of, fit, then free them again.
+5. Read the answers off the **Results** tab, not off the parameter values.
+
+```{figure} img/carbon-fit/carbon-fit-02-waxs-zoom.png
+:alt: Carbon model window with the WAXS region tab and WAXS zoom on: the (002), (100) and disabled (004) peak rows on the left, and a third, linear panel under the residuals showing the two diffraction peaks with the fit.
+
+Step 2: the **WAXS region** tab with **WAXS zoom** on, after the fit.
+```
+
+```{figure} img/carbon-fit/carbon-fit-03-results.png
+:alt: Carbon model window with the Results tab: a table of derived quantities (surface areas, micropore volume fraction and radius, d-spacings, stack height, layers per stack, layer extent, densities).
+
+Step 5: the **Results** tab. φ = 0.199 and r = 6.99 Å against the generated 0.20 and 7.0 Å.
+```
+
+% SCREENSHOT carbon-fit-04-real-carbon: full-range USAXS+SAXS+WAXS fit of a real hard carbon
+% (Jan picks the sample), Show components on, WAXS zoom on.
+
+(carbon-fit-controls)=
+## Controls
+
+(carbon-fit-graph)=
+### Graph area and display options
 
 | Panel | Content |
 |---|---|
@@ -89,6 +129,7 @@ very large datasets.
 Every plot carries the standard export menu (clipboard, PNG/JPEG/SVG, whole
 window, curve CSV, Igor ITX).
 
+(carbon-fit-parameter-rows)=
 ### Parameter rows
 
 Every fittable quantity, in every tab, is one row:
@@ -105,9 +146,8 @@ A greyed-out row is a parameter the current model shape does not use — a
 linked geometry parameter, or the branch of the SAXS-region selector that is
 not chosen.
 
----
-
-## Tab: Background
+(carbon-fit-background)=
+### Tab: Background
 
 The grain Porod term, main text eq. (3):
 
@@ -137,15 +177,14 @@ Away from exactly 4 the prefactor stops being a surface area, and the tool
 reports every derived surface area as blank rather than as a wrong number.
 Freeing the exponent and `S_rough` together is over-fitting.
 
----
-
-## Tab: SAXS region
+(carbon-fit-saxs)=
+### Tab: SAXS region
 
 The micropores. Two **mutually exclusive** models — they are alternative
 descriptions of the same pore population, and the paper never sums them.
 Selecting one hides the other's parameters.
 
-### Pores + fractal aggregation (eq. 5–6)
+#### Pores + fractal aggregation (eq. 5–6)
 
 ```
 I_mp(Q) = I₀ · S_fractal(Q; D, Σ, r) · P_globule(Q; r, k)
@@ -167,7 +206,7 @@ then disappear.
 
 Derived: `S_mp = 3φk/r`, the micropore specific surface area.
 
-### Teubner-Strey (eq. 8)
+#### Teubner-Strey (eq. 8)
 
 ```
 I_mp(Q) = I₀ / (1 + C₁·Q² + C₂·Q⁴)
@@ -188,9 +227,8 @@ still reported, but only when `f_a` is actually close to 0.4.
 `f_a` reads as: negative → short-range order, peak-like; ≈ 0.4 → equivalent to
 the globule model above; 1 → fully disordered (Debye-Bueche).
 
----
-
-## Tab: WAXS region
+(carbon-fit-waxs)=
+### Tab: WAXS region
 
 ```
 I_waxs(Q) = envelope(Q) · exp(−Q²⟨δz²⟩/3) · Σ_peaks Voigt_i(Q) / Q²
@@ -228,7 +266,7 @@ you know why not: a fit without it looks perfectly fine and reports a wrong
 amplitude, which is exactly why it is an explicit switch here rather than
 something buried in the peak shape.
 
-### Layer shape: crumpled layers (eq. 16–17)
+#### Layer shape: crumpled layers (eq. 16–17)
 
 For sp² carbons whose layers bend rather than forming flat nanocrystallites,
 the summed peaks are multiplied by a crumpled-layer envelope — a Teixeira
@@ -247,9 +285,8 @@ so the panel says the same thing the optimiser sees. Linking `R` to the pore
 radius is a strong physical assumption (a disc radius is not a pore radius) and
 is off by default.
 
----
-
-## Tab: Material
+(carbon-fit-material)=
+### Tab: Material
 
 The composition → density → contrast chain, and the place to break it when the
 data cannot supply a stage.
@@ -288,9 +325,72 @@ The **Computed now** box shows the whole chain live, updating as the peaks move.
 > goes as 1/(a²c), so a carbon whose lattice is swollen relative to graphite —
 > which every disordered carbon is — is correspondingly *less* dense.
 
----
+(carbon-fit-fitting)=
+### Fitting
 
-## Tab: Results
+| Button | Does |
+|---|---|
+| **Graph model** | Evaluate at the current parameters without fitting |
+| **Fit all** | Refine every ticked parameter across the whole Q range at once |
+| **Stop** | Abort; the parameters go back to where the fit started |
+| **Calc. Uncertainty (MC)** | Re-fit noise-perturbed copies of the data |
+| **Revert back** | Put every parameter back to where the last fit started |
+
+Monte-Carlo uncertainties are more honest than the covariance estimate here,
+because the parameters are always correlated — contrast couples the regions.
+
+**Revert back** is one level of undo, taken automatically at the start of every
+fit. A full-range model with fifteen or more free parameters will sometimes run
+off to a wrong solution, and rebuilding a starting point by hand is the
+expensive part — so revert restores the whole model as it was: values, bounds,
+Fit? flags and the peak list. The Q range is *not* restored, because the
+cursors are yours rather than the fit's. Pressing it twice is harmless. Loading
+a setup or a JSON config drops the snapshot, since it no longer belongs to the
+model on screen.
+
+(carbon-fit-not-moving)=
+#### When a parameter will not move
+
+If a parameter uses the whole evaluation budget and never changes, the panel
+now says why rather than leaving you to compare its value against its bound.
+Two distinct findings, with different remedies:
+
+- **"pinned at a fit limit"** — the value came from the bound, not the data.
+  The field is highlighted amber. A pinned parameter also stops the fit
+  converging, so it burns the whole budget while standing still. Either widen
+  the bound or untick it. The usual cause is asking for something the data does
+  not contain: tick *Pores aggregate into a mass fractal* for a sample with no
+  aggregation and the fractal dimension runs to its lower limit while the
+  cutoff Σ runs the other way, because the pair is degenerate when there is no
+  fractal power law between 1/Σ and 1/r to pin them down.
+- **"refined to zero"** — the fit wants that term to vanish. A result, not an
+  error, but the model is then simpler than the one you set up and that
+  parameter's uncertainty is meaningless.
+
+The **fractal dimension** has one extra safeguard. The Teixeira structure
+factor is only defined for 1 < D < 3 — Γ(D−1) diverges at one end and the
+formula degenerates at the other — so the code clamps D, and *outside the
+clamp the function is flat*. A D parked there has exactly zero gradient and
+cannot be fitted at all, which looks identical to a parameter that was never
+wired up. Fit bounds for D are therefore narrowed to 1.01–2.99 automatically,
+and the fit says so when it has done it. Widening the bound to the physical
+(1, 3) will not help and is silently corrected.
+
+(carbon-fit-results)=
+## Results and outputs
+
+| Button | Does |
+|---|---|
+| **Store in File** | Writes `entry/carbon_fit_results` into the loaded HDF5 file, with the full panel state embedded so the file reopens exactly as you left it |
+| **Load Setup from File…** | Restores every control from a saved result file |
+| **Save / Load params to JSON** | Writes a `carbon_fit` section into a shared `pyirena_config.json` for batch and scripted runs |
+| **Copy report / Save report** | Markdown summary; Ctrl/⌘-click also writes the graph beside it |
+
+Results are written to `entry/carbon_fit_results`; results groups and the embedded setup are
+described in {ref}`hdf5-results-groups`.
+
+(carbon-fit-results-tab)=
+### Tab: Results
 
 Every derived quantity, live, in the units a carbon paper quotes. The table is
 copyable (Ctrl+C, right-click → Copy) and exports to CSV.
@@ -323,84 +423,69 @@ a two-dimensional hk band.
 > tighten the bounds on `FWHM_L`, or hold it fixed at a value from a
 > better-resolved sample.
 
----
+(carbon-fit-trends)=
+### Trend plots and Igor export
 
-## Fitting
+The HDF5 Data Explorer's **Collect** panel offers **Carbon model** as a type,
+with both fitted parameters and derived quantities in one list — for a trend
+across a series both are just "a number per file".
 
-| Button | Does |
-|---|---|
-| **Graph model** | Evaluate at the current parameters without fitting |
-| **Fit all** | Refine every ticked parameter across the whole Q range at once |
-| **Stop** | Abort; the parameters go back to where the fit started |
-| **Calc. Uncertainty (MC)** | Re-fit noise-perturbed copies of the data |
-| **Revert back** | Put every parameter back to where the last fit started |
+Igor export writes four waves per file: `CarbonModelI`, `CarbonPorodI`,
+`CarbonMicroporeI` and `CarbonWAXSI`, all sharing a wave note that carries every
+fitted parameter *and* every derived quantity.
 
-Monte-Carlo uncertainties are more honest than the covariance estimate here,
-because the parameters are always correlated — contrast couples the regions.
+(carbon-fit-scripting)=
+## From Python or AIDA
 
-**Revert back** is one level of undo, taken automatically at the start of every
-fit. A full-range model with fifteen or more free parameters will sometimes run
-off to a wrong solution, and rebuilding a starting point by hand is the
-expensive part — so revert restores the whole model as it was: values, bounds,
-Fit? flags and the peak list. The Q range is *not* restored, because the
-cursors are yours rather than the fit's. Pressing it twice is harmless. Loading
-a setup or a JSON config drops the snapshot, since it no longer belongs to the
-model on screen.
-
-### When a parameter will not move
-
-If a parameter uses the whole evaluation budget and never changes, the panel
-now says why rather than leaving you to compare its value against its bound.
-Two distinct findings, with different remedies:
-
-- **"pinned at a fit limit"** — the value came from the bound, not the data.
-  The field is highlighted amber. A pinned parameter also stops the fit
-  converging, so it burns the whole budget while standing still. Either widen
-  the bound or untick it. The usual cause is asking for something the data does
-  not contain: tick *Pores aggregate into a mass fractal* for a sample with no
-  aggregation and the fractal dimension runs to its lower limit while the
-  cutoff Σ runs the other way, because the pair is degenerate when there is no
-  fractal power law between 1/Σ and 1/r to pin them down.
-- **"refined to zero"** — the fit wants that term to vanish. A result, not an
-  error, but the model is then simpler than the one you set up and that
-  parameter's uncertainty is meaningless.
-
-The **fractal dimension** has one extra safeguard. The Teixeira structure
-factor is only defined for 1 < D < 3 — Γ(D−1) diverges at one end and the
-formula degenerates at the other — so the code clamps D, and *outside the
-clamp the function is flat*. A D parked there has exactly zero gradient and
-cannot be fitted at all, which looks identical to a parameter that was never
-wired up. Fit bounds for D are therefore narrowed to 1.01–2.99 automatically,
-and the fit says so when it has done it. Widening the bound to the physical
-(1, 3) will not help and is silently corrected.
-
-A practical order of work:
-
-1. Load the data and press **Graph model**. The default parameters will be
-   wrong, but the three dashed components show you which decade each one is
-   trying to explain.
-2. Get the WAXS peaks roughly in place first, with the **WAXS zoom** on. Their
-   positions set the density and therefore the contrast for everything else.
-3. Set a plausible porosity and pore radius so the middle of the range is in
-   the right order of magnitude.
-4. Fit everything. If it will not converge, untick the parameters you are least
-   sure of, fit, then free them again.
-5. Read the answers off the **Results** tab, not off the parameter values.
-
----
-
-## Saving and scripting
-
-| Button | Does |
-|---|---|
-| **Store in File** | Writes `entry/carbon_fit_results` into the loaded HDF5 file, with the full panel state embedded so the file reopens exactly as you left it |
-| **Load Setup from File…** | Restores every control from a saved result file |
-| **Save / Load params to JSON** | Writes a `carbon_fit` section into a shared `pyirena_config.json` for batch and scripted runs |
-| **Copy report / Save report** | Markdown summary; Ctrl/⌘-click also writes the graph beside it |
-
-### Batch
+::::{tab-set}
+:::{tab-item} Python
+The control API drives the same model as the window. This builds the synthetic curve of the
+[Typical workflow](#carbon-fit-workflow) and fits it, with no data file:
 
 ```python
+import numpy as np
+
+from pyirena.api.control import (
+    get_carbon_results, open_dataset_from_data, run_carbon_fit, select_carbon_model,
+)
+from pyirena.core.carbon_fit import CarbonFitModel
+
+truth = CarbonFitModel()
+truth.background.S_macro, truth.saxs.phi, truth.saxs.pore_radius = 3.0e4, 0.20, 7.0
+q = np.logspace(-3, 0.65, 900)
+I = truth.evaluate(q) * (1.0 + np.random.default_rng(7).normal(0.0, 0.02, q.shape))
+
+sid = open_dataset_from_data(q.tolist(), I.tolist(), (0.02 * np.abs(I)).tolist(),
+                             label="synthetic carbon")["session_id"]
+select_carbon_model(sid)                    # formula "C", the panel's defaults
+fit = run_carbon_fit(sid)
+print(fit["reduced_chi_squared"])           # about 0.86
+derived = get_carbon_results(sid)["derived"]
+print(derived["mp_phi"], derived["mp_radius"], derived["S_macro"])   # 0.199, 6.99 A, 2.98e4
+```
+:::
+:::{tab-item} AIDA / MCP
+
+The tool has a full control surface under the MCP category `carbon`.
+Parameters are addressed by the model's own dotted keys rather than through one
+setter per control:
+
+`pyirena_read_carbon_fit(path)` returns stored results; its `derived` block is usually the
+answer.
+:::
+::::
+
+The examples below need a carbon data file and a `pyirena_config.json` that are not in the
+repository, so they are shown as text.
+
+% CHECK(Jan): the four examples below were ```python blocks; they reference carbon_powder.h5,
+% data/*.h5 and /data/hard_carbon.h5, which do not exist, so they cannot run as written
+% (phase-5 rule) and are shown as text.
+
+(carbon-fit-batch)=
+### Batch
+
+```text
 from pyirena.batch import fit_carbon
 
 result = fit_carbon("carbon_powder.h5", "pyirena_config.json")
@@ -411,7 +496,7 @@ if result["success"]:
 
 Or across a folder, through the shared pipeline:
 
-```python
+```text
 from pathlib import Path
 from pyirena.batch import fit_pyirena
 
@@ -422,22 +507,24 @@ for path in sorted(Path("data").glob("*.h5")):
 The config section *is* the model's `to_dict()`, so anything the panel can set
 is scriptable with no separate translation layer.
 
+(carbon-fit-reading)=
 ### Reading results back
 
-```python
+```text
 import pyirena.api as api
 
 res = api.read_carbon_fit("carbon_powder.h5")
 print(res["derived"]["w_pore"], res["derived"]["w_carbon"])
 ```
 
+(carbon-fit-agent)=
 ### Driving it from an agent
 
 The tool has a full control surface under the MCP category `carbon`.
 Parameters are addressed by the model's own dotted keys rather than through one
 setter per control:
 
-```python
+```text
 import pyirena.api.control as ctrl
 
 sid = ctrl.open_dataset("/data/hard_carbon.h5")["session_id"]
@@ -454,19 +541,32 @@ Which keys exist depends on the model's shape, so `list_carbon_parameters`
 after every `configure_carbon_model` is the discovery step, not an optional
 one.
 
----
+(carbon-fit-method)=
+## Method notes
 
-## Trend plots and Igor export
+(carbon-fit-model)=
+### The model
 
-The HDF5 Data Explorer's **Collect** panel offers **Carbon model** as a type,
-with both fitted parameters and derived quantities in one list — for a trend
-across a series both are just "a number per file".
+Everything is refined **together**. That is not a convenience: the contrast
+that scales the background and the micropore term is computed from the fitted
+WAXS peak positions and the porosity, so the regions are coupled through the
+physics. There is deliberately no per-region fit button.
 
-Igor export writes four waves per file: `CarbonModelI`, `CarbonPorodI`,
-`CarbonMicroporeI` and `CarbonWAXSI`, all sharing a wave note that carries every
-fitted parameter *and* every derived quantity.
+The tool's real value beyond the formulas is the **materials-science
+convenience layer**. Enter a chemical formula once and the fitted peak
+positions give the lattice spacings, the spacings give the structural density,
+the porosity gives the sample density, and each density gives a scattering
+length density and a contrast — feeding back into the SAXS and background
+terms. Out the other side come about twenty quantities a carbon paper actually
+quotes: BET-comparable specific surface areas, pore and wall widths, stack
+height, layers per stack, d-spacings.
 
----
+**Units**: Å and Å⁻¹ throughout, as everywhere else in pyIrena. The source
+paper works in nm — its tabulated lengths are ×10 and its Q values ×0.1 before
+they can be compared with anything here. Intensity is cm⁻¹, contrast
+10²⁰ cm⁻⁴, surface area cm²/cm³ (the m²/g number is derived), ⟨δz²⟩ Å².
+
+Theory per region is under the tab sections in [Controls](#carbon-fit-controls); the physics is that of the source paper below, with the corrections stated there.
 
 ## Notes and limitations
 
@@ -480,3 +580,12 @@ fitted parameter *and* every derived quantity.
 - Validation is against analytic ground truth (synthesise from known
   parameters, refit, recover them) rather than against Igor Irena, which has no
   equivalent tool. See `pyirena/tests/test_carbon_fit.py`.
+
+## References
+
+D. Saurel, J. Segalini, M. Jauregui, A. Pendashteh, B. Daffos,
+P. Simon, M. Casas-Cabanas, "A SAXS outlook on disordered carbonaceous
+materials for electrochemical energy storage", *Energy Storage Materials*
+**21** (2019) 162–173, `doi:10.1016/j.ensm.2019.05.007`, with the corrigendum
+*Energy Storage Materials* **28** (2020) 418,
+`doi:10.1016/j.ensm.2020.03.013`. Equation numbers below are the paper's own.

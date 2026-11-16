@@ -1,46 +1,19 @@
-# pyIrena GUI Module
+(data-selector)=
+# Data Selector
 
-Graphical user interface for pyIrena data analysis.
+:::{admonition} At a glance
+:class: tip
 
-## Installation
+**Launch:** `pyirena-gui`, or `python -m pyirena.gui.launch`. It is the main pyIrena window:
+every other tool is opened from it. \
+**Python:** `pyirena.api.list_files`, `summarize_folder`, `plot_iq`; the **(script)** buttons
+run `pyirena.batch` (`fit_pyirena(data_file, config_file)`). \
+**MCP:** `pyirena_list_files`, `pyirena_summarize_folder`, `pyirena_plot_iq`,
+`pyirena_tabulate_parameter`. \
+**Igor equivalent:** none, new in pyIrena.
+:::
 
-Install pyIrena with GUI support:
-
-```bash
-pip install pyirena[gui]
-```
-
-This will install:
-- PySide6 (Qt6 for Python)
-- matplotlib (for plotting)
-
-## Running the GUI
-
-### Method 1: Command Line Entry Point
-
-```bash
-pyirena-gui
-```
-
-### Method 2: Python Module
-
-```bash
-python -m pyirena.gui.launch
-```
-
-### Method 3: From Python Script
-
-```python
-from pyirena.gui.data_selector import main
-
-main()
-```
-
-## Features
-
-### Data Selector Panel
-
-The main GUI provides:
+Graphical user interface for pyIrena data analysis. The main GUI provides:
 
 1. **Folder Selection** - Browse and select data directories
 2. **File Type Filtering** - Choose between:
@@ -57,9 +30,39 @@ The main GUI provides:
    - Multiple datasets overlaid
    - Legend and labels
 
-## Usage
+This page also describes behaviour shared by every pyIrena window:
+[getting graphs and tables out](#getting-graphs-and-tables-out),
+[opening data by dragging it in](#data-selector-drag-and-drop) and
+[windows that remember where they were](#data-selector-window-geometry).
 
-### Basic Workflow
+(data-selector-window)=
+## The window
+
+```{figure} img/data-selector/data-selector-01-window.png
+:alt: pyIrena Data Selector with the folder /tmp/pyirena-docs/unified open and three files selected; on the right the Show in graph / reports checkboxes, the Create Graph, Create Report, Tabulate Results, Export to ASCII and Data Explorer buttons, the Analysis Tools buttons and the Data Processing & Reference buttons. Numbered circles mark the parts described in the legend.
+
+The Data Selector on a folder of three stored Unified Fits.
+```
+
+1. **Select Data Folder** and **Refresh**; the folder in use is shown beside them.
+2. **File Type**: HDF5, text or all supported files.
+3. **Sort** order of the file list.
+4. **Filter** (regular expressions allowed).
+5. **File list**: click, Ctrl/Cmd+click, Shift+click; double-click plots.
+6. **Configure…**, **Manage Config…**, **Locate Logs…**.
+7. **Show in graph / reports**: which stored results the buttons below use.
+8. **Create Graph**, **Create Report**, **Tabulate Results**, **Export to ASCII**.
+9. **Data Explorer**.
+10. **Analysis Tools**: each tool's window (GUI) or a batch fit of all selected files (script).
+11. **Data Processing & Reference**: Data Merge, Data Manipulation, Scattering Contrast
+    Calculator, Fractals, Import Igor Experiment….
+12. **Status line**.
+
+(data-selector-workflow)=
+## Typical workflow
+
+The steps use a folder named `unified` holding copies of the three files in
+`validationData/unified/`, each with a Unified Fit stored in it.
 
 1. **Launch the GUI**
    ```bash
@@ -68,7 +71,7 @@ The main GUI provides:
 
 2. **Select Data Folder**
    - Click "Select Data Folder" button
-   - Navigate to your data directory
+   - Navigate to your data directory (here `unified`)
    - Click "Select Folder"
 
 3. **Choose File Type**
@@ -92,7 +95,67 @@ The main GUI provides:
    - Graph opens in new window
    - Multiple files plotted together
 
-### Keyboard Shortcuts
+   With **Unified Fit** checked under *Show in graph / reports*, the graph shows the stored
+   fits with their residuals:
+
+   ```{figure} img/data-selector/data-selector-02-graph.png
+   :alt: Unified Fit Results graph for the three files: data and fitted model of each file with chi-squared in the legend, and rescaled residuals below.
+
+   **Create Graph** with *Data* and *Unified Fit* checked.
+   ```
+
+7. **Tabulate the results.** Click **Tabulate Results** for a table of the stored parameters
+   of every selected file; **Save as CSV…** writes it out.
+
+   ```{figure} img/data-selector/data-selector-03-tabulate.png
+   :alt: Tabulated results window: one row per file with UF_chi2, UF_background, UF_num_levels, L1_G and further columns, and a Save as CSV button.
+
+   **Tabulate Results** for the three files.
+   ```
+
+(data-selector-controls)=
+## Controls
+
+(data-selector-file-controls)=
+### Folder and files
+
+| Control | Meaning | Default | Tips |
+|---|---|---|---|
+| **Select Data Folder** | Browse to a folder containing NXcanSAS/HDF5 data files | | The last folder is reopened next time |
+| **Refresh** | Re-scan the current folder and update the file list | | Use after adding or removing files from the folder |
+| **File Type** | HDF5 Files (.hdf, .h5, .hdf5), Text Files (.txt, .dat, .csv), All Supported Files | HDF5 Files | Text files are converted to cleaned NXcanSAS on first use |
+| **Sort** | Order of the file list (same choices as the Data Explorer, see {ref}`data-explorer-file-select`) | Filename A→Z | |
+| **Filter** | Grep-like filtering of file names, with full regular expression support | empty | |
+| **Configure…** | Configure data loading options | | |
+| **Manage Config…** | Inspect and remove tool sections from `pyirena_config.json` | | Use this to prevent unwanted tools from running during batch fitting |
+| **Locate Logs…** | Open the pyirena log folder (`~/.pyirena/logs`) | | Attach the newest `gui.log` when reporting a problem |
+
+(data-selector-results-controls)=
+### Graphs, reports and tables
+
+| Control | Meaning | Default | Tips |
+|---|---|---|---|
+| **Show in graph / reports** checkboxes | **Data**, **Unified Fit**, **Size Dist.**, **Simple Fits**, **WAXS Peaks**, **Carbon model**, **Modeling**, **3D saxsMorph**, **Fractals**: which stored results the graph, report and table use | Data | Files without the chosen results are skipped |
+| **Create Graph** | Plot I(Q) for all selected files in a new graph window | | Double-clicking a file does the same |
+| **Create Report** | Generate a Markdown report (.md) summarising the Unified Fit results for each selected HDF5 file | | Files without stored fit results are skipped |
+| **Tabulate Results** | Build a table of fit results for selected files and display it | | Results included depend on the checked checkboxes; save as CSV |
+| **Export to ASCII** | Write space-separated `.dat` files (Q, I, dI) into an `ascii_export` subfolder next to each selected HDF5 file | | Model curves are added per checked result type when enabled in **Configure…** |
+| **Data Explorer** | Open the [Data Explorer](data-explorer.md) to browse, plot, and export data from HDF5 files | | Including export to Igor Pro h5xp format |
+
+(data-selector-tool-buttons)=
+### Tool buttons
+
+| Control | Meaning | Default | Tips |
+|---|---|---|---|
+| ***Tool* (GUI)** | Open the tool's panel for the first selected file | | Hold **Shift** while clicking to reset the tool's window position (see below) |
+| ***Tool* (script)** | Batch-fit all selected files with the tool using `pyirena_config.json`; results are saved into each file's NXcanSAS record | | See [Batch API](../guides/batch-api.md) for the config file |
+| **Data Merge**, **Data Manipulation**, **Scattering Contrast Calculator**, **Fractals** | Open that tool | | |
+| **Import Igor Experiment…** | Open an Igor Pro packed experiment (.pxp or .h5xp) and export each reduced USAXS/SAXS/WAXS sample into a NeXus (.h5) file | | See [Igor experiment import](../guides/igor-pxp-import.md) |
+
+The same tools are in the **Models** and **Tools** menus.
+
+(data-selector-shortcuts)=
+### Keyboard shortcuts
 
 Every window:
 
@@ -106,7 +169,15 @@ In the file list:
 - **Ctrl/Cmd + A**: Select all visible files
 - **Ctrl/Cmd + Click**: Add/remove from selection
 
-### Getting graphs and tables out of pyIrena
+(data-selector-results)=
+## Results and outputs
+
+The Data Selector reads the results the tools stored in each file; **(script)** buttons write
+new results into the selected files. Graphs, reports, tables and ASCII files are the outputs
+it makes itself, as described in the tables above and in the next section.
+
+(getting-graphs-and-tables-out)=
+## Getting graphs and tables out of pyIrena
 
 Every graph and every table behaves the same way, in every panel.
 
@@ -119,6 +190,10 @@ Every graph and every table behaves the same way, in every panel.
 | Save whole window as image… | All stacked panels at once (data + residuals + distribution) |
 | Save curve data as CSV… | The plotted curves as text — one `X`/`Y` (and `dY` where errors exist) column pair per curve, for Excel, Origin, Matlab or pandas |
 | Save as Igor Pro ITX… | Igor Pro Text waves with display, log-axis, colour and legend commands |
+
+% SCREENSHOT data-selector-04-export-menu: right-click context menu on a graph (e.g. the Create
+% Graph window) showing Copy graph to clipboard, Save graph as image…, Save whole window as image…,
+% Save curve data as CSV…, Save as Igor Pro ITX… (a popup menu does not grab offscreen).
 
 Exported curves are always in **linear (physical) units**, even when the plot
 is logarithmic, and error bars are exported as an uncertainty column/wave
@@ -160,7 +235,62 @@ formatted one way in the panel and another way in the report.
 | Right-click → Save as CSV… | The table as a CSV file, where the panel supports it |
 | Click a column header | Sort; numeric columns sort numerically and blanks sort last.  Not offered where row order carries meaning |
 
-### Opening data by dragging it in
+(data-selector-scripting)=
+## From Python or AIDA
+
+::::{tab-set}
+:::{tab-item} Python
+The folder listing and the I(Q) graph without the window. Run from the repository root:
+
+```python
+from pyirena import api
+
+files = api.list_files("validationData/unified", sort="name_asc")
+for f in files:
+    print(f["name"], f["analyses"])               # analyses stored in each file
+
+print(api.summarize_folder("validationData/unified")["n_files"])
+api.plot_iq([f["path"] for f in files], output_path="unified_iq.png")
+```
+
+The **(script)** buttons call `pyirena.batch.fit_pyirena(data_file, config_file)` on each
+selected file; see [Batch API](../guides/batch-api.md).
+:::
+:::{tab-item} AIDA / MCP
+Ask in plain language, for example *"What is in this folder, and which files already have a
+Unified Fit?"* The agent calls `pyirena_summarize_folder` and `pyirena_list_files`;
+`pyirena_plot_iq` draws the curves and `pyirena_tabulate_parameter` builds the table. See the
+[AI tools reference](../reference/ai-tools-reference.md).
+:::
+::::
+
+(data-selector-method)=
+## Method notes
+
+### HDF5 Files (NXcanSAS)
+
+The GUI uses `pyirena.io.hdf5.readGenericNXcanSAS()` to load:
+- Q: Scattering vector [1/Å]
+- Intensity: [cm⁻¹]
+- Error: Uncertainties (optional)
+- dQ: Q resolution (optional)
+
+### Text Files (Future)
+
+Support for tab/space delimited text files will be added:
+- Column 1: Q
+- Column 2: Intensity
+- Column 3: Error (optional)
+
+% CHECK(Jan): text files are already supported (File Type "Text Files", converted to NXcanSAS on
+% first use, see guides/data-import-and-cleaning); this "Future" section is stale.
+
+## References
+
+None.
+
+(data-selector-drag-and-drop)=
+## Opening data by dragging it in
 
 Drag files from Finder or Explorer onto a pyIrena window and they open — no
 Select Folder, no hunting through a list.  It works on:
@@ -180,7 +310,8 @@ it is openable — the cursor tells you before you let go.  Text files
 as when opened from the dialog.  A fitting panel holds one dataset, so dropping
 several files there loads the first.
 
-### Windows remember where they were
+(data-selector-window-geometry)=
+## Windows remember where they were
 
 Each pyIrena window reopens at the size and position you left it, and panels
 with a draggable divider also remember how wide you made the controls.  This is
@@ -215,26 +346,42 @@ gesture is on the tool buttons only.)
 Minimised and full-screen windows are not saved — restoring a window that opens
 minimised would be its own trap.
 
-## Data Format Support
+(data-selector-installation)=
+## Installation and running
 
-### HDF5 Files (NXcanSAS)
+Install pyIrena with GUI support:
 
-The GUI uses `pyirena.io.hdf5.readGenericNXcanSAS()` to load:
-- Q: Scattering vector [1/Å]
-- Intensity: [cm⁻¹]
-- Error: Uncertainties (optional)
-- dQ: Q resolution (optional)
+```bash
+pip install pyirena[gui]
+```
 
-### Text Files (Future)
+This will install:
+- PySide6 (Qt6 for Python)
+- matplotlib (for plotting)
 
-Support for tab/space delimited text files will be added:
-- Column 1: Q
-- Column 2: Intensity
-- Column 3: Error (optional)
+**Method 1: Command Line Entry Point**
 
-## Example Test Data
+```bash
+pyirena-gui
+```
 
-Create a test data directory:
+**Method 2: Python Module**
+
+```bash
+python -m pyirena.gui.launch
+```
+
+**Method 3: From Python Script**
+
+% The block below is not run by the snippet check: it opens the window and waits for it to close.
+
+```{code-block} python
+from pyirena.gui.data_selector import main
+
+main()
+```
+
+**Example test data.** Create a test data directory:
 
 ```bash
 mkdir testData
@@ -243,7 +390,7 @@ mkdir testData
 
 The GUI will automatically detect files with supported extensions.
 
-## Requirements
+**Requirements**
 
 - Python 3.10+
 - PySide6
@@ -251,6 +398,7 @@ The GUI will automatically detect files with supported extensions.
 - numpy
 - h5py
 
+(data-selector-troubleshooting)=
 ## Troubleshooting
 
 ### "No module named PySide6"
@@ -273,6 +421,10 @@ Check that:
 - Ensure matplotlib Qt backend is working
 - Try: `pip install --upgrade matplotlib PySide6`
 
+% CHECK(Jan): the Data Selector graphs are pyqtgraph, not matplotlib; "matplotlib Qt backend"
+% advice may be stale.
+
+(data-selector-development)=
 ## Development
 
 ### Adding New Features
@@ -295,6 +447,10 @@ cd pyirena/gui
 python data_selector.py
 ```
 
+% CHECK(Jan): stale paths — the panel is now pyirena/gui/data_selector/panel.py, Qt detection is
+% pyirena/gui/_qt.py, and pyirena/gui/data_selector.py no longer exists (so the Testing command
+% fails). developer/adding-features.md is the current checklist.
+
 ## Future Features
 
 - [ ] Text file support
@@ -305,9 +461,8 @@ python data_selector.py
 - [ ] Batch processing
 - [ ] Session saving/loading
 
-## Screenshots
-
-(Add screenshots here when available)
+% CHECK(Jan): most of these exist now (text import, Unified Fit panel, interactive fitting,
+% graph export, data processing tools, batch processing, setup save/restore).
 
 ## Contributing
 

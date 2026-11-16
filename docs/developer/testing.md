@@ -15,13 +15,10 @@ pip install -e ".[gui]"
 - matplotlib (for plotting)
 - numpy, scipy, h5py (dependencies)
 
-### 2. Generate test data
+### 2. Test data
 
-```bash
-python create_test_data.py
-```
-
-**This creates 6 HDF5 test files in `testData/`:**
+The test files are tracked in git in `testData/` (the generator script `create_test_data.py`
+no longer exists). Among them:
 - `complexUnified.h5` - Your requested test file ⭐
 - `spheres_Rg50.h5` - Small particles
 - `spheres_Rg100.h5` - Large particles
@@ -29,13 +26,10 @@ python create_test_data.py
 - `surface_fractal.h5` - Surface fractal
 - `hierarchical_structure.h5` - Two-level
 
-### 2b. Generate text (.dat) files (Optional)
+### 2b. Text (.dat) files
 
-```bash
-python convert_to_dat.py
-```
-
-**This creates corresponding .dat files from the HDF5 files:**
+`testData/` also holds the same curves as text files (the converter `convert_to_dat.py` no
+longer exists):
 - `complexUnified.dat`
 - `spheres_Rg50.dat`
 - `spheres_Rg100.dat`
@@ -53,9 +47,6 @@ pyirena-gui
 ```bash
 # Using Python module
 python -m pyirena.gui.launch
-
-# Direct execution
-python pyirena/gui/data_selector.py
 ```
 
 ### 4. Use the GUI
@@ -210,10 +201,9 @@ with h5py.File('testData/complexUnified.h5', 'r') as f:
     # Should show: ['entry1']
 ```
 
-**Regenerate test data:**
+**Restore the test data** (it is tracked in git):
 ```bash
-rm testData/*.h5
-python create_test_data.py
+git checkout -- testData/
 ```
 
 ### Problem: "Create Graph" button is disabled
@@ -238,7 +228,7 @@ If you have your own HDF5 files:
 Create many files:
 
 ```python
-# Modify create_test_data.py to generate 100 files
+# create_nxcansas_file is your own writer; any NXcanSAS writer will do
 for i in range(100):
     create_nxcansas_file(f'testData/test_{i:03d}.h5', q, I, error)
 ```
@@ -294,7 +284,7 @@ The GUI test is successful if:
 Once GUI works:
 
 1. **Try your own data** - Load real experimental files
-2. **Customize appearance** - Modify styles in data_selector.py
+2. **Customize appearance** - Modify styles in `pyirena/gui/data_selector/` and `pyirena/gui/theme.py`
 3. **Add features** - Extend the GUI with new panels
 4. **Report issues** - Open GitHub issues for bugs
 5. **Request features** - Suggest improvements
@@ -321,3 +311,35 @@ Include:
 ---
 
 **Happy Testing! 🧪**
+
+(updating-doc-screenshots)=
+## Updating documentation screenshots
+
+The screenshots on the tool pages (`docs/tools/img/<page>/<id>.png`) are made by a script, not
+by hand, so they can be regenerated whenever a window changes. With the GUI extras installed, from
+the repository root:
+
+```bash
+python scripts/make_doc_screenshots.py                    # every automated shot
+python scripts/make_doc_screenshots.py --only unified-fit # one page
+python scripts/make_doc_screenshots.py --only unified-fit-03-guinier-fit   # one shot
+python scripts/make_doc_screenshots.py --list             # what is registered
+```
+
+A full run makes 42 images in about a minute and a half (Apple silicon Mac).
+
+The script opens each panel offscreen with pyIrena's light theme at a fixed window size, on a
+copy of a dataset from `validationData/` (or `testData/`), sets the state (runs the fit, selects
+a tab) and saves a PNG. The numbered callouts on "The window" shots are drawn from the widgets'
+own positions, so they follow layout changes. Your settings are not touched: the script uses a
+temporary settings folder and never writes into the data folders.
+
+- Shots are defined in `scripts/doc_shots/<page>.py`, one function per shot, registered with
+  `@shot("<page>-<nn>-<what>")`.
+- Every shot, automated or not, has a row in `planning/docs-screenshots/SHOTLIST.md`. Shots that
+  need judgment stay as invisible `% SCREENSHOT <id>: …` comments in the page until someone
+  takes them by hand.
+- `pytest pyirena/tests/test_doc_screenshots.py` checks that the pages, the shot list, the
+  images and the script agree. The script itself is not part of the test suite.
+- Fonts come from the operating system: regenerate a page's shots on one machine, and review the
+  images (`git diff --stat docs/tools/img`) before committing.

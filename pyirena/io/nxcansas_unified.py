@@ -473,6 +473,11 @@ def load_unified_fit_results(filepath: Path) -> Dict:
                     if key not in level_params:
                         level_params[key] = level_group.attrs[key]
 
+                # The results name is RgCutoff; files saved by
+                # pyirena.api.control.save_fit before 2026-11-16 wrote RgCO.
+                if 'RgCutoff' not in level_params and 'RgCO' in level_params:
+                    level_params['RgCutoff'] = level_params.pop('RgCO')
+
                 results['levels'].append(level_params)
 
     log.info(f"Loaded Unified Fit results from {filepath}")

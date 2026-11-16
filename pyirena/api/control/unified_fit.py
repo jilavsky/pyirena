@@ -1349,7 +1349,10 @@ def save_fit(session_id: str, output_path: Optional[str] = None) -> dict:
     levels_dicts = [
         {
             "Rg": lv.Rg, "G": lv.G, "P": lv.P, "B": lv.B,
-            "ETA": lv.ETA, "PACK": lv.PACK, "RgCO": lv.RgCO,
+            "ETA": lv.ETA, "PACK": lv.PACK,
+            # Saved results use the frozen name RgCutoff (GUI and batch
+            # write it too); RgCO is the settings/model name.
+            "RgCutoff": lv.RgCO,
         }
         for lv in model.levels
     ]
