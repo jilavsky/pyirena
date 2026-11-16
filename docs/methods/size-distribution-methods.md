@@ -1,7 +1,7 @@
 # Size Distribution Fitting Methods
 
-pyIrena implements three independent inversion methods for recovering a particle
-size distribution P(r) from small-angle scattering (SAS) data.  All three share
+pyIrena implements four independent inversion methods for recovering a particle
+size distribution P(r) from small-angle scattering (SAS) data.  All four share
 the same G-matrix framework — the forward model is always:
 
 ```
@@ -9,7 +9,7 @@ I(Q) = G · x + background
 ```
 
 where `x` is the bin amplitude vector (related to P(r) by bin width), and each
-row of G contains the form-factor integral for one (Q, r) pair.  The three
+row of G contains the form-factor integral for one (Q, r) pair.  The four
 methods differ only in how they choose x from the (severely underdetermined)
 inverse problem.
 
