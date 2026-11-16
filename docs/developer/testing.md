@@ -326,6 +326,8 @@ python scripts/make_doc_screenshots.py --only unified-fit-03-guinier-fit   # one
 python scripts/make_doc_screenshots.py --list             # what is registered
 ```
 
+A full run makes 42 images in about a minute and a half (Apple silicon Mac).
+
 The script opens each panel offscreen with pyIrena's light theme at a fixed window size, on a
 copy of a dataset from `validationData/` (or `testData/`), sets the state (runs the fit, selects
 a tab) and saves a PNG. The numbered callouts on "The window" shots are drawn from the widgets'
