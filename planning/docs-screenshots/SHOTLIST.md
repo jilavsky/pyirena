@@ -123,6 +123,8 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| feature-identifier-01-window | feature-identifier | validationData/unified/unified_two_level.h5 | loaded in Unified Fit, Identify Features…, Show advanced params, Detect segments; dialog 440×760; callouts 1–5 | parameters, buttons, result summary | yes | done |
+| feature-identifier-02-markers | feature-identifier | validationData/unified/unified_two_level.h5 | as 01 without advanced params; grab the Unified Fit graph | GP/PLS regions and GK bands with labels | yes | done |
 
 ## diffraction-lines
 
