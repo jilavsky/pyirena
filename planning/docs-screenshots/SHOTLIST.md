@@ -98,6 +98,9 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| scattering-contrast-01-window | scattering-contrast | none: magnetite (Fe3O4, 5.17) in water (H2O, 1.0) | both compounds set, Parse, Calculate at 12 keV; window 1120×1140; callouts 1–11 | whole window, filled results table, status line | yes | done |
+| scattering-contrast-02-energy-scan | scattering-contrast | none: magnetite in water | Energy Scan 6.5–8.0 keV, 300 points; graph window 900×760 | contrast dip and absorption jump at the Fe K edge | yes | done |
+| scattering-contrast-03-import-dialog | scattering-contrast | a compounds file with several entries (Jan prepares) | Import from File… on that file | the Load Selected into Slot / Add All to Local Library dialog | no | todo |
 
 ## data-explorer
 
