@@ -77,6 +77,10 @@ Column order: ID · page · dataset · state to set up · must show · automated
 
 | ID | page | dataset | state to set up | must show | automated? | status |
 |---|---|---|---|---|---|---|
+| carbon-fit-01-window | carbon-fit | synthetic carbon curve made by the script (test_carbon_fit noisy case: S_macro 3e4, φ 0.20, r 7 Å, seed 7) | panel defaults, Fit all; callouts 1–10 | whole window, three dashed components, residuals, status | yes | done |
+| carbon-fit-02-waxs-zoom | carbon-fit | as 01 | as 01, WAXS region tab, WAXS zoom on | peak rows and the linear WAXS panel | yes | done |
+| carbon-fit-03-results | carbon-fit | as 01 | as 01, Results tab | derived-quantity table | yes | done |
+| carbon-fit-04-real-carbon | carbon-fit | real hard carbon USAXS+SAXS+WAXS (Jan picks) | full-range fit, Show components, WAXS zoom | a real carbon fit | no | todo |
 
 ## saxs-morph
 
