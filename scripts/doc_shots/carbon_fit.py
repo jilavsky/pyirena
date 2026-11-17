@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ._common import Context, draw_callouts, scene_item_rect, shot, widget_rect
+from ._package import wait_jobs
 
 SIZE = (1300, 1000)
 TRUTH = {"S_macro": 3.0e4, "phi": 0.20, "pore_radius": 7.0}
@@ -54,7 +55,7 @@ def _open(ctx: Context):
 def _fitted(ctx: Context):
     panel = _open(ctx)
     panel._on_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     return panel
 
 

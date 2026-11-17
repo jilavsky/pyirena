@@ -9,6 +9,7 @@ G = 4000, Rg = 1200 Å, P = 3.2, RgCO linked to Rg of level 1; background
 from __future__ import annotations
 
 from ._common import Context, draw_callouts, scene_item_rect, shot, widget_rect
+from ._package import wait_jobs
 
 SIZE = (1200, 960)  # the panel's own default size
 DATASET = "unified/unified_two_level.h5"
@@ -48,7 +49,7 @@ def _fitted(ctx: Context):
     panel = _open(ctx)
     _two_level_start(ctx, panel)
     panel.run_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     return panel
 
 
@@ -94,7 +95,7 @@ def guinier_fit(ctx: Context):
     panel.level_tabs.setCurrentIndex(1)
     ctx.settle()
     panel.fit_local_guinier(2)
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     return panel.grab()
 
 
@@ -117,5 +118,5 @@ def slit_smeared(ctx: Context):
     panel.fit_background_check.setChecked(True)
     ctx.settle()
     panel.run_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     return panel.grab()

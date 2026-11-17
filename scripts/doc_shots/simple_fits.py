@@ -12,6 +12,7 @@ Datasets (validationData/README.md):
 from __future__ import annotations
 
 from ._common import Context, draw_callouts, scene_item_rect, shot, widget_rect
+from ._package import wait_jobs
 
 SIZE = (1200, 900)  # the coded 1200×700 clips the parameter grid; taller shows it all
 
@@ -36,7 +37,7 @@ def _set(panel, name: str, value: float, fit: bool | None = None) -> None:
 
 def _fit(ctx: Context, panel) -> None:
     panel._run_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
 
 
 def _guinier_fitted(ctx: Context):

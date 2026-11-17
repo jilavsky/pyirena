@@ -11,7 +11,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from ._common import VALIDATION, Context, draw_callouts, shot, widget_rect
+from ._common import Context, draw_callouts, shot, widget_rect
+from ._package import VALIDATION
 
 SIZE = (1150, 700)  # the window's own default size
 GRAPH_SIZE = (760, 560)

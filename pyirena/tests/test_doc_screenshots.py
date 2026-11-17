@@ -1,7 +1,9 @@
 """The documentation screenshots, the shot list and the pages agree.
 
-Screenshots in ``docs/tools/`` have an ID ``<page>-<nn>-<what>`` and live at
-``docs/tools/img/<page>/<id>.png``. A page either shows the image (a MyST
+Copied from jilavsky-docs/templates/package-docs (derived from pyIrena).
+A screenshot has an ID ``<page>-<nn>-<what>``, where ``<page>`` is the file
+name of a page under ``docs/``, and lives next to it at
+``<page dir>/img/<page>/<id>.png``. A page either shows the image (a MyST
 ``figure``) or holds an invisible placeholder comment
 ``% SCREENSHOT <id>: <what to shoot>``. Every ID has one row in
 ``planning/docs-screenshots/SHOTLIST.md``; automated shots have a
@@ -19,9 +21,16 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
+
+def _find_repo() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    return Path(__file__).resolve().parent
+
+
+REPO = _find_repo()
 DOCS = REPO / "docs"
-IMG = DOCS / "tools" / "img"
 SHOTLIST = REPO / "planning" / "docs-screenshots" / "SHOTLIST.md"
 SHOTS_DIR = REPO / "scripts" / "doc_shots"
 
@@ -30,35 +39,41 @@ PLACEHOLDER_RE = re.compile(rf"^\s*%\s*SCREENSHOT\s+({ID})\s*:", re.M)
 IMAGE_REF_RE = re.compile(rf"img/([a-z0-9-]+)/({ID})\.png")
 ROW_RE = re.compile(rf"^\|\s*({ID})\s*\|(.*)\|\s*$", re.M)
 SHOT_DECO_RE = re.compile(rf"@shot\(\s*[\"']({ID})[\"']\s*\)")
+COLS = ["page", "dataset", "state", "must_show", "automated", "status"]
 
-pytestmark = pytest.mark.skipif(not DOCS.is_dir(), reason="docs/ not present (installed package)")
+pytestmark = pytest.mark.skipif(
+    not (DOCS.is_dir() and SHOTLIST.is_file()), reason="docs/ or SHOTLIST.md not present"
+)
 
 
 def _pages() -> dict[Path, str]:
-    return {p: p.read_text(encoding="utf-8") for p in DOCS.rglob("*.md")
-            if "_build" not in p.parts}
+    return {
+        p: p.read_text(encoding="utf-8")
+        for p in DOCS.rglob("*.md")
+        if "_build" not in p.parts and not p.name.startswith("_")
+    }
 
 
 def _placeholders() -> list[tuple[str, Path]]:
-    return [(m.group(1), p) for p, text in _pages().items()
-            for m in PLACEHOLDER_RE.finditer(text)]
+    return [(m.group(1), p) for p, text in _pages().items() for m in PLACEHOLDER_RE.finditer(text)]
 
 
 def _image_refs() -> list[tuple[str, str, Path]]:
-    """(page folder, id, referencing page) for every docs/tools/img reference."""
-    return [(m.group(1), m.group(2), p) for p, text in _pages().items()
-            for m in IMAGE_REF_RE.finditer(text)]
+    """(img folder, id, referencing page) for every img/<page>/<id>.png reference."""
+    return [
+        (m.group(1), m.group(2), p)
+        for p, text in _pages().items()
+        for m in IMAGE_REF_RE.finditer(text)
+    ]
 
 
 def _shotlist() -> dict[str, dict[str, str]]:
     rows = {}
-    cols = ["page", "dataset", "state", "must_show", "automated", "status"]
-    text = SHOTLIST.read_text(encoding="utf-8")
-    for m in ROW_RE.finditer(text):
+    for m in ROW_RE.finditer(SHOTLIST.read_text(encoding="utf-8")):
         cells = [c.strip() for c in m.group(2).split("|")]
-        assert len(cells) == len(cols), f"SHOTLIST row {m.group(1)}: expected 7 columns"
+        assert len(cells) == len(COLS), f"SHOTLIST row {m.group(1)}: expected 7 columns"
         assert m.group(1) not in rows, f"duplicate ID in SHOTLIST: {m.group(1)}"
-        rows[m.group(1)] = dict(zip(cols, cells, strict=True))
+        rows[m.group(1)] = dict(zip(COLS, cells, strict=True))
     return rows
 
 
@@ -66,9 +81,8 @@ def _page_of(shot_id: str) -> str:
     return re.split(r"-\d\d-", shot_id, maxsplit=1)[0]
 
 
-def test_shotlist_ids_are_unique_and_well_formed():
-    text = SHOTLIST.read_text(encoding="utf-8")
-    ids = [m.group(1) for m in ROW_RE.finditer(text)]
+def test_shotlist_rows_are_well_formed():
+    ids = [m.group(1) for m in ROW_RE.finditer(SHOTLIST.read_text(encoding="utf-8"))]
     dupes = [k for k, n in Counter(ids).items() if n > 1]
     assert not dupes, f"duplicate IDs in SHOTLIST.md: {dupes}"
     for shot_id, row in _shotlist().items():
@@ -88,22 +102,27 @@ def test_placeholder_ids_are_unique_and_not_also_shown():
     ids = [i for i, _ in _placeholders()]
     dupes = [k for k, n in Counter(ids).items() if n > 1]
     assert not dupes, f"placeholder used twice: {dupes}"
-    shown = {i for _, i, _ in _image_refs()}
-    both = set(ids) & shown
+    both = set(ids) & {i for _, i, _ in _image_refs()}
     assert not both, f"image exists but placeholder comment left in: {sorted(both)}"
 
 
-def test_image_paths_follow_the_convention():
+def test_images_sit_next_to_their_page():
     for folder, shot_id, page in _image_refs():
         assert folder == _page_of(shot_id), f"{page.name}: img/{folder}/{shot_id}.png"
-        assert page.parent == DOCS / "tools", f"{shot_id} referenced outside docs/tools/"
+        assert folder == page.stem, f"{shot_id} is shown on {page.name}, not on {folder}.md"
+        img = page.parent / "img" / folder / f"{shot_id}.png"
+        assert img.is_file(), f"{page.name}: missing {img.relative_to(REPO)}"
 
 
 def test_every_image_is_referenced_by_a_page():
-    referenced = {(f, i) for f, i, _ in _image_refs()}
-    on_disk = {(p.parent.name, p.stem) for p in IMG.rglob("*.png")} if IMG.is_dir() else set()
-    orphans = on_disk - referenced
-    assert not orphans, f"images no page references: {sorted(orphans)}"
+    referenced = {(page.parent / "img" / f / f"{i}.png").resolve() for f, i, page in _image_refs()}
+    on_disk = {
+        p.resolve()
+        for p in DOCS.rglob("img/*/*.png")
+        if "_build" not in p.parts and re.fullmatch(ID, p.stem)
+    }
+    orphans = sorted(str(p.relative_to(REPO)) for p in on_disk - referenced)
+    assert not orphans, f"images no page references: {orphans}"
 
 
 def test_status_matches_the_pages():
@@ -118,10 +137,13 @@ def test_status_matches_the_pages():
 def test_automated_shots_have_a_script_function():
     registered = set()
     for py in SHOTS_DIR.glob("*.py"):
-        registered |= set(SHOT_DECO_RE.findall(py.read_text(encoding="utf-8")))
+        if not py.name.startswith("_"):
+            registered |= set(SHOT_DECO_RE.findall(py.read_text(encoding="utf-8")))
     automated = {k for k, r in _shotlist().items() if r["automated"] == "yes"}
     assert not automated - registered, (
-        f"automated: yes but no @shot in scripts/doc_shots/: {sorted(automated - registered)}")
+        f"automated: yes but no @shot in scripts/doc_shots/: {sorted(automated - registered)}"
+    )
     assert not registered - automated, (
         f"@shot in scripts/doc_shots/ but not automated: yes in SHOTLIST.md: "
-        f"{sorted(registered - automated)}")
+        f"{sorted(registered - automated)}"
+    )
