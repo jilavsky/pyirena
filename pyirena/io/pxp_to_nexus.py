@@ -99,7 +99,7 @@ import numpy as np
 if TYPE_CHECKING:
     import h5py
 
-
+from pyirena.io._nxcansas_common import append_dql, append_smr_entry
 from pyirena.io.nxcansas_unified import create_nxcansas_file
 
 __all__ = [
@@ -151,23 +151,32 @@ TECHNIQUE_FOLDERS: dict[str, str] = {
 #: order. The first tuple whose Q, I, and Err waves all exist in a sample
 #: folder wins. dQ is optional — if its name is None or not present, the
 #: resulting file will not contain a Qdev dataset.
-WAVE_PICKERS: dict[str, list[tuple[str, str, str, str | None]]] = {
+#: Slit-smeared USAXS waves written by Indra. Used as a fallback when a
+#: folder has no desmeared data, and as the source of the Matilda-style
+#: ``<sample>_SMR`` twin when it does.
+_USAXS_SMR_PICKER = ("SMR_Qvec", "SMR_Int", "SMR_Error", "SMR_dQ")
+
+#: Nika "Use QRS Names": Q_/R_/S_ + folder name, with per-point Q
+#: resolution in dQ_<folder> or (Nika) w_<folder>.
+_QRS_PICKER = ("Q_<folder>", "R_<folder>", "S_<folder>", ("dQ_<folder>", "w_<folder>"))
+
+WAVE_PICKERS: dict[str, list[tuple]] = {
     "USAXS": [
         # Desmeared primary: matches the chosen "DSM_* only" policy.
         ("DSM_Qvec", "DSM_Int", "DSM_Error", "DSM_dQ"),
-        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
-        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
+        _QRS_PICKER,
+        # Slit-smeared fallback (desmearing not run). Written with dQl from
+        # the wave note's SlitLength so readers smear the model.
+        _USAXS_SMR_PICKER,
     ],
     "SAXS": [
         # R_* is the unified Q/I/error triple emitted by the SAXS reduction.
         ("R_Qvec", "R_Int", "R_Error", None),
-        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
-        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
+        _QRS_PICKER,
     ],
     "WAXS": [
         ("R_Qvec", "R_Int", "R_Error", None),
-        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
-        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
+        _QRS_PICKER,
     ],
 }
 
@@ -192,33 +201,30 @@ WAVE_PICKERS: dict[str, list[tuple[str, str, str, str | None]]] = {
 #:
 #: **SAXS / WAXS** also adds the Igor-exported ``R_Qvec`` / ``R_Int`` /
 #: ``R_Error`` convention that ``WAVE_PICKERS`` already handles for pxp.
-WAVE_PICKERS_H5XP: dict[str, list[tuple[str, str, str, str | None]]] = {
+WAVE_PICKERS_H5XP: dict[str, list[tuple]] = {
     "USAXS": [
-        # pyirena-produced h5xp (write_iq_data default)
-        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
-        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
-        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
+        # q_/r_/s_<folder>: pyirena write_iq_data and Nika "Use QRS
+        # Names" (any case; dq_ or Nika w_ for Q resolution)
+        _QRS_PICKER,
         # pyirena-produced h5xp (older uppercase variant)
         ("Q", "R", "S", "dQ"),
         # Igor-exported h5xp: desmeared USAXS waves (same as pxp convention)
         ("DSM_Qvec", "DSM_Int", "DSM_Error", "DSM_dQ"),
         # Igor-exported h5xp: slit-smeared fallback (when desmearing not run)
-        ("SMR_Qvec", "SMR_Int", "SMR_Error", "SMR_dQ"),
+        _USAXS_SMR_PICKER,
     ],
     "SAXS": [
-        # pyirena-produced h5xp
-        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
-        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
-        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
+        # q_/r_/s_<folder>: pyirena write_iq_data and Nika "Use QRS
+        # Names" (any case; dq_ or Nika w_ for Q resolution)
+        _QRS_PICKER,
         ("Q", "R", "S", "dQ"),
         # Igor-exported h5xp: reduced SAXS waves (same as pxp convention)
         ("R_Qvec", "R_Int", "R_Error", None),
     ],
     "WAXS": [
-        # pyirena-produced h5xp
-        ("q_<folder>", "r_<folder>", "s_<folder>", "dq_<folder>"),
-        # Irena/Nika "Use QRS Names": uppercase Q_/R_/S_ + folder suffix
-        ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>"),
+        # q_/r_/s_<folder>: pyirena write_iq_data and Nika "Use QRS
+        # Names" (any case; dq_ or Nika w_ for Q resolution)
+        _QRS_PICKER,
         ("Q", "R", "S", "dQ"),
         # Igor-exported h5xp: reduced WAXS waves (same as pxp convention)
         ("R_Qvec", "R_Int", "R_Error", None),
@@ -267,13 +273,10 @@ class ExtractionResult:
     pxp_path, output_root, files, n_unparseable_records:
         Self-explanatory.
     n_igor8_longname_markers:
-        Count of Igor-8-only record types (26 and 33) seen in the
-        ``.pxp``. A non-zero value means the experiment contains folder
-        or wave names longer than 31 characters that ``igor2`` cannot
-        decode — and therefore the importer probably missed entire
-        samples whose folder names are too long. Callers should warn
-        the user and suggest re-saving the experiment as ``.h5xp``.
-        Always 0 for h5xp imports (which have no such limitation).
+        Always 0. Kept so existing callers keep working: it used to count
+        Igor 8 long-folder-name records the installed ``igor2`` could not
+        read, which cannot happen now that ``igor2 >= 0.5.16`` is required
+        (see :func:`_require_igor2`).
     """
     pxp_path: Path
     output_root: Path
@@ -298,55 +301,41 @@ class ExtractionResult:
 # Defensive .pxp loader
 # ---------------------------------------------------------------------------
 
-#: Igor binary-wave version that igor2 0.5.x doesn't recognise. v7 was added
-#: in Igor Pro 8 to support wave names / dimension labels longer than 31
-#: bytes; binary layout is identical to v5 up to the optional sections, so
-#: a v7 wave can be parsed as v5 if we patch the version field and ignore
-#: the trailing long-name block.
-_IGOR_WAVE_VERSION_V5 = 5
-_IGOR_WAVE_VERSION_V7 = 7
+#: First igor2 that reads Igor Pro 8 long names in a .pxp: long data-folder
+#: names (record type 101, igor2 0.5.15, AFM-analysis/igor2#30) and long wave
+#: names (binary-wave version 7, igor2 0.5.16, #33). pyIrena used to work
+#: around both itself; it now relies on igor2.
+_MIN_IGOR2_VERSION = (0, 5, 16)
 
 
-def _patch_v7_wave_to_v5(data: bytes, byte_order: str) -> bytes:
-    """Rewrite the leading version field of a binary-wave payload from
-    7 to 5 so igor2 0.5.x will accept it.
+def _require_igor2() -> None:
+    """Raise ImportError unless igor2 >= :data:`_MIN_IGOR2_VERSION` is installed.
 
-    A v7 wave has the same BinHeader5 + WaveHeader5 + wave-data layout as
-    v5; the only additions are:
-    - ``optionsSize1`` (4 bytes at offset 60) is reinterpreted as
-      ``longWaveNameSize`` (2 bytes) + ``optionsSize1`` (2 bytes)
-    - a long-wave-name block is appended after the string-indices section
-    The numeric wave data — which is all we need for SAS extraction —
-    sits at the same offset as in v5 and reads identically. The trailing
-    long-name section is harmless because BinHeader5's recorded wfmSize
-    tells igor2 when to stop reading the wave data, and our caller never
-    inspects what's after the wData section.
+    An older igor2 does not fail on an experiment with long names: it
+    skips the long-named waves and moves the contents of long-named
+    folders into their parent, so samples go missing or are exported
+    under the wrong name. Refusing to load is better than that.
     """
-    if len(data) < 2:
-        return data
-    import struct
-    ver_fmt = "<h" if byte_order in ("<", "=") else ">h"
     try:
-        version = struct.unpack_from(ver_fmt, data, 0)[0]
-    except struct.error:
-        return data
-    if version != _IGOR_WAVE_VERSION_V7:
-        return data
-    return struct.pack(ver_fmt, _IGOR_WAVE_VERSION_V5) + data[2:]
+        import igor2
+    except ImportError as e:
+        raise ImportError(
+            "The 'igor2' package is required to import Igor packed experiments. "
+            'Install it with:  pip install "igor2>=0.5.16"'
+        ) from e
+    version = getattr(igor2, "__version__", "0")
+    parts = tuple(int(m) for m in re.findall(r"\d+", version)[:3])
+    if parts < _MIN_IGOR2_VERSION:
+        need = ".".join(map(str, _MIN_IGOR2_VERSION))
+        raise ImportError(
+            f"igor2 {version} is installed, but importing .pxp files needs "
+            f"igor2 >= {need} (earlier versions mis-read Igor 8 long folder and "
+            f'wave names). Upgrade with:  pip install -U "igor2>={need}"'
+        )
 
 
-#: Packed record-type IDs introduced by Igor Pro 8 to support folder/
-#: wave names longer than 31 chars. ``igor2 0.5.x`` doesn't know what
-#: they are, so it treats them as ``_UnknownRecord`` and skips them.
-#: We just count them so the importer can warn the user that the
-#: experiment likely has folders we can't see, and recommend re-saving
-#: as ``.h5xp`` (which has no name-length limit).
-_IGOR8_LONGNAME_RECORD_TYPES: frozenset[int] = frozenset({26, 33})
-
-
-def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
-    """Load a .pxp file and return
-    ``(filesystem, n_skipped_records, n_igor8_longname_markers)``.
+def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
+    """Load a .pxp file and return ``(filesystem, n_skipped_records)``.
 
     Unlike :func:`igor2.packed.load`, this never aborts on a single bad
     wave record: the offending record is skipped (counted) and traversal
@@ -355,14 +344,9 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     ``FolderStartRecord`` / ``FolderEndRecord`` records, which parse
     cheaply and reliably.
 
-    The third return value counts how many ``Unknown`` records of the
-    Igor-8 long-name marker types (26, 33) were seen. A non-zero count
-    means the experiment was saved by Igor Pro 8 or later **and**
-    contains folder or wave names longer than 31 characters, which
-    ``igor2 0.5.x`` cannot decode. The high-level summary uses this to
-    tell the user to re-save the experiment as ``.h5xp`` (which has no
-    such limit).
+    Requires ``igor2 >= 0.5.16`` (see :func:`_require_igor2`).
     """
+    _require_igor2()
     try:
         from igor2.packed import (
             _RECORD_TYPE,
@@ -377,12 +361,11 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     except ImportError as e:
         raise ImportError(
             "The 'igor2' package is required to import Igor packed experiments. "
-            "Install it with:  pip install igor2"
+            'Install it with:  pip install "igor2>=0.5.16"'
         ) from e
 
     records: list[Any] = []
     skipped = 0
-    igor8_longname_markers = 0
 
     # Always force an explicit byte order on the record header. The
     # default ``setup_packed_file_record_header()`` (no argument) uses
@@ -396,7 +379,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     with open(pxp_path, "rb") as f:
         peek = f.read(2)
     if len(peek) < 2:
-        return {"root": {}}, 0, 0
+        return {"root": {}}, 0
     # Igor packed file records start with `short recordType`. Valid
     # record-type IDs are 1..11 (plus high bits), so the first byte is
     # always small; on little-endian it occupies byte 0, on big-endian
@@ -453,28 +436,11 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
                 logger.warning("truncated record in %s — stopping", pxp_path)
                 break
             rtype_id = header["recordType"] & PACKEDRECTYPE_MASK
-            if rtype_id in _IGOR8_LONGNAME_RECORD_TYPES:
-                igor8_longname_markers += 1
             rtype = _RECORD_TYPE.get(rtype_id, _UnknownRecord)
             try:
                 rec = rtype(header, data, byte_order=byte_order)
                 records.append(rec)
-            except Exception as exc:  # noqa: F841 - exc is read below (may be reassigned to exc2)
-                # If this looks like a v7 wave (long-name format from
-                # Igor Pro 8/10), patch the version field to 5 and retry.
-                # igor2 0.5.x doesn't know about v7 even though the
-                # binary layout is identical up to the trailing
-                # long-name block.
-                if rtype is WaveRecord:
-                    patched = _patch_v7_wave_to_v5(data, byte_order)
-                    if patched is not data:
-                        try:
-                            rec = WaveRecord(header, patched, byte_order=byte_order)
-                            records.append(rec)
-                            continue
-                        except Exception as exc2:
-                            exc = exc2  # fall through to "skipped" path below
-
+            except Exception as exc:
                 skipped += 1
                 records.append(None)
                 logger.debug("skipped %s record (rtype_id=%s): %s",
@@ -507,7 +473,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
                 # Unreadable wave name — drop silently; structure is the priority.
                 pass
 
-    return filesystem, skipped, igor8_longname_markers
+    return filesystem, skipped
 
 
 def _wave_array(wave_rec) -> np.ndarray | None:
@@ -755,35 +721,68 @@ def _classify_folder(folder_name: str) -> str | None:
     return None
 
 
+def _slit_length_from_meta(meta: dict) -> float | None:
+    """Slit length [1/Å] from parsed wave-note metadata, or None.
+
+    Indra writes ``SlitLength=<value>;`` into the SMR wave note, which
+    :func:`parse_wave_note` may file under a section prefix (e.g.
+    ``notes.SlitLength``), so match the last key component,
+    case-insensitively.
+    """
+    for key, value in meta.items():
+        if key.rsplit(".", 1)[-1].lower() == "slitlength":
+            try:
+                sl = float(value)
+            except (TypeError, ValueError):
+                return None
+            return sl if sl > 0 else None
+    return None
+
+
 def _pick_waves(folder: dict, technique: str,
                 pickers_table: dict | None = None,
                 folder_name: str | None = None,
-                ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, str] | None:
-    """Try each picker for *technique*; return (Q, I, err, dq, note) on first hit.
+                ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, str, bool] | None:
+    """Try each picker for *technique*; return
+    ``(Q, I, err, dq, note, slit_smeared)`` on first hit.
 
     *pickers_table* defaults to :data:`WAVE_PICKERS` (pxp conventions).
-    Pass :data:`WAVE_PICKERS_H5XP` for h5xp imports.
+    Pass :data:`WAVE_PICKERS_H5XP` for h5xp imports. The dQ slot of a
+    picker may be a tuple of alternative names; the first present wins.
 
     The literal token ``"<folder>"`` inside any picker entry is replaced
     with *folder_name* before lookup (used by the h5xp picker to match
     the ``q_<folder>``/``r_<folder>``/``s_<folder>`` naming produced by
     :func:`pyirena.io.h5xp_writer.write_iq_data`).
+
+    Names are matched case-insensitively, as Igor does: Nika's "Use QRS
+    Names" writes ``q_/r_/s_`` or ``Q_/R_/S_`` depending on version, and
+    both must import. *slit_smeared* is True when an ``SMR_*`` (slit-
+    smeared USAXS) picker matched; the caller must then record the slit
+    length.
     """
     if pickers_table is None:
         pickers_table = WAVE_PICKERS
     pickers = pickers_table.get(technique, [])
+    # Igor names are case-insensitive, so two objects in one folder never
+    # differ only by case; map lowercase -> actual key.
+    actual_name = {k.lower(): k for k in folder}
 
     def _resolve(name: str | None) -> str | None:
-        if name is None or folder_name is None:
-            return name
-        return name.replace("<folder>", folder_name)
+        if name is None:
+            return None
+        if folder_name is not None:
+            name = name.replace("<folder>", folder_name)
+        return actual_name.get(name.lower())
 
     for q_name_raw, i_name_raw, e_name_raw, dq_name_raw in pickers:
         q_name  = _resolve(q_name_raw)
         i_name  = _resolve(i_name_raw)
         e_name  = _resolve(e_name_raw)
-        dq_name = _resolve(dq_name_raw)
-        if q_name not in folder or i_name not in folder or e_name not in folder:
+        # dQ entry may list alternatives, e.g. ("dQ_<folder>", "w_<folder>").
+        dq_raws = dq_name_raw if isinstance(dq_name_raw, tuple) else (dq_name_raw,)
+        dq_name = next((n for n in map(_resolve, dq_raws) if n is not None), None)
+        if q_name is None or i_name is None or e_name is None:
             continue
         q_rec = folder[q_name]
         i_rec = folder[i_name]
@@ -802,14 +801,15 @@ def _pick_waves(folder: dict, technique: str,
         q, intensity, err = q[:n], intensity[:n], err[:n]
 
         dq: np.ndarray | None = None
-        if dq_name and dq_name in folder and not isinstance(folder[dq_name], dict):
+        if dq_name and not isinstance(folder[dq_name], dict):
             dq_arr = _wave_array(folder[dq_name])
             if dq_arr is not None and len(dq_arr) >= n:
                 dq = dq_arr[:n]
 
         # Wave note comes from the intensity wave (richest metadata).
         note = _wave_note(i_rec)
-        return q, intensity, err, dq, note
+        slit_smeared = q_name_raw.upper().startswith("SMR_")
+        return q, intensity, err, dq, note, slit_smeared
     return None
 
 
@@ -975,6 +975,27 @@ def _h5xp_collect_into(group: "h5py.Group", out: dict) -> None:
 # Shared extraction engine
 # ---------------------------------------------------------------------------
 
+def _append_usaxs_smr_twin(out_path: Path, sample_name: str, folder: dict,
+                           igor_path: str) -> None:
+    """Add the slit-smeared ``<sample>_SMR`` twin to a desmeared USAXS file.
+
+    Mirrors Matilda: when the Igor folder holds both DSM_* and SMR_* waves,
+    the file gets the desmeared curve as default plus the smeared one, so
+    pyIrena's "Slit smeared data" selector can load either. Skipped (with
+    a warning) when the SMR note has no slit length.
+    """
+    smr = _pick_waves(folder, "USAXS", pickers_table={"USAXS": [_USAXS_SMR_PICKER]})
+    if smr is None:
+        return
+    q, intensity, err, dqw, note, _ = smr
+    slit_length = _slit_length_from_meta(parse_wave_note(note))
+    if slit_length is None:
+        logger.warning("%s: SMR data present but no SlitLength in its wave note; "
+                       "slit-smeared copy not written", igor_path)
+        return
+    append_smr_entry(out_path, sample_name, q, intensity, err, slit_length, dqw=dqw)
+
+
 def _extract_filesystem_to_nexus(
     source_path: Path,
     filesystem: dict,
@@ -983,7 +1004,6 @@ def _extract_filesystem_to_nexus(
     overwrite: bool,
     pickers_table: dict,
     n_unparseable_records: int = 0,
-    n_igor8_longname_markers: int = 0,
 ) -> ExtractionResult:
     """Walk an already-loaded *filesystem* dict and write per-sample NeXus
     files. Shared by both :func:`extract_pxp_to_nexus` and
@@ -994,7 +1014,6 @@ def _extract_filesystem_to_nexus(
         pxp_path=source_path,
         output_root=output_root,
         n_unparseable_records=n_unparseable_records,
-        n_igor8_longname_markers=n_igor8_longname_markers,
     )
 
     for rel_path, candidate_techniques, folder in _walk_tree(
@@ -1021,8 +1040,23 @@ def _extract_filesystem_to_nexus(
                 continue
             any_matched = True
 
-            q, intensity, err, dq, note = picked
+            q, intensity, err, dq, note, slit_smeared = picked
             meta = parse_wave_note(note)
+            slit_length = _slit_length_from_meta(meta) if slit_smeared else None
+            if slit_smeared and slit_length is None:
+                # Never write slit-smeared data without dQl: readers would
+                # treat it as pinhole data and every fit would be wrong.
+                any_matched = True
+                result.files.append(ExtractedFile(
+                    source_path=igor_path,
+                    output_path=None,
+                    technique=technique,
+                    n_points=len(q),
+                    status="error",
+                    message="slit-smeared (SMR) data but no positive SlitLength "
+                            "in the wave note; not imported",
+                ))
+                continue
 
             # Output path layout:
             #   <root>/<technique>/<sub_components>/<sample_name>.h5
@@ -1059,6 +1093,11 @@ def _extract_filesystem_to_nexus(
                     sample_name=sample_name,
                     metadata=meta,
                 )
+                if slit_smeared:
+                    append_dql(out_path, slit_length)
+                elif technique == "USAXS":
+                    _append_usaxs_smr_twin(out_path, sample_name, folder,
+                                           igor_path)
             except Exception as exc:
                 result.files.append(ExtractedFile(
                     source_path=igor_path,
@@ -1168,20 +1207,11 @@ def extract_pxp_to_nexus(
         keep_techniques = {t.upper() for t in techniques}
 
     logger.info("Loading %s…", pxp_path)
-    filesystem, n_skipped_records, n_igor8_markers = _load_pxp_filesystem(pxp_path)
+    filesystem, n_skipped_records = _load_pxp_filesystem(pxp_path)
     logger.info(
-        "Loaded %d folders; %d wave records were unparseable; "
-        "%d Igor-8 long-name marker(s) seen",
-        _count_folders(filesystem["root"]), n_skipped_records, n_igor8_markers,
+        "Loaded %d folders; %d wave records were unparseable",
+        _count_folders(filesystem["root"]), n_skipped_records,
     )
-    if n_igor8_markers > 0:
-        logger.warning(
-            "%s contains %d Igor-8 long-name record(s) (folders/waves with "
-            "names > 31 chars). igor2 cannot decode these, so some samples "
-            "will be missing from the output. Re-save the experiment as "
-            ".h5xp from Igor and re-import to capture them.",
-            pxp_path.name, n_igor8_markers,
-        )
 
     return _extract_filesystem_to_nexus(
         source_path=pxp_path,
@@ -1191,7 +1221,6 @@ def extract_pxp_to_nexus(
         overwrite=overwrite,
         pickers_table=WAVE_PICKERS,
         n_unparseable_records=n_skipped_records,
-        n_igor8_longname_markers=n_igor8_markers,
     )
 
 
@@ -1361,16 +1390,6 @@ def _main(argv: Sequence[str] | None = None) -> int:
     print(f"Errors:   {result.n_errors}")
     if result.n_unparseable_records:
         print(f"Note:     {result.n_unparseable_records} wave record(s) could not be parsed")
-    if result.n_igor8_longname_markers:
-        print(
-            f"\n*** WARNING: this .pxp contains "
-            f"{result.n_igor8_longname_markers} Igor-8 long-name record(s) "
-            f"(folders or waves with names > 31 chars).\n"
-            f"  igor2 cannot decode these, so some samples are MISSING from "
-            f"the output above.\n"
-            f"  Workaround: in Igor Pro, save the experiment as .h5xp instead "
-            f"and re-import."
-        )
 
     if args.verbose:
         print("\nPer-file summary:")

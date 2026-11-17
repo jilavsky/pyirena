@@ -109,26 +109,237 @@ def test_technique_folders_table_is_data_driven():
     assert _classify_folder("Saxs") == "SAXS"
 
 
-def test_patch_v7_wave_to_v5_rewrites_version_byte():
-    """The v7→v5 patcher must swap the leading version short from 7 to 5
-    in-place, leaving the rest of the payload untouched. v7 waves are
-    binary-identical to v5 in their numeric data section."""
+def _pxp_record(record_type: int, payload: bytes, order: str) -> bytes:
+    """One packed-file record: 8-byte header (type, version, size) + payload."""
     import struct
+    return struct.pack(order + "Hhl", record_type, 0, len(payload)) + payload
 
-    from pyirena.io.pxp_to_nexus import _patch_v7_wave_to_v5
 
-    v7_payload = struct.pack("<h", 7) + b"\xff" * 100
-    patched = _patch_v7_wave_to_v5(v7_payload, byte_order="<")
-    assert struct.unpack("<h", patched[:2])[0] == 5
-    assert patched[2:] == v7_payload[2:]
+def _long_folder_pxp(tmp_path: Path, order: str) -> tuple[Path, list[str]]:
+    """Write a folder-only .pxp the way Igor Pro 8 lays out long names:
+    type-9 start for short names, type-101 (uint32 length + bytes) for
+    names over 31 chars, each followed by a type-33 folder id, closed by
+    type 10. Names are taken from the experiment in AFM-analysis/igor2#28."""
+    import struct
+    long_names = [
+        "AMC_25_crystalline_04_07_26_10min_0036",
+        "X6_This is very_long_object_name_which_is_allowed_"
+        "AMC_25_crystalline_04_02_26_0030",
+    ]
+    short_name = "AMC_04_07_26_3min_0033"
+    parts = [_pxp_record(9, b"USAXS".ljust(32, b"\x00"), order),
+             _pxp_record(33, struct.pack(order + "I", 1), order)]
+    for name in long_names:
+        raw = name.encode()
+        parts.append(_pxp_record(101, struct.pack(order + "I", len(raw)) + raw, order))
+        parts.append(_pxp_record(33, struct.pack(order + "I", 2), order))
+        parts.append(_pxp_record(10, b"", order))
+    parts.append(_pxp_record(9, short_name.encode().ljust(32, b"\x00"), order))
+    parts.append(_pxp_record(10, b"", order))
+    parts.append(_pxp_record(10, b"", order))
+    path = tmp_path / f"long_names_{'le' if order == '<' else 'be'}.pxp"
+    path.write_bytes(b"".join(parts))
+    return path, long_names + [short_name]
 
-    # v5 input should pass through unchanged (same bytes returned).
-    v5_payload = struct.pack("<h", 5) + b"\xaa" * 50
-    assert _patch_v7_wave_to_v5(v5_payload, byte_order="<") is v5_payload
 
-    # Empty / truncated input should not crash.
-    assert _patch_v7_wave_to_v5(b"", byte_order="<") == b""
-    assert _patch_v7_wave_to_v5(b"\x05", byte_order="<") == b"\x05"
+@pytest.mark.parametrize("order", ["<", ">"])
+def test_pxp_loader_reads_igor8_long_folder_names(tmp_path, order):
+    """igor2 >= 0.5.15 decodes type-101 long folder names; our defensive
+    loader must place them in the tree. The type-33 records that follow
+    every folder start must not disturb it."""
+    from pyirena.io.pxp_to_nexus import _load_pxp_filesystem
+
+    path, expected = _long_folder_pxp(tmp_path, order)
+    fs, skipped = _load_pxp_filesystem(path)
+    assert set(fs["root"]["USAXS"]) == set(expected)
+    assert skipped == 0
+
+
+@pytest.mark.parametrize("version", ["0.5.15", "0.5.13", "0.4.9"])
+def test_pxp_loader_refuses_igor2_older_than_0_5_16(tmp_path, monkeypatch, version):
+    """Older igor2 silently drops long-named (v7) waves and misplaces
+    long-named folders, so loading must stop with an upgrade message."""
+    import igor2
+
+    from pyirena.io.pxp_to_nexus import _load_pxp_filesystem
+
+    monkeypatch.setattr(igor2, "__version__", version)
+    path, _ = _long_folder_pxp(tmp_path, "<")
+    with pytest.raises(ImportError, match=r"igor2>=0\.5\.16"):
+        _load_pxp_filesystem(path)
+
+
+@pytest.mark.parametrize("version", ["0.5.16", "0.5.17.dev3", "0.6.0", "1.0"])
+def test_pxp_loader_accepts_igor2_0_5_16_and_later(tmp_path, monkeypatch, version):
+    import igor2
+
+    from pyirena.io.pxp_to_nexus import _load_pxp_filesystem
+
+    monkeypatch.setattr(igor2, "__version__", version)
+    path, _ = _long_folder_pxp(tmp_path, "<")
+    _load_pxp_filesystem(path)
+
+
+def test_batch_igor_to_nexus_surfaces_old_igor2(tmp_path, monkeypatch):
+    """The batch wrapper turns most failures into None; a too-old igor2
+    must reach the caller (GUI) with its upgrade message instead."""
+    import igor2
+
+    from pyirena.batch import igor_to_nexus
+
+    monkeypatch.setattr(igor2, "__version__", "0.5.15")
+    path, _ = _long_folder_pxp(tmp_path, "<")
+    with pytest.raises(ImportError, match="Upgrade"):
+        igor_to_nexus(str(path), output_folder=str(tmp_path / "out"))
+
+
+class _FakeWave:
+    """Minimal stand-in for an igor2 WaveRecord: data plus wave note."""
+
+    def __init__(self, data, note: str = ""):
+        import numpy as np
+        self.wave = {"wave": {"wData": np.asarray(data, dtype=float),
+                              "note": note.encode()}}
+
+
+def _extract_tree(tmp_path, root: dict, pickers: str = "pxp"):
+    from pyirena.io.pxp_to_nexus import (
+        WAVE_PICKERS,
+        WAVE_PICKERS_H5XP,
+        _extract_filesystem_to_nexus,
+    )
+    table = WAVE_PICKERS if pickers == "pxp" else WAVE_PICKERS_H5XP
+    return _extract_filesystem_to_nexus(
+        source_path=tmp_path / "fake.pxp", filesystem={"root": root},
+        output_root=tmp_path / "out", keep_techniques=None, overwrite=True,
+        pickers_table=table)
+
+
+def test_pick_waves_matches_qrs_names_case_insensitively(tmp_path):
+    """Nika writes lowercase q_/r_/s_ QRS names; Igor names are
+    case-insensitive, so they must match the uppercase picker entry."""
+    folder = "Q_2p6Inlet_0008_270_30"
+    q = [0.01, 0.02, 0.03]
+    root = {"SAXS": {folder: {
+        f"q_{folder}": _FakeWave(q),
+        f"r_{folder}": _FakeWave([3.0, 2.0, 1.0]),
+        f"s_{folder}": _FakeWave([0.3, 0.2, 0.1]),
+    }}}
+    res = _extract_tree(tmp_path, root)
+    assert [(f.technique, f.status) for f in res.files] == [("SAXS", "ok")]
+
+
+@pytest.mark.parametrize("pickers", ["pxp", "h5xp"])
+def test_smr_only_usaxs_imports_as_slit_smeared(tmp_path, pickers):
+    """A USAXS folder with only SMR_* waves (desmearing not run) imports,
+    and the file carries dQl from the note's SlitLength so readers smear
+    the model instead of fitting it as pinhole data."""
+    from pyirena.io.hdf5 import readGenericNXcanSAS
+
+    note = "NXMetadataStart;SlitLength=0.026108;NXMetadataEnd;"
+    root = {"USAXS": {"GC_SRM3600_0003": {
+        "SMR_Qvec": _FakeWave([1e-3, 2e-3, 3e-3]),
+        "SMR_Int": _FakeWave([1e4, 1e3, 1e2], note),
+        "SMR_Error": _FakeWave([1e2, 1e1, 1.0]),
+    }}}
+    res = _extract_tree(tmp_path, root, pickers)
+    (f,) = res.files
+    assert f.status == "ok"
+    data = readGenericNXcanSAS(str(f.output_path.parent), f.output_path.name)
+    assert data["is_slit_smeared"] is True
+    assert data["slit_length"] == pytest.approx(0.026108)
+
+
+def test_smr_without_slit_length_is_refused(tmp_path):
+    """Slit-smeared data with no SlitLength must not be written as if it
+    were pinhole data."""
+    root = {"USAXS": {"S1": {
+        "SMR_Qvec": _FakeWave([1e-3, 2e-3, 3e-3]),
+        "SMR_Int": _FakeWave([1e4, 1e3, 1e2]),
+        "SMR_Error": _FakeWave([1e2, 1e1, 1.0]),
+    }}}
+    res = _extract_tree(tmp_path, root)
+    (f,) = res.files
+    assert f.status == "error"
+    assert f.output_path is None
+    assert "SlitLength" in f.message
+
+
+def test_dsm_preferred_over_smr_and_not_marked_smeared(tmp_path):
+    from pyirena.io.hdf5 import readGenericNXcanSAS
+
+    note = "NXMetadataStart;SlitLength=0.026108;NXMetadataEnd;"
+    waves = {}
+    for pre, scale in (("DSM", 1.0), ("SMR", 2.0)):
+        waves[f"{pre}_Qvec"] = _FakeWave([1e-3, 2e-3, 3e-3])
+        waves[f"{pre}_Int"] = _FakeWave([scale, scale, scale], note)
+        waves[f"{pre}_Error"] = _FakeWave([0.1, 0.1, 0.1])
+    res = _extract_tree(tmp_path, {"USAXS": {"S1": waves}})
+    (f,) = res.files
+    data = readGenericNXcanSAS(str(f.output_path.parent), f.output_path.name)
+    assert data["Intensity"][0] == pytest.approx(1.0)
+    assert not data["is_slit_smeared"]
+
+
+@pytest.mark.parametrize("pickers", ["pxp", "h5xp"])
+def test_dsm_and_smr_folder_writes_matilda_style_smr_twin(tmp_path, pickers):
+    """With both DSM_* and SMR_* waves the file carries the desmeared
+    default plus an ``<sample>_SMR`` twin, as Matilda writes, so the
+    slit-smeared selector (prefer_slit_smeared) can load either."""
+    import h5py
+
+    from pyirena.io.hdf5 import readGenericNXcanSAS
+
+    note = "NXMetadataStart;SlitLength=0.026108;NXMetadataEnd;"
+    waves = {"SMR_dQ": _FakeWave([1e-4, 1e-4, 1e-4])}
+    for pre, scale in (("DSM", 1.0), ("SMR", 2.0)):
+        waves[f"{pre}_Qvec"] = _FakeWave([1e-3, 2e-3, 3e-3])
+        waves[f"{pre}_Int"] = _FakeWave([scale, scale, scale], note)
+        waves[f"{pre}_Error"] = _FakeWave([0.1, 0.1, 0.1])
+    res = _extract_tree(tmp_path, {"USAXS": {"S1": waves}}, pickers)
+    (f,) = res.files
+    with h5py.File(f.output_path) as h:
+        assert h["entry"].attrs["default"] == "S1"
+        sas = h["entry/S1_SMR/sasdata"]
+        assert sas["Q"].attrs["resolutions"] == "dQw,dQl"
+        assert sas["dQw"].shape == (3,)
+    folder, name = str(f.output_path.parent), f.output_path.name
+    desm = readGenericNXcanSAS(folder, name)
+    smr = readGenericNXcanSAS(folder, name, prefer_slit_smeared=True)
+    assert desm["Intensity"][0] == pytest.approx(1.0) and not desm["is_slit_smeared"]
+    assert smr["Intensity"][0] == pytest.approx(2.0) and smr["is_slit_smeared"]
+    assert smr["slit_length"] == pytest.approx(0.026108)
+
+
+def test_dsm_and_smr_without_slit_length_writes_no_twin(tmp_path):
+    import h5py
+
+    waves = {}
+    for pre in ("DSM", "SMR"):
+        waves[f"{pre}_Qvec"] = _FakeWave([1e-3, 2e-3, 3e-3])
+        waves[f"{pre}_Int"] = _FakeWave([1.0, 1.0, 1.0])
+        waves[f"{pre}_Error"] = _FakeWave([0.1, 0.1, 0.1])
+    (f,) = _extract_tree(tmp_path, {"USAXS": {"S1": waves}}).files
+    assert f.status == "ok"
+    with h5py.File(f.output_path) as h:
+        assert "S1_SMR" not in h["entry"]
+
+
+def test_nika_w_wave_imported_as_q_resolution(tmp_path):
+    """Nika stores per-point Q resolution in w_<folder>; it is written
+    as the sample's Q resolution (Qdev)."""
+    from pyirena.io.hdf5 import readGenericNXcanSAS
+
+    folder = "Sample_270_30"
+    root = {"SAXS": {folder: {
+        f"q_{folder}": _FakeWave([0.01, 0.02, 0.03]),
+        f"r_{folder}": _FakeWave([3.0, 2.0, 1.0]),
+        f"s_{folder}": _FakeWave([0.3, 0.2, 0.1]),
+        f"w_{folder}": _FakeWave([0.001, 0.002, 0.003]),
+    }}}
+    (f,) = _extract_tree(tmp_path, root).files
+    data = readGenericNXcanSAS(str(f.output_path.parent), f.output_path.name)
+    assert data["dQ"] == pytest.approx([0.001, 0.002, 0.003])
 
 
 def test_wave_pickers_table_lists_dsm_for_usaxs():
@@ -215,6 +426,41 @@ def test_unique_path_appends_suffix(tmp_path):
 # ---------------------------------------------------------------------------
 
 _REAL_PXP = Path(__file__).resolve().parents[2] / "temp" / "test.pxp"
+
+
+_LONG_NAMES_PXP = _REAL_PXP.with_name("TestLongNames_liberalAll.pxp")
+
+
+@pytest.mark.skipif(not _LONG_NAMES_PXP.is_file(),
+                    reason="temp/TestLongNames_liberalAll.pxp not present "
+                           "(developer-only fixture)")
+def test_real_igor8_experiment_with_long_folder_and_wave_names(tmp_path):
+    """Igor Pro 10 experiment with long and liberal (quoted, with spaces)
+    folder and wave names, saved by Jan for this fix. igor2 0.5.16 must
+    give every long-named wave its own full name, and all seven samples
+    must import with the expected point counts."""
+    from pyirena.io.pxp_to_nexus import _load_pxp_filesystem, extract_pxp_to_nexus
+
+    fs, skipped = _load_pxp_filesystem(_LONG_NAMES_PXP)
+    assert skipped == 0
+    long_saxs = "ReactedQ_1p73Outlet_this_is_a_very_long_folder_ 0007_270_30"
+    folder = fs["root"]["SAXS"][long_saxs]
+    for prefix in ("q_", "r_", "s_", "w_"):
+        assert prefix + long_saxs in folder
+    assert not any("too long" in k for k in folder)
+
+    res = extract_pxp_to_nexus(_LONG_NAMES_PXP, tmp_path)
+    written = {f.source_path: f.n_points for f in res.files if f.status == "ok"}
+    assert written == {
+        "root:SAXS:ReactedQ_1p73Inlet_0006_270_30": 119,
+        f"root:SAXS:{long_saxs}": 119,
+        "root:SAXS:ReactedQ_2p6Inlet_0008_270_30": 119,
+        "root:USAXS:GC_SRM3600_0003": 500,
+        "root:USAXS:ReactedQ_1p73Outlet_this_is a very long folder name 0007": 500,
+        "root:USAXS:ReactedQ_2p6Inlet_0008": 500,
+        "root:USAXS:ReactedQ_2p6Outlet_0009": 500,
+    }
+    assert res.n_unparseable_records == 0
 
 
 @pytest.mark.skipif(not _REAL_PXP.is_file(),
@@ -532,9 +778,10 @@ def test_wave_pickers_h5xp_include_uppercase_qrs_convention():
     """The QRS-names triple must be registered for every technique in the
     h5xp picker table (regression: previously only lowercase ``q_<folder>``
     was present, so Irena-reduced desktop SAXS files imported as 0 samples)."""
-    from pyirena.io.pxp_to_nexus import WAVE_PICKERS, WAVE_PICKERS_H5XP
+    from pyirena.io.pxp_to_nexus import _QRS_PICKER, WAVE_PICKERS, WAVE_PICKERS_H5XP
 
-    qrs = ("Q_<folder>", "R_<folder>", "S_<folder>", "dQ_<folder>")
+    qrs = _QRS_PICKER
+    assert qrs[:3] == ("Q_<folder>", "R_<folder>", "S_<folder>")
     for tech in ("USAXS", "SAXS", "WAXS"):
         assert qrs in WAVE_PICKERS_H5XP[tech], f"missing from h5xp {tech}"
         assert qrs in WAVE_PICKERS[tech], f"missing from pxp {tech}"

@@ -29,7 +29,8 @@ requirements:
     - numpy >=2.0
     - scipy >=1.13
     - h5py >=3.0.0
-    - igor2 >=0.5.13
+    # Igor 8 long folder and wave names in .pxp; see pyproject.toml.
+    - igor2 >=0.5.16
 
 test:
   imports:

@@ -1,7 +1,8 @@
 """Diagnose how many records in an Igor .pxp file pyirena can decode.
 
-Mirrors the same retry logic that ``pyirena.io.pxp_to_nexus`` uses, so the
-SKIPPED count printed here matches what the importer will report.
+Parses records the way ``pyirena.io.pxp_to_nexus`` does (needs igor2 >= 0.5.16,
+which reads Igor 8 long names), so the SKIPPED count printed here matches what
+the importer will report.
 
 Usage::
 
@@ -15,14 +16,16 @@ from collections import Counter
 from pathlib import Path
 
 from igor2.packed import (
-    setup_packed_file_record_header, _RECORD_TYPE,
-    _UnknownRecord, PACKEDRECTYPE_MASK,
-    _byte_order, _need_to_reorder_bytes,
+    _RECORD_TYPE,
+    PACKEDRECTYPE_MASK,
+    _byte_order,
+    _need_to_reorder_bytes,
+    _UnknownRecord,
+    setup_packed_file_record_header,
 )
-from igor2.record.wave import WaveRecord
-from igor2.record.folder import FolderStartRecord, FolderEndRecord
+from igor2.record.folder import FolderEndRecord, FolderStartRecord
 
-from pyirena.io.pxp_to_nexus import _patch_v7_wave_to_v5
+from pyirena.io.pxp_to_nexus import _require_igor2
 
 
 def main() -> int:
@@ -31,6 +34,7 @@ def main() -> int:
     ap.add_argument("--show-folders", action="store_true",
                     help="Print the top-level folder structure as discovered")
     args = ap.parse_args()
+    _require_igor2()
 
     pxp = Path(args.pxp)
     print(f"Loading {pxp} ({pxp.stat().st_size:,} bytes)\n")
@@ -46,7 +50,6 @@ def main() -> int:
 
     n_ok = 0
     n_skipped = 0
-    n_recovered_v7 = 0
     by_type_ok: Counter[str] = Counter()
     by_type_skipped: Counter[str] = Counter()
     size_buckets_skipped: Counter[str] = Counter()
@@ -106,20 +109,6 @@ def main() -> int:
                 total_size_ok += num_bytes
                 continue
             except Exception as exc:
-                # Match the loader's v7 retry path.
-                if rtype is WaveRecord:
-                    patched = _patch_v7_wave_to_v5(data, byte_order)
-                    if patched is not data:
-                        try:
-                            WaveRecord(header, patched, byte_order=byte_order)
-                            n_ok += 1
-                            n_recovered_v7 += 1
-                            by_type_ok[tname] += 1
-                            total_size_ok += num_bytes
-                            continue
-                        except Exception as exc2:
-                            exc = exc2
-
                 n_skipped += 1
                 by_type_skipped[tname] += 1
                 total_size_skipped += num_bytes
@@ -139,8 +128,6 @@ def main() -> int:
                     msgs.append(short)
 
     print(f"\nRecords OK:        {n_ok:6d}  ({total_size_ok/1e6:.1f} MB)")
-    if n_recovered_v7:
-        print(f"  of which v7→v5 recovered: {n_recovered_v7}")
     print(f"Records skipped:   {n_skipped:6d}  ({total_size_skipped/1e6:.1f} MB)")
 
     print("\nBy record type (OK):")

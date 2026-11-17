@@ -108,7 +108,7 @@ https://github.com/jilavsky/pyirena/issues.
 | numpy | ≥ 2.0 | Numerical arrays |
 | scipy | ≥ 1.13 | Optimization, fitting |
 | h5py | ≥ 3.0 | HDF5 / NXcanSAS file I/O |
-| igor2 | ≥ 0.5.13 | Igor Pro `.pxp` / `.ibw` import |
+| igor2 | ≥ 0.5.16 | Igor Pro `.pxp` / `.ibw` import |
 
 ### GUI (required to run the interactive GUI)
 

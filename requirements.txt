@@ -7,4 +7,4 @@
 numpy>=2.0
 scipy>=1.13
 h5py>=3.0.0
-igor2>=0.5.13
+igor2>=0.5.16  # Igor 8 long .pxp names; see pyproject.toml

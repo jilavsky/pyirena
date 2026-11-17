@@ -206,9 +206,16 @@ Matching is case-insensitive. The folder name **inside** Igor (e.g.
 
 ```python
 WAVE_PICKERS = {
-    "USAXS": [("DSM_Qvec", "DSM_Int", "DSM_Error", "DSM_dQ")],
-    "SAXS":  [("R_Qvec",   "R_Int",   "R_Error",   None)],
-    "WAXS":  [("R_Qvec",   "R_Int",   "R_Error",   None)],
+    "USAXS": [
+        ("DSM_Qvec",   "DSM_Int",    "DSM_Error",  "DSM_dQ"),      # desmeared
+        ("Q_<folder>", "R_<folder>", "S_<folder>", ("dQ_<folder>", "w_<folder>")),
+        ("SMR_Qvec",   "SMR_Int",    "SMR_Error",  "SMR_dQ"),      # slit smeared
+    ],
+    "SAXS": [
+        ("R_Qvec",     "R_Int",      "R_Error",    None),
+        ("Q_<folder>", "R_<folder>", "S_<folder>", ("dQ_<folder>", "w_<folder>")),
+    ],
+    "WAXS": [ ... same as SAXS ... ],
 }
 ```
 
@@ -216,6 +223,32 @@ Each entry is `(Q_name, I_name, Err_name, dQ_name_or_None)`. The
 importer tries the entries in order; the first one whose Q, I, and
 Err waves all exist in a sample folder wins. dQ is optional — if the
 named wave isn't there, `Qdev` is simply omitted from the NeXus file.
+
+**Wave names are matched case-insensitively**, as in Igor, so Nika's
+"Use QRS Names" output imports whether it was saved as `q_/r_/s_` or
+`Q_/R_/S_`.
+
+The dQ slot may list alternatives; the first present wins. Nika stores
+per-point Q resolution in `w_<folder>`, which is written as the
+sample's Q resolution (`Qdev`). pyIrena does not use it in fits yet; it
+is kept for other consumers.
+
+**Slit-smeared USAXS (`SMR_*`)** is handled the way Matilda writes it.
+The importer reads the slit length from `SlitLength=` in the `SMR_Int`
+wave note:
+
+- **Desmeared and slit-smeared waves in the folder:** the file gets the
+  desmeared curve as its default entry plus a `<sample>_SMR` entry with
+  the smeared curve, per-point `dQw` and the slit length `dQl`.
+  pyIrena's "Slit smeared data" selector then loads either.
+- **Slit-smeared waves only** (desmearing not run): the file holds the
+  smeared curve with `dQl`, so pyIrena's tools smear the model.
+
+Slit-smeared data without a positive `SlitLength` is never written: an
+SMR-only folder is reported as an error, and in a mixed folder only the
+desmeared entry is written (with a warning in the log). Without `dQl`,
+fits would treat smeared data as pinhole data. The same applies to
+`.h5xp` imports.
 
 ### Per-technique wave triples (.h5xp)
 
@@ -240,14 +273,16 @@ lookup time, matching the two conventions emitted by
 
 ### Extending the pickers
 
-To add a new pattern (e.g. exporting slit-smeared USAXS as well), append
-a tuple:
+To add a new pattern, append a tuple (case does not matter):
 
 ```python
-WAVE_PICKERS["USAXS"].append(
-    ("SMR_Qvec", "SMR_Int", "SMR_Error", "SMR_dQ"),
+WAVE_PICKERS["SAXS"].append(
+    ("MyQ_<folder>", "MyI_<folder>", "MyErr_<folder>", None),
 )
 ```
+
+Pickers whose Q name starts with `SMR_` are treated as slit smeared
+and need `SlitLength` in the intensity wave note.
 
 ## Wave-note metadata
 
@@ -306,33 +341,44 @@ instrument.
   the imported NeXus files — that way the results are stored in the
   pyIrena schema and can be browsed by the HDF5 Viewer.
 
-### Long folder/wave names in `.pxp` (Igor 8+ format) — use `.h5xp` instead
+### Long folder and wave names in `.pxp` (Igor 8+) — needs `igor2 >= 0.5.16`
 
-Igor Pro 8 introduced a new on-disk format for folders and waves whose
-names exceed **31 characters**. The format uses record types that
-`igor2` (the underlying parser) does not understand, so those folders
-are invisible to the `.pxp` importer. A typical symptom is that an
-experiment containing ~700 time-series samples imports only the
-samples whose folder names fit in 31 characters (e.g.
-`AMC_04_07_26_3min_0033` works; `AMC_25_crystalline_04_07_26_10min_0036`
-is silently skipped).
+Igor Pro 8 and later allow names up to 255 characters, but a `.pxp`
+stores anything longer than **31 characters** differently: long folder
+names in their own record type (101 instead of 9), and long-named waves
+in binary-wave version 7 (the short header field then holds only the
+placeholder `:wave name too long:`). `igor2`, the underlying parser,
+reads long folder names since **0.5.15**
+([AFM-analysis/igor2#30](https://github.com/AFM-analysis/igor2/pull/30))
+and long wave names since **0.5.16**
+([#33](https://github.com/AFM-analysis/igor2/pull/33)). pyIrena requires
+0.5.16, so names such as `AMC_25_crystalline_04_07_26_10min_0036`
+import like any other. Long wave names matter for Nika QRS data, whose
+wave names embed the folder name: any SAXS/WAXS folder longer than 29
+characters produces wave names over 31.
 
-**The fix is straightforward in Igor**: save the experiment as
-`.h5xp` instead of `.pxp`, then import the `.h5xp` into pyIrena.
-The HDF5-based `.h5xp` format has no name-length restriction, and
-pyIrena reads it directly:
+An older `igor2` does not fail on such a file. It drops the long-named
+waves and puts the contents of long-named folders into the parent
+folder, so samples would go missing or be written under the wrong name.
+pyIrena therefore refuses to import a `.pxp` with `igor2` older than
+0.5.16 and says how to upgrade:
 
-1. In Igor Pro, choose **Data → Save Data → Save Experiment As Packed HDF5
-   Experiment...** (or `SaveExperiment /P=path "Filename.h5xp"` from
-   the command line).
-2. Import the resulting `.h5xp` in pyIrena exactly as you would a
-   `.pxp` — same button, same API, same output.
+```bash
+pip install -U "igor2>=0.5.16"
+# or
+conda install -c conda-forge "igor2>=0.5.16"
+```
 
-We deliberately do not attempt to reverse-engineer Igor 8's new `.pxp`
-encoding for long names: the format is undocumented, the `.h5xp` route
-is officially supported by Wavemetrics, and a future `igor2` release
-may add `.pxp` long-name support upstream. When that happens we'll
-pick it up automatically by bumping the `igor2` minimum version.
+If upgrading is not possible, save the experiment from Igor Pro as
+`.h5xp` (**Data → Save Data → Save Experiment As Packed HDF5
+Experiment...**, or `SaveExperiment /P=path "Filename.h5xp"`) and import
+that instead. The HDF5-based format has no name-length restriction.
+
+Tested from `.pxp` with Igor Pro experiments containing long USAXS
+folder names (including spaces), SAXS folders of 22, 30 and 58
+characters with matching long QRS wave names, liberal (quoted) folder
+and wave names, and slit-smeared-only USAXS. Everything imported. The `.h5xp` route has no name restrictions
+either.
 
 ### Other quirks
 
