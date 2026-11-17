@@ -1,42 +1,73 @@
 """Shared helpers for the documentation screenshot script.
 
+Copied from jilavsky-docs/templates/package-docs (derived from pyIrena's
+phase-5 machinery). Identical in every family package: everything that
+differs per package lives in ``_package.py``.
+
 Used by ``scripts/make_doc_screenshots.py`` and the per-page modules in this
-folder. Nothing here is imported by pyIrena itself. The few Qt classes that
-``pyirena/gui/_qt.py`` does not re-export (QPoint, QRect, QPainter) come from
-PySide6 directly: this folder is outside the package, and pyIrena's GUI is
+folder; nothing here is imported by the package itself. Qt classes come from
+PySide6 directly: this folder is outside the package, and the family is
 PySide6 only.
 
-The script must not touch the user's settings or the tracked data:
+Conventions (PLAN.md §9, template README):
 
-* ``PYIRENA_STATE_DIR`` points at a throw-away folder, so panels start from
-  their coded defaults and nothing is written to ``~/.pyirena``;
-* window-geometry persistence is switched off;
-* every dataset is copied into a scratch folder before a panel opens it, so
-  "Store in File" or an auto-created NXcanSAS sibling never lands in
-  ``validationData/`` or ``testData/``.
+* A shot ID is ``<page>-<nn>-<what>``, where ``<page>`` is the file name of a
+  page under ``docs/`` (unique across the docs tree).
+* The image lives next to that page: ``<page dir>/img/<page>/<id>.png``.
+* The script must not touch the user's settings or tracked data:
+  ``_package.isolate_settings`` points the package at throw-away folders, and
+  :meth:`Context.dataset` copies every input file into a scratch folder.
 """
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-DOCS_IMG = REPO / "docs" / "tools" / "img"
-VALIDATION = REPO / "validationData"
-TEST_DATA = REPO / "testData"
 
-#: Callout colour: pyIrena's orange accent, readable on white and on plots.
-CALLOUT_FILL = "#c2410c"
-CALLOUT_RADIUS = 12
+def _find_repo() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    raise RuntimeError("no pyproject.toml above scripts/doc_shots")
+
+
+REPO = _find_repo()
+DOCS = REPO / "docs"
 
 #: Shot id -> registered function.
 REGISTRY: dict[str, Shot] = {}
+
+
+def page_of(shot_id: str) -> str:
+    """``"unified-fit-03-guinier-fit"`` -> ``"unified-fit"`` (everything before ``-<nn>-``)."""
+    parts = shot_id.split("-")
+    for i, part in enumerate(parts):
+        if i and len(part) == 2 and part.isdigit():
+            return "-".join(parts[:i])
+    raise ValueError(f"shot id without -<nn>-: {shot_id}")
+
+
+def page_file(page: str) -> Path:
+    """The ``docs/**/<page>.md`` file a shot belongs to.
+
+    A top-level ``docs/<page>.md`` wins, so ``index-01-…`` shots belong to the
+    home page ``docs/index.md`` (section ``index.md`` pages cannot carry
+    automated shots). Otherwise the name must be unique; raises if missing
+    or ambiguous.
+    """
+    top = DOCS / f"{page}.md"
+    if top.is_file():
+        return top
+    hits = [p for p in DOCS.rglob(f"{page}.md") if "_build" not in p.parts]
+    if len(hits) != 1:
+        raise LookupError(f"expected one docs/**/{page}.md, found {len(hits)}")
+    return hits[0]
 
 
 @dataclass
@@ -48,19 +79,11 @@ class Shot:
     page: str = field(init=False)
 
     def __post_init__(self) -> None:
-        # "unified-fit-03-guinier-fit" -> page "unified-fit": the page is
-        # everything before the two-digit sequence number.
-        parts = self.shot_id.split("-")
-        for i, part in enumerate(parts):
-            if len(part) == 2 and part.isdigit():
-                self.page = "-".join(parts[:i])
-                break
-        else:
-            raise ValueError(f"shot id without <nn>: {self.shot_id}")
+        self.page = page_of(self.shot_id)
 
-    @property
+    @cached_property
     def path(self) -> Path:
-        return DOCS_IMG / self.page / f"{self.shot_id}.png"
+        return page_file(self.page).parent / "img" / self.page / f"{self.shot_id}.png"
 
 
 def shot(shot_id: str):
@@ -82,16 +105,22 @@ class Context:
         self.app = app
         self.scratch = scratch
 
-    def dataset(self, relpath: str, root: Path = VALIDATION) -> str:
-        """Copy a tracked dataset into the scratch folder; return the copy's path.
+    def dataset(self, relpath: str, root: Path | None = None) -> str:
+        """Copy a tracked file into the scratch folder; return the copy's path.
 
-        A fresh copy for every call, so a shot that stores results cannot
-        change what the next shot sees.
+        A fresh copy for every call, so a shot that writes results cannot
+        change what the next shot sees. *root* defaults to
+        ``_package.DATA_ROOT``.
         """
-        src = root / relpath
+        from . import _package
+
+        src = (root or _package.DATA_ROOT) / relpath
         sub = Path(tempfile.mkdtemp(dir=self.scratch))
         dst = sub / src.name
-        shutil.copy2(src, dst)
+        if src.is_dir():
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
         return str(dst)
 
     def settle(self, rounds: int = 30) -> None:
@@ -110,13 +139,6 @@ class Context:
                 raise TimeoutError("condition not reached")
         self.settle()
 
-    def wait_jobs(self, panel, timeout: float = 300.0) -> None:
-        """Wait for a panel's background fit/MC job (FitJobRunner) to finish."""
-        jobs = getattr(panel, "_jobs", None)
-        self.settle(5)
-        if jobs is not None:
-            self.wait_until(lambda: not jobs.busy, timeout)
-
     def show(self, widget, size: tuple[int, int]) -> None:
         """Show *widget* at a fixed size and let it lay out."""
         widget.resize(*size)
@@ -134,12 +156,11 @@ def widget_rect(widget, root):
 
 def scene_item_rect(view, item, root):
     """Rectangle of a pyqtgraph scene item (e.g. a PlotItem) in *root* coordinates."""
-    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtCore import QRect
 
-    poly = view.mapFromScene(item.sceneBoundingRect())
-    r = poly.boundingRect()
-    top_left = view.mapTo(root, QPoint(r.x(), r.y()))
-    return QRect(top_left, r.size())
+    # mapFromScene(QRectF) returns an integer QPolygon, so this is a QRect.
+    r = view.mapFromScene(item.sceneBoundingRect()).boundingRect()
+    return QRect(view.mapTo(root, r.topLeft()), r.size())
 
 
 def draw_callouts(image, marks: Sequence[tuple]):
@@ -153,9 +174,10 @@ def draw_callouts(image, marks: Sequence[tuple]):
             the optional offset moves it, e.g. ``(16, 0)`` puts an ``"r"``
             circle just outside the widget. It is kept inside the image.
     """
-    from PySide6.QtGui import QPainter
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 
-    from pyirena.gui._qt import QBrush, QColor, QFont, QPen, QPointF, Qt
+    from . import _package
 
     p = QPainter(image)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -163,50 +185,86 @@ def draw_callouts(image, marks: Sequence[tuple]):
     font.setBold(True)
     font.setPixelSize(13)
     p.setFont(font)
-    rad = CALLOUT_RADIUS
+    rad = _package.CALLOUT_RADIUS
     w, h = image.width() / image.devicePixelRatio(), image.height() / image.devicePixelRatio()
     for number, rect, anchor, *offset in marks:
         dx, dy = offset[0] if offset else (0, 0)
-        x = {"l": rect.left(), "tl": rect.left(), "bl": rect.left(),
-             "r": rect.right(), "tr": rect.right(), "br": rect.right()}.get(
-            anchor, rect.center().x())
-        y = {"t": rect.top(), "tl": rect.top(), "tr": rect.top(),
-             "bl": rect.bottom(), "br": rect.bottom()}.get(anchor, rect.center().y())
+        x = {
+            "l": rect.left(),
+            "tl": rect.left(),
+            "bl": rect.left(),
+            "r": rect.right(),
+            "tr": rect.right(),
+            "br": rect.right(),
+        }.get(anchor, rect.center().x())
+        y = {
+            "t": rect.top(),
+            "tl": rect.top(),
+            "tr": rect.top(),
+            "bl": rect.bottom(),
+            "br": rect.bottom(),
+        }.get(anchor, rect.center().y())
         x, y = x + dx, y + dy
         x = min(max(x, rad + 1), w - rad - 1)
         y = min(max(y, rad + 1), h - rad - 1)
         centre = QPointF(x, y)
         p.setPen(QPen(QColor("white"), 2))
-        p.setBrush(QBrush(QColor(CALLOUT_FILL)))
+        p.setBrush(QBrush(QColor(_package.CALLOUT_FILL)))
         p.drawEllipse(centre, rad, rad)
         p.setPen(QColor("white"))
-        p.drawText(int(x - rad), int(y - rad), 2 * rad, 2 * rad,
-                   int(Qt.AlignmentFlag.AlignCenter), str(number))
+        p.drawText(
+            int(x - rad),
+            int(y - rad),
+            2 * rad,
+            2 * rad,
+            int(Qt.AlignmentFlag.AlignCenter),
+            str(number),
+        )
     p.end()
     return image
 
 
-def make_app():
-    """Create the offscreen QApplication with pyIrena's light theme."""
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    os.environ.pop("PYIRENA_NATIVE_THEME", None)
-    from pyirena.gui import window_state
+def refuse_message_boxes() -> None:
+    """Make the static ``QMessageBox`` helpers raise instead of opening.
 
-    window_state.GEOMETRY_PERSISTENCE_ENABLED = False
-    from pyirena.gui._qt import QApplication
-    from pyirena.gui.theme import apply_theme
+    An unexpected modal box (``warning``, ``information``, ``critical``,
+    ``question``) blocks an offscreen run with no output. Call this in
+    ``_package.make_app()``; a shot that means to show such a box builds a
+    ``QMessageBox`` instance itself. (From Bernardyn.)
+    """
+    from PySide6.QtWidgets import QMessageBox
 
-    app = QApplication.instance() or QApplication(["make_doc_screenshots"])
-    apply_theme(app)
-    return app
+    def refuse(kind):
+        def box(_parent, title, text, *args, **kwargs):
+            raise RuntimeError(f"unexpected {kind} dialog {title!r}: {text}")
+
+        return staticmethod(box)
+
+    for kind in ("warning", "information", "critical", "question"):
+        setattr(QMessageBox, kind, refuse(kind))
+
+
+def flush_deletes(app) -> None:
+    """Run deletes queued with ``deleteLater()``.
+
+    ``processEvents()`` outside a running event loop never handles deferred
+    deletes, so a widget a shot closed and queued for deletion would still be
+    a top-level widget during clean-up. Call it inside a shot, right after the
+    action that queued the delete (Bernardyn: after the 2-D renderer closes
+    its temporary widget). Not called by the script's own clean-up: forcing
+    every queued delete there crashed PySide6.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
 
 
 def save_png(image, path: Path) -> int:
     """Save *image* as PNG, recompress with oxipng if installed; return bytes."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    if hasattr(image, "save"):
-        if not image.save(str(path), "PNG"):
-            raise OSError(f"could not write {path}")
+    if not image.save(str(path), "PNG"):
+        raise OSError(f"could not write {path}")
     oxipng = shutil.which("oxipng")
     if oxipng:
         import subprocess

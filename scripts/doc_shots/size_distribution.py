@@ -16,6 +16,7 @@ the image would change on every run.
 from __future__ import annotations
 
 from ._common import Context, draw_callouts, scene_item_rect, shot, widget_rect
+from ._package import wait_jobs
 
 SIZE = (1200, 960)  # the panel's own default size
 LOGNORMAL = "sizes/sizes_sphere_lognormal.h5"
@@ -68,7 +69,7 @@ def window(ctx: Context):
     panel = _open(ctx, LOGNORMAL)
     _setup(ctx, panel)
     panel.run_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     gw = panel.graph_window
     r = lambda w: widget_rect(w, panel)  # noqa: E731
     gl = gw.graphics_layout
@@ -106,7 +107,7 @@ def fit_result(ctx: Context):
     panel.graph_window.set_cursor_range(0.0008, 0.15)
     ctx.settle()
     panel.run_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     panel._results_to_graph()
     ctx.settle()
     return panel.graph_window.grab()

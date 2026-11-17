@@ -9,7 +9,8 @@ synthetic data, the shot only shows what the overlay looks like.
 
 from __future__ import annotations
 
-from ._common import TEST_DATA, Context, draw_callouts, scene_item_rect, shot, widget_rect
+from ._common import Context, draw_callouts, scene_item_rect, shot, widget_rect
+from ._package import TEST_DATA, wait_jobs
 
 SIZE = (1200, 1020)  # the panel's own default size
 DATASET = "waxs/waxs_three_gauss.h5"
@@ -43,7 +44,7 @@ def _fitted(ctx: Context):
     ctx.settle()
     _remove_false_detections(ctx, panel)
     panel._run_fit()
-    ctx.wait_jobs(panel)
+    wait_jobs(ctx, panel)
     return panel
 
 

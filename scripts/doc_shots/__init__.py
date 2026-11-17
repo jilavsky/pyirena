@@ -1,8 +1,10 @@
-"""Documentation screenshot shots, one module per tool page.
+"""Documentation screenshots, one module per docs page.
 
-Each ``<page>.py`` module (page name with ``-`` written as ``_``) registers
-its shots with ``@shot("<page>-<nn>-<what>")`` from :mod:`._common`.
-:func:`load_all` imports every module, filling ``REGISTRY``.
+Copied from jilavsky-docs/templates/package-docs. Each ``<page>.py`` module
+(page name with ``-`` written as ``_``) registers its shots with
+``@shot("<page>-<nn>-<what>")`` from :mod:`._common`. :func:`load_all`
+imports every module not starting with ``_``, filling ``REGISTRY``.
+See ``_example.py`` for the pattern.
 """
 
 import importlib
