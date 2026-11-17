@@ -75,8 +75,14 @@ def test_open_h5_opens_a_same_identity_file_independently(tmp_path):
         pytest.skip("hard links not supported here")
     with open_h5(a, "r"):
         assert h5open.confusable_open_file(b) == str(a)
-        with open_h5(b, "r+") as fb:       # natively this is refused, see above
+        # Read-only on purpose: a hard link is one physical file, and on Windows
+        # HDF5's read lock on ``a`` rightly refuses writes through ``b`` (EACCES
+        # when the file object flushes on close).  Real same-identity files on
+        # SSHFS-Win are distinct files, so no lock is shared there.
+        with open_h5(b, "r") as fb:
+            assert isinstance(fb, h5open._FileObjectH5)
             assert fb.filename == str(b)
+            assert fb["entry/sampleA/sastransmission"].attrs["T"] == 0.11
 
 
 def test_nothing_else_open_means_a_plain_native_open(tmp_path, same_identity_everywhere):
