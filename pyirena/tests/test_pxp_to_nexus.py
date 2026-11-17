@@ -109,62 +109,6 @@ def test_technique_folders_table_is_data_driven():
     assert _classify_folder("Saxs") == "SAXS"
 
 
-def test_patch_v7_wave_to_v5_rewrites_version_byte():
-    """The v7→v5 patcher must swap the leading version short from 7 to 5
-    in-place, leaving the rest of the payload untouched. v7 waves are
-    binary-identical to v5 in their numeric data section."""
-    import struct
-
-    from pyirena.io.pxp_to_nexus import _patch_v7_wave_to_v5
-
-    v7_payload = struct.pack("<h", 7) + b"\xff" * 100
-    patched = _patch_v7_wave_to_v5(v7_payload, byte_order="<")
-    assert struct.unpack("<h", patched[:2])[0] == 5
-    assert patched[2:] == v7_payload[2:]
-
-    # v5 input should pass through unchanged (same bytes returned).
-    v5_payload = struct.pack("<h", 5) + b"\xaa" * 50
-    assert _patch_v7_wave_to_v5(v5_payload, byte_order="<") is v5_payload
-
-    # Empty / truncated input should not crash.
-    assert _patch_v7_wave_to_v5(b"", byte_order="<") == b""
-    assert _patch_v7_wave_to_v5(b"\x05", byte_order="<") == b"\x05"
-
-
-def _v7_wave_payload(name: bytes, order: str, note: bytes = b"note",
-                     name_len: int | None = None) -> bytes:
-    """Binary-wave v7 payload laid out as Igor Pro 8 writes it: BinHeader5
-    (long-name length in the optionsSize1 slot at offset 56), wave header +
-    data, note, then the un-terminated long name."""
-    import struct
-    wfm = b"\xaa" * 400
-    hdr = struct.pack(order + "hh4l4l4l3l", 7, 0, len(wfm), 0, len(note), 0,
-                      0, 0, 0, 0, 0, 0, 0, 0, 0,
-                      len(name) if name_len is None else name_len, 0)
-    assert len(hdr) == 64
-    return hdr + wfm + note + name
-
-
-@pytest.mark.parametrize("order", ["<", ">"])
-def test_v7_long_wave_name_read_from_record_tail(order):
-    """igor2 leaves a v7 wave's bname as ':wave name too long:'; the real
-    name follows the v5 sections. Names from Jan's SAXS test experiment."""
-    from pyirena.io.pxp_to_nexus import _v7_long_wave_name
-
-    for name in (b"r_ReactedQ_1p73Inlet_0006_270_30",
-                 b"q_ReactedQ_1p73Outlet_this_is_a_very_long_folder_0007_270_30"):
-        assert _v7_long_wave_name(_v7_wave_payload(name, order), order) == name
-
-
-def test_v7_long_wave_name_rejects_inconsistent_layout():
-    """If the trailing bytes do not match the recorded length, keep bname."""
-    from pyirena.io.pxp_to_nexus import _v7_long_wave_name
-
-    payload = _v7_wave_payload(b"r_Sample_name_longer_than_31_chars", "<", name_len=5)
-    assert _v7_long_wave_name(payload, "<") is None
-    assert _v7_long_wave_name(b"\x07\x00", "<") is None
-
-
 def _pxp_record(record_type: int, payload: bytes, order: str) -> bytes:
     """One packed-file record: 8-byte header (type, version, size) + payload."""
     import struct
@@ -201,31 +145,52 @@ def _long_folder_pxp(tmp_path: Path, order: str) -> tuple[Path, list[str]]:
 @pytest.mark.parametrize("order", ["<", ">"])
 def test_pxp_loader_reads_igor8_long_folder_names(tmp_path, order):
     """igor2 >= 0.5.15 decodes type-101 long folder names; our defensive
-    loader must place them in the tree and report no unreadable names.
-    The type-33 records that follow every folder start must not count."""
+    loader must place them in the tree. The type-33 records that follow
+    every folder start must not disturb it."""
     from pyirena.io.pxp_to_nexus import _load_pxp_filesystem
 
     path, expected = _long_folder_pxp(tmp_path, order)
-    fs, skipped, n_unreadable = _load_pxp_filesystem(path)
+    fs, skipped = _load_pxp_filesystem(path)
     assert set(fs["root"]["USAXS"]) == set(expected)
     assert skipped == 0
-    assert n_unreadable == 0
 
 
-def test_pxp_loader_counts_long_folder_names_old_igor2_cannot_read(tmp_path, monkeypatch):
-    """With an igor2 that lacks type 101 (< 0.5.15) the long names are
-    unreadable; the loader must count them so the user is told to upgrade."""
-    import igor2.packed
+@pytest.mark.parametrize("version", ["0.5.15", "0.5.13", "0.4.9"])
+def test_pxp_loader_refuses_igor2_older_than_0_5_16(tmp_path, monkeypatch, version):
+    """Older igor2 silently drops long-named (v7) waves and misplaces
+    long-named folders, so loading must stop with an upgrade message."""
+    import igor2
 
     from pyirena.io.pxp_to_nexus import _load_pxp_filesystem
 
-    monkeypatch.delitem(igor2.packed._RECORD_TYPE, 101)
+    monkeypatch.setattr(igor2, "__version__", version)
     path, _ = _long_folder_pxp(tmp_path, "<")
-    fs, _, n_unreadable = _load_pxp_filesystem(path)
-    assert n_unreadable == 2
-    # The skipped starts' type-10 closers still pop the folder stack, so
-    # later folders land under the wrong parent — why the warning matters.
-    assert "AMC_04_07_26_3min_0033" not in fs["root"]["USAXS"]
+    with pytest.raises(ImportError, match=r"igor2>=0\.5\.16"):
+        _load_pxp_filesystem(path)
+
+
+@pytest.mark.parametrize("version", ["0.5.16", "0.5.17.dev3", "0.6.0", "1.0"])
+def test_pxp_loader_accepts_igor2_0_5_16_and_later(tmp_path, monkeypatch, version):
+    import igor2
+
+    from pyirena.io.pxp_to_nexus import _load_pxp_filesystem
+
+    monkeypatch.setattr(igor2, "__version__", version)
+    path, _ = _long_folder_pxp(tmp_path, "<")
+    _load_pxp_filesystem(path)
+
+
+def test_batch_igor_to_nexus_surfaces_old_igor2(tmp_path, monkeypatch):
+    """The batch wrapper turns most failures into None; a too-old igor2
+    must reach the caller (GUI) with its upgrade message instead."""
+    import igor2
+
+    from pyirena.batch import igor_to_nexus
+
+    monkeypatch.setattr(igor2, "__version__", "0.5.15")
+    path, _ = _long_folder_pxp(tmp_path, "<")
+    with pytest.raises(ImportError, match="Upgrade"):
+        igor_to_nexus(str(path), output_folder=str(tmp_path / "out"))
 
 
 class _FakeWave:
@@ -461,6 +426,41 @@ def test_unique_path_appends_suffix(tmp_path):
 # ---------------------------------------------------------------------------
 
 _REAL_PXP = Path(__file__).resolve().parents[2] / "temp" / "test.pxp"
+
+
+_LONG_NAMES_PXP = _REAL_PXP.with_name("TestLongNames_liberalAll.pxp")
+
+
+@pytest.mark.skipif(not _LONG_NAMES_PXP.is_file(),
+                    reason="temp/TestLongNames_liberalAll.pxp not present "
+                           "(developer-only fixture)")
+def test_real_igor8_experiment_with_long_folder_and_wave_names(tmp_path):
+    """Igor Pro 10 experiment with long and liberal (quoted, with spaces)
+    folder and wave names, saved by Jan for this fix. igor2 0.5.16 must
+    give every long-named wave its own full name, and all seven samples
+    must import with the expected point counts."""
+    from pyirena.io.pxp_to_nexus import _load_pxp_filesystem, extract_pxp_to_nexus
+
+    fs, skipped = _load_pxp_filesystem(_LONG_NAMES_PXP)
+    assert skipped == 0
+    long_saxs = "ReactedQ_1p73Outlet_this_is_a_very_long_folder_ 0007_270_30"
+    folder = fs["root"]["SAXS"][long_saxs]
+    for prefix in ("q_", "r_", "s_", "w_"):
+        assert prefix + long_saxs in folder
+    assert not any("too long" in k for k in folder)
+
+    res = extract_pxp_to_nexus(_LONG_NAMES_PXP, tmp_path)
+    written = {f.source_path: f.n_points for f in res.files if f.status == "ok"}
+    assert written == {
+        "root:SAXS:ReactedQ_1p73Inlet_0006_270_30": 119,
+        f"root:SAXS:{long_saxs}": 119,
+        "root:SAXS:ReactedQ_2p6Inlet_0008_270_30": 119,
+        "root:USAXS:GC_SRM3600_0003": 500,
+        "root:USAXS:ReactedQ_1p73Outlet_this_is a very long folder name 0007": 500,
+        "root:USAXS:ReactedQ_2p6Inlet_0008": 500,
+        "root:USAXS:ReactedQ_2p6Outlet_0009": 500,
+    }
+    assert res.n_unparseable_records == 0
 
 
 @pytest.mark.skipif(not _REAL_PXP.is_file(),

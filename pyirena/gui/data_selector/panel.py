@@ -2683,25 +2683,6 @@ class DataSelectorPanel(QWidget):
                 f"pxp could not be parsed (skipped)."
             )
 
-        # Igor 8+ long folder names (> 31 chars) that the installed igor2
-        # could not read (igor2 < 0.5.15). Those folders' waves land in the
-        # parent folder, so samples are missing or misattributed. Surface
-        # this prominently so the user upgrades igor2.
-        n_longname = result.get('n_igor8_longname_markers') or 0
-        if n_longname > 0:
-            msg_lines.append("")
-            msg_lines.append(
-                f"⚠ WARNING: this .pxp contains {n_longname} folder(s) with "
-                f"names longer than 31 characters that igor2 could not read."
-            )
-            msg_lines.append(
-                "  SOME SAMPLES ARE MISSING OR MISATTRIBUTED in the output above."
-            )
-            msg_lines.append(
-                '  Fix: pip install -U "igor2>=0.5.15" and re-import '
-                "(or save the experiment as .h5xp in Igor Pro)."
-            )
-
         # Per-technique tally
         tech_count: Dict[str, int] = {}
         for fr in result['files']:
@@ -2719,14 +2700,8 @@ class DataSelectorPanel(QWidget):
 
         # Offer to load the output folder
         msg_box = QMessageBox(self)
-        # Warning icon when long-name markers were seen, since the
-        # user almost certainly has missing samples.
-        if n_longname > 0:
-            msg_box.setIcon(QMessageBox.Icon.Warning)
-            msg_box.setWindowTitle("Import complete — some samples missing")
-        else:
-            msg_box.setIcon(QMessageBox.Icon.Information)
-            msg_box.setWindowTitle("Import complete")
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setWindowTitle("Import complete")
         msg_box.setText("\n".join(msg_lines))
         if result['n_written'] > 0:
             load_btn = msg_box.addButton(

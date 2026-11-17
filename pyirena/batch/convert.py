@@ -88,6 +88,11 @@ def igor_to_nexus(
         # batch-API convention (caller already prints the path).
         log.info(f"[pyirena.batch.igor_to_nexus] {exc}")
         return None
+    except ImportError:
+        # igor2 missing or too old (< 0.5.16): not a problem with this one
+        # file, and the message says how to fix it, so let it reach the
+        # caller instead of collapsing into a None "no data" result.
+        raise
     except Exception:
         log.error(f"[pyirena.batch.igor_to_nexus] Error:\n{traceback.format_exc()}")
         return None
@@ -112,11 +117,6 @@ def igor_to_nexus(
         log.error(f"  errors:   {res.n_errors}")
         if res.n_unparseable_records:
             log.error(f"  note:     {res.n_unparseable_records} wave record(s) could not be parsed")
-        if res.n_igor8_longname_markers:
-            log.warning(f"  WARNING:  {res.n_igor8_longname_markers} folder name(s) longer "
-                  f"than 31 characters could not be read — samples missing or "
-                  f"misattributed. Upgrade igor2 to >= 0.5.15 and re-import, or "
-                  f"re-save as .h5xp from Igor.")
 
     return {
         'success':     True,
@@ -125,6 +125,7 @@ def igor_to_nexus(
         'n_skipped':   res.n_skipped,
         'n_errors':    res.n_errors,
         'n_unparseable_records': res.n_unparseable_records,
+        # Always 0 since igor2 >= 0.5.16 is required; kept for callers.
         'n_igor8_longname_markers': res.n_igor8_longname_markers,
         'files':       files_list,
     }

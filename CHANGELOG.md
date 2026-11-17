@@ -60,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SAXS/WAXS folder longer than 29 characters was skipped). The minimum is
   now `igor2>=0.5.16` (pip and conda). pyIrena's own v7 workaround (patch
   the wave version to 5 and recover the name from the record) is removed.
+  If an older `igor2` is still installed, `.pxp` import stops with an
+  upgrade message instead of silently losing samples;
+  `pyirena.batch.igor_to_nexus` raises that `ImportError` rather than
+  returning None, so the Data Selector shows the message.
   Tested on Igor experiments with long and liberal (quoted) folder and
   wave names in USAXS and SAXS.
 - **Nika "Use QRS Names" SAXS/WAXS data imports from `.pxp` regardless of

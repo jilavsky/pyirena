@@ -273,14 +273,10 @@ class ExtractionResult:
     pxp_path, output_root, files, n_unparseable_records:
         Self-explanatory.
     n_igor8_longname_markers:
-        Count of Igor Pro 8 long-folder-name records (type 101, folder
-        names longer than 31 characters) that the installed ``igor2``
-        could not decode. Always 0 with ``igor2 >= 0.5.15``, which reads
-        them. A non-zero value means an older ``igor2`` is installed: the
-        waves of those folders were read into the parent folder, so
-        samples are missing or misattributed. Callers should warn the
-        user to upgrade ``igor2`` (or re-save the experiment as
-        ``.h5xp``). Always 0 for h5xp imports.
+        Always 0. Kept so existing callers keep working: it used to count
+        Igor 8 long-folder-name records the installed ``igor2`` could not
+        read, which cannot happen now that ``igor2 >= 0.5.16`` is required
+        (see :func:`_require_igor2`).
     """
     pxp_path: Path
     output_root: Path
@@ -305,123 +301,41 @@ class ExtractionResult:
 # Defensive .pxp loader
 # ---------------------------------------------------------------------------
 
-#: Igor binary-wave version that igor2 (through 0.5.15) doesn't recognise. v7 was added
-#: in Igor Pro 8 to support wave names / dimension labels longer than 31
-#: bytes; binary layout is identical to v5 up to the optional sections, so
-#: a v7 wave can be parsed as v5 if we patch the version field and ignore
-#: the trailing long-name block.
-_IGOR_WAVE_VERSION_V5 = 5
-_IGOR_WAVE_VERSION_V7 = 7
+#: First igor2 that reads Igor Pro 8 long names in a .pxp: long data-folder
+#: names (record type 101, igor2 0.5.15, AFM-analysis/igor2#30) and long wave
+#: names (binary-wave version 7, igor2 0.5.16, #33). pyIrena used to work
+#: around both itself; it now relies on igor2.
+_MIN_IGOR2_VERSION = (0, 5, 16)
 
 
-def _patch_v7_wave_to_v5(data: bytes, byte_order: str) -> bytes:
-    """Rewrite the leading version field of a binary-wave payload from
-    7 to 5 so igor2 (through 0.5.15) will accept it.
+def _require_igor2() -> None:
+    """Raise ImportError unless igor2 >= :data:`_MIN_IGOR2_VERSION` is installed.
 
-    A v7 wave has the same BinHeader5 + WaveHeader5 + wave-data layout as
-    v5; the only additions are:
-    - ``optionsSize1`` (4 bytes at offset 60) is reinterpreted as
-      ``longWaveNameSize`` (2 bytes) + ``optionsSize1`` (2 bytes)
-    - a long-wave-name block is appended after the string-indices section
-    The numeric wave data — which is all we need for SAS extraction —
-    sits at the same offset as in v5 and reads identically. The trailing
-    long-name section is harmless because BinHeader5's recorded wfmSize
-    tells igor2 when to stop reading the wave data, and our caller never
-    inspects what's after the wData section.
+    An older igor2 does not fail on an experiment with long names: it
+    skips the long-named waves and moves the contents of long-named
+    folders into their parent, so samples go missing or are exported
+    under the wrong name. Refusing to load is better than that.
     """
-    if len(data) < 2:
-        return data
-    import struct
-    ver_fmt = "<h" if byte_order in ("<", "=") else ">h"
-    try:
-        version = struct.unpack_from(ver_fmt, data, 0)[0]
-    except struct.error:
-        return data
-    if version != _IGOR_WAVE_VERSION_V7:
-        return data
-    return struct.pack(ver_fmt, _IGOR_WAVE_VERSION_V5) + data[2:]
-
-
-#: Placeholder Igor writes into the 32-byte ``bname`` header field of a
-#: v7 wave whose real name does not fit there.
-_V7_NAME_PLACEHOLDER = b":wave name too long:"
-#: Longest name Igor Pro 8+ allows (bytes).
-_IGOR_MAX_NAME_BYTES = 255
-
-
-def _v7_long_wave_name(data: bytes, byte_order: str) -> bytes | None:
-    """Return the full name stored at the end of a v7 binary-wave payload.
-
-    Igor writes the long name, without a NUL terminator, after every
-    section a v5 wave has (wave header + data, formula, note, data and
-    dimension units, dimension labels, string indices). Its length is
-    the field at offset 56, where v5 has ``optionsSize1``. So the name
-    is whatever follows those sections; we cross-check it against that
-    length field. Returns None when the layout does not add up, so the
-    caller keeps the short ``bname``.
-    """
-    import struct
-    order = "<" if byte_order in ("<", "=") else ">"
-    if len(data) < 64:
-        return None
-    # BinHeader5: version, checksum, wfmSize, formulaSize, noteSize,
-    # dataEUnitsSize, dimEUnitsSize[4], dimLabelsSize[4], sIndicesSize,
-    # optionsSize1 (v7: long-name length), optionsSize2.
-    fields = struct.unpack_from(order + "hh4l4l4l3l", data, 0)
-    wfm, formula, note, data_eunits = fields[2:6]
-    dim_eunits, dim_labels = fields[6:10], fields[10:14]
-    s_indices, name_len = fields[14], fields[15]
-    start = (64 + wfm + formula + note + data_eunits
-             + sum(dim_eunits) + sum(dim_labels) + s_indices)
-    name = data[start:]
-    if not 0 < len(name) <= _IGOR_MAX_NAME_BYTES or len(name) != name_len:
-        return None
-    return name.rstrip(b"\x00")
-
-
-def _apply_v7_long_wave_name(rec, data: bytes, byte_order: str) -> None:
-    """Replace a v7 wave's placeholder ``bname`` with its full name.
-
-    igor2 (through 0.5.15) does not read v7 waves; we parse them as v5
-    (see :func:`_patch_v7_wave_to_v5`), which gives correct data but
-    leaves ``bname`` as ``:wave name too long:`` for every long-named
-    wave, so all of them would collide under that one name in the
-    folder tree. Writing the real name back into ``bname`` keeps every
-    consumer of the record consistent.
-    """
-    name = _v7_long_wave_name(data, byte_order)
-    if name is None:
-        return
-    try:
-        rec.wave["wave"]["wave_header"]["bname"] = name
-    except (KeyError, TypeError):
-        pass
-
-
-#: Packed record type Igor Pro 8 writes instead of a type-9 folder start
-#: when the folder name does not fit in 31 bytes. ``igor2 >= 0.5.15``
-#: parses it as ``LongFolderStartRecord`` (a ``FolderStartRecord``
-#: subclass, so the tree builder below needs no special case). Older
-#: igor2 skips it as unknown; we count those so the importer can tell
-#: the user to upgrade. Types 26 and 33, which an earlier version of
-#: this module counted, are an XOP state marker and a folder id — they
-#: appear in every Igor 8 experiment and say nothing about name length
-#: (see AFM-analysis/igor2#28 and #30).
-_IGOR8_LONG_FOLDER_RECORD_TYPE = 101
-
-
-def _igor2_version() -> str:
-    """Installed igor2 version string, for user-facing messages."""
     try:
         import igor2
-        return getattr(igor2, "__version__", "unknown")
-    except ImportError:
-        return "(not installed)"
+    except ImportError as e:
+        raise ImportError(
+            "The 'igor2' package is required to import Igor packed experiments. "
+            'Install it with:  pip install "igor2>=0.5.16"'
+        ) from e
+    version = getattr(igor2, "__version__", "0")
+    parts = tuple(int(m) for m in re.findall(r"\d+", version)[:3])
+    if parts < _MIN_IGOR2_VERSION:
+        need = ".".join(map(str, _MIN_IGOR2_VERSION))
+        raise ImportError(
+            f"igor2 {version} is installed, but importing .pxp files needs "
+            f"igor2 >= {need} (earlier versions mis-read Igor 8 long folder and "
+            f'wave names). Upgrade with:  pip install -U "igor2>={need}"'
+        )
 
 
-def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
-    """Load a .pxp file and return
-    ``(filesystem, n_skipped_records, n_igor8_longname_markers)``.
+def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int]:
+    """Load a .pxp file and return ``(filesystem, n_skipped_records)``.
 
     Unlike :func:`igor2.packed.load`, this never aborts on a single bad
     wave record: the offending record is skipped (counted) and traversal
@@ -430,13 +344,9 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     ``FolderStartRecord`` / ``FolderEndRecord`` records, which parse
     cheaply and reliably.
 
-    The third return value counts long-folder-name records (type 101,
-    folder names longer than 31 characters) that the installed igor2
-    could not decode. It is always 0 with ``igor2 >= 0.5.15``. A
-    non-zero count means an older igor2 is installed and the contents
-    of those folders landed in their parent folder; the high-level
-    summary uses it to tell the user to upgrade igor2.
+    Requires ``igor2 >= 0.5.16`` (see :func:`_require_igor2`).
     """
+    _require_igor2()
     try:
         from igor2.packed import (
             _RECORD_TYPE,
@@ -451,12 +361,11 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     except ImportError as e:
         raise ImportError(
             "The 'igor2' package is required to import Igor packed experiments. "
-            "Install it with:  pip install igor2"
+            'Install it with:  pip install "igor2>=0.5.16"'
         ) from e
 
     records: list[Any] = []
     skipped = 0
-    igor8_longname_markers = 0
 
     # Always force an explicit byte order on the record header. The
     # default ``setup_packed_file_record_header()`` (no argument) uses
@@ -470,7 +379,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
     with open(pxp_path, "rb") as f:
         peek = f.read(2)
     if len(peek) < 2:
-        return {"root": {}}, 0, 0
+        return {"root": {}}, 0
     # Igor packed file records start with `short recordType`. Valid
     # record-type IDs are 1..11 (plus high bits), so the first byte is
     # always small; on little-endian it occupies byte 0, on big-endian
@@ -528,28 +437,10 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
                 break
             rtype_id = header["recordType"] & PACKEDRECTYPE_MASK
             rtype = _RECORD_TYPE.get(rtype_id, _UnknownRecord)
-            if rtype_id == _IGOR8_LONG_FOLDER_RECORD_TYPE and rtype is _UnknownRecord:
-                igor8_longname_markers += 1
             try:
                 rec = rtype(header, data, byte_order=byte_order)
                 records.append(rec)
-            except Exception as exc:  # noqa: F841 - exc is read below (may be reassigned to exc2)
-                # If this looks like a v7 wave (long-name format from
-                # Igor Pro 8/10), patch the version field to 5 and retry.
-                # igor2 (through 0.5.15) doesn't know about v7 even though the
-                # binary layout is identical up to the trailing
-                # long-name block.
-                if rtype is WaveRecord:
-                    patched = _patch_v7_wave_to_v5(data, byte_order)
-                    if patched is not data:
-                        try:
-                            rec = WaveRecord(header, patched, byte_order=byte_order)
-                            _apply_v7_long_wave_name(rec, data, byte_order)
-                            records.append(rec)
-                            continue
-                        except Exception as exc2:
-                            exc = exc2  # fall through to "skipped" path below
-
+            except Exception as exc:
                 skipped += 1
                 records.append(None)
                 logger.debug("skipped %s record (rtype_id=%s): %s",
@@ -582,7 +473,7 @@ def _load_pxp_filesystem(pxp_path: Path) -> tuple[dict, int, int]:
                 # Unreadable wave name — drop silently; structure is the priority.
                 pass
 
-    return filesystem, skipped, igor8_longname_markers
+    return filesystem, skipped
 
 
 def _wave_array(wave_rec) -> np.ndarray | None:
@@ -1113,7 +1004,6 @@ def _extract_filesystem_to_nexus(
     overwrite: bool,
     pickers_table: dict,
     n_unparseable_records: int = 0,
-    n_igor8_longname_markers: int = 0,
 ) -> ExtractionResult:
     """Walk an already-loaded *filesystem* dict and write per-sample NeXus
     files. Shared by both :func:`extract_pxp_to_nexus` and
@@ -1124,7 +1014,6 @@ def _extract_filesystem_to_nexus(
         pxp_path=source_path,
         output_root=output_root,
         n_unparseable_records=n_unparseable_records,
-        n_igor8_longname_markers=n_igor8_longname_markers,
     )
 
     for rel_path, candidate_techniques, folder in _walk_tree(
@@ -1318,21 +1207,11 @@ def extract_pxp_to_nexus(
         keep_techniques = {t.upper() for t in techniques}
 
     logger.info("Loading %s…", pxp_path)
-    filesystem, n_skipped_records, n_igor8_markers = _load_pxp_filesystem(pxp_path)
+    filesystem, n_skipped_records = _load_pxp_filesystem(pxp_path)
     logger.info(
-        "Loaded %d folders; %d wave records were unparseable; "
-        "%d unreadable long folder name(s)",
-        _count_folders(filesystem["root"]), n_skipped_records, n_igor8_markers,
+        "Loaded %d folders; %d wave records were unparseable",
+        _count_folders(filesystem["root"]), n_skipped_records,
     )
-    if n_igor8_markers > 0:
-        logger.warning(
-            "%s contains %d folder(s) with names longer than 31 characters, "
-            "which igor2 %s cannot read. Samples in those folders are missing "
-            "or misattributed in the output. Upgrade with "
-            "pip install -U \"igor2>=0.5.15\" and re-import, or re-save the "
-            "experiment as .h5xp from Igor.",
-            pxp_path.name, n_igor8_markers, _igor2_version(),
-        )
 
     return _extract_filesystem_to_nexus(
         source_path=pxp_path,
@@ -1342,7 +1221,6 @@ def extract_pxp_to_nexus(
         overwrite=overwrite,
         pickers_table=WAVE_PICKERS,
         n_unparseable_records=n_skipped_records,
-        n_igor8_longname_markers=n_igor8_markers,
     )
 
 
@@ -1512,16 +1390,6 @@ def _main(argv: Sequence[str] | None = None) -> int:
     print(f"Errors:   {result.n_errors}")
     if result.n_unparseable_records:
         print(f"Note:     {result.n_unparseable_records} wave record(s) could not be parsed")
-    if result.n_igor8_longname_markers:
-        print(
-            f"\n*** WARNING: this .pxp contains "
-            f"{result.n_igor8_longname_markers} folder(s) with names longer "
-            f"than 31 characters,\n"
-            f"  which igor2 {_igor2_version()} cannot read, so some samples "
-            f"are MISSING or MISATTRIBUTED above.\n"
-            f"  Fix: pip install -U \"igor2>=0.5.15\" and re-import "
-            f"(or save the experiment as .h5xp in Igor Pro)."
-        )
 
     if args.verbose:
         print("\nPer-file summary:")

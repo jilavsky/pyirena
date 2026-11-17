@@ -247,7 +247,7 @@ def append_smr_entry(filepath: Path, sample_name: str, q, intensity, error,
     """
     if not slit_length or slit_length <= 0:
         return
-    with h5py.File(filepath, 'a') as f:
+    with open_h5(filepath, 'a') as f:
         path = f"entry/{sample_name}_SMR"
         if path in f:
             del f[path]

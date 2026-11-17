@@ -341,36 +341,38 @@ instrument.
   the imported NeXus files — that way the results are stored in the
   pyIrena schema and can be browsed by the HDF5 Viewer.
 
-### Long folder names in `.pxp` (Igor 8+ format) — needs `igor2 >= 0.5.15`
+### Long folder and wave names in `.pxp` (Igor 8+) — needs `igor2 >= 0.5.16`
 
-Igor Pro 8 writes folders whose names exceed **31 characters** with a
-different record type (101) than short-named folders (9). `igor2`, the
-underlying parser, reads these since **0.5.15**
-([AFM-analysis/igor2#30](https://github.com/AFM-analysis/igor2/pull/30)),
-and pyIrena requires that version, so long folder names such as
-`AMC_25_crystalline_04_07_26_10min_0036` import like any other.
+Igor Pro 8 and later allow names up to 255 characters, but a `.pxp`
+stores anything longer than **31 characters** differently: long folder
+names in their own record type (101 instead of 9), and long-named waves
+in binary-wave version 7 (the short header field then holds only the
+placeholder `:wave name too long:`). `igor2`, the underlying parser,
+reads long folder names since **0.5.15**
+([AFM-analysis/igor2#30](https://github.com/AFM-analysis/igor2/pull/30))
+and long wave names since **0.5.16**
+([#33](https://github.com/AFM-analysis/igor2/pull/33)). pyIrena requires
+0.5.16, so names such as `AMC_25_crystalline_04_07_26_10min_0036`
+import like any other. Long wave names matter for Nika QRS data, whose
+wave names embed the folder name: any SAXS/WAXS folder longer than 29
+characters produces wave names over 31.
 
-With an older `igor2` (e.g. in a conda environment that has not picked
-up 0.5.15 yet) those folders are invisible, and the waves inside them
-land in the parent folder. That means samples go **missing and can be
-misattributed**: the importer may write SAXS/WAXS files from waves that
-belonged to the hidden folders. pyIrena detects this and warns
-(*"N folder(s) with names longer than 31 characters that igor2 could
-not read"*). When you see that warning, fix it in either of two ways:
+An older `igor2` does not fail on such a file. It drops the long-named
+waves and puts the contents of long-named folders into the parent
+folder, so samples would go missing or be written under the wrong name.
+pyIrena therefore refuses to import a `.pxp` with `igor2` older than
+0.5.16 and says how to upgrade:
 
-1. Upgrade: `pip install -U "igor2>=0.5.15"`, then re-import.
-2. Or, in Igor Pro, save the experiment as `.h5xp` (**Data → Save Data
-   → Save Experiment As Packed HDF5 Experiment...**, or
-   `SaveExperiment /P=path "Filename.h5xp"`) and import that instead.
-   The HDF5-based format has no name-length restriction.
+```bash
+pip install -U "igor2>=0.5.16"
+# or
+conda install -c conda-forge "igor2>=0.5.16"
+```
 
-**Long *wave* names** (> 31 characters) are stored by Igor as
-binary-wave version 7, which igor2 (through 0.5.15) does not parse.
-pyIrena reads the data by treating them as version 5, and recovers the
-full name from the end of the record, where Igor stores it (the short
-header field only holds the placeholder `:wave name too long:`). This
-matters for Nika QRS names, which embed the folder name: any SAXS/WAXS
-folder longer than 29 characters produces wave names over 31.
+If upgrading is not possible, save the experiment from Igor Pro as
+`.h5xp` (**Data → Save Data → Save Experiment As Packed HDF5
+Experiment...**, or `SaveExperiment /P=path "Filename.h5xp"`) and import
+that instead. The HDF5-based format has no name-length restriction.
 
 Tested from `.pxp` with Igor Pro experiments containing long USAXS
 folder names (including spaces), SAXS folders of 22, 30 and 58
