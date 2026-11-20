@@ -55,6 +55,7 @@ from pyirena.gui._qt import (
     QUrl,
     QVBoxLayout,
     QWidget,
+    Signal,
 )
 from pyirena.gui.file_drop import (
     drop_hint,
@@ -391,22 +392,29 @@ class _DatasetSelectorWidget(QWidget):
 #: these only change what is drawn (GitHub issue #35).
 MODE_SAXS = 'saxs'      # I vs Q, log-log
 MODE_WAXS = 'waxs'      # I vs Q, lin-lin
-MODE_POROD = 'porod'    # I·Q⁴ vs Q, lin-lin
+MODE_POROD = 'porod'    # log(I·Q⁴) vs log(Q), log-log
 
 MODE_LABELS = {
     MODE_SAXS:  "SAXS (log-log)",
     MODE_WAXS:  "WAXS / diffraction (lin-lin)",
-    MODE_POROD: "Porod (I·Q⁴ vs Q)",
+    MODE_POROD: "Porod (log I·Q⁴ vs log Q)",
 }
 
 
 class DataMergeGraphWindow(QWidget):
     """Single-panel I(Q) plot for the Data Merge tool.
 
-    Three display modes — SAXS (log-log), WAXS/diffraction (lin-lin) and
-    Porod (I·Q⁴ vs Q, lin-lin). Porod exists because a mis-subtracted
-    background or beam-stop scattering shows up there as a slope or a step in
-    what should be a flat line, and is nearly invisible on log-log.
+    Three display modes — SAXS (log I vs log Q), WAXS/diffraction (lin-lin)
+    and Porod (log I·Q⁴ vs log Q). Porod exists because multiplying by Q⁴
+    flattens a Q⁻⁴ tail and stretches the y axis there, so a mis-subtracted
+    background or beam-stop scattering shows up in the overlap region as a
+    slope or a step that is nearly invisible on a plain log I vs log Q plot.
+
+    **Axis scale is read from the plot, not from the mode.** The right-click
+    menu (Plot options → Transforms) can switch either axis between linear
+    and log at any time, and pyqtgraph then reinterprets every ViewBox
+    coordinate. The cursors are therefore converted whenever that happens, and
+    Q is always read back using the scale the cursors are currently in.
 
     **The mode is a display transform and nothing else.** Every public method
     takes and returns physical Q and I; the transform is applied on the way to
@@ -415,6 +423,11 @@ class DataMergeGraphWindow(QWidget):
 
     The two movable cursors A and B define the overlap/optimisation region.
     """
+
+    #: Emitted whenever either cursor moves, however it was moved (drag, mode
+    #: switch, reset). Connected once by the panel, so it survives the cursors
+    #: being rebuilt with the plot.
+    sigCursorsChanged = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -431,6 +444,9 @@ class DataMergeGraphWindow(QWidget):
         self._merged_item = None
         self._cursor_a: Optional[_SafeInfiniteLine] = None
         self._cursor_b: Optional[_SafeInfiniteLine] = None
+        # Scale of the x axis that the cursor ViewBox positions are expressed
+        # in. Follows the live axis; see _on_axis_log_changed.
+        self._cursor_x_log: bool = self._log_mode
 
         # Stash raw data for re-plotting after mode switch
         self._q1: Optional[np.ndarray] = None
@@ -452,15 +468,30 @@ class DataMergeGraphWindow(QWidget):
 
     @property
     def _log_mode(self) -> bool:
-        """True when both axes are logarithmic (SAXS mode only)."""
-        return self._mode == MODE_SAXS
+        """True when the *mode's default* axes are logarithmic (SAXS, Porod).
+
+        This is what a freshly built plot starts with. The user can override
+        it from the pyqtgraph menu, so code that talks to the live ViewBox
+        must use :attr:`_x_log` / :attr:`_y_log` instead.
+        """
+        return self._mode in (MODE_SAXS, MODE_POROD)
+
+    @property
+    def _x_log(self) -> bool:
+        """True when the x axis is logarithmic *right now* (menu-aware)."""
+        return bool(self._plot.getAxis('bottom').logMode)
+
+    @property
+    def _y_log(self) -> bool:
+        """True when the y axis is logarithmic *right now* (menu-aware)."""
+        return bool(self._plot.getAxis('left').logMode)
 
     def _tx(self, q):
         """Physical Q → plotted x.
 
         Identity in every mode at the moment: Porod plots I·Q⁴ against plain
-        Q, so only the y transform differs. Kept as a hook because Q⁴ on x
-        was tried first and may come back.
+        Q (on a log axis), so only the y transform differs. Kept as a hook
+        because Q⁴ on x was tried first and may come back.
         """
         return q
 
@@ -477,15 +508,17 @@ class DataMergeGraphWindow(QWidget):
     def _axis_pos(self, q: float) -> float:
         """Physical Q → the ViewBox coordinate a cursor must sit at.
 
-        pyqtgraph applies log10 itself when an axis is logarithmic, so in log
-        mode a cursor position is log10 of the *plotted* x, not of Q.
+        pyqtgraph applies log10 itself when an axis is logarithmic, so on a
+        log axis a cursor position is log10 of the *plotted* x, not of Q.
+        Uses ``_cursor_x_log`` — the scale the cursors are expressed in — which
+        :meth:`_on_axis_log_changed` keeps equal to the live axis scale.
         """
         x = float(self._tx(q))
-        return float(np.log10(x)) if self._log_mode else x
+        return float(np.log10(x)) if self._cursor_x_log else x
 
     def _q_from_axis_pos(self, pos: float) -> float:
         """ViewBox coordinate → physical Q.  Inverse of :meth:`_axis_pos`."""
-        x = 10 ** float(pos) if self._log_mode else float(pos)
+        x = 10 ** float(pos) if self._cursor_x_log else float(pos)
         return self._inv_x(x)
 
     def _axis_labels(self) -> tuple:
@@ -505,6 +538,12 @@ class DataMergeGraphWindow(QWidget):
         self._gl.setBackground('w')
         layout.addWidget(self._gl)
 
+        self._create_plot()
+        self._eb_action = self._plot.getViewBox().menu.addAction("Hide Error Bars")
+        self._eb_action.triggered.connect(self._toggle_error_bars)
+
+    def _create_plot(self) -> None:
+        """Build ``self._plot`` for the current mode (first build or mode switch)."""
         x_label, y_label = self._axis_labels()
         self._plot = make_sas_plot(
             self._gl, row=0, col=0,
@@ -522,8 +561,36 @@ class DataMergeGraphWindow(QWidget):
         self._plot.showAxis('right')
         self._plot.getAxis('right').setStyle(showValues=True)
         self._plot.getAxis('right').enableAutoSIPrefix(False)
-        self._eb_action = self._plot.getViewBox().menu.addAction("Hide Error Bars")
-        self._eb_action.triggered.connect(self._toggle_error_bars)
+        self._cursor_x_log = self._x_log
+        # Right-click → Plot options → Transforms can flip either axis. Connected
+        # after PlotItem's own handler, so the axes are already switched when ours runs.
+        self._plot.ctrl.logXCheck.toggled.connect(self._on_axis_log_changed)
+
+    def _on_axis_log_changed(self, *_args) -> None:
+        """The user switched the x axis lin ↔ log from the pyqtgraph menu.
+
+        pyqtgraph rescales the data but not the cursors: a cursor at ViewBox
+        coordinate 0.05 (Q = 0.05, linear) would suddenly mean Q = 10**0.05
+        (log), and the merge would run on the wrong range. Convert each cursor
+        from the old scale to the new one so it stays on the same physical Q.
+        """
+        new_log = bool(self._plot.ctrl.logXCheck.isChecked())
+        if new_log != self._cursor_x_log:
+            cursors = [c for c in (self._cursor_a, self._cursor_b) if c is not None]
+            qs = [self._q_from_axis_pos(c.getPos()[0]) for c in cursors]   # old scale
+            self._cursor_x_log = new_log
+            # Move both cursors before anyone is told: with only one converted
+            # the pair decodes to garbage, which the panel would "recover" from.
+            for c in cursors:
+                c.blockSignals(True)
+            try:
+                for c, q in zip(cursors, qs, strict=True):
+                    c.setPos(self._axis_pos(q))                             # new scale
+            finally:
+                for c in cursors:
+                    c.blockSignals(False)
+            self.sigCursorsChanged.emit()
+        self._apply_x_limits()
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -555,23 +622,7 @@ class DataMergeGraphWindow(QWidget):
         self._merged_item = None
         self._cursor_a = self._cursor_b = None
 
-        x_label, y_label = self._axis_labels()
-        self._plot = make_sas_plot(
-            self._gl, row=0, col=0,
-            x_label=x_label,
-            y_label=y_label,
-            log_x=self._log_mode,
-            log_y=self._log_mode,
-            # The d-spacing top axis (2π/Q) is a diffraction aid — WAXS only.
-            d_spacing_axis=(self._mode == MODE_WAXS),
-            parent_widget=self,
-            jpeg_default_name='data_merge',
-        )
-        # Mirror the left axis on the right so a value near the right-hand
-        # edge can be read without tracking back across the plot (issue #35).
-        self._plot.showAxis('right')
-        self._plot.getAxis('right').setStyle(showValues=True)
-        self._plot.getAxis('right').enableAutoSIPrefix(False)
+        self._create_plot()
         eb_label = "Hide Error Bars" if self._show_errorbars else "Show Error Bars"
         self._eb_action = self._plot.getViewBox().menu.addAction(eb_label)
         self._eb_action.triggered.connect(self._toggle_error_bars)
@@ -710,8 +761,28 @@ class DataMergeGraphWindow(QWidget):
     def clear_merged(self) -> None:
         self._remove_merged()
 
-    def init_cursors(self, q_min: float, q_max: float) -> None:
-        """Create or reposition the two overlap cursors."""
+    @staticmethod
+    def _usable_q(q) -> bool:
+        """True for a physical Q a cursor can sit at: finite and positive.
+
+        A negative Q has no place on a log axis (log10 → NaN, and a cursor at
+        NaN is invisible and cannot be grabbed), and Q ≤ 0 is never data.
+        """
+        try:
+            return bool(np.isfinite(q)) and float(q) > 0
+        except (TypeError, ValueError):
+            return False
+
+    def init_cursors(self, q_min: float, q_max: float) -> bool:
+        """Create or reposition the two overlap cursors.
+
+        Returns False, leaving the cursors untouched, when either Q is not
+        usable (see :meth:`_usable_q`) — the caller then falls back to a
+        default rather than being handed cursors it cannot see.
+        """
+        if not (self._usable_q(q_min) and self._usable_q(q_max)):
+            log.warning("Ignoring unusable cursor positions Q = %r, %r", q_min, q_max)
+            return False
         if self._cursor_a is None:
             self._cursor_a = self._make_cursor(q_min, SASPlotStyle.CURSOR_A_PEN, 'A')
             self._cursor_b = self._make_cursor(q_max, SASPlotStyle.CURSOR_B_PEN, 'B')
@@ -720,13 +791,22 @@ class DataMergeGraphWindow(QWidget):
         else:
             self._set_cursor_pos(self._cursor_a, q_min)
             self._set_cursor_pos(self._cursor_b, q_max)
+        self.sigCursorsChanged.emit()
+        return True
 
     def get_overlap_range(self) -> Tuple[Optional[float], Optional[float]]:
-        """Return (q_min, q_max) in physical units from cursor positions."""
+        """Return (q_min, q_max) in physical units from cursor positions.
+
+        ``(None, None)`` when there are no cursors, or when their positions do
+        not decode to a usable Q — so a damaged cursor can never reach the merge
+        or be written to the state file as NaN.
+        """
         if self._cursor_a is None or self._cursor_b is None:
             return None, None
         qa = self._q_from_axis_pos(self._cursor_a.getPos()[0])
         qb = self._q_from_axis_pos(self._cursor_b.getPos()[0])
+        if not (self._usable_q(qa) and self._usable_q(qb)):
+            return None, None
         q_min, q_max = (qa, qb) if qa < qb else (qb, qa)
         return q_min, q_max
 
@@ -748,6 +828,7 @@ class DataMergeGraphWindow(QWidget):
             pos=pos, angle=90, movable=True, pen=pen,
             label=label, labelOpts={'position': 0.95, 'color': pen.color()},
         )
+        c.sigPositionChanged.connect(lambda *_: self.sigCursorsChanged.emit())
         return c
 
     def _set_cursor_pos(self, cursor: _SafeInfiniteLine, q: float) -> None:
@@ -777,7 +858,7 @@ class DataMergeGraphWindow(QWidget):
             # Vertical bar
             xs += [xi, xi, float('nan')]
             ys += [I_lo, I_hi, float('nan')]
-            if self._log_mode:
+            if self._x_log:
                 q_lo_cap = xi * (10 ** (-cap))
                 q_hi_cap = xi * (10 ** cap)
             else:
@@ -817,7 +898,7 @@ class DataMergeGraphWindow(QWidget):
                              self._q2 if self._I2 is not None else None)
                  if a is not None])
             I_all = self._ty(q_for_I, I_all)
-        if self._log_mode:
+        if self._y_log:
             set_robust_y_range(self._plot, I_all)
         else:
             # Lin-lin auto-range
@@ -832,22 +913,11 @@ class DataMergeGraphWindow(QWidget):
         # Without this, NaN-separated error bar segments cause pyqtgraph to
         # auto-range x to the full linear Q span (e.g. 0–20 Å⁻¹) instead of
         # the correct log10 range, hiding the low-Q data.
-        q_parts = []
-        if self._q1 is not None:
-            q_parts.append(self._q1)
-        if self._q2 is not None:
-            q_parts.append(self._q2)
-        if not q_parts:
+        valid_q = self._valid_q()
+        if valid_q is None:
             return
-        q_all = np.concatenate(q_parts)
-        valid_q = q_all[(q_all > 0) & np.isfinite(q_all)]
-        if len(valid_q) < 2:
-            return
-        if self._log_mode:
-            q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
-            q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
-            # setLimits constrains pan/zoom in ViewBox (log10) coordinates.
-            self._plot.getViewBox().setLimits(xMin=q_lo, xMax=q_hi)
+        self._apply_x_limits()
+        if self._x_log:
             # Explicitly set the visible x range to the actual data Q span.
             # Pass log10(physical Q) — these are ViewBox coordinates in log mode.
             # This matches the pattern used in GraphWindow (data_selector.py).
@@ -861,6 +931,30 @@ class DataMergeGraphWindow(QWidget):
             hi = float(valid_q.max())
             pad = (hi - lo) * 0.05
             self._plot.setXRange(lo, hi + pad, padding=0)
+
+    def _valid_q(self) -> Optional[np.ndarray]:
+        """All finite positive Q of the loaded datasets, or None if < 2 points."""
+        q_parts = [q for q in (self._q1, self._q2) if q is not None]
+        if not q_parts:
+            return None
+        q_all = np.concatenate(q_parts)
+        valid_q = q_all[(q_all > 0) & np.isfinite(q_all)]
+        return valid_q if len(valid_q) >= 2 else None
+
+    def _apply_x_limits(self) -> None:
+        """Pan/zoom limits in the x scale the axis is in right now.
+
+        On a log axis the limits are in ViewBox (log10) coordinates; carried
+        over unchanged to a linear axis they would clip the view to Q < ~10.
+        """
+        vb = self._plot.getViewBox()
+        valid_q = self._valid_q()
+        if self._x_log and valid_q is not None:
+            q_lo = int(np.floor(np.log10(float(valid_q.min())))) - 1
+            q_hi = int(np.ceil(np.log10(float(valid_q.max())))) + 1
+            vb.setLimits(xMin=q_lo, xMax=q_hi)
+        else:
+            vb.setLimits(xMin=None, xMax=None)
 
     def _toggle_error_bars(self) -> None:
         """Show/hide error bar items (callable from right-click menu)."""
@@ -997,6 +1091,8 @@ class DataMergePanel(QWidget):
         center_col.addLayout(self._build_controls())
         center_col.addWidget(self._build_q_range_box())
         self._graph = DataMergeGraphWindow()
+        self._healing_cursors = False
+        self._graph.sigCursorsChanged.connect(self._update_cursor_display)
         center_col.addWidget(self._graph, stretch=1)
         top_row.addLayout(center_col, stretch=1)
 
@@ -1033,9 +1129,11 @@ class DataMergePanel(QWidget):
         self._mode_combo.setToolTip(
             "How the data is drawn. The merge itself always runs on the\n"
             "original Q and I, whichever view is selected.\n\n"
-            "Porod (I·Q⁴ vs Q) makes a mis-subtracted background or\n"
-            "beam-stop scattering visible as a slope or step in what\n"
-            "should be a flat line."
+            "Porod (log I·Q⁴ vs log Q) stretches the y axis in the overlap\n"
+            "region, so a mis-subtracted background or beam-stop scattering\n"
+            "shows up as a slope or step instead of a thickened curve.\n\n"
+            "Right-click → Plot options → Transforms can switch an axis\n"
+            "between linear and log; the cursors follow."
         )
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         row1.addWidget(self._mode_combo)
@@ -1187,6 +1285,15 @@ class DataMergePanel(QWidget):
         self._q_max_edit.setFixedWidth(90)
         self._q_max_edit.setStyleSheet(_RDONLY_STYLE)
         row.addWidget(self._q_max_edit)
+
+        self._reset_cursors_btn = QPushButton("Reset cursors")
+        self._reset_cursors_btn.setToolTip(
+            "Put cursors A and B back at the default overlap: the middle 80%\n"
+            "of the Q range the two datasets share. Use it if a cursor is\n"
+            "missing or the Q values look wrong."
+        )
+        self._reset_cursors_btn.clicked.connect(self._reset_cursors)
+        row.addWidget(self._reset_cursors_btn)
 
         hint = QLabel("← Drag cursors A / B on the graph to set the overlap range")
         hint.setStyleSheet("color: #7f8c8d; font-style: italic; font-size: 11px;")
@@ -2053,10 +2160,18 @@ class DataMergePanel(QWidget):
                                     f"Could not read {fp.name}:\n{exc}")
             return None
 
-    def _init_cursors_from_data(self) -> None:
-        """Place cursors at the intersection of DS1 and DS2 Q ranges."""
+    def _data_q_span(self) -> Optional[Tuple[float, float]]:
+        """(lowest, highest) Q over both loaded datasets, or None."""
         if self._data1 is None or self._data2 is None:
-            return
+            return None
+        q1, q2 = self._data1['Q'], self._data2['Q']
+        return (min(float(q1.min()), float(q2.min())),
+                max(float(q1.max()), float(q2.max())))
+
+    def _default_overlap_range(self) -> Optional[Tuple[float, float]]:
+        """Default cursor Q's: the middle 80% of where DS1 and DS2 overlap."""
+        if self._data1 is None or self._data2 is None:
+            return None
         q1, q2 = self._data1['Q'], self._data2['Q']
         q_ov_lo = max(float(q1.min()), float(q2.min()))
         q_ov_hi = min(float(q1.max()), float(q2.max()))
@@ -2066,38 +2181,82 @@ class DataMergePanel(QWidget):
             q_ov_hi = float(q2.min()) * 1.2
         # Trim 10% on each side to avoid edge artefacts
         span = q_ov_hi - q_ov_lo
-        q_min = q_ov_lo + 0.1 * span
-        q_max = q_ov_hi - 0.1 * span
+        return q_ov_lo + 0.1 * span, q_ov_hi - 0.1 * span
+
+    def _overlap_is_sane(self, q_min, q_max) -> bool:
+        """Can these saved/loaded cursor Q's be trusted?
+
+        They must be finite, positive, ordered, and touch the Q span of the
+        loaded data. A state file written by an older version could hold
+        log10(Q) in place of Q (negative numbers); those fail here and the
+        default is used instead.
+        """
+        if not (DataMergeGraphWindow._usable_q(q_min)
+                and DataMergeGraphWindow._usable_q(q_max)):
+            return False
+        if float(q_min) >= float(q_max):
+            return False
+        span = self._data_q_span()
+        return span is None or (float(q_max) > span[0] and float(q_min) < span[1])
+
+    def _reset_cursors(self) -> None:
+        """Put cursors A and B at the default overlap range (recovery).
+
+        Wired to the "Reset cursors" button, and called automatically when the
+        cursors turn out to be unusable.
+        """
+        default = self._default_overlap_range()
+        if default is None:
+            self._status.setText("Load DS1 and DS2 first — the default overlap "
+                                 "comes from their Q ranges.")
+            return
+        self._graph.init_cursors(*default)
+        self._update_cursor_display()
+        self._status.setText(
+            f"Cursors reset to Q = {default[0]:.4g} … {default[1]:.4g} Å⁻¹.")
+
+    def _init_cursors_from_data(self) -> None:
+        """Place cursors at the intersection of DS1 and DS2 Q ranges."""
+        default = self._default_overlap_range()
+        if default is None:
+            return
+        q_min, q_max = default
 
         # Check if state has a saved Q range
         s = self._sm.get('data_merge') or {}
         saved_min = s.get('q_overlap_min')
         saved_max = s.get('q_overlap_max')
         if saved_min is not None and saved_max is not None:
-            q_min, q_max = float(saved_min), float(saved_max)
+            if self._overlap_is_sane(saved_min, saved_max):
+                q_min, q_max = float(saved_min), float(saved_max)
+            else:
+                log.warning("Ignoring saved overlap Q range (%r, %r); using the "
+                            "default.", saved_min, saved_max)
 
-        # Don't reinitialise if cursors are already placed (user adjusted them)
-        if self._graph._cursor_a is None:
+        # Don't move cursors the user has already placed — but do replace ones
+        # that cannot be used.
+        if self._graph.get_overlap_range()[0] is None:
             self._graph.init_cursors(q_min, q_max)
         self._update_cursor_display()
-
-        # Connect cursor movement to display update
-        if self._graph._cursor_a is not None:
-            try:
-                self._graph._cursor_a.sigPositionChanged.connect(
-                    lambda: self._update_cursor_display()
-                )
-                self._graph._cursor_b.sigPositionChanged.connect(
-                    lambda: self._update_cursor_display()
-                )
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
 
     def _update_cursor_display(self) -> None:
         q_min, q_max = self._graph.get_overlap_range()
         if q_min is not None:
             self._q_min_edit.setText(f"{q_min:.5g}")
             self._q_max_edit.setText(f"{q_max:.5g}")
+            return
+        self._q_min_edit.setText("")
+        self._q_max_edit.setText("")
+        # Cursors exist but cannot be decoded to a Q (NaN, ≤ 0): recover rather
+        # than leave the user with invisible cursors. Guarded so a default that
+        # is itself unusable cannot loop.
+        if (self._graph._cursor_a is not None and not self._healing_cursors
+                and self._default_overlap_range() is not None):
+            self._healing_cursors = True
+            try:
+                self._reset_cursors()
+            finally:
+                self._healing_cursors = False
 
     def _on_ds1_folder_changed(self, _folder: str) -> None:
         """Called when the user selects a new DS1 folder via the button."""
@@ -2220,7 +2379,10 @@ class DataMergePanel(QWidget):
         q_min = cfg.get('q_overlap_min')
         q_max = cfg.get('q_overlap_max')
         if q_min is not None and q_max is not None:
-            self._graph.init_cursors(float(q_min), float(q_max))
+            if self._overlap_is_sane(q_min, q_max):
+                self._graph.init_cursors(float(q_min), float(q_max))
+            else:
+                log.warning("Ignoring overlap Q range (%r, %r) in config.", q_min, q_max)
             self._update_cursor_display()
 
 

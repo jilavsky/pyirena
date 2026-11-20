@@ -93,7 +93,7 @@ deliberately mis-scaled by 1.15). With **Scale: DS2** the merge should recover
 
    Many file pairs: see [Batch run](#data-merge-batch).
 
-% SCREENSHOT data-merge-03-porod-real-data: Porod (I·Q⁴ vs Q) display mode on a real USAXS + SAXS
+% SCREENSHOT data-merge-03-porod-real-data: Porod (log I·Q⁴ vs log Q) display mode on a real USAXS + SAXS
 % pair from testData/ (Jan picks one) where a residual background or beam-stop scattering shows as
 % a step or slope in the overlap; both curves on the same flat line after a good merge.
 
@@ -178,19 +178,26 @@ every mode, and the overlap cursors keep their physical Q positions when you swi
 |------|------|-------------|
 | **SAXS (log-log)** | I vs Q, both axes log | The default; the whole Q range at once |
 | **WAXS / diffraction (lin-lin)** | I vs Q, both axes linear | Peaks, where log scaling flattens the thing you care about |
-| **Porod (I·Q⁴ vs Q)** | I·Q⁴ vs Q, both axes linear | Judging whether the two curves really agree |
+| **Porod (log I·Q⁴ vs log Q)** | I·Q⁴ vs Q, both axes log | Judging whether the two curves really agree |
 
 **Porod** is the one to reach for when a merge looks fine on a log-log plot and the result is
-still wrong. Multiplying by Q⁴ flattens a Q⁻⁴ tail, so a correctly subtracted high-Q segment reads
-as a horizontal line and a residual background or leftover beam-stop scattering shows up as a
-slope or a step — a difference of a few percent that log-log scaling makes invisible. Judge the
-overlap by whether the two curves lie on the *same* flat line, not by whether each looks plausible
-on its own.
+still wrong. Multiplying by Q⁴ flattens a Q⁻⁴ tail and, on a log y axis, stretches the intensity
+scale over just the range the overlap occupies. A residual background or leftover beam-stop
+scattering then shows up as a slope or a step in the overlap region — a difference of a few percent
+that a plain log I vs log Q plot hides. Judge the overlap by whether the two curves lie on the
+*same* line, not by whether each looks plausible on its own.
 
-The horizontal axis is plain Q on a linear scale, so the overlap region keeps roughly the spacing
-it has in the SAXS view. Plotting against Q⁴ crushes everything below the overlap against the left
-edge; it was tried here and rejected. Both axes are linear because a Porod plateau is only flat on
-linear axes, which is the whole reason to look.
+The axes are log-log, as in the Porod tab of Unified Fit. The horizontal axis is plain Q (not Q⁴,
+which crushes everything below the overlap against the left edge and was tried and rejected).
+
+**Changing an axis from the right-click menu.** *Plot options → Transforms* can flip either axis
+between linear and log in any mode. The overlap cursors follow: they stay on the same Q, and the
+Q range handed to Optimize and Save is the one you see in the Q min / Q max boxes.
+
+**Lost or invisible cursors.** If a cursor is off the graph or Q min / Q max show nonsense, press
+**Reset cursors** (next to the Q boxes). They return to the middle 80% of the Q range the two
+datasets share. A saved overlap range that does not make sense for the loaded data is ignored in
+the same way.
 
 Note that **Simple Fits plots its Porod linearization differently** — I·Q⁴ against *Q⁴* — and that
 is correct there, not an inconsistency. For `I = Kp·Q⁻⁴ + Background`, I·Q⁴ = Kp + Background·Q⁴

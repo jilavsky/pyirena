@@ -3,7 +3,7 @@ Data Merge display modes and hand-tuning (GitHub issue #35).
 
 Two things here are easy to get wrong and expensive when wrong:
 
-* **A display mode must not reach the maths.** Porod is I·Q⁴ vs Q⁴ on screen
+* **A display mode must not reach the maths.** Porod is log(I·Q⁴) vs log(Q) on screen
   and nothing else — Optimize and merge still see the original Q and I. A
   transform that leaked into the merge would silently change every saved
   curve.
@@ -81,12 +81,31 @@ class TestPorodMode:
             panel._graph.set_mode(mode)
             assert panel._graph.get_overlap_range() == pytest.approx(before)
 
-    def test_porod_is_linear_not_log(self, panel):
-        """A Porod plateau is only flat on linear axes — that is the point."""
-        panel._graph.set_mode("porod")
-        assert panel._graph._log_mode is False
-        panel._graph.set_mode("saxs")
-        assert panel._graph._log_mode is True
+    def test_default_axis_scales_per_mode(self, panel):
+        """Porod is log(I·Q⁴) vs log(Q): the Q⁴ factor stretches the y axis in
+        the overlap region, which is what makes a mismatch visible."""
+        g = panel._graph
+        for mode, expect in (("saxs", True), ("porod", True), ("waxs", False)):
+            g.set_mode(mode)
+            assert g._x_log is expect and g._y_log is expect
+
+    @pytest.mark.parametrize("mode", ["saxs", "waxs", "porod"])
+    def test_menu_transform_keeps_cursors_on_the_same_q(self, panel, mode):
+        """Right-click → Plot options → Transforms flips the axis scale under
+        the cursors. They must stay on the same physical Q, and the overlap
+        handed to the merge must not change (it used to read 10**0.05)."""
+        g = panel._graph
+        g.set_mode(mode)
+        g.init_cursors(0.03, 0.08)
+        for _ in range(2):  # lin→log→lin, or log→lin→log
+            box = g._plot.ctrl.logXCheck
+            box.setChecked(not box.isChecked())
+            assert g._x_log is box.isChecked()
+            assert g.get_overlap_range() == pytest.approx((0.03, 0.08))
+        # Dragged cursor position survives a toggle too.
+        g._cursor_a.setPos(g._axis_pos(0.02))
+        box.setChecked(not box.isChecked())
+        assert g.get_overlap_range() == pytest.approx((0.02, 0.08))
 
     def test_axis_labels_follow_the_mode(self, panel):
         panel._graph.set_mode("porod")
@@ -322,3 +341,81 @@ class TestStateRoundTrip:
         panel._sm.state['data_merge'] = {'plot_mode': 'something_newer'}
         panel.load_state()
         assert panel._mode_combo.currentData() == 'saxs'
+
+
+# ── recovering from unusable cursor positions ───────────────────────────────
+#
+# Before the menu-transform fix, switching an axis from the right-click menu
+# made the panel read log10(Q) as Q and save it (q_overlap_min = -1.39). On the
+# next start log10 of that gave NaN: invisible cursors, "nan" in both boxes,
+# and no control that moved them.
+
+def _damage(g, *which):
+    """Set cursor positions to NaN without letting the panel react yet."""
+    for c in which:
+        c.blockSignals(True)
+        c.setPos(float('nan'))
+        c.blockSignals(False)
+
+
+class TestCursorRecovery:
+    CORRUPT = (-1.388269756027181, -0.8961919290668727)   # real values from a state file
+
+    def test_graph_refuses_unusable_positions(self, panel):
+        g = panel._graph
+        before = g.get_overlap_range()
+        for bad in (self.CORRUPT, (float('nan'), 0.05), (0.02, float('inf')), (0.0, 0.05)):
+            assert g.init_cursors(*bad) is False
+            assert g.get_overlap_range() == pytest.approx(before)
+
+    def test_nan_cursor_is_reported_as_none_not_nan(self, panel):
+        """A damaged cursor must never reach the merge or the state file."""
+        g = panel._graph
+        _damage(g, g._cursor_a)
+        assert g.get_overlap_range() == (None, None)
+
+    @pytest.mark.parametrize("saved", [CORRUPT, (float('nan'), float('nan')),
+                                       (5.0, 9.0), (0.05, 0.02)])
+    def test_bad_saved_range_falls_back_to_default(self, panel, saved):
+        """Fresh start with damaged state: cursors appear at the default."""
+        panel._sm.update('data_merge', {'q_overlap_min': saved[0],
+                                        'q_overlap_max': saved[1]})
+        panel._graph._cursor_a = panel._graph._cursor_b = None
+        panel._init_cursors_from_data()
+        default = panel._default_overlap_range()
+        assert panel._graph.get_overlap_range() == pytest.approx(default)
+        assert panel._q_min_edit.text() != "" and "nan" not in panel._q_min_edit.text()
+
+    def test_good_saved_range_is_still_honoured(self, panel):
+        panel._sm.update('data_merge', {'q_overlap_min': 0.03, 'q_overlap_max': 0.06})
+        panel._graph._cursor_a = panel._graph._cursor_b = None
+        panel._init_cursors_from_data()
+        assert panel._graph.get_overlap_range() == pytest.approx((0.03, 0.06))
+
+    def test_reset_button_recovers_damaged_cursors(self, panel):
+        g = panel._graph
+        _damage(g, g._cursor_a, g._cursor_b)
+        assert g.get_overlap_range() == (None, None)
+        panel._reset_cursors_btn.click()
+        assert panel._graph.get_overlap_range() == pytest.approx(
+            panel._default_overlap_range())
+
+    def test_display_heals_itself(self, panel):
+        """No button press needed: nan cursors are replaced when noticed."""
+        g = panel._graph
+        _damage(g, g._cursor_a)
+        panel._update_cursor_display()
+        assert panel._graph.get_overlap_range()[0] is not None
+        assert "nan" not in panel._q_min_edit.text()
+
+    def test_reset_without_data_is_harmless(self, panel):
+        panel._data1 = None
+        panel._reset_cursors()           # must not raise
+        assert "Load DS1" in panel._status.text()
+
+    @pytest.mark.parametrize("mode", ["porod", "waxs", "saxs"])
+    def test_q_boxes_follow_a_dragged_cursor_after_a_mode_switch(self, panel, mode):
+        """The cursors are rebuilt on a mode switch; the display must stay wired."""
+        panel._graph.set_mode(mode)
+        panel._graph._cursor_a.setPos(panel._graph._axis_pos(0.025))
+        assert panel._q_min_edit.text() == "0.025"
