@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Data Merge: the Porod view is now log I·Q⁴ vs log Q.** On linear axes it
+  showed little; on log-log the Q⁴ factor stretches the y axis over the overlap
+  region, which is what makes a mismatch visible. The saved mode key (`porod`)
+  is unchanged.
+
+### Fixed
+
+- **Data Merge: cursors read the wrong Q after switching an axis from the
+  right-click menu** (Plot options → Transforms). The cursor positions were
+  decoded with the mode's assumed axis scale rather than the plot's actual
+  one, so Optimize and Save ran on the wrong overlap range. The cursors now
+  follow the axis scale and keep their Q.
+- **Data Merge: recovery from invisible cursors.** A state file written by
+  the bug above could hold log10(Q) as the overlap range, which restored as
+  NaN cursors (invisible, Q min / Q max reading `nan`). Saved and loaded
+  overlap ranges are now checked (finite, positive, ordered, inside the data's
+  Q span) and replaced by the default if not; cursors that cannot be decoded
+  to a Q are replaced automatically and never reach the merge or the state
+  file. A new **Reset cursors** button puts them back at the default overlap
+  on demand. Also fixed: the Q min / Q max boxes stopped following the
+  cursors after a mode switch.
+
 ## [1.3.0] - 2026-11-18
 
 ### Added
