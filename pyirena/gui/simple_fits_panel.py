@@ -74,12 +74,7 @@ from pyirena.gui.sas_plot import (
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.sizes_panel import ScrubbableLineEdit
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
-from pyirena.gui.theme import (
-    CHIP_BUTTON_CSS,
-    SOFT_AMBER,
-    SOFT_GREEN,
-    soft_button_css,
-)
+from pyirena.gui.theme import set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -707,10 +702,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("simple_fits")))
@@ -849,14 +841,10 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         _bg_prefit_layout = QHBoxLayout(self._bg_prefit_row)
         _bg_prefit_layout.setContentsMargins(0, 0, 0, 0)
         _bg_prefit_layout.setSpacing(4)
-        # theme.CHIP_BUTTON_CSS pins BOTH background and text colour — the
-        # old style named only background-color and vanished (light text on a
-        # light box) under a dark system theme.
-        _bg_helper_style = CHIP_BUTTON_CSS
 
         self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
         self.prefit_bp_btn.setMaximumHeight(22)
-        self.prefit_bp_btn.setStyleSheet(_bg_helper_style)
+        set_button_role(self.prefit_bp_btn, 'helper', 'small')
         self.prefit_bp_btn.setToolTip(
             'Prefit the background power-law B·Q⁻ᴾ to the data between the two '
             'cursors.\nIf P’s "Fit?" box is unchecked, only B is fit at the '
@@ -868,7 +856,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.prefit_flat_btn = QPushButton('Fit Flat btwn cursors')
         self.prefit_flat_btn.setMaximumHeight(22)
-        self.prefit_flat_btn.setStyleSheet(_bg_helper_style)
+        set_button_role(self.prefit_flat_btn, 'helper', 'small')
         self.prefit_flat_btn.setToolTip(
             'Prefit the flat background term to the data between the two cursors '
             '(median of I − B·Q⁻ᴾ over the range, using the current B and P).'
@@ -885,20 +873,14 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.graph_model_btn = QPushButton('Graph model')
         self.graph_model_btn.setMinimumHeight(28)
-        self.graph_model_btn.setStyleSheet("""
-            QPushButton { background-color: #52c77a; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #3eb56a; }
-        """)
+        set_button_role(self.graph_model_btn, 'graph')
         self.graph_model_btn.setToolTip('Compute and display the current model curve without fitting.')
         self.graph_model_btn.clicked.connect(self._graph_model)
         btn_row1.addWidget(self.graph_model_btn)
 
         self.fit_btn = QPushButton('Fit')
         self.fit_btn.setMinimumHeight(28)
-        self.fit_btn.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: white; font-weight: bold; font-size: 13px; }
-            QPushButton:hover { background-color: #1e8449; }
-        """)
+        set_button_role(self.fit_btn, 'primary', 'large')
         self.fit_btn.setToolTip(
             "Fit the selected model to the loaded data using the current Q range.\n"
             "Checked parameters are varied; unchecked parameters are held fixed."
@@ -926,10 +908,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         row_out1 = QHBoxLayout()
         self.results_to_graph_btn = QPushButton('Results to graph')
         self.results_to_graph_btn.setMinimumHeight(26)
-        self.results_to_graph_btn.setStyleSheet("""
-            QPushButton { background-color: #81c784; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #66bb6a; }
-        """)
+        set_button_role(self.results_to_graph_btn, 'graph')
         self.results_to_graph_btn.setToolTip(
             'Annotate the I(Q) plot with the current fitted parameter values.'
         )
@@ -938,10 +917,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.revert_btn = QPushButton('Revert back')
         self.revert_btn.setMinimumHeight(26)
-        self.revert_btn.setStyleSheet("""
-            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
+        set_button_role(self.revert_btn, 'revert')
         self.revert_btn.setToolTip(
             'Restore the parameter values that were in place before the last fit.'
         )
@@ -956,7 +932,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.store_btn = QPushButton('Store in File')
         self.store_btn.setMinimumHeight(26)
-        self.store_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.store_btn, 'settings')
         self.store_btn.setToolTip(
             'Save fit results to the HDF5 (NXcanSAS) file.\n'
             'The full GUI setup is embedded so "Load Setup from File…" can\n'
@@ -967,7 +943,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.load_setup_btn = QPushButton('Load Setup from File…')
         self.load_setup_btn.setMinimumHeight(26)
-        self.load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
+        set_button_role(self.load_setup_btn, 'setup')
         self.load_setup_btn.setToolTip(
             'Restore every Simple Fits control (model, parameter values,\n'
             'bounds, fit flags, q-range, …) from a NXcanSAS file previously\n'
@@ -982,7 +958,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         row_out3 = QHBoxLayout()
         self.export_btn = QPushButton('Save params to JSON')
         self.export_btn.setMinimumHeight(26)
-        self.export_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.export_btn, 'settings')
         self.export_btn.setToolTip(
             'Save current fit parameters to a pyIrena JSON file.\n'
             'Use "Load params from JSON" to restore them later.'
@@ -992,7 +968,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.import_btn = QPushButton('Load params from JSON')
         self.import_btn.setMinimumHeight(26)
-        self.import_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.import_btn, 'settings')
         self.import_btn.setToolTip(
             'Load fit parameters from a previously saved pyIrena JSON file.\n'
             'Use "Save params to JSON" to create a compatible file.'
@@ -1022,10 +998,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
         # Row 4: Reset to defaults (full width)
         self.reset_btn = QPushButton('Reset to defaults')
         self.reset_btn.setMinimumHeight(26)
-        self.reset_btn.setStyleSheet("""
-            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
+        set_button_role(self.reset_btn, 'revert')
         self.reset_btn.setToolTip(
             'Reset all parameters for the current model to their registry defaults.'
         )
@@ -1045,10 +1018,7 @@ class SimpleFitsPanel(SlitSmearingMixin, QWidget):
 
         self.unc_btn = QPushButton('Calc. Uncertainty (MC)')
         self.unc_btn.setMinimumHeight(26)
-        self.unc_btn.setStyleSheet("""
-            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #1abc9c; }
-        """)
+        set_button_role(self.unc_btn, 'analysis')
         self.unc_btn.setToolTip(
             "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
             "Set 'Passes' to control how many Monte Carlo replicates are used."
