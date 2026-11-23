@@ -42,6 +42,7 @@ from pyirena.gui._qt import (
     Signal,
 )
 from pyirena.gui.table_utils import attach_table_copy
+from pyirena.gui.theme import set_button_role
 
 from . import pyirena_readers as _readers
 from .export_to_igor_tab import ExportToIgorTab
@@ -238,16 +239,12 @@ class PlotControlsPanel(QWidget):
         # ── Buttons ───────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         self._new_graph_btn = QPushButton("New Graph")
-        self._new_graph_btn.setStyleSheet(
-            "background:#2980b9; color:white; font-weight:bold;"
-        )
+        set_button_role(self._new_graph_btn, 'tool')
         self._new_graph_btn.setMinimumHeight(30)
         self._new_graph_btn.clicked.connect(self._on_new_graph)
 
         self._add_btn = QPushButton("Add to active graph")
-        self._add_btn.setStyleSheet(
-            "background:#27ae60; color:white; font-weight:bold;"
-        )
+        set_button_role(self._add_btn, 'primary')
         self._add_btn.setMinimumHeight(30)
         self._add_btn.clicked.connect(self._on_add_to_active)
 
@@ -346,9 +343,7 @@ class PlotControlsPanel(QWidget):
 
         # ── Collect button ────────────────────────────────────────────────
         collect_btn = QPushButton("Collect from all selected files")
-        collect_btn.setStyleSheet(
-            "background:#8e44ad; color:white; font-weight:bold;"
-        )
+        set_button_role(collect_btn, 'analysis')
         collect_btn.setMinimumHeight(30)
         collect_btn.clicked.connect(self._on_collect)
         vl.addWidget(collect_btn)
@@ -473,9 +468,7 @@ class PlotControlsPanel(QWidget):
 
         # ── Collect button ─────────────────────────────────────────────────
         mc_btn = QPushButton("Collect from all selected files")
-        mc_btn.setStyleSheet(
-            "background:#16a085; color:white; font-weight:bold;"
-        )
+        set_button_role(mc_btn, 'analysis')
         mc_btn.setMinimumHeight(30)
         mc_btn.clicked.connect(self._on_multi_collect)
         vl.addWidget(mc_btn)
