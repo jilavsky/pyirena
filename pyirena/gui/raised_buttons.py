@@ -60,7 +60,7 @@ stylesheet::
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "DEFAULT_BEVEL", "DEFAULT_RADIUS", "ROLE_PROPERTY", "SIZE_PROPERTY",
@@ -150,6 +150,7 @@ SIZES: dict[str, tuple[int, int, str | None]] = {
     "normal": (3, 8, None),
     "small":  (1, 6, "10px"),
     "large":  (3, 8, "12px"),
+    "tiny":   (0, 0, "10px"),   # glyph-only arrows (▲▼) in a fixed 16-22 px box
 }
 
 # Disabled look: flat and grey on purpose — no bevel means "cannot press".
@@ -333,7 +334,7 @@ def set_role(button, role: str | None, size: str | None = None) -> None:
     Args:
         button: A ``QPushButton``.
         role: Key of the installed role table, or ``None`` for neutral.
-        size: ``'small'``, ``'large'``, or ``None`` for normal.
+        size: ``'small'``, ``'large'``, ``'tiny'``, or ``None`` for normal.
     """
     button.setProperty(ROLE_PROPERTY, role or "")
     button.setProperty(SIZE_PROPERTY, size or "")

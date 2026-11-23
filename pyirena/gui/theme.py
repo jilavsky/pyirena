@@ -151,6 +151,13 @@ BUTTON_PALETTE: dict[str, tuple[str, str, bool]] = {
     'grey':       (_rb.PALETTE['grey'][0], '#ffffff', True),
     'soft-green': (SOFT_GREEN, SOFT_TEXT, False),
     'soft-amber': (SOFT_AMBER, SOFT_TEXT, False),
+    # Darker shades for the launcher's "(script)" twins, plus Carbon's slate.
+    'green-dark':  (ACCENT_GREEN_D, '#ffffff', True),
+    'blue-dark':   (ACCENT_BLUE_D, '#ffffff', True),
+    'orange-dark': (ACCENT_ORANGE_D, '#ffffff', True),
+    'purple-dark': ('#6c3483', '#ffffff', True),
+    'slate':       ('#34495e', '#ffffff', True),
+    'slate-dark':  ('#2c3e50', '#ffffff', True),
 }
 
 #: button function -> colour name.  Starts from the shared vocabulary; add a
@@ -158,6 +165,25 @@ BUTTON_PALETTE: dict[str, tuple[str, str, bool]] = {
 BUTTON_FUNCTIONS: dict[str, str] = {
     **_rb.FUNCTIONS,
     # 'help': 'blue',   # e.g. — one line recolours every "? Help" button
+
+    # Main-window launchers (pyIrena only).  Each tool has an identity colour
+    # so users find it at a glance; its "(script)" button is a darker shade.
+    'launch-unified':            'green',
+    'launch-unified-script':     'green-dark',
+    'launch-sizes':              'blue',
+    'launch-sizes-script':       'blue-dark',
+    'launch-modeling':           'orange',
+    'launch-modeling-script':    'orange-dark',
+    'launch-simple-fits':        'green',
+    'launch-simple-fits-script': 'green-dark',
+    'launch-waxs':               'blue',
+    'launch-waxs-script':        'blue-dark',
+    'launch-carbon':             'slate',
+    'launch-carbon-script':      'slate-dark',
+    'launch-saxs-morph':         'purple',
+    'launch-saxs-morph-script':  'purple-dark',
+    'launch-utility':            'teal',   # Data Merge, Manipulation, Contrast, Fractals
+    'launch-explorer':           'red',    # Data Explorer: a different kind of tool
 }
 
 #: role -> (face, text, bold) — what the stylesheet is generated from.

@@ -1,7 +1,6 @@
 # Raised buttons — plan
 
-Branch: `feature/raised-buttons` · Status: **P1 done, P2 waiting on the role
-table (§9)** · 2026-11-23
+Branch: `feature/raised-buttons` · Status: **P1 done, P2 in progress** · 2026-11-23
 
 ## 0. Decisions (Jan, 2026-11-23)
 
@@ -191,7 +190,30 @@ working.
 - The demo's column A is a frozen copy of the old look, so the comparison
   survives the theme change.
 
-## 9. Button roles — colour by function (proposal for P2)
+## 9. Button roles — colour by function (approved 2026-11-23)
+
+Panels name the function (`set_button_role(btn, "primary")`); the colour comes
+from one table, `theme.BUTTON_FUNCTIONS` → `theme.BUTTON_PALETTE`, built into
+the stylesheet once by `apply_theme`. Recolouring all buttons of one function
+is a one-line change there (Jan's request: no hard-wired colours in panels).
+The function names are shared with the other packages via
+`raised_buttons.FUNCTIONS`.
+
+| Function role | Colour |
+|---|---|
+| `primary` | green |
+| `graph` | mint |
+| `tool` | blue |
+| `analysis` | teal |
+| `helper` | purple |
+| `revert` | orange |
+| `stop` | red |
+| `settings` | soft-green |
+| `setup` | soft-amber |
+| `help` | red (kept: familiar; one-line change to blue if wanted) |
+| neutral (`None`) | neutral |
+
+The audit behind the table (colour names were the original proposal):
 
 Built from an audit of 131 styled buttons in `pyirena/gui`. Most functions
 already have one colour everywhere; the rows marked ★ change what a user
