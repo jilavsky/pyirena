@@ -63,7 +63,7 @@ stylesheet::
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "DEFAULT_BEVEL", "DEFAULT_RADIUS", "ROLE_PROPERTY", "SIZE_PROPERTY",
@@ -184,8 +184,10 @@ def mix(a: str, b: str, t: float) -> str:
     t = min(max(t, 0.0), 1.0)
     ra, ga, ba = _rgb(a)
     rb, gb, bb = _rgb(b)
-    return "#{:02x}{:02x}{:02x}".format(
-        round(ra + (rb - ra) * t), round(ga + (gb - ga) * t), round(ba + (bb - ba) * t))
+    r = round(ra + (rb - ra) * t)
+    g = round(ga + (gb - ga) * t)
+    b_ = round(ba + (bb - ba) * t)
+    return f"#{r:02x}{g:02x}{b_:02x}"
 
 
 def lighten(colour: str, t: float) -> str:
