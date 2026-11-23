@@ -43,6 +43,7 @@ from pyirena.gui.table_utils import (
     populating,
     save_rows_as_csv,
 )
+from pyirena.gui.theme import set_button_role
 from pyirena.io.hdf5 import readGenericNXcanSAS
 from pyirena.io.nxcansas_unified import load_unified_fit_results
 from pyirena.io.text_import import ensure_nxcansas_sibling
@@ -1127,15 +1128,7 @@ class TabulateResultsWindow(QWidget):
 
         self.save_btn = QPushButton("Save as CSV…")
         self.save_btn.setMinimumHeight(32)
-        self.save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #16a085; color: white;
-                font-size: 12px; font-weight: bold;
-                border-radius: 4px; padding: 5px 12px;
-            }
-            QPushButton:hover { background-color: #138d75; }
-            QPushButton:disabled { background-color: #bdc3c7; }
-        """)
+        set_button_role(self.save_btn, 'analysis', size='large')
         self.save_btn.setToolTip("Save the current results table to a CSV file for use in spreadsheets.")
         self.save_btn.clicked.connect(self._save_csv)
         self.save_btn.setEnabled(False)
