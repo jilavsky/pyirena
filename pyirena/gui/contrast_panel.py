@@ -72,7 +72,7 @@ from pyirena.gui.plot_export import (
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.table_utils import attach_table_copy
-from pyirena.gui.theme import apply_theme
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.contrast_io import (
     DEFAULT_LIBRARY_PATH,
@@ -83,46 +83,6 @@ from pyirena.io.contrast_io import (
     load_compound_from_library,
     save_compound_to_library,
     save_scan_to_hdf5,
-)
-
-# ─── Button styles ─────────────────────────────────────────────────────────────
-_S_BLUE = (
-    "QPushButton{background:#2980b9;color:white;font-weight:bold;"
-    "border-radius:4px;padding:5px 10px;}"
-    "QPushButton:hover{background:#2471a3;}"
-    "QPushButton:disabled{background:#95a5a6;}"
-)
-_S_PURPLE = (
-    "QPushButton{background:#8e44ad;color:white;font-weight:bold;"
-    "border-radius:4px;padding:5px 10px;}"
-    "QPushButton:hover{background:#7d3c98;}"
-    "QPushButton:disabled{background:#95a5a6;}"
-)
-_S_TEAL = (
-    "QPushButton{background:#16a085;color:white;font-weight:bold;"
-    "border-radius:4px;padding:5px 8px;}"
-    "QPushButton:hover{background:#138d75;}"
-    "QPushButton:disabled{background:#95a5a6;}"
-)
-_S_SMALL = (
-    "QPushButton{background:#7f8c8d;color:white;font-size:10px;"
-    "border-radius:3px;padding:2px 6px;}"
-    "QPushButton:hover{background:#95a5a6;}"
-)
-_S_DANGER = (
-    "QPushButton{background:#c0392b;color:white;font-size:10px;"
-    "border-radius:3px;padding:2px 6px;}"
-    "QPushButton:hover{background:#e74c3c;}"
-)
-_S_GREEN_SM = (
-    "QPushButton{background:#27ae60;color:white;font-size:10px;"
-    "border-radius:3px;padding:2px 6px;}"
-    "QPushButton:hover{background:#2ecc71;}"
-)
-_S_FILE_SM = (
-    "QPushButton{background:#2471a3;color:white;font-size:10px;"
-    "border-radius:3px;padding:2px 6px;}"
-    "QPushButton:hover{background:#1a5276;}"
 )
 
 # Composition modes: (display label, internal key)
@@ -455,17 +415,17 @@ class _CompoundPickDialog(QDialog):
 
         btn_row = QHBoxLayout()
         load_btn = QPushButton("Load Selected into Slot")
-        load_btn.setStyleSheet(_S_BLUE)
+        set_button_role(load_btn, 'tool')
         load_btn.clicked.connect(self.accept)
         btn_row.addWidget(load_btn)
 
         all_btn = QPushButton("Add All to Local Library")
-        all_btn.setStyleSheet(_S_TEAL)
+        set_button_role(all_btn, 'analysis')
         all_btn.clicked.connect(self._on_load_all)
         btn_row.addWidget(all_btn)
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_S_SMALL)
+        set_button_role(cancel_btn, None, 'small')
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(cancel_btn)
         lay.addLayout(btn_row)
@@ -566,10 +526,7 @@ class ContrastPanel(QWidget):
 
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("scattering_contrast")))
@@ -613,7 +570,7 @@ class ContrastPanel(QWidget):
         refs["formula"] = formula_le
         row.addWidget(formula_le)
         pb = QPushButton("Parse ▸")
-        pb.setStyleSheet(_S_SMALL)
+        set_button_role(pb, None, 'small')
         pb.setFixedWidth(58)
         pb.setToolTip("Parse formula and update the isotope selection table below.")
         # NOTE: use *_ to absorb the 'checked' bool that clicked() emits
@@ -642,7 +599,7 @@ class ContrastPanel(QWidget):
         refs["density"] = dspin
         row.addWidget(dspin)
         vac = QPushButton("Set Vacuum")
-        vac.setStyleSheet(_S_SMALL)
+        set_button_role(vac, None, 'small')
         vac.setToolTip("Set this compound to vacuum (empty formula, density = 0).")
         vac.clicked.connect(lambda *_, _n=n: self._set_vacuum(_n))
         row.addWidget(vac)
@@ -695,14 +652,14 @@ class ContrastPanel(QWidget):
         row1 = QHBoxLayout()
         row1.setSpacing(3)
         row1.addWidget(lc, stretch=1)
-        for sym, tip, meth, style, w in [
-            ("↻",    "Refresh list",        "_refresh_library",       _S_SMALL,    28),
-            ("Load", "Load into this slot", "_load_from_library",     _S_SMALL,    40),
-            ("Save", "Save to library",     "_save_to_library",       _S_GREEN_SM, 40),
-            ("Del",  "Delete from library", "_delete_from_library",   _S_DANGER,   38),
+        for sym, tip, meth, role, w in [
+            ("↻",    "Refresh list",        "_refresh_library",       None,   28),
+            ("Load", "Load into this slot", "_load_from_library",     'tool', 40),
+            ("Save", "Save to library",     "_save_to_library",       'tool', 40),
+            ("Del",  "Delete from library", "_delete_from_library",   'stop', 38),
         ]:
             b = QPushButton(sym)
-            b.setStyleSheet(style)
+            set_button_role(b, role, 'small')
             b.setFixedWidth(w)
             b.setToolTip(tip)
             # CRITICAL fix: use *_ to absorb the bool 'checked' emitted by clicked()
@@ -717,7 +674,7 @@ class ContrastPanel(QWidget):
         row2 = QHBoxLayout()
         row2.setSpacing(3)
         exp_f = QPushButton("Export to File…")
-        exp_f.setStyleSheet(_S_FILE_SM)
+        set_button_role(exp_f, 'tool', 'small')
         exp_f.setToolTip(
             "Save this compound definition to a portable HDF5 file\n"
             "that can be shared with other users / computers."
@@ -726,7 +683,7 @@ class ContrastPanel(QWidget):
         row2.addWidget(exp_f, stretch=1)
 
         imp_f = QPushButton("Import from File…")
-        imp_f.setStyleSheet(_S_FILE_SM)
+        set_button_role(imp_f, 'tool', 'small')
         imp_f.setToolTip(
             "Load a compound from a shared HDF5 file into this slot.\n"
             "Optionally also adds it to the local library."
@@ -813,7 +770,7 @@ class ContrastPanel(QWidget):
         lay.setSpacing(5)
 
         calc_btn = QPushButton("Calculate")
-        calc_btn.setStyleSheet(_S_BLUE)
+        set_button_role(calc_btn, 'tool')
         calc_btn.setMinimumHeight(36)
         calc_btn.setToolTip(
             "Compute SLDs, free-electron and anomalous contrast at the\n"
@@ -823,7 +780,7 @@ class ContrastPanel(QWidget):
         lay.addWidget(calc_btn)
 
         scan_btn = QPushButton("Energy Scan")
-        scan_btn.setStyleSheet(_S_PURPLE)
+        set_button_role(scan_btn, 'helper')
         scan_btn.setMinimumHeight(34)
         scan_btn.setToolTip(
             "Compute anomalous X-ray contrast and transmission over the\n"
@@ -882,22 +839,22 @@ class ContrastPanel(QWidget):
         lay.setContentsMargins(0, 2, 0, 2)
         lay.setSpacing(5)
 
-        for lbl, tip, slot in [
+        for lbl, tip, slot, role in [
             ("Export Results CSV",
              "Save the results table to CSV.  Ctrl+C also copies selected cells.",
-             self._export_csv),
+             self._export_csv, 'analysis'),
             ("Export Scan CSV",
              "Save the energy-scan arrays to CSV.",
-             self._export_scan_csv),
+             self._export_scan_csv, 'analysis'),
             ("Save Scan HDF5",
              "Save the energy-scan arrays plus compound definitions to HDF5.",
-             self._save_scan_hdf5),
+             self._save_scan_hdf5, 'tool'),
             ("Show Graphs",
              "Open the energy-scan graph window.",
-             self._show_graph_window),
+             self._show_graph_window, 'graph'),
         ]:
             btn = QPushButton(lbl)
-            btn.setStyleSheet(_S_TEAL if lbl != "Show Graphs" else _S_PURPLE)
+            set_button_role(btn, role)
             btn.setToolTip(tip)
             btn.clicked.connect(slot)
             lay.addWidget(btn)
