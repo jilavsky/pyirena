@@ -90,7 +90,7 @@ from pyirena.gui.table_utils import (
     populating,
     save_rows_as_csv,
 )
-from pyirena.gui.theme import apply_theme
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -110,17 +110,6 @@ _DATASET_COLORS = [
 
 _RESULT_PEN = pg.mkPen('#27ae60', width=3)   # green result line (thick, drawn on top)
 
-_BTN_GREEN = ("QPushButton { background: #27ae60; color: white; font-weight: bold; "
-              "border-radius: 4px; padding: 6px 10px; }"
-              "QPushButton:hover { background: #2ecc71; }"
-              "QPushButton:disabled { background: #95a5a6; }")
-_BTN_BLUE  = ("QPushButton { background: #2980b9; color: white; font-weight: bold; "
-              "border-radius: 4px; padding: 6px 10px; }"
-              "QPushButton:hover { background: #3498db; }"
-              "QPushButton:disabled { background: #95a5a6; }")
-_BTN_GREY  = ("QPushButton { background: #7f8c8d; color: white; font-weight: bold; "
-              "border-radius: 4px; padding: 4px 8px; }"
-              "QPushButton:hover { background: #95a5a6; }")
 _RDONLY_STYLE = "background: #ecf0f1; color: #2c3e50; border: 1px solid #bdc3c7;"
 
 # Tab indices
@@ -610,10 +599,7 @@ class DataManipulationPanel(QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("data_manipulation")))
@@ -887,9 +873,7 @@ class DataManipulationPanel(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         self._sim_check_btn = QPushButton("Check Similarity")
-        self._sim_check_btn.setStyleSheet(
-            "background-color: #2980b9; color: white; font-weight: bold;"
-        )
+        set_button_role(self._sim_check_btn, 'tool')
         self._sim_check_btn.setFixedHeight(26)
         self._sim_check_btn.setToolTip(
             "Run the selected similarity test on all currently selected files.\n"
@@ -900,9 +884,7 @@ class DataManipulationPanel(QWidget):
         btn_row.addWidget(self._sim_check_btn)
 
         self._sim_reject_btn = QPushButton("Auto-reject 0 below threshold")
-        self._sim_reject_btn.setStyleSheet(
-            "background-color: #c0392b; color: white; font-weight: bold;"
-        )
+        set_button_role(self._sim_reject_btn, 'stop')
         self._sim_reject_btn.setFixedHeight(26)
         self._sim_reject_btn.setEnabled(False)
         self._sim_reject_btn.setToolTip(
@@ -915,9 +897,7 @@ class DataManipulationPanel(QWidget):
         # A similarity check over 50 files used to be view-only: no copy, no
         # export.  Save CSV here, clipboard copy on the table itself.
         self._sim_csv_btn = QPushButton("Save CSV…")
-        self._sim_csv_btn.setStyleSheet(
-            "background-color: #16a085; color: white; font-weight: bold;"
-        )
+        set_button_role(self._sim_csv_btn, 'analysis')
         self._sim_csv_btn.setFixedHeight(26)
         self._sim_csv_btn.setEnabled(False)
         self._sim_csv_btn.setToolTip(
@@ -1081,7 +1061,7 @@ class DataManipulationPanel(QWidget):
 
         create_btn = QPushButton("Create Default Folder")
         create_btn.setMinimumHeight(28)
-        create_btn.setStyleSheet(_BTN_GREY)
+        set_button_role(create_btn, None)
         create_btn.setToolTip(
             "Create a new folder named '<data folder>_manip' next to the data folder."
         )
@@ -1090,7 +1070,7 @@ class DataManipulationPanel(QWidget):
 
         select_btn = QPushButton("Select Existing Folder\u2026")
         select_btn.setMinimumHeight(28)
-        select_btn.setStyleSheet(_BTN_GREY)
+        set_button_role(select_btn, None)
         select_btn.setToolTip("Choose an existing folder to save manipulated output files.")
         select_btn.clicked.connect(self._select_output_folder)
         layout.addWidget(select_btn)
@@ -1099,7 +1079,7 @@ class DataManipulationPanel(QWidget):
 
         self._save_btn = QPushButton("Apply && Save")
         self._save_btn.setMinimumHeight(34)
-        self._save_btn.setStyleSheet(_BTN_GREEN)
+        set_button_role(self._save_btn, 'primary')
         self._save_btn.setEnabled(False)
         self._save_btn.setToolTip(
             "Apply the current operation to the selected file(s) and save the result.\n"
@@ -1112,7 +1092,7 @@ class DataManipulationPanel(QWidget):
 
         self._batch_btn = QPushButton("Batch All Selected")
         self._batch_btn.setMinimumHeight(34)
-        self._batch_btn.setStyleSheet(_BTN_BLUE)
+        set_button_role(self._batch_btn, 'tool')
         self._batch_btn.setEnabled(False)
         self._batch_btn.setToolTip(
             "Apply the current operation to all selected files in the list and save all results.\n"

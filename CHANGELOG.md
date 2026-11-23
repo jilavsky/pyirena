@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Buttons look like buttons again.** Every push button is now drawn raised:
+  gradient face, bevelled edge, rounded corners, sunken when pressed, and
+  flat grey when disabled. The colours mean the same thing in every tool:
+  green for the main action (Fit), mint for "show on graph", orange for
+  revert/reset, red for cancel, and so on. A few buttons whose colour did
+  not match the same button in other tools were brought into line. The main
+  window keeps its per-tool launcher colours.
+  Developers: colour a button with `theme.set_button_role(btn, "<function>")`;
+  the colours live in one table in `pyirena/gui/theme.py`
+  (`BUTTON_FUNCTIONS`). The look comes from `pyirena/gui/raised_buttons.py`,
+  which is shared with Jan's other Qt packages.
+  `theme.accent_button_css`, `soft_button_css`, `chip_button_css` and
+  `CHIP_BUTTON_CSS` are removed; use `set_button_role` instead.
+
 - **Data Merge: the Porod view is now log I·Q⁴ vs log Q.** On linear axes it
   showed little; on log-log the Q⁴ factor stretches the y axis over the overlap
   region, which is what makes a mismatch visible. The saved mode key (`porod`)

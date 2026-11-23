@@ -35,6 +35,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
+from pyirena.gui.theme import set_button_role
 
 if TYPE_CHECKING:
     from pyirena.gui.unified_fit import UnifiedFitPanel
@@ -119,19 +120,13 @@ class FeatureIdentifierDialog(QWidget):
         # Detect / Clear buttons
         btn_row = QHBoxLayout()
         self.detect_btn = QPushButton("Detect segments")
-        self.detect_btn.setStyleSheet(
-            "QPushButton{background:#2980b9;color:white;font-weight:bold;padding:6px 10px;}"
-            "QPushButton:hover{background:#3498db;}"
-        )
+        set_button_role(self.detect_btn, 'tool')
         self.detect_btn.setMinimumHeight(28)
         self.detect_btn.clicked.connect(self._on_detect)
         btn_row.addWidget(self.detect_btn)
 
         self.clear_btn = QPushButton("Clear markers")
-        self.clear_btn.setStyleSheet(
-            "QPushButton{background:#95a5a6;color:white;padding:6px 10px;}"
-            "QPushButton:hover{background:#7f8c8d;}"
-        )
+        set_button_role(self.clear_btn, None)
         self.clear_btn.setMinimumHeight(28)
         self.clear_btn.clicked.connect(self._clear_markers)
         btn_row.addWidget(self.clear_btn)

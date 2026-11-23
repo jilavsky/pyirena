@@ -43,6 +43,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.theme import set_button_role
 
 log = logging.getLogger(__name__)
 
@@ -162,14 +163,9 @@ def make_nudge_buttons(field: NudgeField, width: int = 16) -> QWidget:
         btn.setFixedSize(width, 22)
         btn.setToolTip(tip + "\nThe mouse wheel and ↑/↓ over the field do the same.")
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        # A background with no `color:` inherits the system text colour and
-        # the glyph vanishes on a dark desktop — see
-        # pyirena/tests/test_gui_theme_contract.py, which caught exactly that.
-        btn.setStyleSheet(
-            "QPushButton{border:1px solid #bdc3c7;background:#ecf0f1;"
-            "color:#2c3e50;font-size:8pt;padding:0px;}"
-            "QPushButton:hover{background:#d5dbdb;color:#2c3e50;}"
-        )
+        # Neutral, "tiny" size: no padding, since the arrow is only `width` px
+        # wide and any side padding would clip the glyph.
+        set_button_role(btn, None, "tiny")
         # Read the modifiers at click time, so Shift-click is coarse exactly
         # as Shift-wheel is.
         def _on_click(_checked=False, d=direction):

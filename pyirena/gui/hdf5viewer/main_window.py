@@ -36,6 +36,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
+from pyirena.gui.theme import set_button_role
 from pyirena.gui.window_state import install_window_state
 
 from . import pyirena_readers as _readers
@@ -136,10 +137,7 @@ class HDF5ViewerWindow(QMainWindow):
         title_row.addWidget(title_lbl, 1)
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("data_explorer")))

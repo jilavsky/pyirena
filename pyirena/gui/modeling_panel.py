@@ -94,10 +94,7 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
-from pyirena.gui.theme import (
-    CHIP_BUTTON_CSS,
-    apply_theme,
-)
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.unified_fit import ScrubbableLineEdit, _SafeInfiniteLine
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_modeling import save_modeling_results
@@ -2402,8 +2399,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton('? Help')
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open the pyIrena Modeling tool documentation in a browser.")
         self._help_btn.clicked.connect(self._open_help)
         title_row.addWidget(self._help_btn)
@@ -2525,14 +2521,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         # only enabled when the current tab is a Unified Fit Level population.
         # "Fit Flat" targets the global Background field above.
         bg_prefit_row = QHBoxLayout()
-        # theme.CHIP_BUTTON_CSS pins BOTH background and text colour.  The
-        # old inline style set only background-color, so under a dark system
-        # theme these buttons rendered as near-white text on a near-white box
-        # and were effectively invisible.
-        _bg_helper_style = CHIP_BUTTON_CSS
         self.prefit_bp_btn = QPushButton('Fit B/P btwn cursors')
         self.prefit_bp_btn.setMaximumHeight(22)
-        self.prefit_bp_btn.setStyleSheet(_bg_helper_style)
+        set_button_role(self.prefit_bp_btn, 'helper', size='small')
         self.prefit_bp_btn.setToolTip(
             'Prefit the active Unified-Level population’s power-law B·Q⁻ᴾ to the '
             'data between the two cursors.\nIf P’s "Fit?" box is unchecked, only '
@@ -2544,7 +2535,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         self.prefit_flat_btn = QPushButton('Fit Flat btwn cursors')
         self.prefit_flat_btn.setMaximumHeight(22)
-        self.prefit_flat_btn.setStyleSheet(_bg_helper_style)
+        set_button_role(self.prefit_flat_btn, 'helper', size='small')
         self.prefit_flat_btn.setToolTip(
             'Prefit the global flat Background to the data between the two cursors '
             '(median of I − model over the range, or median I if no model yet).'
@@ -2587,12 +2578,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_graph.setMinimumHeight(28)
         self.btn_graph.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.btn_graph.setStyleSheet(
-            'QPushButton {background: #52c77a; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #42b86a;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
+        set_button_role(self.btn_graph, 'graph')
         self.btn_graph.setToolTip(
             "Compute and display the current model curve without fitting.\n"
             "Use this to preview the model before running a fit."
@@ -2604,12 +2590,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_fit.setMinimumHeight(28)
         self.btn_fit.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.btn_fit.setStyleSheet(
-            'QPushButton {background: #27ae60; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #229954;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
+        set_button_role(self.btn_fit, 'primary')
         self.btn_fit.setToolTip(
             "Fit the population model to the loaded data using the current parameters.\n"
             "Checked parameters are varied; unchecked parameters are held fixed."
@@ -2621,12 +2602,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         self.btn_fix_limits.setMinimumHeight(28)
         self.btn_fix_limits.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.btn_fix_limits.setStyleSheet(
-            'QPushButton {background: #27ae60; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #229954;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
+        set_button_role(self.btn_fix_limits, 'helper')
         self.btn_fix_limits.setToolTip(
             "Set all fit limits to roughly 0.2× … 5× the current parameter values.\n"
             "Convenient starting point before running a constrained fit."
@@ -2660,30 +2636,12 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         lay.addWidget(res_group)
 
         # ── Output buttons (standard layout matching other tools) ─────────
-        # Disabled state keeps the button's hue (faded version) instead of
-        # going grey, so Revert/Store/Calc-Uncertainty stay visually
-        # identifiable across all panels even before a fit has run.
-        _btn_css = {
-            'green':  ('QPushButton {{background: #81c784; color: white; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #66bb6a;}} '
-                       'QPushButton:disabled {{background: #bce0c0; color: #f8f8f8;}}'),
-            'blue':   ('QPushButton {{background: #3498db; color: white; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #2980b9;}} '
-                       'QPushButton:disabled {{background: #9bc8e3; color: #f8f8f8;}}'),
-            'lgreen': ('QPushButton {{background: lightgreen; color: black; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #90ee90;}} '
-                       'QPushButton:disabled {{background: #c7f0c7; color: #707070;}}'),
-            'orange': ('QPushButton {{background: #e67e22; color: white; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #d35400;}} '
-                       'QPushButton:disabled {{background: #f4b483; color: #f8f8f8;}}'),
-            'yellow': ('QPushButton {{background: #ffe082; color: black; font-weight: bold; border-radius: 4px;}}'
-                       'QPushButton:hover {{background: #ffd54f;}} '
-                       'QPushButton:disabled {{background: #fff0c2; color: #707070;}}'),
-        }
-        def _mkbtn(text, css_key, handler, tooltip=''):
+        # Each button is coloured by its function via set_button_role(); the
+        # theme supplies a uniform disabled look.
+        def _mkbtn(text, role, handler, tooltip=''):
             b = QPushButton(text)
             b.setMinimumHeight(26)
-            b.setStyleSheet(_btn_css[css_key].format())
+            set_button_role(b, role)
             b.clicked.connect(handler)
             if tooltip:
                 b.setToolTip(tooltip)
@@ -2694,9 +2652,9 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         # Output buttons — shared template (Row 1..5).
         # Row 1: Results to graph + Revert back
         out1 = QHBoxLayout()
-        out1.addWidget(_mkbtn('Results to graph', 'green', self._results_to_graph,
+        out1.addWidget(_mkbtn('Results to graph', 'graph', self._results_to_graph,
                               'Annotate the I(Q) plot with fitted parameter values.'))
-        self.btn_revert = _mkbtn('Revert back', 'orange', self.revert_to_pre_fit,
+        self.btn_revert = _mkbtn('Revert back', 'revert', self.revert_to_pre_fit,
                                  'Restore parameters to their values before the last fit.')
         self.btn_revert.setEnabled(False)
         out1.addWidget(self.btn_revert)
@@ -2706,13 +2664,13 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         # (State is saved automatically on close — see closeEvent — so an
         # explicit "Save State" button is no longer needed.)
         out2 = QHBoxLayout()
-        self.btn_save = _mkbtn('Store in File', 'lgreen', self.save_results,
+        self.btn_save = _mkbtn('Store in File', 'settings', self.save_results,
                                'Save fit results to the HDF5 (NXcanSAS) file.\n'
                                'The full GUI setup is embedded so "Load Setup from File…"\n'
                                'can later restore every control.')
         self.btn_save.setEnabled(False)
         out2.addWidget(self.btn_save)
-        out2.addWidget(_mkbtn('Load Setup from File…', 'yellow',
+        out2.addWidget(_mkbtn('Load Setup from File…', 'setup',
                               self._load_setup_from_file,
                               'Restore every Modeling control (populations, fit flags,\n'
                               'bounds, q-range, …) from a NXcanSAS file previously saved\n'
@@ -2722,10 +2680,10 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         # Row 3: Save params to JSON + Load params from JSON
         out3 = QHBoxLayout()
-        out3.addWidget(_mkbtn('Save params to JSON', 'lgreen', self.export_json,
+        out3.addWidget(_mkbtn('Save params to JSON', 'settings', self.export_json,
                               'Save current Modeling parameters to a pyIrena JSON file.\n'
                               "Use 'Load params from JSON' to restore them later."))
-        out3.addWidget(_mkbtn('Load params from JSON', 'lgreen', self._import_parameters,
+        out3.addWidget(_mkbtn('Load params from JSON', 'settings', self._import_parameters,
                               'Load Modeling parameters from a previously saved pyIrena JSON file.\n'
                               "Use 'Save params to JSON' to create a compatible file."))
         lay.addLayout(out3)
@@ -2745,7 +2703,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         ))
 
         # Row 4: Reset to Defaults (full width)
-        lay.addWidget(_mkbtn('Reset to Defaults', 'orange', self._reset_to_defaults,
+        lay.addWidget(_mkbtn('Reset to Defaults', 'revert', self._reset_to_defaults,
                              'Reset all parameters to their default values.'))
 
         # Row 5: Passes + cores + Calc. Uncertainty (MC)
@@ -2779,12 +2737,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         self.btn_mc = QPushButton('Calc. Uncertainty (MC)')
         self.btn_mc.setMinimumHeight(26)
-        self.btn_mc.setStyleSheet(
-            'QPushButton {background: #16a085; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #1abc9c;}'
-            'QPushButton:disabled {background: #8ac4bc; color: #f8f8f8;}'
-        )
+        set_button_role(self.btn_mc, 'analysis')
         self.btn_mc.setToolTip(
             "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
             "Set 'Passes' to control how many Monte Carlo replicates are used, and\n"
@@ -3394,11 +3347,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
 
         self._engine.clear_cache()
         self.btn_fit.setText('Cancel Fit')
-        self.btn_fit.setStyleSheet(
-            'QPushButton {background: #e74c3c; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #c0392b;}'
-        )
+        set_button_role(self.btn_fit, 'stop')
         self.btn_graph.setEnabled(False)
         self.btn_mc.setEnabled(False)
         self.btn_revert.setEnabled(False)
@@ -3415,12 +3364,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
     def _restore_fit_button(self):
         """Restore the Fit button to its normal appearance after fitting/cancel."""
         self.btn_fit.setText('Fit')
-        self.btn_fit.setStyleSheet(
-            'QPushButton {background: #27ae60; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #229954;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
+        set_button_role(self.btn_fit, 'primary')
 
     def _on_fit_done(self, result):
         self._restore_fit_button()
@@ -3543,12 +3487,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
         n = self.n_runs_spin.value()
         self._mc_progress = (0, n)
         self.btn_mc.setText('Cancel MC')
-        self.btn_mc.setStyleSheet(
-            'QPushButton {background: #e74c3c; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #c0392b;}'
-            'QPushButton:disabled {background: #bdc3c7;}'
-        )
+        set_button_role(self.btn_mc, 'stop')
         self.btn_fit.setEnabled(False)
         self.graph.set_status(f'Starting MC — 0 / {n} passes …', 'working')
 
@@ -3566,12 +3505,7 @@ class ModelingPanel(SlitSmearingMixin, QWidget):
     def _restore_mc_button(self):
         """Restore the MC button to its normal appearance after a run/cancel."""
         self.btn_mc.setText('Calc. Uncertainty (MC)')
-        self.btn_mc.setStyleSheet(
-            'QPushButton {background: #16a085; color: white; font-weight: bold;'
-            ' border-radius: 4px;}'
-            'QPushButton:hover {background: #1abc9c;}'
-            'QPushButton:disabled {background: #8ac4bc; color: #f8f8f8;}'
-        )
+        set_button_role(self.btn_mc, 'analysis')
         self.btn_mc.setEnabled(True)
 
     def _on_mc_progress(self, done: int, total: int):

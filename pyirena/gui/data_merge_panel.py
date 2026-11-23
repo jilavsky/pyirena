@@ -73,7 +73,7 @@ from pyirena.gui.sas_plot import (
     set_robust_y_range,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
-from pyirena.gui.theme import apply_theme
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -88,17 +88,6 @@ _DS1_PEN    = pg.mkPen('#2980b9', width=1)
 _DS2_PEN    = pg.mkPen('#e74c3c', width=1)
 _MERGED_PEN = pg.mkPen('#27ae60', width=2)   # dark green
 
-_BTN_GREEN  = ("QPushButton { background: #27ae60; color: white; font-weight: bold; "
-               "border-radius: 4px; padding: 6px 10px; }"
-               "QPushButton:hover { background: #2ecc71; }"
-               "QPushButton:disabled { background: #95a5a6; }")
-_BTN_BLUE   = ("QPushButton { background: #2980b9; color: white; font-weight: bold; "
-               "border-radius: 4px; padding: 6px 10px; }"
-               "QPushButton:hover { background: #3498db; }"
-               "QPushButton:disabled { background: #95a5a6; }")
-_BTN_GREY   = ("QPushButton { background: #7f8c8d; color: white; font-weight: bold; "
-               "border-radius: 4px; padding: 4px 8px; }"
-               "QPushButton:hover { background: #95a5a6; }")
 _RDONLY_STYLE = "background: #ecf0f1; color: #2c3e50; border: 1px solid #bdc3c7;"
 
 # "Strip" field for Match files mode — normalizes an instrument code glued
@@ -1212,10 +1201,7 @@ class DataMergePanel(QWidget):
         row1.addStretch()
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("data_merge")))
@@ -1240,7 +1226,7 @@ class DataMergePanel(QWidget):
 
         self._optimize_btn = QPushButton("Optimize Merge")
         self._optimize_btn.setMinimumHeight(30)
-        self._optimize_btn.setStyleSheet(_BTN_GREEN)
+        set_button_role(self._optimize_btn, 'primary')
         self._optimize_btn.setEnabled(False)
         self._optimize_btn.setToolTip(
             "Optimize scale (and optionally Q-shift) to minimise the residual in the overlap region.\n"
@@ -1319,7 +1305,7 @@ class DataMergePanel(QWidget):
 
         create_folder_btn = QPushButton("Create Default Folder")
         create_folder_btn.setMinimumHeight(28)
-        create_folder_btn.setStyleSheet(_BTN_GREY)
+        set_button_role(create_folder_btn, None)
         create_folder_btn.setToolTip(
             "Create a new folder named '<DS1 folder>_merged' next to the DS1 folder "
             "and use it as the output folder."
@@ -1329,7 +1315,7 @@ class DataMergePanel(QWidget):
 
         select_folder_btn = QPushButton("Select Existing Folder…")
         select_folder_btn.setMinimumHeight(28)
-        select_folder_btn.setStyleSheet(_BTN_GREY)
+        set_button_role(select_folder_btn, None)
         select_folder_btn.setToolTip("Choose an existing folder for saving merged files.")
         select_folder_btn.clicked.connect(self._select_existing_output_folder)
         layout.addWidget(select_folder_btn)
@@ -1338,7 +1324,7 @@ class DataMergePanel(QWidget):
 
         self._save_btn = QPushButton("Save Merged Data")
         self._save_btn.setMinimumHeight(34)
-        self._save_btn.setStyleSheet(_BTN_GREEN)
+        set_button_role(self._save_btn, 'primary')
         self._save_btn.setEnabled(False)
         self._save_btn.setToolTip(
             "Save the merged dataset to an NXcanSAS/HDF5 file in the output folder.\n"
@@ -1351,7 +1337,7 @@ class DataMergePanel(QWidget):
 
         self._batch_btn = QPushButton("Batch Run")
         self._batch_btn.setMinimumHeight(34)
-        self._batch_btn.setStyleSheet(_BTN_BLUE)
+        set_button_role(self._batch_btn, 'tool')
         self._batch_btn.setEnabled(False)
         self._batch_btn.setToolTip(
             "Automatically merge all matched file pairs from the two dataset folders.\n"
@@ -1364,7 +1350,7 @@ class DataMergePanel(QWidget):
 
         save_cfg_btn = QPushButton("Save JSON Config…")
         save_cfg_btn.setMinimumHeight(28)
-        save_cfg_btn.setStyleSheet(_BTN_GREY)
+        set_button_role(save_cfg_btn, 'settings')
         save_cfg_btn.setToolTip(
             "Save the current merge settings (folders, Q range, scale mode) to a JSON file.\n"
             "Use 'Load JSON Config…' to restore them in a future session."
@@ -1374,7 +1360,7 @@ class DataMergePanel(QWidget):
 
         load_cfg_btn = QPushButton("Load JSON Config…")
         load_cfg_btn.setMinimumHeight(28)
-        load_cfg_btn.setStyleSheet(_BTN_GREY)
+        set_button_role(load_cfg_btn, 'settings')
         load_cfg_btn.setToolTip(
             "Load merge settings from a previously saved JSON config file.\n"
             "Use 'Save JSON Config…' to create a compatible file."

@@ -41,6 +41,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
+from pyirena.gui.theme import set_button_role
 
 # ── colour palette: visually distinct phases ──────────────────────────────
 _CIF_COLORS = [
@@ -147,10 +148,7 @@ class _CifRowWidget(QFrame):
         self._del_btn = QPushButton("×")
         self._del_btn.setFixedSize(22, 22)
         self._del_btn.setToolTip("Remove this CIF")
-        self._del_btn.setStyleSheet(
-            "QPushButton{background:#e74c3c;color:white;font-weight:bold;border-radius:3px;}"
-            "QPushButton:hover{background:#c0392b;}"
-        )
+        set_button_role(self._del_btn, 'stop', 'tiny')
         self._del_btn.clicked.connect(self.delete_requested.emit)
         row.addWidget(self._del_btn)
 
@@ -342,9 +340,7 @@ class DiffractionLinesPanel(QWidget):
         # ── Action buttons ───────────────────────────────────────────────
         btn_row = QHBoxLayout()
         self._import_btn = QPushButton("Import CIF…")
-        self._import_btn.setStyleSheet(
-            "QPushButton{background:#3498db;color:white;font-weight:bold;}"
-        )
+        set_button_role(self._import_btn, 'tool')
         self._import_btn.clicked.connect(self._import_cif)
         btn_row.addWidget(self._import_btn)
 
@@ -366,9 +362,7 @@ class DiffractionLinesPanel(QWidget):
         # ── Reset button ─────────────────────────────────────────────────
         reset_row = QHBoxLayout()
         self._reset_btn = QPushButton("Clear all CIFs")
-        self._reset_btn.setStyleSheet(
-            "QPushButton{background:#e67e22;color:white;}"
-        )
+        set_button_role(self._reset_btn, 'revert')
         self._reset_btn.clicked.connect(self._clear_all_with_confirm)
         reset_row.addWidget(self._reset_btn)
         reset_row.addStretch()

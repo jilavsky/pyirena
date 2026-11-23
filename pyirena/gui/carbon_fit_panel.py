@@ -83,14 +83,7 @@ from pyirena.gui.table_utils import (
     populating,
     save_rows_as_csv,
 )
-from pyirena.gui.theme import (
-    ACCENT_GREEN,
-    SOFT_AMBER,
-    SOFT_GREEN,
-    accent_button_css,
-    readonly_field_css,
-    soft_button_css,
-)
+from pyirena.gui.theme import readonly_field_css, set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -675,9 +668,7 @@ class CarbonFitPanel(QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton('? Help')
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            'QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}'
-            'QPushButton:hover{background:#e74c3c;}')
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip('Open online documentation in your browser')
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("carbon_fit"))))
@@ -937,7 +928,7 @@ class CarbonFitPanel(QWidget):
         peak_header.addStretch()
         add_btn = QPushButton('+ Add peak')
         add_btn.setMaximumWidth(90)
-        add_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(add_btn, 'settings')
         add_btn.setToolTip('Add another reflection to the model')
         add_btn.clicked.connect(self._on_add_peak)
         peak_header.addWidget(add_btn)
@@ -1158,6 +1149,7 @@ class CarbonFitPanel(QWidget):
         row1 = QHBoxLayout()
         self.graph_btn = QPushButton('Graph model')
         self.graph_btn.setMinimumHeight(28)
+        set_button_role(self.graph_btn, 'graph')
         self.graph_btn.setToolTip('Evaluate the model at the current parameters '
                                   'without fitting.')
         self.graph_btn.clicked.connect(self._on_graph_model)
@@ -1165,7 +1157,7 @@ class CarbonFitPanel(QWidget):
 
         self.fit_btn = QPushButton('Fit all')
         self.fit_btn.setMinimumHeight(28)
-        self.fit_btn.setStyleSheet(accent_button_css(ACCENT_GREEN, '#1e8449'))
+        set_button_role(self.fit_btn, 'primary')
         self.fit_btn.setToolTip(
             'Refine every ticked parameter across the whole Q range at once.\n'
             'The three regions share the contrast, so they cannot be fitted '
@@ -1176,6 +1168,7 @@ class CarbonFitPanel(QWidget):
         self.stop_btn = QPushButton('Stop')
         self.stop_btn.setMinimumHeight(28)
         self.stop_btn.setMaximumWidth(60)
+        set_button_role(self.stop_btn, 'stop')
         self.stop_btn.setEnabled(False)
         self.stop_btn.setToolTip('Abort the running fit and restore the '
                                  'parameters it started from.')
@@ -1195,7 +1188,7 @@ class CarbonFitPanel(QWidget):
 
         self.mc_btn = QPushButton('Calc. Uncertainty (MC)')
         self.mc_btn.setMinimumHeight(26)
-        self.mc_btn.setStyleSheet(accent_button_css('#16a085', '#1abc9c'))
+        set_button_role(self.mc_btn, 'analysis')
         self.mc_btn.setToolTip(
             'Re-fit noise-perturbed copies of the data. More honest than the '
             'covariance estimate when parameters are correlated — and in this '
@@ -1220,7 +1213,7 @@ class CarbonFitPanel(QWidget):
         row3 = QHBoxLayout()
         self.save_btn = QPushButton('Store in File')
         self.save_btn.setMinimumHeight(26)
-        self.save_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.save_btn, 'settings')
         self.save_btn.setToolTip('Write the fit into entry/carbon_fit_results '
                                  'in the loaded HDF5 file.')
         self.save_btn.clicked.connect(self._on_save_to_file)
@@ -1228,7 +1221,7 @@ class CarbonFitPanel(QWidget):
 
         self.load_setup_btn = QPushButton('Load Setup from File…')
         self.load_setup_btn.setMinimumHeight(26)
-        self.load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
+        set_button_role(self.load_setup_btn, 'setup')
         self.load_setup_btn.setToolTip('Restore every control from a saved '
                                        'result file.')
         self.load_setup_btn.clicked.connect(self._on_load_setup)
@@ -1238,7 +1231,7 @@ class CarbonFitPanel(QWidget):
         row4 = QHBoxLayout()
         self.export_btn = QPushButton('Save params to JSON')
         self.export_btn.setMinimumHeight(26)
-        self.export_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.export_btn, 'settings')
         self.export_btn.setToolTip('Write a carbon_fit section into a pyIrena '
                                    'config file for batch or scripted runs.')
         self.export_btn.clicked.connect(self._on_export_json)
@@ -1246,7 +1239,7 @@ class CarbonFitPanel(QWidget):
 
         self.import_btn = QPushButton('Load params from JSON')
         self.import_btn.setMinimumHeight(26)
-        self.import_btn.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.import_btn, 'settings')
         self.import_btn.setToolTip('Read the carbon_fit section back out of a '
                                    'pyIrena config file.')
         self.import_btn.clicked.connect(self._on_import_json)
@@ -1268,7 +1261,7 @@ class CarbonFitPanel(QWidget):
 
         self.revert_btn = QPushButton('Revert back')
         self.revert_btn.setMinimumHeight(26)
-        self.revert_btn.setStyleSheet(accent_button_css('#e67e22', '#f39c12'))
+        set_button_role(self.revert_btn, 'revert')
         self.revert_btn.setToolTip(
             'Restore every parameter to the value it had before the last fit.\n'
             'Use it when a fit ran off to a wrong solution — it saves rebuilding\n'
@@ -1279,7 +1272,7 @@ class CarbonFitPanel(QWidget):
 
         self.reset_btn = QPushButton('Reset to defaults')
         self.reset_btn.setMinimumHeight(26)
-        self.reset_btn.setStyleSheet(accent_button_css('#e67e22', '#f39c12'))
+        set_button_role(self.reset_btn, 'revert')
         self.reset_btn.setToolTip('Discard the current model and start from '
                                   'the built-in carbon defaults.')
         self.reset_btn.clicked.connect(self._on_reset)
@@ -1348,6 +1341,7 @@ class CarbonFitPanel(QWidget):
 
         remove = QPushButton('✕')
         remove.setFixedSize(22, 20)
+        set_button_role(remove, 'stop', 'tiny')
         remove.setToolTip('Remove this peak')
         remove.clicked.connect(lambda _c, i=index: self._on_remove_peak(i))
         head.addWidget(remove)

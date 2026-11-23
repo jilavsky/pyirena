@@ -49,6 +49,7 @@ from pyirena.gui._qt import (
     QWidget,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
+from pyirena.gui.theme import set_button_role
 
 # ---------------------------------------------------------------------------
 # Lazy PyVista import
@@ -888,11 +889,7 @@ def make_popout_button(widget: QWidget, title: str = 'Popout') -> QPushButton:
     """
     btn = QPushButton('Pop out ⤢')
     btn.setMaximumHeight(22)
-    btn.setStyleSheet(
-        'background:#ecf0f1;color:#2c3e50;'
-        'border:1px solid #bdc3c7;border-radius:3px;'
-        'padding:2px 8px;font-size:9pt;'
-    )
+    set_button_role(btn, None, 'small')
 
     state = {'dlg': None}
 

@@ -80,7 +80,7 @@ from pyirena.gui.file_drop import (
 from pyirena.gui.file_filter import FILTER_PLACEHOLDER, FILTER_TOOLTIP, make_file_matcher
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.sizes_panel import SizesFitPanel
-from pyirena.gui.theme import apply_theme
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.unified_fit import UnifiedFitPanel
 from pyirena.gui.window_state import install_window_state, reset_window_if_shift
 from pyirena.io.hdf5 import readGenericNXcanSAS
@@ -247,10 +247,7 @@ class DataSelectorPanel(QWidget):
         title_row.addWidget(title_label, 1)
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("data_selector")))
@@ -370,14 +367,9 @@ class DataSelectorPanel(QWidget):
         self.configure_button.setToolTip("Configure data loading options")
         self.configure_button.clicked.connect(self.open_configure_dialog)
         configure_row.addWidget(self.configure_button)
-        _mc_style = (
-            "QPushButton { background:#7f8c8d; color:white; font-size:10px; "
-            "border-radius:3px; padding:2px 6px; }"
-            "QPushButton:hover { background:#95a5a6; }"
-        )
         self.manage_config_button = QPushButton("Manage Config…")
         self.manage_config_button.setMinimumHeight(24)
-        self.manage_config_button.setStyleSheet(_mc_style)
+        set_button_role(self.manage_config_button, None, size='small')
         self.manage_config_button.setToolTip(
             "Inspect and remove tool sections from pyirena_config.json.\n"
             "Use this to prevent unwanted tools from running during batch fitting."
@@ -386,7 +378,7 @@ class DataSelectorPanel(QWidget):
         configure_row.addWidget(self.manage_config_button)
         self.locate_logs_button = QPushButton("Locate Logs…")
         self.locate_logs_button.setMinimumHeight(24)
-        self.locate_logs_button.setStyleSheet(_mc_style)
+        set_button_role(self.locate_logs_button, None, size='small')
         self.locate_logs_button.setToolTip(
             "Open the pyirena log folder (~/.pyirena/logs).\n"
             "Attach the newest gui.log when reporting a problem."
@@ -512,34 +504,10 @@ class DataSelectorPanel(QWidget):
         grp_view_lay.addLayout(cb_row2)
 
         # 4 output buttons — smaller, 2×2 grid
-        _btn_sm_blue = (
-            "QPushButton { background:#3498db; color:white; font-size:11px; "
-            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#2980b9; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _btn_sm_purple = (
-            "QPushButton { background:#8e44ad; color:white; font-size:11px; "
-            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#7d3c98; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _btn_sm_teal = (
-            "QPushButton { background:#16a085; color:white; font-size:11px; "
-            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#138d75; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _btn_sm_orange = (
-            "QPushButton { background:#2980b9; color:white; font-size:11px; "
-            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#2471a3; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
 
         self.plot_button = QPushButton("Create Graph")
         self.plot_button.setMinimumHeight(23)
-        self.plot_button.setStyleSheet(_btn_sm_blue)
+        set_button_role(self.plot_button, 'tool')
         self.plot_button.setToolTip(
             "Plot I(Q) for all selected files in a new graph window.\n"
             "Select files in the list above, then click this button."
@@ -549,7 +517,7 @@ class DataSelectorPanel(QWidget):
 
         self.report_button = QPushButton("Create Report")
         self.report_button.setMinimumHeight(23)
-        self.report_button.setStyleSheet(_btn_sm_purple)
+        set_button_role(self.report_button, 'tool')
         self.report_button.setToolTip(
             "Generate a Markdown report (.md) summarising the Unified Fit\n"
             "results for each selected HDF5 file.  Files without stored\n"
@@ -560,7 +528,7 @@ class DataSelectorPanel(QWidget):
 
         self.tabulate_button = QPushButton("Tabulate Results")
         self.tabulate_button.setMinimumHeight(23)
-        self.tabulate_button.setStyleSheet(_btn_sm_teal)
+        set_button_role(self.tabulate_button, 'analysis')
         self.tabulate_button.setToolTip(
             "Build a table of fit results for selected files and display it.\n"
             "Results included depend on the checked checkboxes.\n"
@@ -571,7 +539,7 @@ class DataSelectorPanel(QWidget):
 
         self.export_ascii_button = QPushButton("Export to ASCII")
         self.export_ascii_button.setMinimumHeight(23)
-        self.export_ascii_button.setStyleSheet(_btn_sm_orange)
+        set_button_role(self.export_ascii_button, 'tool')
         self.export_ascii_button.setToolTip(
             "Write space-separated .dat files into an 'ascii_export' subfolder\n"
             "next to each selected HDF5 file.  Three columns: Q  I  dI.\n"
@@ -588,14 +556,9 @@ class DataSelectorPanel(QWidget):
 
         # Data Explorer — row 2 col 0 of the same grid (half-width); distinct
         # red colour signals it is a different kind of tool from the four above.
-        _de_style = (
-            "QPushButton { background:#c0392b; color:white; font-size:11px; "
-            "font-weight:bold; border-radius:4px; padding:3px 6px; }"
-            "QPushButton:hover { background:#e74c3c; }"
-        )
         self.hdf5_viewer_button = QPushButton("Data Explorer")
         self.hdf5_viewer_button.setMinimumHeight(23)
-        self.hdf5_viewer_button.setStyleSheet(_de_style)
+        set_button_role(self.hdf5_viewer_button, 'launch-explorer')
         self.hdf5_viewer_button.setToolTip(
             "Open the Data Explorer to browse, plot, and export data\n"
             "from HDF5 files — including export to Igor Pro h5xp format."
@@ -626,28 +589,16 @@ class DataSelectorPanel(QWidget):
         analysis_grid.setColumnStretch(0, 1)
         analysis_grid.setColumnStretch(1, 1)
 
-        _uf_gui_style = (
-            "QPushButton { background:#27ae60; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
-            "QPushButton:hover { background:#229954; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _uf_script_style = (
-            "QPushButton { background:#1e8449; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
-            "QPushButton:hover { background:#196f3d; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.unified_fit_button = QPushButton("Unified Fit (GUI)")
         self.unified_fit_button.setMinimumHeight(23)
-        self.unified_fit_button.setStyleSheet(_uf_gui_style)
+        set_button_role(self.unified_fit_button, 'launch-unified', size='large')
         self.unified_fit_button.setToolTip("Open Unified Fit panel for the first selected file.")
         self.unified_fit_button.clicked.connect(self.launch_unified_fit)
         self.unified_fit_button.setEnabled(False)
 
         self.unified_script_button = QPushButton("Unified Fit (script)")
         self.unified_script_button.setMinimumHeight(23)
-        self.unified_script_button.setStyleSheet(_uf_script_style)
+        set_button_role(self.unified_script_button, 'launch-unified-script', size='large')
         self.unified_script_button.setToolTip(
             "Batch-fit all selected files with Unified Fit using pyirena_config.json.\n"
             "Results are saved into each file's NXcanSAS record."
@@ -655,28 +606,16 @@ class DataSelectorPanel(QWidget):
         self.unified_script_button.clicked.connect(self.run_unified_script)
         self.unified_script_button.setEnabled(False)
 
-        _sz_gui_style = (
-            "QPushButton { background:#2980b9; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
-            "QPushButton:hover { background:#2471a3; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _sz_script_style = (
-            "QPushButton { background:#1f618d; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:6px 8px; }"
-            "QPushButton:hover { background:#1a5276; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.sizes_fit_button = QPushButton("Size Distribution (GUI)")
         self.sizes_fit_button.setMinimumHeight(23)
-        self.sizes_fit_button.setStyleSheet(_sz_gui_style)
+        set_button_role(self.sizes_fit_button, 'launch-sizes', size='large')
         self.sizes_fit_button.setToolTip("Open Size Distribution panel for the first selected file.")
         self.sizes_fit_button.clicked.connect(self.launch_sizes_fit)
         self.sizes_fit_button.setEnabled(False)
 
         self.sizes_script_button = QPushButton("Size Distribution (script)")
         self.sizes_script_button.setMinimumHeight(23)
-        self.sizes_script_button.setStyleSheet(_sz_script_style)
+        set_button_role(self.sizes_script_button, 'launch-sizes-script', size='large')
         self.sizes_script_button.setToolTip(
             "Batch-fit all selected files with Size Distribution using pyirena_config.json.\n"
             "Results are saved into each file's NXcanSAS record."
@@ -684,28 +623,16 @@ class DataSelectorPanel(QWidget):
         self.sizes_script_button.clicked.connect(self.run_sizes_script)
         self.sizes_script_button.setEnabled(False)
 
-        _mod_gui_style = (
-            "QPushButton { background:#e67e22; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#ca6f1e; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _mod_script_style = (
-            "QPushButton { background:#d35400; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#ba4a00; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.modeling_button = QPushButton("Modeling (GUI)")
         self.modeling_button.setMinimumHeight(23)
-        self.modeling_button.setStyleSheet(_mod_gui_style)
+        set_button_role(self.modeling_button, 'launch-modeling', size='large')
         self.modeling_button.setToolTip("Open Modeling panel for the first selected file.")
         self.modeling_button.clicked.connect(self.launch_modeling)
         self.modeling_button.setEnabled(False)
 
         self.modeling_script_button = QPushButton("Modeling (script)")
         self.modeling_script_button.setMinimumHeight(23)
-        self.modeling_script_button.setStyleSheet(_mod_script_style)
+        set_button_role(self.modeling_script_button, 'launch-modeling-script', size='large')
         self.modeling_script_button.setToolTip(
             "Batch-fit all selected files with Modeling using pyirena_config.json.\n"
             "Results are saved into each file's NXcanSAS record."
@@ -713,28 +640,16 @@ class DataSelectorPanel(QWidget):
         self.modeling_script_button.clicked.connect(self.run_modeling_script)
         self.modeling_script_button.setEnabled(False)
 
-        _sf_gui_style = (
-            "QPushButton { background:#27ae60; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#1e8449; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _sf_script_style = (
-            "QPushButton { background:#1e8449; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#196f3d; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.simple_fits_button = QPushButton("Simple Fits (GUI)")
         self.simple_fits_button.setMinimumHeight(23)
-        self.simple_fits_button.setStyleSheet(_sf_gui_style)
+        set_button_role(self.simple_fits_button, 'launch-simple-fits', size='large')
         self.simple_fits_button.setToolTip("Open Simple Fits panel for the first selected file.")
         self.simple_fits_button.clicked.connect(self.launch_simple_fits)
         self.simple_fits_button.setEnabled(False)
 
         self.simple_fits_script_button = QPushButton("Simple Fits (script)")
         self.simple_fits_script_button.setMinimumHeight(23)
-        self.simple_fits_script_button.setStyleSheet(_sf_script_style)
+        set_button_role(self.simple_fits_script_button, 'launch-simple-fits-script', size='large')
         self.simple_fits_script_button.setToolTip(
             "Batch-fit all selected files with Simple Fits using pyirena_config.json.\n"
             "Results are saved into each file's NXcanSAS record."
@@ -742,28 +657,16 @@ class DataSelectorPanel(QWidget):
         self.simple_fits_script_button.clicked.connect(self.run_simple_fits_script)
         self.simple_fits_script_button.setEnabled(False)
 
-        _waxs_gui_style = (
-            "QPushButton { background:#2980b9; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#1f618d; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _waxs_script_style = (
-            "QPushButton { background:#1f618d; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#1a5276; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.waxs_peakfit_button = QPushButton("WAXS Peaks (GUI)")
         self.waxs_peakfit_button.setMinimumHeight(23)
-        self.waxs_peakfit_button.setStyleSheet(_waxs_gui_style)
+        set_button_role(self.waxs_peakfit_button, 'launch-waxs', size='large')
         self.waxs_peakfit_button.setToolTip("Open WAXS Peak Fit panel for the first selected file.")
         self.waxs_peakfit_button.clicked.connect(self.launch_waxs_peakfit)
         self.waxs_peakfit_button.setEnabled(False)
 
         self.waxs_peakfit_script_button = QPushButton("WAXS Peaks (script)")
         self.waxs_peakfit_script_button.setMinimumHeight(23)
-        self.waxs_peakfit_script_button.setStyleSheet(_waxs_script_style)
+        set_button_role(self.waxs_peakfit_script_button, 'launch-waxs-script', size='large')
         self.waxs_peakfit_script_button.setToolTip(
             "Batch-fit all selected files with WAXS Peak Fit using pyirena_config.json.\n"
             "Results are saved into each file's NXcanSAS record."
@@ -771,21 +674,9 @@ class DataSelectorPanel(QWidget):
         self.waxs_peakfit_script_button.clicked.connect(self.run_waxs_peakfit_script)
         self.waxs_peakfit_script_button.setEnabled(False)
 
-        _cf_gui_style = (
-            "QPushButton { background:#34495e; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#2c3e50; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _cf_script_style = (
-            "QPushButton { background:#2c3e50; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#212f3d; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.carbon_fit_button = QPushButton("Carbon model (GUI)")
         self.carbon_fit_button.setMinimumHeight(23)
-        self.carbon_fit_button.setStyleSheet(_cf_gui_style)
+        set_button_role(self.carbon_fit_button, 'launch-carbon', size='large')
         self.carbon_fit_button.setToolTip(
             "Open the Carbon model panel for the first selected file.\n"
             "Fits the whole SAXS+WAXS range of a disordered carbon at once."
@@ -795,7 +686,7 @@ class DataSelectorPanel(QWidget):
 
         self.carbon_fit_script_button = QPushButton("Carbon model (script)")
         self.carbon_fit_script_button.setMinimumHeight(23)
-        self.carbon_fit_script_button.setStyleSheet(_cf_script_style)
+        set_button_role(self.carbon_fit_script_button, 'launch-carbon-script', size='large')
         self.carbon_fit_script_button.setToolTip(
             "Batch-fit all selected files with the Carbon model using\n"
             "pyirena_config.json.  Results are saved into each file's\n"
@@ -804,21 +695,9 @@ class DataSelectorPanel(QWidget):
         self.carbon_fit_script_button.clicked.connect(self.run_carbon_fit_script)
         self.carbon_fit_script_button.setEnabled(False)
 
-        _sm_gui_style = (
-            "QPushButton { background:#8e44ad; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#7d3c98; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
-        _sm_script_style = (
-            "QPushButton { background:#6c3483; color:white; font-size:12px; "
-            "font-weight:bold; border-radius:4px; padding:4px; border:none; }"
-            "QPushButton:hover { background:#5b2c6f; }"
-            "QPushButton:disabled { background:#bdc3c7; }"
-        )
         self.saxs_morph_button = QPushButton("3D saxsMorph (GUI)")
         self.saxs_morph_button.setMinimumHeight(23)
-        self.saxs_morph_button.setStyleSheet(_sm_gui_style)
+        set_button_role(self.saxs_morph_button, 'launch-saxs-morph', size='large')
         self.saxs_morph_button.setToolTip(
             "Open SAXS Morph (3D voxelgram) panel for the first selected file."
         )
@@ -827,7 +706,7 @@ class DataSelectorPanel(QWidget):
 
         self.saxs_morph_script_button = QPushButton("3D saxsMorph (script)")
         self.saxs_morph_script_button.setMinimumHeight(23)
-        self.saxs_morph_script_button.setStyleSheet(_sm_script_style)
+        set_button_role(self.saxs_morph_script_button, 'launch-saxs-morph-script', size='large')
         self.saxs_morph_script_button.setToolTip(
             "Batch-fit all selected files with SAXS Morph using pyirena_config.json.\n"
             "Compressed voxelgrams + parameters are saved into each NXcanSAS file."
@@ -859,15 +738,9 @@ class DataSelectorPanel(QWidget):
         proc_grid.setColumnStretch(0, 1)
         proc_grid.setColumnStretch(1, 1)
 
-        _utility_style = (
-            "QPushButton { background:#16a085; color:white; "
-            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
-            "QPushButton:hover { background:#1abc9c; }"
-            "QPushButton:disabled { background:#95a5a6; }"
-        )
         self.data_merge_button = QPushButton("Data Merge")
         self.data_merge_button.setMinimumHeight(23)
-        self.data_merge_button.setStyleSheet(_utility_style)
+        set_button_role(self.data_merge_button, 'launch-utility')
         self.data_merge_button.setToolTip(
             "Open the Data Merge tool to combine USAXS and SAXS/WAXS datasets."
         )
@@ -875,22 +748,16 @@ class DataSelectorPanel(QWidget):
 
         self.data_manip_button = QPushButton("Data Manipulation")
         self.data_manip_button.setMinimumHeight(23)
-        self.data_manip_button.setStyleSheet(_utility_style)
+        set_button_role(self.data_manip_button, 'launch-utility')
         self.data_manip_button.setToolTip(
             "Open the Data Manipulation tool for scaling, trimming,\n"
             "rebinning, averaging, subtracting, and dividing datasets."
         )
         self.data_manip_button.clicked.connect(self.launch_data_manipulation)
 
-        _ref_style = (
-            "QPushButton { background:#16a085; color:white; "
-            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
-            "QPushButton:hover { background:#138d75; }"
-            "QPushButton:disabled { background:#95a5a6; }"
-        )
         self.contrast_button = QPushButton("Scattering Contrast Calculator")
         self.contrast_button.setMinimumHeight(23)
-        self.contrast_button.setStyleSheet(_ref_style)
+        set_button_role(self.contrast_button, 'launch-utility')
         self.contrast_button.setToolTip(
             "Open the Scattering Contrast Calculator.\n"
             "Computes X-ray and neutron SLDs and contrast for two compounds\n"
@@ -900,7 +767,7 @@ class DataSelectorPanel(QWidget):
 
         self.fractals_button = QPushButton("Fractals")
         self.fractals_button.setMinimumHeight(23)
-        self.fractals_button.setStyleSheet(_ref_style)
+        set_button_role(self.fractals_button, 'launch-utility')
         self.fractals_button.setToolTip(
             "Open the Fractals tool: grow random mass-fractal aggregates by\n"
             "Monte-Carlo on a simple cubic lattice, compute their fractal\n"
@@ -910,15 +777,9 @@ class DataSelectorPanel(QWidget):
         )
         self.fractals_button.clicked.connect(self.launch_fractals)
 
-        _igor_import_style = (
-            "QPushButton { background:#8e44ad; color:white; "
-            "font-weight:bold; border-radius:4px; padding:4px 8px; }"
-            "QPushButton:hover { background:#6c3483; }"
-            "QPushButton:disabled { background:#95a5a6; }"
-        )
         self.igor_import_button = QPushButton("Import Igor Experiment…")
         self.igor_import_button.setMinimumHeight(23)
-        self.igor_import_button.setStyleSheet(_igor_import_style)
+        set_button_role(self.igor_import_button, 'tool')
         self.igor_import_button.setToolTip(
             "Open an Igor Pro packed experiment (.pxp or .h5xp) and export\n"
             "each reduced USAXS/SAXS/WAXS sample into a NeXus (.h5) file.\n"

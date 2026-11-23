@@ -59,12 +59,7 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
-from pyirena.gui.theme import (
-    READONLY_FIELD_CSS,
-    SOFT_AMBER,
-    SOFT_GREEN,
-    soft_button_css,
-)
+from pyirena.gui.theme import READONLY_FIELD_CSS, set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.state.state_manager import StateManager
 
@@ -1022,11 +1017,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         # which segments the I(Q) and shows the size-distribution recommendation.
         self.identify_features_btn = QPushButton("Identify Features…")
         self.identify_features_btn.setFixedHeight(26)
-        self.identify_features_btn.setStyleSheet(
-            "QPushButton{background:#2980b9;color:white;font-size:12px;"
-            "border-radius:3px;padding:2px 10px;}"
-            "QPushButton:hover{background:#3498db;}"
-        )
+        set_button_role(self.identify_features_btn, 'tool', 'large')
         self.identify_features_btn.setToolTip(
             "Open the Feature Identifier — segments the data's log-log slope\n"
             "profile and shows the recommended size-distribution setup\n"
@@ -1037,10 +1028,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("size_distribution")))
@@ -1175,7 +1163,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
             for btn in (btn_div, btn_mul):
                 btn.setMaximumWidth(36)
                 btn.setMaximumHeight(22)
-                btn.setStyleSheet("font-size:10px; padding:1px 3px;")
+                set_button_role(btn, None, 'small')
             btn_div.setToolTip("Divide this parameter value by 10.")
             btn_mul.setToolTip("Multiply this parameter value by 10.")
             btn_div.clicked.connect(lambda _=False, e=edit: self._scale_edit(e, 0.1))
@@ -1462,7 +1450,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         pl_q_grid.addWidget(QLabel("Å⁻¹"), 1, 2)
         pl_cursor_btn = QPushButton("Set Q\nfrom cursors")
         pl_cursor_btn.setMinimumHeight(40)
-        pl_cursor_btn.setStyleSheet("font-size:10px; padding:2px 6px;")
+        set_button_role(pl_cursor_btn, None, 'small')
         pl_cursor_btn.setToolTip("Set the power-law Q range from the current cursor positions.")
         pl_cursor_btn.clicked.connect(self._set_pl_q_from_cursors)
         pl_q_grid.addWidget(pl_cursor_btn, 0, 3, 2, 1)
@@ -1470,10 +1458,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.fit_pl_button = QPushButton("Fit P/B")
         self.fit_pl_button.setMinimumHeight(26)
-        self.fit_pl_button.setStyleSheet("""
-            QPushButton { background-color: #8e44ad; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #7d3c98; }
-        """)
+        set_button_role(self.fit_pl_button, 'helper')
         self.fit_pl_button.setToolTip(
             "Fit a power-law B·Q⁻ᴾ to the data within the Q range above.\n"
             "Result sets P and B starting values for the size distribution fit."
@@ -1522,7 +1507,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         bg_q_grid.addWidget(QLabel("Å⁻¹"), 1, 2)
         bg_cursor_btn = QPushButton("Set Q\nfrom cursors")
         bg_cursor_btn.setMinimumHeight(40)
-        bg_cursor_btn.setStyleSheet("font-size:10px; padding:2px 6px;")
+        set_button_role(bg_cursor_btn, None, 'small')
         bg_cursor_btn.setToolTip("Set the background Q range from the current cursor positions.")
         bg_cursor_btn.clicked.connect(self._set_bg_q_from_cursors)
         bg_q_grid.addWidget(bg_cursor_btn, 0, 3, 2, 1)
@@ -1530,10 +1515,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.fit_bg_button = QPushButton("Fit Background")
         self.fit_bg_button.setMinimumHeight(26)
-        self.fit_bg_button.setStyleSheet("""
-            QPushButton { background-color: #8e44ad; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #7d3c98; }
-        """)
+        set_button_role(self.fit_bg_button, 'helper')
         self.fit_bg_button.setToolTip(
             "Fit a flat background constant to data within the Q range above.\n"
             "Result sets the Background starting value for the size distribution fit."
@@ -1553,10 +1535,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.graph_button = QPushButton("Graph Model")
         self.graph_button.setMinimumHeight(28)
-        self.graph_button.setStyleSheet("""
-            QPushButton { background-color: #52c77a; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #3eb56a; }
-        """)
+        set_button_role(self.graph_button, 'graph')
         self.graph_button.setToolTip(
             "Compute and display the current size distribution model without fitting.\n"
             "Use this to preview the model before running a fit."
@@ -1566,10 +1545,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.fit_button = QPushButton("Fit Sizes")
         self.fit_button.setMinimumHeight(28)
-        self.fit_button.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: white; font-weight: bold; font-size: 12px; }
-            QPushButton:hover { background-color: #1e8449; }
-        """)
+        set_button_role(self.fit_button, 'primary', 'large')
         self.fit_button.setToolTip(
             "Fit the size distribution model to the loaded data.\n"
             "Uses the Q range defined by the cursors."
@@ -1580,10 +1556,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         self.fit_all_button = QPushButton("Fit Cmplx. Bckg. & Sizes")
         self.fit_all_button.setMinimumHeight(28)
         self.fit_all_button.setMinimumWidth(180)
-        self.fit_all_button.setStyleSheet("""
-            QPushButton { background-color: #2980b9; color: white; font-weight: bold; font-size: 12px; }
-            QPushButton:hover { background-color: #1f618d; }
-        """)
+        set_button_role(self.fit_all_button, 'tool', 'large')
         self.fit_all_button.setToolTip(
             "Fit power law (if P or B checked), then flat background (if Q range set),\n"
             "then size distribution — all on the current loaded data in one click."
@@ -1651,10 +1624,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.results_to_graph_button = QPushButton("Results to graph")
         self.results_to_graph_button.setMinimumHeight(26)
-        self.results_to_graph_button.setStyleSheet("""
-            QPushButton { background-color: #81c784; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #66bb6a; }
-        """)
+        set_button_role(self.results_to_graph_button, 'graph')
         self.results_to_graph_button.setToolTip(
             "Annotate the I(Q) plot with the current fitted Sizes results\n"
             "(Rg, peak r, volume fraction, χ²).  The text box is anchored\n"
@@ -1665,10 +1635,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.revert_button = QPushButton("Revert back")
         self.revert_button.setMinimumHeight(26)
-        self.revert_button.setStyleSheet("""
-            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
+        set_button_role(self.revert_button, 'revert')
         self.revert_button.setToolTip(
             "Restore all parameters to the values they had before the last fit.\n"
             "Useful if a fit diverged or gave unreasonable results."
@@ -1685,7 +1652,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.store_file_button = QPushButton("Store in File")
         self.store_file_button.setMinimumHeight(26)
-        self.store_file_button.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.store_file_button, 'settings')
         self.store_file_button.setToolTip(
             "Save fit results (parameters and model curves) into the source HDF5/NXcanSAS file.\n"
             "Results are appended as a pyirena NXprocess group, and the full\n"
@@ -1696,7 +1663,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.load_setup_button = QPushButton("Load Setup from File…")
         self.load_setup_button.setMinimumHeight(26)
-        self.load_setup_button.setStyleSheet(soft_button_css(SOFT_AMBER))
+        set_button_role(self.load_setup_button, 'setup')
         self.load_setup_button.setToolTip(
             "Restore every Sizes control (shape, r-range, method, bounds, …)\n"
             "from a NXcanSAS file previously saved by pyirena or by the\n"
@@ -1712,7 +1679,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.export_params_button = QPushButton("Save params to JSON")
         self.export_params_button.setMinimumHeight(26)
-        self.export_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.export_params_button, 'settings')
         self.export_params_button.setToolTip(
             "Save current Sizes parameters to a pyIrena JSON file.\n"
             "Use 'Load params from JSON' to restore them later."
@@ -1722,7 +1689,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
 
         self.import_params_button = QPushButton("Load params from JSON")
         self.import_params_button.setMinimumHeight(26)
-        self.import_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.import_params_button, 'settings')
         self.import_params_button.setToolTip(
             "Load Sizes parameters from a previously saved pyIrena JSON file.\n"
             "Use 'Save params to JSON' to create a compatible file."
@@ -1753,10 +1720,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         # Row 4: Reset to defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
         self.reset_button.setMinimumHeight(26)
-        self.reset_button.setStyleSheet("""
-            QPushButton { background-color: #e67e22; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #d35400; }
-        """)
+        set_button_role(self.reset_button, 'revert')
         self.reset_button.setToolTip(
             "Reset all parameters to their factory default values.\n"
             "This cannot be undone — use 'Revert back' to undo only the last fit."
@@ -1776,10 +1740,7 @@ class SizesFitPanel(SlitSmearingMixin, QWidget):
         btn_row_unc.addWidget(self.unc_n_runs_spin)
         self.uncertainty_button = QPushButton("Calc. Uncertainty (MC)")
         self.uncertainty_button.setMinimumHeight(26)
-        self.uncertainty_button.setStyleSheet("""
-            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #1abc9c; }
-        """)
+        set_button_role(self.uncertainty_button, 'analysis')
         self.uncertainty_button.setToolTip(
             "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
             "Set 'Passes' to control how many Monte Carlo replicates are used."

@@ -40,24 +40,12 @@ from pyirena.gui._qt import (
     QPushButton,
     Qt,
 )
+from pyirena.gui.theme import set_button_role
 
 log = logging.getLogger(__name__)
 
 __all__ = ["build_panel_report", "embed_figure", "make_report_buttons",
            "copy_report", "save_report"]
-
-_COPY_STYLE = (
-    "QPushButton{background:#16a085;color:white;font-weight:bold;"
-    "border-radius:4px;padding:4px 10px;}"
-    "QPushButton:hover{background:#138d75;}"
-    "QPushButton:disabled{background:#bdc3c7;}"
-)
-_SAVE_STYLE = (
-    "QPushButton{background:#2980b9;color:white;font-weight:bold;"
-    "border-radius:4px;padding:4px 10px;}"
-    "QPushButton:hover{background:#2471a3;}"
-    "QPushButton:disabled{background:#bdc3c7;}"
-)
 
 COPY_TOOLTIP = (
     "Copy the current results as Markdown text — parameters, fit quality and\n"
@@ -296,7 +284,7 @@ def make_report_buttons(
         return build_panel_report(results, tool_key, file_path, data_info)
 
     copy_btn = QPushButton("Copy results")
-    copy_btn.setStyleSheet(_COPY_STYLE)
+    set_button_role(copy_btn, 'analysis')
     copy_btn.setToolTip(COPY_TOOLTIP)
     copy_btn.clicked.connect(lambda: copy_report(parent, _text(), status_setter))
 
@@ -328,7 +316,7 @@ def make_report_buttons(
         )
 
     save_btn = QPushButton("Save report…")
-    save_btn.setStyleSheet(_SAVE_STYLE)
+    set_button_role(save_btn, 'tool')
     save_btn.setToolTip(
         SAVE_TOOLTIP if image_widget_provider is not None
         else SAVE_TOOLTIP.split("\n\n")[0]

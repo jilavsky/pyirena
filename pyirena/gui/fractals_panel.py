@@ -79,6 +79,7 @@ from pyirena.gui.saxs_morph_3d import (
     make_popout_button,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
+from pyirena.gui.theme import set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_fractals import (
     list_fractal_aggregates,
@@ -237,8 +238,7 @@ class FractalsPanel(QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "background:#c0392b;color:white;font-size:11px;border-radius:3px;")
+        set_button_role(self._help_btn, "help")
         self._help_btn.clicked.connect(self._open_help)
         title_row.addWidget(self._help_btn)
         lay.addLayout(title_row)
@@ -390,9 +390,7 @@ class FractalsPanel(QWidget):
         one_tab = QWidget()
         one_lay = QVBoxLayout(one_tab)
         self.btn_grow = QPushButton("Grow")
-        self.btn_grow.setStyleSheet(
-            "background:#27ae60;color:white;font-weight:bold;"
-            "font-size:12pt;padding:8px;border-radius:4px;border:none;")
+        set_button_role(self.btn_grow, "primary", "large")
         self.btn_grow.setToolTip("Grow one aggregate with the parameters above.\n"
                                   "Runs in a background thread; the panel stays responsive.")
         self.btn_grow.clicked.connect(self._on_grow_one)
@@ -411,9 +409,7 @@ class FractalsPanel(QWidget):
                                      "(seed varies per run). Useful for assessing variance.")
         many_lay.addWidget(self.many_n_spin, 0, 1)
         self.btn_grow_many = QPushButton("Grow N")
-        self.btn_grow_many.setStyleSheet(
-            "background:#27ae60;color:white;font-weight:bold;"
-            "font-size:12pt;padding:8px;border-radius:4px;border:none;")
+        set_button_role(self.btn_grow_many, "primary", "large")
         self.btn_grow_many.clicked.connect(self._on_grow_many)
         many_lay.addWidget(self.btn_grow_many, 1, 0, 1, 2)
         many_lay.setRowStretch(2, 1)
@@ -450,9 +446,7 @@ class FractalsPanel(QWidget):
         self.opt_iter_spin.setToolTip("Each iteration grows up to 3 aggregates (low/mid/high SP).")
         opt_lay.addWidget(self.opt_iter_spin, 3, 1)
         self.btn_optimize = QPushButton("Find Best Growth")
-        self.btn_optimize.setStyleSheet(
-            "background:#16a085;color:white;font-weight:bold;"
-            "font-size:12pt;padding:8px;border-radius:4px;border:none;")
+        set_button_role(self.btn_optimize, "analysis", "large")
         self.btn_optimize.clicked.connect(self._on_optimize)
         opt_lay.addWidget(self.btn_optimize, 4, 0, 1, 2)
         opt_lay.setRowStretch(5, 1)
@@ -470,9 +464,7 @@ class FractalsPanel(QWidget):
         v.addWidget(self.jobs_list)
         cancel_row = QHBoxLayout()
         self.btn_cancel_job = QPushButton("Cancel selected job")
-        self.btn_cancel_job.setStyleSheet(
-            "background:#e74c3c;color:white;font-weight:bold;"
-            "padding:3px 8px;border-radius:3px;border:none;")
+        set_button_role(self.btn_cancel_job, "stop")
         self.btn_cancel_job.clicked.connect(self._on_cancel_job)
         cancel_row.addWidget(self.btn_cancel_job)
         cancel_row.addStretch()
@@ -554,9 +546,7 @@ class FractalsPanel(QWidget):
         g.addWidget(self.qn_spin, 1, 1)
 
         self.btn_mc = QPushButton("Compute Monte Carlo I(Q)")
-        self.btn_mc.setStyleSheet(
-            "background:#16a085;color:white;font-weight:bold;"
-            "padding:5px 8px;border-radius:3px;border:none;")
+        set_button_role(self.btn_mc, "analysis")
         self.btn_mc.setToolTip("Slow PDF-based intensity from the 3D voxelized model.\n"
                                 "Uses random pair sampling over solid voxels.\n"
                                 "Run this when you want to cross-check the analytical Unified curve.")
@@ -564,9 +554,7 @@ class FractalsPanel(QWidget):
         g.addWidget(self.btn_mc, 2, 0, 1, 3)
 
         self.btn_mc_cancel = QPushButton("Cancel MC")
-        self.btn_mc_cancel.setStyleSheet(
-            "background:#e74c3c;color:white;font-weight:bold;"
-            "padding:5px 8px;border-radius:3px;border:none;")
+        set_button_role(self.btn_mc_cancel, "stop")
         self.btn_mc_cancel.clicked.connect(self._on_cancel_mc)
         self.btn_mc_cancel.setVisible(False)
         g.addWidget(self.btn_mc_cancel, 2, 3)
@@ -580,9 +568,7 @@ class FractalsPanel(QWidget):
         gb = QGroupBox("Save to NeXus")
         v = QVBoxLayout(gb)
         self.btn_save = QPushButton("Save selected aggregate to NeXus…")
-        self.btn_save.setStyleSheet(
-            "background:#2980b9;color:white;font-weight:bold;"
-            "font-size:11pt;padding:6px;border-radius:4px;border:none;")
+        set_button_role(self.btn_save, "tool", "large")
         self.btn_save.setToolTip(
             "Append the selected aggregate as a new aggregate_{N} group inside\n"
             "an HDF5/NeXus file.  Existing groups (other aggregates, Unified fit,\n"
@@ -592,9 +578,7 @@ class FractalsPanel(QWidget):
 
         load_row = QHBoxLayout()
         self.btn_load_agg = QPushButton("Load aggregate(s) from NeXus…")
-        self.btn_load_agg.setStyleSheet(
-            "background:#7f8c8d;color:white;font-weight:bold;"
-            "padding:5px 8px;border-radius:3px;border:none;")
+        set_button_role(self.btn_load_agg, None)
         self.btn_load_agg.clicked.connect(self._on_load_aggregates)
         load_row.addWidget(self.btn_load_agg)
         v.addLayout(load_row)

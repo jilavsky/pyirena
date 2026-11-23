@@ -384,18 +384,35 @@ Two things the exporters cannot infer, so the panel must say them:
   so without this the `dY` column disappears from CSV and ITX while the bars
   stay visible on screen.  `plot_iq_data` already does it for you.
 
-**Every colour you write into a stylesheet** — name the text colour too:
+**Every push button** — colour it by role, not by stylesheet:
 
 ```python
-from pyirena.gui.theme import (
-    CHIP_BUTTON_CSS, accent_button_css, soft_button_css,
-    readonly_field_css, status_css, ACCENT_GREEN, SOFT_AMBER,
-)
+from pyirena.gui.theme import set_button_role
 
-self.fit_btn.setStyleSheet(accent_button_css(ACCENT_GREEN, '#1e8449'))
-self.prefit_btn.setStyleSheet(CHIP_BUTTON_CSS)
-self.load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
+set_button_role(self.fit_btn, "green", size="large")
+set_button_role(self.prefit_btn, None, size="small")   # neutral helper chip
+set_button_role(self.load_setup_btn, "soft-amber")
+```
+
+Buttons are drawn raised (gradient face, two-tone bevel, sunken when pressed)
+by `pyirena/gui/raised_buttons.py`, whose rules `apply_theme` installs once
+for the whole application. `set_button_role` only sets a dynamic property, so
+it is cheap and can be called again at runtime (Fit → Cancel). Pick the role by
+what the button *does*, so the same action has the same colour in every tool —
+the table is in `planning/raised-buttons/PLAN.md`. Do not give a button its own
+`setStyleSheet` with a background: each one is parsed and polished separately,
+and it brings the flat look back. Never write a broad
+`QWidget { background: … }` rule either; it flattens every button inside.
+`raised_buttons.py` is vendored into Jan's other Qt packages — edit it here,
+bump `__version__`, and run `scripts/sync_raised_buttons.py`.
+
+**Every other colour you write into a stylesheet** — name the text colour too:
+
+```python
+from pyirena.gui.theme import readonly_field_css, status_css
+
 self.readout.setStyleSheet(readonly_field_css())
+self.banner.setStyleSheet(status_css("warning"))
 ```
 
 Qt overrides only the properties a stylesheet actually names, so

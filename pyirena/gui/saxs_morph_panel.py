@@ -86,7 +86,7 @@ from pyirena.gui.saxs_morph_3d import (
     make_popout_button,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
-from pyirena.gui.theme import apply_theme
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.unified_fit import _SafeInfiniteLine
 from pyirena.gui.window_state import install_window_state
 from pyirena.io.nxcansas_saxs_morph import (
@@ -642,8 +642,7 @@ class SaxsMorphPanel(QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton('? Help')
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            'background:#c0392b;color:white;font-size:11px;border-radius:3px;')
+        set_button_role(self._help_btn, 'help')
         self._help_btn.clicked.connect(self._open_help)
         title_row.addWidget(self._help_btn)
         lay.addLayout(title_row)
@@ -681,9 +680,7 @@ class SaxsMorphPanel(QWidget):
         lay.addWidget(_sep())
         act_row = QHBoxLayout()
         self.btn_calc = QPushButton('Calculate 3D')
-        self.btn_calc.setStyleSheet(
-            'background:#27ae60;color:white;font-weight:bold;'
-            'font-size:12pt;padding:8px;border-radius:4px;border:none;')
+        set_button_role(self.btn_calc, 'primary', 'large')
         self.btn_calc.setToolTip(
             'Generate the voxelgram from the current parameters.\n'
             'Run the two background pre-fits first (Power-law Bckg + Flat Bckg tabs).'
@@ -725,9 +722,7 @@ class SaxsMorphPanel(QWidget):
         # ── Save row ─────────────────────────────────────────────────────
         save_row = QHBoxLayout()
         self.btn_save = QPushButton('Save/Append to HDF5…')
-        self.btn_save.setStyleSheet(
-            'background:#2980b9;color:white;font-weight:bold;'
-            'font-size:11pt;padding:6px;border-radius:4px;border:none;')
+        set_button_role(self.btn_save, 'tool', 'large')
         self.btn_save.setEnabled(False)
         self.btn_save.setToolTip(
             'Append the SAXS Morph results (voxelgram + parameters) into an\n'
@@ -743,6 +738,7 @@ class SaxsMorphPanel(QWidget):
             'Restore every control from the setup embedded in a SAXS Morph\n'
             'result file (written by Save/Append to HDF5… or by a batch run).'
         )
+        set_button_role(self.btn_load_setup, 'setup')
         self.btn_load_setup.clicked.connect(self._load_setup_from_file)
         save_row.addWidget(self.btn_load_setup)
         lay.addLayout(save_row)
@@ -750,9 +746,7 @@ class SaxsMorphPanel(QWidget):
         # ── Export Config row ────────────────────────────────────────────
         cfg_row = QHBoxLayout()
         self.btn_export_config = QPushButton('Save config to JSON…')
-        self.btn_export_config.setStyleSheet(
-            'background:#8e44ad;color:white;font-weight:bold;'
-            'font-size:11pt;padding:6px;border-radius:4px;border:none;')
+        set_button_role(self.btn_export_config, 'settings', 'large')
         self.btn_export_config.setToolTip(
             'Append the current SAXS Morph parameters to a pyirena_config.json\n'
             'file.  Other tool sections in the file are preserved; only the\n'
@@ -928,9 +922,7 @@ class SaxsMorphPanel(QWidget):
         pl_btn_row.addWidget(self.btn_pl_set_cursors)
 
         self.btn_pl_fit = QPushButton('Fit Power-law Bckg')
-        self.btn_pl_fit.setStyleSheet(
-            'background:#52c77a;color:white;font-weight:bold;'
-            'padding:4px 10px;border-radius:3px;border:none;')
+        set_button_role(self.btn_pl_fit, 'helper')
         self.btn_pl_fit.setToolTip(
             'Linear least-squares fit of log10(I) vs log10(Q) over the '
             'Q range above. Sets B and P below.'
@@ -985,9 +977,7 @@ class SaxsMorphPanel(QWidget):
         flat_btn_row.addWidget(self.btn_bg_set_cursors)
 
         self.btn_bg_fit = QPushButton('Fit Flat Bckg')
-        self.btn_bg_fit.setStyleSheet(
-            'background:#52c77a;color:white;font-weight:bold;'
-            'padding:4px 10px;border-radius:3px;border:none;')
+        set_button_role(self.btn_bg_fit, 'helper')
         self.btn_bg_fit.setToolTip(
             'Median of (I − Power-law) over the Q range above. '
             'Run the Power-law fit first so it can be subtracted.'

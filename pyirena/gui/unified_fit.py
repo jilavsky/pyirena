@@ -78,12 +78,7 @@ from pyirena.gui.sas_plot import (
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
 from pyirena.gui.slit_smearing_ui import SlitSmearingMixin
-from pyirena.gui.theme import (
-    SOFT_AMBER,
-    SOFT_GREEN,
-    apply_theme,
-    soft_button_css,
-)
+from pyirena.gui.theme import apply_theme, set_button_role
 from pyirena.gui.window_state import install_window_state
 from pyirena.state import StateManager
 
@@ -1302,6 +1297,7 @@ class LevelParametersWidget(QWidget):
         # Calculate width to align with high limit field (roughly 35% of total width)
         button_width = 140  # Approximate width for 35%
         self.fit_rg_g_button.setMaximumWidth(button_width)
+        set_button_role(self.fit_rg_g_button, 'helper', 'small')
         self.fit_rg_g_button.setToolTip(
             "Fit Rg and G for this level using data between the two cursors.\n"
             "Results are applied as starting values for the full Unified Fit."
@@ -1391,6 +1387,7 @@ class LevelParametersWidget(QWidget):
         self.fit_p_b_button = QPushButton("Fit P/B btwn cursors")
         self.fit_p_b_button.setMinimumHeight(24)
         self.fit_p_b_button.setMaximumWidth(button_width)
+        set_button_role(self.fit_p_b_button, 'helper', 'small')
         self.fit_p_b_button.setToolTip(
             "Fit power-law exponent P and prefactor B using data between the two cursors.\n"
             "Results are applied as starting values for the full Unified Fit."
@@ -2177,10 +2174,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("unified_fit")))
@@ -2240,11 +2234,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         # Identify Features button — opens FeatureIdentifierDialog (non-modal)
         self.identify_features_btn = QPushButton("Identify Features…")
         self.identify_features_btn.setFixedHeight(26)
-        self.identify_features_btn.setStyleSheet(
-            "QPushButton{background:#2980b9;color:white;font-size:12px;"
-            "border-radius:3px;padding:2px 10px;}"
-            "QPushButton:hover{background:#3498db;}"
-        )
+        set_button_role(self.identify_features_btn, 'tool', size='large')
         self.identify_features_btn.setToolTip(
             "Open the Feature Identifier — analyses the data's log-log slope\n"
             "profile to suggest the number of Unified Fit levels and the\n"
@@ -2334,16 +2324,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self.graph_unified_button = QPushButton("Graph Unified")
         self.graph_unified_button.setMinimumHeight(28)
         self.graph_unified_button.setMaximumWidth(120)
-        self.graph_unified_button.setStyleSheet("""
-            QPushButton {
-                background-color: #52c77a;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3eb56a;
-            }
-        """)
+        set_button_role(self.graph_unified_button, 'graph')
         self.graph_unified_button.setToolTip(
             "Compute and display the current Unified Fit model without fitting.\n"
             "Use this to preview the model before running a fit."
@@ -2356,17 +2337,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self.fit_button.setMinimumHeight(40)
         self.fit_button.setMinimumWidth(140)
         self.fit_button.setMaximumWidth(160)
-        self.fit_button.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                font-weight: bold;
-                font-size: 15px;
-            }
-            QPushButton:hover {
-                background-color: #1e8449;
-            }
-        """)
+        set_button_role(self.fit_button, 'primary', size='large')
         self.fit_button.setToolTip(
             "Fit the Unified Fit model to the loaded data using the current parameters.\n"
             "Results are displayed in the graph and the Results section below."
@@ -2377,16 +2348,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         self.fix_limits_button = QPushButton("Fix limits?")
         self.fix_limits_button.setFixedHeight(24)
         self.fix_limits_button.setMaximumWidth(120)
-        self.fix_limits_button.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2ecc71;
-            }
-        """)
+        set_button_role(self.fix_limits_button, 'helper')
         self.fix_limits_button.setToolTip(
             "Set all fit limits to ±5× the current parameter values.\n"
             "Convenient starting point before running a constrained fit."
@@ -2414,16 +2376,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.results_graphs_button = QPushButton("Results to graphs")
         self.results_graphs_button.setMinimumHeight(26)
-        self.results_graphs_button.setStyleSheet("""
-            QPushButton {
-                background-color: #81c784;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #66bb6a;
-            }
-        """)
+        set_button_role(self.results_graphs_button, 'graph')
         self.results_graphs_button.setToolTip(
             "Plot fit results for all selected files in the data selector.\n"
             "Useful for comparing parameters across a dataset."
@@ -2433,16 +2386,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.revert_button = QPushButton("Revert back")
         self.revert_button.setMinimumHeight(26)
-        self.revert_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e67e22;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #f39c12;
-            }
-        """)
+        set_button_role(self.revert_button, 'revert')
         self.revert_button.setToolTip(
             "Restore all parameters to the values they had before the last fit.\n"
             "Useful if a fit diverged or gave unreasonable results."
@@ -2459,7 +2403,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.store_data_button = QPushButton("Store in File")
         self.store_data_button.setMinimumHeight(26)
-        self.store_data_button.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.store_data_button, 'settings')
         self.store_data_button.setToolTip(
             "Save fit results (parameters and model curve) into the source HDF5/NXcanSAS file.\n"
             "Results are appended as a pyirena NXprocess group, and the full\n"
@@ -2470,7 +2414,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.load_setup_button = QPushButton("Load Setup from File…")
         self.load_setup_button.setMinimumHeight(26)
-        self.load_setup_button.setStyleSheet(soft_button_css(SOFT_AMBER))
+        set_button_role(self.load_setup_button, 'setup')
         self.load_setup_button.setToolTip(
             "Restore every Unified Fit control (parameters, fit flags, bounds,\n"
             "link options, cursors, …) from a NXcanSAS file previously saved\n"
@@ -2487,7 +2431,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.export_params_button = QPushButton("Save params to JSON")
         self.export_params_button.setMinimumHeight(26)
-        self.export_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.export_params_button, 'settings')
         self.export_params_button.setToolTip(
             "Save current Unified Fit parameters to a pyIrena JSON file.\n"
             "Use 'Load params from JSON' to restore them later."
@@ -2497,7 +2441,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
 
         self.import_params_button = QPushButton("Load params from JSON")
         self.import_params_button.setMinimumHeight(26)
-        self.import_params_button.setStyleSheet(soft_button_css(SOFT_GREEN))
+        set_button_role(self.import_params_button, 'settings')
         self.import_params_button.setToolTip(
             "Load Unified Fit parameters from a previously saved pyIrena JSON file.\n"
             "Use 'Save params to JSON' to create a compatible file."
@@ -2532,16 +2476,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         # Row 4: Reset to Defaults (full width)
         self.reset_button = QPushButton("Reset to Defaults")
         self.reset_button.setMinimumHeight(26)
-        self.reset_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e67e22;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #d35400;
-            }
-        """)
+        set_button_role(self.reset_button, 'revert')
         self.reset_button.setToolTip(
             "Reset all parameters to their factory default values.\n"
             "This cannot be undone — use 'Revert back' to undo only the last fit."
@@ -2561,10 +2496,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
         results_buttons5.addWidget(self.n_runs_spin)
         self.analyze_results_button = QPushButton("Calc. Uncertainty (MC)")
         self.analyze_results_button.setMinimumHeight(28)
-        self.analyze_results_button.setStyleSheet("""
-            QPushButton { background-color: #16a085; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #1abc9c; }
-        """)
+        set_button_role(self.analyze_results_button, 'analysis')
         self.analyze_results_button.setToolTip(
             "Estimate parameter uncertainties by repeating the fit on noise-perturbed data.\n"
             "Set 'Passes' to control how many Monte Carlo replicates are used."
@@ -2581,14 +2513,7 @@ class UnifiedFitPanel(SlitSmearingMixin, QWidget):
                 "Send the current fit parameters and plot to an AI assistant\n"
                 "for advice on next steps. Requires an API key — see 'Configure AI'."
             )
-            self.ask_ai_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #8e44ad;
-                    color: white;
-                    font-weight: bold;
-                }
-                QPushButton:hover { background-color: #7d3c98; }
-            """)
+            set_button_role(self.ask_ai_button, 'helper')
             self.ask_ai_button.clicked.connect(
                 lambda: launch_unified_fit_advisor(self)
             )
