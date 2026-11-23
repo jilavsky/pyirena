@@ -36,7 +36,7 @@ SWATCH_FILES: set[str] = {
 #: A button selector followed, within the same rule, by a background.
 _BUTTON_BG = re.compile(
     r"Q(?:Push|Tool)Button[^{}\"']*\{[^}]*?(?<![-\w])background(?:-color)?\s*:", re.S)
-#: Old per-widget helpers, superseded by set_button_role.
+#: Per-widget helpers removed in favour of set_button_role; keep them gone.
 _OLD_HELPER = re.compile(r"\b(accent_button_css|soft_button_css|chip_button_css|CHIP_BUTTON_CSS)\b")
 #: set_button_role(<widget>, "<role>"
 _ROLE_CALL = re.compile(r"set_button_role\(\s*[^,()]+,\s*['\"]([^'\"]+)['\"]")

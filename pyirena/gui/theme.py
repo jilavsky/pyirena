@@ -32,9 +32,9 @@ Panel code should take its colours from the tokens and helpers here rather
 than hardcoding hex values, so a future dark variant is a matter of swapping
 the token table::
 
-    from pyirena.gui.theme import CHIP_BUTTON_CSS, accent_button_css, readonly_field_css
+    from pyirena.gui.theme import readonly_field_css, set_button_role
 
-    btn.setStyleSheet(CHIP_BUTTON_CSS)
+    set_button_role(fit_btn, 'primary')      # buttons: by function, never by colour
     field.setStyleSheet(readonly_field_css())
 
 Every helper emits **both** ``background-color`` and ``color`` — that pairing
@@ -193,9 +193,8 @@ BUTTON_ROLES: dict[str, tuple[str, str, bool]] = _rb.resolve_roles(
 __all__ = [
     'apply_theme', 'is_theme_applied', 'set_button_role', 'button_role',
     'BUTTON_ROLES', 'BUTTON_FUNCTIONS', 'BUTTON_PALETTE',
-    'accent_button_css', 'chip_button_css', 'soft_button_css',
     'readonly_field_css', 'readout_label_css', 'status_css', 'muted_css',
-    'CHIP_BUTTON_CSS', 'READONLY_FIELD_CSS',
+    'READONLY_FIELD_CSS',
     'WINDOW_BG', 'BASE_BG', 'TEXT', 'TEXT_MUTED', 'TEXT_DISABLED',
     'BORDER', 'BORDER_LIGHT', 'BORDER_STRONG',
     'CHIP_BG', 'CHIP_BG_HOVER', 'CHIP_TEXT',
@@ -235,64 +234,6 @@ def set_button_role(button, role: str | None, size: str | None = None) -> None:
 def button_role(button) -> tuple[str | None, str | None]:
     """``(role, size)`` of *button*, for restoring it after a temporary change."""
     return _rb.get_role(button)
-
-
-def _raised_inline(bg: str, text: str, *, bold: bool, pad_v: int, pad_h: int,
-                   font_size: str | None) -> str:
-    return (_rb.button_qss(bg, text, bold=bold)
-            + _rb.size_qss('QPushButton', pad_v, pad_h, font_size))
-
-
-def accent_button_css(bg: str, hover: str | None = None,
-                      *, bold: bool = True, font_size: str | None = None) -> str:
-    """Stylesheet for a saturated, raised action button with white text.
-
-    Prefer :func:`set_button_role` in new code; this per-widget stylesheet
-    remains for existing call sites.
-
-    Args:
-        bg: Face colour (one of the ``ACCENT_*`` tokens).
-        hover: Ignored since the raised look derives hover from *bg*; kept
-            so existing calls keep working.
-        bold: Render the label bold.
-        font_size: Optional explicit font size, e.g. ``'12px'``.
-
-    Returns:
-        A stylesheet string pinning foreground **and** background in every
-        state, so no system palette can bleed in.
-    """
-    del hover
-    return _raised_inline(bg, '#ffffff', bold=bold, pad_v=3, pad_h=8, font_size=font_size)
-
-
-def chip_button_css(*, font_size: str = '10px', padding: str = '1px 6px') -> str:
-    """Stylesheet for a small low-emphasis raised helper button.
-
-    These are the ``Fit B/P btwn cursors`` / ``Fit Flat btwn cursors`` style
-    buttons.  They used to set only ``background-color: #ecf0f1``, which left
-    the text colour to the system palette — light-on-light, hence invisible,
-    under a dark desktop theme.
-
-    Args:
-        font_size: Label font size.
-        padding: ``'<vertical>px <horizontal>px'``.
-    """
-    pv, ph = (int(x.strip().removesuffix('px')) for x in padding.split()[:2])
-    return _raised_inline(CHIP_BG, CHIP_TEXT, bold=False, pad_v=pv, pad_h=ph,
-                          font_size=font_size)
-
-
-#: Ready-made chip stylesheet for the common case.
-CHIP_BUTTON_CSS = chip_button_css()
-
-
-def soft_button_css(bg: str, text: str = SOFT_TEXT) -> str:
-    """Stylesheet for a pale tinted raised button (Store / Load setup / Export …).
-
-    Replaces bare ``setStyleSheet('background-color: lightgreen;')`` calls,
-    which inherited the system text colour and vanished on dark desktops.
-    """
-    return _raised_inline(bg, text, bold=False, pad_v=3, pad_h=8, font_size=None)
 
 
 def readonly_field_css() -> str:

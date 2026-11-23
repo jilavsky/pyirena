@@ -123,10 +123,7 @@ def test_theme_helpers_pin_both_colours():
     from pyirena.gui import theme
 
     helpers = {
-        "CHIP_BUTTON_CSS": theme.CHIP_BUTTON_CSS,
         "READONLY_FIELD_CSS": theme.READONLY_FIELD_CSS,
-        "accent_button_css": theme.accent_button_css(theme.ACCENT_GREEN),
-        "soft_button_css": theme.soft_button_css(theme.SOFT_GREEN),
         "readout_label_css": theme.readout_label_css(),
         "status_css": theme.status_css("warning"),
     }

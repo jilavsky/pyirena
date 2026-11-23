@@ -415,9 +415,6 @@ self.readout.setStyleSheet(readonly_field_css())
 self.banner.setStyleSheet(status_css("warning"))
 ```
 
-(`accent_button_css`, `soft_button_css` and `CHIP_BUTTON_CSS` still exist for
-older call sites and now return the raised look; new code uses roles.)
-
 Qt overrides only the properties a stylesheet actually names, so
 `setStyleSheet('background-color: #ecf0f1')` leaves the *text* colour to the
 platform palette.  On a desktop set to a dark scheme that palette is near-white
