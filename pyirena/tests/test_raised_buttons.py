@@ -166,3 +166,42 @@ def test_install_is_idempotent_and_keeps_host_rules():
 
 def test_tool_buttons_are_not_styled_by_default():
     assert "QToolButton" not in rb.stylesheet()
+
+
+def test_install_switches_neutral_on_a_dark_palette():
+    class Colour:
+        def __init__(self, light):
+            self.light = light
+
+        def lightness(self):
+            return self.light
+
+    class FakeApp:
+        def __init__(self, light):
+            self.qss = ""
+            self.light = light
+
+        def styleSheet(self):
+            return self.qss
+
+        def setStyleSheet(self, s):
+            self.qss = s
+
+        def palette(self):
+            app = self
+
+            class P:
+                def window(self):
+                    class B:
+                        def color(self):
+                            return Colour(app.light)
+                    return B()
+            return P()
+
+    light, dark = FakeApp(240), FakeApp(40)
+    rb.install(light)
+    rb.install(dark)
+    assert rb.PALETTE["neutral"][0] in light.qss and rb.DARK_NEUTRAL[0] not in light.qss
+    assert rb.DARK_NEUTRAL[0] in dark.qss and rb.DARK_DISABLED[0] in dark.qss
+    # coloured roles are the same in both
+    assert rb.PALETTE["green"][0] in dark.qss

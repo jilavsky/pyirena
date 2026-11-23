@@ -63,11 +63,11 @@ stylesheet::
 
 from __future__ import annotations
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 __all__ = [
     "DEFAULT_BEVEL", "DEFAULT_RADIUS", "ROLE_PROPERTY", "SIZE_PROPERTY",
-    "PALETTE", "FUNCTIONS", "DEFAULT_ROLES", "SIZES",
+    "PALETTE", "FUNCTIONS", "DEFAULT_ROLES", "SIZES", "DARK_NEUTRAL", "DARK_DISABLED",
     "resolve_roles", "button_qss", "size_qss", "stylesheet", "inline_qss",
     "set_role", "get_role", "install",
     "lighten", "darken", "mix",
@@ -161,6 +161,12 @@ SIZES: dict[str, tuple[int, int, str | None]] = {
 _DISABLED_BG = "#e3e6e8"
 _DISABLED_TEXT = "#9aa3ab"
 _DISABLED_BORDER = "#cfd4d8"
+#: Used by :func:`install` when the application palette is dark (an app that
+#: follows the system dark mode), so plain and disabled buttons do not glow as
+#: light blocks in a dark window. Coloured roles keep their colours.
+DARK_NEUTRAL: tuple[str, str, bool] = ("#4a5258", "#f2f4f5", False)
+#: (face, text, border) of a disabled button on a dark palette.
+DARK_DISABLED: tuple[str, str, str] = ("#3a3f44", "#7d868d", "#4a5157")
 # Checked toggle (e.g. "Log X"): sunken, in the selection colour.
 _CHECKED_BG = "#2f6fb5"
 _CHECKED_TEXT = "#ffffff"
@@ -210,7 +216,8 @@ def _gradient(top: str, mid: str, bottom: str) -> str:
 # ---------------------------------------------------------------------------
 
 def button_qss(bg: str, text: str, *, selector: str = "QPushButton",
-               bold: bool = False, bevel: float = DEFAULT_BEVEL, radius: int = DEFAULT_RADIUS) -> str:
+               bold: bool = False, bevel: float = DEFAULT_BEVEL, radius: int = DEFAULT_RADIUS,
+               disabled: tuple[str, str, str] | None = None) -> str:
     """Colour and bevel rules for one button selector, all states.
 
     Sets no padding or font size — those come from :func:`size_qss`, so a
@@ -223,6 +230,8 @@ def button_qss(bg: str, text: str, *, selector: str = "QPushButton",
         bold: Bold label. ``False`` leaves the widget's own font alone.
         bevel: Depth of the effect, 0 (flat) … ~0.45 (strong).
         radius: Corner radius in px.
+        disabled: ``(face, text, border)`` of the flat disabled state;
+            defaults to the light grey.
 
     Returns:
         QSS text for the normal, hover, pressed, checked and disabled states.
@@ -242,6 +251,7 @@ def button_qss(bg: str, text: str, *, selector: str = "QPushButton",
                     f"{darken(chk, 0.15)} {darken(chk, 0.4)}")
     # Only ever *add* bold: writing `font-weight: normal` would override a
     # bold font a panel set in code (QSS beats QWidget.setFont).
+    dis_bg, dis_text, dis_border = disabled or (_DISABLED_BG, _DISABLED_TEXT, _DISABLED_BORDER)
     weight = " font-weight: bold;" if bold else ""
     return (
         f"{selector} {{ color: {text};{weight} background: {face}; "
@@ -251,8 +261,8 @@ def button_qss(bg: str, text: str, *, selector: str = "QPushButton",
         f"border-color: {sunk_edge}; }}\n"
         f"{selector}:checked {{ color: {_CHECKED_TEXT}; background: {checked}; "
         f"border-color: {checked_edge}; }}\n"
-        f"{selector}:disabled {{ color: {_DISABLED_TEXT}; background: {_DISABLED_BG}; "
-        f"border-color: {_DISABLED_BORDER}; }}\n"
+        f"{selector}:disabled {{ color: {dis_text}; background: {dis_bg}; "
+        f"border-color: {dis_border}; }}\n"
     )
 
 
@@ -273,7 +283,8 @@ def size_qss(selector: str, pad_v: int, pad_h: int, font_size: str | None = None
 
 def stylesheet(roles: dict[str, tuple[str, str, bool]] | None = None, *,
                bevel: float = DEFAULT_BEVEL, radius: int = DEFAULT_RADIUS,
-               selectors: tuple[str, ...] = ("QPushButton",)) -> str:
+               selectors: tuple[str, ...] = ("QPushButton",),
+               disabled: tuple[str, str, str] | None = None) -> str:
     """The complete application-level button stylesheet.
 
     Unroled buttons get the ``neutral`` role; ``btnRole`` / ``btnSize``
@@ -288,17 +299,20 @@ def stylesheet(roles: dict[str, tuple[str, str, bool]] | None = None, *,
         selectors: Widget classes given the neutral raised look. Only
             ``QPushButton`` by default: ``QToolButton`` is mostly used for
             flat toolbar icons and disclosure headers, which must stay flat.
+        disabled: ``(face, text, border)`` of the disabled state.
     """
     roles = roles or DEFAULT_ROLES
     bg, fg, bold = roles.get("neutral", DEFAULT_ROLES["neutral"])
     parts: list[str] = []
     for sel in selectors:
-        parts.append(button_qss(bg, fg, selector=sel, bold=bold, bevel=bevel, radius=radius))
+        parts.append(button_qss(bg, fg, selector=sel, bold=bold, bevel=bevel, radius=radius,
+                                disabled=disabled))
         pad_v, pad_h, font = SIZES["normal"]
         parts.append(size_qss(sel, pad_v, pad_h, font))
     for name, (rbg, rfg, rbold) in roles.items():
         sel = f'QPushButton[{ROLE_PROPERTY}="{name}"]'
-        parts.append(button_qss(rbg, rfg, selector=sel, bold=rbold, bevel=bevel, radius=radius))
+        parts.append(button_qss(rbg, rfg, selector=sel, bold=rbold, bevel=bevel, radius=radius,
+                                disabled=disabled))
     for name, (pad_v, pad_h, font) in SIZES.items():
         if name != "normal":
             sel = f'QPushButton[{SIZE_PROPERTY}="{name}"]'
@@ -336,7 +350,15 @@ def inline_qss(role_or_colour: str, text: str | None = None, *, size: str = "nor
 _MARKER = "/* raised_buttons */"
 
 
-def install(app, roles: dict[str, tuple[str, str, bool]] | None = None, **kwargs) -> None:
+def _palette_is_dark(app) -> bool:
+    try:
+        return app.palette().window().color().lightness() < 128
+    except Exception:   # not a real QApplication (tests) or no palette yet
+        return False
+
+
+def install(app, roles: dict[str, tuple[str, str, bool]] | None = None, *,
+            dark: bool | None = None, **kwargs) -> None:
     """Append the button stylesheet to *app*'s own stylesheet, once.
 
     Duck-typed (anything with ``styleSheet()``/``setStyleSheet()``). A second
@@ -345,11 +367,20 @@ def install(app, roles: dict[str, tuple[str, str, bool]] | None = None, **kwargs
     Args:
         app: The ``QApplication``.
         roles: Role table; defaults to :data:`DEFAULT_ROLES`.
+        dark: Use :data:`DARK_NEUTRAL` / :data:`DARK_DISABLED`. ``None``
+            (default) decides from the palette at the time of the call, for
+            apps that follow the system dark mode. An app that pins its own
+            light palette (pyIrena) never needs this.
         **kwargs: Passed to :func:`stylesheet` (``bevel``, ``radius``, …).
     """
     current = app.styleSheet() or ""
     if _MARKER in current:
         return
+    if dark is None:
+        dark = _palette_is_dark(app)
+    if dark:
+        roles = {**(roles or DEFAULT_ROLES), "neutral": DARK_NEUTRAL}
+        kwargs.setdefault("disabled", DARK_DISABLED)
     app.setStyleSheet(f"{current}\n{_MARKER}\n{stylesheet(roles, **kwargs)}")
 
 
