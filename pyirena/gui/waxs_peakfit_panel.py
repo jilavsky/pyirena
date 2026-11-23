@@ -81,10 +81,7 @@ from pyirena.gui.sas_plot import (
     user_view_active,
 )
 from pyirena.gui.shortcuts import install_standard_shortcuts
-from pyirena.gui.theme import (
-    SOFT_AMBER,
-    soft_button_css,
-)
+from pyirena.gui.theme import set_button_role
 from pyirena.gui.window_state import install_window_state
 
 # ── colour palette for peaks ──────────────────────────────────────────────
@@ -103,20 +100,6 @@ def _peak_color(i: int) -> str:
 _FIELD_STYLE = "QLineEdit { max-width: 90px; }"
 _SPIN_STYLE  = "QDoubleSpinBox { max-width: 90px; }"
 
-_BTN_GRAPH   = "QPushButton { background:#52c77a;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_FIT     = "QPushButton { background:#27ae60;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
-# Revert and Store keep their hue when disabled (faded orange/green) instead of
-# greying out, so the user always recognises them by colour.
-_BTN_REVERT  = "QPushButton { background:#e67e22;color:white;font-weight:bold; } QPushButton:disabled{background:#f4b483;color:#f8f8f8;}"
-_BTN_FIND    = "QPushButton { background:#3498db;color:white;font-weight:bold; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_RESET   = "QPushButton { background:#e67e22;color:white; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_SAVE    = "QPushButton { background:#3498db;color:white; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_STORE   = "QPushButton { background:#52c77a;color:white; } QPushButton:disabled{background:#a8e0bc;color:#f8f8f8;}"
-_BTN_RGRAPH  = "QPushButton { background:#81c784;color:white; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_EXPORT  = "QPushButton { background:#a9d18e;color:black; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_ADD     = "QPushButton { background:#95a5a6;color:white; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_REMOVE  = "QPushButton { background:#e74c3c;color:white; } QPushButton:disabled{background:#bdc3c7;}"
-_BTN_FIXLIM  = "QPushButton { background:#8e44ad;color:white; } QPushButton:disabled{background:#bdc3c7;}"
 
 # Sensible hi-limit defaults for peak parameters (when user hasn't set them)
 _PEAK_PARAM_HI_DEFAULTS = {"A": 1e9, "Q0": 100.0, "FWHM": 10.0, "FWHM_L": 10.0,
@@ -275,7 +258,7 @@ class PeakRowWidget(QWidget):
 
         hdr.addStretch()
         remove_btn = QPushButton("Remove")
-        remove_btn.setStyleSheet(_BTN_REMOVE)
+        set_button_role(remove_btn, 'stop', 'small')
         remove_btn.setFixedHeight(20)
         remove_btn.setMaximumWidth(65)
         remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
@@ -1261,10 +1244,7 @@ class WAXSPeakFitPanel(QWidget):
         title_row.addStretch()
         self._help_btn = QPushButton("? Help")
         self._help_btn.setFixedSize(60, 22)
-        self._help_btn.setStyleSheet(
-            "QPushButton{background:#c0392b;color:white;font-size:11px;border-radius:3px;}"
-            "QPushButton:hover{background:#e74c3c;}"
-        )
+        set_button_role(self._help_btn, 'help')
         self._help_btn.setToolTip("Open online documentation in your browser")
         self._help_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(docs_url("waxs_peakfit")))
@@ -1349,7 +1329,7 @@ class WAXSPeakFitPanel(QWidget):
             pf_layout.addWidget(widget, i, 1)
 
         self._find_btn = QPushButton("Find Peaks")
-        self._find_btn.setStyleSheet(_BTN_FIND)
+        set_button_role(self._find_btn, 'tool')
         self._find_btn.setMinimumHeight(28)
         self._find_btn.setToolTip(
             "Automatically locate peaks in the data using the threshold and width settings above.\n"
@@ -1369,7 +1349,7 @@ class WAXSPeakFitPanel(QWidget):
         peaks_hdr = QHBoxLayout()
         peaks_hdr.addStretch()
         sort_btn = QPushButton("Sort by Q")
-        sort_btn.setStyleSheet(_BTN_SAVE)
+        set_button_role(sort_btn, 'tool')
         sort_btn.setFixedSize(82, 20)
         sort_btn.setToolTip("Sort all peaks in the list by ascending Q₀ position.")
         sort_btn.clicked.connect(self._sort_peaks_by_q)
@@ -1398,7 +1378,7 @@ class WAXSPeakFitPanel(QWidget):
         # the shared template used by the other fit panels.
         fit_row = QHBoxLayout()
         self._graph_btn = QPushButton("Graph Model")
-        self._graph_btn.setStyleSheet(_BTN_GRAPH)
+        set_button_role(self._graph_btn, 'graph')
         self._graph_btn.setMinimumHeight(28)
         self._graph_btn.setMaximumWidth(120)
         self._graph_btn.setToolTip(
@@ -1410,7 +1390,7 @@ class WAXSPeakFitPanel(QWidget):
         fit_row.addStretch()
 
         self._fit_btn = QPushButton("Fit")
-        self._fit_btn.setStyleSheet(_BTN_FIT)
+        set_button_role(self._fit_btn, 'primary')
         self._fit_btn.setMinimumHeight(28)
         self._fit_btn.setMaximumWidth(90)
         self._fit_btn.setToolTip(
@@ -1421,7 +1401,7 @@ class WAXSPeakFitPanel(QWidget):
         fit_row.addWidget(self._fit_btn)
 
         self._fix_limits_btn = QPushButton("Fix Limits")
-        self._fix_limits_btn.setStyleSheet(_BTN_FIXLIM)
+        set_button_role(self._fix_limits_btn, 'helper')
         self._fix_limits_btn.setMinimumHeight(28)
         self._fix_limits_btn.setMaximumWidth(120)
         self._fix_limits_btn.setToolTip(
@@ -1529,14 +1509,14 @@ class WAXSPeakFitPanel(QWidget):
         # Row 1: Results to graphs + Revert back
         row1 = QHBoxLayout()
         rgraph_btn = QPushButton("Results to graphs")
-        rgraph_btn.setStyleSheet(_BTN_RGRAPH)
+        set_button_role(rgraph_btn, 'graph')
         rgraph_btn.setMinimumHeight(26)
         rgraph_btn.setToolTip("Annotate the I(Q) plot with the current peak fit results.")
         rgraph_btn.clicked.connect(self._results_to_graphs)
         row1.addWidget(rgraph_btn)
 
         self._revert_btn = QPushButton("Revert back")
-        self._revert_btn.setStyleSheet(_BTN_REVERT)
+        set_button_role(self._revert_btn, 'revert')
         self._revert_btn.setMinimumHeight(26)
         self._revert_btn.setEnabled(False)
         self._revert_btn.setToolTip(
@@ -1553,7 +1533,7 @@ class WAXSPeakFitPanel(QWidget):
         row2 = QHBoxLayout()
 
         store_btn = QPushButton("Store in File")
-        store_btn.setStyleSheet(_BTN_STORE)
+        set_button_role(store_btn, 'settings')
         store_btn.setMinimumHeight(26)
         store_btn.setToolTip(
             "Save fit results to the HDF5 (NXcanSAS) file.\n"
@@ -1564,7 +1544,7 @@ class WAXSPeakFitPanel(QWidget):
         row2.addWidget(store_btn)
 
         load_setup_btn = QPushButton("Load Setup from File…")
-        load_setup_btn.setStyleSheet(soft_button_css(SOFT_AMBER))
+        set_button_role(load_setup_btn, 'setup')
         load_setup_btn.setMinimumHeight(26)
         load_setup_btn.setToolTip(
             "Restore every WAXS Peak Fit control (peak list, background, q-range, …)\n"
@@ -1586,7 +1566,7 @@ class WAXSPeakFitPanel(QWidget):
              "Use 'Save params to JSON' to create a compatible file."),
         ]:
             b = QPushButton(txt)
-            b.setStyleSheet(_BTN_EXPORT)
+            set_button_role(b, 'settings')
             b.setMinimumHeight(26)
             b.setToolTip(tip)
             b.clicked.connect(slot)
@@ -1611,7 +1591,7 @@ class WAXSPeakFitPanel(QWidget):
 
         # Row 4: Reset to Defaults (full width)
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setStyleSheet(_BTN_RESET)
+        set_button_role(reset_btn, 'revert')
         reset_btn.setMinimumHeight(26)
         reset_btn.setToolTip(
             "Reset all peak parameters to their factory default values.\n"
