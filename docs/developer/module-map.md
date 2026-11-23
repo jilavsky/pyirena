@@ -19,6 +19,7 @@ shared ones** — those are what gets reimplemented by accident.
 | decides how a table copies, sorts, exports CSV | `gui/table_utils.py` |
 | exports a plot (clipboard, PNG/SVG, CSV, Igor ITX) | `gui/plot_export.py` |
 | picks colours / makes a widget readable on any OS theme | `gui/theme.py` |
+| draws push buttons raised; colours them by role (vendored to other packages) | `gui/raised_buttons.py` |
 | remembers window size, position, splitter widths | `gui/window_state.py` |
 | handles files dropped onto a window | `gui/file_drop.py` |
 | filters a file list | `gui/file_filter.py` |
@@ -211,7 +212,8 @@ Nothing here imports `zmq` at module level. See `docs/reference/zmq-service.md`.
 | Module | Lines | Purpose |
 |---|---:|---|
 | `_qt.py` | 159 | The single PySide6/PyQt6 import point |
-| `theme.py` | 484 | `apply_theme`, colour tokens, background+foreground helpers |
+| `theme.py` | 484 | `apply_theme`, colour tokens, background+foreground helpers, `set_button_role` |
+| `raised_buttons.py` | 260 | Shared raised-button QSS (no Qt import); source of truth for the vendored copies |
 | `table_utils.py` | 557 | Copy, numeric sort, CSV for every `QTableWidget` |
 | `plot_export.py` | 883 | Clipboard / image / CSV / ITX export for every plot |
 | `sas_plot.py` | 1147 | The standard I(Q) plot (`make_sas_plot`, `plot_iq_data`) |

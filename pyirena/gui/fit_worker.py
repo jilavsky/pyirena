@@ -50,16 +50,12 @@ import time
 from typing import Callable, Optional, Sequence
 
 from pyirena.gui._qt import QApplication, QObject, QThread, Signal, Slot
+from pyirena.gui.theme import button_role, set_button_role
 
 log = logging.getLogger(__name__)
 
-#: Red "Cancel" look for the button of a running, cancellable job.
-_CANCEL_STYLE = (
-    "QPushButton {background: #e74c3c; color: white; font-weight: bold;"
-    " border-radius: 4px;}"
-    "QPushButton:hover {background: #c0392b;}"
-    "QPushButton:disabled {background: #bdc3c7;}"
-)
+#: Button role for the button of a running, cancellable job (red "Cancel").
+_CANCEL_ROLE = "stop"
 
 
 class FitWorker(QThread):
@@ -113,6 +109,7 @@ class FitJobRunner(QObject):
         self._button = None
         self._button_text = ""
         self._button_style = ""
+        self._button_role: tuple[str | None, str | None] = (None, None)
         self._on_done = None
         self._on_error = None
         self._on_progress = None
@@ -161,9 +158,12 @@ class FitJobRunner(QObject):
         if button is not None:
             self._button_text = button.text()
             self._button_style = button.styleSheet()
+            self._button_role = button_role(button)
             if cancellable:
                 button.setText(busy_text or "Cancel")
-                button.setStyleSheet(_CANCEL_STYLE)
+                # Drop any leftover per-widget sheet, or it would outrank the role.
+                button.setStyleSheet("")
+                set_button_role(button, _CANCEL_ROLE, self._button_role[1])
                 button.setEnabled(True)
             else:
                 if busy_text:
@@ -230,6 +230,7 @@ class FitJobRunner(QObject):
             try:
                 self._button.setText(self._button_text)
                 self._button.setStyleSheet(self._button_style)
+                set_button_role(self._button, *self._button_role)
                 self._button.setEnabled(True)
             except RuntimeError:
                 pass

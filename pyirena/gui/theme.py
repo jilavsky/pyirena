@@ -57,6 +57,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pyirena.gui import raised_buttons as _rb
 from pyirena.gui._qt import QColor, QPalette
 
 # ---------------------------------------------------------------------------
@@ -124,8 +125,48 @@ SOFT_GREEN     = '#cdeccd'   # replaces the old bare `lightgreen`
 SOFT_AMBER     = '#ffe082'
 SOFT_TEXT      = '#20303c'
 
+# ---------------------------------------------------------------------------
+# Button colours — by function, from one table
+# ---------------------------------------------------------------------------
+# Panels never name a button colour.  They name what the button *does*:
+#
+#     set_button_role(self.fit_button, "primary", size="large")
+#
+# BUTTON_FUNCTIONS maps each function to a colour of BUTTON_PALETTE, and the
+# stylesheet is generated from the result once, in apply_theme().  To recolour
+# every "Revert back" / "Reset to defaults" button in pyIrena, change the
+# 'revert' line below — nothing else.  The function names are shared with
+# Jan's other Qt packages (raised_buttons.FUNCTIONS); keep them.
+
+#: colour name -> (face, text, bold), filled from pyIrena's tokens.
+BUTTON_PALETTE: dict[str, tuple[str, str, bool]] = {
+    'neutral':    (CHIP_BG, CHIP_TEXT, False),
+    'green':      (ACCENT_GREEN, '#ffffff', True),
+    'mint':       (ACCENT_MINT, '#ffffff', True),
+    'blue':       (ACCENT_BLUE, '#ffffff', True),
+    'teal':       (ACCENT_TEAL, '#ffffff', True),
+    'purple':     (ACCENT_PURPLE, '#ffffff', True),
+    'orange':     (ACCENT_ORANGE, '#ffffff', True),
+    'red':        (ACCENT_RED, '#ffffff', True),
+    'grey':       (_rb.PALETTE['grey'][0], '#ffffff', True),
+    'soft-green': (SOFT_GREEN, SOFT_TEXT, False),
+    'soft-amber': (SOFT_AMBER, SOFT_TEXT, False),
+}
+
+#: button function -> colour name.  Starts from the shared vocabulary; add a
+#: pyIrena-only function here if one is ever needed.
+BUTTON_FUNCTIONS: dict[str, str] = {
+    **_rb.FUNCTIONS,
+    # 'help': 'blue',   # e.g. — one line recolours every "? Help" button
+}
+
+#: role -> (face, text, bold) — what the stylesheet is generated from.
+BUTTON_ROLES: dict[str, tuple[str, str, bool]] = _rb.resolve_roles(
+    BUTTON_FUNCTIONS, BUTTON_PALETTE)
+
 __all__ = [
-    'apply_theme', 'is_theme_applied',
+    'apply_theme', 'is_theme_applied', 'set_button_role', 'button_role',
+    'BUTTON_ROLES', 'BUTTON_FUNCTIONS', 'BUTTON_PALETTE',
     'accent_button_css', 'chip_button_css', 'soft_button_css',
     'readonly_field_css', 'readout_label_css', 'status_css', 'muted_css',
     'CHIP_BUTTON_CSS', 'READONLY_FIELD_CSS',
@@ -147,52 +188,72 @@ __all__ = [
 # CSS helpers — every one of these emits background *and* text colour
 # ---------------------------------------------------------------------------
 
-def accent_button_css(bg: str, hover: str | None = None,
-                      *, bold: bool = True, font_size: str | None = None) -> str:
-    """Stylesheet for a saturated action button with white text.
+def set_button_role(button, role: str | None, size: str | None = None) -> None:
+    """Colour *button* by role — the preferred way to style a push button.
+
+    Thin wrapper over :func:`pyirena.gui.raised_buttons.set_role`; the role
+    rules themselves are part of the application stylesheet installed by
+    :func:`apply_theme`, so this costs one property set and one re-polish.
 
     Args:
-        bg: Base background colour (one of the ``ACCENT_*`` tokens).
-        hover: Hover background; defaults to *bg* darkened by the caller's
-            paired ``ACCENT_*_D`` token when given, otherwise *bg*.
+        button: A ``QPushButton``.
+        role: A button function (key of :data:`BUTTON_ROLES`: ``'primary'``,
+            ``'graph'``, ``'stop'``, …), or ``None`` for neutral.
+        size: ``'small'``, ``'large'`` or ``None``.
+    """
+    if role is not None and role not in BUTTON_ROLES:
+        raise KeyError(f'unknown button role {role!r}; use one of {sorted(BUTTON_ROLES)}')
+    _rb.set_role(button, role, size)
+
+
+def button_role(button) -> tuple[str | None, str | None]:
+    """``(role, size)`` of *button*, for restoring it after a temporary change."""
+    return _rb.get_role(button)
+
+
+def _raised_inline(bg: str, text: str, *, bold: bool, pad_v: int, pad_h: int,
+                   font_size: str | None) -> str:
+    return (_rb.button_qss(bg, text, bold=bold)
+            + _rb.size_qss('QPushButton', pad_v, pad_h, font_size))
+
+
+def accent_button_css(bg: str, hover: str | None = None,
+                      *, bold: bool = True, font_size: str | None = None) -> str:
+    """Stylesheet for a saturated, raised action button with white text.
+
+    Prefer :func:`set_button_role` in new code; this per-widget stylesheet
+    remains for existing call sites.
+
+    Args:
+        bg: Face colour (one of the ``ACCENT_*`` tokens).
+        hover: Ignored since the raised look derives hover from *bg*; kept
+            so existing calls keep working.
         bold: Render the label bold.
         font_size: Optional explicit font size, e.g. ``'12px'``.
 
     Returns:
-        A stylesheet string that pins foreground **and** background for the
-        normal, hover and disabled states, so no system palette can bleed in.
+        A stylesheet string pinning foreground **and** background in every
+        state, so no system palette can bleed in.
     """
-    hover = hover or bg
-    size = f'font-size: {font_size};' if font_size else ''
-    weight = 'font-weight: bold;' if bold else ''
-    return (
-        f'QPushButton {{ background-color: {bg}; color: #ffffff; '
-        f'{weight} {size} border: 1px solid {bg}; border-radius: 3px; '
-        f'padding: 3px 8px; }}'
-        f'QPushButton:hover {{ background-color: {hover}; color: #ffffff; '
-        f'border-color: {hover}; }}'
-        f'QPushButton:disabled {{ background-color: {ACCENT_GREY}; '
-        f'color: #f2f4f5; border-color: {ACCENT_GREY}; }}'
-    )
+    del hover
+    return _raised_inline(bg, '#ffffff', bold=bold, pad_v=3, pad_h=8, font_size=font_size)
 
 
 def chip_button_css(*, font_size: str = '10px', padding: str = '1px 6px') -> str:
-    """Stylesheet for a small low-emphasis helper button.
+    """Stylesheet for a small low-emphasis raised helper button.
 
     These are the ``Fit B/P btwn cursors`` / ``Fit Flat btwn cursors`` style
     buttons.  They used to set only ``background-color: #ecf0f1``, which left
     the text colour to the system palette — light-on-light, hence invisible,
     under a dark desktop theme.
+
+    Args:
+        font_size: Label font size.
+        padding: ``'<vertical>px <horizontal>px'``.
     """
-    return (
-        f'QPushButton {{ background-color: {CHIP_BG}; color: {CHIP_TEXT}; '
-        f'font-size: {font_size}; padding: {padding}; '
-        f'border: 1px solid {BORDER}; border-radius: 3px; }}'
-        f'QPushButton:hover {{ background-color: {CHIP_BG_HOVER}; '
-        f'color: {CHIP_TEXT}; }}'
-        f'QPushButton:disabled {{ background-color: {CHIP_BG}; '
-        f'color: {TEXT_DISABLED}; border-color: {BORDER_LIGHT}; }}'
-    )
+    pv, ph = (int(x.strip().removesuffix('px')) for x in padding.split()[:2])
+    return _raised_inline(CHIP_BG, CHIP_TEXT, bold=False, pad_v=pv, pad_h=ph,
+                          font_size=font_size)
 
 
 #: Ready-made chip stylesheet for the common case.
@@ -200,19 +261,12 @@ CHIP_BUTTON_CSS = chip_button_css()
 
 
 def soft_button_css(bg: str, text: str = SOFT_TEXT) -> str:
-    """Stylesheet for a pale tinted button (Store / Load setup / Export …).
+    """Stylesheet for a pale tinted raised button (Store / Load setup / Export …).
 
     Replaces bare ``setStyleSheet('background-color: lightgreen;')`` calls,
     which inherited the system text colour and vanished on dark desktops.
     """
-    return (
-        f'QPushButton {{ background-color: {bg}; color: {text}; '
-        f'border: 1px solid {BORDER}; border-radius: 3px; padding: 3px 8px; }}'
-        f'QPushButton:hover {{ background-color: {bg}; color: {text}; '
-        f'border-color: {HIGHLIGHT_BG}; }}'
-        f'QPushButton:disabled {{ background-color: {CHIP_BG}; '
-        f'color: {TEXT_DISABLED}; border-color: {BORDER_LIGHT}; }}'
-    )
+    return _raised_inline(bg, text, bold=False, pad_v=3, pad_h=8, font_size=None)
 
 
 def readonly_field_css() -> str:
@@ -412,28 +466,7 @@ def _base_stylesheet() -> str:
         background-color: {WINDOW_BG}; color: {TEXT_DISABLED};
     }}
 
-    /* --- buttons (the un-styled majority) ------------------------------ */
-    QPushButton, QToolButton {{
-        background-color: {CHIP_BG}; color: {CHIP_TEXT};
-        border: 1px solid {BORDER}; border-radius: 3px; padding: 3px 8px;
-    }}
-    QPushButton:hover, QToolButton:hover {{
-        background-color: {CHIP_BG_HOVER}; color: {CHIP_TEXT};
-    }}
-    QPushButton:pressed, QToolButton:pressed {{
-        background-color: {BORDER_LIGHT}; color: {CHIP_TEXT};
-    }}
-    /* A checkable button (the graph window's X/Y log toggles) otherwise looks
-       identical whether it is on or off: the rule above wins over Fusion's
-       sunken look, and nothing named the checked state. */
-    QPushButton:checked, QToolButton:checked {{
-        background-color: {HIGHLIGHT_BG}; color: {HIGHLIGHT_TEXT};
-        border-color: {HIGHLIGHT_BG};
-    }}
-    QPushButton:disabled, QToolButton:disabled {{
-        background-color: {WINDOW_BG}; color: {TEXT_DISABLED};
-        border-color: {BORDER_LIGHT};
-    }}
+    /* --- buttons: see pyirena.gui.raised_buttons (appended below) ---- */
 
     /* --- selection controls -------------------------------------------- */
     /* Do NOT add `background-color: transparent` to QCheckBox or
@@ -546,7 +579,17 @@ def _base_stylesheet() -> str:
         background-color: {BORDER}; border-radius: 4px;
     }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
+    """ + _button_stylesheet()
+
+
+def _button_stylesheet() -> str:
+    """Raised push/tool buttons, one rule set per :data:`BUTTON_ROLES` entry.
+
+    Replaces the old flat ``QPushButton { background; border }`` rule, which
+    made every button a coloured rectangle.  The checked state (graph-window
+    X/Y log toggles) is sunken in the selection colour, so on/off differ.
     """
+    return _rb.stylesheet(BUTTON_ROLES)
 
 
 def apply_theme(app=None) -> None:
