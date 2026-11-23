@@ -33,19 +33,7 @@ from pyirena.gui._qt import (
     QWidget,
     Signal,
 )
-
-# ---------------------------------------------------------------------------
-# Style constants
-# ---------------------------------------------------------------------------
-
-_BTN_GREEN = ("QPushButton { background:#27ae60; color:white; font-weight:bold; "
-              "border-radius:4px; padding:6px 10px; }"
-              "QPushButton:hover { background:#2ecc71; }"
-              "QPushButton:disabled { background:#95a5a6; }")
-
-_BTN_GREY  = ("QPushButton { background:#7f8c8d; color:white; "
-              "border-radius:4px; padding:4px 8px; }"
-              "QPushButton:hover { background:#95a5a6; }")
+from pyirena.gui.theme import set_button_role
 
 _TOOL_ROWS = [
     ("unified_fit",       "Unified Fit"),
@@ -168,11 +156,11 @@ class ExportToIgorTab(QWidget):
 
         row_sel = QHBoxLayout()
         btn_all = QPushButton("All")
-        btn_all.setStyleSheet(_BTN_GREY)
+        set_button_role(btn_all, None)
         btn_all.setFixedWidth(50)
         btn_all.clicked.connect(lambda: self._set_all_tools(True))
         btn_none = QPushButton("None")
-        btn_none.setStyleSheet(_BTN_GREY)
+        set_button_role(btn_none, None)
         btn_none.setFixedWidth(50)
         btn_none.clicked.connect(lambda: self._set_all_tools(False))
         row_sel.addWidget(btn_all)
@@ -216,7 +204,7 @@ class ExportToIgorTab(QWidget):
 
         # ── Export button ─────────────────────────────────────────────────────
         self._btn_export = QPushButton("Export selected files to Igor h5xp")
-        self._btn_export.setStyleSheet(_BTN_GREEN)
+        set_button_role(self._btn_export, 'primary')
         self._btn_export.clicked.connect(self._run_export)
         lay.addWidget(self._btn_export)
 
@@ -236,7 +224,7 @@ class ExportToIgorTab(QWidget):
 
         # ── Open folder ───────────────────────────────────────────────────────
         self._btn_open = QPushButton("Open output folder in Explorer")
-        self._btn_open.setStyleSheet(_BTN_GREY)
+        set_button_role(self._btn_open, None)
         self._btn_open.setEnabled(False)
         self._btn_open.clicked.connect(self._open_output_folder)
         lay.addWidget(self._btn_open)
