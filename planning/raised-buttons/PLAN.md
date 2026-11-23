@@ -1,6 +1,6 @@
 # Raised buttons — plan
 
-Branch: `feature/raised-buttons` · Status: **P1 done, P2 in progress** · 2026-11-23
+Branch: `feature/raised-buttons` · Status: **P1 + P2 done; P3 (sister packages) next** · 2026-11-23
 
 ## 0. Decisions (Jan, 2026-11-23)
 
@@ -133,7 +133,7 @@ working.
   extend `test_gui_theme_contract.py` to render one raised button off-screen.
 - Result: every unstyled button and every helper-styled button is raised.
 
-**P2 — migrate inline strings to roles (mechanical, one file per commit)**
+**P2 — migrate inline strings to roles — DONE 2026-11-23** (one commit per file)
 - Replace the ~110 raw `QPushButton{background:…}` strings and the module
   constants (`_BTN_GREEN`, `_BTN_FIT`, …) with `set_role(...)`. Map
   near-duplicate colours (`#3498db` vs `#2980b9`, `#81c784`, `#e74c3c`) to
