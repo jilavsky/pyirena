@@ -1,6 +1,6 @@
 # Raised buttons — plan
 
-Branch: `feature/raised-buttons` · Status: **P1 + P2 done; P3 (sister packages) next** · 2026-11-23
+Branch: `feature/raised-buttons` · Status: **P1 + P2 merged; P3 on feature/raised-buttons branches in Matilda, Bernardyn, AIDA, DataReporter (not merged)** · 2026-11-23
 
 ## 0. Decisions (Jan, 2026-11-23)
 
@@ -147,7 +147,17 @@ working.
   the same pattern as `KNOWN_BARE_BACKGROUNDS`. Colour-swatch buttons stay
   exempt.
 
-**P3 — sister packages (after pyIrena has been in use for a while)**
+**P3 — sister packages — DONE on branches 2026-11-23**
+
+Done: module 0.5.0 vendored via `scripts/sync_raised_buttons.py --write --add`;
+`raised_buttons.install(app)` in each entry point; previously coloured buttons
+mapped to roles (Help/Documentation → `help`, Stop/Cancel/Remove → `stop`,
+main actions → `primary`, Matilda's "Save current position to table" →
+`caution`). QToolButtons stay flat (module default is QPushButton only). Apps
+that follow the system dark mode get a dark neutral/disabled look from
+`install()`. Each repo has `tests/.../test_raised_buttons.py`.
+
+Original plan:
 - Copy the file via the sync script. In each app's startup:
   `app.setStyle("Fusion")` (recommended) +
   `app.setStyleSheet(existing + raised_buttons.stylesheet())`.
