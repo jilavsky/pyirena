@@ -37,6 +37,7 @@ TARGETS: dict[str, str] = {
     "Bernardyn": "Bernardyn/bernardyn/gui/raised_buttons.py",
     "AIDA": "Aida/src/aida/ui/qt/raised_buttons.py",
     "DataReporter": "DataReporter/src/datareporter/gui/raised_buttons.py",
+    "Anisa": "Anisa/anisa/gui/raised_buttons.py",
 }
 
 _VERSION = re.compile(r'^__version__\s*=\s*["\']([^"\']+)', re.M)
