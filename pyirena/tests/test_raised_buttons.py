@@ -142,3 +142,27 @@ def test_button_face_is_raised_and_pressed_is_sunken(role):
 def test_disabled_button_is_flat():
     top, bottom = _render("primary", enabled=False)
     assert abs(top - bottom) < 3, "disabled buttons should lose the bevel"
+
+
+def test_install_is_idempotent_and_keeps_host_rules():
+    class FakeApp:
+        def __init__(self):
+            self.qss = "QLabel { color: red; }"
+
+        def styleSheet(self):
+            return self.qss
+
+        def setStyleSheet(self, s):
+            self.qss = s
+
+    app = FakeApp()
+    rb.install(app)
+    once = app.qss
+    rb.install(app)
+    assert app.qss == once
+    assert once.startswith("QLabel { color: red; }")
+    assert 'QPushButton[btnRole="stop"]' in once
+
+
+def test_tool_buttons_are_not_styled_by_default():
+    assert "QToolButton" not in rb.stylesheet()

@@ -38,7 +38,10 @@ Usage
 -----
 App level (once, right after ``QApplication``)::
 
-    app.setStyle("Fusion")          # recommended, not required
+    raised_buttons.install(app)     # appends the button rules; idempotent
+
+or, when the host builds its own application stylesheet::
+
     app.setStyleSheet(host_qss + raised_buttons.stylesheet())
 
 Per button — name what the button *does*, never its colour::
@@ -60,13 +63,13 @@ stylesheet::
 
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "DEFAULT_BEVEL", "DEFAULT_RADIUS", "ROLE_PROPERTY", "SIZE_PROPERTY",
     "PALETTE", "FUNCTIONS", "DEFAULT_ROLES", "SIZES",
     "resolve_roles", "button_qss", "size_qss", "stylesheet", "inline_qss",
-    "set_role", "get_role",
+    "set_role", "get_role", "install",
     "lighten", "darken", "mix",
 ]
 
@@ -108,6 +111,7 @@ FUNCTIONS: dict[str, str] = {
     "analysis": "teal",        # uncertainty, Monte Carlo, tabular results: Calc. MC, Copy
     "helper":   "purple",      # helper sub-fits, special analyses: Fit background, Ask AI
     "revert":   "orange",      # undo / reset: Revert back, Reset to defaults
+    "caution":  "orange",      # overwrites data or moves hardware: Save position to table
     "stop":     "red",         # stop or destroy: Cancel fit, Remove, ×
     "settings": "soft-green",  # settings to/from file: Store in File, Save/Load JSON
     "setup":    "soft-amber",  # load a saved setup: Load setup from file…
@@ -267,7 +271,7 @@ def size_qss(selector: str, pad_v: int, pad_h: int, font_size: str | None = None
 
 def stylesheet(roles: dict[str, tuple[str, str, bool]] | None = None, *,
                bevel: float = DEFAULT_BEVEL, radius: int = DEFAULT_RADIUS,
-               selectors: tuple[str, ...] = ("QPushButton", "QToolButton")) -> str:
+               selectors: tuple[str, ...] = ("QPushButton",)) -> str:
     """The complete application-level button stylesheet.
 
     Unroled buttons get the ``neutral`` role; ``btnRole`` / ``btnSize``
@@ -279,7 +283,9 @@ def stylesheet(roles: dict[str, tuple[str, str, bool]] | None = None, *,
             extend or recolour it (pass its theme tokens), keeping the names.
         bevel: Depth of the effect, see :func:`button_qss`.
         radius: Corner radius in px.
-        selectors: Widget classes to style.
+        selectors: Widget classes given the neutral raised look. Only
+            ``QPushButton`` by default: ``QToolButton`` is mostly used for
+            flat toolbar icons and disclosure headers, which must stay flat.
     """
     roles = roles or DEFAULT_ROLES
     bg, fg, bold = roles.get("neutral", DEFAULT_ROLES["neutral"])
@@ -323,6 +329,26 @@ def inline_qss(role_or_colour: str, text: str | None = None, *, size: str = "nor
     return (button_qss(bg, fg, bold=rbold if bold is None else bold,
                        bevel=bevel, radius=radius)
             + size_qss("QPushButton", pad_v, pad_h, font))
+
+
+_MARKER = "/* raised_buttons */"
+
+
+def install(app, roles: dict[str, tuple[str, str, bool]] | None = None, **kwargs) -> None:
+    """Append the button stylesheet to *app*'s own stylesheet, once.
+
+    Duck-typed (anything with ``styleSheet()``/``setStyleSheet()``). A second
+    call is a no-op, so a sub-tool's standalone ``main()`` can call it too.
+
+    Args:
+        app: The ``QApplication``.
+        roles: Role table; defaults to :data:`DEFAULT_ROLES`.
+        **kwargs: Passed to :func:`stylesheet` (``bevel``, ``radius``, …).
+    """
+    current = app.styleSheet() or ""
+    if _MARKER in current:
+        return
+    app.setStyleSheet(f"{current}\n{_MARKER}\n{stylesheet(roles, **kwargs)}")
 
 
 def set_role(button, role: str | None, size: str | None = None) -> None:
