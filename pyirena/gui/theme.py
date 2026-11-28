@@ -571,19 +571,29 @@ def apply_theme(app=None) -> None:
     Set ``PYIRENA_NATIVE_THEME=1`` to skip this and fall back to the platform
     style and system palette, for debugging or for users who prefer it.
 
+    Also installs the pyIrena application icon (Dock, taskbar, title bars), in
+    every case, including the native theme; see :mod:`pyirena.gui.icon`.
+
     Args:
         app: The ``QApplication``; the running instance is used when omitted.
     """
     global _APPLIED
+    from pyirena.gui._qt import QApplication
+    from pyirena.gui.icon import set_app_icon
+
+    app = app or QApplication.instance()
+    # The icon is set here because every pyIrena entry point already calls
+    # apply_theme right after creating its QApplication, so this is the one
+    # place that covers all of them.  It is not part of the theme, so it goes
+    # before the idempotence and PYIRENA_NATIVE_THEME early returns.
+    if app is not None:
+        set_app_icon(app)
     if _APPLIED:
         return
     if os.environ.get('PYIRENA_NATIVE_THEME', '').strip().lower() not in (
             '', '0', 'false', 'no'):
         _APPLIED = True
         return
-
-    from pyirena.gui._qt import QApplication
-    app = app or QApplication.instance()
     if app is None:
         return
 

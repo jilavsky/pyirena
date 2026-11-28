@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **pyIrena has its own icon in the Dock, taskbar and window title bars.** Until now every pyIrena tool showed the generic Python icon. The icon (a scattering curve with a Guinier knee) is part of one family with pyIrena, Matilda, Anisa, Bernardyn and AIDA: the same tile shape and line weight, a colour per tool. It is set in `theme.apply_theme`, which every GUI entry point already calls, so all tools get it, including with `PYIRENA_NATIVE_THEME=1`. Files: `pyirena/gui/icon.py`, `pyirena/gui/assets/app_icon.png`; the source SVG, `.icns`, `.ico` and the generator for all five icons (`icons/build_icons.py`) are in `icons/`. `pyIrena.icns` at the repo root is replaced with the new design.
+
 ## [1.3.1] - 2026-11-23
 
 ### Changed
